@@ -241,3 +241,41 @@ fn checkpoint_predecessor_preserves_the_last_sixty_table_layout() {
     assert!(error.starts_with("GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED:"));
     assert!(error.contains(predecessor.label));
 }
+
+// spec: EG-DURABLE-KERNEL-R028.1.1
+#[test]
+fn predecessor_document_reuses_only_compatible_table_sets() {
+    let previous = LayoutPredecessor {
+        label: "earlier table set",
+        owner_tables: &["nodes", "ledger"],
+        ..GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS
+    };
+    let current = LayoutPredecessor {
+        owner_tables: &["nodes", "work_item_run_checkpoints", "ledger"],
+        ..previous
+    };
+    assert_eq!(
+        render_predecessor_tables(&current, Some(&previous)),
+        "same table set as **earlier table set** above, plus `work_item_run_checkpoints`"
+    );
+    assert_eq!(
+        render_predecessor_tables(&previous, Some(&previous)),
+        "same table set as **earlier table set** above"
+    );
+    assert_eq!(
+        render_predecessor_tables(&previous, Some(&current)),
+        "`nodes`, `ledger`"
+    );
+    let foreign = LayoutPredecessor {
+        layout: OwnerLayout::AgentLibrary,
+        ..previous
+    };
+    assert_eq!(
+        render_predecessor_tables(&previous, Some(&foreign)),
+        "`nodes`, `ledger`"
+    );
+    assert_eq!(
+        render_predecessor_tables(&previous, None),
+        "`nodes`, `ledger`"
+    );
+}

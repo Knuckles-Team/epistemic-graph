@@ -892,13 +892,40 @@ The old two-table branch digest is not valid here. Native compilation, migration
 rollback, replay and installed client acceptance remain required before merge.
 No local native qualification is claimed by source preparation.
 
-Local Python facade qualification attempted both checkpoint tests.
-Both fail because the fresh generated send methods do not exist yet.
-Contract reachability reports the same two missing generated method entries.
-Native builds and tests remain unrun.
+Hosted run 39896593200 generated canonical contracts and the method codec from
+source tree `a8054781d6fea0a4ecf260ef3724db7694476cd6`.
+The clean source revision was `92b3bafd2b2b317a8359ee7e45c6a6e287c14f9d`.
+Artifacts 12478335048 and 12477775592 retain source and build provenance.
+All recipe hashes and artifact hashes were checked before application.
+Later fixture and routing fixes do not change the wire fields.
+The composed source still needs fresh hosted parity and native qualification.
 
-Existing Python regressions pass: 28 tests across
-`test_run_work_item_read_client.py`, `test_task_plan_client.py`,
-`test_work_item_capability_client.py`, `test_work_item_read_client.py` and
-`test_work_item_retry_identity.py`. These tests do not qualify the new native
-checkpoint path or its missing generated facade methods.
+Local Python facade qualification now passes all 30 tests across
+`test_run_checkpoint_client.py`, `test_run_work_item_read_client.py`,
+`test_task_plan_client.py`, `test_work_item_capability_client.py`,
+`test_work_item_read_client.py` and `test_work_item_retry_identity.py`.
+These tests qualify generated facade dispatch, not native checkpoint behavior.
+Hosted compilation exposed an unsupported test-table iterator and a routing
+Clippy error. The source fixes retain scoped reads and unchanged fallthrough.
+Native migration, replay, rollback and final-source compilation remain pending.
+No native build or test was run locally.
+
+Hosted storage qualification from run 39896593200, job 120229890281, executed
+`cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1`.
+It passed 121 tests and failed four stale generated expectations.
+The checkpoint predecessor and migration-preserves-rows tests both passed.
+Five documentation tests also passed.
+The native registry emitted GraphShard digest
+`3d32d052bba344a00ecdb4bd0aededaadf6d55e86fe0d1e43575e1705c78fc51`.
+The pin and owner inventories now include exactly the added checkpoint table.
+The format document is the test's exact native renderer output.
+No parked layout identity or manually rendered document was used.
+Final-source storage reruns and authenticated checkpoint/replay tests remain pending.
+
+The full duplication gate found one repeated Markdown block in that native
+format document. The renderer now references an earlier compatible table set
+and names only added tables. It retains full lists for removals or other layouts.
+A focused native test covers those cases and equal table sets.
+The checked-in document still contains the prior exact native output.
+Fresh hosted renderer output and a passing duplication gate remain required.
+This source-only draft update does not waive those gates or authorize merge.

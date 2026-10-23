@@ -185,6 +185,8 @@ METHOD_IDS = frozenset(
         "DeferWorkItem",
         "CasWorkItemMetadata",
         "PublishCurrentPlan",
+        "PublishRunCheckpoint",
+        "GetRunCheckpoint",
         "GetCurrentPlan",
         "GetRunWorkItem",
         "GetWorkItem",

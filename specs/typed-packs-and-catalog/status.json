@@ -218,6 +218,7 @@
     "EG-TYPED-PACKS-R104.4",
     "EG-TYPED-PACKS-R104.5",
     "EG-TYPED-PACKS-R104.6",
+    "EG-TYPED-PACKS-R105",
     "EG-TYPED-PACKS-R750",
     "EG-TYPED-PACKS-R750.750",
     "EG-TYPED-PACKS-R750.751",
@@ -2460,6 +2461,13 @@
     {
       "id": "EG-TYPED-PACKS-R104.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105",
+      "title": "A connector ontology joins the parent graph on import",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

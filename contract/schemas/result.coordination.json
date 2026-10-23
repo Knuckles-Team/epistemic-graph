@@ -1736,6 +1736,28 @@
       ],
       "type": "string"
     },
+    "CheckpointMemoryRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "revision",
+        "digest"
+      ],
+      "type": "object"
+    },
     "ClaimWorkItemResult": {
       "additionalProperties": false,
       "properties": {
@@ -9629,6 +9651,91 @@
       ],
       "type": "object"
     },
+    "RunCheckpointPublished": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "context_id": {
+          "type": "string"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "changed_work_item_ids",
+        "replayed",
+        "work_item_id",
+        "run_id",
+        "context_id",
+        "revision",
+        "payload_digest"
+      ],
+      "type": "object"
+    },
+    "RunCheckpointRead": {
+      "description": "Owner-authorized checkpoint and WorkItem projection from one native read snapshot.",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "context_id": {
+          "type": "string"
+        },
+        "long_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "short_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        },
+        "work_item": {
+          "$ref": "#/$defs/WorkItemView"
+        }
+      },
+      "required": [
+        "context_id",
+        "work_item",
+        "revision",
+        "content",
+        "payload_digest",
+        "short_term",
+        "long_term"
+      ],
+      "type": "object"
+    },
     "RunCompletionInput": {
       "additionalProperties": false,
       "properties": {
@@ -12731,6 +12838,25 @@
       },
       "selected_by": null
     },
+    "GetRunCheckpoint": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RunCheckpointRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
     "GetRunWorkItem": {
       "bodies": {
         "result": {
@@ -12867,6 +12993,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/CurrentPlanPublished"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PublishRunCheckpoint": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/RunCheckpointPublished"
           }
         }
       },

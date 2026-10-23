@@ -152,7 +152,7 @@ This batch defines the slices; it runs none of their runtime tests.
 
 - [ ] **EG-DURABLE-KERNEL-R028.1.1:** Qualify checkpoint-only native source and tests for immutable admission context, owner binding and same-snapshot reads. Include fenced/revisioned publication and canonical MutationBatch retry receipts. Generate fresh checkpoint public contracts and graph layout identity from this exact source. Run native tests and offline predecessor migration/reopen proof before claiming delivery.
 - [ ] **EG-DURABLE-KERNEL-R028.1.2:** Complete memory-reference resolution/retention, current-run resume precedence and fence binding. Add durable context ordering and exact host-cursor continuation through AU and served hosts. Keep broad R028.1 open until these companion acceptance cases pass.
-- [ ] **EG-DURABLE-KERNEL-R028.1.3:** Local source formatting, static mutation-contract checks and source review are not native runtime evidence. Full native gates and end-to-end consumer receipts remain pending.
+- [ ] **EG-DURABLE-KERNEL-R028.1.3:** Hash-verified hosted checkpoint exports and 30 local facade tests are recorded in the plan. Source formatting, static checks and source review are not native runtime evidence. Final-source native, layout, migration and full repository gates remain pending.
 
 - [ ] **EG-DURABLE-KERNEL-R085.9:** Store complete canonical search state under R085 `active_context`, requiring `search_run_id`, `state_revision`, `transcript`, `evidence`, `constraints`, and `open_claims`. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7.
 - [ ] **EG-DURABLE-KERNEL-R085.9 acceptance:** Exact restart/context-eviction readback. Malformed, missing-field, oversize, wrong-authority, stale-graph, digest and backend refusals. Stale conflict retains candidate without head advance. AU continuation receipt/schema is an explicit dependency hold.
@@ -282,3 +282,6 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.4.1:** Deliver immutable submission storage, owner-fenced recovery and native restart tests.
 - [ ] **EG-DURABLE-KERNEL-R028.4.2:** Measure recovery latency on a reproducible bounded workload.
 - [ ] **EG-DURABLE-KERNEL-R028.6:** Publish ordinary terminal completion types and atomic durable storage. Qualify exact usage, unknown usage, owner and fence refusal, immutable replay and reopen on this source revision. Keep served acceptance separate.
+
+- [x] **EG-DURABLE-KERNEL-R028.1.3.1:** Verify hosted artifact provenance and hashes. Import generated checkpoint contracts and codec. Pass the 30 scoped Python facade tests.
+- [ ] **EG-DURABLE-KERNEL-R028.1.3.2:** Qualify final-source native compilation, layout and migration, transaction/replay/restart behavior and full repository gates.

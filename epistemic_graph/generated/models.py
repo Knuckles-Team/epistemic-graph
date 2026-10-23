@@ -2453,6 +2453,31 @@ class ChannelType(str, Enum):
     GROUP = "Group"
 
 
+class CheckpointClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fencing_token: Annotated[int, Field(ge=0)]
+    lease_epoch: Annotated[int, Field(ge=0)]
+    worker_id: str
+
+
+class CheckpointContent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content: str
+    long_term: list[CheckpointMemoryRef]
+    payload_digest: str
+    short_term: list[CheckpointMemoryRef]
+
+
+class CheckpointMemoryRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    document_id: str
+    revision: Annotated[int, Field(ge=0)]
+
+
 class ClaimAuthor(str, Enum):
     AGENT = "agent"
     PERSON = "person"
@@ -6212,6 +6237,16 @@ class GenerationReceipt(BaseModel):
     ties: Annotated[int, Field(ge=0)]
     win_rate_lower_q16: int
     wins: Annotated[int, Field(ge=0)]
+
+
+class GetRunCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    current_claim: CheckpointClaim | None = None
+    run_id: str
+    tenant: str
+    work_item_id: str
 
 
 class GovernedActor(BaseModel):
@@ -11869,6 +11904,20 @@ class MethodEdgeSearch(BaseModel):
     params: MethodEdgeSearchParams
 
 
+class MethodPublishRunCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PublishRunCheckpoint"]
+    params: MethodPublishRunCheckpointParams
+
+
+class MethodGetRunCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetRunCheckpoint"]
+    params: MethodGetRunCheckpointParams
+
+
 class MethodPublishCurrentPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12491,6 +12540,8 @@ Method = Annotated[
     | MethodMutationOutbox
     | MethodEdgeIndex
     | MethodEdgeSearch
+    | MethodPublishRunCheckpoint
+    | MethodGetRunCheckpoint
     | MethodPublishCurrentPlan
     | MethodGetCurrentPlan
     | MethodGetRunWorkItem
@@ -14215,6 +14266,12 @@ class MethodGetPredecessorsParams(BaseModel):
     node_id: str
 
 
+class MethodGetRunCheckpointParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: GetRunCheckpointRequest
+
+
 class MethodGetRunWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15001,6 +15058,12 @@ class MethodPublishParams(BaseModel):
     exchange: str
     payload: _EgOctets
     routing_key: str
+
+
+class MethodPublishRunCheckpointParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: PublishRunCheckpointRequest
 
 
 class MethodQuantumParams(BaseModel):
@@ -18082,6 +18145,21 @@ class PublishCurrentPlanRequest(BaseModel):
     worker_id: str
 
 
+class PublishRunCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    expected_revision: Annotated[int, Field(ge=0)] | None = None
+    fencing_token: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_epoch: Annotated[int, Field(ge=0)]
+    run_id: str
+    snapshot: CheckpointContent
+    tenant: str
+    work_item_id: str
+    worker_id: str
+
+
 class QuantumExpectationResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19434,6 +19512,30 @@ class RuleReasonResponse(BaseModel):
     facts: list[RuleFact]
     registered_rules: list[str]
     same_as: list[RuleReasonResponseSameAsItem]
+
+
+class RunCheckpointPublished(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    context_id: str
+    payload_digest: str
+    replayed: bool
+    revision: Annotated[int, Field(ge=0)]
+    run_id: str
+    work_item_id: str
+
+
+class RunCheckpointRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content: str
+    context_id: str
+    long_term: list[CheckpointMemoryRef]
+    payload_digest: str
+    revision: Annotated[int, Field(ge=0)]
+    short_term: list[CheckpointMemoryRef]
+    work_item: WorkItemView
 
 
 class RunCompletionInput(BaseModel):
@@ -24686,6 +24788,9 @@ GetNodePropertiesBatchResult = list[GetNodePropertiesBatchResultValueItem]
 GetRdfResult = str
 
 
+GetRunCheckpointResult = RunCheckpointRead | None
+
+
 GetRunWorkItemResult = RunWorkItemView | None
 
 
@@ -25908,6 +26013,9 @@ __all__ = [
     "ChannelMessage",
     "ChannelSummary",
     "ChannelType",
+    "CheckpointClaim",
+    "CheckpointContent",
+    "CheckpointMemoryRef",
     "ClaimAuthor",
     "ClaimNextResult",
     "ClaimNextResultValue",
@@ -26549,6 +26657,8 @@ __all__ = [
     "GetNodePropertiesBatchResult",
     "GetNodePropertiesBatchResultValueItem",
     "GetRdfResult",
+    "GetRunCheckpointRequest",
+    "GetRunCheckpointResult",
     "GetRunWorkItemResult",
     "GetShortestPathResult",
     "GetWorkItemOutcomeResult",
@@ -27408,6 +27518,8 @@ __all__ = [
     "MethodGetPredecessors",
     "MethodGetPredecessorsParams",
     "MethodGetRdf",
+    "MethodGetRunCheckpoint",
+    "MethodGetRunCheckpointParams",
     "MethodGetRunWorkItem",
     "MethodGetRunWorkItemParams",
     "MethodGetShortestPath",
@@ -27604,6 +27716,8 @@ __all__ = [
     "MethodPublishIdempotent",
     "MethodPublishIdempotentParams",
     "MethodPublishParams",
+    "MethodPublishRunCheckpoint",
+    "MethodPublishRunCheckpointParams",
     "MethodQuantum",
     "MethodQuantumParams",
     "MethodQueryDevelopmentLane",
@@ -28263,6 +28377,7 @@ __all__ = [
     "ProvisionedUser",
     "PruneStats",
     "PublishCurrentPlanRequest",
+    "PublishRunCheckpointRequest",
     "QuantScaleTag",
     "QuantisedValue",
     "QuantumExpectationResult",
@@ -28424,6 +28539,8 @@ __all__ = [
     "RuleProofNode",
     "RuleReasonResponse",
     "RuleReasonResponseSameAsItem",
+    "RunCheckpointPublished",
+    "RunCheckpointRead",
     "RunCompletionInput",
     "RunCompletionPayload",
     "RunEvent",

@@ -83,7 +83,7 @@ pub(super) async fn commit_with_owner(
     // the restart race where two callers simultaneously discover the same Prepared
     // plan and try to resume its remaining children.
     let parent_id = commit_receipt_id(txn_id, idempotency_key, tenant_scope);
-    let _coordinator_guard = crate::server::mutation_batch::lock_graph(&parent_id).await;
+    let _coordinator_guard = crate::server::mutation_batch::lock_txn_coordinator(&parent_id).await;
 
     let (open, persistence, open_map) = {
         let s = state.read().await;

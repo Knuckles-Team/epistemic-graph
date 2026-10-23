@@ -1197,7 +1197,9 @@ jobs:
   # published build (`full,ast-extended` = MATURIN_FEATURES, which has no raft) or
   # the slim `server` build; each profile is its own leg.
   quality-advisory:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    # Run 39892903596 finished workspace Clippy at 9m38s, then hit the 10m job cap.
+    # Give only that cold all-feature profile room for setup and completion.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && (matrix.profile.name == 'workspace-all-features' && 15 || 10) || 60 }}
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
     if: *eg-code-change

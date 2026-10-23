@@ -123,6 +123,7 @@
     "EG-DURABLE-KERNEL-R063.2",
     "EG-DURABLE-KERNEL-R064",
     "EG-DURABLE-KERNEL-R065",
+    "EG-DURABLE-KERNEL-R065.1",
     "EG-DURABLE-KERNEL-R066",
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
@@ -253,6 +254,8 @@
     "EG-DURABLE-KERNEL-R028.1.1",
     "EG-DURABLE-KERNEL-R028.1.2",
     "EG-DURABLE-KERNEL-R028.1.3",
+    "EG-DURABLE-KERNEL-R028.1.3.1",
+    "EG-DURABLE-KERNEL-R028.1.3.2",
     "EG-DURABLE-KERNEL-R085.9",
     "EG-DURABLE-KERNEL-R085.10",
     "EG-DURABLE-KERNEL-R084.7",
@@ -2052,10 +2055,26 @@
       "title": "Signed dispatch commit recovers correctly after an ack-lost fault window",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "57a12eb06632"
+        "57a12eb06632",
+        "c3daf5c4438c"
       ],
       "verified_by": [
+        "src/server/mutation_batch/commit/internal.rs:611",
         "tests/txn_reconcile_ack_lost_retry.rs:573"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R065.1"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R065.1",
+      "title": "The transaction coordinator lane is disjoint from graph lanes",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c3daf5c4438c"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/commit/internal.rs:611"
       ]
     },
     {
@@ -3151,14 +3170,18 @@
       "title": "Native context-bound checkpoint transaction",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a0357cb95dc8"
+        "1f8c72c2561f",
+        "2cff10fa5f1f",
+        "516c33a4e9d6",
+        "80d2a8d50532",
+        "85387a4778a2"
       ],
       "verified_by": [
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:353",
         "crates/eg-storage/src/owner/lineage_tests.rs:224",
+        "crates/eg-storage/src/owner/lineage_tests.rs:245",
         "crates/eg-types/src/run_checkpoint/tests.rs:120",
-        "crates/eg-types/src/run_checkpoint/tests.rs:140",
-        "crates/eg-types/src/run_checkpoint/tests.rs:27"
+        "crates/eg-types/src/run_checkpoint/tests.rs:140"
       ]
     },
     {
@@ -3171,6 +3194,38 @@
     {
       "id": "EG-DURABLE-KERNEL-R028.1.3",
       "title": "Checkpoint native and generated qualification remains open",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "80d2a8d50532",
+        "a7bf3aac3b8b",
+        "c439f8208d43"
+      ],
+      "verified_by": [
+        "tests/test_run_checkpoint_client.py:21",
+        "tests/test_run_checkpoint_client.py:49"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R028.1.3.1",
+        "EG-DURABLE-KERNEL-R028.1.3.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.1.3.1",
+      "title": "Hosted checkpoint exports and generated facade",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "02fed473f9a2",
+        "85387a4778a2",
+        "dbcc17008b1d"
+      ],
+      "verified_by": [
+        "tests/test_run_checkpoint_client.py:22",
+        "tests/test_run_checkpoint_client.py:50"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.1.3.2",
+      "title": "Final composed-source native qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4296,14 +4351,15 @@
       "title": "Recover immutable run submission records",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "924601ce5495",
         "fc65d45d509d"
       ],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:316",
-        "src/redb_store/work_item/run_owner/tests.rs:104",
-        "src/redb_store/work_item/run_owner/tests.rs:132",
-        "src/redb_store/work_item/run_owner/tests.rs:164",
-        "src/redb_store/work_item/run_owner/tests.rs:463"
+        "src/redb_store/work_item/run_owner/tests.rs:120",
+        "src/redb_store/work_item/run_owner/tests.rs:152",
+        "src/redb_store/work_item/run_owner/tests.rs:451",
+        "src/redb_store/work_item/run_owner/tests.rs:53"
       ]
     },
     {
@@ -4322,11 +4378,11 @@
         "f9bfc0da8ae7"
       ],
       "verified_by": [
-        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:298",
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:342",
         "crates/eg-types/src/current_plan/tests.rs:110",
         "crates/eg-types/src/current_plan/tests.rs:3",
-        "src/redb_store/work_item/current_plan/tests.rs:135",
-        "src/redb_store/work_item/current_plan/tests.rs:66"
+        "src/redb_store/work_item/current_plan/tests.rs:121",
+        "src/redb_store/work_item/current_plan/tests.rs:52"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.5.1",
@@ -4482,8 +4538,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/server/mutation_batch/digest.rs:347",
-        "tests/adopt_workitem_authenticated_replay.rs:582",
+        "src/server/mutation_batch/digest.rs:378",
+        "tests/adopt_workitem_authenticated_replay.rs:602",
         "tests/decide/test_task_plan_served.py:230",
         "tests/decide/test_task_plan_served.py:351"
       ]
@@ -4507,11 +4563,11 @@
         "b286edc1b3bf"
       ],
       "verified_by": [
-        "src/redb_store/work_item/run_owner/tests.rs:217",
-        "src/redb_store/work_item/run_owner/tests.rs:242",
-        "src/redb_store/work_item/run_owner/tests.rs:266",
-        "src/redb_store/work_item/run_owner/tests.rs:342",
-        "src/redb_store/work_item/run_owner/tests.rs:463"
+        "src/redb_store/work_item/run_owner/tests.rs:205",
+        "src/redb_store/work_item/run_owner/tests.rs:230",
+        "src/redb_store/work_item/run_owner/tests.rs:254",
+        "src/redb_store/work_item/run_owner/tests.rs:330",
+        "src/redb_store/work_item/run_owner/tests.rs:451"
       ]
     },
     {

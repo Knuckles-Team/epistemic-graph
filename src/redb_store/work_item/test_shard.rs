@@ -4,6 +4,8 @@
 
 use super::*;
 
+pub(crate) mod run_fixture;
+
 pub(super) const GRAPH: &str = "graph-a";
 
 pub(super) struct TempShard {

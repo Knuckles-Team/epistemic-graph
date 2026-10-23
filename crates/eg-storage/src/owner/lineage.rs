@@ -360,7 +360,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            "cfc47e43654abc32fbf63cf3d9d7ffd4e04c742e3c955c259d2d05f5316e0a27"
+            "3d32d052bba344a00ecdb4bd0aededaadf6d55e86fe0d1e43575e1705c78fc51"
         }
         OwnerLayout::AgentLibrary => {
             "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"
@@ -446,7 +446,9 @@ pub fn render_owner_store_formats() -> String {
         ));
     }
     for layout in ALL_LAYOUTS {
-        for predecessor in layout_predecessors(layout) {
+        let predecessors = layout_predecessors(layout);
+        for (index, predecessor) in predecessors.iter().enumerate() {
+            let previous = index.checked_sub(1).map(|index| &predecessors[index]);
             out.push_str(&format!(
                 "\n## `{code}`: {label}\n\n* Store file: `{file}`\n* Refused generation: {label}\n\
                  * Data lost: {lost}\n* Owner tables of the refused generation: {tables}\n\
@@ -455,18 +457,44 @@ pub fn render_owner_store_formats() -> String {
                 file = predecessor.file_name,
                 label = predecessor.label,
                 lost = predecessor.data_lost,
-                tables = predecessor
-                    .owner_tables
-                    .iter()
-                    .map(|table| format!("`{table}`"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                tables = render_predecessor_tables(predecessor, previous),
                 removal = crate::owner::offline_upgrade::render_removal_step(predecessor),
             ));
         }
     }
     out.push_str(&crate::owner::offline_upgrade::render_offline_upgrade_procedure());
     out
+}
+
+/// Describe inherited table sets once; additions do not imply manifest ordering.
+fn render_predecessor_tables(
+    predecessor: &LayoutPredecessor,
+    previous: Option<&LayoutPredecessor>,
+) -> String {
+    let shared = previous.filter(|previous| {
+        previous.layout == predecessor.layout
+            && previous
+                .owner_tables
+                .iter()
+                .all(|table| predecessor.owner_tables.contains(table))
+    });
+    let tables = predecessor
+        .owner_tables
+        .iter()
+        .filter(|table| shared.is_none_or(|previous| !previous.owner_tables.contains(table)))
+        .map(|table| format!("`{table}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match shared {
+        Some(previous) if tables.is_empty() => {
+            format!("same table set as **{}** above", previous.label)
+        }
+        Some(previous) => format!(
+            "same table set as **{}** above, plus {tables}",
+            previous.label
+        ),
+        None => tables,
+    }
 }
 
 #[cfg(test)]

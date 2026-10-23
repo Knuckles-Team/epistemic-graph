@@ -1,22 +1,6 @@
+use super::super::test_shard::run_fixture::{admission, seed_claim, with_rows};
 use super::super::test_shard::{open, with_nodes, with_write, GRAPH};
 use super::*;
-use eg_types::native_control::SubmitWorkItemRequest;
-fn admission() -> SubmitWorkItemRequest {
-    serde_json::from_value(serde_json::json!({
-        "schema_version":"1", "run_id":"run", "work_item_id":null,
-        "context": {"schema_version":"2", "request_id":"request", "subject_id":"owner",
-            "tenant_id":"tenant", "agent_id":"worker", "scopes":["work:*"],
-            "audience":"engine", "authentication_method":"local_process", "policy_version":"v1",
-            "graph":GRAPH, "placement_epoch":null, "trace_id":"trace", "issued_at_ms":1,
-            "expires_at_ms":2},
-        "idempotency_key":"run-key", "command_digest":"A".repeat(64), "kind":"test",
-        "priority":2, "depends_on":[], "input_ref":"input", "policy_digest":"policy",
-        "catalog_digest":"catalog", "model_digest":"model", "max_attempts":3,
-        "deadline_unix":null, "metadata":{"a2a_context_id":"context"}, "provenance_refs":["source"],
-        "max_tenant_in_flight":0
-    }))
-    .unwrap()
-}
 
 fn request(expected_revision: Option<u64>) -> PublishRunCheckpointRequest {
     let content = serde_json::json!({"phase":"completed","next_step":expected_revision.unwrap_or(0),"history":["private prompt"],"usage":{}}).to_string();
@@ -39,16 +23,17 @@ fn request(expected_revision: Option<u64>) -> PublishRunCheckpointRequest {
     }
 }
 fn seed(shard: &Shard) {
-    let id = request(None).work_item_id;
-    with_write(shard,"seed",1000,|admitted| {
-        let member=admitted.graph(GRAPH)?;
-        let mut rows=crate::redb_store::store_rows::GraphRowTables::open(member)?;
-        let mut row=serde_json::json!({"node_type":"WorkItem","tenant":"tenant","kind":"orchestrator_task","status":"running","lease_owner":"worker","lease_epoch":1,"fencing_token":2,"lease_expires_at":10.0,"metadata":{"a2a_context_id":"context"},"run_owner_binding":{"graph":GRAPH,"tenant":"tenant","run_id":"run","work_item_id":id,"principal":"owner"}}).as_object().unwrap().clone();
-        row.insert(run_owner::ADMISSION_REQUEST.into(), serde_json::to_value(admission()).unwrap());
-        work_item_capability::record_native_claim_in_wtx(&mut rows.native_work_items,GRAPH,&id,&row,1000,DurableCrypto::none())?;
-        write_work_item_props(&mut rows.nodes,GRAPH,&id,&mut row,DurableCrypto::none())
-    }).unwrap();
+    seed_claim(shard, |row| {
+        let metadata = serde_json::json!({"a2a_context_id":"context"});
+        row.insert("kind".into(), "orchestrator_task".into());
+        row.insert("metadata".into(), metadata.clone());
+        row.insert(
+            run_owner::ADMISSION_REQUEST.into(),
+            serde_json::to_value(admission(metadata)).unwrap(),
+        );
+    });
 }
+
 fn apply(
     shard: &Shard,
     tag: &str,
@@ -56,17 +41,8 @@ fn apply(
     actor: &str,
     now: u64,
 ) -> Result<RunCheckpointPublished, String> {
-    with_write(shard, tag, now, |admitted| {
-        let member = admitted.graph(GRAPH)?;
-        let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
-        publish(
-            GRAPH,
-            req,
-            Some(actor),
-            &mut rows,
-            DurableCrypto::none(),
-            now,
-        )
+    with_rows(shard, tag, now, |rows| {
+        publish(GRAPH, req, Some(actor), rows, DurableCrypto::none(), now)
     })
 }
 fn get(
@@ -100,7 +76,7 @@ fn count(shard: &Shard) -> usize {
     let read = shard.read(&handle).unwrap();
     read.scoped_owner_table(RUN_CHECKPOINTS)
         .unwrap()
-        .iter()
+        .scope_rows()
         .unwrap()
         .count()
 }

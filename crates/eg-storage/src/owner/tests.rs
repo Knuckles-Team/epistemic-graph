@@ -162,7 +162,8 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // 151 -> 152: the tenant-scoped operation audit-append idempotency index
     // `audit_requests` in GraphShard, also DomainService: service 150 = 149 + 1.
     // 152 -> 153: private current-plan snapshots are DomainService rows.
-    assert_eq!((names.len(), service, shared), (153, 151, 2));
+    // 153 -> 154: private run-checkpoint snapshots are DomainService rows.
+    assert_eq!((names.len(), service, shared), (154, 152, 2));
 }
 
 #[test]
@@ -832,7 +833,8 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // 169 -> 170: the graph shard's tenant-scoped operation audit-append
     // idempotency index `audit_requests`, also a durable mutation table.
     // 170 -> 171: the private current-plan table is also a mutation table.
-    assert_eq!(names.len(), 171);
+    // 171 -> 172: the private run-checkpoint table is a mutation table.
+    assert_eq!(names.len(), 172);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

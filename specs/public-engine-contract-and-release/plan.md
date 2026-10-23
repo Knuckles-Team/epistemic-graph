@@ -514,3 +514,16 @@ separate qualification obligations; baseline committed WASM bytes and pins stay 
 EG-CONTRACT-R006.3 uses the authoritative generator after a hosted parity failure. It exports only receipt-listed generated contracts plus the two receipts and catalog digest. The archive includes the clean source commit/tree, toolchain, command, recipe hashes and file hashes. An independent required job avoids waiting for unrelated lower-crate tests. Generation failure exports nothing. The initial parity failure stays blocking until verified generated files are committed and fresh CI passes.
 
 EG-CONTRACT-R053.13 retains the existing gates-wheel product after all installed-wheel checks. It adds no alternate build or release path. Capture the wheel digest before installation and require unchanged bytes before export. The archive carries one wheel, source commit/tree and hashed build recipes. Consumers verify these records before installing into an isolated environment; full-stack acceptance remains separate. Pin native validation producers and consumers to Ubuntu 24.04. Version both target and compiler cache namespaces so a newer libc image cannot supply incompatible cached outputs.
+
+### 2026-10-23: preserve the measured workspace Clippy budget boundary
+
+EG-CONTRACT-R031 keeps all three Clippy profiles blocking. The measured cold
+workspace build needs fifteen minutes for a pull request, rather than ten.
+Only workspace-all-features receives this budget. Other pull-request profiles
+keep ten minutes, and non-pull-request jobs keep sixty minutes. The earlier
+forty-five-minute draft is not the selected budget.
+
+Regression tests reject unscoped limits and reuse by release, security or lint
+jobs. Existing checks preserve the profile matrix, warnings-as-errors and locked
+commands. These static checks do not establish native lint acceptance or complete
+EG-CONTRACT-R031.2. Exact-head hosted qualification remains required.

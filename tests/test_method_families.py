@@ -69,6 +69,8 @@ _WORK_ITEM_METHODS = frozenset(
         "TransitionControlLease",
         # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
+        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
@@ -134,6 +136,8 @@ _DURABLE_AT_BASE = (
         "TransitionControlLease",
         # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
+        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
@@ -171,6 +175,8 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "TransitionControlLease",
         # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
+        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",

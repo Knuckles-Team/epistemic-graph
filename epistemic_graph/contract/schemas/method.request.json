@@ -5966,6 +5966,82 @@
         }
       ]
     },
+    "CheckpointClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "worker_id",
+        "lease_epoch",
+        "fencing_token"
+      ],
+      "type": "object"
+    },
+    "CheckpointContent": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "long_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "short_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "content",
+        "payload_digest",
+        "short_term",
+        "long_term"
+      ],
+      "type": "object"
+    },
+    "CheckpointMemoryRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "revision",
+        "digest"
+      ],
+      "type": "object"
+    },
     "ClaimAuthor": {
       "description": "Who made a claim. Either way it is a claim, never a fact.",
       "enum": [
@@ -13948,6 +14024,41 @@
         "top_k",
         "min_eval_items",
         "max_score_psi_q16"
+      ],
+      "type": "object"
+    },
+    "GetRunCheckpointRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "current_claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckpointClaim"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "work_item_id",
+        "run_id",
+        "context_id"
       ],
       "type": "object"
     },
@@ -35653,6 +35764,58 @@
           "additionalProperties": false,
           "properties": {
             "method": {
+              "const": "PublishRunCheckpoint",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/PublishRunCheckpointRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "GetRunCheckpoint",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/GetRunCheckpointRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
               "const": "PublishCurrentPlan",
               "type": "string"
             },
@@ -41912,6 +42075,62 @@
         "worker_id",
         "lease_epoch",
         "fencing_token",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "PublishRunCheckpointRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/CheckpointContent"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "work_item_id",
+        "run_id",
+        "context_id",
+        "worker_id",
+        "lease_epoch",
+        "fencing_token",
+        "snapshot",
         "idempotency_key"
       ],
       "type": "object"
@@ -62613,6 +62832,32 @@
       ],
       "type": "object"
     },
+    "GetRunCheckpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "GetRunCheckpoint",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/GetRunCheckpointRequest"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "GetRunWorkItem": {
       "additionalProperties": false,
       "description": "Historical native run admission, visible only to its verified immutable\nowner. Missing and foreign rows return null; missing original admission\nevidence refuses explicitly. Independent of current lease or terminal state.",
@@ -66953,6 +67198,32 @@
             "exchange",
             "routing_key",
             "payload"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "PublishRunCheckpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "PublishRunCheckpoint",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/PublishRunCheckpointRequest"
+            }
+          },
+          "required": [
+            "request"
           ],
           "type": "object"
         }

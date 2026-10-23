@@ -285,29 +285,27 @@ async fn route_work_item_reads(
         Method::GetControlLease { tenant, lease_id } => {
             handlers::work_item_read::WorkItemRead::ControlLease { tenant, lease_id }
         }
-        Method::GapGet { tenant, gap_id } => {
-            handlers::work_item_read::WorkItemRead::Gap { tenant, gap_id }
+        Method::GetRunCheckpoint { request } => {
+            handlers::work_item_read::WorkItemRead::Checkpoint {
+                request,
+                actor: ctx.verified_context.principal().to_string(),
+            }
         }
-        Method::GapList { request } => handlers::work_item_read::WorkItemRead::Gaps(request),
-        other => checkpoint_read(ctx, other)?,
+        other => return route_gap_reads(ctx, other).await,
     };
     Ok(answer_work_item_read(ctx, read).await)
 }
 
 #[cfg(feature = "redb")]
-fn checkpoint_read(
-    ctx: GraphOpRouting<'_>,
-    method: Method,
-) -> Result<handlers::work_item_read::WorkItemRead, Method> {
-    match method {
-        Method::GetRunCheckpoint { request } => {
-            Ok(handlers::work_item_read::WorkItemRead::Checkpoint {
-                request,
-                actor: ctx.verified_context.principal().to_string(),
-            })
+async fn route_gap_reads(ctx: GraphOpRouting<'_>, method: Method) -> Result<Response, Method> {
+    let read = match method {
+        Method::GapGet { tenant, gap_id } => {
+            handlers::work_item_read::WorkItemRead::Gap { tenant, gap_id }
         }
-        other => Err(other),
-    }
+        Method::GapList { request } => handlers::work_item_read::WorkItemRead::Gaps(request),
+        other => return Err(other),
+    };
+    Ok(answer_work_item_read(ctx, read).await)
 }
 
 #[cfg(feature = "redb")]

@@ -40,6 +40,8 @@ if TYPE_CHECKING:
     DeferWorkItemRequest = _models.MethodDeferWorkItemParams
     CasWorkItemMetadataRequest = _models.MethodCasWorkItemMetadataParams
     PublishCurrentPlanRequest = _models.MethodPublishCurrentPlanParams
+    PublishRunCheckpointRequest = _models.MethodPublishRunCheckpointParams
+    GetRunCheckpointRequest = _models.MethodGetRunCheckpointParams
     GetCurrentPlanRequest = _models.MethodGetCurrentPlanParams
     GetRunWorkItemRequest = _models.MethodGetRunWorkItemParams
     GetWorkItemRequest = _models.MethodGetWorkItemParams
@@ -1041,6 +1043,96 @@ async def send_publish_current_plan(
 def decode_publish_current_plan(result: OpaqueResult) -> _models.CurrentPlanPublished:
     """Validate this method's result against its contract model."""
     return decode_result("PublishCurrentPlan", models().CurrentPlanPublished, result)
+
+
+async def send_publish_run_checkpoint(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        PublishRunCheckpoint
+    Authorization:
+        work:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/PublishRunCheckpoint
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodPublishRunCheckpointParams.model_validate(params or {})
+    payload = await client._send(
+        "PublishRunCheckpoint",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("PublishRunCheckpoint", payload)
+
+
+def decode_publish_run_checkpoint(
+    result: OpaqueResult,
+) -> _models.RunCheckpointPublished:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "PublishRunCheckpoint", models().RunCheckpointPublished, result
+    )
+
+
+async def send_get_run_checkpoint(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GetRunCheckpoint
+    Authorization:
+        work:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GetRunCheckpoint
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodGetRunCheckpointParams.model_validate(params or {})
+    payload = await client._send(
+        "GetRunCheckpoint",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GetRunCheckpoint", payload)
+
+
+def decode_get_run_checkpoint(result: OpaqueResult) -> _models.GetRunCheckpointResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetRunCheckpoint", models().GetRunCheckpointResult, result)
 
 
 async def send_get_current_plan(
@@ -2703,6 +2795,8 @@ _REQUEST_METHODS = frozenset(
         "DeferWorkItem",
         "CasWorkItemMetadata",
         "PublishCurrentPlan",
+        "PublishRunCheckpoint",
+        "GetRunCheckpoint",
         "GetCurrentPlan",
         "GetRunWorkItem",
         "GetWorkItem",

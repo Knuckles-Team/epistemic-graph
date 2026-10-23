@@ -295,18 +295,19 @@ fn a_graph_upgrade_refuses_another_generation_and_another_stores_token() {
     assert!(StorageKernel::open_owner::<AgentLibraryOwner>(&library, identity(), None).is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5
-#[test]
-fn current_plan_upgrade_preserves_existing_graph_rows() {
+/// Both private-snapshot generations must reject ordinary opens and preserve
+/// unrelated native rows when their explicitly named predecessor is upgraded.
+fn assert_graph_upgrade_preserves_rows(
+    predecessor: &LayoutPredecessor,
+    expected_digest: [u8; 32],
+    source: GraphShardSource,
+    added: redb::TableDefinition<'_, (&str, &str), &[u8]>,
+) {
     let directory = private_local_tempdir();
-    let path = directory.path().join("graph-current-plan-predecessor.redb");
-    let predecessor = &super::super::lineage::GRAPH_SHARD_BEFORE_CURRENT_PLANS;
+    let path = directory.path().join("graph-snapshot-predecessor.redb");
     create_predecessor_owner_file(&path, identity(), predecessor).unwrap();
     let recorded = RecordedLayout::read(&path);
-    assert_eq!(
-        recorded.manifest().layout_digest,
-        super::super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST
-    );
+    assert_eq!(recorded.manifest().layout_digest, expected_digest);
     let database = Database::open(&path).unwrap();
     let write = database.begin_write().unwrap();
     write
@@ -320,14 +321,8 @@ fn current_plan_upgrade_preserves_existing_graph_rows() {
         .err()
         .expect("normal open refuses old layout");
     assert!(refused.starts_with("GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED:"));
-    let token = inspect_graph_shard_upgrade(
-        &path,
-        identity(),
-        None,
-        options(&path),
-        GraphShardSource::BeforeCurrentPlans,
-    )
-    .unwrap();
+    let token =
+        inspect_graph_shard_upgrade(&path, identity(), None, options(&path), source).unwrap();
     drop(upgrade_graph_shard(token).unwrap());
     drop(StorageKernel::open_owner::<GraphShardOwner>(&path, identity(), None).unwrap());
     let database = Database::open(&path).unwrap();
@@ -341,66 +336,27 @@ fn current_plan_upgrade_preserves_existing_graph_rows() {
             .value(),
         b"preserved native row"
     );
-    assert_eq!(
-        read.open_table(super::super::graph_shard::CURRENT_PLANS)
-            .unwrap()
-            .len()
-            .unwrap(),
-        0
+    assert_eq!(read.open_table(added).unwrap().len().unwrap(), 0);
+}
+
+// spec: EG-DURABLE-KERNEL-R028.5
+#[test]
+fn current_plan_upgrade_preserves_existing_graph_rows() {
+    assert_graph_upgrade_preserves_rows(
+        &super::super::lineage::GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+        super::super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST,
+        GraphShardSource::BeforeCurrentPlans,
+        super::super::graph_shard::CURRENT_PLANS,
     );
 }
 
 // spec: EG-DURABLE-KERNEL-R028.1.1
 #[test]
 fn checkpoint_upgrade_preserves_existing_graph_rows() {
-    let directory = private_local_tempdir();
-    let path = directory.path().join("graph-checkpoint-predecessor.redb");
-    let predecessor = &super::super::lineage::GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS;
-    create_predecessor_owner_file(&path, identity(), predecessor).unwrap();
-    let recorded = RecordedLayout::read(&path);
-    assert_eq!(
-        recorded.manifest().layout_digest,
-        super::super::lineage::GRAPH_SHARD_PRE_RUN_CHECKPOINTS_DIGEST
-    );
-    let database = Database::open(&path).unwrap();
-    let write = database.begin_write().unwrap();
-    write
-        .open_table(NODES)
-        .unwrap()
-        .insert(NODE_KEY, b"preserved native row".as_slice())
-        .unwrap();
-    write.commit().unwrap();
-    drop(database);
-    let refused = StorageKernel::open_owner::<GraphShardOwner>(&path, identity(), None)
-        .err()
-        .expect("normal open refuses old layout");
-    assert!(refused.starts_with("GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED:"));
-    let token = inspect_graph_shard_upgrade(
-        &path,
-        identity(),
-        None,
-        options(&path),
+    assert_graph_upgrade_preserves_rows(
+        &super::super::lineage::GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS,
+        super::super::lineage::GRAPH_SHARD_PRE_RUN_CHECKPOINTS_DIGEST,
         GraphShardSource::BeforeRunCheckpoints,
-    )
-    .unwrap();
-    drop(upgrade_graph_shard(token).unwrap());
-    drop(StorageKernel::open_owner::<GraphShardOwner>(&path, identity(), None).unwrap());
-    let database = Database::open(&path).unwrap();
-    let read = database.begin_read().unwrap();
-    assert_eq!(
-        read.open_table(NODES)
-            .unwrap()
-            .get(NODE_KEY)
-            .unwrap()
-            .unwrap()
-            .value(),
-        b"preserved native row"
-    );
-    assert_eq!(
-        read.open_table(super::super::graph_shard::RUN_CHECKPOINTS)
-            .unwrap()
-            .len()
-            .unwrap(),
-        0
+        super::super::graph_shard::RUN_CHECKPOINTS,
     );
 }

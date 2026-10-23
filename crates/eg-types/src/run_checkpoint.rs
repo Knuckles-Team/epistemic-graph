@@ -23,6 +23,67 @@ pub struct CheckpointContent {
     pub long_term: Vec<CheckpointMemoryRef>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct CheckpointClaim {
+    pub worker_id: String,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PublishRunCheckpointRequest {
+    pub tenant: String,
+    pub work_item_id: String,
+    pub run_id: String,
+    pub context_id: String,
+    pub worker_id: String,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub expected_revision: Option<u64>,
+    pub snapshot: CheckpointContent,
+    pub idempotency_key: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct GetRunCheckpointRequest {
+    pub tenant: String,
+    pub work_item_id: String,
+    pub run_id: String,
+    pub context_id: String,
+    #[serde(default)]
+    pub current_claim: Option<CheckpointClaim>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RunCheckpointPublished {
+    pub changed_work_item_ids: Vec<String>,
+    pub replayed: bool,
+    pub work_item_id: String,
+    pub run_id: String,
+    pub context_id: String,
+    pub revision: u64,
+    pub payload_digest: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RunCheckpointSnapshot {
+    pub revision: u64,
+    pub content: String,
+    pub payload_digest: String,
+    pub short_term: Vec<CheckpointMemoryRef>,
+    pub long_term: Vec<CheckpointMemoryRef>,
+}
+
 impl CheckpointContent {
     pub fn validate(&self) -> Result<(), String> {
         if self.content.is_empty() || self.content.len() > MAX_CHECKPOINT_BYTES {
@@ -54,31 +115,6 @@ impl CheckpointContent {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct CheckpointClaim {
-    pub worker_id: String,
-    pub lease_epoch: u64,
-    pub fencing_token: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct PublishRunCheckpointRequest {
-    pub tenant: String,
-    pub work_item_id: String,
-    pub run_id: String,
-    pub context_id: String,
-    pub worker_id: String,
-    pub lease_epoch: u64,
-    pub fencing_token: u64,
-    pub expected_revision: Option<u64>,
-    pub snapshot: CheckpointContent,
-    pub idempotency_key: String,
-}
-
 impl PublishRunCheckpointRequest {
     pub fn validate(&self) -> Result<(), String> {
         for id in [
@@ -93,18 +129,6 @@ impl PublishRunCheckpointRequest {
         }
         self.snapshot.validate()
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct GetRunCheckpointRequest {
-    pub tenant: String,
-    pub work_item_id: String,
-    pub run_id: String,
-    pub context_id: String,
-    #[serde(default)]
-    pub current_claim: Option<CheckpointClaim>,
 }
 
 impl GetRunCheckpointRequest {
@@ -122,30 +146,6 @@ impl GetRunCheckpointRequest {
         }
         Ok(())
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct RunCheckpointSnapshot {
-    pub revision: u64,
-    pub content: String,
-    pub payload_digest: String,
-    pub short_term: Vec<CheckpointMemoryRef>,
-    pub long_term: Vec<CheckpointMemoryRef>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct RunCheckpointPublished {
-    pub changed_work_item_ids: Vec<String>,
-    pub replayed: bool,
-    pub work_item_id: String,
-    pub run_id: String,
-    pub context_id: String,
-    pub revision: u64,
-    pub payload_digest: String,
 }
 
 fn bounded_id(id: &str) -> Result<(), String> {

@@ -341,13 +341,43 @@ pub(crate) fn opaque_coordinator_key(namespace: &str, graph: &str, coordinator_i
 }
 
 #[cfg(test)]
+fn identity_payload_digest(
+    identity: &WorkItemBatchIdentity,
+    method: Method,
+) -> eg_types::contract::Digest256 {
+    use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
+    compile_methods(
+        CompileBatch {
+            batch_id: &identity.batch_id,
+            request_id: identity.durable_request_id,
+            attempt_nonce: None,
+            principal: Some("owner"),
+            tenant: "tenant",
+            graph: "graph",
+            placement_epoch: 0,
+            idempotency_key: &identity.idempotency_key,
+            expected_graph_version: Some(0),
+            fencing_token: None,
+            created_at_ms: 1,
+            default_surface: crate::mutation_batch::MutationSurface::Job,
+            authoritative_state: None,
+        },
+        vec![method],
+    )
+    .unwrap()
+    .envelope
+    .operation()
+    .unwrap()
+    .canonical_payload_digest
+}
+
+#[cfg(test)]
 mod current_plan_identity_tests {
     use super::*;
 
     // spec: EG-DURABLE-KERNEL-R028.5.3
     #[test]
     fn publication_attachment_changes_content_not_retry_identity() {
-        use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
         let plain = Method::PublishCurrentPlan {
             request: eg_types::current_plan::sample_publish_request(),
         };
@@ -359,31 +389,7 @@ mod current_plan_identity_tests {
             identity,
             work_item_batch_identity("graph", "tenant", 99, &attached).unwrap()
         );
-        let digest = |method| {
-            compile_methods(
-                CompileBatch {
-                    batch_id: &identity.batch_id,
-                    request_id: identity.durable_request_id,
-                    attempt_nonce: None,
-                    principal: Some("owner"),
-                    tenant: "tenant",
-                    graph: "graph",
-                    placement_epoch: 0,
-                    idempotency_key: &identity.idempotency_key,
-                    expected_graph_version: Some(0),
-                    fencing_token: None,
-                    created_at_ms: 1,
-                    default_surface: crate::mutation_batch::MutationSurface::Job,
-                    authoritative_state: None,
-                },
-                vec![method],
-            )
-            .unwrap()
-            .envelope
-            .operation()
-            .unwrap()
-            .canonical_payload_digest
-        };
+        let digest = |method| identity_payload_digest(&identity, method);
         assert_eq!(digest(attached.clone()), digest(attached.clone()));
         assert_ne!(digest(plain), digest(attached.clone()));
         let mut changed = eg_types::current_plan::sample_task_plan_publish_request();
@@ -469,7 +475,6 @@ mod checkpoint_identity_tests {
     // spec: EG-DURABLE-KERNEL-R028.1.1
     #[test]
     fn context_is_bound_to_checkpoint_retry_identity_and_body() {
-        use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
         use sha2::Digest;
         let request = PublishRunCheckpointRequest {
             tenant: "tenant".into(),
@@ -503,31 +508,7 @@ mod checkpoint_identity_tests {
             identity,
             work_item_batch_identity("graph", "tenant", 1, &foreign).unwrap()
         );
-        let digest = |method| {
-            compile_methods(
-                CompileBatch {
-                    batch_id: &identity.batch_id,
-                    request_id: identity.durable_request_id,
-                    attempt_nonce: None,
-                    principal: Some("owner"),
-                    tenant: "tenant",
-                    graph: "graph",
-                    placement_epoch: 0,
-                    idempotency_key: &identity.idempotency_key,
-                    expected_graph_version: Some(0),
-                    fencing_token: None,
-                    created_at_ms: 1,
-                    default_surface: crate::mutation_batch::MutationSurface::Job,
-                    authoritative_state: None,
-                },
-                vec![method],
-            )
-            .unwrap()
-            .envelope
-            .operation()
-            .unwrap()
-            .canonical_payload_digest
-        };
+        let digest = |method| identity_payload_digest(&identity, method);
         assert_ne!(digest(method), digest(foreign));
     }
 }
