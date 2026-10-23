@@ -830,8 +830,8 @@ ex:parent a owl:AsymmetricProperty .
             // +9: finance (EH-411); +1: EH-420/EH-421.
             // +4: Account, Position, Activity and Lot specialize BFO GDC.
             // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
-            // +19: the connector parent classes (EG-TYPED-PACKS-R105.3).
-            483
+            // +18: the connector parent classes (EG-TYPED-PACKS-R105.3).
+            482
         );
     }
 
