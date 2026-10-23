@@ -2742,7 +2742,7 @@ mod mutation_batch_tests {
         assert_eq!(claimed.lease_epoch, Some(1));
         assert_eq!(claimed.fencing_token, Some(1));
 
-        let terminal_method = crate::redb_store::work_item::test_shard::terminal_method(1, 1);
+        let terminal_method = crate::test_support::terminal_method(1, 1);
         let mut terminal = batch(
             "work:terminal-stable-batch",
             "work-idem:terminal-stable-key",

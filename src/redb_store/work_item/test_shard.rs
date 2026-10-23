@@ -101,22 +101,3 @@ pub(super) fn apply(
         .map(|result| result.expect("a WorkItem-family write always answers"))
     })
 }
-
-/// Common terminal fixture used by durable and transport retry identity tests.
-pub(crate) fn terminal_method(lease_epoch: u64, fencing_token: u64) -> Method {
-    Method::CommitWorkItemResult {
-        tenant: "tenant-a".into(),
-        work_item_id: "work-1".into(),
-        worker_id: "worker-a".into(),
-        lease_epoch,
-        fencing_token,
-        idempotency_key: "terminal-key".into(),
-        outcome: "succeeded".into(),
-        result_ref: Some("result:sha256:one".into()),
-        outcome_extension: None,
-        run_completion: None,
-        error_ref: None,
-        retryable: false,
-        now_ms: 1_000,
-    }
-}

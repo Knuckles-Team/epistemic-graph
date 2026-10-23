@@ -225,7 +225,7 @@ fn resource_host_result_requires_no_work_item_projection_ids() {
 
 #[test]
 fn terminal_work_item_retry_identity_is_transport_independent_and_scope_bound() {
-    let method = crate::redb_store::work_item::test_shard::terminal_method(2, 9);
+    let method = crate::test_support::terminal_method(2, 9);
 
     let first = work_item_batch_identity("graph-a", "tenant-a", 10, &method).unwrap();
     let retry = work_item_batch_identity("graph-a", "tenant-a", 11, &method).unwrap();

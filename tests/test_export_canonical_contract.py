@@ -126,14 +126,6 @@ def test_workflow_preserves_failed_parity():
     assert "steps.engine-contract-preflight.outcome == 'failure'" in export["if"]
     assert "steps.engine-contract-export.outputs.fresh_export == 'true'" in upload["if"]
     assert all("continue-on-error" not in step for step in (parity, export, upload))
-    assert (
-        sum(
-            step.get("id") == "engine-contract-preflight"
-            for entry in jobs.values()
-            for step in entry.get("steps", [])
-        )
-        == 1
-    )
 
     retained = next(
         step
@@ -142,6 +134,18 @@ def test_workflow_preserves_failed_parity():
     )
     assert retained["run"] == parity["run"]
     assert "continue-on-error" not in retained
+
+
+def test_workflow_has_one_canonical_export_authority():
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    assert (
+        sum(
+            step.get("id") == "engine-contract-preflight"
+            for entry in jobs.values()
+            for step in entry.get("steps", [])
+        )
+        == 1
+    )
 
 
 def test_dirty_source_refuses_before_generation(exporter, monkeypatch, tmp_path):

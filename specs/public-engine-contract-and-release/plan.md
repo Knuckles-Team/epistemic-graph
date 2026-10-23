@@ -311,7 +311,7 @@ For runtime rows, name the actual production call site and its served integratio
 | Federated query and reasoning | [modality_serving.md](../../docs/architecture/modality_serving.md) and `crates/eg-modality/` | Define native ingest, typed predicates, concurrent updates and removals, cold restoration, and evidence-location contracts separately. |
 | Decision engine and federated query | [native-program-optimization.md](../../docs/architecture/native-program-optimization.md), `crates/eg-program/` | Confirm one semantic owner for `ProgramOptimize`; link the other owner. Preserve UQL and compiled-run contracts separately. |
 | Unified data plane | R040 and federation R039.1 | Resolve video promotion scope without silently expanding the existing acceptance. |
-| Federated query and durable kernel | `crates/eg-stream/`, `crates/eg-tsdb/`, existing stream dispatch | Define runtime windows, watermarks, state recovery, and refusal independently of the stream grammar. |
+| Federated query and durable kernel | `crates/eg-stream/`, `crates/eg-tsdb/`, existing stream dispatch | Define runtime windows, watermarks, state recovery, and refusal separately from stream grammar. |
 | Durable graph kernel | [engine.md](../../docs/architecture/engine.md), `crates/eg-core/src/read_through.rs`, `src/redb_store/` | The durability owner covers safe eviction and read-through. Add cache-miss and restart observations. |
 
 No follow-on above asserts a passed test or changes a subsystem's acceptance in this batch.
