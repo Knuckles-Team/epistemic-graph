@@ -24,6 +24,7 @@ from types import SimpleNamespace
 import pytest
 import tomllib
 import yaml
+from test_ci_change_scope import native_acceptance_steps
 
 from scripts import _kernel_build
 
@@ -63,7 +64,7 @@ def _test_step(job: dict) -> dict:
 def test_capability_dependencies_bootstrap_uv_for_the_test_interpreter(
     job_name: str,
 ) -> None:
-    steps = _workflow()["jobs"][job_name]["steps"]
+    steps = native_acceptance_steps(_workflow()["jobs"][job_name]["steps"])
     install = next(
         step
         for step in steps

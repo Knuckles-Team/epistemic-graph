@@ -283,9 +283,8 @@ jobs:
     env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
-      - *eg-gates-toolchain
+      - &eg-native-validation-setup
+        uses: ./.github/actions/native-validation-setup
       - *eg-gates-cache
       - *eg-gates-sqlite
       - *eg-validation-compiler-cache
@@ -307,9 +306,7 @@ jobs:
     runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
-      - *eg-gates-toolchain
+      - *eg-native-validation-setup
       - *eg-gates-cache
 
       # Preserve the locked test environment inherited before the job split.
@@ -513,11 +510,7 @@ jobs:
     steps:
       - *eg-gates-checkout
 
-      - *eg-gates-python
-
-      - *eg-gates-pydeps
-
-      - *eg-gates-toolchain
+      - *eg-native-validation-setup
       # A cold target took 41m13s before tests in run 38486393509.
       # Preserve trusted-main workspace outputs; Cargo still checks current inputs.
       - &eg-gates-cache-workspace
@@ -564,9 +557,7 @@ jobs:
     runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
-      - *eg-gates-toolchain
+      - *eg-native-validation-setup
       - *eg-gates-cache
 
       # These real-model tests fail loudly when their fixture is absent. Fetch the

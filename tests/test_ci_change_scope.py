@@ -17,6 +17,39 @@ from scripts import ci_change_scope as scope
 
 pytestmark = pytest.mark.no_engine
 ROOT = Path(__file__).resolve().parents[1]
+NATIVE_SETUP = "./.github/actions/native-validation-setup"
+
+
+def native_acceptance_steps(steps: list[dict]) -> list[dict]:
+    """Expose the fixed composite's original steps to workflow contract checks."""
+    expanded = []
+    for step in steps:
+        if step.get("uses") != NATIVE_SETUP:
+            expanded.append(step)
+            continue
+        assert step == {"uses": NATIVE_SETUP}
+        action = yaml.safe_load((ROOT / NATIVE_SETUP / "action.yml").read_text())
+        assert set(action["runs"]) == {"using", "steps"}
+        assert action["runs"]["using"] == "composite"
+        for nested in action["runs"]["steps"]:
+            nested = dict(nested)
+            if "run" in nested:
+                assert nested.pop("shell") == "bash -e {0}"
+            expanded.append(nested)
+    return expanded
+
+
+@pytest.mark.parametrize(
+    "job_name", ["gates-plan-fuzz", "gates-wheel", "gates-facade", "gates-whisper"]
+)
+def test_shared_native_setup_preserves_locked_tools_and_order(job_name: str) -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    steps = jobs[job_name]["steps"]
+    assert steps[1] is jobs["gates-plan-fuzz"]["steps"][1]
+    assert steps[1] == {"uses": NATIVE_SETUP}
+    # The unsplit gate remains the reference for every pin, command and option.
+    assert native_acceptance_steps(steps)[:4] == jobs["gates"]["steps"][:4]
+    assert steps[2]["uses"].startswith("Swatinem/rust-cache@")
 
 
 def raw(
@@ -525,9 +558,10 @@ def test_split_native_acceptance_preserves_commands_and_release_dependencies(
     assert job["if"] == jobs["gates"]["if"]
     assert job["runs-on"] == jobs["gates"]["runs-on"]
     assert job["timeout-minutes"] == jobs["gates"]["timeout-minutes"]
-    assert job["steps"][:5] == jobs["gates"]["steps"][:5]
+    steps = native_acceptance_steps(job["steps"])
+    assert steps[:5] == jobs["gates"]["steps"][:5]
     # Snapshot the unchanged step mappings, including every command and its env.
-    acceptance_steps = job["steps"][7 if job_name == "gates-wheel" else 5 :]
+    acceptance_steps = steps[7 if job_name == "gates-wheel" else 5 :]
     if job_name == "gates-wheel":
         assert [step["name"] for step in acceptance_steps[-2:]] == [
             "Package validated wheel for installed acceptance",
@@ -554,7 +588,7 @@ def test_wheel_gate_inherits_locked_pytest_before_parity_dependencies() -> None:
         for step in jobs["gates"]["steps"]
         if step.get("name") == "Install locked pytest for generated-client checks"
     )
-    steps = jobs["gates-wheel"]["steps"]
+    steps = native_acceptance_steps(jobs["gates-wheel"]["steps"])
     locked = next(
         step
         for step in steps
@@ -573,7 +607,7 @@ def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> N
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs["gates-wheel"]
     assert "EG_GATES_WHEEL_VENV" not in job.get("env", {})
-    initialize = job["steps"][6]
+    initialize = native_acceptance_steps(job["steps"])[6]
     assert initialize["name"] == "Initialize external wheel virtualenv path"
     environment_file = tmp_path / "github-env"
     runner_temp = tmp_path / "runner temp"
