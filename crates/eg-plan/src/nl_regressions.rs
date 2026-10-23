@@ -223,3 +223,122 @@ fn migrated_custom_ca_augments_roots_and_rejects_invalid_der() {
     }
     assert!(invalid.is_err());
 }
+
+/// Serve one canned chat-completions response after `delay`, returning the raw request body.
+fn serve_once(delay: std::time::Duration) -> (String, std::sync::mpsc::Receiver<String>) {
+    use std::io::{Read, Write};
+    let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!(
+        "http://{}/v1/chat/completions",
+        server.local_addr().unwrap()
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let (mut socket, _) = server.accept().unwrap();
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 1024];
+        loop {
+            let Ok(size) = socket.read(&mut chunk) else {
+                break;
+            };
+            if size == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..size]);
+            let text = String::from_utf8_lossy(&bytes).to_string();
+            if let Some((headers, body)) = text.split_once("\r\n\r\n") {
+                let length: usize = headers
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length: ")
+                            .map(str::to_owned)
+                    })
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                if body.len() >= length {
+                    let _ = tx.send(body.to_string());
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(delay);
+        let response = r#"{"choices":[{"message":{"content":"MATCH (:Doc) |> LIMIT 1"}}]}"#;
+        let _ = write!(
+            socket,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            response.len(),
+            response
+        );
+    });
+    (endpoint, rx)
+}
+
+// spec: EG-FEDERATED-QUERY-R058.5
+#[test]
+fn planner_request_defaults_disable_thinking() {
+    let (endpoint, rx) = serve_once(std::time::Duration::ZERO);
+    let planner = UreqNlPlanner::new(endpoint, "m".into(), String::new());
+    assert!(planner.plan("q", "").is_ok());
+    let body: serde_json::Value =
+        serde_json::from_str(&rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap()).unwrap();
+    assert_eq!(body["chat_template_kwargs"]["enable_thinking"], false);
+    assert_eq!(body["model"], "m");
+}
+
+// spec: EG-FEDERATED-QUERY-R058.5
+#[test]
+fn planner_sends_configured_extra_body_and_honours_read_timeout() {
+    let (endpoint, rx) = serve_once(std::time::Duration::ZERO);
+    let planner = UreqNlPlanner::new(endpoint, "m".into(), String::new())
+        .with_extra_body(serde_json::json!({"top_k": 7}))
+        .unwrap();
+    assert!(planner.plan("q", "").is_ok());
+    let body: serde_json::Value =
+        serde_json::from_str(&rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap()).unwrap();
+    assert_eq!(body["top_k"], 7);
+    assert!(
+        body.get("chat_template_kwargs").is_none(),
+        "extra body replaces the default"
+    );
+
+    // A peer slower than the configured 1s read timeout makes the call fail within bounds.
+    let (endpoint, _rx) = serve_once(std::time::Duration::from_secs(4));
+    let planner = UreqNlPlanner::new(endpoint, "m".into(), String::new())
+        .with_read_timeout_secs(1)
+        .unwrap();
+    let started = std::time::Instant::now();
+    let err = planner.plan("q", "").unwrap_err();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "{err}"
+    );
+}
+
+// spec: EG-FEDERATED-QUERY-R058.5
+#[test]
+fn planner_refuses_invalid_request_config_with_typed_errors() {
+    let new = || UreqNlPlanner::new("http://127.0.0.1:1".into(), "m".into(), String::new());
+    assert_eq!(
+        new().with_read_timeout_secs(0).err(),
+        Some(NlConfigError::ReadTimeoutOutOfRange(0))
+    );
+    assert_eq!(
+        new().with_read_timeout_secs(601).err(),
+        Some(NlConfigError::ReadTimeoutOutOfRange(601))
+    );
+    assert_eq!(
+        new().with_extra_body(serde_json::json!([1])).err(),
+        Some(NlConfigError::ExtraBodyNotObject)
+    );
+    assert_eq!(
+        new()
+            .with_extra_body(serde_json::json!({"messages": []}))
+            .err(),
+        Some(NlConfigError::ExtraBodyReservedKey("messages".into()))
+    );
+}

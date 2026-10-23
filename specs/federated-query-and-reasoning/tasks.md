@@ -53,6 +53,7 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [ ] Confirm natural-language results are never cached on the NL text and that no mutating/side-effecting operation is reachable from the NL surface. **EG-FEDERATED-QUERY-R058.3**
   - [x] Guard that NL results are never cached on the NL text. **EG-FEDERATED-QUERY-R058.3.1**
   - [ ] Confirm no mutating operation is reachable from the NL surface. **EG-FEDERATED-QUERY-R058.3.2**
+- [x] Configure the NL planner read timeout and extra request body. Disable thinking by default and refuse invalid values. **EG-FEDERATED-QUERY-R058.5**
 
 ## Decomposition children (tracked)
 

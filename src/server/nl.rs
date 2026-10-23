@@ -17,7 +17,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use eg_plan::{NlPlanner, OAuth2ClientCredentials, TokenAuthStyle, UreqNlPlanner};
+use eg_plan::{NlConfigError, NlPlanner, OAuth2ClientCredentials, TokenAuthStyle, UreqNlPlanner};
 
 /// An operator-injected planner (CONCEPT:EG-KG.query.fence-stripper). Set ONCE, before first use, by an
 /// embedder that wants the engine to drive its own NL→query. Wins over the config default.
@@ -70,6 +70,10 @@ struct NlSettings {
     tls_ca_path: Option<String>,
     /// OAuth2 client-credentials token source (mints a bearer instead of a static key).
     oauth2: Option<OAuth2Settings>,
+    /// Read timeout in seconds (`None` ⇒ the planner default, 30s).
+    read_timeout_secs: Option<u64>,
+    /// Extra chat-completions body members (`None` ⇒ the planner default: thinking off).
+    extra_body: Option<serde_json::Value>,
 }
 
 /// Env overrides (take precedence over the config file when set).
@@ -77,6 +81,8 @@ const ENDPOINT_ENV: &str = "EPISTEMIC_GRAPH_NL_ENDPOINT";
 const MODEL_ENV: &str = "EPISTEMIC_GRAPH_NL_MODEL";
 const API_KEY_ENV_ENV: &str = "EPISTEMIC_GRAPH_NL_API_KEY_ENV";
 const TLS_CA_ENV: &str = "EPISTEMIC_GRAPH_NL_TLS_CA";
+const READ_TIMEOUT_ENV: &str = "EPISTEMIC_GRAPH_NL_READ_TIMEOUT_SECS";
+const EXTRA_BODY_ENV: &str = "EPISTEMIC_GRAPH_NL_EXTRA_BODY";
 
 /// Build the standalone config default planner (CONCEPT:EG-KG.query.fence-stripper). Reads config +
 /// env-overrides; returns `None` (no NL surface) when no endpoint is configured.
@@ -111,7 +117,30 @@ fn build_default_from_config() -> Option<Arc<dyn NlPlanner>> {
         .with_headers(settings.headers)
         .with_tls_ca_path(settings.tls_ca_path)
         .with_oauth2(oauth2);
-    Some(Arc::new(planner) as Arc<dyn NlPlanner>)
+    match apply_request_settings(planner, settings.read_timeout_secs, settings.extra_body) {
+        Ok(planner) => Some(Arc::new(planner) as Arc<dyn NlPlanner>),
+        Err(e) => {
+            // Invalid request config is refused: the NL surface stays unconfigured.
+            eprintln!("epistemic-graph: NL planner disabled: {e}");
+            None
+        }
+    }
+}
+
+/// Apply the configured read timeout / extra request body (EG-FEDERATED-QUERY-R058.5),
+/// refusing invalid values with a typed [`NlConfigError`].
+fn apply_request_settings(
+    mut planner: UreqNlPlanner,
+    read_timeout_secs: Option<u64>,
+    extra_body: Option<serde_json::Value>,
+) -> Result<UreqNlPlanner, NlConfigError> {
+    if let Some(secs) = read_timeout_secs {
+        planner = planner.with_read_timeout_secs(secs)?;
+    }
+    if let Some(extra) = extra_body {
+        planner = planner.with_extra_body(extra)?;
+    }
+    Ok(planner)
 }
 
 /// Resolve NL settings from env overrides + `agent-utilities`' `config.json`; when no
@@ -150,6 +179,18 @@ fn load_or_scaffold_settings() -> NlSettings {
     if env_key_env.is_some() {
         settings.api_key_env = env_key_env;
     }
+    // An unparseable env value is carried as an impossible timeout / non-object body so the
+    // typed refusal fires at build time instead of being silently ignored.
+    if let Ok(v) = std::env::var(READ_TIMEOUT_ENV) {
+        if !v.is_empty() {
+            settings.read_timeout_secs = Some(v.trim().parse().unwrap_or(0));
+        }
+    }
+    if let Ok(v) = std::env::var(EXTRA_BODY_ENV) {
+        if !v.is_empty() {
+            settings.extra_body = Some(serde_json::from_str(&v).unwrap_or(serde_json::Value::Null));
+        }
+    }
     if let Some(ca) = env_tls_ca {
         settings.tls_ca_path = Some(ca);
     }
@@ -169,6 +210,8 @@ impl NlSettings {
             headers: Vec::new(),
             tls_ca_path: None,
             oauth2: None,
+            read_timeout_secs: None,
+            extra_body: None,
         }
     }
 }
@@ -252,6 +295,10 @@ fn parse_config(path: &std::path::Path) -> Option<NlSettings> {
         headers,
         tls_ca_path,
         oauth2,
+        read_timeout_secs: section
+            .get("read_timeout_secs")
+            .map(|v| v.as_u64().unwrap_or(0)),
+        extra_body: section.get("extra_body").cloned(),
     })
 }
 
@@ -363,5 +410,32 @@ mod tests {
         let s = parse_config(&path).expect("parsed");
         assert!(s.oauth2.is_none());
         let _ = std::fs::remove_file(&path);
+    }
+
+    // spec: EG-FEDERATED-QUERY-R058.5
+    #[test]
+    fn config_request_settings_are_parsed_and_invalid_ones_refused() {
+        let dir = std::env::temp_dir().join(format!("eg-nl-cfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"nl_query":{"endpoint":"http://x","read_timeout_secs":90,"extra_body":{"top_k":3}}}"#,
+        )
+        .unwrap();
+        let s = parse_config(&path).unwrap();
+        assert_eq!(s.read_timeout_secs, Some(90));
+        assert_eq!(s.extra_body, Some(serde_json::json!({"top_k": 3})));
+        let planner = || UreqNlPlanner::new("http://x".into(), "m".into(), String::new());
+        assert!(apply_request_settings(planner(), s.read_timeout_secs, s.extra_body).is_ok());
+        assert_eq!(
+            apply_request_settings(planner(), Some(0), None).err(),
+            Some(NlConfigError::ReadTimeoutOutOfRange(0))
+        );
+        assert_eq!(
+            apply_request_settings(planner(), None, Some(serde_json::Value::Null)).err(),
+            Some(NlConfigError::ExtraBodyNotObject)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
