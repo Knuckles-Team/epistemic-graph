@@ -3170,11 +3170,8 @@
       "title": "Native context-bound checkpoint transaction",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1f8c72c2561f",
-        "2cff10fa5f1f",
-        "516c33a4e9d6",
-        "80d2a8d50532",
-        "85387a4778a2"
+        "591ec7592b23",
+        "a0357cb95dc8"
       ],
       "verified_by": [
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:353",
@@ -3196,9 +3193,7 @@
       "title": "Checkpoint native and generated qualification remains open",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "80d2a8d50532",
-        "a7bf3aac3b8b",
-        "c439f8208d43"
+        "591ec7592b23"
       ],
       "verified_by": [
         "tests/test_run_checkpoint_client.py:21",
@@ -3214,9 +3209,7 @@
       "title": "Hosted checkpoint exports and generated facade",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "02fed473f9a2",
-        "85387a4778a2",
-        "dbcc17008b1d"
+        "591ec7592b23"
       ],
       "verified_by": [
         "tests/test_run_checkpoint_client.py:22",
