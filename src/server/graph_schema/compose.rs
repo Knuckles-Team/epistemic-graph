@@ -728,10 +728,10 @@ ex:parent a owl:AsymmetricProperty .
         // company, infrastructure and supply-chain modules (EG-TYPED-PACKS-R105.3).
         // +162: the service-operations module and the priority domain
         // union (EG-TYPED-PACKS-R105.4).
-        // +1080 (provisional, repinned from the engine count): the data-platform,
+        // +1077 (engine count): the data-platform,
         // IT4IT-delivery, media and retrieval domain modules and their catalog
         // imports (EG-TYPED-PACKS-R105.6 to R105.9).
-        assert_eq!(composed.ontology.len(), 15_141);
+        assert_eq!(composed.ontology.len(), 15_138);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -764,11 +764,10 @@ ex:parent a owl:AsymmetricProperty .
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:Ontology` header subject (its shapes pack's prefix-declaration
         // subject is not itself one).
-        assert_eq!(ontology_subjects.len(), 37);
+        assert_eq!(ontology_subjects.len(), 41);
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
-        // `owl:imports <.../core>`; +6: the service-operations module's five
-        // imports and its catalog entry.
-        assert_eq!(imports, 78);
+        // `owl:imports <.../core>`.
+        assert_eq!(imports, 97);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -781,9 +780,9 @@ ex:parent a owl:AsymmetricProperty .
         // +8: the two orchestration vocabulary class declarations.
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
-        // +129: the 19 connector parent classes (EG-TYPED-PACKS-R105.3).
-        // +152: the service-operations module (EG-TYPED-PACKS-R105.4).
-        assert_eq!(semantic_axioms, 13_858);
+        // Repinned from the engine count for the service-operations, data-platform,
+        // IT4IT-delivery, media and retrieval modules (EG-TYPED-PACKS-R105.4 to R105.9).
+        assert_eq!(semantic_axioms, 14_907);
 
         let count_type = |object: &str| {
             composed
@@ -837,9 +836,7 @@ ex:parent a owl:AsymmetricProperty .
             // +9: finance (EH-411); +1: EH-420/EH-421.
             // +4: Account, Position, Activity and Lot specialize BFO GDC.
             // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
-            // +18: the connector parent classes (EG-TYPED-PACKS-R105.3).
-            // +18: the service-operations classes and alignments (EG-TYPED-PACKS-R105.4).
-            500
+            605
         );
     }
 
