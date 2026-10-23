@@ -2609,11 +2609,11 @@
       "title": "The parent catalog holds a service-operations core aligned to the Open Group IT4IT data objects",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5cc2df432895",
-        "85dbb47bfd95",
-        "9ae34c125957",
-        "acfebe3d7d0d",
-        "c65b21d8f9e3"
+        "26446669b39b",
+        "67b5923b6f57",
+        "7b71f99332ea",
+        "867b42f93737",
+        "9e170f2e27fa"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/service_operations_classes.rs:112",
@@ -2625,9 +2625,9 @@
       "title": "The competency-question paths are complete on the engine side",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "85dbb47bfd95",
-        "c65b21d8f9e3",
-        "d09be388ac86"
+        "67b5923b6f57",
+        "867b42f93737",
+        "9e170f2e27fa"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/service_operations_classes.rs:113",
