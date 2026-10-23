@@ -653,11 +653,11 @@
       "title": "Complexity, duplication and architecture censuses pass at zero backlog",
       "delivery_state": "SPECIFIED",
       "landed_in": [
+        "2b1bcdda23e6",
         "924601ce5495",
         "a0da67babeae",
         "be0f1acb05c6",
-        "cd7bf0364ebd",
-        "e729dc1650b6"
+        "cd7bf0364ebd"
       ],
       "verified_by": [
         "tests/test_ci_change_scope.py:227"
@@ -1128,6 +1128,7 @@
       "title": "Export fresh typed contracts for parity repair",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "82c10dffe69e",
         "8b5cbc59e851",
         "fc65d45d509d"
       ],
