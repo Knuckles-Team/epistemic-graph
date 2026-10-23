@@ -176,7 +176,7 @@ and trust configuration remains outside these protocol payloads.
 | Streams | `StreamDeclare` `StreamPublish` `StreamRead` `StreamTrim` `StreamCommitOffset` `StreamCommittedOffset` | EG-283 | `client.broker.stream_*` | ✓ | ✓ |
 | RBAC admin | `RbacAdmin` (AddRole/RemoveRole/AddGrant/RemoveGrant/List) | EG-KG.compute.feature | `client.rbac.*` | ✓ | ✓ |
 | Ops | `Backup` `Restore` | EG-090 | `client.admin.*` | ✓ | ✓ |
-| NL→query | `NlQuery` | EG-080 | `client.query.nl_query` | ✓ | ✓ |
+| NL→query | `NlQuery` `NlQueryExplain` | EG-080 | `client.query.nl_query` / `nl_query_explain` | ✓ | ✓ |
 
 Every served build requires `security`. Other ops remain feature-gated on the server:
 `broker` (broker + streams), redb (backup/restore), and `nl-query` plus a configured

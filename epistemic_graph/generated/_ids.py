@@ -366,6 +366,7 @@ METHOD_IDS = frozenset(
         "CausalCounterfactual",
         "RankByProvenance",
         "NlQuery",
+        "NlQueryExplain",
         "TxnUnifiedQuery",
         "TxnUql",
         "EdgeIndex",

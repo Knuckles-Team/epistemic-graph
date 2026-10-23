@@ -137,6 +137,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "MiningPipelineEvaluate",
     "MinimumSpanningTree",
     "NlQuery",
+    "NlQueryExplain",
     "NodeCount",
     "NodeIds",
     "ObserveScreen",

@@ -69,6 +69,8 @@
     "EG-FEDERATED-QUERY-R058.2",
     "EG-FEDERATED-QUERY-R058.2.1",
     "EG-FEDERATED-QUERY-R058.2.2",
+    "EG-FEDERATED-QUERY-R058.2.2.1",
+    "EG-FEDERATED-QUERY-R058.2.2.2",
     "EG-FEDERATED-QUERY-R058.3",
     "EG-FEDERATED-QUERY-R058.3.1",
     "EG-FEDERATED-QUERY-R058.3.2",
@@ -738,7 +740,7 @@
         "c3b87d31ac11"
       ],
       "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:225"
+        "crates/eg-capabilities/tests/contract_registry.rs:226"
       ]
     },
     {
@@ -1309,6 +1311,29 @@
       "title": "Served NL result carries the executed UQL; plan-only is reachable",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R058.2.2.1",
+        "EG-FEDERATED-QUERY-R058.2.2.2"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.2.2.1",
+      "title": "Served `NlQueryExplain` returns the executed UQL with the rows",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/nl_query.rs:26",
+        "src/server/tests/nl_explain.rs:46",
+        "src/server/tests/nl_explain.rs:75",
+        "tests/test_pb_clients.py:88"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.2.2.2",
+      "title": "Plan-only NL entry point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -1331,9 +1356,9 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:171",
-        "src/server/handlers/query/nl.rs:177",
-        "src/server/handlers/query/nl.rs:200"
+        "src/server/handlers/query/nl.rs:201",
+        "src/server/handlers/query/nl.rs:207",
+        "src/server/handlers/query/nl.rs:230"
       ]
     },
     {
