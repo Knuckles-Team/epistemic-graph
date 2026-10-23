@@ -18,11 +18,11 @@ Generate small 0–1 models with covering, implication, exactly-one, knapsack, c
 
 ## C. Visibility, policy and statistics
 
-Use two principals in one tenant plus a separate tenant. Seed an invisible candidate that would dominate a visible one; verify it changes neither shortlist, candidate-local BM25/vector score, count, digest, explanation, aggregate nor abstention reason. Test policy tightening accepted and each relaxation field rejected. A fitted head may reorder only legal candidates and may abstain; it cannot restore a denied candidate or authorize an irreversible action. With synthetic full-label and bandit datasets, assert exact propensities, zero-support refusal, clipped/SWITCH-IPS/doubly-robust calculations, ESS threshold, minimum support, censoring and drift behavior. A self-reported outcome, low-fidelity trace or unapproved commit principal cannot enter training. `DecisionFit` yields a draft; promotion without a matching `DecisionEval` receipt, or with changed head/policy/schema/dataset, is refused. Check HMAC exploration unpredictability to callers, exact logged propensity, budget enforcement and forbidden question classes. Walk-forward folds must purge and embargo as configured; a shared cap may not be exceeded across concurrent options.
+Use two principals in one tenant plus a separate tenant. Seed an invisible candidate that would dominate a visible one. Verify it changes neither shortlist, candidate-local BM25/vector score, count, digest, explanation, aggregate nor abstention reason. Test policy tightening accepted and each relaxation field rejected. A fitted head may reorder only legal candidates and may abstain. It cannot restore a denied candidate or authorize an irreversible action. Use synthetic full-label and bandit datasets. Assert exact propensities, zero-support refusal, clipped/SWITCH-IPS/doubly-robust calculations, ESS threshold, minimum support, censoring and drift behavior. A self-reported outcome, low-fidelity trace or unapproved commit principal cannot enter training. `DecisionFit` yields a draft; promotion without a matching `DecisionEval` receipt, or with changed head/policy/schema/dataset, is refused. Check HMAC exploration unpredictability to callers, exact logged propensity, budget enforcement and forbidden question classes. Walk-forward folds must purge and embargo as configured; a shared cap may not be exceeded across concurrent options.
 
 ## D. Served decision journey
 
-Against a locally started server, publish a typed component with claim-class capabilities, call Python `AgentAssemble`, inspect record/certificate/why-not, call `DecisionCommit`, read it back, and pin it as graph synthesis evidence. Repeat through the generated Python method wrapper and a wire client. Call `DecideText` with quoted candidate blocks, typed parameters and malformed spans. Run a fit/evaluate/publish/decide cycle with an independently evaluated outcome; assert receipt and record lineage. A second tenant sees no record. For topology, verify capacity-premise inputs, bounded shape variables, fail-closed template shape, proposed graph and no capacity lease before separate acquisition. For entity resolution and finance, verify proposals/analysis only and no write or trade side effect.
+Against a locally started server, publish a typed component with claim-class capabilities. Call Python `AgentAssemble`, inspect record/certificate/why-not, then call `DecisionCommit`. Read it back and pin it as graph synthesis evidence. Repeat through the generated Python method wrapper and a wire client. Call `DecideText` with quoted candidate blocks, typed parameters and malformed spans. Run a fit/evaluate/publish/decide cycle with an independently evaluated outcome; assert receipt and record lineage. A second tenant sees no record. For topology, verify capacity-premise inputs, bounded shape variables, fail-closed template shape, proposed graph and no capacity lease before separate acquisition. For entity resolution and finance, verify proposals/analysis only and no write or trade side effect.
 
 ## D2. Task-plan facts
 
@@ -51,7 +51,7 @@ Pass an empty contract version and a bespoke call path through the real runtime 
 | EG-DECISION-ENGINE-R118 | Two source pools with independently labeled successes/failures, one sparse pool and two tenant scopes yield reproducible posterior, Brier/log/decomposition/calibration scores; the governed value agrees in decision policy, retrieval rank and UQL. | Self-reported labels, invisible outcomes and missing pool history cannot improve another tenant's score; a caller-supplied weight cannot override the materialization; sparse history abstains. |
 | EG-DECISION-ENGINE-R119 | A fixed bitemporal series produces exact purged/embargoed walk-forward folds, proportional shared-cap allocations, real trial-count DSR, split PBO, incumbent DM, option contributions and byte-identical sealed replay after checkpoint resume. | Future-known rows, overlap, changed source/head/policy digest, over-cap allocation, policy-dependent environment, bad supersedes digest and malformed `REPLAY WALK FORWARD` refuse without a sealed run or head promotion. |
 
-For each changed code path run focused Rust/Python/client tests, `cargo fmt --check`, workspace Clippy with applicable features, generated contract freshness, CCCC, KISS, Dupehound and jscpd differential with zero new pairs. Hosted CI runs build/package tests for affected features and the locally provisioned served journey. Optional cloud/cluster/identity-provider tests run in a separate deployment qualification and cannot block normal external PRs merely because no live environment exists. An acceptance record is complete only when every relevant A–E case and gate has a result tied to the same published commit; `SOURCE_LANDED` stays distinct from `ACCEPTED`.
+For each changed code path run focused Rust/Python/client tests, `cargo fmt --check`, and workspace Clippy with applicable features. Check generated contract freshness, CCCC, KISS, Dupehound and jscpd differential with zero new pairs. Hosted CI runs build/package tests for affected features and the locally provisioned served journey. Optional cloud/cluster/identity-provider tests run in a separate deployment qualification. A missing live environment cannot block normal external PRs. A complete acceptance record ties every relevant A–E case and gate result to the same published commit. `SOURCE_LANDED` stays distinct from `ACCEPTED`.
 
 ### EG-DECISION-ENGINE-R113.1: capacity commit type
 
@@ -925,3 +925,47 @@ The `bounded_task_plan` performance receipt for R134.111.6 remains pending.
 - `EG-DECISION-ENGINE-R814.4`: `crates/eg-core/tests/prompt_candidate.rs::unbound_prompt_refuses_and_rejected_connector_is_excluded`.
 - `EG-DECISION-ENGINE-R814.5`: `tests/decision/test_prompt_candidates_served.py::test_record_names_prompt_connector_digest_and_capability`.
 - `EG-DECISION-ENGINE-R814.6`: `tests/decision/test_prompt_candidates_served.py::test_dynamic_agent_gets_the_matching_connector_system_prompt`.
+
+
+## Model media declarations: source, generated consumers and qualification
+
+R050.1 source fixtures preserve these six producer tests:
+
+- `agent_component::tests::model_input_capabilities_publish_round_trip_and_bind_every_limit`
+- `agent_component::tests::invalid_model_media_declarations_never_publish`
+- `agent_component::input_capabilities::tests::selected_profile_enforces_exact_decoded_bounds`
+- `agent_component::input_capabilities::tests::declarations_reject_unknown_media_duplicates_and_unbounded_limits`
+- `connector_pack::digest::measured_model_tests::pack_model_input_capabilities_are_digest_bound`
+- `server::persistence::agent_component::tests::model_input_capabilities_survive_owner_restart_and_tenant_reads`
+
+Also run the existing `absent_shell_proficiency_keeps_digest` component V3/V4
+vectors and `measured_pack_model_digest_preserves_absence_and_binds_provenance`
+pack vector unchanged. Absent/null capabilities must not change those digests.
+
+The signed pack-import module
+`src/server/handlers/admin/connector_pack/tests/model_input_capabilities.rs`
+adds two producer fixtures. `declared_model_media_facts_round_trip_through_pack_import`
+imports a declaration and reads the complete facts back. It changes only the
+byte bound and checks a new component digest/revision with retained old facts.
+`nonvision_image_pack_refuses_without_owner_or_body_mutation` covers a fresh
+catalog and an already published model. Upload the archive before recording the
+baseline; reject false-vision image facts as InvalidComponent and compare the
+existing owner snapshot (heads, components, imports, holders and outbox) and
+blob/chunk counts. A fixture declaration is not a claim that an image ran.
+
+R050.2 runs `tests/test_generated_model_input_capabilities.py` with no engine.
+Both strict generated model classes must accept and preserve all four media values.
+They distinguish unknown from unrestricted input. After a successful positive
+control, they reject unknown MIME or extra capability fields. Do not skip or
+xfail missing generated fields. Run `gen_contract --check` after canonical
+regeneration; the generated fixture alone is not full contract freshness.
+
+R050.3 requires command/result/commit receipts for all native fixtures above;
+formatting and source inspection are not compilation or execution. The planned
+`model_media_capabilities_max_parts` benchmark uses four media types and 128
+size-only parts with a total of 64 MiB, then exceeds the byte/count bounds.
+Record hardware/profile, latency and peak allocations independently. The
+benchmark is not implemented or executed by this producer slice. Selected
+profile/run binding, atomic authority/admission, consumer invocation and the
+served PNG journey remain separate open R036/downstream acceptance, never
+inferred from these fixtures or generated status.

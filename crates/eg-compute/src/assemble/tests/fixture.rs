@@ -88,6 +88,7 @@ pub fn model(component_id: &str, spec: ModelSpec) -> CandidateFacts {
         supports_tools: spec.tools,
         supports_structured_output: true,
         supports_vision: false,
+        input_capabilities: None,
         modalities: ModalityFacts {
             input: vec!["eg:modality/text".to_string()],
             output: vec!["eg:modality/text".to_string()],
