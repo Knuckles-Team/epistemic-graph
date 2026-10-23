@@ -293,3 +293,11 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R108.14:** Dashboards, reports, saved queries and templates.
 - [ ] **EG-TYPED-PACKS-R108.15:** AI and ML model assets.
 - [ ] **EG-TYPED-PACKS-R108.16:** One ranked index across all asset families.
+
+- [ ] **EG-TYPED-PACKS-R109:** The dashboard is a first-class catalog asset (rollup).
+- [ ] **EG-TYPED-PACKS-R109.1:** Model.
+- [ ] **EG-TYPED-PACKS-R109.2:** Behavior.
+- [ ] **EG-TYPED-PACKS-R109.3:** Wiring.
+- [ ] **EG-TYPED-PACKS-R109.4:** Refusal.
+- [ ] **EG-TYPED-PACKS-R109.5:** Evidence.
+- [ ] **EG-TYPED-PACKS-R109.6:** Hot-path proof.

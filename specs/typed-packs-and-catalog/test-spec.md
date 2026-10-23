@@ -496,3 +496,11 @@ requires an error response with no result. Canonical artifact freshness passes. 
 - `EG-TYPED-PACKS-R108.14`: `tests/typed_packs/test_catalog_capabilities_served.py::test_dashboard_report_saved_query_and_template_register_with_reads_and_usage`
 - `EG-TYPED-PACKS-R108.15`: `tests/typed_packs/test_catalog_capabilities_served.py::test_model_asset_links_registry_ref_schemas_and_training_lineage_without_weights`
 - `EG-TYPED-PACKS-R108.16`: `tests/typed_packs/test_catalog_capabilities_served.py::test_one_search_ranks_all_families_with_usage_and_endorsement_boost`
+
+- `EG-TYPED-PACKS-R109`: See each child.
+- `EG-TYPED-PACKS-R109.1`: `crates/eg-core/tests/dashboard_asset.rs::dashboard_asset_shape_validates_body_revision_owner_grants_and_links`.
+- `EG-TYPED-PACKS-R109.2`: `crates/eg-core/tests/dashboard_asset.rs::save_bumps_revision_rebuilds_links_and_delete_keeps_then_purges`.
+- `EG-TYPED-PACKS-R109.3`: `tests/typed_packs/test_dashboard_asset_served.py::test_save_read_share_and_delete_reach_the_one_projector_with_authority_checks`.
+- `EG-TYPED-PACKS-R109.4`: `crates/eg-core/tests/dashboard_asset.rs::stale_revision_missing_grant_invalid_body_and_purged_asset_refuse`.
+- `EG-TYPED-PACKS-R109.5`: `tests/typed_packs/test_dashboard_asset_served.py::test_revision_grant_and_delete_history_and_usage_are_served`.
+- `EG-TYPED-PACKS-R109.6`: `tests/typed_packs/test_dashboard_asset_served.py::test_dashboard_save_conflict_share_lineage_search_and_soft_delete`.
