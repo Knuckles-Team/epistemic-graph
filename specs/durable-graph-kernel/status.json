@@ -4262,7 +4262,7 @@
       "landed_in": [],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:266",
-        "tests/adopt_workitem_authenticated_replay.rs:451",
+        "tests/adopt_workitem_authenticated_replay.rs:458",
         "tests/test_work_item_retry_identity.py:128",
         "tests/test_work_item_retry_identity.py:274"
       ],
@@ -4276,6 +4276,7 @@
       "title": "Recover immutable run submission records",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "62374ef41f37",
         "924601ce5495",
         "fc65d45d509d"
       ],
@@ -4464,7 +4465,7 @@
       "landed_in": [],
       "verified_by": [
         "src/server/mutation_batch/digest.rs:319",
-        "tests/adopt_workitem_authenticated_replay.rs:582",
+        "tests/adopt_workitem_authenticated_replay.rs:587",
         "tests/decide/test_task_plan_served.py:230",
         "tests/decide/test_task_plan_served.py:351"
       ]
