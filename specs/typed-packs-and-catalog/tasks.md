@@ -324,3 +324,7 @@ R085.4–R085.7 preserve their parent obligations as rollups. Their .1 children 
 - [ ] **EG-TYPED-PACKS-R105.3:** Parent catalog declares the recurring connector concepts.
 - [ ] **EG-TYPED-PACKS-R105.4:** Parent catalog declares an IT4IT-aligned service-operations core.
 - [ ] **EG-TYPED-PACKS-R105.5:** Competency-question paths are complete on the engine side.
+- [ ] **EG-TYPED-PACKS-R105.6:** The parent catalog declares the IT4IT delivery data objects.
+- [ ] **EG-TYPED-PACKS-R105.7:** The parent catalog declares a data-platform and machine-learning module aligned to DCAT, PROV-O and ML-Schema.
+- [ ] **EG-TYPED-PACKS-R105.8:** The parent catalog declares a media and content module aligned to schema.org media types, EBUCore, IFLA LRM and ActivityStreams.
+- [ ] **EG-TYPED-PACKS-R105.9:** The parent catalog declares a search, retrieval and information-source module aligned to OpenSearch, DCMI Terms and PROV-O.
