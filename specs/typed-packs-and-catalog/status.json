@@ -224,6 +224,8 @@
     "EG-TYPED-PACKS-R105.1",
     "EG-TYPED-PACKS-R105.2",
     "EG-TYPED-PACKS-R105.3",
+    "EG-TYPED-PACKS-R105.4",
+    "EG-TYPED-PACKS-R105.5",
     "EG-TYPED-PACKS-R750",
     "EG-TYPED-PACKS-R750.750",
     "EG-TYPED-PACKS-R750.751",
@@ -2560,7 +2562,9 @@
       "rollup_of": [
         "EG-TYPED-PACKS-R105.1",
         "EG-TYPED-PACKS-R105.2",
-        "EG-TYPED-PACKS-R105.3"
+        "EG-TYPED-PACKS-R105.3",
+        "EG-TYPED-PACKS-R105.4",
+        "EG-TYPED-PACKS-R105.5"
       ]
     },
     {
@@ -2595,6 +2599,30 @@
       ],
       "verified_by": [
         "crates/eg-rdf/tests/connector_parent_classes.rs:48"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.4",
+      "title": "The parent catalog declares a service-operations core aligned to the Open Group IT4IT data objects",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d8cc7453179c"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/service_operations_classes.rs:116",
+        "crates/eg-rdf/tests/service_operations_classes.rs:83"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.5",
+      "title": "The competency-question paths are complete on the engine side",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d8cc7453179c"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/service_operations_classes.rs:117",
+        "crates/eg-rdf/tests/service_operations_classes.rs:157"
       ]
     },
     {
