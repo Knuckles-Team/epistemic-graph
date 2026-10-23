@@ -843,3 +843,4 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R814.4:** Refusal.
 - [ ] **EG-DECISION-ENGINE-R814.5:** Evidence.
 - [ ] **EG-DECISION-ENGINE-R814.6:** Hot-path proof.
+- [ ] **EG-DECISION-ENGINE-R814.7:** Competency query.

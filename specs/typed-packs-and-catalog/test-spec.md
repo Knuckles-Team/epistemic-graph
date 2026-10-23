@@ -470,6 +470,13 @@ requires an error response with no result. Canonical artifact freshness passes. 
 - `EG-TYPED-PACKS-R106.4`: `crates/eg-core/tests/connector_pack_surfaces.rs::unresolved_class_unowned_resource_and_missing_owner_are_reported`.
 - `EG-TYPED-PACKS-R106.5`: `tests/typed_packs/test_connector_catalog_served.py::test_asset_carries_digest_usage_freshness_and_class_counts`.
 - `EG-TYPED-PACKS-R106.6`: `tests/typed_packs/test_connector_catalog_served.py::test_catalog_search_finds_assets_with_owner_term_and_lineage`.
+- `EG-TYPED-PACKS-R106.7`: `tests/typed_packs/test_catalog_competency_queries.py::test_owner_lineage_term_and_class_queries_answer_from_the_graph`. Vectors, with `X` the fixture's first tool:
+  - Owner: `SELECT ?principal ?role WHERE { ?s cat:assignedTo <X> ; cat:principal ?principal ; cat:role ?role }` returns one row, role `owner`.
+  - Upstream lineage: `SELECT ?up WHERE { ?up cat:lineageTo+ <X> }` returns the connector and the server.
+  - Downstream lineage: `SELECT ?down ?hop WHERE { <X> cat:lineageTo+ ?down . ?e cat:from <X> ; cat:to ?down ; cat:hop ?hop }` returns the resource and its fields.
+  - Glossary term: `SELECT ?term ?label WHERE { ?term :definesAsset <X> ; skos:prefLabel ?label }` returns the term that names the tool's class.
+  - Parent class: `SELECT ?asset WHERE { ?asset a/rdfs:subClassOf* cat:Asset ; cp:ofConnector <C> }` returns the two tools, the skill, the prompt, the two resources and their fields.
+  - UQL equivalents return the same rows, for example `MATCH (s:StewardshipAssignment)-[:assignedTo]->(a {id: X}) RETURN s.principal, s.role`.
 - `EG-TYPED-PACKS-R107`: See each child.
 - `EG-TYPED-PACKS-R107.1`: `crates/eg-types/tests/pack_contract.rs::version_and_grant_round_trip`.
 - `EG-TYPED-PACKS-R107.2`: `crates/eg-core/tests/pack_contract.rs::non_breaking_applies_breaking_waits_and_queries_use_active_version`.

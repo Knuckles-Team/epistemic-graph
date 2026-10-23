@@ -925,3 +925,4 @@ The `bounded_task_plan` performance receipt for R134.111.6 remains pending.
 - `EG-DECISION-ENGINE-R814.4`: `crates/eg-core/tests/prompt_candidate.rs::unbound_prompt_refuses_and_rejected_connector_is_excluded`.
 - `EG-DECISION-ENGINE-R814.5`: `tests/decision/test_prompt_candidates_served.py::test_record_names_prompt_connector_digest_and_capability`.
 - `EG-DECISION-ENGINE-R814.6`: `tests/decision/test_prompt_candidates_served.py::test_dynamic_agent_gets_the_matching_connector_system_prompt`.
+- `EG-DECISION-ENGINE-R814.7`: `tests/decision/test_prompt_candidates_served.py::test_system_prompt_query_lists_candidates_for_a_task`. Vector: `SELECT ?prompt ?connector ?digest WHERE { <Y> :requiresCapability ?need . ?prompt a :PromptCandidate ; :systemPromptFor ?need ; cp:ofConnector ?connector ; cp:digest ?digest }` returns the prompt of the connector that serves task Y and not the other connector's prompt.

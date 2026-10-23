@@ -318,6 +318,7 @@
     "EG-TYPED-PACKS-R106.4",
     "EG-TYPED-PACKS-R106.5",
     "EG-TYPED-PACKS-R106.6",
+    "EG-TYPED-PACKS-R106.7",
     "EG-TYPED-PACKS-R107",
     "EG-TYPED-PACKS-R107.1",
     "EG-TYPED-PACKS-R107.2",
@@ -3289,7 +3290,8 @@
         "EG-TYPED-PACKS-R106.3",
         "EG-TYPED-PACKS-R106.4",
         "EG-TYPED-PACKS-R106.5",
-        "EG-TYPED-PACKS-R106.6"
+        "EG-TYPED-PACKS-R106.6",
+        "EG-TYPED-PACKS-R106.7"
       ]
     },
     {
@@ -3330,6 +3332,13 @@
     {
       "id": "EG-TYPED-PACKS-R106.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.7",
+      "title": "Competency queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3523,7 +3532,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R108.16",
-      "title": "One ranked index across all asset families",
+      "title": "One ranked index across all asset families, callable from queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
