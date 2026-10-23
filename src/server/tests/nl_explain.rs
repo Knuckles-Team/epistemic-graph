@@ -43,13 +43,19 @@ fn explain_body(resp: &Response) -> eg_types::nl_query::NlQueryExplainResult {
     }
 }
 
+/// The unified fixture graph with the echo planner injected.
+async fn echo_planned_fixture() -> Arc<RwLock<ServerState>> {
+    crate::server::set_nl_planner(Arc::new(EchoPlanner));
+    let state = test_state();
+    build_unified_fixture(&state).await;
+    state
+}
+
 // spec: EG-FEDERATED-QUERY-R058.2.2.1
 #[tokio::test]
 async fn nl_query_explain_returns_planner_uql_and_nl_query_rows() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    crate::server::set_nl_planner(Arc::new(EchoPlanner));
-    let state = test_state();
-    build_unified_fixture(&state).await;
+    let state = echo_planned_fixture().await;
     let text = "MATCH (:Doc) |> LIMIT 3";
 
     let plain = send(&state, 940, nl(text)).await;
@@ -76,9 +82,7 @@ async fn nl_query_explain_returns_planner_uql_and_nl_query_rows() {
 #[tokio::test]
 async fn nl_query_explain_refuses_exactly_like_nl_query() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    crate::server::set_nl_planner(Arc::new(EchoPlanner));
-    let state = test_state();
-    build_unified_fixture(&state).await;
+    let state = echo_planned_fixture().await;
     let over_budget = "x".repeat(eg_plan::nl::NlQueryBudget::default().max_uql_len + 1);
     for (id, text, code) in [
         (950, "MATCH ((( not uql", "INVALID_ARGUMENT"),

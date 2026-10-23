@@ -1320,12 +1320,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.2.2.1",
       "title": "Served `NlQueryExplain` returns the executed UQL with the rows",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2534b57ee4ce"
+      ],
       "verified_by": [
         "crates/eg-types/src/nl_query.rs:26",
-        "src/server/tests/nl_explain.rs:46",
-        "src/server/tests/nl_explain.rs:75",
+        "src/server/tests/nl_explain.rs:54",
+        "src/server/tests/nl_explain.rs:81",
         "tests/test_pb_clients.py:88"
       ]
     },
@@ -1356,9 +1358,9 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:201",
-        "src/server/handlers/query/nl.rs:207",
-        "src/server/handlers/query/nl.rs:230"
+        "src/server/handlers/query/nl.rs:196",
+        "src/server/handlers/query/nl.rs:202",
+        "src/server/handlers/query/nl.rs:225"
       ]
     },
     {
