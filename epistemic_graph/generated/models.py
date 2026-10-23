@@ -11892,6 +11892,13 @@ class MethodGetCurrentPlan(BaseModel):
     params: MethodGetCurrentPlanParams
 
 
+class MethodGetSessionUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetSessionUsage"]
+    params: MethodGetSessionUsageParams
+
+
 class MethodGetRunWorkItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12502,6 +12509,7 @@ Method = Annotated[
     | MethodEdgeSearch
     | MethodPublishCurrentPlan
     | MethodGetCurrentPlan
+    | MethodGetSessionUsage
     | MethodGetRunWorkItem
     | MethodGetWorkItem
     | MethodListWorkItems
@@ -14228,6 +14236,13 @@ class MethodGetRunWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     run_id: str
+    tenant: str
+
+
+class MethodGetSessionUsageParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
     tenant: str
 
 
@@ -21682,6 +21697,18 @@ class SessionTouch(BaseModel):
     session_token: Secret
 
 
+class SessionUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    count_coverage: dict[str, Annotated[int, Field(ge=0)]]
+    counts: dict[str, Annotated[int, Field(ge=0)]]
+    expected_runs: Annotated[int, Field(ge=0)]
+    inventory_complete: bool
+    missing_runs: Annotated[int, Field(ge=0)]
+    recorded_runs: Annotated[int, Field(ge=0)]
+
+
 class SessionView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -27421,6 +27448,8 @@ __all__ = [
     "MethodGetRdf",
     "MethodGetRunWorkItem",
     "MethodGetRunWorkItemParams",
+    "MethodGetSessionUsage",
+    "MethodGetSessionUsageParams",
     "MethodGetShortestPath",
     "MethodGetShortestPathParams",
     "MethodGetSubgraph",
@@ -28689,6 +28718,7 @@ __all__ = [
     "ServerTransport",
     "SessionRecordProjection",
     "SessionTouch",
+    "SessionUsage",
     "SessionView",
     "Sha256Digest",
     "ShaclSeverity",

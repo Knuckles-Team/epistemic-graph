@@ -9931,6 +9931,59 @@
       ],
       "type": "object"
     },
+    "SessionUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "count_coverage": {
+          "additionalProperties": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Counts are partial when not every expected run measured that counter.",
+          "type": "object"
+        },
+        "counts": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "object"
+        },
+        "expected_runs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inventory_complete": {
+          "type": "boolean"
+        },
+        "missing_runs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recorded_runs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "context_id",
+        "inventory_complete",
+        "counts",
+        "expected_runs",
+        "recorded_runs",
+        "missing_runs",
+        "count_coverage"
+      ],
+      "type": "object"
+    },
     "SharedCap": {
       "additionalProperties": false,
       "description": "One budget shared by every option of a step (capital, GPU-hours, tokens,\nlane slots): the applied amounts never sum past `cap` in absolute value.",
@@ -12785,6 +12838,18 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetSessionUsage": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SessionUsage"
           }
         }
       },

@@ -37352,6 +37352,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "Caller-owned committed measurements from one bounded snapshot.",
+          "properties": {
+            "method": {
+              "const": "GetSessionUsage",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "context_id": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tenant",
+                "context_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Historical native run admission, visible only to its verified immutable\nowner. Missing and foreign rows return null; missing original admission\nevidence refuses explicitly. Independent of current lease or terminal state.",
           "properties": {
             "method": {
