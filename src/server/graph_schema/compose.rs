@@ -724,9 +724,9 @@ ex:parent a owl:AsymmetricProperty .
         // +8: TaskStep and BestPractice (EG-ORCH-VOCAB-R001.1/R004.1).
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
-        // +136: the 19 connector parent classes across the core, software, sdlc,
+        // +129: the 19 connector parent classes across the core, software, sdlc,
         // company, infrastructure and supply-chain modules (EG-TYPED-PACKS-R105.3).
-        assert_eq!(composed.ontology.len(), 13_899);
+        assert_eq!(composed.ontology.len(), 13_892);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
