@@ -9,8 +9,11 @@
 //!   through the storage kernel's inspected, single-commit transition. It stops
 //!   at the first failure; a failed upgrade leaves that file in its previous
 //!   layout. A second run finds nothing to do.
-//! * [`refuse_upgradable_stores`] is the server's startup check: the engine
-//!   never upgrades a store itself, it refuses to start and names the command.
+//! * [`migrate_on_open`] runs the same upgrades when the engine opens its data
+//!   directory, under the engine's own lock, with a crash-safe journal. It is
+//!   on unless `EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE` turns it off.
+//! * [`refuse_upgradable_stores`] is the server's startup check: with automatic
+//!   migration off, the engine refuses to start and names the command.
 //!
 //! Which upgrades exist is decided by the storage kernel's registry
 //! (`eg_storage::OFFLINE_STORE_UPGRADES`); nothing here names a specific one.
@@ -23,8 +26,14 @@ use eg_storage::{
     PhysicalStoreIdentity, OFFLINE_UPGRADE_APPLY_COMMAND,
 };
 
+mod auto_migrate;
 mod discover;
 mod report;
+
+pub use auto_migrate::{
+    auto_migrate_enabled, migrate_on_open, AutoMigration, AutoMigrationError, Refused,
+    AUTO_MIGRATE_ENV, AUTO_MIGRATE_STAGING_ENV,
+};
 
 use discover::{discover, served_identity, StoreFile};
 pub use report::{
@@ -333,5 +342,7 @@ fn not_admitted(
     }
 }
 
+#[cfg(test)]
+mod auto_migrate_tests;
 #[cfg(test)]
 mod tests;

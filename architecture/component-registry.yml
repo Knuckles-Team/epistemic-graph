@@ -4031,6 +4031,7 @@ components:
       - "tests/test_sql_source_native_client.py"
       - "tests/test_startup.py"
       - "tests/test_statespace_kernels.py"
+      - "tests/test_store_auto_migrate.py"
       - "tests/test_streaming_cdc.py"
       - "tests/test_sync_client_lifecycle.py"
       - "tests/test_transport.py"

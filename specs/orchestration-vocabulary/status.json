@@ -709,7 +709,8 @@
       "title": "Add counter shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "6f219399af41"
+        "6f219399af41",
+        "917fda05507f"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:194"
