@@ -267,6 +267,7 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R106.4:** Refusal.
 - [ ] **EG-TYPED-PACKS-R106.5:** Evidence.
 - [ ] **EG-TYPED-PACKS-R106.6:** Hot-path proof.
+- [ ] **EG-TYPED-PACKS-R106.7:** Competency queries.
 - [ ] **EG-TYPED-PACKS-R107:** Each connector pack is a versioned contract and a re-import detects breaking changes (rollup).
 - [ ] **EG-TYPED-PACKS-R107.1:** Model.
 - [ ] **EG-TYPED-PACKS-R107.2:** Behavior.
