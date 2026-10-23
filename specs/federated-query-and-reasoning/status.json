@@ -436,7 +436,14 @@
     "EG-FEDERATED-QUERY-R721.1",
     "EG-FEDERATED-QUERY-R721.2",
     "EG-FEDERATED-QUERY-R721.3",
-    "EG-FEDERATED-QUERY-R721.4"
+    "EG-FEDERATED-QUERY-R721.4",
+    "EG-FEDERATED-QUERY-R722",
+    "EG-FEDERATED-QUERY-R722.1",
+    "EG-FEDERATED-QUERY-R722.2",
+    "EG-FEDERATED-QUERY-R722.3",
+    "EG-FEDERATED-QUERY-R722.4",
+    "EG-FEDERATED-QUERY-R722.5",
+    "EG-FEDERATED-QUERY-R722.6"
   ],
   "requirements": [
     {
@@ -4350,6 +4357,63 @@
     {
       "id": "EG-FEDERATED-QUERY-R721.4",
       "title": "Hot-path proof: cross-modal queries with default configuration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722",
+      "title": "Connector data resources register as virtual-graph sources at pack import (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R722.1",
+        "EG-FEDERATED-QUERY-R722.2",
+        "EG-FEDERATED-QUERY-R722.3",
+        "EG-FEDERATED-QUERY-R722.4",
+        "EG-FEDERATED-QUERY-R722.5",
+        "EG-FEDERATED-QUERY-R722.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

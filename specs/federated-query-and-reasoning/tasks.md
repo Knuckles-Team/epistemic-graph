@@ -405,3 +405,11 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
   - [ ] **EG-FEDERATED-QUERY-R721.2:** Wiring and store authority.
   - [ ] **EG-FEDERATED-QUERY-R721.3:** Refusal.
   - [ ] **EG-FEDERATED-QUERY-R721.4:** Hot-path proof: cross-modal queries with default configuration.
+
+- [ ] **EG-FEDERATED-QUERY-R722:** Connector data resources register as virtual-graph sources at pack import (rollup).
+- [ ] **EG-FEDERATED-QUERY-R722.1:** Model.
+- [ ] **EG-FEDERATED-QUERY-R722.2:** Behavior.
+- [ ] **EG-FEDERATED-QUERY-R722.3:** Wiring.
+- [ ] **EG-FEDERATED-QUERY-R722.4:** Refusal.
+- [ ] **EG-FEDERATED-QUERY-R722.5:** Evidence.
+- [ ] **EG-FEDERATED-QUERY-R722.6:** Hot-path proof.
