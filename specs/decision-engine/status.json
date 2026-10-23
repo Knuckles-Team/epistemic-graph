@@ -9656,8 +9656,10 @@
     {
       "id": "EG-DECISION-ENGINE-R134.111.7",
       "title": "Canonical task-plan feature schema",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b253ea2ab526"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/task_plan/tests.rs:205",
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:181",
