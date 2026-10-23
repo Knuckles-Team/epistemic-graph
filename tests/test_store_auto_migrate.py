@@ -18,6 +18,7 @@ outside it.
 
 import asyncio
 import os
+import re
 import subprocess
 
 import pytest
@@ -44,6 +45,7 @@ pytestmark = [
 ]
 
 SWITCH = "EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE"
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class _MigratingStore(_Store):
@@ -64,7 +66,7 @@ class _MigratingStore(_Store):
             asyncio.run(check())
         finally:
             stop_server(process, name="migrating engine", log_path=self.log)
-        return self.log.read_text(errors="replace")
+        return ANSI.sub("", self.log.read_text(errors="replace"))
 
     def refused(self, binary: str, **extra: str) -> tuple[int, str]:
         """Start an engine that must refuse the store; return its exit and output."""
@@ -125,12 +127,12 @@ def test_open_migrates_a_previous_patch_store_and_serves(writer, tmp_path):
     if writer:
         # A previous-patch store needs at least one registered upgrade.
         assert "store migration: journal written" in first, first
-        assert 'outcome="migrated"' in first or "outcome=migrated" in first, first
+        assert 'outcome="migrated"' in first, first
     assert "FORMAT_UPGRADE_REQUIRED" not in first, first
     # Idempotent: the next open finds nothing to migrate and still serves.
     second = store.run_with(binary, reopened)
     assert "store migration: journal written" not in second, second
-    assert "nothing_to_do" in second, second
+    assert 'outcome="nothing_to_do"' in second, second
     assert not (
         store.persist / ".store-upgrade-staging" / "auto-migrate.journal.json"
     ).exists()

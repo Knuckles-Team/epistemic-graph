@@ -2123,11 +2123,18 @@
     {
       "id": "EG-DURABLE-KERNEL-R070",
       "title": "Operator command inspects and applies registered offline store upgrades",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "8dbb5bd9de53"
+        "8dbb5bd9de53",
+        "b9b439d4700b"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:130",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:170",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:186",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:227",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:254"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R070.1",
         "EG-DURABLE-KERNEL-R070.2"
@@ -2136,8 +2143,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R070.1",
       "title": "The engine migrates an older supported store when it opens it",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b9b439d4700b"
+      ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:130",
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:170",
@@ -2149,10 +2158,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R070.2",
       "title": "Hot-path proof: a previous-patch store migrates and serves at open",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b9b439d4700b"
+      ],
       "verified_by": [
-        "tests/test_store_auto_migrate.py:43"
+        "tests/test_store_auto_migrate.py:44"
       ]
     },
     {
