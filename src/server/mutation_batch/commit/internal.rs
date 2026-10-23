@@ -17,16 +17,44 @@ use super::super::compile::{authoritative_graph_version, compile_methods, Compil
 /// fixed number of deterministic stripes bounds memory across create/delete churn; a hash
 /// collision only serializes two unrelated graphs and cannot weaken correctness.
 pub(crate) async fn lock_graph(graph: &str) -> OwnedMutexGuard<()> {
-    const STRIPES: usize = 1024;
     static LOCKS: OnceLock<Vec<Arc<Mutex<()>>>> = OnceLock::new();
-    let locks = LOCKS.get_or_init(|| (0..STRIPES).map(|_| Arc::new(Mutex::new(()))).collect());
+    striped_lock(&LOCKS, graph).await
+}
+
+/// The serialization lane for one transaction coordinator (a Commit parent
+/// receipt id). It is a SEPARATE stripe table from [`lock_graph`], and that is
+/// load-bearing: Commit holds this lane and then takes `lock_graph(txn.graph)`.
+/// In one shared table a parent id whose hash landed on its own graph's stripe
+/// re-entered a non-reentrant mutex and hung that Commit forever; a collision
+/// with another graph's stripe could close a lock-order cycle with a writer of
+/// that graph. With two tables the order is always coordinator, then graph.
+pub(crate) async fn lock_txn_coordinator(parent_id: &str) -> OwnedMutexGuard<()> {
+    static LOCKS: OnceLock<Vec<Arc<Mutex<()>>>> = OnceLock::new();
+    striped_lock(&LOCKS, parent_id).await
+}
+
+const LOCK_STRIPES: usize = 1024;
+
+/// The deterministic stripe a lane key maps to (FNV-1a).
+pub(crate) fn lock_stripe(key: &str) -> usize {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for byte in graph.as_bytes() {
+    for byte in key.as_bytes() {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    let lock = Arc::clone(&locks[(hash as usize) % STRIPES]);
-    lock.lock_owned().await
+    (hash as usize) % LOCK_STRIPES
+}
+
+async fn striped_lock(
+    table: &'static OnceLock<Vec<Arc<Mutex<()>>>>,
+    key: &str,
+) -> OwnedMutexGuard<()> {
+    let locks = table.get_or_init(|| {
+        (0..LOCK_STRIPES)
+            .map(|_| Arc::new(Mutex::new(())))
+            .collect()
+    });
+    Arc::clone(&locks[lock_stripe(key)]).lock_owned().await
 }
 
 /// Parameters for one internal graph write. Keeping the coordinator's options
@@ -571,5 +599,32 @@ pub(super) fn apply_projectable_method(core: &GraphCore, method: &Method) -> Res
         #[cfg(feature = "epistemic")]
         Method::RecomputeMaterialization { .. } => Ok(()),
         _ => Err("internal graph MutationBatch contains a non-projectable method".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod lane_tests {
+    use super::{lock_graph, lock_stripe, lock_txn_coordinator};
+
+    /// A Commit holds its coordinator lane and then its graph lane. A parent id
+    /// that shares the graph's stripe must not wait on that graph lane.
+    // spec: EG-DURABLE-KERNEL-R065.1
+    #[tokio::test]
+    async fn coordinator_lane_never_waits_on_a_colliding_graph_lane() {
+        let graph = "__commons__";
+        let colliding = (0u64..)
+            .map(|n| format!("txn-parent-{n}"))
+            .find(|id| lock_stripe(id) == lock_stripe(graph))
+            .expect("some parent id shares the graph stripe");
+        let _graph_lane = lock_graph(graph).await;
+        let coordinator = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            lock_txn_coordinator(&colliding),
+        )
+        .await;
+        assert!(
+            coordinator.is_ok(),
+            "coordinator lane {colliding} waited on the {graph} graph lane"
+        );
     }
 }
