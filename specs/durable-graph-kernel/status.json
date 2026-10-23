@@ -4503,8 +4503,8 @@
       "title": "Graph lifecycle replay and graph listing survive a patch upgrade (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "7ffeaff770ab",
         "9d5b6a58de75",
+        "eec3e5ffbf2d",
         "f3b89fbc5e09",
         "fcb8d033061e"
       ],
@@ -4535,7 +4535,7 @@
       "title": "Graph listing survives a restart and a patch upgrade",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "7ffeaff770ab"
+        "eec3e5ffbf2d"
       ],
       "verified_by": [
         "tests/test_upgrade_store_listing.py:39"
