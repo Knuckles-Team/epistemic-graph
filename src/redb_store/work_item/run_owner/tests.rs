@@ -1,13 +1,8 @@
-use super::super::test_shard::run_fixture::admission;
+use super::super::test_shard::run_request as request;
 use super::super::test_shard::{apply, open, with_nodes, with_write, GRAPH};
 use super::*;
-use eg_types::native_control::SubmitWorkItemRequest;
 
 type Row = serde_json::Map<String, serde_json::Value>;
-
-fn request() -> SubmitWorkItemRequest {
-    admission(serde_json::json!({"original":true}))
-}
 
 fn admit(shard: &Shard) -> String {
     with_write(shard, "admit", 1000, |admitted| {

@@ -69,6 +69,7 @@ pub(crate) mod checkpoint;
 mod claim;
 mod commit;
 mod control_lease;
+mod conversation;
 pub(crate) mod current_plan;
 mod dispatch;
 mod lease;

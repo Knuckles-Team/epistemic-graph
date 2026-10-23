@@ -27,11 +27,21 @@ fn admitted_context(row: &Row, graph: &str, tenant: &str, run_id: &str, context_
         && admission.context.tenant_id == tenant
         && crate::persist::sanitize(&admission.context.graph) == graph
         && admission.work_item_id.is_none()
-        && admission
-            .metadata
-            .get("a2a_context_id")
-            .and_then(serde_json::Value::as_str)
-            == Some(context_id)
+        && admission_context_matches(&admission, context_id)
+}
+
+fn admission_context_matches(
+    admission: &eg_types::native_control::SubmitWorkItemRequest,
+    context_id: &str,
+) -> bool {
+    let legacy = admission.metadata.get("a2a_context_id");
+    match admission.conversation.as_deref() {
+        Some(turn) => {
+            turn.context_id == context_id
+                && legacy.is_none_or(|value| value.as_str() == Some(context_id))
+        }
+        None => legacy.and_then(serde_json::Value::as_str) == Some(context_id),
+    }
 }
 
 #[derive(Serialize, Deserialize)]

@@ -76,6 +76,7 @@ fn request_context(request_id: &str, trace_id: &str) -> RequestContext {
 fn submit_method() -> Method {
     Method::SubmitWorkItem {
         request: SubmitWorkItemRequest {
+            conversation: None,
             run_id: None,
             schema_version: NativeControlSchemaVersion::V1,
             context: request_context("client-submit-request", "client-submit-trace"),
@@ -939,9 +940,14 @@ async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
     let state = run_state_with(concrete.clone(), dir.clone()).await;
     let mut submission = run_submit_method();
     if let Method::SubmitWorkItem { request } = &mut submission {
-        request
-            .metadata
-            .insert("a2a_context_id".into(), "checkpoint-context".into());
+        request.conversation = Some(Box::new(
+            eg_types::native_control::ConversationTurnAdmission {
+                schema_version: NativeControlSchemaVersion::V1,
+                context_id: "checkpoint-context".into(),
+                expected_revision: 0,
+                predecessor_run_id: None,
+            },
+        ));
     }
     let admitted: SubmitWorkItemResult = decode_raw(
         &test_support::dispatch(

@@ -988,3 +988,73 @@ It also updates the native catalog digest. The only method changes declare
 checkpoint nonce reuse and live-claim conflict refusals.
 Independent review confirms the artifact and source match.
 Final hosted parity and complete native gates remain open.
+
+## Amendment: ordered conversation admission, 2026-10-23
+
+Extend R028.4 and retain the session/chat obligations in R751.750 and R751.751.
+Those rows name session and chat records but do not provide a chat-store type.
+The existing `SessionRecord` is an authentication record, not conversation state.
+Reuse native run admission, its immutable original request, sealed NODES and
+MutationBatch. Do not add a parallel transcript database or full-history copies.
+
+An optional typed admission field reserves one context head in the same write
+transaction as the new WorkItem. The graph-scoped owner table provides graph
+incarnation isolation. The head binds tenant, owner, context, revision and run.
+The exact preceding run lives in the immutable original submission. The engine permits one active
+turn; stale writers conflict. Failed or uncertain predecessors need
+an explicit later recovery policy, not an inferred successful history.
+
+Legacy requests omit the field and keep their previous wire form. Typed callers
+must use a newly created context or an explicitly migrated context. This slice
+cannot import old metadata-only contexts or discover their authoritative order.
+An existing typed head refuses metadata-only continuation. Generated schemas
+and clients must expose the optional nested field before served use.
+
+The head is an admission-order record, not a transcript or history receipt.
+The checkpoint host adapter must validate a completed, owner-bound model-history
+snapshot before any model or tool effect. Successful WorkItem status alone does
+not establish this. Public transcript pagination, a head read operation,
+checkpoint digest binding, compaction policy, retention and served restart proof
+remain open. No frontend may fabricate them from timestamps or local history.
+
+Native qualification found that inline conversation admission enlarged Method.
+Keep the optional admission boxed without changing its wire form or the existing
+Method-size regression bound. Regenerate native artifacts for the corrected
+source; earlier artifact receipts do not qualify the changed codec.
+
+### Conversation admission: final native evidence and base integration
+
+Head d408d51a passed the complete hosted workflow 39906163268.
+The facade library passed 2,379 tests with four ignored tests.
+Both previous conversation fixture failures now pass, with their refusal assertions unchanged.
+The current draft also includes recovery base f9dc071d and its connector ontology additions.
+The source merge preserves conversation admission and the new ontology fields.
+The conflicting receipt and catalog files retain exact parent versions pending fresh child generation.
+Those placeholders do not certify the combined child schema.
+Fresh native exports and final-head parity remain required before merge.
+
+
+### Checkpoint and ordered-admission integration
+
+The exact checkpoint head `48bbf6de` passed all 23 executed jobs in run
+39938181881. This includes native checkpoint replay, migration, full Python,
+canonical parity, codec rebuild and patched-lock security checks.
+The later integration with ordered admission requires fresh union qualification.
+
+R028.1.1 now reads context from the immutable original typed admission.
+If original A2A metadata is present, it must match the typed context.
+A malformed or conflicting original binding refuses reads and publication.
+Legacy requests retain the original metadata fallback. Mutable WorkItem metadata
+never supplies checkpoint authority. Existing owner and live-fence checks remain.
+
+Native tests cover typed-only and matching dual bindings, foreign owners and
+conflicting original bindings without snapshot or WorkItem changes.
+The signed MutationBatch fixture now admits a typed-only context. It retains
+strict replay, nonce, CAS, owner and reopen assertions. Legacy native tests remain.
+These updated fixtures have not yet run on the composed source.
+
+Both source and test sets are preserved from ordered admission and checkpoints.
+Generated contract files, codec bytes and pins retain the exact prior checkpoint
+outputs as stale placeholders. Only genuine composed-source export may replace
+them. Full hosted qualification remains required before merge.
+This bridge does not implement public history paging or served model continuation.

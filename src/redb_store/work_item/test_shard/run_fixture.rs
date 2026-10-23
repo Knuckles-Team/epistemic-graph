@@ -9,20 +9,9 @@ type Row = serde_json::Map<String, serde_json::Value>;
 pub(in crate::redb_store::work_item) fn admission(
     metadata: serde_json::Value,
 ) -> SubmitWorkItemRequest {
-    serde_json::from_value(serde_json::json!({
-        "schema_version":"1", "run_id":"run", "work_item_id":null,
-        "context": {"schema_version":"2", "request_id":"request", "subject_id":"owner",
-            "tenant_id":"tenant", "agent_id":"worker", "scopes":["work:*"],
-            "audience":"engine", "authentication_method":"local_process", "policy_version":"v1",
-            "graph":GRAPH, "placement_epoch":null, "trace_id":"trace", "issued_at_ms":1,
-            "expires_at_ms":2},
-        "idempotency_key":"run-key", "command_digest":"A".repeat(64), "kind":"test",
-        "priority":2, "depends_on":[], "input_ref":"input", "policy_digest":"policy",
-        "catalog_digest":"catalog", "model_digest":"model", "max_attempts":3,
-        "deadline_unix":null, "metadata":metadata, "provenance_refs":["source"],
-        "max_tenant_in_flight":0
-    }))
-    .unwrap()
+    let mut request = super::run_request();
+    request.metadata = serde_json::from_value(metadata).unwrap();
+    request
 }
 
 /// Open graph-row tables inside the same admitted transaction used by native

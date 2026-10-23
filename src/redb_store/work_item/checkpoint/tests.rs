@@ -23,13 +23,20 @@ fn request(expected_revision: Option<u64>) -> PublishRunCheckpointRequest {
     }
 }
 fn seed(shard: &Shard) {
+    seed_admission(
+        shard,
+        admission(serde_json::json!({"a2a_context_id":"context"})),
+    );
+}
+
+fn seed_admission(shard: &Shard, admitted: eg_types::native_control::SubmitWorkItemRequest) {
     seed_claim(shard, |row| {
-        let metadata = serde_json::json!({"a2a_context_id":"context"});
+        let metadata = serde_json::to_value(&admitted.metadata).unwrap();
         row.insert("kind".into(), "orchestrator_task".into());
         row.insert("metadata".into(), metadata.clone());
         row.insert(
             run_owner::ADMISSION_REQUEST.into(),
-            serde_json::to_value(admission(metadata)).unwrap(),
+            serde_json::to_value(admitted).unwrap(),
         );
     });
 }
@@ -295,4 +302,68 @@ fn checkpoint_read_never_crosses_native_graph_tenant_or_run() {
         );
     }
     assert_eq!(count(shard), 1);
+}
+
+fn typed_admission(metadata: serde_json::Value) -> eg_types::native_control::SubmitWorkItemRequest {
+    let mut request = admission(metadata);
+    request.conversation = Some(Box::new(
+        eg_types::native_control::ConversationTurnAdmission {
+            schema_version: eg_types::native_control::NativeControlSchemaVersion::V1,
+            context_id: "context".into(),
+            expected_revision: 0,
+            predecessor_run_id: None,
+        },
+    ));
+    request
+}
+
+// spec: EG-DURABLE-KERNEL-R028.1.1
+#[test]
+fn checkpoint_typed_admission_is_owner_bound_with_optional_matching_legacy_context() {
+    for metadata in [
+        serde_json::json!({}),
+        serde_json::json!({"a2a_context_id":"context"}),
+    ] {
+        let tmp = open("checkpoint-typed-context");
+        let shard = &tmp.shard;
+        seed_admission(shard, typed_admission(metadata));
+        apply(shard, "first", &request(None), "owner", 2000).unwrap();
+        let before = get(shard, "owner", true, 2000).unwrap().unwrap();
+        assert_eq!(before.context_id, "context");
+        assert!(get(shard, "foreign", false, 2000).unwrap().is_none());
+        assert!(apply(shard, "foreign", &request(Some(1)), "foreign", 2000).is_err());
+        assert_eq!(get(shard, "owner", true, 2000).unwrap(), Some(before));
+        assert_eq!(count(shard), 1);
+    }
+}
+
+// spec: EG-DURABLE-KERNEL-R028.1.1
+#[test]
+fn conflicting_original_context_bindings_refuse_without_mutation() {
+    for value in [
+        serde_json::json!("foreign"),
+        serde_json::json!(7),
+        serde_json::Value::Null,
+    ] {
+        let tmp = open("checkpoint-conflicting-context");
+        let shard = &tmp.shard;
+        seed_admission(
+            shard,
+            typed_admission(serde_json::json!({"a2a_context_id":value})),
+        );
+        let id = request(None).work_item_id;
+        let before =
+            super::super::read::snapshot_row(shard, GRAPH, &id, DurableCrypto::none()).unwrap();
+        assert!(get(shard, "owner", false, 2000).unwrap().is_none());
+        for context in ["context", "foreign"] {
+            let mut req = request(None);
+            req.context_id = context.into();
+            assert!(apply(shard, context, &req, "owner", 2000).is_err());
+        }
+        assert_eq!(count(shard), 0);
+        assert_eq!(
+            super::super::read::snapshot_row(shard, GRAPH, &id, DurableCrypto::none()).unwrap(),
+            before
+        );
+    }
 }

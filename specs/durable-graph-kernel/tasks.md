@@ -150,7 +150,7 @@ This batch defines the slices; it runs none of their runtime tests.
 <!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
 ## Durable-kernel owner definition tasks — 2026-10-12
 
-- [ ] **EG-DURABLE-KERNEL-R028.1.1:** Qualify checkpoint-only native source and tests for immutable admission context, owner binding and same-snapshot reads. Include fenced/revisioned publication and canonical MutationBatch retry receipts. Generate fresh checkpoint public contracts and graph layout identity from this exact source. Run native tests and offline predecessor migration/reopen proof before claiming delivery.
+- [ ] **EG-DURABLE-KERNEL-R028.1.1:** Qualify checkpoint-only native source and tests for immutable typed admission context. Check matching original legacy metadata, legacy-only fallback, owner binding and same-snapshot reads. Include fenced/revisioned publication and canonical MutationBatch retry receipts. Generate fresh checkpoint public contracts and graph layout identity from this exact source. Run native tests and offline predecessor migration/reopen proof before claiming delivery.
 - [ ] **EG-DURABLE-KERNEL-R028.1.2:** Complete memory-reference resolution/retention, current-run resume precedence and fence binding. Add durable context ordering and exact host-cursor continuation through AU and served hosts. Keep broad R028.1 open until these companion acceptance cases pass.
 - [ ] **EG-DURABLE-KERNEL-R028.1.3:** Hash-verified hosted checkpoint exports and 30 local facade tests are recorded in the plan. Source formatting, static checks and source review are not native runtime evidence. Final-source native, layout, migration and full repository gates remain pending.
 
@@ -285,3 +285,5 @@ This batch defines the slices; it runs none of their runtime tests.
 
 - [x] **EG-DURABLE-KERNEL-R028.1.3.1:** Verify hosted artifact provenance and hashes. Import generated checkpoint contracts and codec. Pass the 30 scoped Python facade tests.
 - [ ] **EG-DURABLE-KERNEL-R028.1.3.2:** Qualify final-source native compilation, layout and migration, transaction/replay/restart behavior and full repository gates.
+
+- [ ] **EG-DURABLE-KERNEL-R028.4.3:** Qualify typed conversation head reservation in the existing native admission transaction. Complete native store tests, actual MutationBatch replay and changed-body refusal, graph-incarnation isolation and generated contract checks. Keep R028.1 and R751.750/R751.751 open for checkpoint-backed history, public transcript paging and served continuation.
