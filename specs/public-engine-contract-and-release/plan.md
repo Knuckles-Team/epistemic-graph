@@ -527,3 +527,14 @@ Regression tests reject unscoped limits and reuse by release, security or lint
 jobs. Existing checks preserve the profile matrix, warnings-as-errors and locked
 commands. These static checks do not establish native lint acceptance or complete
 EG-CONTRACT-R031.2. Exact-head hosted qualification remains required.
+
+
+### 2026-10-23: patch constant-time utility dependency
+
+EG-CONTRACT-R031 retains the blocking Rust dependency advisory gate.
+Cargo resolves only ctutils from 0.4.3 to 0.4.4 for RUSTSEC-2026-0385.
+The patch repairs mask generation and unsigned 128-bit comparison timing.
+No advisory exception, runtime policy, credential, or network setting changes.
+Verify the locked graph and unchanged advisory gate before publication.
+The changed lockfile requires fresh hosted artifact recipe qualification.
+Complete same-tree quality acceptance under R031.2 remains open.
