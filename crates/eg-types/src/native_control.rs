@@ -271,8 +271,9 @@ pub struct ConversationTurnAdmission {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SubmitWorkItemRequest {
     /// Optional ordered conversation reservation, never a history or execution grant.
+    /// Boxed to preserve the existing Method enum allocation-size bound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conversation: Option<ConversationTurnAdmission>,
+    pub conversation: Option<Box<ConversationTurnAdmission>>,
     /// Optional run identity; native admission binds its verified owner atomically.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,

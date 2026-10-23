@@ -2,19 +2,16 @@ use super::super::test_shard::{check_guard, open, with_nodes, with_write, GRAPH}
 use super::*;
 
 fn request(run: &str, revision: u64, predecessor: Option<&str>) -> SubmitWorkItemRequest {
-    serde_json::from_value(serde_json::json!({
-        "schema_version":"1", "run_id":run, "work_item_id":null,
-        "conversation":{"schema_version":"1", "context_id":"context", "expected_revision":revision, "predecessor_run_id":predecessor},
-        "context": {"schema_version":"2", "request_id":"request", "subject_id":"owner",
-            "tenant_id":"tenant", "agent_id":"worker", "scopes":["work:*"],
-            "audience":"engine", "authentication_method":"local_process", "policy_version":"v1",
-            "graph":GRAPH, "placement_epoch":null, "trace_id":"trace", "issued_at_ms":1,
-            "expires_at_ms":2},
-        "idempotency_key":run, "command_digest":"A".repeat(64), "kind":"test",
-        "priority":2, "depends_on":[], "input_ref":"input", "policy_digest":"policy",
-        "catalog_digest":"catalog", "model_digest":"model", "max_attempts":3,
-        "deadline_unix":null, "metadata":{}, "provenance_refs":[], "max_tenant_in_flight":0
-    })).unwrap()
+    let mut request = super::super::test_shard::run_request();
+    request.run_id = Some(run.into());
+    request.idempotency_key = run.into();
+    request.conversation = Some(Box::new(ConversationTurnAdmission {
+        schema_version: NativeControlSchemaVersion::V1,
+        context_id: "context".into(),
+        expected_revision: revision,
+        predecessor_run_id: predecessor.map(str::to_owned),
+    }));
+    request
 }
 
 fn admit(shard: &Shard, request: &SubmitWorkItemRequest, owner: &str) -> Result<String, String> {

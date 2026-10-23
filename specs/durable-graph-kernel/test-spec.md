@@ -433,6 +433,10 @@ Before acceptance, run these tests on the exact source and add server tests for
 same-key replay with a fresh nonce and changed expected revision or predecessor.
 Check original receipt recovery, full rollback and graph-incarnation isolation.
 Regenerate request contracts and check installed-client compatibility.
+Keep the existing `eg-types/tests/contract_wave.rs` Method-size regression test
+unchanged. Box the optional admission so it does not enlarge every Method value.
+The first native run measured 640 bytes against the existing 616-byte bound.
+Qualify the correction on fresh source rather than raising that bound.
 
 A complete continuation test must restart EG, Arbora and the client between
 turns, inspect the actual model request for prior user, assistant and tool

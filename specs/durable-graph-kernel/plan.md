@@ -902,3 +902,8 @@ snapshot before any model or tool effect. Successful WorkItem status alone does
 not establish this. Public transcript pagination, a head read operation,
 checkpoint digest binding, compaction policy, retention and served restart proof
 remain open. No frontend may fabricate them from timestamps or local history.
+
+Native qualification found that inline conversation admission enlarged Method.
+Keep the optional admission boxed without changing its wire form or the existing
+Method-size regression bound. Regenerate native artifacts for the corrected
+source; earlier artifact receipts do not qualify the changed codec.
