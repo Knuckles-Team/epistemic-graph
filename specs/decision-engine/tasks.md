@@ -836,6 +836,13 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 
 - [ ] **EG-DECISION-ENGINE-R134.111.6:** Qualify the named maximum-input benchmark; record the profile, hardware and latency/memory results before claiming the performance budget.
 
+- [ ] **EG-DECISION-ENGINE-R134.111.8:** Model the typed tool step and its bindings.
+- [ ] **EG-DECISION-ENGINE-R134.111.9:** Canonicalize and statically check calls and bindings.
+- [ ] **EG-DECISION-ENGINE-R134.111.10:** Refuse bad references, binding cycles and call bounds with typed reasons.
+- [ ] **EG-DECISION-ENGINE-R134.111.11:** Bind calls and bindings into the plan digest and evidence.
+- [ ] **EG-DECISION-ENGINE-R134.111.12:** Wire calls through the served Decide path and the feature schema.
+- [ ] **EG-DECISION-ENGINE-R134.111.13:** Prove typed tool steps through the served Decide method.
+
 - [ ] **EG-DECISION-ENGINE-R814:** Connector prompts are system-prompt candidates that agent assembly selects (rollup).
 - [ ] **EG-DECISION-ENGINE-R814.1:** Model.
 - [ ] **EG-DECISION-ENGINE-R814.2:** Behavior.
