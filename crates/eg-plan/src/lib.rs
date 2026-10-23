@@ -366,8 +366,8 @@ pub use exec::explain_belief_tree;
 // `Option<&dyn NlPlanner>` entry point, and the concrete `UreqNlPlanner`.
 #[cfg(feature = "nl-query")]
 pub use nl::{
-    plan_and_execute, plan_and_execute_opt, NlPlanner, OAuth2ClientCredentials, TokenAuthStyle,
-    UreqNlPlanner,
+    plan_and_execute, plan_and_execute_opt, NlConfigError, NlPlanner, OAuth2ClientCredentials,
+    TokenAuthStyle, UreqNlPlanner,
 };
 
 // Re-export the federation surface so a caller naming a foreign source goes through
