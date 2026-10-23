@@ -1261,11 +1261,11 @@ mod tests {
             ),
             (
                 "sdd",
-                "cec7d01ec167a97a063fa7c1643f5172c0e0b11caadd42f5ae63bf165b4792f2",
+                "0701adf9b634ba96548484b30ac3f951e97e04027518e55e1990401d50bb3c61",
             ),
             (
                 "service_operations",
-                "82f826bc756faf4aa3cc0e0f2832c42a0a41269959042144688e0ad88a590dc3",
+                "12498d7bb52e26cca7a40f3bb1dff60a06290cb70a6b319659697c6986184295",
             ),
             (
                 "sdlc_lifecycle",
