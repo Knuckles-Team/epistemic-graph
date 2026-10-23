@@ -329,7 +329,17 @@
     "EG-TYPED-PACKS-R108.3",
     "EG-TYPED-PACKS-R108.4",
     "EG-TYPED-PACKS-R108.5",
-    "EG-TYPED-PACKS-R108.6"
+    "EG-TYPED-PACKS-R108.6",
+    "EG-TYPED-PACKS-R108.7",
+    "EG-TYPED-PACKS-R108.8",
+    "EG-TYPED-PACKS-R108.9",
+    "EG-TYPED-PACKS-R108.10",
+    "EG-TYPED-PACKS-R108.11",
+    "EG-TYPED-PACKS-R108.12",
+    "EG-TYPED-PACKS-R108.13",
+    "EG-TYPED-PACKS-R108.14",
+    "EG-TYPED-PACKS-R108.15",
+    "EG-TYPED-PACKS-R108.16"
   ],
   "requirements": [
     {
@@ -3358,7 +3368,17 @@
         "EG-TYPED-PACKS-R108.3",
         "EG-TYPED-PACKS-R108.4",
         "EG-TYPED-PACKS-R108.5",
-        "EG-TYPED-PACKS-R108.6"
+        "EG-TYPED-PACKS-R108.6",
+        "EG-TYPED-PACKS-R108.7",
+        "EG-TYPED-PACKS-R108.8",
+        "EG-TYPED-PACKS-R108.9",
+        "EG-TYPED-PACKS-R108.10",
+        "EG-TYPED-PACKS-R108.11",
+        "EG-TYPED-PACKS-R108.12",
+        "EG-TYPED-PACKS-R108.13",
+        "EG-TYPED-PACKS-R108.14",
+        "EG-TYPED-PACKS-R108.15",
+        "EG-TYPED-PACKS-R108.16"
       ]
     },
     {
@@ -3399,6 +3419,76 @@
     {
       "id": "EG-TYPED-PACKS-R108.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.7",
+      "title": "Technical metadata from contracts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.8",
+      "title": "Operational metadata from provenance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.9",
+      "title": "Sensitivity propagation and policy link",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.10",
+      "title": "End-to-end lineage across the platform",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.11",
+      "title": "Metric and KPI definitions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.12",
+      "title": "Annotations: comments, tags, ratings and threads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.13",
+      "title": "Curated articles and guides",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.14",
+      "title": "Dashboards, reports, saved queries and templates",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.15",
+      "title": "AI and ML model assets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.16",
+      "title": "One ranked index across all asset families",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

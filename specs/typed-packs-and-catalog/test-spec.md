@@ -485,3 +485,14 @@ requires an error response with no result. Canonical artifact freshness passes. 
 - `EG-TYPED-PACKS-R108.4`: `crates/eg-core/tests/catalog_assets.rs::orphan_class_missing_owner_and_marked_field_are_handled`.
 - `EG-TYPED-PACKS-R108.5`: `tests/typed_packs/test_catalog_assets_served.py::test_node_carries_owner_steward_revision_usage_and_history`.
 - `EG-TYPED-PACKS-R108.6`: `tests/typed_packs/test_catalog_assets_served.py::test_one_query_returns_agents_business_workflows_graphs_and_connector_assets`.
+
+- `EG-TYPED-PACKS-R108.7`: `tests/typed_packs/test_catalog_capabilities_served.py::test_contract_harvest_stores_schema_keys_views_indexes_and_no_rows`
+- `EG-TYPED-PACKS-R108.8`: `tests/typed_packs/test_catalog_capabilities_served.py::test_tool_call_and_query_provenance_feed_usage_frequency_and_top_queries`
+- `EG-TYPED-PACKS-R108.9`: `tests/typed_packs/test_catalog_capabilities_served.py::test_sensitivity_propagates_downstream_as_proposal_and_asset_names_its_policy`
+- `EG-TYPED-PACKS-R108.10`: `tests/typed_packs/test_catalog_capabilities_served.py::test_lineage_walks_source_operation_workflow_dashboard_agent_and_model`
+- `EG-TYPED-PACKS-R108.11`: `tests/typed_packs/test_catalog_capabilities_served.py::test_metric_formula_binds_terms_and_unknown_term_refuses`
+- `EG-TYPED-PACKS-R108.12`: `tests/typed_packs/test_catalog_capabilities_served.py::test_annotations_attach_to_any_asset_and_trust_flags_reuse_the_steward_path`
+- `EG-TYPED-PACKS-R108.13`: `tests/typed_packs/test_catalog_capabilities_served.py::test_article_attaches_to_asset_and_domain_and_is_found_by_text_and_by_asset`
+- `EG-TYPED-PACKS-R108.14`: `tests/typed_packs/test_catalog_capabilities_served.py::test_dashboard_report_saved_query_and_template_register_with_reads_and_usage`
+- `EG-TYPED-PACKS-R108.15`: `tests/typed_packs/test_catalog_capabilities_served.py::test_model_asset_links_registry_ref_schemas_and_training_lineage_without_weights`
+- `EG-TYPED-PACKS-R108.16`: `tests/typed_packs/test_catalog_capabilities_served.py::test_one_search_ranks_all_families_with_usage_and_endorsement_boost`
