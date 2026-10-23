@@ -1089,10 +1089,12 @@
       "title": "The server wheel builds and publishes from this repository",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "3471ee6f8e74",
         "baf9a680a4c4"
       ],
       "verified_by": [
         "tests/test_server_package.py:190",
+        "tests/test_server_package.py:246",
         "tests/test_server_package.py:34",
         "tests/test_server_package.py:47",
         "tests/test_server_package.py:88"
