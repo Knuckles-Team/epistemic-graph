@@ -2126,15 +2126,16 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "57bb1ca1dd81",
+        "710e4416aefe",
         "8dbb5bd9de53",
         "b9b439d4700b"
       ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
-        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:148",
-        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:175",
-        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:201",
-        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:228"
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:129",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:170",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:197",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:223"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R070.1",
@@ -2146,14 +2147,15 @@
       "title": "The engine migrates an older supported store when it opens it",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "710e4416aefe",
         "b9b439d4700b"
       ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
-        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:148",
-        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:175",
-        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:201",
-        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:228"
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:129",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:170",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:197",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:223"
       ]
     },
     {
@@ -2162,6 +2164,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "57bb1ca1dd81",
+        "710e4416aefe",
         "b9b439d4700b"
       ],
       "verified_by": [
