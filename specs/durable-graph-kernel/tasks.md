@@ -278,6 +278,13 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.5.2:** Bind the first attachment immutably through the existing owner transaction; preserve omitted attachments and refuse conflicts.
 - [ ] **EG-DURABLE-KERNEL-R028.5.3:** Verify native attachment replay, restart and scoped availability.
 - [ ] **EG-DURABLE-KERNEL-R028.5.4:** Implement and measure the attached-plan publication/readback benchmark; preserve this performance residual until a reproducible receipt exists.
+
+- [ ] **EG-DURABLE-KERNEL-R028.4.1:** Deliver immutable submission storage, owner-fenced recovery and native restart tests.
+- [ ] **EG-DURABLE-KERNEL-R028.4.2:** Measure recovery latency on a reproducible bounded workload.
+- [ ] **EG-DURABLE-KERNEL-R028.6:** Publish ordinary terminal completion types and atomic durable storage. Qualify exact usage, unknown usage, owner and fence refusal, immutable replay and reopen on this source revision. Keep served acceptance separate.
+
+- [ ] **EG-DURABLE-KERNEL-R028.4.3:** Qualify typed conversation head reservation in the existing native admission transaction. Complete native store tests, actual MutationBatch replay and changed-body refusal, graph-incarnation isolation and generated contract checks. Keep R028.1 and R751.750/R751.751 open for checkpoint-backed history, public transcript paging and served continuation.
+
 - [ ] **EG-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
   records through canonical contract generation, typed and signed native tests,
   and normal publication gates. Keep execution reservation, current session policy,

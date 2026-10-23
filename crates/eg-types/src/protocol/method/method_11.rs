@@ -5,6 +5,10 @@ $($variants)*
 
     PublishCurrentPlan { request: crate::current_plan::PublishCurrentPlanRequest },
     GetCurrentPlan { tenant: String, run_id: String },
+    /// Historical native run admission, visible only to its verified immutable
+    /// owner. Missing and foreign rows return null; missing original admission
+    /// evidence refuses explicitly. Independent of current lease or terminal state.
+    GetRunWorkItem { tenant: String, run_id: String },
 
     // ── Typed WorkItem reads (EH-219) ──────────────────────────────────────
     /// The caller's view of one native WorkItem row, or `null` when no row with

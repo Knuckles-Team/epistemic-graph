@@ -31,6 +31,11 @@ fn every_definition_is_rendered_by_exactly_one_module() {
     let surfaces = Surfaces::new(&space.definitions);
     let mut seen = BTreeSet::new();
     for name in declared(&surfaces.package_text()) {
+        // This private representation adapter is not a schema wire shape.
+        if name == "_EgOctets" {
+            assert!(!space.definitions.contains_key(&name));
+            continue;
+        }
         assert!(seen.insert(name.clone()), "{name} is rendered twice");
     }
     for name in space.definitions.keys() {

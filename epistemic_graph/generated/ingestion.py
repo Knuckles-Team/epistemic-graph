@@ -20,6 +20,7 @@ from .index_repository import (
     IndexRepositoryScope,
     IndexResult,
 )
+from .models import _EgOctets
 from .source_ingestion import (
     SourceIngestionReceipt,
     SourceIngestionRequest,
@@ -378,7 +379,7 @@ class IndexRepositoryRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    files_msgpack: bytes
+    files_msgpack: _EgOctets
     scope: IndexRepositoryScope | None = None
 
 

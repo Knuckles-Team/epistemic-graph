@@ -38,7 +38,7 @@ const LEASE_AUTHORITY: &str =
 /// WorkItem).
 /// Matched on every field EG's label index reads (`type`, `node_type`,
 /// `label`, `labels[]`), so no spelling of the label slips past.
-const NATIVE_ONLY_LABELS: [&str; 3] = ["ControlLease", "ActionApproval", "Gap"];
+const NATIVE_ONLY_LABELS: [&str; 4] = ["ControlLease", "ActionApproval", "Gap", "ConversationHead"];
 const NATIVE_KEY_AUTHORITY: &str =
     "native WorkItem authority required for a kernel-owned row field";
 
@@ -96,9 +96,7 @@ impl RowGuard<'_, '_> {
         refuse_policy_row(Some(&incoming))?;
         // Reserve this key even before a row is labelled WorkItem; otherwise
         // a caller could plant it on a plain row and relabel that row later.
-        if incoming.contains_key("current_plan")
-            || incoming.contains_key("run_owner_binding")
-            || incoming.contains_key("pending_call_lease_ref")
+        if has_reserved_run_binding(&incoming)
             || (is_work_item_row(&incoming)
                 && stored
                     .as_ref()
@@ -145,7 +143,12 @@ impl RowGuard<'_, '_> {
 }
 
 fn refuse_stored_lease(stored: Option<&NodeMap>) -> Result<(), String> {
-    if stored.is_some_and(|row| row.contains_key("run_owner_binding")) {
+    if stored.is_some_and(|row| {
+        row.contains_key(eg_types::run_completion::RUN_COMPLETION_BATCH)
+            || row.contains_key(eg_types::run_completion::RUN_COMPLETION_DIGEST)
+            || row.contains_key("run_owner_binding")
+            || row.contains_key(super::run_owner::ADMISSION_REQUEST)
+    }) {
         return Err(NATIVE_KEY_AUTHORITY.to_string());
     }
     if stored.is_some_and(carries_native_only_label) {
@@ -310,4 +313,102 @@ mod tests {
         )
         .is_err());
     }
+    // spec: EG-DURABLE-KERNEL-R028.4.1
+    #[test]
+    fn run_admission_snapshot_cannot_be_planted_or_removed() {
+        let temp = open("run-admission-guard");
+        for (index, properties) in [
+            serde_json::json!({"run_admission_request": {}}),
+            serde_json::json!({"node_type":"WorkItem", "run_admission_request": {}}),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(check(
+                &temp.shard,
+                &format!("plant-{index}"),
+                Method::AddNode {
+                    node_id: "plain".into(),
+                    properties_msgpack: msgpack(properties),
+                }
+            )
+            .is_err());
+        }
+        for (index, method) in [
+            Method::CreateNodeIfAbsent {
+                node_id: "plain".into(),
+                properties_msgpack: msgpack(serde_json::json!({"run_admission_request": {}})),
+            },
+            Method::CompareAndSetNodeFields {
+                node_id: "plain".into(),
+                conditions_msgpack: msgpack(serde_json::json!({})),
+                updates_msgpack: msgpack(serde_json::json!({"run_admission_request": {}})),
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(check(&temp.shard, &format!("plant-variant-{index}"), method).is_err());
+        }
+        with_nodes(&temp.shard, "seed-snapshot", |nodes| {
+            let mut props = serde_json::json!({"run_admission_request":{}})
+                .as_object()
+                .unwrap()
+                .clone();
+            write_work_item_props(nodes, GRAPH, "plain", &mut props, DurableCrypto::none())
+        });
+        for (index, method) in [
+            Method::RemoveNode {
+                node_id: "plain".into(),
+            },
+            Method::AddNode {
+                node_id: "plain".into(),
+                properties_msgpack: vec![0xc1],
+            },
+            Method::AddNode {
+                node_id: "plain".into(),
+                properties_msgpack: msgpack(serde_json::json!({"node_type":"WorkItem"})),
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(check(&temp.shard, &format!("replace-{index}"), method).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::super::test_shard::{check_guard, open};
+    use super::*;
+    #[test]
+    fn ordinary_completion_bindings_cannot_be_planted_on_unlabelled_rows() {
+        let temp = open("completion-guard");
+        for key in [
+            eg_types::run_completion::RUN_COMPLETION_BATCH,
+            eg_types::run_completion::RUN_COMPLETION_DIGEST,
+        ] {
+            let properties = serde_json::json!({key: "forged"});
+            let method = Method::AddNode {
+                node_id: "forged".into(),
+                properties_msgpack: rmp_serde::to_vec_named(&properties).unwrap(),
+            };
+            assert!(check_guard(&temp.shard, key, method).is_err());
+        }
+    }
+}
+
+/// Reserve native bindings even on rows not yet labelled WorkItem.
+fn has_reserved_run_binding(row: &NodeMap) -> bool {
+    [
+        eg_types::run_completion::RUN_COMPLETION_BATCH,
+        eg_types::run_completion::RUN_COMPLETION_DIGEST,
+        "current_plan",
+        "run_owner_binding",
+        super::run_owner::ADMISSION_REQUEST,
+        "pending_call_lease_ref",
+    ]
+    .iter()
+    .any(|key| row.contains_key(*key))
 }

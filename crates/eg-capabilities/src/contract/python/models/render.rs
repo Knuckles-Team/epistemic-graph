@@ -62,6 +62,28 @@ pub(in super::super) fn render_owned(
 /// Emit shared field validators only in modules that use their annotations.
 fn validation_helpers(body: &str) -> String {
     let mut helpers = String::new();
+    if body.contains("_EgOctets") {
+        helpers.push_str(
+            r#"
+
+def _eg_octets(value):
+    if isinstance(value, list):
+        if any(type(item) is not int or not 0 <= item <= 255 for item in value):
+            raise ValueError("engine octets must be integers between 0 and 255")
+        return bytes(value)
+    if not isinstance(value, bytes):
+        raise ValueError("engine octets must be bytes or an integer array")
+    return value
+
+
+_EgOctets = Annotated[
+    bytes,
+    BeforeValidator(_eg_octets),
+    PlainSerializer(list, return_type=list[int], when_used="json"),
+]
+"#,
+        );
+    }
     if body.contains("_eg_utf8_text(") {
         helpers.push_str(
             r#"

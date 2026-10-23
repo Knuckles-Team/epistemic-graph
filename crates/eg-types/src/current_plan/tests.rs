@@ -106,3 +106,31 @@ fn current_plan_task_plan_rejects_unpaired_or_changed_content() {
         "noncanonical task order must refuse"
     );
 }
+
+// spec: EG-DURABLE-KERNEL-R028.5
+#[test]
+fn current_plan_identifier_byte_boundary_and_error_precedence() {
+    let mut request = sample_publish_request();
+    request.tenant = "é".repeat(256);
+    assert!(request.validate().is_ok());
+    request.tenant.push('x');
+    request.snapshot.expires_at_ms = 0;
+    assert_eq!(
+        request.validate().unwrap_err(),
+        "current-plan identifier is empty or oversized"
+    );
+    request.tenant = "tenant".into();
+    request.snapshot.items.push(PlanItem {
+        text: " ".into(),
+        status: PlanStatus::Pending,
+    });
+    assert_eq!(
+        request.validate().unwrap_err(),
+        "current-plan validity interval is empty"
+    );
+    request.snapshot.expires_at_ms = 2;
+    assert_eq!(
+        request.validate().unwrap_err(),
+        "current-plan items require nonblank text"
+    );
+}

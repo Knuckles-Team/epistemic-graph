@@ -68,6 +68,7 @@ method_results! {
     // visible to the verified tenant.
     PublishCurrentPlan(PublishCurrentPlan) => Raw<crate::current_plan::CurrentPlanPublished>;
     GetCurrentPlan(GetCurrentPlan) => Raw<Option<crate::current_plan::CurrentPlanSnapshot>>;
+    GetRunWorkItem(GetRunWorkItem) => Raw<Option<crate::work_item_read::RunWorkItemView>>;
     GetWorkItem(GetWorkItem) => Raw<Option<WorkItemView>>;
     ListWorkItems(ListWorkItems) => Raw<WorkItemPage>;
     // graph-os EG-3: `null` when the WorkItem is not visible or has no bundle.

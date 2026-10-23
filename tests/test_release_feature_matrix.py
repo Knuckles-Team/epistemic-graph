@@ -276,8 +276,9 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
         job["timeout-minutes"]
         == "${{ github.event_name == 'pull_request' && 45 || 60 }}"
     )
-    assert job["runs-on"] == "ubuntu-latest"
+    assert job["runs-on"] == "ubuntu-24.04"
     assert job["env"] == jobs["gates-crates"]["env"]
+    assert job["env"]["SCCACHE_GHA_VERSION"] == "eg-ci-ubuntu-24.04-v1"
     assert (
         job["env"]["SCCACHE_GHA_RW_MODE"]
         == "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
@@ -288,6 +289,7 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
         if step.get("uses", "").startswith("Swatinem/rust-cache@")
     ]
     assert len(caches) == 1
+    assert caches[0]["with"]["shared-key"] == "eg-ci-gates-ubuntu-24.04-v1"
     assert caches[0]["with"]["save-if"] == "${{ github.ref == 'refs/heads/main' }}"
     steps = {step.get("name"): step for step in job["steps"]}
     assert steps["Test (pyo3 crates, every feature except python)"]["if"] == (
@@ -361,3 +363,19 @@ def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matr
     )
     assert "gh release create engine-main" in publish["run"]
     assert "--prerelease" in publish["run"]
+
+
+def test_only_workspace_clippy_receives_the_measured_cold_build_budget(release_matrix):
+    workflow, _ = release_matrix
+    job = workflow["jobs"]["quality-advisory"]
+    assert job["timeout-minutes"] == (
+        "${{ github.event_name == 'pull_request' && "
+        "(matrix.profile.name == 'workspace-all-features' && 15 || 10) || 60 }}"
+    )
+    assert job["strategy"]["fail-fast"] is False
+    assert {p["name"] for p in job["strategy"]["matrix"]["profile"]} == {
+        "workspace-all-features",
+        "published-full",
+        "slim-server",
+    }
+    _assert_required_clippy_declarations(workflow)

@@ -200,6 +200,7 @@
 | `CasWorkItemMetadata` | true | GraphRedb | `work:write` | true | true | false | Atomic | BUG-111: atomic single-field CAS on non-authority scheduling metadata (checkpoint_id/metadata/prio_bucket); status/lease/tenant are fenced but never written |
 | `PublishCurrentPlan` | true | GraphRedb | `work:write` | true | true | false | Atomic | immutable owner and live fence bind revisioned current-plan publication |
 | `GetCurrentPlan` | false | None | `work:read` | true | false | false | Snapshot | authoritative owner-bound current plan and live lease snapshot |
+| `GetRunWorkItem` | false | None | `work:read` | true | false | false | Snapshot | owner-bound immutable run admission and current caller-safe WorkItem snapshot |
 | `GetWorkItem` | false | None | `work:read` | true | false | false | Snapshot | tenant-bound native WorkItem row view; lease owner/epoch/fencing token never projected |
 | `ListWorkItems` | false | None | `work:read` | true | false | false | Snapshot | bounded tenant-bound WorkItem page; limit/scan/byte bounds each resume through an opaque tenant-bound cursor |
 | `GetWorkItemOutcome` | false | None | `work:read` | true | false | false | Snapshot | tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-verified |

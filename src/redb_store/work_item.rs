@@ -68,6 +68,7 @@ mod cancel;
 mod claim;
 mod commit;
 pub(crate) mod control_lease;
+mod conversation;
 pub(crate) mod current_plan;
 mod dispatch;
 mod lease;
@@ -76,10 +77,11 @@ mod policy_record;
 mod read;
 mod row_guard;
 mod run_owner;
+pub(crate) use run_owner::read_admission as read_run_admission;
 mod sealed_record;
 mod submit;
 #[cfg(test)]
-mod test_shard;
+pub(crate) mod test_shard;
 
 pub(crate) use cancel::*;
 pub(crate) use claim::*;

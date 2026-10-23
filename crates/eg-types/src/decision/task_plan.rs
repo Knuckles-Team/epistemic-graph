@@ -84,7 +84,7 @@ fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
 }
 
-fn index(proposal: &TaskPlanProposal) -> Result<BTreeMap<String, TaskPlanTask>, String> {
+fn validate_plan_bounds(proposal: &TaskPlanProposal) -> Result<(), String> {
     if proposal.tasks.is_empty() {
         return Err(error("empty_plan", "at least one task is required"));
     }
@@ -96,30 +96,31 @@ fn index(proposal: &TaskPlanProposal) -> Result<BTreeMap<String, TaskPlanTask>, 
     {
         return Err(error("plan_bounds", "invalid task or concurrency ceiling"));
     }
-    let mut tasks = BTreeMap::new();
-    let mut bytes = 0usize;
-    for task in proposal.tasks.iter() {
-        if !valid_id(&task.task_id) {
-            return Err(error("invalid_task_id", &task.task_id));
-        }
-        bytes += task.prompt.len(); // at most 64 bounded prompt lengths below
-        if task.prompt.trim().is_empty()
-            || task.prompt.len() > MAX_PROMPT_BYTES
-            || bytes > MAX_TOTAL_PROMPT_BYTES
-        {
-            return Err(error("plan_text_bounds", &task.task_id));
-        }
-        let mut canonical = task.clone();
-        let mut deps = task.depends_on.as_slice().to_vec();
-        deps.sort();
-        if deps.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(error("duplicate_dependency", &task.task_id));
-        }
-        canonical.depends_on = BoundedVec::new(deps).expect("same bounded length");
-        if tasks.insert(task.task_id.clone(), canonical).is_some() {
-            return Err(error("duplicate_task_id", &task.task_id));
-        }
+    Ok(())
+}
+
+fn canonical_task(task: &TaskPlanTask, bytes: &mut usize) -> Result<TaskPlanTask, String> {
+    if !valid_id(&task.task_id) {
+        return Err(error("invalid_task_id", &task.task_id));
     }
+    *bytes += task.prompt.len(); // at most 64 bounded prompt lengths below
+    if task.prompt.trim().is_empty()
+        || task.prompt.len() > MAX_PROMPT_BYTES
+        || *bytes > MAX_TOTAL_PROMPT_BYTES
+    {
+        return Err(error("plan_text_bounds", &task.task_id));
+    }
+    let mut canonical = task.clone();
+    let mut deps = task.depends_on.as_slice().to_vec();
+    deps.sort();
+    if deps.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(error("duplicate_dependency", &task.task_id));
+    }
+    canonical.depends_on = BoundedVec::new(deps).expect("same bounded length");
+    Ok(canonical)
+}
+
+fn validate_dependencies(tasks: &BTreeMap<String, TaskPlanTask>) -> Result<(), String> {
     for task in tasks.values() {
         for dependency in task.depends_on.iter() {
             if !tasks.contains_key(dependency) {
@@ -127,6 +128,20 @@ fn index(proposal: &TaskPlanProposal) -> Result<BTreeMap<String, TaskPlanTask>, 
             }
         }
     }
+    Ok(())
+}
+
+fn index(proposal: &TaskPlanProposal) -> Result<BTreeMap<String, TaskPlanTask>, String> {
+    validate_plan_bounds(proposal)?;
+    let mut tasks = BTreeMap::new();
+    let mut bytes = 0usize;
+    for task in proposal.tasks.iter() {
+        let canonical = canonical_task(task, &mut bytes)?;
+        if tasks.insert(task.task_id.clone(), canonical).is_some() {
+            return Err(error("duplicate_task_id", &task.task_id));
+        }
+    }
+    validate_dependencies(&tasks)?;
     Ok(tasks)
 }
 

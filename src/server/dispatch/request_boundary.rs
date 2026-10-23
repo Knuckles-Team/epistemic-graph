@@ -87,6 +87,7 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             // EH-219: the typed caller-view reads over the same native rows.
             "PublishCurrentPlan",
             "GetCurrentPlan",
+            "GetRunWorkItem",
             "GetWorkItem",
             "ListWorkItems",
             "GetWorkItemOutcome",
@@ -543,6 +544,7 @@ mod native_resource_capability_tests {
             let mut ops = Vec::new();
             append_native_work_item_ops(&mut ops, available);
             for op in [
+                "GetRunWorkItem",
                 "GetWorkItem",
                 "ListWorkItems",
                 "GetWorkItemOutcome",

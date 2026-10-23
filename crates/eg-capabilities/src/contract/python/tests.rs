@@ -410,7 +410,7 @@ fn agent_component_content_emits_typed_body_adapter() {
         .expect("agent-component DTO module");
     assert!(dto.contains("class AgentComponentContentRequest(BaseModel):"));
     assert!(dto.contains("class AgentComponentContentResult(BaseModel):"));
-    assert!(dto.contains("    body: bytes"));
+    assert!(dto.contains("    body: _EgOctets"));
 
     let storage = generated
         .get("epistemic_graph/generated/storage.py")
@@ -558,7 +558,7 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
     let models = generated
         .get("epistemic_graph/generated/models.py")
         .expect("strict request models");
-    assert!(models.contains("params_msgpack: bytes = Field(default_factory=bytes)"));
+    assert!(models.contains("params_msgpack: _EgOctets = Field(default_factory=bytes)"));
     assert!(dto.contains("max_length=8"));
 
     let ingestion = generated
@@ -566,7 +566,7 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
         .expect("ingestion domain module");
     assert!(ingestion
         .contains("from .index_repository import (\n    IndexRepositoryScope,\n    IndexResult,"));
-    assert!(ingestion.contains("    files_msgpack: bytes"));
+    assert!(ingestion.contains("    files_msgpack: _EgOctets"));
     assert!(ingestion.contains("    scope: IndexRepositoryScope | None = None"));
     assert!(ingestion.contains(") -> IndexResult:"));
     assert!(ingestion.contains("return IndexResult.model_validate(payload)"));

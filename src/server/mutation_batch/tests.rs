@@ -225,20 +225,7 @@ fn resource_host_result_requires_no_work_item_projection_ids() {
 
 #[test]
 fn terminal_work_item_retry_identity_is_transport_independent_and_scope_bound() {
-    let method = Method::CommitWorkItemResult {
-        tenant: "tenant-a".into(),
-        work_item_id: "work-1".into(),
-        worker_id: "worker-a".into(),
-        lease_epoch: 2,
-        fencing_token: 9,
-        idempotency_key: "terminal-key".into(),
-        outcome: "succeeded".into(),
-        result_ref: Some("result:sha256:one".into()),
-        outcome_extension: None,
-        error_ref: None,
-        retryable: false,
-        now_ms: 1_000,
-    };
+    let method = crate::test_support::terminal_method(2, 9);
 
     let first = work_item_batch_identity("graph-a", "tenant-a", 10, &method).unwrap();
     let retry = work_item_batch_identity("graph-a", "tenant-a", 11, &method).unwrap();

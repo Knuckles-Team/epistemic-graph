@@ -1,0 +1,18 @@
+name: Native validation setup
+description: Provision the common Python and Rust tools before native acceptance caches.
+runs:
+  using: composite
+  steps:
+    # Match the independent native jobs' existing order and locked environment.
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      with:
+        version: '0.11.7'
+        python-version: '3.14'
+        activate-environment: true
+    - name: Install locked capability-test Python dependencies
+      # Composite run steps require a shell; preserve the jobs' Linux default.
+      shell: bash -e {0}
+      run: uv pip install --python "$(command -v python)" msgpack==1.2.3 pydantic==2.14.1 pydantic-core==2.50.1 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4 ruff==0.17.1
+    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      with:
+        toolchain: stable

@@ -406,6 +406,8 @@ macro_rules! __eg_method_chunk_0 {
         /// unchanged; only the in-memory layout moves.
         #[serde(default)]
         outcome_extension: Option<Box<crate::outcome_bundle::TerminalOutcomeExtension>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run_completion: Option<Box<crate::run_completion::RunCompletionInput>>,
         #[serde(default)]
         error_ref: Option<String>,
         #[serde(default)]

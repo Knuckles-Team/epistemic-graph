@@ -236,6 +236,13 @@ async fn route_work_item_reads(
     method: Method,
 ) -> Result<Response, Method> {
     let read = match method {
+        Method::GetRunWorkItem { tenant, run_id } => {
+            handlers::work_item_read::WorkItemRead::RunAdmission {
+                tenant,
+                run_id,
+                actor: ctx.verified_context.principal().to_string(),
+            }
+        }
         Method::GetCurrentPlan { tenant, run_id } => {
             handlers::work_item_read::WorkItemRead::CurrentPlan {
                 tenant,
@@ -284,6 +291,14 @@ async fn route_work_item_reads(
         Method::GapList { request } => handlers::work_item_read::WorkItemRead::Gaps(request),
         other => return Err(other),
     };
+    Ok(answer_work_item_read(ctx, read).await)
+}
+
+#[cfg(feature = "redb")]
+async fn answer_work_item_read(
+    ctx: GraphOpRouting<'_>,
+    read: handlers::work_item_read::WorkItemRead,
+) -> Response {
     #[cfg(feature = "raft")]
     if let Err(response) = enforce_native_read_leadership(
         ctx.req_id,
@@ -295,16 +310,16 @@ async fn route_work_item_reads(
     )
     .await
     {
-        return Ok(response);
+        return response;
     }
-    Ok(handlers::work_item_read::answer(
+    handlers::work_item_read::answer(
         ctx.req_id,
         ctx.graph_name,
         ctx.verified_context.tenant(),
         ctx.persistence,
         read,
     )
-    .await)
+    .await
 }
 
 /// Every WorkItem-kernel write binds its body tenant to the verified carrier

@@ -214,10 +214,11 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 466 -> 468: EG-UNIFIED-DATA-PLANE-R651.7 `EnrichDocument` and
     // EG-DECISION-ENGINE-R802 `SelectWebPages`.
     // 468 -> 470: EG-DURABLE-KERNEL-R028.5 `PublishCurrentPlan` and `GetCurrentPlan`.
-    // 470 -> 471: EG-DURABLE-KERNEL-R030.1 dedicated host-start issuer record.
+    // 470 -> 471: EG-DURABLE-KERNEL-R028.4.1 owner-bound GetRunWorkItem.
+    // 471 -> 472: EG-DURABLE-KERNEL-R030.1 dedicated host-start issuer record.
     assert_eq!(
         variants.len(),
-        471,
+        472,
         "the wire method census changed; update this exact count deliberately"
     );
 }

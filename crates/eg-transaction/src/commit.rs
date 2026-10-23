@@ -609,7 +609,7 @@ fn write_outbox<D: OwnerDomain>(
     let terminal_batch = batch
         .outbox
         .iter()
-        .any(|intent| intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC);
+        .any(|intent| is_terminal_topic(&intent.topic));
     // Carry each intent's ordinal IN THE PARENT BATCH, not its position in the
     // filtered list. Recovery validates an outbox row by looking the intent up
     // at `parent.batch.outbox[ordinal]` (`eg-storage::recovery::validate`), so
@@ -625,7 +625,7 @@ fn write_outbox<D: OwnerDomain>(
     // iterates `0..n`.
     let mut effective_outbox = Vec::with_capacity(batch.outbox.len());
     for (ordinal, intent) in batch.outbox.iter().enumerate() {
-        if terminal_batch && intent.topic != eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC {
+        if terminal_batch && !is_terminal_topic(&intent.topic) {
             continue;
         }
         if terminal_outbox_intent_applies(intent, result_msgpack)? {
@@ -677,11 +677,16 @@ fn write_outbox<D: OwnerDomain>(
     Ok(())
 }
 
+fn is_terminal_topic(topic: &str) -> bool {
+    topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC
+        || topic == eg_types::run_completion::RUN_COMPLETION_TOPIC
+}
+
 fn terminal_outbox_intent_applies(
     intent: &eg_types::mutation_batch::MutationOutboxIntent,
     result_msgpack: Option<&[u8]>,
 ) -> Result<bool, String> {
-    if intent.topic != eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC {
+    if !is_terminal_topic(&intent.topic) {
         return Ok(true);
     }
     let Some(result_msgpack) = result_msgpack else {

@@ -326,7 +326,7 @@ fn dto_array_type(node: &serde_json::Value) -> String {
                 && items.get("minimum").and_then(|value| value.as_u64()) == Some(0)
                 && items.get("maximum").and_then(|value| value.as_u64()) == Some(255)
             {
-                "bytes".to_string()
+                "_EgOctets".to_string()
             } else {
                 format!("list[{}]", dto_python_type(items))
             }
@@ -802,19 +802,7 @@ pub(super) fn push_dto_imports(
     if body.contains("(str, Enum)") || !typing_names.is_empty() {
         out.push('\n');
     }
-    let pydantic_names = [
-        ("AfterValidator", "AfterValidator("),
-        ("BaseModel", "(BaseModel)"),
-        ("ConfigDict", "ConfigDict("),
-        ("Field", "Field("),
-    ]
-    .into_iter()
-    .filter(|(_, marker)| body.contains(marker))
-    .map(|(name, _)| name)
-    .collect::<Vec<_>>();
-    if !pydantic_names.is_empty() {
-        let _ = writeln!(out, "from pydantic import {}", pydantic_names.join(", "));
-    }
+    let has_pydantic_imports = push_pydantic_imports(out, body);
     let mut local = foreign.clone();
     let digest_names: Vec<String> = [
         "canonical_msgpack",
@@ -828,10 +816,38 @@ pub(super) fn push_dto_imports(
     if !digest_names.is_empty() {
         local.insert("digest", digest_names);
     }
-    if !local.is_empty() && !pydantic_names.is_empty() {
+    if !local.is_empty() && has_pydantic_imports {
         out.push('\n');
     }
     for (module, names) in local {
         write_import_block(out, module, names);
     }
+}
+
+fn push_pydantic_imports(out: &mut String, body: &str) -> bool {
+    let pydantic_names = [
+        ("AfterValidator", "AfterValidator("),
+        ("BaseModel", "(BaseModel)"),
+        ("BeforeValidator", "BeforeValidator("),
+        ("ConfigDict", "ConfigDict("),
+        ("Field", "Field("),
+        ("PlainSerializer", "PlainSerializer("),
+    ]
+    .into_iter()
+    .filter(|(_, marker)| body.contains(marker))
+    .map(|(name, _)| name)
+    .collect::<Vec<_>>();
+    if !pydantic_names.is_empty() {
+        let names = pydantic_names.join(", ");
+        if names.len() + "from pydantic import ".len() <= 88 {
+            let _ = writeln!(out, "from pydantic import {names}");
+        } else {
+            out.push_str("from pydantic import (\n");
+            for name in &pydantic_names {
+                let _ = writeln!(out, "    {name},");
+            }
+            out.push_str(")\n");
+        }
+    }
+    !pydantic_names.is_empty()
 }

@@ -5,14 +5,14 @@ All fixtures run against a disposable local data directory and generated credent
 | Scenario | Requirements | Positive fixture and expected result | Negative/failure fixture and expected result |
 |---|---|---|---|
 | T-KG-01 batch terminality | KG-01, KG-02 | Graph+table+KV batch commits once. Readback and retry return same terminal result | Inject failure at every commit phase. Restart yields all-or-none. Lost-ack retry does not duplicate |
-| T-KG-02 table-only path | KG-02 | Concurrent table-only writes use current atomic path and match reference corpus | Mixed unsupported member set refuses before any table or graph write |
+| T-KG-02 table-only path | KG-02 | Concurrent table-only writes use the current atomic path and match the reference corpus. | Mixed unsupported member sets refuse before writes. |
 | T-KG-03 owner lineage | KG-03 | Load each supported golden manifest. One validation per transaction | Unknown predecessor or extra physical table returns typed upgrade/ownership error. Stale cached binding never crosses transactions |
 | T-KG-04 scrub | KG-04 | Corrupt one persisted node. The scrub reports a typed finding and resumes the cursor after restart | Rate cap prevents writer starvation. The scrub hides unreadable payloads and never silently repairs them |
 | T-KG-05 outbox | KG-05 | Healthy successors deliver after a failing head is rejected/rewound with ordered receipts | Retry one head 16 times. Successors keep their own zero-attempt count. Reasoning skip without rebuild is refused |
 | T-KG-06 CDC/mirror | KG-06 | Commit 100 ordered graph/table changes, disconnect target, reconnect, replay and match digest | Crash after target apply before cursor; replay is idempotent; empty default target guard and schema drift fail visibly |
 | T-KG-07 scope | KG-07 | Owner and explicitly granted principal can access allowed data | Cross-tenant/principal probes deny SQL, UQL, TSDB and KV access. UDF, foreign-source and cache probes also deny access. Revoked grants deny the next use |
 | T-KG-07a auth modes | KG-07, KG-09 | `none`, `local` and `external` each resolve to the same internal principal/RBAC evaluator | Spoofed name in `none`, stale local session after mode switch, wrong external issuer/audience/tenant/policy version and generic elevation lease all deny |
-| T-KG-08 audit | KG-08 | Reservation precedes governed effect and links truthful outcome | Audit writer unavailable, missing class, wrong tenant, duplicate ID and crash after effect all fail or reconcile without false success |
+| T-KG-08 audit | KG-08 | Reservation precedes the governed effect and links its truthful outcome. | An unavailable audit writer, missing class, wrong tenant or duplicate ID refuses. A crash after effect reconciles without false success. |
 | T-KG-09 approval | KG-09 | Two distinct principals approve exact digest before expiry | Self-approval, generic lease, altered digest, expiry and replay all deny and audit refusal |
 | T-KG-10 Raft | KG-10 | Repeated 3-node multi-group writes/failover preserve independent progress and one committed result | Inject slow peer/leader loss. Unaffected groups progress. Failed assertion emits causal ring-buffer trace |
 | T-KG-11 durability | KG-11, KG-12 | Sync survives kill. Async oldest-unflushed age stays ≤100 ms. Hot structures rebuild from log | Ephemeral disappears on restart. Forced flush lag yields explicit degraded/refusal, never silent class change. Concurrent primitive history linearizes |
@@ -394,6 +394,58 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - **EG-DURABLE-KERNEL-R028.5.2:** `current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it` checks initial and later attachment. `current_plan_attachment_refusals_preserve_rows` checks conflicting plans, malformed digests, foreign owners, stale fences and expiry. Refusals leave both private snapshot and owner rows unchanged.
 - **EG-DURABLE-KERNEL-R028.5.3:** `publication_attachment_changes_content_not_retry_identity` checks stable identity and changed canonical content. `current_plan_native_publish_read_and_receipt_replay` exercises authenticated attachment, unchanged replay receipts, conflict and exact restart readback. Expired replay returns historical evidence only.
 - **EG-DURABLE-KERNEL-R028.5.4:** Planned benchmark `current_plan_publication_readback` must measure attached-plan latency and transient memory against the parent budgets. No benchmark implementation or measurement receipt is claimed by the functional attachment tests.
+
+- **EG-DURABLE-KERNEL-R028.4.1:** `run_admission_recovery_preserves_original_request`, `run_admission_recovery_checks_complete_owner`, `run_admission_recovery_refuses_missing_evidence` and `run_admission_snapshot_cannot_be_planted_or_removed` check durable records and refusal. Served and client tests check typed owner-only reads.
+- **EG-DURABLE-KERNEL-R028.4.2:** Record a dedicated native recovery benchmark; acceptance remains pending.
+## Ordinary terminal completion acceptance (EG-DURABLE-KERNEL-R028.6)
+
+- Commit success with observed counters. Preserve the exact input and receipt.
+- Commit failure with observed counters and with empty usage. Empty stays empty.
+- Refuse negative, fractional, boolean, unsafe-sized or inconsistent counters.
+- Refuse foreign run, tenant, graph, worker, lease epoch and fencing token.
+- Refuse expired lease without changing the row, receipt or outbox, even with
+  backdated caller time. Bind successful completion time to the engine commit.
+- Refuse an ordinary completion with a delegated extension or failed answer.
+- Replay with the same and a new key. Preserve the first terminal receipt.
+- Reopen storage and read the same scope, sequence, ordinal and payload digest.
+- Refuse missing, corrupt, duplicated or mismatched ledger/outbox evidence.
+- Refuse forged bindings through generic row writes, replacements and removal.
+- Keep current-source native tests, generated freshness and served tests separate.
+  No historical test receipt establishes acceptance for a new source revision.
+
+## Ordered conversation admission (EG-DURABLE-KERNEL-R028.4.3)
+
+Source tests live in `src/redb_store/work_item/conversation/tests.rs`.
+They use the existing native row applier inside a maintenance transaction.
+They do not prove the server MutationBatch replay path or model continuation.
+Each distinct fixture write uses a distinct maintenance operation ID. Reusing a
+committed operation tests replay refusal, not a fresh state transition or guard.
+
+- Admit revision zero. Refuse a second writer with the same expected head.
+- Refuse a foreign owner and an active preceding run without a new WorkItem.
+- Finish the first run, then admit its exact successor. Ignore clock order.
+- Refuse failed, cancelled, dead-letter, missing and unknown preceding state.
+- Reopen the shard and retain its head revision and original predecessor.
+- Refuse generic create, replacement, compare-and-set and removal of a head.
+- Preserve omitted-field legacy serialization. Refuse unknown typed fields and
+  disagreement with the original A2A context. A registered context cannot bypass
+  its head through metadata-only admission.
+
+Before acceptance, run these tests on the exact source and add server tests for
+same-key replay with a fresh nonce and changed expected revision or predecessor.
+Check original receipt recovery, full rollback and graph-incarnation isolation.
+Regenerate request contracts and check installed-client compatibility.
+Keep the existing `eg-types/tests/contract_wave.rs` Method-size regression test
+unchanged. Box the optional admission so it does not enlarge every Method value.
+The first native run measured 640 bytes against the existing 616-byte bound.
+Qualify the correction on fresh source rather than raising that bound.
+
+A complete continuation test must restart EG, Arbora and the client between
+turns, inspect the actual model request for prior user, assistant and tool
+messages, and prove no repeated tool effect. It must also prove fresh new-turn
+budgets, exact same-run checkpoint precedence, bounded context and explicit
+conflict handling. Those checks remain open under the existing parent rows.
+
 - **EG-DURABLE-KERNEL-R030.1:** Typed host-start tests cover bounded bindings,
   expiry clamping and caller provenance injection. Native shard tests cover
   absent issuer refusal, immutable issuer stamping, collision, tenant read

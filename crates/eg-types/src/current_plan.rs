@@ -54,16 +54,7 @@ pub struct PublishCurrentPlanRequest {
 }
 impl PublishCurrentPlanRequest {
     pub fn validate(&self) -> Result<(), String> {
-        for value in [
-            &self.tenant,
-            &self.snapshot.run_id,
-            &self.worker_id,
-            &self.idempotency_key,
-        ] {
-            if value.trim().is_empty() || value.len() > 512 {
-                return Err("current-plan identifier is empty or oversized".into());
-            }
-        }
+        self.validate_identifiers()?;
         if self.snapshot.observed_at_ms >= self.snapshot.expires_at_ms {
             return Err("current-plan validity interval is empty".into());
         }
@@ -88,6 +79,20 @@ impl PublishCurrentPlanRequest {
             }
             _ => {
                 return Err("current-plan task plan and proposal must be supplied together".into())
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_identifiers(&self) -> Result<(), String> {
+        for value in [
+            &self.tenant,
+            &self.snapshot.run_id,
+            &self.worker_id,
+            &self.idempotency_key,
+        ] {
+            if value.trim().is_empty() || value.len() > 512 {
+                return Err("current-plan identifier is empty or oversized".into());
             }
         }
         Ok(())

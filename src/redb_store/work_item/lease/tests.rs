@@ -41,6 +41,7 @@ fn fenced_metadata_cas_uses_mutation_time_and_preserves_refused_rows() {
     ] {
         let temp = open("metadata-expiry");
         let mut props = serde_json::json!({
+            "node_type": "WorkItem",
             "tenant": "tenant-a", "status": "running", "lease_owner": "worker-a",
             "lease_epoch": 2, "fencing_token": 3, "prio_bucket": 0
         })
