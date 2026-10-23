@@ -1123,6 +1123,7 @@
       "title": "Export fresh typed contracts for parity repair",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2a1515f6e252",
         "2b8dd458b459",
         "b6d6bdedcd35"
       ],
