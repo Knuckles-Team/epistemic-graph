@@ -331,3 +331,7 @@ R085.4–R085.7 preserve their parent obligations as rollups. Their .1 children 
 ## Schema drift wiring (R710, R712)
 - [ ] **EG-TYPED-PACKS-R714:** Call `drift::classify` from the record delivery path and return the `DriftReport`.
 - [ ] **EG-TYPED-PACKS-R715:** Quarantine a breaking delivery and prove it with a served test.
+- [ ] **EG-TYPED-PACKS-R105.6:** The parent catalog declares the IT4IT delivery data objects.
+- [ ] **EG-TYPED-PACKS-R105.7:** The parent catalog declares a data-platform and machine-learning module aligned to DCAT, PROV-O and ML-Schema.
+- [ ] **EG-TYPED-PACKS-R105.8:** The parent catalog declares a media and content module aligned to schema.org media types, EBUCore, IFLA LRM and ActivityStreams.
+- [ ] **EG-TYPED-PACKS-R105.9:** The parent catalog declares a search, retrieval and information-source module aligned to OpenSearch, DCMI Terms and PROV-O.
