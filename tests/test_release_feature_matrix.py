@@ -363,3 +363,19 @@ def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matr
     )
     assert "gh release create engine-main" in publish["run"]
     assert "--prerelease" in publish["run"]
+
+
+def test_only_workspace_clippy_receives_the_measured_cold_build_budget(release_matrix):
+    workflow, _ = release_matrix
+    job = workflow["jobs"]["quality-advisory"]
+    assert job["timeout-minutes"] == (
+        "${{ github.event_name == 'pull_request' && "
+        "(matrix.profile.name == 'workspace-all-features' && 15 || 10) || 60 }}"
+    )
+    assert job["strategy"]["fail-fast"] is False
+    assert {p["name"] for p in job["strategy"]["matrix"]["profile"]} == {
+        "workspace-all-features",
+        "published-full",
+        "slim-server",
+    }
+    _assert_required_clippy_declarations(workflow)

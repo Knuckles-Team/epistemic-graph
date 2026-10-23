@@ -402,7 +402,15 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             )
             assert job.get("timeout-minutes") == expected
         else:
-            pr_scoped = "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+            pr_scoped = {
+                ("ci.yml", "quality-advisory"): (
+                    "${{ github.event_name == 'pull_request' && "
+                    "(matrix.profile.name == 'workspace-all-features' && 15 || 10) || 60 }}"
+                )
+            }.get(
+                (workflow.name, name),
+                "${{ github.event_name == 'pull_request' && 10 || 60 }}",
+            )
             assert job.get("timeout-minutes") in (360, 5, pr_scoped), (
                 f"{workflow.name}:{name}"
             )
