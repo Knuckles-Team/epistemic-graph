@@ -2609,11 +2609,11 @@
       "title": "The parent catalog holds a service-operations core aligned to the Open Group IT4IT data objects",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "5cc2df432895",
         "85dbb47bfd95",
         "9ae34c125957",
         "acfebe3d7d0d",
-        "c65b21d8f9e3",
-        "c6d10af54f64"
+        "c65b21d8f9e3"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/service_operations_classes.rs:112",
