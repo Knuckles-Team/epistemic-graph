@@ -87,7 +87,8 @@
     "EG-CONTRACT-R053.10",
     "EG-CONTRACT-R053.11",
     "EG-CONTRACT-R053.12",
-    "EG-CONTRACT-R006.3"
+    "EG-CONTRACT-R006.3",
+    "EG-CONTRACT-R053.13"
   ],
   "requirements": [
     {
@@ -975,7 +976,8 @@
         "EG-CONTRACT-R053.9",
         "EG-CONTRACT-R053.10",
         "EG-CONTRACT-R053.11",
-        "EG-CONTRACT-R053.12"
+        "EG-CONTRACT-R053.12",
+        "EG-CONTRACT-R053.13"
       ]
     },
     {
@@ -1104,7 +1106,22 @@
         "fc65d45d509d"
       ],
       "verified_by": [
-        "tests/test_export_canonical_contract.py:10"
+        "tests/test_export_canonical_contract.py:11"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.13",
+      "title": "Retain the validated wheel for installed acceptance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "701e8e498e07",
+        "b286edc1b3bf",
+        "be072c1cf996"
+      ],
+      "verified_by": [
+        "tests/test_ci_change_scope.py:627",
+        "tests/test_ci_change_scope.py:671",
+        "tests/test_ci_change_scope.py:800"
       ]
     }
   ]

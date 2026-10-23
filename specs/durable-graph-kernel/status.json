@@ -1185,7 +1185,7 @@
       "verified_by": [
         "src/redb_store/operation_audit_tests.rs:278",
         "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:687",
-        "src/server/mutation_batch/tests.rs:1408"
+        "src/server/mutation_batch/tests.rs:1394"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R031.1",
@@ -1212,7 +1212,7 @@
         "aeb9c998476a"
       ],
       "verified_by": [
-        "src/server/mutation_batch/tests.rs:1408"
+        "src/server/mutation_batch/tests.rs:1394"
       ]
     },
     {
@@ -3490,7 +3490,7 @@
         "6aa2533a8865"
       ],
       "verified_by": [
-        "src/redb_store.rs:6308",
+        "src/redb_store.rs:6294",
         "src/redb_store/work_item/read/tests.rs:130",
         "src/redb_store/work_item/read/tests.rs:182",
         "src/redb_store/work_item/read/tests.rs:221",
@@ -4241,7 +4241,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/redb_store/work_item/row_guard.rs:271",
+        "src/redb_store/work_item/row_guard.rs:266",
         "tests/adopt_workitem_authenticated_replay.rs:451",
         "tests/test_work_item_retry_identity.py:128",
         "tests/test_work_item_retry_identity.py:274"
@@ -4259,11 +4259,11 @@
         "fc65d45d509d"
       ],
       "verified_by": [
-        "src/redb_store/work_item/row_guard.rs:321",
+        "src/redb_store/work_item/row_guard.rs:316",
         "src/redb_store/work_item/run_owner/tests.rs:104",
         "src/redb_store/work_item/run_owner/tests.rs:132",
         "src/redb_store/work_item/run_owner/tests.rs:164",
-        "src/redb_store/work_item/run_owner/tests.rs:500"
+        "src/redb_store/work_item/run_owner/tests.rs:463"
       ]
     },
     {
@@ -4278,14 +4278,15 @@
       "title": "Native current-plan publication and readback",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "88fc4a5577c7"
+        "88fc4a5577c7",
+        "f9bfc0da8ae7"
       ],
       "verified_by": [
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:293",
+        "crates/eg-types/src/current_plan/tests.rs:110",
         "crates/eg-types/src/current_plan/tests.rs:3",
         "src/redb_store/work_item/current_plan/tests.rs:135",
-        "src/redb_store/work_item/current_plan/tests.rs:66",
-        "src/redb_store/work_item/current_plan/tests.rs:99"
+        "src/redb_store/work_item/current_plan/tests.rs:66"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.5.1",
@@ -4459,15 +4460,18 @@
       "title": "Commit ordinary run completion and observed usage atomically",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "701e8e498e07",
         "870424b46d0b",
-        "fc65d45d509d"
+        "b286edc1b3bf",
+        "be072c1cf996",
+        "c7fa3da9453c"
       ],
       "verified_by": [
         "src/redb_store/work_item/run_owner/tests.rs:217",
         "src/redb_store/work_item/run_owner/tests.rs:242",
         "src/redb_store/work_item/run_owner/tests.rs:266",
-        "src/redb_store/work_item/run_owner/tests.rs:377",
-        "src/redb_store/work_item/run_owner/tests.rs:500"
+        "src/redb_store/work_item/run_owner/tests.rs:342",
+        "src/redb_store/work_item/run_owner/tests.rs:463"
       ]
     }
   ]
