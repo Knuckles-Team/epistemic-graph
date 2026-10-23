@@ -1322,8 +1322,8 @@
       "title": "Served `NlQueryExplain` returns the executed UQL with the rows",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "01de1127fce9",
-        "9c9c3a96b890"
+        "569b1ab507d6",
+        "f9d6d793d946"
       ],
       "verified_by": [
         "crates/eg-types/src/nl_query.rs:26",
