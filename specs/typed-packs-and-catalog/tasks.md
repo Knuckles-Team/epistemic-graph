@@ -301,3 +301,22 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R109.4:** Refusal.
 - [ ] **EG-TYPED-PACKS-R109.5:** Evidence.
 - [ ] **EG-TYPED-PACKS-R109.6:** Hot-path proof.
+
+## R085.7 original session reference inspection
+
+- Implement owner-bound, non-touching inspection through the existing identity operation.
+- Qualify native refusal and durable reopen tests, then regenerate the wire contract. Native execution and generated projections remain pending.
+
+## R085.4 global authority revision renewal
+
+`renewal_uses_global_revision_and_survives_reopen_without_resurrection` exercises the durable owner. The expected revision is global, so unrelated authority mutations also require a fresh read. Renewal never extends absolute authentication lifetime. Native execution and contract generation remain pending.
+
+- [ ] EG-TYPED-PACKS-R085.5: implement and qualify durable broker-attested approval-key lifecycle; retain pending served proof verification and enrollment.
+
+## R085.6 non-touch credential resolution
+
+The existing Resolve operation accepts optional `refresh`. False preserves the current credential authority checks and returns the existing resolution without touching session state. Native test sources cover no mutation, exact expiry, revoke despite false, missing authority and omitted-field compatibility. The durable session fixture checks unchanged revision and policy image. Native execution and generated-contract qualification remain pending.
+
+## R085 acceptance qualification layers
+
+R085.4–R085.7 preserve their parent obligations as rollups. Their .1 children cover pure store transitions; .2 children require durable owner execution. R085.5.3 covers request stamping only. R085.7.3, R085.4.3, R085.5.4 and R085.6.3 retain generated/served qualification. A passing unit filter is not evidence for unexecuted durable or served acceptance. Source markers bind only their matching layer.

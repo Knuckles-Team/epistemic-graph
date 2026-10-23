@@ -413,6 +413,7 @@ fn all_auth_modes_resolve_to_one_principal_and_rbac_evaluation_path() {
     boot.token_hashes = vec!["demo-session".to_string()];
     let boot_op = IdentityOp::Credential(CredentialOp::BootstrapSession {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },
@@ -477,6 +478,7 @@ fn totp_session(store: &mut IdentityStore, alice: &str) {
     confirm.sealed_secret = Some("sealed".to_string());
     let op = IdentityOp::Mfa(MfaOp::ConfirmTotp {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },
@@ -491,6 +493,7 @@ fn verify(step: Option<u64>) -> (IdentityOp, IdentityStamp) {
     stamp.sealed_secret = Some("sealed".to_string());
     let op = IdentityOp::Mfa(MfaOp::VerifyTotp {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },
@@ -597,6 +600,7 @@ fn a_revoked_session_resolves_to_nothing() {
     touch.token_hashes = vec!["live".to_string()];
     let resolve = IdentityOp::Session(SessionOp::Resolve {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },
@@ -604,6 +608,7 @@ fn a_revoked_session_resolves_to_nothing() {
     assert!(apply_kept(&mut store, &resolve, &touch, NOW).is_ok());
     let revoke = IdentityOp::Session(SessionOp::Revoke {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },
@@ -636,6 +641,7 @@ fn a_totp_verdict_cannot_confirm_a_replacement_secret() {
     apply_kept(&mut store, &enroll, &stamp, NOW).unwrap();
     let confirm = IdentityOp::Mfa(MfaOp::ConfirmTotp {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },

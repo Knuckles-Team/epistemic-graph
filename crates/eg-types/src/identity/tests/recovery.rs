@@ -12,6 +12,7 @@ const CODES: [&str; RECOVERY_CODES_PER_SET] = [
 
 fn touch() -> SessionTouch {
     SessionTouch {
+        refresh: None,
         session_token: Secret::default(),
         code: Secret::default(),
     }
