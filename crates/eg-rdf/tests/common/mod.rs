@@ -1,5 +1,5 @@
 //! Helpers shared by the ontology vocabulary tests.
-#![cfg(feature = "owl")]
+#![cfg(feature = "rdf")]
 #![allow(dead_code)]
 
 use eg_rdf::mapping::parse_turtle;
