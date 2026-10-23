@@ -499,9 +499,9 @@ jobs:
   # failure, with nine selections still to go). Every step is carried over
   # verbatim; `build` needs all three.
   gates-facade:
-    # Full engine compilation/test execution exceeds the short PR budget.
-    # Run 38392685303 exhausted even 45m; retain this cap pending build profiling.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    # Run 39883574578 spent 42m34s compiling, then hit 45m during passing tests.
+    # Keep the complete native and memory suites within a bounded one-hour job.
+    timeout-minutes: 60
     name: gates (facade full)
     needs: changes
     if: *eg-code-change

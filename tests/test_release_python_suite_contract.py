@@ -304,9 +304,11 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
         }
         else 10
     )
-    assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && " + str(budget) + " || 60 }}"
+    expected = {"gates-facade": 60}.get(
+        job_name,
+        "${{ github.event_name == 'pull_request' && " + str(budget) + " || 60 }}",
     )
+    assert job["timeout-minutes"] == expected
 
 
 def _cargo_commands(script: str) -> tuple[str, ...]:
@@ -360,6 +362,8 @@ def _assert_facade_upload_contract(upload: dict) -> None:
 def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> None:
     workflow = _workflow()
     job = workflow["jobs"]["gates-facade"]
+    assert job["timeout-minutes"] == 60
+    assert "continue-on-error" not in job
     steps = job["steps"]
     config = tomllib.loads((REPO / ".cargo/config.toml").read_text())
     assert config["build"]["target-dir"] == "target-isolated"

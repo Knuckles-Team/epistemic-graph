@@ -396,7 +396,10 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "gates-pyo3",
             "gates-crates",
         }:
-            expected = "${{ github.event_name == 'pull_request' && 45 || 60 }}"
+            expected = {("ci.yml", "gates-facade"): 60}.get(
+                (workflow.name, name),
+                "${{ github.event_name == 'pull_request' && 45 || 60 }}",
+            )
             assert job.get("timeout-minutes") == expected
         else:
             pr_scoped = "${{ github.event_name == 'pull_request' && 10 || 60 }}"
