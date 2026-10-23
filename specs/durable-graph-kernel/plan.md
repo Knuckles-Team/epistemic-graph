@@ -956,3 +956,26 @@ The checkpoint error catalog now preserves that refusal and live-claim conflicts
 Focused tests retain strict nonce, identity-conflict and CAS refusal assertions.
 Fresh canonical exports and native integration reruns remain required.
 The same run's complete Python suite and plan fuzz jobs passed.
+
+Run 39910476760 checks head `c065ad9a449f09ffd7ecc312373a2d496b58650e`.
+Storage job 120276448336 passes 126 tests and five documentation tests.
+Only the stale checked-in format document fails. Its exact native output is
+now imported without edits. The renderer and storage source remain unchanged
+in the reviewed recovery-base integration. Prose validation has zero findings.
+The canonical artifact verifies all 73 file hashes and four recipe hashes.
+Its only method changes are the two declared checkpoint refusal codes.
+That artifact is retained as evidence, not copied over the newer base exports.
+The integrated connector DTO changes require a new composed-source export.
+Both receipts and the catalog digest remain unchanged until that generation.
+Final native replay, document parity and complete repository gates remain open.
+
+Facade job 120276448287 passes all 2380 library tests and its integration suite.
+`checkpoint_native_authenticated_cas_replay_and_owner_isolation` passes in full.
+The fixture checks strict nonce and body-conflict codes, owner checks and native head CAS.
+It also checks expired-claim read refusal, historical replay and receipt/snapshot recovery after reopen.
+Direct checkpoint CAS, retention and metadata-rebinding tests also pass.
+All three Clippy profiles pass. The lower-crate gate fails only its stale
+canonical contract comparison; it reports no new runtime failure.
+The imported native format document passes the actual prose and duplication gates.
+The integrated final source still needs fresh exports and complete hosted gates.
+The complete Python suite passes 4073 tests with 46 skips.
