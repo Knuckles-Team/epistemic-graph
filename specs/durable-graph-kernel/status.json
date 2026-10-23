@@ -404,7 +404,10 @@
     "EG-DURABLE-KERNEL-R028.5.2",
     "EG-DURABLE-KERNEL-R028.5.3",
     "EG-DURABLE-KERNEL-R028.5.4",
-    "EG-DURABLE-KERNEL-R028.6"
+    "EG-DURABLE-KERNEL-R028.6",
+    "EG-DURABLE-KERNEL-R861",
+    "EG-DURABLE-KERNEL-R861.1",
+    "EG-DURABLE-KERNEL-R861.2"
   ],
   "requirements": [
     {
@@ -796,7 +799,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation/context.rs:566",
+        "src/server/mutation/context.rs:567",
         "src/server/udf_catalog.rs:126"
       ]
     },
@@ -810,7 +813,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:410"
+        "src/server/mutation_batch/lifecycle_tests.rs:411"
       ]
     },
     {
@@ -1829,7 +1832,7 @@
         "ceec54145720"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:242"
+        "src/server/mutation_batch/lifecycle_tests.rs:243"
       ]
     },
     {
@@ -4473,6 +4476,37 @@
         "src/redb_store/work_item/run_owner/tests.rs:342",
         "src/redb_store/work_item/run_owner/tests.rs:463"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R861",
+      "title": "Graph lifecycle replay and graph listing survive a patch upgrade (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R861.1",
+        "EG-DURABLE-KERNEL-R861.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R861.1",
+      "title": "Lifecycle replay compares the stored identity",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9d5b6a58de75",
+        "f3b89fbc5e09",
+        "fcb8d033061e"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/lifecycle_tests.rs:480"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R861.2",
+      "title": "Graph listing survives a patch upgrade",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
