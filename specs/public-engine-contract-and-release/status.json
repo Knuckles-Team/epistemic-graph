@@ -750,7 +750,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "04a134298236",
-        "4342dc5bc1c6"
+        "4342dc5bc1c6",
+        "cbad9fe59fba"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:219"
@@ -1062,7 +1063,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:705"
+        "tests/test_release_full_wheel_contract.py:713"
       ]
     },
     {
