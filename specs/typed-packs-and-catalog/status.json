@@ -2519,8 +2519,10 @@
     {
       "id": "EG-TYPED-PACKS-R105.1",
       "title": "Stage one: record the parent link and flag orphans",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b44014b5fe3"
+      ],
       "verified_by": [
         "crates/eg-rdf/src/pack/tests.rs:143",
         "crates/eg-rdf/src/pack/tests.rs:158",
