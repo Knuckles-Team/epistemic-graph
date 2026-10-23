@@ -906,3 +906,433 @@ async fn current_plan_expired_replay(
         outbox
     );
 }
+
+// spec: EG-DURABLE-KERNEL-R028.4.1
+#[tokio::test]
+async fn run_admission_owner_read_survives_native_changes_and_restart() {
+    use eg_types::work_item_read::RunWorkItemView;
+    let dir = temp_dir("eg-run-admission-read");
+    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
+    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    let Method::SubmitWorkItem { request: original } = run_submit_method() else {
+        unreachable!()
+    };
+    let admitted: SubmitWorkItemResult = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(
+                900,
+                Method::SubmitWorkItem {
+                    request: original.clone(),
+                },
+                "recover-admission",
+            ),
+        )
+        .await,
+        "admit recovery run",
+    );
+    let get = || Method::GetRunWorkItem {
+        tenant: TENANT.into(),
+        run_id: original.run_id.clone().unwrap(),
+    };
+    assert_original_admission_reads(&state, &original, &admitted, concrete.as_ref()).await;
+    change_and_cancel_admission(&state, &original, &admitted).await;
+    let (reopened, restarted) = reopen_run_state(state, concrete, &dir).await;
+    let restored: Option<RunWorkItemView> = decode_raw(
+        &test_support::dispatch(&restarted, signed_run_request(908, get(), "restart-read")).await,
+        "read terminal run after restart",
+    );
+    let restored = restored.unwrap();
+    assert_eq!(restored.admission, original);
+    assert_eq!(
+        restored.work_item.metadata,
+        serde_json::json!({"changed":true})
+            .as_object()
+            .unwrap()
+            .clone()
+    );
+    assert_eq!(restored.work_item.status.as_stored(), "cancelled");
+    drop(restarted);
+    reopened.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+async fn assert_original_admission_reads(
+    state: &test_support::SharedState,
+    original: &SubmitWorkItemRequest,
+    admitted: &SubmitWorkItemResult,
+    backend: &RedbBackend,
+) {
+    use eg_types::work_item_read::RunWorkItemView;
+    let get = || Method::GetRunWorkItem {
+        tenant: TENANT.into(),
+        run_id: original.run_id.clone().unwrap(),
+    };
+    let found: Option<RunWorkItemView> = decode_raw(
+        &test_support::dispatch(state, signed_run_request(901, get(), "read-admission")).await,
+        "read immutable admission",
+    );
+    let found = found.unwrap();
+    assert_eq!(&found.admission, original);
+    assert_eq!(found.work_item.work_item_id, admitted.work_item_id);
+    let version = backend.read_mutation_graph_version(GRAPH).await.unwrap();
+    let foreign: Option<RunWorkItemView> = decode_raw(
+        &test_support::dispatch(
+            state,
+            signed_request_as(902, get(), "foreign-read", "agent:foreign-owner"),
+        )
+        .await,
+        "foreign owner read",
+    );
+    assert!(foreign.is_none());
+    let absent: Option<RunWorkItemView> = decode_raw(
+        &test_support::dispatch(
+            state,
+            signed_run_request(
+                903,
+                Method::GetRunWorkItem {
+                    tenant: TENANT.into(),
+                    run_id: "missing".into(),
+                },
+                "missing-read",
+            ),
+        )
+        .await,
+        "missing run read",
+    );
+    assert_eq!(foreign, absent);
+    let mismatch = test_support::dispatch(
+        state,
+        signed_run_request(
+            904,
+            Method::GetRunWorkItem {
+                tenant: "foreign-tenant".into(),
+                run_id: original.run_id.clone().unwrap(),
+            },
+            "tenant-read",
+        ),
+    )
+    .await;
+    assert!(mismatch.error.as_deref().unwrap().contains("ACCESS_DENIED"));
+    // The ledger still refuses refreshed context under the old mutation key.
+    let mut refreshed = original.clone();
+    refreshed.context.issued_at_ms += 1;
+    refreshed.context.expires_at_ms += 1;
+    let conflict = test_support::dispatch(
+        state,
+        signed_run_request(
+            905,
+            Method::SubmitWorkItem { request: refreshed },
+            "recover-admission",
+        ),
+    )
+    .await;
+    assert!(conflict
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("IDEMPOTENCY_CONFLICT"));
+    assert_eq!(
+        backend.read_mutation_graph_version(GRAPH).await.unwrap(),
+        version
+    );
+}
+
+async fn change_and_cancel_admission(
+    state: &test_support::SharedState,
+    original: &SubmitWorkItemRequest,
+    admitted: &SubmitWorkItemResult,
+) {
+    use eg_types::epistemic_operations_ext::{
+        CasWorkItemMetadataRequest, CasWorkItemMetadataRequestSchemaVersion,
+    };
+    let changed = test_support::dispatch(
+        state,
+        signed_run_request(
+            906,
+            Method::CasWorkItemMetadata {
+                request: CasWorkItemMetadataRequest {
+                    schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
+                    tenant_ref: TENANT.into(),
+                    work_item_id: admitted.work_item_id.clone(),
+                    expected_lease: None,
+                    expected_status: vec!["ready".into()],
+                    expected_checkpoint_id: None,
+                    set_checkpoint_id: None,
+                    expected_metadata_msgpack: Some(
+                        rmp_serde::to_vec_named(&original.metadata).unwrap(),
+                    ),
+                    set_metadata_msgpack: Some(
+                        rmp_serde::to_vec_named(&serde_json::json!({"changed":true})).unwrap(),
+                    ),
+                    expected_prio_bucket: None,
+                    set_prio_bucket: None,
+                    now_ms: 0,
+                },
+            },
+            "change-metadata",
+        ),
+    )
+    .await;
+    assert!(changed.error.is_none(), "metadata CAS: {changed:?}");
+    let cancelled = test_support::dispatch(
+        state,
+        signed_run_request(
+            907,
+            Method::CancelWorkItem {
+                tenant: TENANT.into(),
+                work_item_id: admitted.work_item_id.clone(),
+                idempotency_key: "cancel-recovery-run".into(),
+                reason_ref: None,
+                now_ms: 0,
+            },
+            "cancel-recovery-run",
+        ),
+    )
+    .await;
+    assert!(cancelled.error.is_none(), "cancel: {cancelled:?}");
+}
+
+// spec: EG-DURABLE-KERNEL-R028.4.1
+#[tokio::test]
+async fn run_admission_concurrent_retry_recovers_exact_winner() {
+    use eg_types::work_item_read::RunWorkItemView;
+    let dir = temp_dir("eg-run-admission-race");
+    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
+    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    let Method::SubmitWorkItem { request: original } = run_submit_method() else {
+        unreachable!()
+    };
+    let mut refreshed = original.clone();
+    refreshed.context.issued_at_ms += 1;
+    refreshed.context.expires_at_ms += 1;
+    let a = signed_run_request(
+        920,
+        Method::SubmitWorkItem {
+            request: original.clone(),
+        },
+        "racing-admission",
+    );
+    let b = signed_run_request(
+        921,
+        Method::SubmitWorkItem {
+            request: refreshed.clone(),
+        },
+        "racing-admission",
+    );
+    let (a, b) = tokio::join!(
+        test_support::dispatch(&state, a),
+        test_support::dispatch(&state, b)
+    );
+    let (winner, loser, expected) = if a.error.is_none() {
+        (&a, &b, original)
+    } else {
+        (&b, &a, refreshed)
+    };
+    let admitted: SubmitWorkItemResult = decode_raw(winner, "race winner");
+    assert!(loser
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("IDEMPOTENCY_CONFLICT"));
+    // A lost submit response needs only an owner read, never a rewritten historical request.
+    let recovered: Option<RunWorkItemView> = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(
+                922,
+                Method::GetRunWorkItem {
+                    tenant: TENANT.into(),
+                    run_id: expected.run_id.clone().unwrap(),
+                },
+                "race-recovery",
+            ),
+        )
+        .await,
+        "race recovery",
+    );
+    let recovered = recovered.unwrap();
+    assert_eq!(recovered.admission, expected);
+    assert_eq!(recovered.work_item.work_item_id, admitted.work_item_id);
+    drop(state);
+    concrete.shutdown();
+    drop(concrete);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+fn admission_receipt_id() -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"epistemic-graph.work-item-terminal.v1");
+    for field in [
+        GRAPH,
+        TENANT,
+        "work-item-inner-key",
+        "admit",
+        "admission",
+        "run-owner-admission",
+    ] {
+        hash.update((field.len() as u64).to_be_bytes());
+        hash.update(field.as_bytes());
+    }
+    format!("work:{}", hex::encode(hash.finalize()))
+}
+
+async fn admission_durable_bytes(backend: &RedbBackend, item: &str) -> Vec<u8> {
+    let receipt = admission_receipt_id();
+    let record = backend.read_mutation_batch(GRAPH, &receipt).await.unwrap();
+    assert!(
+        record.is_some(),
+        "the canonical admission receipt must exist"
+    );
+    let version = backend.read_mutation_graph_version(GRAPH).await.unwrap();
+    let row = backend.read_node(GRAPH, item).await.unwrap();
+    assert!(
+        version.is_some_and(|value| value > 0),
+        "admission must advance the durable graph version"
+    );
+    assert!(row.is_some(), "the admitted WorkItem row must exist");
+    serde_json::to_vec(&(
+        record,
+        backend.read_mutation_outbox(GRAPH, &receipt).await.unwrap(),
+        version,
+        row,
+    ))
+    .unwrap()
+}
+
+fn altered_admission(case: &str) -> Method {
+    let mut method = run_submit_method();
+    let Method::SubmitWorkItem { request } = &mut method else {
+        unreachable!()
+    };
+    match case {
+        "policy" => request.policy_digest = "e".repeat(64),
+        "input" => request.input_ref = "changed-input".into(),
+        "command" => request.command_digest = "f".repeat(64),
+        "request" => request.context.request_id = "fresh-request".into(),
+        "trace" => request.context.trace_id = "fresh-trace".into(),
+        "issued" => request.context.issued_at_ms += 1,
+        "expires" => request.context.expires_at_ms += 1,
+        "placement" => request.context.placement_epoch = Some(1),
+        _ => panic!("unknown admission mutation"),
+    }
+    method
+}
+
+async fn assert_strict_admission_recovery(
+    state: &test_support::SharedState,
+    backend: &RedbBackend,
+    admitted: &SubmitWorkItemResult,
+    first_id: u64,
+    original_bytes: &[u8],
+) {
+    let replay: SubmitWorkItemResult = decode_raw(
+        &test_support::dispatch(
+            state,
+            signed_run_request(first_id, run_submit_method(), "strict-admission"),
+        )
+        .await,
+        "fresh outer nonce preserves exact submission replay",
+    );
+    assert!(replay.replayed);
+    assert!(!replay.created);
+    assert_eq!(replay.work_item_id, admitted.work_item_id);
+    assert_eq!(
+        admission_durable_bytes(backend, &admitted.work_item_id).await,
+        original_bytes
+    );
+    for (index, case) in [
+        "policy",
+        "input",
+        "command",
+        "request",
+        "trace",
+        "issued",
+        "expires",
+        "placement",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let response = test_support::dispatch(
+            state,
+            signed_run_request(
+                first_id + 1 + index as u64,
+                altered_admission(case),
+                "strict-admission",
+            ),
+        )
+        .await;
+        assert!(
+            response
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("IDEMPOTENCY_CONFLICT"),
+            "{case}: {response:?}"
+        );
+        assert_eq!(
+            admission_durable_bytes(backend, &admitted.work_item_id).await,
+            original_bytes,
+            "{case} must not mutate receipt, outbox, version or row"
+        );
+    }
+    let found: Option<eg_types::work_item_read::RunWorkItemView> = decode_raw(
+        &test_support::dispatch(
+            state,
+            signed_run_request(
+                first_id + 20,
+                Method::GetRunWorkItem {
+                    tenant: TENANT.into(),
+                    run_id: "run-owner-admission".into(),
+                },
+                "strict-owner-read",
+            ),
+        )
+        .await,
+        "owner recovery after refused changed submissions",
+    );
+    let Method::SubmitWorkItem { request: original } = run_submit_method() else {
+        unreachable!()
+    };
+    let found = found.unwrap();
+    assert_eq!(found.admission, original);
+    assert_eq!(found.work_item.work_item_id, admitted.work_item_id);
+    assert_eq!(
+        admission_durable_bytes(backend, &admitted.work_item_id).await,
+        original_bytes
+    );
+}
+
+// spec: EG-DURABLE-KERNEL-R028.4.1
+#[tokio::test]
+async fn strict_run_admission_refusals_preserve_durable_evidence_after_restart() {
+    let dir = temp_dir("eg-strict-run-admission");
+    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
+    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    let admitted: SubmitWorkItemResult = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(1000, run_submit_method(), "strict-admission"),
+        )
+        .await,
+        "original strict admission",
+    );
+    let original_bytes = admission_durable_bytes(concrete.as_ref(), &admitted.work_item_id).await;
+    assert_strict_admission_recovery(&state, concrete.as_ref(), &admitted, 1001, &original_bytes)
+        .await;
+    let (reopened, restarted) = reopen_run_state(state, concrete, &dir).await;
+    assert_strict_admission_recovery(
+        &restarted,
+        reopened.as_ref(),
+        &admitted,
+        1100,
+        &original_bytes,
+    )
+    .await;
+    drop(restarted);
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(dir);
+}

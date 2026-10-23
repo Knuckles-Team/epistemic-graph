@@ -73,11 +73,9 @@ pub(crate) async fn prepare_consensus_commit(
     expected_tenant: Option<&str>,
     attempt_nonce: Option<Nonce>,
 ) -> Response {
-    let _coordinator_guard = crate::server::mutation_batch::lock_graph(&commit_receipt_id(
-        txn_id,
-        idempotency_key,
-        expected_tenant,
-    ))
+    let _coordinator_guard = crate::server::mutation_batch::lock_txn_coordinator(
+        &commit_receipt_id(txn_id, idempotency_key, expected_tenant),
+    )
     .await;
     let (open, persistence, open_map) = {
         let s = state.read().await;
