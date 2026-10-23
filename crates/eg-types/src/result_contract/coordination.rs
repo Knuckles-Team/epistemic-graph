@@ -67,6 +67,8 @@ method_results! {
     // EH-219 typed WorkItem reads. `null` when no WorkItem with this id is
     // visible to the verified tenant.
     PublishCurrentPlan(PublishCurrentPlan) => Raw<crate::current_plan::CurrentPlanPublished>;
+    PublishRunCheckpoint(PublishRunCheckpoint) => Raw<crate::run_checkpoint::RunCheckpointPublished>;
+    GetRunCheckpoint(GetRunCheckpoint) => Raw<Option<crate::run_checkpoint::RunCheckpointRead>>;
     GetCurrentPlan(GetCurrentPlan) => Raw<Option<crate::current_plan::CurrentPlanSnapshot>>;
     GetRunWorkItem(GetRunWorkItem) => Raw<Option<crate::work_item_read::RunWorkItemView>>;
     GetWorkItem(GetWorkItem) => Raw<Option<WorkItemView>>;

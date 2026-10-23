@@ -874,3 +874,31 @@ session totals, billing, model selection or caller credential renewal. The share
 host and execution libraries consume this storage contract. Canonical generators
 own every derived schema and client artifact. Historical source-stack acceptance
 is background only; native and served receipts must identify the tested revision.
+
+## Checkpoint-only adaptation after run admission recovery
+
+R028.1 reuses the native owner-bound admission and immutable
+`run_admission_request`. A checkpoint request carries an exact context ID.
+Read and publish compare it with the original admission metadata's
+`a2a_context_id`, never the mutable caller-view metadata. The original graph,
+tenant and run must match the native owner binding. The sealed snapshot,
+publication receipt and retry identity retain that context. Checkpoint content
+and the caller WorkItem view come from one native read snapshot.
+
+Only the private checkpoint table is added. Lifecycle event tables and context
+ordering are outside this increment. A timestamp is not a context head or a
+concurrent continuation lock. Generate and qualify the checkpoint-only layout digest and migration on a native build host.
+The old two-table branch digest is not valid here. Native compilation, migration/reopen, atomic
+rollback, replay and installed client acceptance remain required before merge.
+No local native qualification is claimed by source preparation.
+
+Local Python facade qualification attempted both checkpoint tests.
+Both fail because the fresh generated send methods do not exist yet.
+Contract reachability reports the same two missing generated method entries.
+Native builds and tests remain unrun.
+
+Existing Python regressions pass: 28 tests across
+`test_run_work_item_read_client.py`, `test_task_plan_client.py`,
+`test_work_item_capability_client.py`, `test_work_item_read_client.py` and
+`test_work_item_retry_identity.py`. These tests do not qualify the new native
+checkpoint path or its missing generated facade methods.

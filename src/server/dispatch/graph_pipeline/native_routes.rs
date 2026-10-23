@@ -289,9 +289,25 @@ async fn route_work_item_reads(
             handlers::work_item_read::WorkItemRead::Gap { tenant, gap_id }
         }
         Method::GapList { request } => handlers::work_item_read::WorkItemRead::Gaps(request),
-        other => return Err(other),
+        other => checkpoint_read(ctx, other)?,
     };
     Ok(answer_work_item_read(ctx, read).await)
+}
+
+#[cfg(feature = "redb")]
+fn checkpoint_read(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<handlers::work_item_read::WorkItemRead, Method> {
+    match method {
+        Method::GetRunCheckpoint { request } => {
+            Ok(handlers::work_item_read::WorkItemRead::Checkpoint {
+                request,
+                actor: ctx.verified_context.principal().to_string(),
+            })
+        }
+        other => Err(other),
+    }
 }
 
 #[cfg(feature = "redb")]

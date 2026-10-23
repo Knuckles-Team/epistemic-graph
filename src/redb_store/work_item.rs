@@ -65,6 +65,7 @@ pub(crate) struct WorkItemFenceKey<'args> {
 }
 
 mod cancel;
+pub(crate) mod checkpoint;
 mod claim;
 mod commit;
 mod control_lease;

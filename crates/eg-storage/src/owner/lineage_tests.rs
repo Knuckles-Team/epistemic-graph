@@ -220,3 +220,24 @@ fn the_named_manifest_refusal_wins_over_a_table_census_mismatch() {
     .expect("a predecessor file must not open");
     assert!(error.starts_with(&predecessor.error_code()), "{error}");
 }
+
+// spec: EG-DURABLE-KERNEL-R028.1.1
+#[test]
+fn checkpoint_predecessor_preserves_the_last_sixty_table_layout() {
+    let predecessor = &GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS;
+    assert_eq!(predecessor.owner_tables.len(), 60);
+    assert!(predecessor
+        .owner_tables
+        .contains(&"work_item_current_plans"));
+    assert!(!predecessor
+        .owner_tables
+        .contains(&"work_item_run_checkpoints"));
+    let manifest = predecessor_manifest(predecessor);
+    assert_eq!(
+        manifest.layout_digest,
+        GRAPH_SHARD_PRE_RUN_CHECKPOINTS_DIGEST
+    );
+    let error = validate_against_lineage(&manifest).unwrap_err();
+    assert!(error.starts_with("GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED:"));
+    assert!(error.contains(predecessor.label));
+}

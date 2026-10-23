@@ -151,27 +151,8 @@ pub(crate) fn work_item_batch_identity(
     transport_request_id: u64,
     method: &Method,
 ) -> Result<WorkItemBatchIdentity, String> {
-    if let Method::SubmitWorkItem { request } = method {
-        if let Some(run_id) = request.run_id.as_deref() {
-            return scoped_terminal_work_item_identity(
-                graph,
-                tenant,
-                &request.idempotency_key,
-                Some(run_id),
-            );
-        }
-    }
-    if let Method::PublishCurrentPlan { request } = method {
-        return scoped_work_item_identity(
-            graph,
-            tenant,
-            &request.idempotency_key,
-            &[
-                "publish",
-                &request.snapshot.run_id,
-                &request.snapshot.revision.to_string(),
-            ],
-        );
+    if let Some(identity) = publication_batch_identity(graph, tenant, method) {
+        return identity;
     }
     let terminal_key = work_item_terminal_key(method)?;
 
@@ -191,6 +172,53 @@ pub(crate) fn work_item_batch_identity(
         durable_request_id: transport_request_id,
         uses_native_row_cas: false,
     })
+}
+
+fn publication_batch_identity(
+    graph: &str,
+    tenant: &str,
+    method: &Method,
+) -> Option<Result<WorkItemBatchIdentity, String>> {
+    if let Method::SubmitWorkItem { request } = method {
+        if let Some(run_id) = request.run_id.as_deref() {
+            return Some(scoped_terminal_work_item_identity(
+                graph,
+                tenant,
+                &request.idempotency_key,
+                Some(run_id),
+            ));
+        }
+    }
+    if let Method::PublishRunCheckpoint { request } = method {
+        return Some(scoped_work_item_identity(
+            graph,
+            tenant,
+            &request.idempotency_key,
+            &[
+                "checkpoint",
+                &request.context_id,
+                &request.work_item_id,
+                &request.run_id,
+                &request
+                    .expected_revision
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "initial".into()),
+            ],
+        ));
+    }
+    if let Method::PublishCurrentPlan { request } = method {
+        return Some(scoped_work_item_identity(
+            graph,
+            tenant,
+            &request.idempotency_key,
+            &[
+                "publish",
+                &request.snapshot.run_id,
+                &request.snapshot.revision.to_string(),
+            ],
+        ));
+    }
+    None
 }
 
 fn work_item_terminal_key(method: &Method) -> Result<Option<String>, String> {
@@ -430,5 +458,76 @@ mod current_plan_identity_tests {
             first,
             work_item_batch_identity("graph", "other-tenant", 1, &method).unwrap()
         );
+    }
+}
+
+#[cfg(test)]
+mod checkpoint_identity_tests {
+    use super::*;
+    use eg_types::run_checkpoint::{CheckpointContent, PublishRunCheckpointRequest};
+
+    // spec: EG-DURABLE-KERNEL-R028.1.1
+    #[test]
+    fn context_is_bound_to_checkpoint_retry_identity_and_body() {
+        use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
+        use sha2::Digest;
+        let request = PublishRunCheckpointRequest {
+            tenant: "tenant".into(),
+            work_item_id: "work-item".into(),
+            run_id: "run".into(),
+            context_id: "original-context".into(),
+            worker_id: "worker".into(),
+            lease_epoch: 1,
+            fencing_token: 2,
+            expected_revision: None,
+            snapshot: CheckpointContent {
+                content: "{}".into(),
+                payload_digest: hex::encode(sha2::Sha256::digest(b"{}")),
+                short_term: vec![],
+                long_term: vec![],
+            },
+            idempotency_key: "same-key".into(),
+        };
+        let method = Method::PublishRunCheckpoint {
+            request: request.clone(),
+        };
+        let identity = work_item_batch_identity("graph", "tenant", 1, &method).unwrap();
+        assert_eq!(
+            identity,
+            work_item_batch_identity("graph", "tenant", 999, &method).unwrap()
+        );
+        let mut changed = request;
+        changed.context_id = "foreign-context".into();
+        let foreign = Method::PublishRunCheckpoint { request: changed };
+        assert_ne!(
+            identity,
+            work_item_batch_identity("graph", "tenant", 1, &foreign).unwrap()
+        );
+        let digest = |method| {
+            compile_methods(
+                CompileBatch {
+                    batch_id: &identity.batch_id,
+                    request_id: identity.durable_request_id,
+                    attempt_nonce: None,
+                    principal: Some("owner"),
+                    tenant: "tenant",
+                    graph: "graph",
+                    placement_epoch: 0,
+                    idempotency_key: &identity.idempotency_key,
+                    expected_graph_version: Some(0),
+                    fencing_token: None,
+                    created_at_ms: 1,
+                    default_surface: crate::mutation_batch::MutationSurface::Job,
+                    authoritative_state: None,
+                },
+                vec![method],
+            )
+            .unwrap()
+            .envelope
+            .operation()
+            .unwrap()
+            .canonical_payload_digest
+        };
+        assert_ne!(digest(method), digest(foreign));
     }
 }

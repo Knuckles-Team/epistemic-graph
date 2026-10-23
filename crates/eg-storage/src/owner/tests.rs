@@ -83,8 +83,8 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // tables (`repository_enrichment_budgets`, `_policy_revisions`,
     // `_supersessions`, `_parks`) = 58, plus the tenant-scoped operation
     // audit-append idempotency index `audit_requests` = 59, plus the private
-    // `work_item_current_plans` snapshot table = 60.
-    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 60);
+    // `work_item_current_plans` snapshot table = 60, plus private run checkpoints = 61.
+    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 61);
     assert_eq!(owner_layouts().len(), 18);
 }
 

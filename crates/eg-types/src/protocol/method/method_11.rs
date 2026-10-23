@@ -3,6 +3,10 @@ macro_rules! __eg_method_chunk_11 {
         __eg_method_finish!(@acc [
 $($variants)*
 
+    PublishRunCheckpoint { request: crate::run_checkpoint::PublishRunCheckpointRequest },
+    GetRunCheckpoint { request: crate::run_checkpoint::GetRunCheckpointRequest },
+
+
     PublishCurrentPlan { request: crate::current_plan::PublishCurrentPlanRequest },
     GetCurrentPlan { tenant: String, run_id: String },
     /// Historical native run admission, visible only to its verified immutable

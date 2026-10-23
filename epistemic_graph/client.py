@@ -3710,6 +3710,77 @@ class WorkItemClient:
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
+    async def get_checkpoint(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        run_id: str,
+        context_id: str,
+        current_claim: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Read the owner's private checkpoint and WorkItem from one snapshot.
+
+        A current claim additionally requires a live matching fence for resume.
+        Reading never executes work or advances a checkpoint.
+        """
+        result = await _gen.coordination.send_get_run_checkpoint(
+            self._client,
+            {
+                "request": {
+                    "tenant": tenant,
+                    "work_item_id": work_item_id,
+                    "run_id": run_id,
+                    "context_id": context_id,
+                    "current_claim": current_claim,
+                }
+            },
+        )
+        value = _gen.coordination.decode_get_run_checkpoint(result)
+        return None if value is None else value.model_dump(mode="json")
+
+    async def publish_checkpoint(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        run_id: str,
+        context_id: str,
+        worker_id: str,
+        lease_epoch: int,
+        fencing_token: int,
+        expected_revision: int | None,
+        snapshot: dict[str, Any],
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Atomically publish a fenced snapshot and advance its WorkItem head.
+
+        The engine enforces the expected revision. ``replayed`` identifies a
+        recovered receipt and must not be treated as a new execution grant.
+        """
+        result = await _gen.coordination.send_publish_run_checkpoint(
+            self._client,
+            {
+                "request": {
+                    "tenant": tenant,
+                    "work_item_id": work_item_id,
+                    "run_id": run_id,
+                    "context_id": context_id,
+                    "worker_id": worker_id,
+                    "lease_epoch": lease_epoch,
+                    "fencing_token": fencing_token,
+                    "expected_revision": expected_revision,
+                    "snapshot": snapshot,
+                    "idempotency_key": idempotency_key,
+                }
+            },
+            idempotency_key=idempotency_key,
+        )
+        return _gen.coordination.decode_publish_run_checkpoint(result).model_dump(
+            mode="json"
+        )
+
+    # -- EH-219 typed caller-view reads -------------------------------------
     async def _require_submit_method(self, method: str) -> None:
         supports = getattr(self._client, "supports", None)
         if supports is None or await supports(method) is not True:

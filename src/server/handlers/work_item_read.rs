@@ -25,6 +25,10 @@ use crate::server::persistence::PersistenceBackend;
 
 /// One decoded WorkItem read.
 pub(crate) enum WorkItemRead {
+    Checkpoint {
+        request: eg_types::run_checkpoint::GetRunCheckpointRequest,
+        actor: String,
+    },
     RunAdmission {
         tenant: String,
         run_id: String,
@@ -64,7 +68,12 @@ pub(crate) enum WorkItemRead {
 impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
-            Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
+            Self::Checkpoint {
+                request: eg_types::run_checkpoint::GetRunCheckpointRequest { tenant, .. },
+                ..
+            }
+            | Self::Get { tenant, .. }
+            | Self::Outcome { tenant, .. } => tenant,
             Self::CurrentPlan { tenant, .. } | Self::RunAdmission { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLeases(request) => &request.tenant,
@@ -126,6 +135,12 @@ async fn serve_native(
                 backend
                     .read_run_work_item(graph, &tenant, &run_id, &actor)
                     .await?,
+            )
+        }
+        WorkItemRead::Checkpoint { request, actor } => {
+            let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetRunCheckpoint>(
+                backend.read_run_checkpoint(graph, request, &actor).await?,
             )
         }
         WorkItemRead::CurrentPlan {

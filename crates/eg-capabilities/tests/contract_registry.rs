@@ -217,7 +217,7 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 470 -> 471: EG-DURABLE-KERNEL-R028.4.1 owner-bound GetRunWorkItem.
     assert_eq!(
         variants.len(),
-        471,
+        473,
         "the wire method census changed; update this exact count deliberately"
     );
 }
