@@ -2126,7 +2126,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "7e4bef3469df",
-        "8dbb5bd9de53"
+        "8dbb5bd9de53",
+        "90d1006b8a33"
       ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:130",
@@ -2160,7 +2161,8 @@
       "title": "Hot-path proof: a previous-patch store migrates and serves at open",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "7e4bef3469df"
+        "7e4bef3469df",
+        "90d1006b8a33"
       ],
       "verified_by": [
         "tests/test_store_auto_migrate.py:44"
