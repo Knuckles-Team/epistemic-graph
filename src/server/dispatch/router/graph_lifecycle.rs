@@ -62,7 +62,13 @@ async fn list_graphs(
         .list()
         .iter()
         .filter(|(name, _)| {
-            s.registry.get(name).is_some_and(|entry| {
+            // The catalog record, not the resident entry (#709): after a
+            // restart every recovered graph is catalog-only until first
+            // access, and `registry.get` is resident-only, so deciding from it
+            // dropped every graph from the listing without an ACL decision.
+            // The record keeps the graph's type and owner, so the decision is
+            // the same one a resident graph gets.
+            s.registry.catalog_record(name).is_some_and(|entry| {
                 match check_graph_access(
                     &s.isolation,
                     read_authority.actor(),

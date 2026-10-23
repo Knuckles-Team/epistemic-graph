@@ -939,3 +939,13 @@ Normal publication gates remain required.
 The signed-dispatch runtime test must qualify authenticated issuer attribution and idempotent retry.
 
 The current-main reconciliation preserves current security and uses fresh hosted canonical generation for host-start DTO changes. R030.1.1 through R030.1.3 separate typed/client, native store and signed dispatch evidence. R030.1.4 keeps the complete producer qualification open. Arbora remains responsible for live session and construction-owner policy; these storage assertions cannot reserve an external effect atomically.
+
+### 2026-10-23: compose qualified identity main for host-start
+
+Retain the dedicated host-start issuer, signed refusal proofs and strict client provenance checks.
+Main fdb75651 contributes the qualified identity approval and Human-session renewal contracts.
+All canonical contract, codec and ledger files are exact main placeholders, not hand-merged outputs.
+Earlier host-start exports remain evidence only for their original source tree.
+The client helper extraction also changes a canonical receipt input.
+Fresh composed-source exports and required native and Clippy checks must qualify this union.
+R030.1.4 retains installed-consumer and latency acceptance; deployed issuer policy and actual startup remain separate.

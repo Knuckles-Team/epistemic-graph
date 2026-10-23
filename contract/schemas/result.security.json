@@ -105,6 +105,61 @@
         }
       ]
     },
+    "ApprovalKeyPurpose": {
+      "enum": [
+        "signed_approval"
+      ],
+      "type": "string"
+    },
+    "ApprovalKeyRecord": {
+      "additionalProperties": false,
+      "description": "Only public verification facts. No session, credential hash or secret.",
+      "properties": {
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "key_id": {
+          "type": "string"
+        },
+        "principal_id": {
+          "type": "string"
+        },
+        "public_key_hex": {
+          "type": "string"
+        },
+        "purpose": {
+          "$ref": "#/$defs/ApprovalKeyPurpose"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revoked_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_id",
+        "principal_id",
+        "tenant",
+        "purpose",
+        "public_key_hex",
+        "revision",
+        "expires_at_ms"
+      ],
+      "type": "object"
+    },
     "AuditAppendReceipt": {
       "description": "Commit-before-ack reference for one operation audit event. An idempotent\nretry returns the original sequence and hash.\n\n`reservation_seq` is the sequence of the reservation this event belongs\nto (its own, for a reservation). `outcome_seq` is the sequence of the\nterminal outcome linked to that reservation, and is absent while the\nreservation is still pending -- which is how a caller that was interrupted\nbetween reserving and recording the outcome finds, by replaying its\nreservation, that the outcome is still owed.",
       "properties": {
@@ -797,6 +852,8 @@
       "oneOf": [
         {
           "enum": [
+            "approval_key_registered",
+            "approval_key_revoked",
             "initialized",
             "mode_transition",
             "policy_updated",
@@ -882,6 +939,22 @@
     "IdentityReply": {
       "description": "Every identity op's answer.",
       "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "approval_key",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/ApprovalKeyRecord"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
         {
           "description": "A write that answers nothing but whether it changed state.",
           "properties": {
@@ -1025,6 +1098,62 @@
                 "$ref": "#/$defs/SessionView"
               },
               "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Original durable session facts; never an admission credential.",
+          "properties": {
+            "kind": {
+              "const": "session_record",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/SessionRecordProjection"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Facts from one GLOBAL identity/RBAC authority revision, not a per-session counter.",
+          "properties": {
+            "kind": {
+              "const": "session_authority",
+              "type": "string"
+            },
+            "value": {
+              "properties": {
+                "authority_revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "record": {
+                  "$ref": "#/$defs/SessionRecordProjection"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "record",
+                "scopes",
+                "authority_revision"
+              ],
+              "type": "object"
             }
           },
           "required": [

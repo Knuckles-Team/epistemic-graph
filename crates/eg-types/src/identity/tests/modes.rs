@@ -213,6 +213,7 @@ fn bootstrap_sessions_exist_only_in_none_mode() {
     stamp.token_hashes = vec!["demo-session".to_string()];
     let op = IdentityOp::Credential(CredentialOp::BootstrapSession {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },

@@ -540,3 +540,45 @@ The changed lockfile requires fresh hosted artifact recipe qualification.
 Complete same-tree quality acceptance under R031.2 remains open.
 
 Reuse the R006.1 and R006.3 fresh-export path for host-start source qualification. Preserve parity failures and exact source/build provenance. Keep R006.2 native, measured-size and cross-language acceptance open.
+
+
+### 2026-10-23: compose identity contracts with recovery main
+
+Retain the identity approval and Human-session renewal source and tests.
+The recovery operations and patched ctutils dependency come from main.
+Main keeps the same canonical exporters and their blocking parity checks.
+Previously generated identity contracts and codec bytes remain unchanged placeholders.
+They do not qualify the composed source or new lockfile recipe.
+Fresh hosted union exports must replace them before final qualification.
+R006.2 and the complete durable and served identity residuals remain open.
+
+### 2026-10-23: generated identity and recovery union
+
+Run 39936755442 exported canonical artifact 12494537180 and codec artifact 12495141918.
+Both identify source 38d1d67798236c00f3aaceec966763bfad8931e2 and the exact published cde04231 tree.
+Archive, recipe and output hashes were verified before importing generated files.
+All 73 canonical outputs match their receipt, including both security schemas.
+The catalog adds GetRunWorkItem without removing identity methods or changing existing descriptors.
+The import-free codec matches both client copies and the canonical ledger.
+Its recipe includes the patched ctutils lockfile.
+These exports replace the earlier placeholders; final-head parity and native qualification remain required.
+R006.2 and the complete durable and served identity residuals remain open.
+
+### 2026-10-23: compose qualified conversation admission
+
+Main dc434020e adds the qualified conversation-turn admission source and tests.
+The identity union retains those changes without production-source conflicts.
+Exact prior-union generated contracts and codec bytes remain temporary placeholders.
+No generated schema, receipt or binary was merged by hand.
+Fresh composed-source exports and parity must qualify the additional admission schema.
+The prior-union facade passed; its remaining generated failures are not final-union acceptance.
+
+### 2026-10-23: generated admission and identity union
+
+Run 39942779457 exported canonical artifact 12497600166 and codec artifact 12496593695.
+Both identify source 8e8a1e8f9deace15e7e8b7b659bc7f85d398d2c0 and the exact published fb37a103 tree.
+Archive, recipe and output hashes were verified before importing generated files.
+All 73 canonical outputs match their receipt; both client codecs match the import-free native export.
+The generated schema includes conversation admission alongside identity and recovery operations.
+These outputs replace prior-union placeholders without changing production source or test assertions.
+Final-head native and generated parity remain required; complete served identity acceptance stays open.

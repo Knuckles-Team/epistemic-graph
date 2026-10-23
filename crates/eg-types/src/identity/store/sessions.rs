@@ -38,7 +38,19 @@ impl IdentityStore {
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
         match op {
-            SessionOp::Resolve { .. } => self.resolve_session(stamp, ctx),
+            SessionOp::Resolve { request } => {
+                self.resolve_session(stamp, ctx, request.refresh.unwrap_or(true))
+            }
+            SessionOp::InspectReference {
+                session_ref,
+                tenant,
+            } => self.inspect_session_reference(session_ref, tenant, stamp, ctx),
+            SessionOp::RenewReference {
+                session_ref,
+                tenant,
+                expected_scopes,
+                ..
+            } => self.renew_session_reference(session_ref, tenant, expected_scopes, stamp, ctx),
             SessionOp::Revoke { .. } => {
                 let hash = stamp.token_hash(0)?.to_string();
                 let changed = self.revoke_session(&hash, ctx.now_ms, "logout");
@@ -103,6 +115,7 @@ impl IdentityStore {
         &mut self,
         stamp: &IdentityStamp,
         ctx: &ApplyContext<'_>,
+        refresh: bool,
     ) -> Result<IdentityReply, IdentityRefusal> {
         let hash = stamp.token_hash(0)?;
         let now_ms = ctx.now_ms;
@@ -122,10 +135,11 @@ impl IdentityStore {
         if let Some(session) = self.sessions.get_mut(hash) {
             // Touch at a coarse granularity: a resolve inside the same minute
             // changes nothing, so the engine persists nothing for it.
-            if now_ms
-                >= session
-                    .last_seen_at_ms
-                    .saturating_add(super::TOUCH_GRANULARITY_MS)
+            if refresh
+                && now_ms
+                    >= session
+                        .last_seen_at_ms
+                        .saturating_add(super::TOUCH_GRANULARITY_MS)
             {
                 session.last_seen_at_ms = now_ms;
                 session.idle_expires_at_ms = now_ms.saturating_add(idle);
@@ -174,7 +188,7 @@ impl IdentityStore {
         })
     }
 
-    fn idle_ms_for(
+    pub(super) fn idle_ms_for(
         &self,
         scopes: &std::collections::BTreeSet<String>,
         ctx: &ApplyContext<'_>,
@@ -209,6 +223,7 @@ impl IdentityStore {
             open.session_hash.to_string(),
             SessionRecord {
                 session_hash: open.session_hash.to_string(),
+                original_scopes: Some(scopes),
                 session_ref: open.session_ref.map(str::to_string),
                 session_tenant: open.session_tenant.map(str::to_string),
                 principal_id: open.principal_id.to_string(),
