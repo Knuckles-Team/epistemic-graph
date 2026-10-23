@@ -193,6 +193,7 @@ pub(super) fn migrate_with(
         finish(&migration);
         return Ok(migration);
     }
+    create_journal_directory(&data_dir).map_err(failed)?;
     let mut journal = Journal::planned(&pending);
     journal.write(&journal_path).map_err(failed)?;
     crate::metrics::store_migration_step("journal", "written");
@@ -298,10 +299,20 @@ fn finish(migration: &AutoMigration) {
 
 /// The journal lives in the same private directory as the default staging
 /// root, which this module creates with mode 0700.
+///
+/// Naming the path creates nothing: a fresh or current data directory must
+/// stay exactly as it was, because an empty directory is how a new store is
+/// recognised. The private directory is created only before a journal write.
 fn journal_path(data_dir: &Path) -> Result<PathBuf, String> {
+    Ok(data_dir.join(DEFAULT_STAGING_DIRECTORY).join(JOURNAL_FILE))
+}
+
+/// Create the private directory the journal and the default staging root
+/// live in, with mode 0700.
+fn create_journal_directory(data_dir: &Path) -> Result<(), String> {
     let scratch = super::default_staging_root(data_dir)?;
     debug_assert!(scratch.ends_with(STAGING_SCRATCH_DIRECTORY));
-    Ok(data_dir.join(DEFAULT_STAGING_DIRECTORY).join(JOURNAL_FILE))
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
