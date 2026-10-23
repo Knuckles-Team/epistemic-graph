@@ -745,3 +745,12 @@ pure identity and durable reopen tests. These include rotation, revocation,
 renewal CAS, original scope ceilings, human ownership and absolute expiry.
 Its only failing test was committed canonical artifact parity.
 These are prior-head receipts, not execution proof for the helper cleanup.
+
+### Current-main ontology integration qualification
+
+The identity source now includes main 5b227a9ca and its connector ontology fields.
+The merged source preserves both operation sets.
+The three conflicting generated receipt and catalog files retain the exact main versions temporarily.
+These files are stale for the identity union, not a qualified combined contract.
+Fresh hosted native generation and final-source parity must replace this draft baseline before merge.
+The earlier identity exports remain preserved with their original source receipts.

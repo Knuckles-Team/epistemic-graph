@@ -86,12 +86,33 @@ fn check_capability(iri: &str, findings: &mut AnnotationFindings) {
                 "an eg: capability must be a native term under eg:capability",
             ));
         }
+    } else if resolves_parent_import(iri) {
+        // `ontology-import:<parent>`: the pack builder lifted the ontology's
+        // `owl:imports` of the parent catalog into this requirement; the engine
+        // resolves it against the parent catalog (EG-TYPED-PACKS-R105).
     } else {
         findings.warnings.push((
             PackWarningCode::UnresolvedCapabilityIri,
             format!("{iri} is a declared claim outside the native vocabulary"),
         ));
     }
+}
+
+/// An `ontology-import:` requirement naming the parent catalog or one of its
+/// modules is resolved by the engine, never an unresolved claim.
+fn resolves_parent_import(iri: &str) -> bool {
+    iri.strip_prefix("ontology-import:")
+        .is_some_and(parent_ontology_iri)
+}
+
+#[cfg(feature = "rdf")]
+fn parent_ontology_iri(iri: &str) -> bool {
+    eg_rdf::pack::is_parent_ontology_iri(iri)
+}
+
+#[cfg(not(feature = "rdf"))]
+fn parent_ontology_iri(_iri: &str) -> bool {
+    false
 }
 
 fn check_cost_and_latency(annotations: &PackAnnotations, findings: &mut AnnotationFindings) {
@@ -204,6 +225,30 @@ mod tests {
         assert!(foreign.violations.is_empty());
         assert_eq!(
             foreign.warnings[0].0,
+            PackWarningCode::UnresolvedCapabilityIri
+        );
+    }
+
+    // spec: EG-TYPED-PACKS-R105.1
+    #[cfg(feature = "rdf")]
+    #[test]
+    fn parent_ontology_import_requirement_resolves() {
+        let requiring = |iri: &str| PackAnnotations {
+            requires_capabilities: eg_types::contract::BoundedVec::new(vec![iri.to_string()])
+                .unwrap(),
+            ..PackAnnotations::default()
+        };
+        let parent = check_annotations(
+            PackEntryKind::Ontology,
+            &requiring("ontology-import:http://knuckles.team/kg"),
+        );
+        assert!(parent.violations.is_empty() && parent.warnings.is_empty());
+        let remote = check_annotations(
+            PackEntryKind::Ontology,
+            &requiring("ontology-import:https://example.org/other"),
+        );
+        assert_eq!(
+            remote.warnings[0].0,
             PackWarningCode::UnresolvedCapabilityIri
         );
     }

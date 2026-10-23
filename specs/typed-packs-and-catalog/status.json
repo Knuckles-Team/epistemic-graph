@@ -138,8 +138,6 @@
     "EG-TYPED-PACKS-R085.1",
     "EG-TYPED-PACKS-R085.3",
     "EG-TYPED-PACKS-R085.2",
-    "EG-TYPED-PACKS-R085.7",
-    "EG-TYPED-PACKS-R085.4",
     "EG-TYPED-PACKS-R086",
     "EG-TYPED-PACKS-R087",
     "EG-TYPED-PACKS-R088",
@@ -221,6 +219,8 @@
     "EG-TYPED-PACKS-R104.5",
     "EG-TYPED-PACKS-R104.6",
     "EG-TYPED-PACKS-R105",
+    "EG-TYPED-PACKS-R105.1",
+    "EG-TYPED-PACKS-R105.2",
     "EG-TYPED-PACKS-R750",
     "EG-TYPED-PACKS-R750.750",
     "EG-TYPED-PACKS-R750.751",
@@ -348,22 +348,7 @@
     "EG-TYPED-PACKS-R109.3",
     "EG-TYPED-PACKS-R109.4",
     "EG-TYPED-PACKS-R109.5",
-    "EG-TYPED-PACKS-R109.6",
-    "EG-TYPED-PACKS-R085.5",
-    "EG-TYPED-PACKS-R085.6",
-    "EG-TYPED-PACKS-R085.7.1",
-    "EG-TYPED-PACKS-R085.7.2",
-    "EG-TYPED-PACKS-R085.7.3",
-    "EG-TYPED-PACKS-R085.4.1",
-    "EG-TYPED-PACKS-R085.4.2",
-    "EG-TYPED-PACKS-R085.4.3",
-    "EG-TYPED-PACKS-R085.5.1",
-    "EG-TYPED-PACKS-R085.5.2",
-    "EG-TYPED-PACKS-R085.5.3",
-    "EG-TYPED-PACKS-R085.5.4",
-    "EG-TYPED-PACKS-R085.6.1",
-    "EG-TYPED-PACKS-R085.6.2",
-    "EG-TYPED-PACKS-R085.6.3"
+    "EG-TYPED-PACKS-R109.6"
   ],
   "requirements": [
     {
@@ -691,7 +676,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:177"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:198"
       ]
     },
     {
@@ -1198,7 +1183,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:211"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:256"
       ]
     },
     {
@@ -1210,7 +1195,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:212"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:257"
       ]
     },
     {
@@ -1772,11 +1757,7 @@
       "rollup_of": [
         "EG-TYPED-PACKS-R085.1",
         "EG-TYPED-PACKS-R085.3",
-        "EG-TYPED-PACKS-R085.2",
-        "EG-TYPED-PACKS-R085.7",
-        "EG-TYPED-PACKS-R085.4",
-        "EG-TYPED-PACKS-R085.5",
-        "EG-TYPED-PACKS-R085.6"
+        "EG-TYPED-PACKS-R085.2"
       ]
     },
     {
@@ -1785,11 +1766,11 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-core/src/isolation/identity_store_tests.rs:463",
+        "crates/eg-core/src/isolation/identity_store_tests.rs:462",
         "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:5",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:128",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:142",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:34"
+        "crates/eg-types/src/identity/tests/session_evidence.rs:127",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:141",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:33"
       ]
     },
     {
@@ -1805,30 +1786,6 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.7",
-      "title": "Rollup through R085.7.1–R085.7.3",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R085.7.1",
-        "EG-TYPED-PACKS-R085.7.2",
-        "EG-TYPED-PACKS-R085.7.3"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.4",
-      "title": "Rollup through R085.4.1–R085.4.3",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R085.4.1",
-        "EG-TYPED-PACKS-R085.4.2",
-        "EG-TYPED-PACKS-R085.4.3"
-      ]
     },
     {
       "id": "EG-TYPED-PACKS-R086",
@@ -2551,6 +2508,32 @@
     {
       "id": "EG-TYPED-PACKS-R105",
       "title": "A connector ontology joins the parent graph on import",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R105.1",
+        "EG-TYPED-PACKS-R105.2"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.1",
+      "title": "Stage one: record the parent link and flag orphans",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b44014b5fe3"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/pack/tests.rs:143",
+        "crates/eg-rdf/src/pack/tests.rs:158",
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:232",
+        "src/server/handlers/admin/connector_pack/tests/ontology.rs:154",
+        "src/server/handlers/admin/connector_pack/tests/ontology.rs:161"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.2",
+      "title": "Stage two: the import edge, parent-class reads and enforcement",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3598,165 +3581,6 @@
     {
       "id": "EG-TYPED-PACKS-R109.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.5",
-      "title": "Rollup through R085.5.1–R085.5.4",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R085.5.1",
-        "EG-TYPED-PACKS-R085.5.2",
-        "EG-TYPED-PACKS-R085.5.3",
-        "EG-TYPED-PACKS-R085.5.4"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.6",
-      "title": "Rollup through R085.6.1–R085.6.3",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R085.6.1",
-        "EG-TYPED-PACKS-R085.6.2",
-        "EG-TYPED-PACKS-R085.6.3"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.7.1",
-      "title": "Pure reference inspection",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2b8dd458b459",
-        "b6d6bdedcd35"
-      ],
-      "verified_by": [
-        "crates/eg-types/src/identity/tests/session_evidence.rs:168",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:204",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:334"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.7.2",
-      "title": "Durable reference snapshots",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:6"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.7.3",
-      "title": "Reference contract and served qualification",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.4.1",
-      "title": "Pure renewal ceiling transitions",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2b8dd458b459",
-        "b6d6bdedcd35"
-      ],
-      "verified_by": [
-        "crates/eg-types/src/identity/tests/session_evidence.rs:220",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:335",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:364",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:385",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:420"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.4.2",
-      "title": "Durable renewal CAS",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:161"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.4.3",
-      "title": "Renewal contract and served qualification",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "src/server/dispatch/identity_store/resolution_context/tests.rs:681"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.5.1",
-      "title": "Pure registered approval-key transitions",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2b8dd458b459",
-        "b6d6bdedcd35"
-      ],
-      "verified_by": [
-        "crates/eg-types/src/identity/tests/approval_keys.rs:112",
-        "crates/eg-types/src/identity/tests/approval_keys.rs:150",
-        "crates/eg-types/src/identity/tests/approval_keys.rs:188",
-        "crates/eg-types/src/identity/tests/approval_keys.rs:219",
-        "crates/eg-types/src/identity/tests/approval_keys.rs:74"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.5.2",
-      "title": "Durable approval-key evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "crates/eg-core/src/isolation/identity_store_tests/approval_keys.rs:63"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.5.3",
-      "title": "Approval-key request stamping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "src/server/dispatch/identity_store/tests/approval_keys.rs:4"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.5.4",
-      "title": "Approval-key served qualification",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.6.1",
-      "title": "Pure credential observation",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2b8dd458b459",
-        "b6d6bdedcd35"
-      ],
-      "verified_by": [
-        "crates/eg-types/src/identity/tests/session_evidence.rs:279",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:310"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.6.2",
-      "title": "Durable observation revision",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:7"
-      ]
-    },
-    {
-      "id": "EG-TYPED-PACKS-R085.6.3",
-      "title": "Observation contract and served qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

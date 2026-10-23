@@ -324,6 +324,7 @@ pub fn every_violation_code() -> Vec<PackViolationCode> {
         PackViolationCode::ImporterMismatch,
         PackViolationCode::PackMassWithdrawal,
         PackViolationCode::RetiredEntryReturned,
+        PackViolationCode::OntologyOrphan,
     ]
 }
 
@@ -333,6 +334,7 @@ pub fn every_warning_code() -> Vec<PackWarningCode> {
         PackWarningCode::EmptyDescription,
         PackWarningCode::UnresolvedCapabilityIri,
         PackWarningCode::DuplicateShapeIri,
+        PackWarningCode::OntologyOrphan,
     ]
 }
 
