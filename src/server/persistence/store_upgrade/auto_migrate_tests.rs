@@ -7,18 +7,18 @@
 use std::ops::ControlFlow;
 
 use super::auto_migrate::{migrate_with, parse_switch, read_journal_states};
+use super::tests::{
+    confirmed as options, data_dir, file_digest as digest, get, identity, old_agent_library,
+    old_graph_shard, statuses,
+};
 use super::*;
-use crate::redb_layout::shard_filename;
 use crate::redb_store::shard::SHARD_PHYSICAL_STORE;
 use crate::redb_store::NODES;
-use crate::server::persistence::agent_library::{AGENT_LIBRARY_FILE, AGENT_LIBRARY_PHYSICAL_STORE};
+use crate::server::persistence::agent_library::AGENT_LIBRARY_FILE;
 use eg_storage::{
-    create_predecessor_owner_file, LayoutPredecessor, OwnerLayout,
-    AGENT_LIBRARY_BEFORE_MCP_CATALOG, AGENT_LIBRARY_REVISIONS, BLOB_BEFORE_HOLDERS,
-    GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
+    create_predecessor_owner_file, LayoutPredecessor, OwnerLayout, AGENT_LIBRARY_REVISIONS,
+    BLOB_BEFORE_HOLDERS,
 };
-use redb::ReadableDatabase;
-use sha2::{Digest, Sha256};
 
 /// A graph shard whose table set no build ever wrote: its layout digest is
 /// outside this build's lineage, as a newer build's shard is.
@@ -30,93 +30,14 @@ const SHARD_FROM_A_NEWER_BUILD: LayoutPredecessor = LayoutPredecessor {
     file_name: "graph-0.redb",
 };
 
-/// Offline inspection refuses a staging root under the system temporary
-/// directory, so the data directory lives under this package's build output.
-fn data_dir() -> tempfile::TempDir {
-    let parent = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
-    std::fs::create_dir_all(&parent).unwrap();
-    tempfile::Builder::new()
-        .prefix("store-auto-migrate-test-")
-        .tempdir_in(parent)
-        .unwrap()
-}
-
 fn lock(dir: &Path) -> crate::persist_lock::PersistDirLock {
     crate::persist_lock::acquire(&dir.to_string_lossy()).unwrap()
-}
-
-fn identity(name: &str) -> PhysicalStoreIdentity {
-    PhysicalStoreIdentity::new(name).unwrap()
-}
-
-fn digest(path: &Path) -> Vec<u8> {
-    Sha256::digest(std::fs::read(path).unwrap()).to_vec()
-}
-
-fn options() -> ApplyOptions {
-    ApplyOptions {
-        confirm: true,
-        ..ApplyOptions::default()
-    }
-}
-
-fn put<K: redb::Key + 'static>(
-    path: &Path,
-    table: redb::TableDefinition<K, &'static [u8]>,
-    key: K::SelfType<'_>,
-    value: &[u8],
-) {
-    let database = redb::Database::open(path).unwrap();
-    let write = database.begin_write().unwrap();
-    write.open_table(table).unwrap().insert(key, value).unwrap();
-    write.commit().unwrap();
-}
-
-fn get<K: redb::Key + 'static>(
-    path: &Path,
-    table: redb::TableDefinition<K, &'static [u8]>,
-    key: K::SelfType<'_>,
-) -> Vec<u8> {
-    let database = redb::Database::open(path).unwrap();
-    let read = database.begin_read().unwrap();
-    let table = read.open_table(table).unwrap();
-    let row = table.get(key).unwrap().expect("the row is present");
-    row.value().to_vec()
 }
 
 /// A previous-patch data directory: one graph shard and one Agent Library,
 /// each in a registered predecessor generation and holding one row.
 fn previous_patch_store(dir: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
-    let shard = dir.join(shard_filename(0));
-    create_predecessor_owner_file(
-        &shard,
-        identity(SHARD_PHYSICAL_STORE),
-        &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
-    )
-    .unwrap();
-    put(&shard, NODES, ("graph-a", "node-a"), b"kept node");
-    let library = dir.join(AGENT_LIBRARY_FILE);
-    create_predecessor_owner_file(
-        &library,
-        identity(AGENT_LIBRARY_PHYSICAL_STORE),
-        &AGENT_LIBRARY_BEFORE_MCP_CATALOG,
-    )
-    .unwrap();
-    put(
-        &library,
-        AGENT_LIBRARY_REVISIONS,
-        ("tenant-a", "agent-a", 1),
-        b"kept agent revision",
-    );
-    (shard, library)
-}
-
-fn statuses(report: &Report) -> Vec<(&str, StoreStatus)> {
-    report
-        .stores
-        .iter()
-        .map(|store| (store.file.as_str(), store.status))
-        .collect()
+    (old_graph_shard(dir), old_agent_library(dir))
 }
 
 fn assert_rows_kept(shard: &Path, library: &Path) {
