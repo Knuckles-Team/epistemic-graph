@@ -43,6 +43,7 @@
     "epistemic_graph/generated/_ids.py": "5a098372af7674247b2fa5090bb9598a6b5f2ac8714fe4dd498d4b47f8f8d29b",
     "epistemic_graph/generated/_runtime.py": "7f2d7ced6799e3c52df4719f8dc1079f55faa5c0cf248d6e8d07114ef385da8e",
     "epistemic_graph/generated/_shared.py": "605e207677469e09727fb95a914143db290e239bd6c9479d22556a2f269ed5cb",
+    "epistemic_graph/generated/_task_plan_feature_schema.py": "e7dd50be5aca0e987f06eac92aaad2a4a40ab6e1c84ce80936445f36b2c64aca",
     "epistemic_graph/generated/agent_component.py": "befaf5ce60f36a795925c582462d6cf3a02d2c39c944deb8ff50afe71c44eff5",
     "epistemic_graph/generated/cluster.py": "ec7bfc2c7fda847312bd18c4fda706c9a7984ebaf94cc9639085672ff65974b2",
     "epistemic_graph/generated/compute.py": "5969294a444d545ac0ae7d0560d0f61dc08c63e9f3126ad2991d838498c35940",
@@ -71,7 +72,7 @@
     "epistemic_graph/generated/transactions.py": "83174fd4a8d2032577c60bf61dacf08fbe3b5df8530da66a19d1b36eb9920335",
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "contract_digest": "f04af9329534f59053a88f3a3c026e78f11be38dcf7b4207f5fb83a2673f505e",
+  "contract_digest": "5833154b5e7282eecbd40ca6298abb783a8a990aeb69c9c6e4f00e5e5d591840",
   "contract_version": 1,
   "feature_profile": [
     "contract",
