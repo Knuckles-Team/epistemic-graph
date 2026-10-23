@@ -38,7 +38,7 @@ const LEASE_AUTHORITY: &str =
 /// WorkItem).
 /// Matched on every field EG's label index reads (`type`, `node_type`,
 /// `label`, `labels[]`), so no spelling of the label slips past.
-const NATIVE_ONLY_LABELS: [&str; 3] = ["ControlLease", "ActionApproval", "Gap"];
+const NATIVE_ONLY_LABELS: [&str; 4] = ["ControlLease", "ActionApproval", "Gap", "ConversationHead"];
 const NATIVE_KEY_AUTHORITY: &str =
     "native WorkItem authority required for a kernel-owned row field";
 

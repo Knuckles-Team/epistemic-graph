@@ -76,6 +76,7 @@ fn request_context(request_id: &str, trace_id: &str) -> RequestContext {
 fn submit_method() -> Method {
     Method::SubmitWorkItem {
         request: SubmitWorkItemRequest {
+            conversation: None,
             run_id: None,
             schema_version: NativeControlSchemaVersion::V1,
             context: request_context("client-submit-request", "client-submit-trace"),

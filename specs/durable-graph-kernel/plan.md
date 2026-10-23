@@ -874,3 +874,31 @@ session totals, billing, model selection or caller credential renewal. The share
 host and execution libraries consume this storage contract. Canonical generators
 own every derived schema and client artifact. Historical source-stack acceptance
 is background only; native and served receipts must identify the tested revision.
+
+## Amendment: ordered conversation admission, 2026-10-23
+
+Extend R028.4 and retain the session/chat obligations in R751.750 and R751.751.
+Those rows name session and chat records but do not provide a chat-store type.
+The existing `SessionRecord` is an authentication record, not conversation state.
+Reuse native run admission, its immutable original request, sealed NODES and
+MutationBatch. Do not add a parallel transcript database or full-history copies.
+
+An optional typed admission field reserves one context head in the same write
+transaction as the new WorkItem. The graph-scoped owner table provides graph
+incarnation isolation. The head binds tenant, owner, context, revision and run.
+The exact preceding run lives in the immutable original submission. The engine permits one active
+turn; stale writers conflict. Failed or uncertain predecessors need
+an explicit later recovery policy, not an inferred successful history.
+
+Legacy requests omit the field and keep their previous wire form. Typed callers
+must use a newly created context or an explicitly migrated context. This slice
+cannot import old metadata-only contexts or discover their authoritative order.
+An existing typed head refuses metadata-only continuation. Generated schemas
+and clients must expose the optional nested field before served use.
+
+The head is an admission-order record, not a transcript or history receipt.
+The checkpoint host adapter must validate a completed, owner-bound model-history
+snapshot before any model or tool effect. Successful WorkItem status alone does
+not establish this. Public transcript pagination, a head read operation,
+checkpoint digest binding, compaction policy, retention and served restart proof
+remain open. No frontend may fabricate them from timestamps or local history.

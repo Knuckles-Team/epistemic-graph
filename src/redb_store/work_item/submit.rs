@@ -752,6 +752,9 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
             crypto,
         })?;
 
+    let conversation_head =
+        super::conversation::reserve(graph, request, admitted_actor, nodes, crypto)?;
+
     let now_s = authoritative_now_ms as f64 / 1000.0;
     let pending_dependencies = dependency_rows
         .iter()
@@ -776,7 +779,7 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
         crypto,
     })?;
 
-    Ok(build_submit_work_item_result(SubmitWorkItemResultInput {
+    let mut result = build_submit_work_item_result(SubmitWorkItemResultInput {
         work_item_id,
         status,
         command_sequence,
@@ -786,7 +789,9 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
         inflight,
         max_inflight,
         outbox_id,
-    }))
+    });
+    result.changed_work_item_ids.extend(conversation_head);
+    Ok(result)
 }
 
 pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(

@@ -250,6 +250,19 @@ pub struct CapacityThrottleResult {
     pub action: crate::capacity_throttle::ThrottleActionRecord,
 }
 
+/// Expected conversation head for one newly admitted run. Revision zero creates
+/// a context; later turns name the exact preceding successful run. A host must
+/// separately validate its completed model history before executing the run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ConversationTurnAdmission {
+    pub schema_version: NativeControlSchemaVersion,
+    pub context_id: String,
+    pub expected_revision: u64,
+    pub predecessor_run_id: Option<String>,
+}
+
 /// Native WorkItem admission request.  `context.tenant_id` and
 /// `context.graph` are checked against the verified request envelope; they are
 /// not caller-controlled routing hints.
@@ -257,6 +270,9 @@ pub struct CapacityThrottleResult {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SubmitWorkItemRequest {
+    /// Optional ordered conversation reservation, never a history or execution grant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationTurnAdmission>,
     /// Optional run identity; native admission binds its verified owner atomically.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,

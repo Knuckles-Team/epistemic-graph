@@ -5,14 +5,14 @@ All fixtures run against a disposable local data directory and generated credent
 | Scenario | Requirements | Positive fixture and expected result | Negative/failure fixture and expected result |
 |---|---|---|---|
 | T-KG-01 batch terminality | KG-01, KG-02 | Graph+table+KV batch commits once. Readback and retry return same terminal result | Inject failure at every commit phase. Restart yields all-or-none. Lost-ack retry does not duplicate |
-| T-KG-02 table-only path | KG-02 | Concurrent table-only writes use current atomic path and match reference corpus | Mixed unsupported member set refuses before any table or graph write |
+| T-KG-02 table-only path | KG-02 | Concurrent table-only writes use the current atomic path and match the reference corpus. | Mixed unsupported member sets refuse before writes. |
 | T-KG-03 owner lineage | KG-03 | Load each supported golden manifest. One validation per transaction | Unknown predecessor or extra physical table returns typed upgrade/ownership error. Stale cached binding never crosses transactions |
 | T-KG-04 scrub | KG-04 | Corrupt one persisted node. The scrub reports a typed finding and resumes the cursor after restart | Rate cap prevents writer starvation. The scrub hides unreadable payloads and never silently repairs them |
 | T-KG-05 outbox | KG-05 | Healthy successors deliver after a failing head is rejected/rewound with ordered receipts | Retry one head 16 times. Successors keep their own zero-attempt count. Reasoning skip without rebuild is refused |
 | T-KG-06 CDC/mirror | KG-06 | Commit 100 ordered graph/table changes, disconnect target, reconnect, replay and match digest | Crash after target apply before cursor; replay is idempotent; empty default target guard and schema drift fail visibly |
 | T-KG-07 scope | KG-07 | Owner and explicitly granted principal can access allowed data | Cross-tenant/principal probes deny SQL, UQL, TSDB and KV access. UDF, foreign-source and cache probes also deny access. Revoked grants deny the next use |
 | T-KG-07a auth modes | KG-07, KG-09 | `none`, `local` and `external` each resolve to the same internal principal/RBAC evaluator | Spoofed name in `none`, stale local session after mode switch, wrong external issuer/audience/tenant/policy version and generic elevation lease all deny |
-| T-KG-08 audit | KG-08 | Reservation precedes governed effect and links truthful outcome | Audit writer unavailable, missing class, wrong tenant, duplicate ID and crash after effect all fail or reconcile without false success |
+| T-KG-08 audit | KG-08 | Reservation precedes the governed effect and links its truthful outcome. | An unavailable audit writer, missing class, wrong tenant or duplicate ID refuses. A crash after effect reconciles without false success. |
 | T-KG-09 approval | KG-09 | Two distinct principals approve exact digest before expiry | Self-approval, generic lease, altered digest, expiry and replay all deny and audit refusal |
 | T-KG-10 Raft | KG-10 | Repeated 3-node multi-group writes/failover preserve independent progress and one committed result | Inject slow peer/leader loss. Unaffected groups progress. Failed assertion emits causal ring-buffer trace |
 | T-KG-11 durability | KG-11, KG-12 | Sync survives kill. Async oldest-unflushed age stays ≤100 ms. Hot structures rebuild from log | Ephemeral disappears on restart. Forced flush lag yields explicit degraded/refusal, never silent class change. Concurrent primitive history linearizes |
@@ -412,3 +412,30 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - Refuse forged bindings through generic row writes, replacements and removal.
 - Keep current-source native tests, generated freshness and served tests separate.
   No historical test receipt establishes acceptance for a new source revision.
+
+## Ordered conversation admission (EG-DURABLE-KERNEL-R028.4.3)
+
+Source tests live in `src/redb_store/work_item/conversation/tests.rs`.
+They use the existing native row applier inside a maintenance transaction.
+They do not prove the server MutationBatch replay path or model continuation.
+
+- Admit revision zero. Refuse a second writer with the same expected head.
+- Refuse a foreign owner and an active preceding run without a new WorkItem.
+- Finish the first run, then admit its exact successor. Ignore clock order.
+- Refuse failed, cancelled, dead-letter, missing and unknown preceding state.
+- Reopen the shard and retain its head revision and original predecessor.
+- Refuse generic create, replacement, compare-and-set and removal of a head.
+- Preserve omitted-field legacy serialization. Refuse unknown typed fields and
+  disagreement with the original A2A context. A registered context cannot bypass
+  its head through metadata-only admission.
+
+Before acceptance, run these tests on the exact source and add server tests for
+same-key replay with a fresh nonce and changed expected revision or predecessor.
+Check original receipt recovery, full rollback and graph-incarnation isolation.
+Regenerate request contracts and check installed-client compatibility.
+
+A complete continuation test must restart EG, Arbora and the client between
+turns, inspect the actual model request for prior user, assistant and tool
+messages, and prove no repeated tool effect. It must also prove fresh new-turn
+budgets, exact same-run checkpoint precedence, bounded context and explicit
+conflict handling. Those checks remain open under the existing parent rows.
