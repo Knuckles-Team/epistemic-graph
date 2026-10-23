@@ -239,6 +239,7 @@
       "landed_in": [
         "2b8dd458b459",
         "79c49c6fc412",
+        "a32000c55c4e",
         "b6d6bdedcd35",
         "fc65d45d509d"
       ],
@@ -1133,8 +1134,8 @@
         "2a1515f6e252",
         "2b8dd458b459",
         "8b5cbc59e851",
-        "b6d6bdedcd35",
-        "fc65d45d509d"
+        "a32000c55c4e",
+        "b6d6bdedcd35"
       ],
       "verified_by": [
         "tests/test_export_canonical_contract.py:11"
