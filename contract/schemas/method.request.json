@@ -536,6 +536,17 @@
               "const": "model_profile",
               "type": "string"
             },
+            "input_capabilities": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ModelInputCapabilities"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Declaration bound by this component's definition digest. Missing is unknown."
+            },
             "latency_declared": {
               "anyOf": [
                 {
@@ -36527,6 +36538,44 @@
       ],
       "type": "object"
     },
+    "ModelInputCapabilities": {
+      "additionalProperties": false,
+      "description": "Optional on a profile: absence means unknown, never unrestricted input.",
+      "properties": {
+        "max_aggregate_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_parts": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "media_types": {
+          "items": {
+            "$ref": "#/$defs/ModelInputMediaType"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "media_types",
+        "max_aggregate_bytes",
+        "max_parts"
+      ],
+      "type": "object"
+    },
+    "ModelInputMediaType": {
+      "description": "Closed set of inline input representations supported by the run contract.",
+      "enum": [
+        "text/plain",
+        "image/png",
+        "image/jpeg",
+        "image/webp"
+      ],
+      "type": "string"
+    },
     "ModelPolicyVersion": {
       "additionalProperties": false,
       "description": "`ModelPolicyVersion/v1`: an immutable artifact identity. Bytes stay in the\nexternal artifact store; EG holds identity and lineage. The record id the\nengine returns IS the version id every capture and route refers to.",
@@ -39504,6 +39553,16 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "input_capabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelInputCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "max_output_tokens": {
           "format": "uint64",
