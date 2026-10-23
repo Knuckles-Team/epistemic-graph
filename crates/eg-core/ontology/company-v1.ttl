@@ -1499,3 +1499,15 @@ and entity type. BFO:IndependentContinuant.""" ;
     rdfs:subPropertyOf :usesTool ;
     rdfs:domain :AgentRole ;
     rdfs:range :MCPServer .
+
+:Iteration a owl:Class ;
+    rdfs:label "Iteration" ;
+    rdfs:comment "A time-boxed period in which a planned set of work items is delivered (a sprint, a cycle). Vendor-neutral parent for sprint and cycle classes." ;
+    skos:altLabel "Sprint", "Cycle", "Time Box" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Milestone a owl:Class ;
+    rdfs:label "Milestone" ;
+    rdfs:comment "A dated checkpoint that groups work items toward a delivery target; open until its target is reached." ;
+    skos:altLabel "Release Milestone", "Project Milestone" ;
+    rdfs:subClassOf bfo:0000031 .

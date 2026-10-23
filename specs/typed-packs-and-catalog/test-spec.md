@@ -589,3 +589,5 @@ unqualified starting point, not represented as matching the added DTOs. Hosted
 source-only draft qualification is authorized; no failing merge or release is
 qualified. Durable, native server, installed broker and full signed-approval
 consumption acceptance remain open. No atomic approval consumption is added.
+
+- `EG-TYPED-PACKS-R105.3`: `crates/eg-rdf/tests/connector_parent_classes.rs::recurring_connector_concepts_sit_under_their_upper_classes`.
