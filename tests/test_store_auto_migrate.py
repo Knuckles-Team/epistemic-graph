@@ -16,7 +16,6 @@ directory, which must not be under `/tmp`. Run the previous-patch leg with `--ba
 outside it.
 """
 
-import asyncio
 import os
 import re
 import subprocess
@@ -25,18 +24,14 @@ import pytest
 from conftest import (
     find_server_binary,
     server_timeout,
-    spawn_server,
-    stop_server,
-    wait_for_server,
 )
 from test_upgrade_store_listing import (
-    AGENT,
-    BOTH,
     PREVIOUS_PATCH_ENV,
     _env,
-    _listed,
-    _populate,
+    _lists_both,
     _Store,
+    _writers,
+    _written,
 )
 
 pytestmark = [
@@ -49,24 +44,7 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class _MigratingStore(_Store):
-    """A `_Store` whose engine can run with extra environment."""
-
-    def run_with(self, binary: str, check, **extra: str) -> str:
-        if os.path.exists(self.socket):
-            os.remove(self.socket)
-        process = spawn_server(
-            [binary, "--socket-path", self.socket, "--persist-dir", str(self.persist)],
-            env={**_env(self.state), **extra},
-            log_path=self.log,
-        )
-        try:
-            wait_for_server(
-                process, self.socket, name="migrating engine", log_path=self.log
-            )
-            asyncio.run(check())
-        finally:
-            stop_server(process, name="migrating engine", log_path=self.log)
-        return ANSI.sub("", self.log.read_text(errors="replace"))
+    """A `_Store` an engine must also be able to refuse."""
 
     def refused(self, binary: str, **extra: str) -> tuple[int, str]:
         """Start an engine that must refuse the store; return its exit and output."""
@@ -87,21 +65,6 @@ def _previous_patch() -> str:
     return os.environ.get(PREVIOUS_PATCH_ENV, "").strip()
 
 
-def _writers() -> list:
-    previous = _previous_patch()
-    return [
-        pytest.param("", id="written-by-this-build"),
-        pytest.param(
-            previous,
-            id="written-by-previous-patch",
-            marks=pytest.mark.skipif(
-                not previous,
-                reason=f"set {PREVIOUS_PATCH_ENV} to a previous-patch engine",
-            ),
-        ),
-    ]
-
-
 def _binary() -> str:
     binary = find_server_binary()
     if binary is None:
@@ -114,15 +77,11 @@ def test_open_migrates_a_previous_patch_store_and_serves(writer, tmp_path):
     binary = _binary()
     store = _MigratingStore(tmp_path)
 
-    async def written() -> None:
-        await _populate(store.socket)
-        assert await _listed(store.socket, AGENT) == BOTH
+    def reopened():
+        return _lists_both(store.socket)
 
-    async def reopened() -> None:
-        assert await _listed(store.socket, AGENT) == BOTH
-
-    store.run(writer or binary, written)
-    first = store.run_with(binary, reopened)
+    store.run(writer or binary, lambda: _written(store.socket))
+    first = ANSI.sub("", store.run(binary, reopened))
     assert "store migration: finished" in first, first
     if writer:
         # A previous-patch store needs at least one registered upgrade.
@@ -130,7 +89,7 @@ def test_open_migrates_a_previous_patch_store_and_serves(writer, tmp_path):
         assert 'outcome="migrated"' in first, first
     assert "FORMAT_UPGRADE_REQUIRED" not in first, first
     # Idempotent: the next open finds nothing to migrate and still serves.
-    second = store.run_with(binary, reopened)
+    second = ANSI.sub("", store.run(binary, reopened))
     assert "store migration: journal written" not in second, second
     assert 'outcome="nothing_to_do"' in second, second
     assert not (
@@ -145,20 +104,14 @@ def test_switch_off_keeps_the_offline_refusal_and_the_manual_command(tmp_path):
     binary = _binary()
     store = _MigratingStore(tmp_path)
 
-    async def written() -> None:
-        await _populate(store.socket)
-
-    async def reopened() -> None:
-        assert await _listed(store.socket, AGENT) == BOTH
-
-    store.run(_previous_patch(), written)
+    store.run(_previous_patch(), lambda: _written(store.socket))
     code, output = store.refused(binary, **{SWITCH: "false"})
     assert code != 0, output
     assert "GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED" in output, output
     assert "store-upgrade apply" in output, output
     # The manual command stays, and the store then serves with the switch off.
     store.upgrade(binary)
-    store.run_with(binary, reopened, **{SWITCH: "false"})
+    store.run(binary, lambda: _lists_both(store.socket), **{SWITCH: "false"})
 
 
 def test_an_invalid_switch_value_is_refused_by_name(tmp_path):
