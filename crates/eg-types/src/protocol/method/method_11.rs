@@ -5,6 +5,8 @@ $($variants)*
 
     PublishCurrentPlan { request: crate::current_plan::PublishCurrentPlanRequest },
     GetCurrentPlan { tenant: String, run_id: String },
+    /// Caller-owned committed measurements from one bounded snapshot.
+    GetSessionUsage { tenant: String, context_id: String },
     /// Historical native run admission, visible only to its verified immutable
     /// owner. Missing and foreign rows return null; missing original admission
     /// evidence refuses explicitly. Independent of current lease or terminal state.

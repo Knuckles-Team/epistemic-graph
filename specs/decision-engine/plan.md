@@ -2084,3 +2084,11 @@ must use the direct response from the configured engine, not a caller receipt.
 Validation uses deterministic local fixtures only. The served fixture publishes
 its own feature schema through the authenticated mutation path.
 An authorized isolated fixture may instead use explicit no-auth mode. It never changes live auth.
+
+### Current-main session usage reconciliation
+
+R801.7 reuses the immutable ordinary run-completion ledger from R028.6. It does not add a parallel usage observation writer or require a delegated OutcomeBundle. The existing fenced terminal transaction remains the only producer. GetSessionUsage reads the node inventory, original admission, ledger and outbox in one snapshot. The original a2a_context_id determines session membership; later metadata changes do not move counts or missing coverage.
+
+The reader examines at most 10,000 graph rows or 32 MiB of encoded node rows. Either bound makes inventory_complete false. An older owned terminal row without immutable admission also makes inventory incomplete rather than trusting mutable metadata. No continuation cursor is supplied, so a large graph can remain partial. Missing usage and empty measurements are missing coverage; an explicit zero remains measured. Each run contributes at most once.
+
+Arbora exposes this shared result to all consumers. Actual AU request/run timings remain separate immediate metrics, not durable token receipts or generation speed. No costs, queue delays or TTFT are inferred. R801.7.3 stays open until fresh hosted generation, native execution, installed consumer acceptance and maximum-input measurements pass. No live data or infrastructure is changed by source reconciliation.

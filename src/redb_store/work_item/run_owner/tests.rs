@@ -22,12 +22,16 @@ fn request() -> SubmitWorkItemRequest {
 }
 
 fn admit(shard: &Shard) -> String {
+    admit_request(shard, &request())
+}
+
+fn admit_request(shard: &Shard, request: &SubmitWorkItemRequest) -> String {
     with_write(shard, "admit", 1000, |admitted| {
         let member = admitted.graph(GRAPH)?;
         let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
         super::super::apply_submit_work_item_rows(
             GRAPH,
-            &request(),
+            request,
             &mut rows.nodes,
             &mut rows.edges,
             &mut rows.command_sequences,
@@ -557,6 +561,14 @@ fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
                 ..Default::default()
             },
         ),
+        (
+            "zero",
+            "succeeded",
+            RunUsage {
+                requests: Some(0),
+                ..Default::default()
+            },
+        ),
         ("unknown", "failed", RunUsage::default()),
         ("cancelled", "cancelled", RunUsage::default()),
         (
@@ -573,10 +585,14 @@ fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
     ] {
         let path = crate::redb_store::temp_path("eg-completion-ledger", tag);
         let shard = Shard::open(&path).unwrap();
+        let mut original = request();
+        original
+            .metadata
+            .insert("a2a_context_id".into(), "context".into());
         let submitted = compile(
             &shard,
             "submit",
-            Method::SubmitWorkItem { request: request() },
+            Method::SubmitWorkItem { request: original },
             1000,
         );
         commit(&shard, &submitted);
@@ -656,6 +672,7 @@ fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
         );
         let accepted = commit(&shard, &batch);
         assert!(!accepted.replayed);
+        let summary = assert_session_measurements(&shard, &owner, &usage);
         let finished = row(&shard, &id);
         let counters_finished = counters(&shard);
         assert_eq!(finished["status"], outcome);
@@ -687,8 +704,18 @@ fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
         assert_eq!(events(&shard), evidence);
         assert_eq!(row(&shard, &id), finished);
         assert_eq!(counters(&shard), counters_finished);
+        assert_eq!(assert_session_measurements(&shard, &owner, &usage), summary);
+        // Mutable annotations cannot move historical usage to another context.
+        change(&shard, &id, "metadata", |row| {
+            row.insert(
+                "metadata".into(),
+                serde_json::json!({"a2a_context_id":"foreign"}),
+            );
+        });
+        assert_eq!(assert_session_measurements(&shard, &owner, &usage), summary);
         drop(shard);
         let shard = Shard::open(&path).unwrap();
+        assert_eq!(assert_session_measurements(&shard, &owner, &usage), summary);
         let restored = read(&shard, "tenant", "run", &owner).unwrap().unwrap();
         let receipt = restored.run_completion.unwrap();
         assert_eq!(receipt.payload.completion.usage, Some(usage.clone()));
@@ -736,4 +763,112 @@ fn completion_method(
             usage,
         })),
     }
+}
+
+fn session_summary(
+    shard: &Shard,
+    tenant: &str,
+    actor: &str,
+    context: &str,
+) -> Result<eg_types::run_usage::SessionUsage, String> {
+    super::super::read_session_usage(shard, GRAPH, tenant, context, actor, DurableCrypto::none())
+}
+
+fn assert_session_measurements(
+    shard: &Shard,
+    owner: &str,
+    usage: &eg_types::run_completion::RunUsage,
+) -> eg_types::run_usage::SessionUsage {
+    let result = session_summary(shard, "tenant", owner, "context").unwrap();
+    let expected: std::collections::BTreeMap<String, u64> =
+        serde_json::from_value(serde_json::to_value(usage).unwrap()).unwrap();
+    assert_eq!(result.counts, expected);
+    assert_eq!(result.expected_runs, 1);
+    assert_eq!(result.recorded_runs, usize::from(!expected.is_empty()));
+    assert_eq!(result.missing_runs, usize::from(expected.is_empty()));
+    assert!(result.inventory_complete);
+    assert!(result.count_coverage.values().all(|n| *n == 1));
+    for (tenant, actor, context) in [
+        ("tenant", "intruder", "context"),
+        ("foreign", owner, "context"),
+        ("tenant", owner, "foreign"),
+    ] {
+        let hidden = session_summary(shard, tenant, actor, context).unwrap();
+        assert_eq!(hidden.expected_runs, 0);
+        assert!(hidden.counts.is_empty());
+    }
+    result
+}
+
+// spec: EG-DECISION-ENGINE-R801.7.2
+#[test]
+fn session_inventory_uses_original_context_and_marks_missing_admission_partial() {
+    let temp = open("session-inventory");
+    let mut original = request();
+    original
+        .metadata
+        .insert("a2a_context_id".into(), "context".into());
+    let id = admit_request(&temp.shard, &original);
+    assert_eq!(
+        session_summary(&temp.shard, "tenant", "owner", "context")
+            .unwrap()
+            .expected_runs,
+        0
+    );
+    change(&temp.shard, &id, "terminal", |row| {
+        row.insert("status".into(), "failed".into());
+        row.insert(
+            "metadata".into(),
+            serde_json::json!({"a2a_context_id":"foreign"}),
+        );
+    });
+    let missing = session_summary(&temp.shard, "tenant", "owner", "context").unwrap();
+    assert_eq!(missing.expected_runs, 1);
+    assert_eq!(missing.missing_runs, 1);
+    assert!(missing.counts.is_empty());
+    assert!(missing.inventory_complete);
+    assert_eq!(
+        session_summary(&temp.shard, "tenant", "owner", "foreign")
+            .unwrap()
+            .expected_runs,
+        0
+    );
+    change(&temp.shard, &id, "corrupt-completion", |row| {
+        row.insert(
+            eg_types::run_completion::RUN_COMPLETION_BATCH.into(),
+            "absent".into(),
+        );
+        row.insert(
+            eg_types::run_completion::RUN_COMPLETION_DIGEST.into(),
+            "forged".into(),
+        );
+    });
+    assert!(session_summary(&temp.shard, "tenant", "owner", "context").is_err());
+    change(&temp.shard, &id, "unavailable", |row| {
+        row.remove(ADMISSION_REQUEST);
+    });
+    let unavailable = session_summary(&temp.shard, "tenant", "owner", "context").unwrap();
+    assert!(!unavailable.inventory_complete);
+    assert_eq!(unavailable.expected_runs, 0);
+}
+
+// spec: EG-DECISION-ENGINE-R801.7.2
+#[test]
+fn session_inventory_bound_counts_unrelated_rows() {
+    let temp = open("session-bound");
+    with_nodes(&temp.shard, "inventory", |nodes| {
+        for n in 0..=eg_types::run_usage::MAX_SESSION_USAGE_RUNS {
+            let id = format!("unrelated:{n:05}");
+            let mut row = serde_json::json!({"node_type":"Other","tenant":"tenant"})
+                .as_object()
+                .unwrap()
+                .clone();
+            write_work_item_props(nodes, GRAPH, &id, &mut row, DurableCrypto::none())?;
+        }
+        Ok(())
+    });
+    let result = session_summary(&temp.shard, "tenant", "owner", "context").unwrap();
+    assert!(!result.inventory_complete);
+    assert!(result.counts.is_empty());
+    assert_eq!(result.expected_runs, 0);
 }

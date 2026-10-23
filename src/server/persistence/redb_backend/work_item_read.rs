@@ -189,6 +189,23 @@ impl RedbBackend {
         .await
     }
 
+    pub(crate) async fn read_session_usage(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        context_id: &str,
+        actor: &str,
+    ) -> Result<eg_types::run_usage::SessionUsage, String> {
+        self.owner_point_read(
+            graph_fname,
+            tenant,
+            context_id,
+            actor,
+            crate::redb_store::work_item::read_session_usage,
+        )
+        .await
+    }
+
     pub(crate) async fn current_plan_owner(
         &self,
         graph_fname: &str,

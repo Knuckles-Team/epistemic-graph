@@ -68,6 +68,7 @@ method_results! {
     // visible to the verified tenant.
     PublishCurrentPlan(PublishCurrentPlan) => Raw<crate::current_plan::CurrentPlanPublished>;
     GetCurrentPlan(GetCurrentPlan) => Raw<Option<crate::current_plan::CurrentPlanSnapshot>>;
+    GetSessionUsage(GetSessionUsage) => Raw<crate::run_usage::SessionUsage>;
     GetRunWorkItem(GetRunWorkItem) => Raw<Option<crate::work_item_read::RunWorkItemView>>;
     GetWorkItem(GetWorkItem) => Raw<Option<WorkItemView>>;
     ListWorkItems(ListWorkItems) => Raw<WorkItemPage>;

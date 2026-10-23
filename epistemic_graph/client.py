@@ -3704,6 +3704,69 @@ def _submit_work_items_result(value: Any) -> dict[str, Any]:
     return result
 
 
+def _session_usage_snapshot(value: Any, context_id: str) -> dict[str, Any]:
+    fields = {
+        "context_id",
+        "counts",
+        "expected_runs",
+        "recorded_runs",
+        "missing_runs",
+        "count_coverage",
+        "inventory_complete",
+    }
+    if (
+        not isinstance(value, dict)
+        or set(value) != fields
+        or value["context_id"] != context_id
+    ):
+        raise RuntimeError("Session usage does not match the typed contract")
+    if type(value["inventory_complete"]) is not bool:
+        raise RuntimeError("Session usage inventory coverage is invalid")
+    _session_run_coverage(value)
+    _session_counter_coverage(value)
+    return value
+
+
+def _session_run_coverage(value: dict[str, Any]) -> None:
+    for name in ("expected_runs", "recorded_runs", "missing_runs"):
+        if type(value[name]) is not int or not 0 <= value[name] <= 10_000:
+            raise RuntimeError("Session usage run coverage is invalid")
+    if value["recorded_runs"] + value["missing_runs"] != value["expected_runs"]:
+        raise RuntimeError("Session usage run coverage is inconsistent")
+
+
+def _session_counter_coverage(value: dict[str, Any]) -> None:
+    counts, coverage = value["counts"], value["count_coverage"]
+    if (
+        not isinstance(counts, dict)
+        or not isinstance(coverage, dict)
+        or set(counts) != set(coverage)
+    ):
+        raise RuntimeError("Session usage counter coverage is invalid")
+    for key, count in counts.items():
+        _session_counter_value(key, count, coverage[key], value["recorded_runs"])
+    if sum(coverage.values()) < value["recorded_runs"]:
+        raise RuntimeError("Session usage recorded run coverage is inconsistent")
+
+
+def _session_counter_value(key: str, count: Any, coverage: Any, recorded: int) -> None:
+    allowed = {
+        "requests",
+        "tool_calls",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+    }
+    if (
+        key not in allowed
+        or type(count) is not int
+        or not 0 <= count <= 9_007_199_254_740_991
+    ):
+        raise RuntimeError("Session usage count is invalid")
+    if type(coverage) is not int or not 1 <= coverage <= recorded:
+        raise RuntimeError("Session usage counter coverage is inconsistent")
+
+
 class WorkItemClient:
     """Engine-native durable WorkItem claim, lease, and result namespace."""
 
@@ -4378,6 +4441,27 @@ class WorkItemClient:
         if not isinstance(properties, dict):
             raise TypeError("receipt properties must be a mapping")
         return bytes(msgpack.packb(properties, use_bin_type=True))
+
+    async def session_usage(
+        self, *, tenant: str, context_id: str, graph: str | None = None
+    ) -> dict[str, Any]:
+        """Canonical caller-owned committed counts from one bounded MVCC snapshot.
+
+        Missing counters and incomplete inventory remain explicit coverage. This
+        client never computes totals, costs or generation speed. The optional
+        graph routes to the caller-authorized native WorkItem owner graph.
+        """
+        value = (
+            await _gen.coordination.send_get_session_usage(
+                self._client,
+                {
+                    "tenant": _string("GetSessionUsage.tenant", tenant),
+                    "context_id": _string("GetSessionUsage.context_id", context_id),
+                },
+                graph,
+            )
+        ).payload
+        return _session_usage_snapshot(value, context_id)
 
     async def get_outcome(
         self, *, tenant: str, work_item_id: str

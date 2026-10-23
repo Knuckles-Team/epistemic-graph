@@ -236,19 +236,10 @@ async fn route_work_item_reads(
     method: Method,
 ) -> Result<Response, Method> {
     let read = match method {
-        Method::GetRunWorkItem { tenant, run_id } => {
-            handlers::work_item_read::WorkItemRead::RunAdmission {
-                tenant,
-                run_id,
-                actor: ctx.verified_context.principal().to_string(),
-            }
-        }
-        Method::GetCurrentPlan { tenant, run_id } => {
-            handlers::work_item_read::WorkItemRead::CurrentPlan {
-                tenant,
-                run_id,
-                actor: ctx.verified_context.principal().to_string(),
-            }
+        method @ (Method::GetRunWorkItem { .. }
+        | Method::GetSessionUsage { .. }
+        | Method::GetCurrentPlan { .. }) => {
+            return route_owner_bound_work_item_reads(ctx, method).await;
         }
         Method::GetWorkItem {
             tenant,
@@ -289,6 +280,39 @@ async fn route_work_item_reads(
             handlers::work_item_read::WorkItemRead::Gap { tenant, gap_id }
         }
         Method::GapList { request } => handlers::work_item_read::WorkItemRead::Gaps(request),
+        other => return Err(other),
+    };
+    Ok(answer_work_item_read(ctx, read).await)
+}
+
+#[cfg(feature = "redb")]
+async fn route_owner_bound_work_item_reads(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let actor = ctx.verified_context.principal().to_string();
+    let read = match method {
+        Method::GetRunWorkItem { tenant, run_id } => {
+            handlers::work_item_read::WorkItemRead::RunAdmission {
+                tenant,
+                run_id,
+                actor,
+            }
+        }
+        Method::GetSessionUsage { tenant, context_id } => {
+            handlers::work_item_read::WorkItemRead::SessionUsage {
+                tenant,
+                context_id,
+                actor,
+            }
+        }
+        Method::GetCurrentPlan { tenant, run_id } => {
+            handlers::work_item_read::WorkItemRead::CurrentPlan {
+                tenant,
+                run_id,
+                actor,
+            }
+        }
         other => return Err(other),
     };
     Ok(answer_work_item_read(ctx, read).await)

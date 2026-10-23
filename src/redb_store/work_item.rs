@@ -76,7 +76,9 @@ mod policy_record;
 mod read;
 mod row_guard;
 mod run_owner;
+mod session_usage;
 pub(crate) use run_owner::read_admission as read_run_admission;
+pub(crate) use session_usage::read_session_usage;
 mod sealed_record;
 mod submit;
 #[cfg(test)]

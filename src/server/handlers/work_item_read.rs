@@ -25,6 +25,11 @@ use crate::server::persistence::PersistenceBackend;
 
 /// One decoded WorkItem read.
 pub(crate) enum WorkItemRead {
+    SessionUsage {
+        tenant: String,
+        context_id: String,
+        actor: String,
+    },
     RunAdmission {
         tenant: String,
         run_id: String,
@@ -65,7 +70,9 @@ impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
             Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
-            Self::CurrentPlan { tenant, .. } | Self::RunAdmission { tenant, .. } => tenant,
+            Self::CurrentPlan { tenant, .. }
+            | Self::RunAdmission { tenant, .. }
+            | Self::SessionUsage { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLeases(request) => &request.tenant,
             Self::ControlLease { tenant, .. } | Self::Gap { tenant, .. } => tenant,
@@ -125,6 +132,18 @@ async fn serve_native(
             ResultPayload::of::<eg_types::result_contract::coordination::GetRunWorkItem>(
                 backend
                     .read_run_work_item(graph, &tenant, &run_id, &actor)
+                    .await?,
+            )
+        }
+        WorkItemRead::SessionUsage {
+            tenant,
+            context_id,
+            actor,
+        } => {
+            let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetSessionUsage>(
+                backend
+                    .read_session_usage(graph, &tenant, &context_id, &actor)
                     .await?,
             )
         }
