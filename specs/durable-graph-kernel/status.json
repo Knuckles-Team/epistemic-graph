@@ -4460,11 +4460,11 @@
       "title": "Commit ordinary run completion and observed usage atomically",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "42376299456f",
         "701e8e498e07",
         "870424b46d0b",
         "b286edc1b3bf",
-        "be072c1cf996",
-        "c7fa3da9453c"
+        "be072c1cf996"
       ],
       "verified_by": [
         "src/redb_store/work_item/run_owner/tests.rs:217",

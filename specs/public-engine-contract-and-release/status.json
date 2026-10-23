@@ -327,11 +327,11 @@
         "8baee8a94894"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:103",
-        "tests/test_release_python_suite_contract.py:120",
-        "tests/test_release_python_suite_contract.py:131",
-        "tests/test_release_python_suite_contract.py:354",
-        "tests/test_release_python_suite_contract.py:371"
+        "tests/test_release_python_suite_contract.py:104",
+        "tests/test_release_python_suite_contract.py:121",
+        "tests/test_release_python_suite_contract.py:132",
+        "tests/test_release_python_suite_contract.py:355",
+        "tests/test_release_python_suite_contract.py:372"
       ]
     },
     {
@@ -601,7 +601,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:726"
+        "tests/test_release_python_suite_contract.py:727"
       ]
     },
     {
@@ -636,7 +636,7 @@
         "e729dc1650b6"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:194"
+        "tests/test_ci_change_scope.py:227"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -651,7 +651,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:195"
+        "tests/test_ci_change_scope.py:228"
       ]
     },
     {
@@ -705,7 +705,7 @@
         "69411a23a248"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:476",
+        "tests/test_ci_change_scope.py:509",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -1114,14 +1114,16 @@
       "title": "Retain the validated wheel for installed acceptance",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "42376299456f",
         "701e8e498e07",
+        "88b8c1a73156",
         "b286edc1b3bf",
         "be072c1cf996"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:627",
-        "tests/test_ci_change_scope.py:671",
-        "tests/test_ci_change_scope.py:800"
+        "tests/test_ci_change_scope.py:661",
+        "tests/test_ci_change_scope.py:705",
+        "tests/test_ci_change_scope.py:834"
       ]
     }
   ]
