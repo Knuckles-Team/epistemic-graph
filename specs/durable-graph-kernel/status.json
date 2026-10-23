@@ -4573,7 +4573,8 @@
       "title": "Typed host-start assertions and client projection",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a27a7c804f9e"
+        "a27a7c804f9e",
+        "c0d589973a64"
       ],
       "verified_by": [
         "crates/eg-types/src/host_start/tests.rs:1",
