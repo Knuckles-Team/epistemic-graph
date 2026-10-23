@@ -30,36 +30,44 @@ fn kg(name: &str) -> String {
     format!("{KG}{name}")
 }
 
+/// The object of the first triple `subject predicate ?`, if any.
+fn object_of(triples: &[Triple], subject: &NamedOrBlankNode, predicate: &str) -> Option<Term> {
+    triples
+        .iter()
+        .find(|t| &t.subject == subject && t.predicate.as_str() == predicate)
+        .map(|t| t.object.clone())
+}
+
+/// The named members of an RDF list that starts at `head`.
+fn list_members(triples: &[Triple], head: Term) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut list = Some(head);
+    while let Some(Term::BlankNode(cell)) = list {
+        let cell = NamedOrBlankNode::BlankNode(cell);
+        if let Some(Term::NamedNode(node)) = object_of(triples, &cell, &format!("{RDF}first")) {
+            found.push(node.as_str().to_string());
+        }
+        list = object_of(triples, &cell, &format!("{RDF}rest"));
+    }
+    found
+}
+
 /// The named classes an `rdfs:domain` / `rdfs:range` value stands for: the class
 /// itself, or every member of an `owl:unionOf` list.
 fn members(triples: &[Triple], subject: &str, predicate: &str) -> Vec<String> {
+    let subject: NamedOrBlankNode = NamedNode::new(subject).unwrap().into();
     let mut found = Vec::new();
-    for triple in triples.iter().filter(|t| {
-        t.subject == NamedNode::new(subject).unwrap().into() && t.predicate.as_str() == predicate
-    }) {
-        match &triple.object {
+    for value in triples
+        .iter()
+        .filter(|t| t.subject == subject && t.predicate.as_str() == predicate)
+        .map(|t| t.object.clone())
+    {
+        match value {
             Term::NamedNode(node) => found.push(node.as_str().to_string()),
             Term::BlankNode(node) => {
-                let mut list = triples
-                    .iter()
-                    .find(|t| {
-                        t.subject == NamedOrBlankNode::BlankNode(node.clone())
-                            && t.predicate.as_str() == format!("{OWL}unionOf")
-                    })
-                    .map(|t| t.object.clone());
-                while let Some(Term::BlankNode(cell)) = list {
-                    let cell = NamedOrBlankNode::BlankNode(cell);
-                    for t in triples.iter().filter(|t| t.subject == cell) {
-                        if t.predicate.as_str() == format!("{RDF}first") {
-                            if let Term::NamedNode(n) = &t.object {
-                                found.push(n.as_str().to_string());
-                            }
-                        }
-                    }
-                    list = triples
-                        .iter()
-                        .find(|t| t.subject == cell && t.predicate.as_str() == format!("{RDF}rest"))
-                        .map(|t| t.object.clone());
+                let union = NamedOrBlankNode::BlankNode(node);
+                if let Some(head) = object_of(triples, &union, &format!("{OWL}unionOf")) {
+                    found.extend(list_members(triples, head));
                 }
             }
             _ => {}

@@ -2616,8 +2616,8 @@
         "c65b21d8f9e3"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/service_operations_classes.rs:112",
-        "crates/eg-rdf/tests/service_operations_classes.rs:71"
+        "crates/eg-rdf/tests/service_operations_classes.rs:120",
+        "crates/eg-rdf/tests/service_operations_classes.rs:79"
       ]
     },
     {
@@ -2630,8 +2630,8 @@
         "d09be388ac86"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/service_operations_classes.rs:113",
-        "crates/eg-rdf/tests/service_operations_classes.rs:207"
+        "crates/eg-rdf/tests/service_operations_classes.rs:121",
+        "crates/eg-rdf/tests/service_operations_classes.rs:215"
       ]
     },
     {
