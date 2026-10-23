@@ -50,7 +50,8 @@ fn validate_rdf_triple(
     }
 }
 
-/// Refuse imports outside the supplied pack ontology identities, including self-imports.
+/// Refuse imports outside the supplied pack ontology identities and the parent
+/// catalog (EG-TYPED-PACKS-R105), including self-imports.
 /// This policy performs no I/O and never resolves an import.
 pub fn validate_ontology_imports(
     text: &str,
@@ -69,11 +70,110 @@ pub fn validate_ontology_imports(
         let Term::NamedNode(imported) = &triple.object else {
             return Err("owl:imports must name an ontology IRI from this pack");
         };
+        if is_parent_ontology_iri(imported.as_str()) {
+            continue;
+        }
         if imported.as_str() == current || !allowed.contains(imported.as_str()) {
             return Err("owl:imports may name only an ontology entry in this pack");
         }
     }
     Ok(())
+}
+
+/// The parent catalog every connector vocabulary joins (EG-TYPED-PACKS-R105).
+pub const PARENT_CATALOG_IRI: &str = "http://knuckles.team/kg";
+
+const RDF_TYPE_IRI: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const OWL_CLASS_IRI: &str = "http://www.w3.org/2002/07/owl#Class";
+const RDFS_CLASS_IRI: &str = "http://www.w3.org/2000/01/rdf-schema#Class";
+const RDFS_SUBCLASS_OF_IRI: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+const OWL_ONTOLOGY_IRI: &str = "http://www.w3.org/2002/07/owl#Ontology";
+
+/// Is `iri` the parent catalog or one of its ontology modules?
+pub fn is_parent_ontology_iri(iri: &str) -> bool {
+    iri == PARENT_CATALOG_IRI
+        || iri
+            .strip_prefix(PARENT_CATALOG_IRI)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .is_some_and(|module| !module.is_empty() && !module.contains(['#', '/']))
+}
+
+/// Named classes (`owl:Class` / `rdfs:Class`) and named ontology IRIs one
+/// document declares. Malformed Turtle declares nothing.
+pub fn declared_classes_and_ontologies(text: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    use crate::oxrdf::{NamedOrBlankNode, Term};
+
+    let mut classes = BTreeSet::new();
+    let mut ontologies = BTreeSet::new();
+    for triple in crate::mapping::parse_turtle(text).unwrap_or_default() {
+        let (NamedOrBlankNode::NamedNode(subject), Term::NamedNode(object)) =
+            (&triple.subject, &triple.object)
+        else {
+            continue;
+        };
+        if triple.predicate.as_str() != RDF_TYPE_IRI {
+            continue;
+        }
+        match object.as_str() {
+            OWL_CLASS_IRI | RDFS_CLASS_IRI => {
+                classes.insert(subject.as_str().to_string());
+            }
+            OWL_ONTOLOGY_IRI => {
+                ontologies.insert(subject.as_str().to_string());
+            }
+            _ => {}
+        }
+    }
+    (classes, ontologies)
+}
+
+/// The classes a set of pack ontologies declares that do not join the parent
+/// graph: a declared class that is not itself a parent class and has no named
+/// `rdfs:subClassOf` path, through any of these documents, to a parent class.
+/// Sorted, so the warning a caller reads is stable.
+pub fn ontology_orphan_classes(
+    documents: &[&str],
+    parent_classes: &BTreeSet<String>,
+) -> Vec<String> {
+    use crate::oxrdf::{NamedOrBlankNode, Term};
+    use std::collections::BTreeMap;
+
+    let mut declared = BTreeSet::new();
+    let mut supers: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for text in documents {
+        declared.extend(declared_classes_and_ontologies(text).0);
+        for triple in crate::mapping::parse_turtle(text).unwrap_or_default() {
+            if triple.predicate.as_str() != RDFS_SUBCLASS_OF_IRI {
+                continue;
+            }
+            if let (NamedOrBlankNode::NamedNode(sub), Term::NamedNode(sup)) =
+                (&triple.subject, &triple.object)
+            {
+                supers
+                    .entry(sub.as_str().to_string())
+                    .or_default()
+                    .insert(sup.as_str().to_string());
+            }
+        }
+    }
+    let linked = |class: &String| {
+        let mut seen = BTreeSet::new();
+        let mut frontier = vec![class.clone()];
+        while let Some(next) = frontier.pop() {
+            if parent_classes.contains(&next) {
+                return true;
+            }
+            if seen.insert(next.clone()) {
+                frontier.extend(supers.get(&next).into_iter().flatten().cloned());
+            }
+        }
+        false
+    };
+    declared
+        .iter()
+        .filter(|class| !linked(class))
+        .cloned()
+        .collect()
 }
 
 /// Named shapes used by the pack duplicate-shape warning; blank shapes are file-local.
