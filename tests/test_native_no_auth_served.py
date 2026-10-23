@@ -6,7 +6,6 @@ import os
 import socket
 import subprocess
 import time
-from pathlib import Path
 
 import msgpack
 import pytest
@@ -18,11 +17,60 @@ pytestmark = [
 
 
 def binary():
-    target = Path(os.environ.get("CARGO_TARGET_DIR", "target"))
-    path = target / "debug" / "epistemic-graph-server"
-    if not path.is_file():
+    from conftest import find_server_binary
+
+    path = find_server_binary()
+    explicit = os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "").strip()
+    if explicit and path != os.path.abspath(explicit):
+        pytest.fail("explicit current native server artifact did not validate")
+    if path is None:
         pytest.skip("build the scoped native server before this served suite")
-    return str(path.resolve())
+    return path
+
+
+def test_binary_uses_explicit_current_artifact(tmp_path, monkeypatch):
+    import hashlib
+
+    artifact = tmp_path / "current-server"
+    artifact.write_bytes(b"current source fixture")
+    artifact.chmod(0o700)
+    monkeypatch.setenv("EPISTEMIC_GRAPH_TEST_BINARY", str(artifact))
+    monkeypatch.setenv(
+        "EPISTEMIC_GRAPH_TEST_BINARY_SHA256",
+        hashlib.sha256(artifact.read_bytes()).hexdigest(),
+    )
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "unrelated-target"))
+    assert binary() == str(artifact)
+
+
+@pytest.mark.parametrize("resolved", [None, "/historical/native-server"])
+def test_binary_rejects_invalid_explicit_artifact(monkeypatch, resolved):
+    import conftest
+
+    monkeypatch.setenv("EPISTEMIC_GRAPH_TEST_BINARY", "/current/native-server")
+    monkeypatch.setattr(conftest, "find_server_binary", lambda: resolved)
+    with pytest.raises(pytest.fail.Exception, match="did not validate"):
+        binary()
+
+
+def test_binary_delegates_to_shared_resolver(monkeypatch):
+    import conftest
+
+    monkeypatch.delenv("EPISTEMIC_GRAPH_TEST_BINARY", raising=False)
+
+    monkeypatch.setattr(
+        conftest, "find_server_binary", lambda: "/current/native-server"
+    )
+    assert binary() == "/current/native-server"
+
+
+def test_binary_without_available_artifact_skips(monkeypatch):
+    import conftest
+
+    monkeypatch.delenv("EPISTEMIC_GRAPH_TEST_BINARY", raising=False)
+    monkeypatch.setattr(conftest, "find_server_binary", lambda: None)
+    with pytest.raises(pytest.skip.Exception, match="scoped native server"):
+        binary()
 
 
 def clean_env():

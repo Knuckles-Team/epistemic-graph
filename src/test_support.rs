@@ -112,3 +112,23 @@ impl Drop for FederationAllowGuard {
         }
     }
 }
+
+/// Common terminal fixture used by durable and transport retry identity tests.
+#[cfg(any(feature = "server", feature = "redb"))]
+pub(crate) fn terminal_method(lease_epoch: u64, fencing_token: u64) -> crate::protocol::Method {
+    crate::protocol::Method::CommitWorkItemResult {
+        tenant: "tenant-a".into(),
+        work_item_id: "work-1".into(),
+        worker_id: "worker-a".into(),
+        lease_epoch,
+        fencing_token,
+        idempotency_key: "terminal-key".into(),
+        outcome: "succeeded".into(),
+        result_ref: Some("result:sha256:one".into()),
+        outcome_extension: None,
+        run_completion: None,
+        error_ref: None,
+        retryable: false,
+        now_ms: 1_000,
+    }
+}

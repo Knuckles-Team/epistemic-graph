@@ -46,7 +46,11 @@ pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
 /// Every WorkItem-row property only the native kernel may write.
 pub const WORK_ITEM_EVENT_BATCH: &str = "terminal_event_batch";
 pub const WORK_ITEM_EVENT_DIGEST: &str = "terminal_event_digest";
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 9] = [
+pub const RUN_ADMISSION_REQUEST: &str = "run_admission_request";
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 12] = [
+    RUN_ADMISSION_REQUEST,
+    crate::run_completion::RUN_COMPLETION_BATCH,
+    crate::run_completion::RUN_COMPLETION_DIGEST,
     "run_owner_binding",
     WORK_ITEM_ROW_REVISION,
     WORK_ITEM_EVENT_BATCH,
@@ -123,6 +127,18 @@ pub(crate) fn stored_value<T: Copy>(table: &[(&str, T)], stored: &str) -> Option
         .iter()
         .find(|(text, _)| *text == stored)
         .map(|(_, value)| *value)
+}
+
+/// Owner-only historical admission evidence and the current caller-safe view.
+/// The original context is provenance, not a credential or execution grant.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RunWorkItemView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_completion: Option<crate::run_completion::CommittedRunCompletion>,
+    pub work_item: WorkItemView,
+    pub admission: crate::native_control::SubmitWorkItemRequest,
 }
 
 /// The caller's view of one WorkItem row.

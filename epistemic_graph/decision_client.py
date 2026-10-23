@@ -142,66 +142,48 @@ def _task_plan_body(value: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def verify_task_plan_receipt(
-    record: Mapping[str, Any], request: Mapping[str, Any], *, expected_principal: str
-) -> dict[str, Any]:
-    """Check a direct engine response's plan/request bindings; return its plan.
+def _require_task_plan(condition: bool, detail: str) -> None:
+    if not condition:
+        raise ValueError("task_plan receipt mismatch: " + detail)
 
-    ``expected_principal`` is the raw host caller principal. EG stores its
-    domain-prefixed SHA-256 identifier, including for anonymous/local callers.
-    This checks typed content and input/plan digests, not the full statistical
-    record digest or transport authentication. A self-consistent caller receipt
-    is NOT trustworthy. Use only a direct response from the configured engine.
-    The host still owns authorization, policy acceptance and durable admission.
-    No plan is persisted or admitted by this function.
-    """
-    import hashlib
 
-    from epistemic_graph.decision._digest import digest_text
-    from epistemic_graph.decision_stat import canonical_body_bytes
-    from epistemic_graph.generated.models import (
-        DecideRequest,
-        StatisticalDecisionRecord,
-    )
-
-    # Strict JSON mode admits the wire strings of Rust enums, while refusing
-    # coercions such as a quoted integer or boolean budget.
-    asked = DecideRequest.model_validate_json(
-        canonical_body_bytes(dict(request)), strict=True
-    ).model_dump(mode="json", by_alias=True)
-    received = StatisticalDecisionRecord.model_validate_json(
-        canonical_body_bytes(dict(record)), strict=True
-    ).model_dump(mode="json", by_alias=True)
-
-    def require(condition: bool, detail: str) -> None:
-        if not condition:
-            raise ValueError("task_plan receipt mismatch: " + detail)
-
-    require(
+def _verify_task_plan_question(
+    asked: Mapping[str, Any], expected_principal: str
+) -> None:
+    _require_task_plan(
         asked["question"]["kind"] == "task_plan"
         and asked["question"]["safety"] == "ordinary"
         and asked["head"] is None
         and not asked["belief_as_of"],
         "question",
     )
-    require(
+    _require_task_plan(
         len(asked["params"]) == 1
         and asked["params"][0]["name"] == "task_plan"
         and asked["params"][0]["value"]["type"] == "task_plan",
         "proposal parameter",
     )
-    require(
+    _require_task_plan(
         isinstance(expected_principal, str) and bool(expected_principal.strip()),
         "expected caller principal",
     )
+
+
+def _verify_task_plan_identity(
+    received: Mapping[str, Any], asked: Mapping[str, Any], expected_principal: str
+) -> None:
+    import hashlib
+
     # Same byte-for-byte binding as VerifiedRequestContext::principal_persistence_id;
     # this does not turn AnonymousLocal into authenticated provenance.
     expected_caller = (
         "principal:sha256:"
         + hashlib.sha256(expected_principal.encode("utf-8")).hexdigest()
     )
-    require(received["caller_principal"] == expected_caller, "caller principal")
-    require(
+    _require_task_plan(
+        received["caller_principal"] == expected_caller, "caller principal"
+    )
+    _require_task_plan(
         received["schema_version"] == 2
         and received["tenant_id"] == asked["tenant_id"]
         and received["question"] == asked["question"]
@@ -210,7 +192,7 @@ def verify_task_plan_receipt(
         and bool(received["record_digest"]),
         "identity",
     )
-    require(
+    _require_task_plan(
         received["evidence_class"] == "claim"
         and received["resolution_kind"] == "constraint"
         and received["outcome"]
@@ -218,28 +200,35 @@ def verify_task_plan_receipt(
         "evaluate-only evidence",
     )
     for key in ("params", "feature_schema", "head", "policy"):
-        require(received["inputs"][key] == asked[key], key)
-    plan = received["task_plan"]
-    require(plan is not None, "missing plan")
+        _require_task_plan(received["inputs"][key] == asked[key], key)
+
+
+def _verify_task_plan_claims(
+    plan: dict[str, Any], asked: Mapping[str, Any]
+) -> dict[str, Any]:
+    from epistemic_graph.decision._digest import digest_text
+
     proposal = _task_plan_body(asked["params"][0]["value"]["value"])
     body = _task_plan_body(plan)
     for key in ("output_task_id", "max_concurrency", "max_steps"):
-        require(body[key] == proposal[key], key)
+        _require_task_plan(body[key] == proposal[key], key)
     expected_tasks = [
         {**task, "depends_on": sorted(task["depends_on"])} for task in proposal["tasks"]
     ]
-    require(
+    _require_task_plan(
         sorted(body["tasks"], key=lambda task: task["task_id"])
         == sorted(expected_tasks, key=lambda task: task["task_id"])
         and plan["total_tasks"] == len(expected_tasks),
         "task claims",
     )
-    require(bool(plan["policy_revision"]) and bool(plan["policy_digest"]), "policy")
-    require(
+    _require_task_plan(
+        bool(plan["policy_revision"]) and bool(plan["policy_digest"]), "policy"
+    )
+    _require_task_plan(
         plan["input_digest"] == digest_text("eg/task-plan-input/v1", proposal),
         "input digest",
     )
-    require(
+    _require_task_plan(
         plan["plan_digest"]
         == digest_text(
             "eg/task-plan/v1",
@@ -256,6 +245,41 @@ def verify_task_plan_receipt(
         "plan digest",
     )
     return plan
+
+
+def verify_task_plan_receipt(
+    record: Mapping[str, Any], request: Mapping[str, Any], *, expected_principal: str
+) -> dict[str, Any]:
+    """Check a direct engine response's plan/request bindings; return its plan.
+
+    ``expected_principal`` is the raw host caller principal. EG stores its
+    domain-prefixed SHA-256 identifier, including for anonymous/local callers.
+    This checks typed content and input/plan digests, not the full statistical
+    record digest or transport authentication. A self-consistent caller receipt
+    is NOT trustworthy. Use only a direct response from the configured engine.
+    The host still owns authorization, policy acceptance and durable admission.
+    No plan is persisted or admitted by this function.
+    """
+    from epistemic_graph.decision_stat import canonical_body_bytes
+    from epistemic_graph.generated.models import (
+        DecideRequest,
+        StatisticalDecisionRecord,
+    )
+
+    # Strict JSON mode admits the wire strings of Rust enums, while refusing
+    # coercions such as a quoted integer or boolean budget.
+    asked = DecideRequest.model_validate_json(
+        canonical_body_bytes(dict(request)), strict=True
+    ).model_dump(mode="json", by_alias=True)
+    received = StatisticalDecisionRecord.model_validate_json(
+        canonical_body_bytes(dict(record)), strict=True
+    ).model_dump(mode="json", by_alias=True)
+
+    _verify_task_plan_question(asked, expected_principal)
+    _verify_task_plan_identity(received, asked, expected_principal)
+    plan = received["task_plan"]
+    _require_task_plan(plan is not None, "missing plan")
+    return _verify_task_plan_claims(plan, asked)
 
 
 def named_evaluator(

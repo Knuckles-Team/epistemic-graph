@@ -70,6 +70,6 @@ No test below has run; these are acceptance targets only.
 
 Both definitions remain SPECIFIED. No test receipt or closure is claimed.
 
-- **EG-CONTRACT-R006.1:** `tests/test_build_method_codec_wasm.py` binds fresh export, build failures, provenance and upload gating. Injected builder fixtures do not prove native reproducibility.
-- **EG-CONTRACT-R006.2:** Retain the full independent-build, size and cross-language vector matrix. No native artifact evidence is supplied by this source reconciliation.
 - **EG-CONTRACT-R006.3:** `tests/test_export_canonical_contract.py` proves export provenance, allowlist refusal, failed generation and retained parity failure. Hosted artifact promotion requires exact source and recipe verification.
+
+- **EG-CONTRACT-R053.13:** `tests/test_ci_change_scope.py` exercises successful bounded packaging and rejects missing, multiple, symlinked and stale wheels, source mismatch and dirty tracked input. Changed bytes after installation, missing digest evidence and symlinked wheel directories also refuse. Workflow assertions require successful completeness, privacy and installed-wheel checks before export. Native artifact producers, consumers and shared-cache users must use Ubuntu 24.04 with fresh target and compiler cache namespaces.

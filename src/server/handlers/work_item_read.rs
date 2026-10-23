@@ -25,6 +25,11 @@ use crate::server::persistence::PersistenceBackend;
 
 /// One decoded WorkItem read.
 pub(crate) enum WorkItemRead {
+    RunAdmission {
+        tenant: String,
+        run_id: String,
+        actor: String,
+    },
     CurrentPlan {
         tenant: String,
         run_id: String,
@@ -60,7 +65,7 @@ impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
             Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
-            Self::CurrentPlan { tenant, .. } => tenant,
+            Self::CurrentPlan { tenant, .. } | Self::RunAdmission { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLeases(request) => &request.tenant,
             Self::ControlLease { tenant, .. } | Self::Gap { tenant, .. } => tenant,
@@ -86,6 +91,13 @@ pub(crate) async fn answer(
     let graph = crate::persist::sanitize(graph_name);
     match serve_native(&graph, persistence, read).await {
         Ok(payload) => Response::ok(req_id, payload),
+        Err(error)
+            if error.split_once(": ").is_some_and(|(code, _)| {
+                code == eg_types::contract::ServerErrorCode::RunAdmissionUnavailable.as_str()
+            }) =>
+        {
+            Response::err(req_id, error)
+        }
         Err(error) => Response::err(req_id, format!("WorkItem read failed: {error}")),
     }
 }
@@ -104,6 +116,18 @@ async fn serve_native(
         .and_then(|backend| backend.as_redb())
         .ok_or_else(|| NATIVE_UNAVAILABLE.to_string())?;
     match read {
+        WorkItemRead::RunAdmission {
+            tenant,
+            run_id,
+            actor,
+        } => {
+            let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetRunWorkItem>(
+                backend
+                    .read_run_work_item(graph, &tenant, &run_id, &actor)
+                    .await?,
+            )
+        }
         WorkItemRead::CurrentPlan {
             tenant,
             run_id,

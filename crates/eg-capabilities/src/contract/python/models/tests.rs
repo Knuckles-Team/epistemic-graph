@@ -271,3 +271,17 @@ fn field_constraints_survive_nullable_union_and_hoisted_alias() {
     super::super::dto::push_dto_imports(&mut imports, &body, &Default::default());
     assert!(imports.contains("AfterValidator"));
 }
+
+#[test]
+fn octet_arrays_keep_json_and_binary_representations() {
+    let document = serde_json::json!({
+        "Digest": {"type": "array", "minItems": 32, "maxItems": 32,
+            "items": {"type": "integer", "format": "uint8", "minimum": 0, "maximum": 255}},
+        "Other": {"type": "array", "items": {"type": "integer"}}
+    });
+    let body = render_owned(document.as_object().unwrap(), &|_| true);
+    assert!(body.contains("BeforeValidator(_eg_octets)"));
+    assert!(body.contains("PlainSerializer(list, return_type=list[int], when_used=\"json\")"));
+    assert!(body.contains("Digest = Annotated[_EgOctets, Field(min_length=32, max_length=32)]"));
+    assert!(body.contains("Other = list[int]"));
+}

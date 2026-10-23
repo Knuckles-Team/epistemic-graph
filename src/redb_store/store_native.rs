@@ -16,6 +16,7 @@ use super::*;
 pub(crate) fn validate_native_operations_commit_work_item_result_shape(
     batch: &MutationBatch,
 ) -> Result<(), String> {
+    validate_ordinary_completion_shape(batch)?;
     let work_item_result_ops = batch
         .operations
         .iter()
@@ -682,5 +683,47 @@ pub(crate) fn apply_native_operations(
     // write transaction before status/outbox metadata is staged.
     drop(tables);
     development_lane::validate_current_lane_links_in_wtx(write, graph_fname, crypto)?;
+    Ok(())
+}
+
+fn validate_ordinary_completion_shape(batch: &MutationBatch) -> Result<(), String> {
+    let ordinary = batch
+        .operations
+        .iter()
+        .map(|op| {
+            eg_types::run_completion::RunCompletionPayload::from_method(&op.method, &batch.batch_id)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let intents: Vec<_> = batch
+        .outbox
+        .iter()
+        .filter(|i| i.topic == eg_types::run_completion::RUN_COMPLETION_TOPIC)
+        .collect();
+    if let Some(payload) = ordinary.into_iter().flatten().next() {
+        if batch.operations.len() != 1
+            || intents.len() != 1
+            || batch
+                .outbox
+                .iter()
+                .any(|i| i.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC)
+        {
+            return Err(
+                "ordinary completion requires one operation and one exclusive receipt".into(),
+            );
+        }
+        if intents[0].key != batch.batch_id
+            || intents[0].payload != rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?
+            // The durable identity is rebound to the shard tenant before row
+            // application. The envelope retains the verified caller tenant.
+            || batch
+                .envelope
+                .operation()
+                .is_none_or(|operation| payload.tenant != operation.authority.tenant.as_str())
+        {
+            return Err("ordinary completion outbox binding mismatch".into());
+        }
+    } else if !intents.is_empty() {
+        return Err("unbound ordinary completion intent".into());
+    }
     Ok(())
 }

@@ -23,6 +23,22 @@ pub(super) fn lower_terminal_outcome_extensions(
     batch_id: &str,
     mut methods: Vec<Method>,
 ) -> Result<(Vec<Method>, Vec<MutationOutboxIntent>), String> {
+    let ordinary = methods
+        .iter()
+        .map(|method| eg_types::run_completion::RunCompletionPayload::from_method(method, batch_id))
+        .collect::<Result<Vec<_>, _>>()?;
+    if let Some(payload) = ordinary.into_iter().flatten().next() {
+        if methods.len() != 1 {
+            return Err("ordinary completion must be the only operation".into());
+        }
+        let intent = MutationOutboxIntent {
+            topic: eg_types::run_completion::RUN_COMPLETION_TOPIC.into(),
+            key: batch_id.into(),
+            payload: rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?,
+            headers: BTreeMap::new(),
+        };
+        return Ok((methods, vec![intent]));
+    }
     methods
         .iter_mut()
         .for_each(|method| bind_engine_fields(batch_id, method));
@@ -364,6 +380,7 @@ mod tests {
             outcome: "succeeded".into(),
             result_ref: Some("cas:result:test".into()),
             outcome_extension: Some(Box::new(extension)),
+            run_completion: None,
             error_ref: None,
             retryable: false,
             now_ms: 10,

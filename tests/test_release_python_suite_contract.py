@@ -24,6 +24,7 @@ from types import SimpleNamespace
 import pytest
 import tomllib
 import yaml
+from test_ci_change_scope import native_acceptance_steps
 
 from scripts import _kernel_build
 
@@ -63,7 +64,7 @@ def _test_step(job: dict) -> dict:
 def test_capability_dependencies_bootstrap_uv_for_the_test_interpreter(
     job_name: str,
 ) -> None:
-    steps = _workflow()["jobs"][job_name]["steps"]
+    steps = native_acceptance_steps(_workflow()["jobs"][job_name]["steps"])
     install = next(
         step
         for step in steps
@@ -303,9 +304,11 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
         }
         else 10
     )
-    assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && " + str(budget) + " || 60 }}"
+    expected = {"gates-facade": 60}.get(
+        job_name,
+        "${{ github.event_name == 'pull_request' && " + str(budget) + " || 60 }}",
     )
+    assert job["timeout-minutes"] == expected
 
 
 def _cargo_commands(script: str) -> tuple[str, ...]:
@@ -359,6 +362,8 @@ def _assert_facade_upload_contract(upload: dict) -> None:
 def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> None:
     workflow = _workflow()
     job = workflow["jobs"]["gates-facade"]
+    assert job["timeout-minutes"] == 60
+    assert "continue-on-error" not in job
     steps = job["steps"]
     config = tomllib.loads((REPO / ".cargo/config.toml").read_text())
     assert config["build"]["target-dir"] == "target-isolated"
@@ -645,6 +650,8 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
+# The exporter invokes Cargo internally; its conditional repair path is separate
+# from the ordinary native-test commands and their final cache-statistics step.
 CONTRACT_CACHE_COMMANDS = {
     "Engine contract parity (registry ⇄ Method enum ⇄ generated client)": (
         "cargo run -q --locked -p eg-capabilities --features contract "
@@ -662,6 +669,7 @@ CONTRACT_CACHE_COMMANDS = {
 CACHE_BACKEND = {
     "SCCACHE_IDLE_TIMEOUT": "7200",
     "SCCACHE_GHA_ENABLED": "true",
+    "SCCACHE_GHA_VERSION": "eg-ci-ubuntu-24.04-v1",
     "SCCACHE_GHA_RW_MODE": (
         "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
     ),
@@ -836,7 +844,7 @@ def test_workspace_cache_is_main_written_and_build_remains_required(
     )
     assert cache["with"] == {
         "workspaces": ". -> target-isolated",
-        "shared-key": "eg-ci-gates",
+        "shared-key": "eg-ci-gates-ubuntu-24.04-v1",
         "cache-workspace-crates": True,
         "save-if": "${{ github.ref == 'refs/heads/main' }}",
     }
@@ -872,11 +880,18 @@ def test_plan_fuzz_remains_independent_required_acceptance() -> None:
 
 @pytest.mark.parametrize(
     "job_name",
-    ["gates", "gates-plan-fuzz", "gates-wheel", "gates-facade", "gates-whisper"],
+    [
+        "gates",
+        "gates-contract",
+        "gates-plan-fuzz",
+        "gates-wheel",
+        "gates-facade",
+        "gates-whisper",
+    ],
 )
 def test_native_acceptance_uses_hosted_runners_for_every_event(job_name: str) -> None:
     job = _workflow()["jobs"][job_name]
-    assert job["runs-on"] == "ubuntu-latest"
+    assert job["runs-on"] == "ubuntu-24.04"
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
     assert "continue-on-error" not in job
