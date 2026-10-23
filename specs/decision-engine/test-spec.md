@@ -925,3 +925,11 @@ R801.7.1 binds the run_usage typed fixtures and session tests in test_work_item_
 R801.7.2 binds ordinary_completion_native_ledger_outbox_restart_atomicity and the native session inventory fixtures. The existing native commit journey now also reads session counts. It retains ledger/outbox, crash rollback, nonce retry, terminal no-op and reopen checks. Failed, unknown and explicit-zero usage remain distinct. Changing mutable metadata does not move the original context. Foreign owner, tenant or context reads reveal no run counts. Missing immutable admission and the examined-row limit report incomplete inventory.
 
 R801.7.3 remains open. These native fixtures have not run locally. Exact-source native execution, signed request denials, installed Arbora reads and maximum-input latency/memory measurements are required before full session qualification. The node-row byte bound is not a claim about total ledger/outbox transient memory.
+
+- `EG-DECISION-ENGINE-R814`: See each child.
+- `EG-DECISION-ENGINE-R814.1`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role`.
+- `EG-DECISION-ENGINE-R814.2`: `crates/eg-core/tests/prompt_candidate.rs::assemble_selects_covering_candidate_and_abstains_without_one`.
+- `EG-DECISION-ENGINE-R814.3`: `tests/decision/test_prompt_candidates_served.py::test_assemble_reads_candidates_from_imported_pack`.
+- `EG-DECISION-ENGINE-R814.4`: `crates/eg-core/tests/prompt_candidate.rs::unbound_prompt_refuses_and_rejected_connector_is_excluded`.
+- `EG-DECISION-ENGINE-R814.5`: `tests/decision/test_prompt_candidates_served.py::test_record_names_prompt_connector_digest_and_capability`.
+- `EG-DECISION-ENGINE-R814.6`: `tests/decision/test_prompt_candidates_served.py::test_dynamic_agent_gets_the_matching_connector_system_prompt`.

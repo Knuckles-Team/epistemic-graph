@@ -840,3 +840,11 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R801.7.1:** Implement and exercise bounded aggregation and public client validation.
 - [ ] **EG-DECISION-ENGINE-R801.7.2:** Exercise native same-snapshot receipt projection, original context, retries and restart.
 - [ ] **EG-DECISION-ENGINE-R801.7.3:** Qualify installed clients, signed scope refusal and measured maximum-input latency/memory.
+
+- [ ] **EG-DECISION-ENGINE-R814:** Connector prompts are system-prompt candidates that agent assembly selects (rollup).
+- [ ] **EG-DECISION-ENGINE-R814.1:** Model.
+- [ ] **EG-DECISION-ENGINE-R814.2:** Behavior.
+- [ ] **EG-DECISION-ENGINE-R814.3:** Wiring.
+- [ ] **EG-DECISION-ENGINE-R814.4:** Refusal.
+- [ ] **EG-DECISION-ENGINE-R814.5:** Evidence.
+- [ ] **EG-DECISION-ENGINE-R814.6:** Hot-path proof.
