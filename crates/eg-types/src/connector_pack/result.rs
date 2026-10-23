@@ -42,6 +42,9 @@ pub enum PackViolationCode {
     ImporterMismatch,
     PackMassWithdrawal,
     RetiredEntryReturned,
+    // A pack ontology class has no subclass path to the parent catalog
+    // (EG-TYPED-PACKS-R105), and the deployment refuses orphans.
+    OntologyOrphan,
 }
 
 /// Something worth saying that did not stop the import.
@@ -52,6 +55,9 @@ pub enum PackWarningCode {
     EmptyDescription,
     UnresolvedCapabilityIri,
     DuplicateShapeIri,
+    // A pack ontology class has no subclass path to the parent catalog
+    // (EG-TYPED-PACKS-R105); imported and flagged.
+    OntologyOrphan,
 }
 
 /// One rejection, attributed to the entry that caused it where possible.

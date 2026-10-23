@@ -519,7 +519,97 @@ fn finish_validation(validator: &mut IndexValidator<'_>) {
     if let Err((code, detail)) = validate_rdf_unions(&validator.ontologies, &validator.shapes) {
         validator.reject(code, None, detail);
     }
+    flag_ontology_orphans(validator);
 }
+
+/// How the deployment treats a pack ontology class with no subclass path to the
+/// parent catalog. `warn` (the default while the fleet's vocabularies are being
+/// linked) imports the pack and reports `ONTOLOGY_ORPHAN`; `refuse` rejects it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OrphanPolicy {
+    Warn,
+    Refuse,
+}
+
+/// `EPISTEMIC_GRAPH_ONTOLOGY_ORPHANS=warn|refuse`, read once; any other value
+/// keeps the default.
+fn orphan_policy() -> OrphanPolicy {
+    static POLICY: std::sync::OnceLock<OrphanPolicy> = std::sync::OnceLock::new();
+    *POLICY.get_or_init(|| {
+        match std::env::var("EPISTEMIC_GRAPH_ONTOLOGY_ORPHANS")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "refuse" => OrphanPolicy::Refuse,
+            _ => OrphanPolicy::Warn,
+        }
+    })
+}
+
+/// The bounded `ONTOLOGY_ORPHAN` detail: the count, then as many class IRIs as
+/// fit in one kibibyte.
+fn orphan_detail(orphans: &[String]) -> String {
+    let mut detail = format!(
+        "{} class(es) have no rdfs:subClassOf path to the parent catalog: ",
+        orphans.len()
+    );
+    for (index, class) in orphans.iter().enumerate() {
+        let item = if index == 0 {
+            class.clone()
+        } else {
+            format!(", {class}")
+        };
+        if detail.len() + item.len() > 1024 {
+            detail.truncate(1020.min(detail.len()));
+            detail.push_str(" ...");
+            break;
+        }
+        detail.push_str(&item);
+    }
+    detail
+}
+
+#[cfg(feature = "rdf")]
+fn parent_classes() -> &'static BTreeSet<String> {
+    static CLASSES: std::sync::OnceLock<BTreeSet<String>> = std::sync::OnceLock::new();
+    CLASSES.get_or_init(|| {
+        crate::graph::GraphSchemaSources::default()
+            .ontologies()
+            .flat_map(|(_, text)| eg_rdf::pack::declared_classes_and_ontologies(text).0)
+            .collect()
+    })
+}
+
+#[cfg(feature = "rdf")]
+fn flag_ontology_orphans(validator: &mut IndexValidator<'_>) {
+    flag_ontology_orphans_with(validator, orphan_policy());
+}
+
+#[cfg(feature = "rdf")]
+fn flag_ontology_orphans_with(validator: &mut IndexValidator<'_>, policy: OrphanPolicy) {
+    if validator.ontologies.is_empty() {
+        return;
+    }
+    let documents: Vec<&str> = validator.ontologies.iter().map(String::as_str).collect();
+    let orphans = eg_rdf::pack::ontology_orphan_classes(&documents, parent_classes());
+    if orphans.is_empty() {
+        return;
+    }
+    let detail = orphan_detail(&orphans);
+    match policy {
+        OrphanPolicy::Refuse => validator.reject(PackViolationCode::OntologyOrphan, None, &detail),
+        OrphanPolicy::Warn => validator.warnings.push(PackWarning {
+            code: PackWarningCode::OntologyOrphan,
+            uri: None,
+            detail,
+        }),
+    }
+}
+
+#[cfg(not(feature = "rdf"))]
+fn flag_ontology_orphans(_validator: &mut IndexValidator<'_>) {}
 
 /// Kinds whose body is SDK-serialized JSON (G8): the server identity, a tool
 /// descriptor, a prompt's rendered `prompts/get` capture, a model profile and
