@@ -133,6 +133,7 @@ fn gap_submission(
         ("gap_generation".to_string(), gap.generation.into()),
     ]);
     SubmitWorkItemRequest {
+        conversation: None,
         run_id: None,
         schema_version: NativeControlSchemaVersion::V1,
         context: gap_market_context(graph, request, now_ms),

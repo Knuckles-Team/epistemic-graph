@@ -408,7 +408,8 @@
     "EG-DURABLE-KERNEL-R028.6",
     "EG-DURABLE-KERNEL-R861",
     "EG-DURABLE-KERNEL-R861.1",
-    "EG-DURABLE-KERNEL-R861.2"
+    "EG-DURABLE-KERNEL-R861.2",
+    "EG-DURABLE-KERNEL-R028.4.3"
   ],
   "requirements": [
     {
@@ -4262,13 +4263,14 @@
       "landed_in": [],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:266",
-        "tests/adopt_workitem_authenticated_replay.rs:458",
+        "tests/adopt_workitem_authenticated_replay.rs:459",
         "tests/test_work_item_retry_identity.py:128",
         "tests/test_work_item_retry_identity.py:274"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.4.1",
-        "EG-DURABLE-KERNEL-R028.4.2"
+        "EG-DURABLE-KERNEL-R028.4.2",
+        "EG-DURABLE-KERNEL-R028.4.3"
       ]
     },
     {
@@ -4282,10 +4284,10 @@
       ],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:316",
-        "src/redb_store/work_item/run_owner/tests.rs:104",
-        "src/redb_store/work_item/run_owner/tests.rs:132",
-        "src/redb_store/work_item/run_owner/tests.rs:164",
-        "src/redb_store/work_item/run_owner/tests.rs:463"
+        "src/redb_store/work_item/run_owner/tests.rs:115",
+        "src/redb_store/work_item/run_owner/tests.rs:147",
+        "src/redb_store/work_item/run_owner/tests.rs:446",
+        "src/redb_store/work_item/run_owner/tests.rs:48"
       ]
     },
     {
@@ -4465,7 +4467,7 @@
       "landed_in": [],
       "verified_by": [
         "src/server/mutation_batch/digest.rs:319",
-        "tests/adopt_workitem_authenticated_replay.rs:587",
+        "tests/adopt_workitem_authenticated_replay.rs:588",
         "tests/decide/test_task_plan_served.py:230",
         "tests/decide/test_task_plan_served.py:351"
       ]
@@ -4489,11 +4491,11 @@
         "b286edc1b3bf"
       ],
       "verified_by": [
-        "src/redb_store/work_item/run_owner/tests.rs:217",
-        "src/redb_store/work_item/run_owner/tests.rs:242",
-        "src/redb_store/work_item/run_owner/tests.rs:266",
-        "src/redb_store/work_item/run_owner/tests.rs:342",
-        "src/redb_store/work_item/run_owner/tests.rs:463"
+        "src/redb_store/work_item/run_owner/tests.rs:200",
+        "src/redb_store/work_item/run_owner/tests.rs:225",
+        "src/redb_store/work_item/run_owner/tests.rs:249",
+        "src/redb_store/work_item/run_owner/tests.rs:325",
+        "src/redb_store/work_item/run_owner/tests.rs:446"
       ]
     },
     {
@@ -4526,6 +4528,24 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.3",
+      "title": "Reserve ordered conversation turns with native run admission",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1c6664149612",
+        "2df788ead124",
+        "74bd0bcf3899",
+        "a1874ae34e29"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/conversation/tests.rs:138",
+        "src/redb_store/work_item/conversation/tests.rs:159",
+        "src/redb_store/work_item/conversation/tests.rs:175",
+        "src/redb_store/work_item/conversation/tests.rs:215",
+        "src/redb_store/work_item/conversation/tests.rs:235"
+      ]
     }
   ]
 }

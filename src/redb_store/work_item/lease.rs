@@ -228,7 +228,7 @@ pub(crate) fn cas_work_item_metadata_preconditions_ok(
         .expected_status
         .iter()
         .any(|status| status == property_string(props, "status"));
-    let tenant_ok = property_string(props, "tenant") == tenant;
+    let tenant_ok = is_tenant_work_item(props, tenant);
     let lease_ok = match &request.expected_lease {
         Some(fence) => {
             property_string(props, "lease_owner") == fence.worker_ref
@@ -239,6 +239,10 @@ pub(crate) fn cas_work_item_metadata_preconditions_ok(
         None => true,
     };
     status_ok && tenant_ok && lease_ok
+}
+
+fn is_tenant_work_item(props: &serde_json::Map<String, serde_json::Value>, tenant: &str) -> bool {
+    property_string(props, "node_type") == "WorkItem" && property_string(props, "tenant") == tenant
 }
 
 /// Apply the one settable field of a metadata CAS to `props`, after checking its
