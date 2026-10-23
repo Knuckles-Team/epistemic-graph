@@ -33,7 +33,7 @@ const STRAY: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("st
 /// A private data directory on local disk. Offline inspection refuses a
 /// staging root under the system temporary directory, so the directory lives
 /// under this package's build output instead.
-fn data_dir() -> tempfile::TempDir {
+pub(super) fn data_dir() -> tempfile::TempDir {
     let parent = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
     std::fs::create_dir_all(&parent).unwrap();
     tempfile::Builder::new()
@@ -42,22 +42,22 @@ fn data_dir() -> tempfile::TempDir {
         .unwrap()
 }
 
-fn identity(name: &str) -> PhysicalStoreIdentity {
+pub(super) fn identity(name: &str) -> PhysicalStoreIdentity {
     PhysicalStoreIdentity::new(name).unwrap()
 }
 
-fn file_digest(path: &Path) -> Vec<u8> {
+pub(super) fn file_digest(path: &Path) -> Vec<u8> {
     Sha256::digest(std::fs::read(path).unwrap()).to_vec()
 }
 
-fn confirmed() -> ApplyOptions {
+pub(super) fn confirmed() -> ApplyOptions {
     ApplyOptions {
         confirm: true,
         ..ApplyOptions::default()
     }
 }
 
-fn put<K: redb::Key + 'static>(
+pub(super) fn put<K: redb::Key + 'static>(
     path: &Path,
     table: redb::TableDefinition<K, &'static [u8]>,
     key: K::SelfType<'_>,
@@ -69,7 +69,7 @@ fn put<K: redb::Key + 'static>(
     write.commit().unwrap();
 }
 
-fn get<K: redb::Key + 'static>(
+pub(super) fn get<K: redb::Key + 'static>(
     path: &Path,
     table: redb::TableDefinition<K, &'static [u8]>,
     key: K::SelfType<'_>,
@@ -82,7 +82,7 @@ fn get<K: redb::Key + 'static>(
 }
 
 /// A predecessor Agent Library with one revision row.
-fn old_agent_library(dir: &Path) -> std::path::PathBuf {
+pub(super) fn old_agent_library(dir: &Path) -> std::path::PathBuf {
     let path = dir.join(AGENT_LIBRARY_FILE);
     create_predecessor_owner_file(
         &path,
@@ -101,7 +101,7 @@ fn old_agent_library(dir: &Path) -> std::path::PathBuf {
 
 /// A predecessor graph shard, of the generation every existing shard has,
 /// with one node row.
-fn old_graph_shard(dir: &Path) -> std::path::PathBuf {
+pub(super) fn old_graph_shard(dir: &Path) -> std::path::PathBuf {
     old_graph_shard_of(dir, 0, &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS)
 }
 
@@ -116,7 +116,7 @@ fn old_graph_shard_of(
     path
 }
 
-fn statuses(report: &Report) -> Vec<(&str, StoreStatus)> {
+pub(super) fn statuses(report: &Report) -> Vec<(&str, StoreStatus)> {
     report
         .stores
         .iter()
