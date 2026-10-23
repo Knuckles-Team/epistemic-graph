@@ -137,12 +137,7 @@ async fn run_nl_query(
 ) -> Result<(String, Vec<(String, Option<f32>)>), Response> {
     let state = ctx.state;
     let req_id = ctx.req_id;
-    let graph_name = ctx.graph_name;
-    let read_authority = ctx.read_authority;
-    let caller = ctx.caller;
     let core = ctx.core.clone();
-    #[cfg(feature = "security")]
-    let rls = ctx.rls;
     // CONCEPT:EG-KG.query.core-query-input/EG-080 — natural-language → executable query → rows. Resolve
     // the configured/injected `NlPlanner`, turn the NL into a UQL query STRING,
     // then run it through the IDENTICAL UQL pipeline
@@ -155,7 +150,7 @@ async fn run_nl_query(
     // (CONCEPT:EG-KG.query.native-time-series) and the CALLER'S owner-scoped foreign
     // registry (EH-373), so an NL-planned `FOREIGN "<name>"` / `Named` `ForeignScan`
     // leg resolves only sources the caller (tenant+principal) registered.
-    let legs = ServedPlanLegs::resolve(state, graph_name, read_authority, &plan)
+    let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan)
         .await
         .map_err(|denied| Response::err(req_id, denied))?;
     // RLS-filtered off-lock snapshot, exactly like the Sql/Uql reads.
@@ -164,7 +159,7 @@ async fn run_nl_query(
     #[cfg_attr(not(feature = "security"), allow(unused_mut))]
     let mut snap = core.analysis_snapshot();
     #[cfg(feature = "security")]
-    rls.filter_view(caller, &mut snap);
+    ctx.rls.filter_view(ctx.caller, &mut snap);
     // The same off-lock run as `Uql`: persistent vector/lexical/spatial/
     // shape indexes and the caller's owner-scoped foreign registry are bound inside it.
     match run_unified_off_lock(state, req_id, &core, Arc::new(snap), plan, legs).await? {
