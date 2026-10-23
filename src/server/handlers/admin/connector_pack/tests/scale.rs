@@ -1,4 +1,4 @@
-//! A pack imported under a tenant maps that tenant's `SourceIngest` records
+//! A pack's `connector://resources` declaration, imported under a tenant, maps that tenant's `SourceIngest` records
 //! (EG-TYPED-PACKS-R101.9), and a one-tool-per-operation pack of 5000 entries
 //! imports and resolves (#656).
 
@@ -14,14 +14,15 @@ use crate::protocol::{GraphType, Method};
 const CONNECTOR: &str = "demo-connector";
 const GRAPH: &str = "packingest";
 
-fn manifest() -> Content {
+/// The `connector://resources` JSON a 0.4.0 connector serves, as the pack holds it.
+fn declaration() -> Content {
     Content {
-        kind: PackEntryKind::Manifest,
-        uri: format!("manifest://{CONNECTOR}"),
-        name: CONNECTOR.to_string(),
-        media_type: "application/yaml",
+        kind: PackEntryKind::Resource,
+        uri: "connector://resources".to_string(),
+        name: "connector-resources".to_string(),
+        media_type: "application/json",
         body: format!(
-            "connector: {CONNECTOR}\nschema_mappings:\n  item:\n    ontology_class: Document\n    fields:\n      name: label\n      id: identifier\n"
+            r#"{{"connector":"{CONNECTOR}","schema_mappings":{{"item":{{"fields":{{"id":"identifier","name":"label"}},"ontology_class":"Document"}}}},"sources":[]}}"#
         )
         .into_bytes(),
         input_schema: None,
@@ -55,7 +56,7 @@ async fn pack_graph(label: &str) -> (Served, crate::crypto::TestEnvReadGuard) {
     let served = Served::new();
     let guard = served.with_graph_persistence().await;
     bind(&served, CONNECTOR, ADMIN).await;
-    imported(&served, &build_pack(CONNECTOR, &[manifest()]), None).await;
+    imported(&served, &build_pack(CONNECTOR, &[declaration()]), None).await;
     let created = served
         .call_on(
             GRAPH,
@@ -98,6 +99,138 @@ async fn an_imported_pack_maps_source_ingest_records_of_the_same_tenant() {
         ingested.error.is_none(),
         "SourceIngest under the import tenant {TENANT} must be accepted: {ingested:?}"
     );
+}
+
+/// The ontology a connector ships beside its declaration: relations are read
+/// from its object properties, not from the declaration.
+fn relations_ontology() -> Content {
+    Content {
+        kind: PackEntryKind::Ontology,
+        uri: format!("ontology://{CONNECTOR}/core.ttl"),
+        name: "core.ttl".to_string(),
+        media_type: "text/turtle",
+        body: b"@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+            @prefix ex: <https://example.org/demo#> .\n\
+            ex:Document a owl:Class .\n\
+            ex:Section a owl:Class .\n\
+            ex:contains a owl:ObjectProperty ; rdfs:domain ex:Document ; rdfs:range ex:Section .\n"
+            .to_vec(),
+        input_schema: None,
+        annotations: PackAnnotations::default(),
+        references: Vec::new(),
+    }
+}
+
+/// The resolver's verdict for one mapping reference of the imported demo pack.
+async fn resolve(served: &Served, reference: &str) -> Result<String, String> {
+    let mut state = served.state.write().await;
+    let store = state.ensure_agent_library().unwrap();
+    store
+        .resolve_connector_schema_mapping(TENANT, &ResourceId::new(CONNECTOR).unwrap(), reference)
+        .map(|resolved| {
+            let mut fields: Vec<_> = resolved.schema_mapping.fields.into_iter().collect();
+            fields.sort();
+            format!("{} {fields:?}", resolved.schema_mapping.ontology_class)
+        })
+}
+
+/// The selector the SDK emits resolves against the declared mapping: the
+/// ontology class and field map come from `connector://resources`.
+// spec: EG-TYPED-PACKS-R101.10
+#[tokio::test]
+async fn the_selector_resolves_to_the_declared_class_and_field_map() {
+    let (served, _guard) = pack_graph("decl-resolve").await;
+    let resolved = resolve(&served, "connector:demo-connector#mappings/item").await;
+    assert_eq!(
+        resolved.as_deref(),
+        Ok("Document [(\"id\", \"identifier\"), (\"name\", \"label\")]")
+    );
+}
+
+/// A record type the declaration does not name is refused by type, and a pack
+/// with no declaration is unavailable; neither commits anything.
+// spec: EG-TYPED-PACKS-R101.11
+#[tokio::test]
+async fn an_undeclared_type_is_refused_with_a_typed_error() {
+    let (served, _guard) = pack_graph("decl-undeclared").await;
+    let refused = resolve(&served, "connector:demo-connector#mappings/ghost").await;
+    assert!(
+        refused
+            .as_ref()
+            .is_err_and(|e| e.starts_with("UNKNOWN_MAPPING_REFERENCE:")),
+        "{refused:?}"
+    );
+
+    let old = resolve(&served, "manifest:demo-connector#schema_mappings/item").await;
+    assert!(
+        old.as_ref()
+            .is_err_and(|e| e.starts_with("UNKNOWN_MAPPING_REFERENCE:")),
+        "the manifest: scheme is not accepted: {old:?}"
+    );
+
+    let mut batch = first_ingest().as_batch().clone();
+    let mut records = batch.records.as_slice().to_vec();
+    records[0].mapping_reference = "connector:demo-connector#mappings/ghost".into();
+    batch.records = BoundedVec::new(records).expect("bounded source records");
+    let request = SourceIngestionRequest::new(batch).expect("valid source ingestion request");
+    let ingested = ingest(&served, "decl-undeclared:ingest", &request).await;
+    assert!(
+        ingested.error.is_some(),
+        "an undeclared type must not ingest"
+    );
+
+    let bare = Served::new();
+    let _bare_guard = bare.with_graph_persistence().await;
+    bind(&bare, CONNECTOR, ADMIN).await;
+    imported(
+        &bare,
+        &build_pack(CONNECTOR, &[tool(CONNECTOR, "list_items", "Lists items.")]),
+        None,
+    )
+    .await;
+    let unavailable = resolve(&bare, "connector:demo-connector#mappings/item").await;
+    assert!(
+        unavailable
+            .as_ref()
+            .is_err_and(|e| e.starts_with("CONNECTOR_SCHEMA_MAPPING_UNAVAILABLE:")),
+        "{unavailable:?}"
+    );
+}
+
+/// Relations resolve from the ontology's object properties, by the exact
+/// reference path, and only when the pack declares them.
+// spec: EG-TYPED-PACKS-R101.10
+#[cfg(feature = "rdf")]
+#[tokio::test]
+async fn relations_resolve_from_the_pack_ontology() {
+    show_refusals();
+    let served = Served::new();
+    let _guard = served.with_graph_persistence().await;
+    bind(&served, CONNECTOR, ADMIN).await;
+    imported(
+        &served,
+        &build_pack(CONNECTOR, &[declaration(), relations_ontology()]),
+        None,
+    )
+    .await;
+    let mut state = served.state.write().await;
+    let store = state.ensure_agent_library().unwrap();
+    let connector = ResourceId::new(CONNECTOR).unwrap();
+    let found = store
+        .resolve_connector_relationship_mapping(
+            TENANT,
+            &connector,
+            "connector:demo-connector#relations/Document/contains",
+        )
+        .expect("the ontology declares Document contains Section");
+    assert_eq!(found.relation.target_resource, "Section");
+    let missing = store.resolve_connector_relationship_mapping(
+        TENANT,
+        &connector,
+        "connector:demo-connector#relations/Document/cites",
+    );
+    assert!(missing.is_err_and(|e| e.starts_with("UNKNOWN_RELATIONSHIP_REFERENCE:")));
 }
 
 /// The next delta on the same stream: an advanced checkpoint that chains from

@@ -122,7 +122,6 @@ def _vector_entries() -> list[PackEntry]:
         PackEntryKind.SHAPES,
         PackEntryKind.MODEL_PROFILE,
         PackEntryKind.A2A_CARD,
-        PackEntryKind.MANIFEST,
         PackEntryKind.SKILL_FILE,
     ]
     return [_entry(kind, f"entry-{position}") for position, kind in enumerate(kinds)]

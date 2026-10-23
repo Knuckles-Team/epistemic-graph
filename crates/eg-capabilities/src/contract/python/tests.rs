@@ -53,7 +53,7 @@ request_data = {
     "records": [{
         "stream": "items",
         "record_id": "item-1",
-        "mapping_reference": "manifest:demo-connector#schema_mappings/item",
+        "mapping_reference": "connector:demo-connector#mappings/item",
         "payload": {"name": "one", "id": 1},
         "updated_at": "2026-09-20T00:00:00Z",
         "provenance": {

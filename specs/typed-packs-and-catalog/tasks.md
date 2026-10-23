@@ -186,13 +186,15 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R101:** Ingest contracts are native OWL/RDF relationships in the pack graph. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R101.1:** Model. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R101.2:** Model. Pass the proving test in test-spec.md.
-- [ ] **EG-TYPED-PACKS-R101.3:** Behavior. Pass the proving test in test-spec.md.
-- [ ] **EG-TYPED-PACKS-R101.4:** Behavior. Pass the proving test in test-spec.md.
-- [ ] **EG-TYPED-PACKS-R101.5:** Wiring. Pass the proving test in test-spec.md.
-- [ ] **EG-TYPED-PACKS-R101.6:** Refusal. Pass the proving test in test-spec.md.
-- [ ] **EG-TYPED-PACKS-R101.7:** Evidence. Pass the proving test in test-spec.md.
-- [ ] **EG-TYPED-PACKS-R101.8:** Hot-path proof. Pass the proving test in test-spec.md.
+- [x] **EG-TYPED-PACKS-R101.3:** Retired; superseded by R101.10 and R101.11.
+- [x] **EG-TYPED-PACKS-R101.4:** Retired; superseded by R101.10 and R101.11.
+- [x] **EG-TYPED-PACKS-R101.5:** Retired; superseded by R101.10 and R101.11.
+- [x] **EG-TYPED-PACKS-R101.6:** Retired; superseded by R101.10 and R101.11.
+- [x] **EG-TYPED-PACKS-R101.7:** Retired; superseded by R101.10 and R101.11.
+- [x] **EG-TYPED-PACKS-R101.8:** Retired; superseded by R101.10 and R101.11.
 - [x] **EG-TYPED-PACKS-R101.9:** One tenant key for pack heads. Resolve SourceIngest mappings under the import tenant key.
+- [x] **EG-TYPED-PACKS-R101.10:** Mappings come from the connector's declaration. Resolve schema mappings from `connector://resources` and relations from the pack ontology.
+- [x] **EG-TYPED-PACKS-R101.11:** Undeclared mappings are refused by type.
 - [ ] **EG-TYPED-PACKS-R102:** Connector surface and domain relationships are native graph relationships. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R102.1:** Model. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R102.2:** Behavior. Pass the proving test in test-spec.md.

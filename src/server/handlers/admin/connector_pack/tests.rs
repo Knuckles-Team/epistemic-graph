@@ -322,7 +322,9 @@ fn lay_out(archive: &mut Vec<u8>, content: &Content) -> PackEntry {
         media_type: content.media_type.to_string(),
         body,
         input_schema,
-        output_schema: None,
+        // A resource entry pins its content schema (the declaration is a JSON object).
+        output_schema: (content.kind == PackEntryKind::Resource)
+            .then(|| section(archive, br#"{"type":"object"}"#)),
         annotations: content.annotations.clone(),
         references: BoundedVec::new(content.references.clone()).unwrap(),
     }

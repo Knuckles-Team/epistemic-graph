@@ -198,6 +198,8 @@
     "EG-TYPED-PACKS-R101.7",
     "EG-TYPED-PACKS-R101.8",
     "EG-TYPED-PACKS-R101.9",
+    "EG-TYPED-PACKS-R101.10",
+    "EG-TYPED-PACKS-R101.11",
     "EG-TYPED-PACKS-R102",
     "EG-TYPED-PACKS-R102.1",
     "EG-TYPED-PACKS-R102.2",
@@ -377,7 +379,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:138"
+        "tests/test_connector_pack_client.py:137"
       ],
       "rollup_of": [
         "EG-TYPED-PACKS-R001.1",
@@ -582,8 +584,8 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:258",
-        "tests/test_connector_pack_client.py:368"
+        "tests/test_connector_pack_client.py:257",
+        "tests/test_connector_pack_client.py:367"
       ]
     },
     {
@@ -1094,7 +1096,7 @@
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:33",
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:62",
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:88",
-        "tests/test_connector_pack_client.py:458"
+        "tests/test_connector_pack_client.py:457"
       ]
     },
     {
@@ -1105,7 +1107,7 @@
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:209"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:204"
       ]
     },
     {
@@ -1289,7 +1291,7 @@
         "6be6da12f970"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/digest.rs:303",
+        "crates/eg-types/src/connector_pack/digest.rs:302",
         "tests/typed_packs/test_model_harness_facts.py:36"
       ]
     },
@@ -1302,7 +1304,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/digest.rs:349"
+        "crates/eg-types/src/connector_pack/digest.rs:348"
       ]
     },
     {
@@ -1454,7 +1456,7 @@
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:210"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:205"
       ]
     },
     {
@@ -1918,8 +1920,8 @@
         "f097533e52c8"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:367",
-        "tests/test_connector_pack_client.py:412"
+        "tests/test_connector_pack_client.py:366",
+        "tests/test_connector_pack_client.py:411"
       ]
     },
     {
@@ -2287,7 +2289,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R101",
-      "title": "Ingest contracts are native OWL/RDF relationships in the pack graph (rollup)",
+      "title": "Ingest mappings come from the connector's declaration and the pack ontology (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2300,7 +2302,9 @@
         "EG-TYPED-PACKS-R101.6",
         "EG-TYPED-PACKS-R101.7",
         "EG-TYPED-PACKS-R101.8",
-        "EG-TYPED-PACKS-R101.9"
+        "EG-TYPED-PACKS-R101.9",
+        "EG-TYPED-PACKS-R101.10",
+        "EG-TYPED-PACKS-R101.11"
       ]
     },
     {
@@ -2319,45 +2323,51 @@
     },
     {
       "id": "EG-TYPED-PACKS-R101.3",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
     },
     {
       "id": "EG-TYPED-PACKS-R101.4",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
     },
     {
       "id": "EG-TYPED-PACKS-R101.5",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
     },
     {
       "id": "EG-TYPED-PACKS-R101.6",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.11",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.11"
     },
     {
       "id": "EG-TYPED-PACKS-R101.7",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
     },
     {
       "id": "EG-TYPED-PACKS-R101.8",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10 and R101.11",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10 and R101.11"
     },
     {
       "id": "EG-TYPED-PACKS-R101.9",
@@ -2368,7 +2378,29 @@
         "c4a73f6d5a74"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/scale.rs:92"
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:93"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.10",
+      "title": "Mappings come from the connector's declaration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-rdf/src/pack/tests.rs:186",
+        "crates/eg-types/src/connector_pack/index.rs:140",
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:140",
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:203",
+        "src/server/persistence/connector_pack/declaration.rs:101"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.11",
+      "title": "Undeclared mappings are refused by type",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:153"
       ]
     },
     {

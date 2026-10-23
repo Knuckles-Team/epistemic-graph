@@ -1,6 +1,6 @@
 //! Native raw-source ingestion contract (RF-ADR-009).
 //!
-//! Callers submit source records and an authoritative Connector Manifest mapping
+//! Callers submit source records and an authoritative connector mapping
 //! reference.  They do not submit mapping content, tenant identity, graph
 //! mutations, or a pre-mapped change envelope.  The server resolves the mapping
 //! under the verified tenant and owns raw CAS admission, mapping, the cursor CAS,
@@ -138,7 +138,7 @@ pub struct SourceRecordProvenance {
 pub struct SourceRecord {
     pub stream: ResourceId,
     pub record_id: String,
-    /// Exact Connector Manifest schema-mapping reference for this entity.
+    /// Exact connector mapping reference for this entity.
     pub mapping_reference: String,
     pub payload: SourceJson,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -172,8 +172,8 @@ pub struct SourceEntityRef {
 pub struct SourceRelationship {
     pub source: SourceEntityRef,
     pub target: SourceEntityRef,
-    /// Exact Connector Manifest resource-relation reference, for example
-    /// `manifest:demo#resources/Document/relations/contains`.
+    /// Exact connector relation reference, for example
+    /// `connector:demo#relations/Document/contains`.
     pub relation_reference: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub properties: Option<SourceJson>,

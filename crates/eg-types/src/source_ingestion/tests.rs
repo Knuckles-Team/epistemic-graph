@@ -14,7 +14,7 @@ fn request() -> SourceIngestionBatch {
         records: BoundedVec::new(vec![SourceRecord {
             stream: ResourceId::new("items").unwrap(),
             record_id: "item-1".into(),
-            mapping_reference: "manifest:demo-connector#schema_mappings/item".into(),
+            mapping_reference: "connector:demo-connector#mappings/item".into(),
             payload: SourceJson::new(json!({"name": "one", "id": 1})).unwrap(),
             updated_at: Some("2026-09-20T00:00:00Z".into()),
             provenance: SourceRecordProvenance {
@@ -226,7 +226,7 @@ fn relationships_are_top_level_typed_observations() {
             stream: ResourceId::new("items").unwrap(),
             record_id: "item-2".into(),
         },
-        relation_reference: "manifest:demo-connector#resources/Item/relations/contains".into(),
+        relation_reference: "connector:demo-connector#relations/Item/contains".into(),
         properties: Some(SourceJson::new(json!({"ordinal": 1})).unwrap()),
         provenance: batch.records.as_slice()[0].provenance.clone(),
     }])
@@ -255,7 +255,7 @@ fn reconcile_relationship_endpoints_must_belong_to_the_authoritative_live_set() 
     batch.relationships = BoundedVec::new(vec![SourceRelationship {
         source: first,
         target: second,
-        relation_reference: "manifest:demo-connector#resources/Item/relations/contains".into(),
+        relation_reference: "connector:demo-connector#relations/Item/contains".into(),
         properties: None,
         provenance: batch.records.as_slice()[0].provenance.clone(),
     }])
@@ -281,7 +281,7 @@ fn delta_relationship_cannot_reference_an_entity_withdrawn_in_the_same_commit() 
     batch.relationships = BoundedVec::new(vec![SourceRelationship {
         source,
         target: target.clone(),
-        relation_reference: "manifest:demo-connector#resources/Item/relations/contains".into(),
+        relation_reference: "connector:demo-connector#relations/Item/contains".into(),
         properties: None,
         provenance: request().records.as_slice()[0].provenance.clone(),
     }])

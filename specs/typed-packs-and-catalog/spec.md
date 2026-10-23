@@ -14,7 +14,7 @@ Existing records do not establish execution of newly defined scenarios.
 
 ## Outcome and user stories
 
-1. A connector author can publish one deterministic snapshot of tools, skills, prompts, ontology, shapes, model profiles, A2A cards, and its manifest. Reimporting identical content is a no-op; a changed or withdrawn entry has a predictable lifecycle.
+1. A connector author can publish one deterministic snapshot of tools, skills, prompts, ontology, shapes, model profiles, A2A cards, and its `connector://resources` declaration. Reimporting identical content is a no-op; a changed or withdrawn entry has a predictable lifecycle.
 2. A tenant administrator can bind the one allowed importer, inspect the head and projection status, retire entries, attach a visible pack schema to a graph, and safely re-drive a failed projection.
 3. A consumer can read a typed component and its engine-owned body. The consumer can trust the generated method/result contract and receipt. It sees only a projection that passed its readiness gate.
 4. A contributor can add a pack kind or catalog method by extending the existing type/registry/handler path. The contributor proves wire, storage, authorization, replay, client, and release parity.
