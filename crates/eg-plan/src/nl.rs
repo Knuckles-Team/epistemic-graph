@@ -317,7 +317,7 @@ impl std::fmt::Display for NlConfigError {
         match self {
             Self::ReadTimeoutOutOfRange(s) => write!(
                 f,
-                "nl-query: read timeout {s}s outside {NL_READ_TIMEOUT_MIN_SECS}..={NL_READ_TIMEOUT_MAX_SECS}s"
+                "nl-query: read_timeout_secs {s} outside {NL_READ_TIMEOUT_MIN_SECS}..={NL_READ_TIMEOUT_MAX_SECS} seconds"
             ),
             Self::ExtraBodyNotObject => write!(f, "nl-query: extra_body must be a JSON object"),
             Self::ExtraBodyReservedKey(k) => {

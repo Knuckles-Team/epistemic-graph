@@ -24,7 +24,9 @@ use eg_plan::{NlConfigError, NlPlanner, OAuth2ClientCredentials, TokenAuthStyle,
 static INJECTED: OnceLock<Arc<dyn NlPlanner>> = OnceLock::new();
 /// The lazily-built, config-derived default planner (`None` when nothing is configured).
 /// Built at most once, on the first `NlQuery` that finds no injected planner.
-static CONFIG_DEFAULT: OnceLock<Option<Arc<dyn NlPlanner>>> = OnceLock::new();
+/// An invalid request config is kept as a typed error so `NlQuery` can refuse with it.
+type ConfigDefault = Result<Option<Arc<dyn NlPlanner>>, NlConfigError>;
+static CONFIG_DEFAULT: OnceLock<ConfigDefault> = OnceLock::new();
 
 /// Inject the NL planner the facade should use (CONCEPT:EG-KG.query.fence-stripper). An embedder calls this
 /// at startup to opt into the engine driving NL→query with its own planner. Idempotent:
@@ -35,10 +37,11 @@ pub fn set_nl_planner(planner: Arc<dyn NlPlanner>) {
 }
 
 /// Resolve the active planner: the injected one if present, else the lazily-built config
-/// default (which may be `None` when standalone config names no LLM endpoint).
-pub fn resolve_planner() -> Option<Arc<dyn NlPlanner>> {
+/// default (`Ok(None)` when standalone config names no LLM endpoint). Invalid request
+/// config (EG-FEDERATED-QUERY-R058.5) is returned as the typed [`NlConfigError`].
+pub fn resolve_planner() -> Result<Option<Arc<dyn NlPlanner>>, NlConfigError> {
     if let Some(p) = INJECTED.get() {
-        return Some(p.clone());
+        return Ok(Some(p.clone()));
     }
     CONFIG_DEFAULT
         .get_or_init(build_default_from_config)
@@ -86,11 +89,11 @@ const EXTRA_BODY_ENV: &str = "EPISTEMIC_GRAPH_NL_EXTRA_BODY";
 
 /// Build the standalone config default planner (CONCEPT:EG-KG.query.fence-stripper). Reads config +
 /// env-overrides; returns `None` (no NL surface) when no endpoint is configured.
-fn build_default_from_config() -> Option<Arc<dyn NlPlanner>> {
+fn build_default_from_config() -> ConfigDefault {
     let settings = load_or_scaffold_settings();
     if settings.endpoint.trim().is_empty() {
         // Nothing configured — the NL surface stays inert and NlQuery reports it clearly.
-        return None;
+        return Ok(None);
     }
     let api_key = settings
         .api_key_env
@@ -117,14 +120,8 @@ fn build_default_from_config() -> Option<Arc<dyn NlPlanner>> {
         .with_headers(settings.headers)
         .with_tls_ca_path(settings.tls_ca_path)
         .with_oauth2(oauth2);
-    match apply_request_settings(planner, settings.read_timeout_secs, settings.extra_body) {
-        Ok(planner) => Some(Arc::new(planner) as Arc<dyn NlPlanner>),
-        Err(e) => {
-            // Invalid request config is refused: the NL surface stays unconfigured.
-            eprintln!("epistemic-graph: NL planner disabled: {e}");
-            None
-        }
-    }
+    let planner = apply_request_settings(planner, settings.read_timeout_secs, settings.extra_body)?;
+    Ok(Some(Arc::new(planner) as Arc<dyn NlPlanner>))
 }
 
 /// Apply the configured read timeout / extra request body (EG-FEDERATED-QUERY-R058.5),
