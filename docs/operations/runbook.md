@@ -145,11 +145,24 @@ persisted layout in place (leaving a timestamped backup) with:
 epistemic-graph-server migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
 ```
 
-A store written by an earlier build in a layout that has a registered offline upgrade
-is not upgraded at startup either: the engine refuses to start, with that store's
-`*_FORMAT_UPGRADE_REQUIRED` error and the command to run. With the engine stopped,
-inspect the data directory and then apply the upgrades in place, before starting the
-engine again (a deployment job runs the same two commands ahead of the engine):
+The engine migrates a store that an earlier build wrote, when a registered upgrade
+applies to it. The migration runs when the engine opens the data directory. The engine
+takes its exclusive lock first. Then it writes a journal under
+`<data-dir>/.store-upgrade-staging`. It runs each upgrade as one atomic commit. The
+engine logs every step as `store migration: ...`. It counts every step in
+`epistemic_graph_store_migration_steps_total{step,outcome}`. An interrupted migration
+resumes at the next start. The engine never writes a store that is too old to migrate
+(`STORE_FORMAT_TOO_OLD`). It also never writes a store outside its lineage
+(`STORE_FORMAT_TOO_NEW`). A graph shard in either state stops startup. Each upgrade
+inspects a scratch copy of its store. That copy needs free space of about the store's
+size under the data directory. The data directory must not be under `/tmp`. Set
+`EPISTEMIC_GRAPH_STORE_UPGRADE_STAGING_DIR` to name another private local directory.
+
+Set `EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE=false` to run the upgrade by hand instead. The
+engine then refuses to start. It reports the `*_FORMAT_UPGRADE_REQUIRED` error of the
+store and the command to run. Stop the engine and inspect the data directory. Then
+apply the upgrades in place and start the engine again. A deployment job may run the
+same two commands ahead of the engine:
 
 ```bash
 epistemic-graph-server store-upgrade inspect "${GRAPH_SERVICE_PERSIST_DIR:?}"
