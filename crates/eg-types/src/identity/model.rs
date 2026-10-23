@@ -91,6 +91,9 @@ pub struct PasswordCredential {
 #[serde(deny_unknown_fields)]
 pub struct SessionRecord {
     pub session_hash: String,
+    /// Effective scopes at session creation. Missing legacy evidence cannot authorize renewal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_scopes: Option<BTreeSet<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

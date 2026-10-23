@@ -14,6 +14,8 @@ pub const MAX_IDENTITY_AUDIT_ENTRIES: usize = 4_096;
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum IdentityEvent {
+    ApprovalKeyRegistered,
+    ApprovalKeyRevoked,
     Initialized,
     ModeTransition,
     PolicyUpdated,

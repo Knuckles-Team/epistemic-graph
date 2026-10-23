@@ -237,8 +237,11 @@
       "title": "Fresh canonical codec export with provenance",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2b8dd458b459",
         "79c49c6fc412",
-        "fc65d45d509d"
+        "7e09becc533e",
+        "a32000c55c4e",
+        "b6d6bdedcd35"
       ],
       "verified_by": [
         "tests/test_build_method_codec_wasm.py:248",
@@ -1128,9 +1131,11 @@
       "title": "Export fresh typed contracts for parity repair",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2a1515f6e252",
+        "2b8dd458b459",
+        "7e09becc533e",
         "82c10dffe69e",
-        "8b5cbc59e851",
-        "fc65d45d509d"
+        "8b5cbc59e851"
       ],
       "verified_by": [
         "tests/test_export_canonical_contract.py:11"

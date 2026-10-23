@@ -27,6 +27,7 @@ use super::views::IdentityReply;
 use super::IdentityRefusal;
 
 mod access_ops;
+mod approval_keys;
 mod auth;
 mod authority;
 mod external;
@@ -36,6 +37,7 @@ mod mfa;
 mod modes;
 mod provision;
 mod recovery;
+mod session_reference;
 mod sessions;
 mod tenant;
 mod throttle;
@@ -70,6 +72,8 @@ pub struct ApplyContext<'a> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IdentityStore {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) approval_keys: BTreeMap<String, super::approval_key::ApprovalKeyRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) config: Option<IdentityConfig>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

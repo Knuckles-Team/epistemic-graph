@@ -2124,3 +2124,16 @@ infer them from catalog visibility, supports_vision, model identity, transport,
 or a successful producer fixture. Preserve TUI104's honest refusal until the
 separate consumer/admission/served evidence exists; this amendment changes no
 terminal or admission behavior and does not close that end-to-end gap.
+
+## 2026-10-23: identity-main union for R050
+
+The producer source run passed 2,385 native facade tests. Pack round trips,
+nonvision refusal without mutation, and restart isolation passed. Genuine
+source-matched exports then passed local consumer and JavaScript checks.
+The final artifact run passed hosted canonical parity and client replay.
+
+Main now includes the qualified identity producer from PR 695. This union
+preserves both source implementations. All canonical outputs and codec pins
+retain exact main bytes as temporary placeholders. They do not qualify the
+combined media and identity schemas. Fresh hosted exports and final native
+checks remain required. R050.3 benchmarks and R036 served admission stay open.

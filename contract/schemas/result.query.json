@@ -536,17 +536,6 @@
               "const": "model_profile",
               "type": "string"
             },
-            "input_capabilities": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ModelInputCapabilities"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Declaration bound by this component's definition digest. Missing is unknown."
-            },
             "latency_declared": {
               "anyOf": [
                 {
@@ -2865,6 +2854,123 @@
       "required": [
         "key_id",
         "secret"
+      ],
+      "type": "object"
+    },
+    "ApprovalKeyAttestation": {
+      "description": "A trusted broker's assertion, not a native signature-verification result.",
+      "enum": [
+        "broker_verified_ed25519"
+      ],
+      "type": "string"
+    },
+    "ApprovalKeyBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "description": "Zero creates a key; a positive revision replaces an existing live key.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "key_id": {
+          "type": "string"
+        },
+        "principal_id": {
+          "type": "string"
+        },
+        "public_key_hex": {
+          "description": "Exactly 32 public-key bytes encoded as 64 lowercase hex characters.",
+          "type": "string"
+        },
+        "purpose": {
+          "$ref": "#/$defs/ApprovalKeyPurpose"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_id",
+        "principal_id",
+        "tenant",
+        "purpose",
+        "public_key_hex",
+        "expected_revision",
+        "expires_at_ms"
+      ],
+      "type": "object"
+    },
+    "ApprovalKeyLookup": {
+      "additionalProperties": false,
+      "properties": {
+        "key_id": {
+          "type": "string"
+        },
+        "principal_id": {
+          "type": "string"
+        },
+        "purpose": {
+          "$ref": "#/$defs/ApprovalKeyPurpose"
+        }
+      },
+      "required": [
+        "key_id",
+        "principal_id",
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "ApprovalKeyPurpose": {
+      "enum": [
+        "signed_approval"
+      ],
+      "type": "string"
+    },
+    "ApprovalKeyRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "attestation": {
+          "$ref": "#/$defs/ApprovalKeyAttestation"
+        },
+        "binding": {
+          "$ref": "#/$defs/ApprovalKeyBinding"
+        },
+        "session_token": {
+          "$ref": "#/$defs/Secret"
+        }
+      },
+      "required": [
+        "session_token",
+        "binding",
+        "attestation"
+      ],
+      "type": "object"
+    },
+    "ApprovalKeyRevocation": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "key": {
+          "$ref": "#/$defs/ApprovalKeyLookup"
+        },
+        "session_token": {
+          "$ref": "#/$defs/Secret"
+        }
+      },
+      "required": [
+        "session_token",
+        "key",
+        "expected_revision"
       ],
       "type": "object"
     },
@@ -16607,6 +16713,54 @@
             {
               "properties": {
                 "op": {
+                  "const": "register_approval_key",
+                  "type": "string"
+                },
+                "request": {
+                  "$ref": "#/$defs/ApprovalKeyRegistration"
+                }
+              },
+              "required": [
+                "op",
+                "request"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "inspect_approval_key",
+                  "type": "string"
+                },
+                "request": {
+                  "$ref": "#/$defs/ApprovalKeyLookup"
+                }
+              },
+              "required": [
+                "op",
+                "request"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "revoke_approval_key",
+                  "type": "string"
+                },
+                "request": {
+                  "$ref": "#/$defs/ApprovalKeyRevocation"
+                }
+              },
+              "required": [
+                "op",
+                "request"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "op": {
                   "const": "set_password",
                   "type": "string"
                 },
@@ -16700,6 +16854,62 @@
         {
           "description": "Server-side sessions.",
           "oneOf": [
+            {
+              "description": "Inspect original durable session facts without refreshing or issuing authority.",
+              "properties": {
+                "op": {
+                  "const": "inspect_reference",
+                  "type": "string"
+                },
+                "session_ref": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "session_ref",
+                "tenant"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Extend idle expiry within the original absolute lifetime using a global authority CAS.",
+              "properties": {
+                "expected_authority_revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "expected_scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "op": {
+                  "const": "renew_reference",
+                  "type": "string"
+                },
+                "session_ref": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "session_ref",
+                "tenant",
+                "expected_authority_revision",
+                "expected_scopes"
+              ],
+              "type": "object"
+            },
             {
               "description": "Touch a live session and answer its principal's resolution.",
               "properties": {
@@ -38181,44 +38391,6 @@
       ],
       "type": "object"
     },
-    "ModelInputCapabilities": {
-      "additionalProperties": false,
-      "description": "Optional on a profile: absence means unknown, never unrestricted input.",
-      "properties": {
-        "max_aggregate_bytes": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "max_parts": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "media_types": {
-          "items": {
-            "$ref": "#/$defs/ModelInputMediaType"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "media_types",
-        "max_aggregate_bytes",
-        "max_parts"
-      ],
-      "type": "object"
-    },
-    "ModelInputMediaType": {
-      "description": "Closed set of inline input representations supported by the run contract.",
-      "enum": [
-        "text/plain",
-        "image/png",
-        "image/jpeg",
-        "image/webp"
-      ],
-      "type": "string"
-    },
     "ModelPolicyVersion": {
       "additionalProperties": false,
       "description": "`ModelPolicyVersion/v1`: an immutable artifact identity. Bytes stay in the\nexternal artifact store; EG holds identity and lineage. The record id the\nengine returns IS the version id every capture and route refers to.",
@@ -41196,16 +41368,6 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
-        },
-        "input_capabilities": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ModelInputCapabilities"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "max_output_tokens": {
           "format": "uint64",
@@ -50097,6 +50259,13 @@
           "$ref": "#/$defs/Secret",
           "default": "",
           "description": "A TOTP or recovery code, for the second-factor ops."
+        },
+        "refresh": {
+          "description": "Resolve only: omitted means refresh; false verifies without touching expiry.\nOther session-token operations ignore this flag.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "session_token": {
           "$ref": "#/$defs/Secret"

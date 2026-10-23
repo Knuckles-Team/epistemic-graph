@@ -35,6 +35,7 @@ fn resolution() -> PrincipalResolution {
 fn session_op() -> IdentityOp {
     IdentityOp::Session(SessionOp::Resolve {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },
@@ -361,6 +362,7 @@ async fn send_op(
 fn session_request() -> IdentityOp {
     IdentityOp::Session(SessionOp::Resolve {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::new(SESSION),
             code: Secret::default(),
         },
@@ -629,6 +631,7 @@ async fn pending_mfa_refusal_preserves_a_completable_ceremony_after_touch() {
         live_broker(),
         IdentityOp::Mfa(MfaOp::ConsumeRecoveryCode {
             request: SessionTouch {
+                refresh: None,
                 session_token: Secret::new(SESSION),
                 code: Secret::new(code),
             },
@@ -663,4 +666,114 @@ fn session_record_creation_requires_matching_deployment_context() {
         let mismatched = VerifiedRequestContext::from_verified_claims(claims, "test-only".into());
         assert!(record_tenant(&mismatched).is_none());
     }
+}
+
+fn session_authority(response: &Response) -> IdentityReply<RequestContextClaims> {
+    assert!(response.error.is_none(), "{response:?}");
+    let Some(ResultPayload::Json(value)) = &response.result else {
+        panic!("missing JSON response")
+    };
+    let reply = serde_json::from_value(value.clone()).unwrap();
+    assert!(matches!(reply, IdentityReply::SessionAuthority { .. }));
+    reply
+}
+
+// spec: EG-TYPED-PACKS-R085.4.3
+#[tokio::test]
+async fn reference_renewal_rechecks_boundary_and_global_revision() {
+    use eg_types::identity::IDENTITY_SELF_SCOPE;
+    let state = ready_engine().await;
+    let resolution = resolved(&send_op(&state, live_broker(), session_request()).await);
+    let record = resolution.session_record.unwrap();
+    let owner = || verified(BOOTSTRAP_PRINCIPAL, &[IDENTITY_SELF_SCOPE], &[]);
+    let inspect = IdentityOp::Session(SessionOp::InspectReference {
+        session_ref: record.session_ref.clone(),
+        tenant: record.tenant.clone(),
+    });
+    let IdentityReply::SessionAuthority {
+        scopes,
+        authority_revision,
+        ..
+    } = session_authority(&send_op(&state, owner(), inspect.clone()).await)
+    else {
+        unreachable!()
+    };
+    let renew = |revision| {
+        IdentityOp::Session(SessionOp::RenewReference {
+            session_ref: record.session_ref.clone(),
+            tenant: record.tenant.clone(),
+            expected_authority_revision: revision,
+            expected_scopes: scopes.clone(),
+        })
+    };
+    let store = state.read().await.isolation.policy_store().unwrap();
+    let mut forged = IdentityStamp::for_actor(identity_actor(&owner()));
+    forged.session_tenant = Some(record.tenant.clone());
+    for caller in [
+        verified("usr:other", &[IDENTITY_SELF_SCOPE], &[]),
+        verified(
+            BOOTSTRAP_PRINCIPAL,
+            &[IDENTITY_SELF_SCOPE],
+            &["svc:delegate"],
+        ),
+    ] {
+        let response = send(
+            &state,
+            caller,
+            Method::Identity {
+                op: renew(authority_revision),
+                stamp: Some(forged.clone()),
+            },
+        )
+        .await;
+        assert!(response.error.is_some(), "{response:?}");
+        assert!(response.result.is_none());
+        assert_eq!(
+            store.authority_snapshot().unwrap().revision(),
+            authority_revision
+        );
+    }
+    let unrelated = send_op(
+        &state,
+        verified(BOOTSTRAP_PRINCIPAL, &[IDENTITY_ADMIN_SCOPE], &[]),
+        IdentityOp::Access(AccessOp::UpsertRole {
+            request: serde_json::from_value(json!({"role_id":"unrelated-renewal-test",
+                "name":"unrelated", "scopes":["kg:read"]}))
+            .unwrap(),
+        }),
+    )
+    .await;
+    assert!(unrelated.error.is_none(), "{unrelated:?}");
+    let changed = store.authority_snapshot().unwrap().revision();
+    assert!(changed > authority_revision);
+    let stale = send_op(&state, owner(), renew(authority_revision)).await;
+    assert_refusal(&stale, IdentityRefusal::PreconditionFailed);
+    assert_eq!(store.authority_snapshot().unwrap().revision(), changed);
+    let IdentityReply::SessionAuthority {
+        authority_revision: fresh,
+        scopes: current,
+        ..
+    } = session_authority(&send_op(&state, owner(), inspect).await)
+    else {
+        unreachable!()
+    };
+    assert_eq!(current, scopes);
+    assert_eq!(fresh, changed);
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    let IdentityReply::SessionAuthority {
+        record: after,
+        authority_revision: next,
+        ..
+    } = session_authority(&send_op(&state, owner(), renew(fresh)).await)
+    else {
+        unreachable!()
+    };
+    assert!(next > fresh);
+    assert!(after.idle_expires_at_ms > record.idle_expires_at_ms);
+    assert!(after.idle_expires_at_ms <= record.absolute_expires_at_ms);
+    assert_eq!(after.absolute_expires_at_ms, record.absolute_expires_at_ms);
+    assert_eq!(after.principal_id, record.principal_id);
+    assert_eq!(after.session_ref, record.session_ref);
+    assert_eq!(after.tenant, record.tenant);
+    assert_eq!(after.mfa_at_ms, record.mfa_at_ms);
 }
