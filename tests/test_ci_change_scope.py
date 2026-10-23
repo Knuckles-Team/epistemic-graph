@@ -143,7 +143,7 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
         "gates-facade",
         "gates-whisper",
     ):
-        assert jobs[name]["runs-on"] == "ubuntu-latest"
+        assert jobs[name]["runs-on"] == "ubuntu-24.04"
         assert jobs[name]["if"] == "needs.changes.outputs.code == 'true'"
 
 
@@ -163,7 +163,7 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(
     """
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs[job_name]
-    assert job["runs-on"] == "ubuntu-latest"
+    assert job["runs-on"] == "ubuntu-24.04"
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
     # GitHub expression braces are doubled inside f-strings.
@@ -795,3 +795,27 @@ def _assert_wheel_bundle(
     for line in (bundle / "build-recipe.sha256").read_text().splitlines():
         digest, name = line.split(maxsplit=1)
         assert hashlib.sha256((repo / name).read_bytes()).hexdigest() == digest
+
+
+# spec: EG-CONTRACT-R053.13
+def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    for name, job in jobs.items():
+        caches = [
+            step.get("with", {}).get("shared-key", "")
+            for step in job.get("steps", [])
+            if "Swatinem/rust-cache@" in step.get("uses", "")
+        ]
+        if any(key.startswith("eg-ci-gates") for key in caches):
+            assert job["runs-on"] == "ubuntu-24.04", name
+            assert caches == ["eg-ci-gates-ubuntu-24.04-v1"], name
+        if "SCCACHE_GHA_ENABLED" in job.get("env", {}):
+            assert job["env"]["SCCACHE_GHA_VERSION"] == "eg-ci-ubuntu-24.04-v1"
+    for name in (
+        "python-server",
+        "python-kernels",
+        "python-suite",
+        "backward-python",
+        "gates-wheel",
+    ):
+        assert jobs[name]["runs-on"] == "ubuntu-24.04"

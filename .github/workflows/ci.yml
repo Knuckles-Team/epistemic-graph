@@ -131,7 +131,9 @@ jobs:
     name: gates
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: &eg-native-validation-runner ubuntu-latest
+    # Pin the libc baseline while ubuntu-latest rolls to newer distributions.
+    # Native artifacts must remain executable on supported older Linux hosts.
+    runs-on: &eg-native-validation-runner ubuntu-24.04
     # Build and cleanup must choose the same backend if the daemon restarts.
     # Backend settings alone do not wrap any other Cargo command.
     env: &eg-validation-compiler-cache-backend
@@ -139,6 +141,7 @@ jobs:
       # finite, but above these jobs' maximum 60-minute execution window.
       SCCACHE_IDLE_TIMEOUT: '7200'
       SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_GHA_VERSION: 'eg-ci-ubuntu-24.04-v1'
       SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
       - &eg-gates-checkout
@@ -181,7 +184,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
+          shared-key: eg-ci-gates-ubuntu-24.04-v1
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Save completed compiler outputs even if the later test link times out.
@@ -301,7 +304,7 @@ jobs:
     name: gates (installed wheel)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
       - *eg-gates-python
@@ -505,7 +508,7 @@ jobs:
     name: gates (facade full)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-gates-checkout
@@ -520,7 +523,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
+          shared-key: eg-ci-gates-ubuntu-24.04-v1
           cache-workspace-crates: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -557,7 +560,7 @@ jobs:
     name: gates (Whisper real model)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
       - *eg-gates-python
@@ -582,13 +585,13 @@ jobs:
   gates-variants:
     timeout-minutes: 360
     name: gates (slim server + raft cluster)
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     steps:
       - *eg-gates-checkout
 
-      # Unconditionally ubuntu-latest (never self-hosted), so this keeps
+      # Unconditionally hosted (never self-hosted), so this keeps
       # actions/setup-python rather than the *eg-gates-python uv alias.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -638,7 +641,7 @@ jobs:
     name: gates (workspace crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: &eg-native-crate-steps
       - *eg-gates-checkout
@@ -757,7 +760,7 @@ jobs:
     name: gates (storage crate)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: *eg-native-crate-steps
 
@@ -768,7 +771,7 @@ jobs:
     name: gates (pyo3 crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: *eg-native-crate-steps
 
@@ -826,7 +829,7 @@ jobs:
     name: Python native kernels
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     # Validation-only profile, also warmed on main. Published wheels use defaults.
     env:
       CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
@@ -867,7 +870,7 @@ jobs:
     name: Python full server preparation
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-python-checkout
@@ -878,7 +881,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
+          shared-key: eg-ci-gates-ubuntu-24.04-v1
           cache-workspace-crates: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Also cache individual compiler outputs without bypassing Cargo. Install
@@ -908,7 +911,7 @@ jobs:
     name: backward-python (3.12)
     needs: [changes, python-kernels]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     steps:
       - *eg-python-checkout
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -934,7 +937,7 @@ jobs:
     name: Python suite (tests/)
     needs: [changes, python-kernels, python-server]
     if: always() && needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     steps:
       - name: Require successful native preparation
         env:
@@ -961,7 +964,7 @@ jobs:
           exit "$bad"
       - *eg-python-checkout
 
-      # Unconditionally ubuntu-latest (never self-hosted), so this keeps
+      # Unconditionally hosted (never self-hosted), so this keeps
       # actions/setup-python rather than the *eg-gates-python uv alias.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -1047,7 +1050,7 @@ jobs:
     name: eg-tts-piper real-inference tests
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1063,7 +1066,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
+          shared-key: eg-ci-gates-ubuntu-24.04-v1
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test eg-tts-piper against the pinned onnxruntime (fails, never skips, without it)
         run: |
@@ -1211,7 +1214,7 @@ jobs:
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     strategy:
       fail-fast: false
       matrix:
@@ -1233,7 +1236,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
+          shared-key: eg-ci-gates-ubuntu-24.04-v1
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: clippy-${{ matrix.profile.name }}
 
@@ -1681,7 +1684,7 @@ jobs:
       EG_WHEEL_MANYLINUX: "2_28"
     steps:
       - *eg-gates-checkout
-      # Unconditionally ubuntu-latest (never self-hosted), so this keeps
+      # Unconditionally hosted (never self-hosted), so this keeps
       # actions/setup-python rather than the *eg-gates-python uv alias.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
