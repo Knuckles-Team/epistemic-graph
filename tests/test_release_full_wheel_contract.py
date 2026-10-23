@@ -402,18 +402,59 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             )
             assert job.get("timeout-minutes") == expected
         else:
-            pr_scoped = {
-                ("ci.yml", "quality-advisory"): (
-                    "${{ github.event_name == 'pull_request' && "
-                    "(matrix.profile.name == 'workspace-all-features' && 15 || 10) || 60 }}"
-                )
-            }.get(
-                (workflow.name, name),
-                "${{ github.event_name == 'pull_request' && 10 || 60 }}",
-            )
-            assert job.get("timeout-minutes") in (360, 5, pr_scoped), (
-                f"{workflow.name}:{name}"
-            )
+            _assert_short_runner_budget(workflow, name, job)
+
+
+def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
+    pr_scoped = {
+        ("ci.yml", "quality-advisory"): (
+            "${{ github.event_name == 'pull_request' && "
+            "(matrix.profile.name == 'workspace-all-features' "
+            "&& 15 || 10) || 60 }}"
+        )
+    }.get(
+        (workflow.name, name),
+        "${{ github.event_name == 'pull_request' && 10 || 60 }}",
+    )
+    if (workflow.name, name) == ("ci.yml", "quality-advisory"):
+        assert job.get("timeout-minutes") == pr_scoped
+    else:
+        assert job.get("timeout-minutes") in (360, 5, pr_scoped), (
+            f"{workflow.name}:{name}"
+        )
+
+
+@pytest.mark.parametrize(
+    "timeout",
+    [10, 15, 45, 60, 360, "${{ github.event_name == 'pull_request' && 45 || 60 }}"],
+)
+def test_workspace_clippy_budget_rejects_unscoped_limits(timeout: int | str) -> None:
+    """EG-CONTRACT-R031: only the workspace matrix leg receives extra time."""
+    with pytest.raises(AssertionError):
+        _assert_runner_budget(
+            CI_WORKFLOW, "quality-advisory", {"timeout-minutes": timeout}
+        )
+
+
+@pytest.mark.parametrize(
+    "workflow,name",
+    [
+        ("release.yml", "quality-advisory"),
+        ("ci.yml", "security"),
+        ("ci.yml", "lint-and-architecture"),
+    ],
+)
+def test_workspace_clippy_budget_cannot_expand_other_jobs(
+    workflow: str, name: str
+) -> None:
+    """EG-CONTRACT-R031: the matrix budget is not a general runner exception."""
+    budget = (
+        "${{ github.event_name == 'pull_request' && "
+        "(matrix.profile.name == 'workspace-all-features' "
+        "&& 15 || 10) || 60 }}"
+    )
+    with pytest.raises(AssertionError):
+        _assert_runner_budget(Path(workflow), name, {"timeout-minutes": budget})
 
 
 def _assert_workflow_job_budget(workflow: Path, name: str, job: dict) -> None:
