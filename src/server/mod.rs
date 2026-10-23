@@ -2683,6 +2683,9 @@ mod tests {
     // EH-373 foreign-source tenancy proofs through the full served dispatch chain.
     #[cfg(all(feature = "federation", feature = "nl-query"))]
     mod foreign_tenancy;
+    // EG-FEDERATED-QUERY-R722 pack sources federated through the bound source executor.
+    #[cfg(feature = "federation")]
+    mod pack_source_served;
     // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
     #[cfg(feature = "wasm-udf")]
     mod udf_tenancy;

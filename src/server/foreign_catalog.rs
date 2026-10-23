@@ -57,6 +57,10 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use eg_plan::federation::ForeignSourceRegistry;
+use eg_plan::pack_source::{
+    ClassFederationSource, PackSourceSet, RegisterOutcome, SourceExecutor, CLASS_SOURCE_PREFIX,
+};
+use eg_types::connector_pack::{PackSourceRegistration, SourceCaller};
 use eg_types::wire::ForeignSourceSpec;
 use tokio::sync::RwLock;
 
@@ -81,9 +85,16 @@ struct OwnedSpec {
 
 /// Every owner's registered foreign sources, partitioned by verified owner
 /// (tenant+principal) scope.
+///
+/// It also holds the connector pack data resources registered as virtual-graph
+/// sources (EG-FEDERATED-QUERY-R722) and the source executor that reads them. Each
+/// caller's registry exposes one `vg:<class>` source per registered class, bound to
+/// that caller, so a pack source is read only through this one catalog.
 #[derive(Default)]
 pub struct ForeignSourceCatalog {
     entries: DashMap<CatalogKey, OwnedSpec>,
+    pack_sources: std::sync::RwLock<PackSourceSet>,
+    source_executor: std::sync::RwLock<Option<Arc<dyn SourceExecutor>>>,
 }
 
 /// A caller's registry, built by [`ForeignSourceCatalog::registry_for`]: its own sources
@@ -174,11 +185,16 @@ impl ForeignSourceCatalog {
         }
         shared.sort_by(|a, b| a.0.cmp(&b.0));
         own.sort_by(|a, b| a.0.cmp(&b.0));
-        let cache_salt = resolved_digest(owner_scope, shared.iter().chain(&own));
+        let pack = self.pack_snapshot();
+        let mut cache_salt = resolved_digest(owner_scope, shared.iter().chain(&own));
+        if !pack.is_empty() {
+            cache_salt = format!("{cache_salt}:{}", pack_digest(&pack));
+        }
         let mut registry = ForeignSourceRegistry::new();
         for (name, spec) in shared.into_iter().chain(own) {
             registry.register_spec(name, spec);
         }
+        self.bind_class_sources(&mut registry, caller, &pack);
         OwnedForeignRegistry {
             owner_scope: owner_scope.to_string(),
             cache_salt,
@@ -226,8 +242,98 @@ impl ForeignSourceCatalog {
 
     /// Whether no owner has registered any source.
     pub(crate) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_empty() && self.pack_snapshot().is_empty()
     }
+
+    /// Register one connector data resource as a held virtual-graph source
+    /// (EG-FEDERATED-QUERY-R722.2). A refusal is `CODE: detail`.
+    pub(crate) fn register_pack_source(
+        &self,
+        registration: PackSourceRegistration,
+    ) -> Result<RegisterOutcome, String> {
+        self.pack_sources
+            .write()
+            .map_err(|_| "INTERNAL: pack source registry poisoned".to_string())?
+            .register(registration)
+            .map_err(|refusal| refusal.to_string())
+    }
+
+    /// Apply admission's approval of one mapping at one contract digest.
+    pub(crate) fn approve_pack_source(
+        &self,
+        mapping_iri: &str,
+        contract_digest: &str,
+    ) -> Result<(), String> {
+        self.pack_sources
+            .write()
+            .map_err(|_| "INTERNAL: pack source registry poisoned".to_string())?
+            .approve(mapping_iri, contract_digest)
+    }
+
+    /// Bind the executor every pack source read goes through (arbora's governed
+    /// fleet call). Without one, approved sources answer `SOURCE_UNAVAILABLE`.
+    pub(crate) fn install_source_executor(&self, executor: Arc<dyn SourceExecutor>) {
+        if let Ok(mut slot) = self.source_executor.write() {
+            *slot = Some(executor);
+        }
+    }
+
+    fn pack_snapshot(&self) -> PackSourceSet {
+        self.pack_sources
+            .read()
+            .map(|set| set.clone())
+            .unwrap_or_default()
+    }
+
+    /// One `vg:<class>` source per registered class, bound to `caller`.
+    fn bind_class_sources(
+        &self,
+        registry: &mut ForeignSourceRegistry,
+        caller: &CarrierAuthority,
+        pack: &PackSourceSet,
+    ) {
+        if pack.is_empty() {
+            return;
+        }
+        let executor = self.source_executor.read().ok().and_then(|e| e.clone());
+        let source_caller = SourceCaller {
+            tenant: caller.tenant_scope().to_string(),
+            principal: caller.agent_id().to_string(),
+        };
+        for class in pack.class_names() {
+            let source = ClassFederationSource {
+                sources: pack.for_class(&class),
+                class: class.clone(),
+                caller: source_caller.clone(),
+                executor: executor.clone(),
+                // The engine admits every verified reader here; the executor enforces
+                // the caller's grant per source at the door (ARBORA-FLEET-R043.4).
+                authorize: Arc::new(|_| Ok(())),
+            };
+            registry.register(format!("{CLASS_SOURCE_PREFIX}{class}"), Arc::new(source));
+        }
+    }
+}
+
+/// Digest of every pack registration's identity, contract and approval, so a
+/// cached result never outlives an approval change.
+fn pack_digest(pack: &PackSourceSet) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    for registration in pack.iter() {
+        for part in [
+            registration.mapping_iri.as_str(),
+            registration.contract_digest.as_str(),
+            match registration.approval {
+                eg_types::connector_pack::PackSourceApproval::Held => "held",
+                eg_types::connector_pack::PackSourceApproval::Approved => "approved",
+            },
+        ] {
+            digest.update((part.len() as u64).to_be_bytes());
+            digest.update(part.as_bytes());
+        }
+    }
+    hex::encode(digest.finalize())
 }
 
 /// [`ForeignSourceCatalog::resolve_for_plan`] against the server's catalog for a served

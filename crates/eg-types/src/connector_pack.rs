@@ -23,6 +23,7 @@ pub mod digest;
 pub mod ids;
 pub mod index;
 pub mod ops;
+pub mod pack_source;
 pub mod rapid_r075;
 pub mod record;
 pub mod result;
@@ -97,6 +98,12 @@ pub use ops::{
     ConnectorPackBindRequest, ConnectorPackImportRequest, ConnectorPackOp,
     ConnectorPackReconcileRequest, ConnectorPackReprojectRequest, ConnectorPackRetireRequest,
     ConnectorPackStatusRequest, ConnectorPackUnbindRequest, PackHeadRef,
+};
+pub use pack_source::{
+    class_matches, iri_local_name, PackFieldBinding, PackPagination, PackSourceApproval,
+    PackSourceKind, PackSourceRefusal, PackSourceRegistration, SourceCaller, SourceOutcome,
+    SourceOutcomeStatus, SourceReadError, SourceReadErrorCode, SourceReadPage, SourceReadRequest,
+    VirtualClassAnswer, VirtualClassQuery, VirtualClassRow, VirtualRowProvenance,
 };
 pub use record::{
     PackArchiveFacts, PackDisposition, PackEntryRecord, PackImportRecord, PackServerRecord,

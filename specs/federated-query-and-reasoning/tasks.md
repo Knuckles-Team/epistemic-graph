@@ -407,9 +407,13 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
   - [ ] **EG-FEDERATED-QUERY-R721.4:** Hot-path proof: cross-modal queries with default configuration.
 
 - [ ] **EG-FEDERATED-QUERY-R722:** Connector data resources register as virtual-graph sources at pack import (rollup).
-- [ ] **EG-FEDERATED-QUERY-R722.1:** Model.
-- [ ] **EG-FEDERATED-QUERY-R722.2:** Behavior.
+- [x] **EG-FEDERATED-QUERY-R722.1:** Model.
+- [x] **EG-FEDERATED-QUERY-R722.2:** Behavior.
 - [ ] **EG-FEDERATED-QUERY-R722.3:** Wiring.
 - [ ] **EG-FEDERATED-QUERY-R722.4:** Refusal.
 - [ ] **EG-FEDERATED-QUERY-R722.5:** Evidence.
 - [ ] **EG-FEDERATED-QUERY-R722.6:** Hot-path proof.
+- [x] **EG-FEDERATED-QUERY-R722.7:** Source executor seam and class federation.
+- [ ] **EG-FEDERATED-QUERY-R722.8:** Served registration, approval and typed class answer.
+- [ ] **EG-FEDERATED-QUERY-R722.9:** Virtual sources are graph entities.
+- [ ] **EG-FEDERATED-QUERY-R722.10:** A class query includes virtual-source rows.

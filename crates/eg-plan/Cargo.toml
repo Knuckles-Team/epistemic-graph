@@ -559,6 +559,12 @@ name = "federation_rollup_backends"
 path = "tests/federation_rollup_backends.rs"
 required-features = ["federation"]
 
+# EG-FEDERATED-QUERY-R722 pack sources federated through the source executor.
+[[test]]
+name = "pack_source"
+path = "tests/pack_source.rs"
+required-features = ["federation"]
+
 [[test]]
 name = "fuzz_pipelines"
 path = "tests/fuzz_pipelines.rs"

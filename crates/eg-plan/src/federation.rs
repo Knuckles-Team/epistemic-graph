@@ -101,6 +101,13 @@ pub trait ForeignSource {
     ) -> Result<crate::federation_opt::ForeignRows, String> {
         self.fetch_columns()
     }
+
+    /// The columns a source exposes when it is not a registered spec (a pack class
+    /// source, EG-FEDERATED-QUERY-R722). A column query over such a source fetches
+    /// every exposed column and runs the whole filter locally.
+    fn exposed_columns(&self) -> Option<std::collections::BTreeSet<String>> {
+        None
+    }
 }
 
 /// Build the right [`ForeignSource`] for a wire [`ForeignSourceSpec`]. The executor
@@ -1671,6 +1678,20 @@ impl ForeignSourceRegistry {
         session: &crate::federation_opt::FederationSession,
     ) -> Result<crate::federation_opt::ForeignRows, String> {
         use crate::federation_opt::{sql_filter_support, ColumnPlan};
+        if !self.specs.contains_key(name) {
+            if let Some(exposed) = self.sources.get(name).and_then(|s| s.exposed_columns()) {
+                let plan = ColumnPlan::new(&exposed, output, predicates, false, |_| {
+                    crate::federation_opt::PushdownSupport::Unsupported
+                })?;
+                session.with_meter(|meter| meter.charge_request())?;
+                let rows = self.resolve_projected(name, &plan)?;
+                session.with_meter(|meter| {
+                    meter.charge_rows(rows.rows().len())?;
+                    meter.check_wall()
+                })?;
+                return Ok(plan.finish(rows));
+            }
+        }
         let spec = self.specs.get(name).ok_or_else(|| {
             format!("federation: column query requires a registered source '{name}'")
         })?;

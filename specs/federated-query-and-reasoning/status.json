@@ -443,7 +443,11 @@
     "EG-FEDERATED-QUERY-R722.3",
     "EG-FEDERATED-QUERY-R722.4",
     "EG-FEDERATED-QUERY-R722.5",
-    "EG-FEDERATED-QUERY-R722.6"
+    "EG-FEDERATED-QUERY-R722.6",
+    "EG-FEDERATED-QUERY-R722.7",
+    "EG-FEDERATED-QUERY-R722.8",
+    "EG-FEDERATED-QUERY-R722.9",
+    "EG-FEDERATED-QUERY-R722.10"
   ],
   "requirements": [
     {
@@ -1541,8 +1545,8 @@
         "bfd84b2ccbcb"
       ],
       "verified_by": [
-        "crates/eg-plan/src/federation.rs:229",
-        "crates/eg-plan/src/federation.rs:249",
+        "crates/eg-plan/src/federation.rs:236",
+        "crates/eg-plan/src/federation.rs:256",
         "crates/eg-plan/src/federation_opt/budget.rs:156",
         "crates/eg-plan/src/federation_opt/budget.rs:173"
       ]
@@ -4373,7 +4377,11 @@
         "EG-FEDERATED-QUERY-R722.3",
         "EG-FEDERATED-QUERY-R722.4",
         "EG-FEDERATED-QUERY-R722.5",
-        "EG-FEDERATED-QUERY-R722.6"
+        "EG-FEDERATED-QUERY-R722.6",
+        "EG-FEDERATED-QUERY-R722.7",
+        "EG-FEDERATED-QUERY-R722.8",
+        "EG-FEDERATED-QUERY-R722.9",
+        "EG-FEDERATED-QUERY-R722.10"
       ]
     },
     {
@@ -4381,14 +4389,21 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/pack_source.rs:31",
+        "crates/eg-types/tests/pack_source.rs:56",
+        "crates/eg-types/tests/pack_source.rs:75"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R722.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/tests/pack_source.rs:156",
+        "crates/eg-plan/tests/pack_source.rs:447"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R722.3",
@@ -4414,6 +4429,40 @@
     {
       "id": "EG-FEDERATED-QUERY-R722.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.7",
+      "title": "Source executor seam and class federation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-plan/tests/pack_source.rs:231",
+        "crates/eg-plan/tests/pack_source.rs:299",
+        "crates/eg-plan/tests/pack_source.rs:350",
+        "crates/eg-plan/tests/pack_source.rs:480",
+        "src/server/tests/pack_source_served.rs:104"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.8",
+      "title": "Served registration, approval and typed class answer",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.9",
+      "title": "Virtual sources are graph entities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R722.10",
+      "title": "A class query includes virtual-source rows",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

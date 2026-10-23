@@ -185,6 +185,10 @@ pub mod federation_cypher_unbound;
 /// into foreign sources, bind joins, the per-query network budget and the fragment trace.
 #[cfg(feature = "federation")]
 pub mod federation_opt;
+/// Connector pack data resources as virtual-graph sources, federated at query time
+/// through the arbora-implemented source executor (EG-FEDERATED-QUERY-R722).
+#[cfg(feature = "federation")]
+pub mod pack_source;
 /// The Spark job backend source's explicit-registration half
 /// (EG-DURABLE-KERNEL-R024.8): typed `artifact://`-scheme shape validation
 /// plus an explicit, named refusal, since no bound Spark artifact-store

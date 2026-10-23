@@ -507,3 +507,7 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 - `EG-FEDERATED-QUERY-R722.4`: `tests/federated/test_pack_source_served.py::test_secret_guard_held_and_unavailable_refuse_with_named_codes`.
 - `EG-FEDERATED-QUERY-R722.5`: `tests/federated/test_pack_source_served.py::test_rows_carry_contract_provenance_and_nothing_is_copied`.
 - `EG-FEDERATED-QUERY-R722.6`: `tests/federated/test_pack_source_served.py::test_uql_joins_native_fact_to_live_connector_rows_with_zero_copy`.
+- `EG-FEDERATED-QUERY-R722.7`: `crates/eg-plan/tests/pack_source.rs::a_class_query_returns_rows_from_both_sources_with_provenance`; `src/server/tests/pack_source_served.rs::served_uql_over_a_class_reads_both_sources_through_the_bound_executor`.
+- `EG-FEDERATED-QUERY-R722.8`: `src/server/tests/pack_source_served.rs::served_import_approve_and_query_virtual_class_round_trip`.
+- `EG-FEDERATED-QUERY-R722.9`: `src/server/tests/pack_source_served.rs::sources_for_a_class_are_answered_by_a_graph_query`.
+- `EG-FEDERATED-QUERY-R722.10`: `src/server/tests/pack_source_served.rs::match_on_a_class_returns_native_and_virtual_rows_with_provenance`.
