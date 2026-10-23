@@ -26,6 +26,7 @@
     "EG-CONTRACT-R012",
     "EG-CONTRACT-R013",
     "EG-CONTRACT-R014",
+    "EG-CONTRACT-R014.1",
     "EG-CONTRACT-R015",
     "EG-CONTRACT-R016",
     "EG-CONTRACT-R017",
@@ -414,13 +415,33 @@
         "15acf1a959e5",
         "19d0663aaf5c",
         "2a4982e949a3",
-        "394f82a01e83",
-        "4c25220f6e1b"
+        "2f8fb1af4fac",
+        "394f82a01e83"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:472",
-        "crates/eg-capabilities/src/error_routing.rs:351",
-        "crates/eg-types/src/governed_change/tests.rs:183"
+        "crates/eg-capabilities/src/contract/errors.rs:478",
+        "crates/eg-capabilities/src/error_routing.rs:354",
+        "crates/eg-types/src/governed_change/tests.rs:183",
+        "src/server/auth.rs:2053",
+        "src/server/transport/tests.rs:145"
+      ],
+      "rollup_of": [
+        "EG-CONTRACT-R014.1"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R014.1",
+      "title": "Authentication refusals name a safe cause class",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8fb1af4fac",
+        "789efa66dea1",
+        "896e0af67310",
+        "ef81c8ba3a08"
+      ],
+      "verified_by": [
+        "src/server/auth.rs:2053",
+        "src/server/transport/tests.rs:145"
       ]
     },
     {
@@ -571,7 +592,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/server/transport/tests.rs:323"
+        "src/server/transport/tests.rs:371"
       ]
     },
     {
