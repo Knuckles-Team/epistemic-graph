@@ -330,8 +330,8 @@
         "tests/test_release_python_suite_contract.py:104",
         "tests/test_release_python_suite_contract.py:121",
         "tests/test_release_python_suite_contract.py:132",
-        "tests/test_release_python_suite_contract.py:359",
-        "tests/test_release_python_suite_contract.py:376"
+        "tests/test_release_python_suite_contract.py:361",
+        "tests/test_release_python_suite_contract.py:380"
       ]
     },
     {
@@ -601,7 +601,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:769"
+        "tests/test_release_python_suite_contract.py:773"
       ]
     },
     {
@@ -1041,7 +1041,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:702"
+        "tests/test_release_full_wheel_contract.py:705"
       ]
     },
     {
