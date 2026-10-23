@@ -44,7 +44,7 @@ fn admit(shard: &Shard, request: &SubmitWorkItemRequest, owner: &str) -> Result<
 
 fn state(shard: &Shard, run: &str, status: &str) {
     let id = super::super::run_owner::work_item_id(GRAPH, "tenant", run).unwrap();
-    with_nodes(shard, &format!("state-{status}"), |nodes| {
+    with_nodes(shard, &format!("state-{run}-{status}"), |nodes| {
         let bytes = nodes.get((GRAPH, id.as_str()))?.unwrap();
         let mut row: serde_json::Map<String, serde_json::Value> = decode_durable(bytes.value())?;
         drop(bytes);
@@ -191,7 +191,7 @@ fn generic_writes_cannot_forge_replace_or_delete_conversation_heads() {
     }
     admit(&temp.shard, &request("one", 0, None), "owner").unwrap();
     let id = head_id("tenant", "context");
-    for method in [
+    for (index, method) in [
         Method::RemoveNode {
             node_id: id.clone(),
         },
@@ -204,8 +204,11 @@ fn generic_writes_cannot_forge_replace_or_delete_conversation_heads() {
             conditions_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
             updates_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"revision":0})).unwrap(),
         },
-    ] {
-        assert!(check_guard(&temp.shard, "protected", method).is_err());
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert!(check_guard(&temp.shard, &format!("protected-{index}"), method).is_err());
     }
 }
 

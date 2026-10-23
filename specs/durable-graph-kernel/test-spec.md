@@ -418,6 +418,8 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 Source tests live in `src/redb_store/work_item/conversation/tests.rs`.
 They use the existing native row applier inside a maintenance transaction.
 They do not prove the server MutationBatch replay path or model continuation.
+Each distinct fixture write uses a distinct maintenance operation ID. Reusing a
+committed operation tests replay refusal, not a fresh state transition or guard.
 
 - Admit revision zero. Refuse a second writer with the same expected head.
 - Refuse a foreign owner and an active preceding run without a new WorkItem.
