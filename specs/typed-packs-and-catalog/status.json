@@ -308,7 +308,21 @@
     "EG-TYPED-PACKS-R805.4",
     "EG-TYPED-PACKS-R805.5",
     "EG-TYPED-PACKS-R805.6",
-    "EG-TYPED-PACKS-R805.7"
+    "EG-TYPED-PACKS-R805.7",
+    "EG-TYPED-PACKS-R106",
+    "EG-TYPED-PACKS-R106.1",
+    "EG-TYPED-PACKS-R106.2",
+    "EG-TYPED-PACKS-R106.3",
+    "EG-TYPED-PACKS-R106.4",
+    "EG-TYPED-PACKS-R106.5",
+    "EG-TYPED-PACKS-R106.6",
+    "EG-TYPED-PACKS-R107",
+    "EG-TYPED-PACKS-R107.1",
+    "EG-TYPED-PACKS-R107.2",
+    "EG-TYPED-PACKS-R107.3",
+    "EG-TYPED-PACKS-R107.4",
+    "EG-TYPED-PACKS-R107.5",
+    "EG-TYPED-PACKS-R107.6"
   ],
   "requirements": [
     {
@@ -3207,6 +3221,120 @@
     {
       "id": "EG-TYPED-PACKS-R805.7",
       "title": "Data product proposals",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106",
+      "title": "Onboarding a connector populates the metadata catalog with its assets, owners, terms and lineage (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R106.1",
+        "EG-TYPED-PACKS-R106.2",
+        "EG-TYPED-PACKS-R106.3",
+        "EG-TYPED-PACKS-R106.4",
+        "EG-TYPED-PACKS-R106.5",
+        "EG-TYPED-PACKS-R106.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R107",
+      "title": "Each connector pack is a versioned contract and a re-import detects breaking changes (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R107.1",
+        "EG-TYPED-PACKS-R107.2",
+        "EG-TYPED-PACKS-R107.3",
+        "EG-TYPED-PACKS-R107.4",
+        "EG-TYPED-PACKS-R107.5",
+        "EG-TYPED-PACKS-R107.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R107.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R107.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R107.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R107.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R107.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R107.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

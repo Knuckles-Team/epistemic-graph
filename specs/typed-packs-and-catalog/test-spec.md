@@ -462,3 +462,18 @@ requires an error response with no result. Canonical artifact freshness passes. 
 | `EG-TYPED-PACKS-R802.7` | `tests/test_stewardship_served.py::test_deprecation_lowers_rank_and_notifies` |
 | `EG-TYPED-PACKS-R802.8` | `tests/test_stewardship_served.py::test_critical_element_gaps_reported` |
 | `EG-TYPED-PACKS-R805.7` | `tests/test_data_product_served.py::test_usage_cluster_yields_product_proposal` |
+
+- `EG-TYPED-PACKS-R106`: See each child.
+- `EG-TYPED-PACKS-R106.1`: `crates/eg-core/tests/connector_pack_surfaces.rs::resource_field_and_owner_shapes_validate`.
+- `EG-TYPED-PACKS-R106.2`: `crates/eg-core/tests/connector_pack_surfaces.rs::every_asset_has_owner_term_lineage_and_class_link`.
+- `EG-TYPED-PACKS-R106.3`: `tests/typed_packs/test_connector_catalog_served.py::test_import_reaches_the_one_projection_and_catalog_search`.
+- `EG-TYPED-PACKS-R106.4`: `crates/eg-core/tests/connector_pack_surfaces.rs::unresolved_class_unowned_resource_and_missing_owner_are_reported`.
+- `EG-TYPED-PACKS-R106.5`: `tests/typed_packs/test_connector_catalog_served.py::test_asset_carries_digest_usage_freshness_and_class_counts`.
+- `EG-TYPED-PACKS-R106.6`: `tests/typed_packs/test_connector_catalog_served.py::test_catalog_search_finds_assets_with_owner_term_and_lineage`.
+- `EG-TYPED-PACKS-R107`: See each child.
+- `EG-TYPED-PACKS-R107.1`: `crates/eg-types/tests/pack_contract.rs::version_and_grant_round_trip`.
+- `EG-TYPED-PACKS-R107.2`: `crates/eg-core/tests/pack_contract.rs::non_breaking_applies_breaking_waits_and_queries_use_active_version`.
+- `EG-TYPED-PACKS-R107.3`: `tests/typed_packs/test_pack_contract_served.py::test_diff_runs_in_import_and_orphan_report_is_served`.
+- `EG-TYPED-PACKS-R107.4`: `crates/eg-core/tests/pack_contract.rs::ungranted_incomplete_breaking_and_in_use_refuse`.
+- `EG-TYPED-PACKS-R107.5`: `tests/typed_packs/test_pack_contract_served.py::test_receipt_carries_digests_break_count_request_and_grant`.
+- `EG-TYPED-PACKS-R107.6`: `tests/typed_packs/test_pack_contract_served.py::test_breaking_release_waits_for_approval_then_serves`.
