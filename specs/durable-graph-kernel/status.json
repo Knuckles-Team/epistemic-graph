@@ -3196,6 +3196,7 @@
       "title": "Checkpoint native and generated qualification remains open",
       "delivery_state": "SPECIFIED",
       "landed_in": [
+        "03bea7bfbae7",
         "591ec7592b23",
         "644cc8097bd3"
       ],
@@ -3213,6 +3214,7 @@
       "title": "Hosted checkpoint exports and generated facade",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "03bea7bfbae7",
         "591ec7592b23"
       ],
       "verified_by": [
