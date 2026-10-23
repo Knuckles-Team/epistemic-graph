@@ -27,6 +27,8 @@ mod agent;
 #[cfg(feature = "redb")]
 mod backup;
 #[cfg(feature = "redb")]
+mod catalog;
+#[cfg(feature = "redb")]
 mod cluster;
 #[cfg(feature = "redb")]
 mod component_content;

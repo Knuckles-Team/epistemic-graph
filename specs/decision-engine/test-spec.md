@@ -920,8 +920,10 @@ The `bounded_task_plan` performance receipt for R134.111.6 remains pending.
 
 - `EG-DECISION-ENGINE-R814`: See each child.
 - `EG-DECISION-ENGINE-R814.1`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role`.
+- `EG-DECISION-ENGINE-R814.1.1`: `crates/eg-types/src/agent_component/catalog_tests.rs::candidate_round_trips_and_kind_follows_role`.
 - `EG-DECISION-ENGINE-R814.2`: `crates/eg-core/tests/prompt_candidate.rs::assemble_selects_covering_candidate_and_abstains_without_one`.
 - `EG-DECISION-ENGINE-R814.3`: `tests/decision/test_prompt_candidates_served.py::test_assemble_reads_candidates_from_imported_pack`.
+- `EG-DECISION-ENGINE-R814.3.1`: `src/server/handlers/admin/connector_pack/tests/catalog.rs::test_import_reaches_the_one_projection_and_catalog_search`.
 - `EG-DECISION-ENGINE-R814.4`: `crates/eg-core/tests/prompt_candidate.rs::unbound_prompt_refuses_and_rejected_connector_is_excluded`.
 - `EG-DECISION-ENGINE-R814.5`: `tests/decision/test_prompt_candidates_served.py::test_record_names_prompt_connector_digest_and_capability`.
 - `EG-DECISION-ENGINE-R814.6`: `tests/decision/test_prompt_candidates_served.py::test_dynamic_agent_gets_the_matching_connector_system_prompt`.

@@ -171,6 +171,15 @@ pub(crate) async fn handle_agent_component(
         } => component_history(&store, req_id, tenant_id, component_id),
         AgentComponentOp::Status { request } => component_status(&store, req_id, verified, request),
         AgentComponentOp::Search { request } => component_search(&store, req_id, request),
+        AgentComponentOp::CatalogSearch { request } => {
+            super::catalog::search(&store, req_id, &request)
+        }
+        AgentComponentOp::CatalogLineage { request } => {
+            super::catalog::lineage(&store, req_id, &request)
+        }
+        AgentComponentOp::PromptCandidates { request } => {
+            super::catalog::prompt_candidates(&store, req_id, &request)
+        }
         AgentComponentOp::Content { request } => {
             super::component_content::handle_component_content(
                 state, &store, req_id, verified, request,

@@ -24,6 +24,7 @@ use crate::server::auth::dispatch_test_on_heap;
 use crate::server::state::ServerState;
 
 mod admin;
+mod catalog;
 mod content_model;
 #[cfg(all(feature = "owl", feature = "shacl"))]
 mod ontology;

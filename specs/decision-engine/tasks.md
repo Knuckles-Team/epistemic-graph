@@ -838,8 +838,10 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 
 - [ ] **EG-DECISION-ENGINE-R814:** Connector prompts are system-prompt candidates that agent assembly selects (rollup).
 - [ ] **EG-DECISION-ENGINE-R814.1:** Model.
+- [x] **EG-DECISION-ENGINE-R814.1.1:** Model: the candidate view.
 - [ ] **EG-DECISION-ENGINE-R814.2:** Behavior.
 - [ ] **EG-DECISION-ENGINE-R814.3:** Wiring.
+- [x] **EG-DECISION-ENGINE-R814.3.1:** Wiring: served candidate read.
 - [ ] **EG-DECISION-ENGINE-R814.4:** Refusal.
 - [ ] **EG-DECISION-ENGINE-R814.5:** Evidence.
 - [ ] **EG-DECISION-ENGINE-R814.6:** Hot-path proof.

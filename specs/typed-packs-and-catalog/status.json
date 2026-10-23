@@ -314,7 +314,9 @@
     "EG-TYPED-PACKS-R106",
     "EG-TYPED-PACKS-R106.1",
     "EG-TYPED-PACKS-R106.2",
+    "EG-TYPED-PACKS-R106.2.1",
     "EG-TYPED-PACKS-R106.3",
+    "EG-TYPED-PACKS-R106.3.1",
     "EG-TYPED-PACKS-R106.4",
     "EG-TYPED-PACKS-R106.5",
     "EG-TYPED-PACKS-R106.6",
@@ -342,6 +344,7 @@
     "EG-TYPED-PACKS-R108.14",
     "EG-TYPED-PACKS-R108.15",
     "EG-TYPED-PACKS-R108.16",
+    "EG-TYPED-PACKS-R108.16.1",
     "EG-TYPED-PACKS-R109",
     "EG-TYPED-PACKS-R109.1",
     "EG-TYPED-PACKS-R109.2",
@@ -712,7 +715,7 @@
         "daa948722eca"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1298"
+        "crates/eg-types/src/agent_component.rs:1321"
       ]
     },
     {
@@ -962,7 +965,7 @@
         "f41725ac0f6f"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1337"
+        "crates/eg-types/src/agent_component.rs:1360"
       ]
     },
     {
@@ -1241,9 +1244,9 @@
       ],
       "verified_by": [
         "crates/eg-rdf/src/rules/capability/tests.rs:234",
-        "crates/eg-types/src/agent_component.rs:1459",
-        "crates/eg-types/src/agent_component.rs:1510",
-        "crates/eg-types/src/agent_component.rs:1549"
+        "crates/eg-types/src/agent_component.rs:1482",
+        "crates/eg-types/src/agent_component.rs:1533",
+        "crates/eg-types/src/agent_component.rs:1572"
       ]
     },
     {
@@ -1255,9 +1258,9 @@
       ],
       "verified_by": [
         "crates/eg-rdf/src/rules/capability/tests.rs:235",
-        "crates/eg-types/src/agent_component.rs:1460",
-        "crates/eg-types/src/agent_component.rs:1511",
-        "crates/eg-types/src/agent_component.rs:1550"
+        "crates/eg-types/src/agent_component.rs:1483",
+        "crates/eg-types/src/agent_component.rs:1534",
+        "crates/eg-types/src/agent_component.rs:1573"
       ]
     },
     {
@@ -3304,14 +3307,39 @@
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R106.2.1"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.2.1",
+      "title": "Behavior: asset view over the imported components",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/agent_component/catalog_tests.rs:133",
+        "crates/eg-types/src/agent_component/catalog_tests.rs:256"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R106.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R106.3.1"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.3.1",
+      "title": "Wiring: served catalog reads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/catalog.rs:37"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R106.4",
@@ -3526,7 +3554,20 @@
       "title": "One ranked index across all asset families",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R108.16.1"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R108.16.1",
+      "title": "Ranked search over connector assets and their terms",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/agent_component/catalog_tests.rs:189",
+        "crates/eg-types/src/agent_component/catalog_tests.rs:243"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R109",

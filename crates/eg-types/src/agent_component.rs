@@ -48,12 +48,17 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::agent_library::AgentLibraryLifecycle;
 
+pub mod catalog;
 pub mod content;
 pub mod facts;
 pub mod search;
 
 mod validation;
 
+pub use catalog::{
+    catalog_lineage, catalog_search, prompt_candidates, CatalogLineage, CatalogLineageRequest,
+    CatalogSearchPage, CatalogSearchRequest, PromptCandidatePage, PromptCandidatesRequest,
+};
 pub use content::{
     AgentComponentContentRequest, AgentComponentContentResult, COMPONENT_CONTENT_SCHEMA_VERSION,
     COMPONENT_MEDIA_TYPE_ATTRIBUTE, DEFAULT_COMPONENT_MEDIA_TYPE, MAX_COMPONENT_BODY_BYTES,
@@ -1111,6 +1116,15 @@ pub enum AgentComponentOp {
     Content {
         request: AgentComponentContentRequest,
     },
+    /// Ranked metadata-catalog search over pack assets and their glossary
+    /// terms (EG-TYPED-PACKS-R106, R108.16).
+    CatalogSearch { request: CatalogSearchRequest },
+    /// Upstream and downstream lineage of one catalog asset
+    /// (EG-TYPED-PACKS-R106.2).
+    CatalogLineage { request: CatalogLineageRequest },
+    /// Connector prompts as system-prompt candidates for agent assembly
+    /// (EG-DECISION-ENGINE-R814).
+    PromptCandidates { request: PromptCandidatesRequest },
 }
 
 impl AgentComponentOp {
@@ -1131,7 +1145,10 @@ impl AgentComponentOp {
             | Self::History { .. }
             | Self::Status { .. }
             | Self::Search { .. }
-            | Self::Content { .. } => "agent:component-read",
+            | Self::Content { .. }
+            | Self::CatalogSearch { .. }
+            | Self::CatalogLineage { .. }
+            | Self::PromptCandidates { .. } => "agent:component-read",
         }
     }
 
@@ -1152,6 +1169,9 @@ impl AgentComponentOp {
                 validate_text("component_id", &request.component_id)
             }
             Self::Search { request } => request.validate(),
+            Self::CatalogSearch { request } => request.validate(),
+            Self::CatalogLineage { request } => request.validate(),
+            Self::PromptCandidates { request } => request.validate(),
             Self::Content { request } => {
                 validate_text("tenant_id", &request.tenant_id)?;
                 validate_text("component_id", &request.component_id)
@@ -1185,6 +1205,9 @@ fn component_op_tenant_id(op: &AgentComponentOp) -> &str {
         AgentComponentOp::Status { request } => &request.context.tenant_id,
         AgentComponentOp::Search { request } => &request.tenant_id,
         AgentComponentOp::Content { request } => &request.tenant_id,
+        AgentComponentOp::CatalogSearch { request } => &request.tenant_id,
+        AgentComponentOp::CatalogLineage { request } => &request.tenant_id,
+        AgentComponentOp::PromptCandidates { request } => &request.tenant_id,
         AgentComponentOp::Current { tenant_id, .. }
         | AgentComponentOp::History { tenant_id, .. } => tenant_id,
     }

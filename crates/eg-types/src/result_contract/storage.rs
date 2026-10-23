@@ -5,6 +5,7 @@ use crate::agent_component::AgentComponentCommittedResult;
 use crate::agent_component::AgentComponentContentResult;
 use crate::agent_component::AgentComponentEntry;
 use crate::agent_component::AgentComponentSearchPage;
+use crate::agent_component::{CatalogLineage, CatalogSearchPage, PromptCandidatePage};
 use crate::agent_graph::AgentGraphCommittedResult;
 use crate::agent_graph::AgentGraphEntry;
 use crate::agent_library::AgentLibraryEntry;
@@ -55,6 +56,9 @@ method_results! {
     AgentComponentPublish(AgentComponent / "publish") => Raw<AgentComponentCommittedResult>;
     AgentComponentRetire(AgentComponent / "retire") => Raw<AgentComponentCommittedResult>;
     AgentComponentSearch(AgentComponent / "search") => Raw<AgentComponentSearchPage>;
+    AgentComponentCatalogSearch(AgentComponent / "catalog_search") => Raw<CatalogSearchPage>;
+    AgentComponentCatalogLineage(AgentComponent / "catalog_lineage") => Raw<CatalogLineage>;
+    AgentComponentPromptCandidates(AgentComponent / "prompt_candidates") => Raw<PromptCandidatePage>;
     AgentComponentStatus(AgentComponent / "status") => Raw<Option<AgentComponentCommittedResult>>;
     AgentTemplateCurrent(AgentTemplate / "current") => Raw<Option<AgentTemplateEntry>>;
     AgentTemplateHistory(AgentTemplate / "history") => Raw<Vec<AgentTemplateEntry>>;

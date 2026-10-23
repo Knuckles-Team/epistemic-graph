@@ -466,7 +466,9 @@ requires an error response with no result. Canonical artifact freshness passes. 
 - `EG-TYPED-PACKS-R106`: See each child.
 - `EG-TYPED-PACKS-R106.1`: `crates/eg-core/tests/connector_pack_surfaces.rs::resource_field_and_owner_shapes_validate`.
 - `EG-TYPED-PACKS-R106.2`: `crates/eg-core/tests/connector_pack_surfaces.rs::every_asset_has_owner_term_lineage_and_class_link`.
+- `EG-TYPED-PACKS-R106.2.1`: `crates/eg-types/src/agent_component/catalog_tests.rs::every_asset_has_owner_term_lineage_and_class_link`, `crates/eg-types/src/agent_component/catalog_tests.rs::lineage_walks_connector_server_operation_and_resource`.
 - `EG-TYPED-PACKS-R106.3`: `tests/typed_packs/test_connector_catalog_served.py::test_import_reaches_the_one_projection_and_catalog_search`.
+- `EG-TYPED-PACKS-R106.3.1`: `src/server/handlers/admin/connector_pack/tests/catalog.rs::test_import_reaches_the_one_projection_and_catalog_search`.
 - `EG-TYPED-PACKS-R106.4`: `crates/eg-core/tests/connector_pack_surfaces.rs::unresolved_class_unowned_resource_and_missing_owner_are_reported`.
 - `EG-TYPED-PACKS-R106.5`: `tests/typed_packs/test_connector_catalog_served.py::test_asset_carries_digest_usage_freshness_and_class_counts`.
 - `EG-TYPED-PACKS-R106.6`: `tests/typed_packs/test_connector_catalog_served.py::test_catalog_search_finds_assets_with_owner_term_and_lineage`.
@@ -496,6 +498,7 @@ requires an error response with no result. Canonical artifact freshness passes. 
 - `EG-TYPED-PACKS-R108.14`: `tests/typed_packs/test_catalog_capabilities_served.py::test_dashboard_report_saved_query_and_template_register_with_reads_and_usage`
 - `EG-TYPED-PACKS-R108.15`: `tests/typed_packs/test_catalog_capabilities_served.py::test_model_asset_links_registry_ref_schemas_and_training_lineage_without_weights`
 - `EG-TYPED-PACKS-R108.16`: `tests/typed_packs/test_catalog_capabilities_served.py::test_one_search_ranks_all_families_with_usage_and_endorsement_boost`
+- `EG-TYPED-PACKS-R108.16.1`: `crates/eg-types/src/agent_component/catalog_tests.rs::one_search_ranks_assets_and_terms_and_skips_withdrawn_and_servers`, `crates/eg-types/src/agent_component/catalog_tests.rs::search_requests_are_bounded`.
 
 - `EG-TYPED-PACKS-R109`: See each child.
 - `EG-TYPED-PACKS-R109.1`: `crates/eg-core/tests/dashboard_asset.rs::dashboard_asset_shape_validates_body_revision_owner_grants_and_links`.

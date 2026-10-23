@@ -33,6 +33,27 @@ pub(super) const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
     },
     TypedOperationAdapter {
         method: "AgentComponent",
+        operation: "catalog_search",
+        request_model: "CatalogSearchRequest",
+        result_model: "CatalogSearchPage",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "AgentComponent",
+        operation: "catalog_lineage",
+        request_model: "CatalogLineageRequest",
+        result_model: "CatalogLineage",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "AgentComponent",
+        operation: "prompt_candidates",
+        request_model: "PromptCandidatesRequest",
+        result_model: "PromptCandidatePage",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "AgentComponent",
         operation: "content",
         request_model: "AgentComponentContentRequest",
         result_model: "AgentComponentContentResult",

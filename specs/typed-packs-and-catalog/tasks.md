@@ -263,7 +263,9 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R106:** Onboarding a connector populates the metadata catalog with its assets, owners, terms and lineage (rollup).
 - [ ] **EG-TYPED-PACKS-R106.1:** Model.
 - [ ] **EG-TYPED-PACKS-R106.2:** Behavior.
+- [x] **EG-TYPED-PACKS-R106.2.1:** Behavior: asset view over the imported components.
 - [ ] **EG-TYPED-PACKS-R106.3:** Wiring.
+- [x] **EG-TYPED-PACKS-R106.3.1:** Wiring: served catalog reads.
 - [ ] **EG-TYPED-PACKS-R106.4:** Refusal.
 - [ ] **EG-TYPED-PACKS-R106.5:** Evidence.
 - [ ] **EG-TYPED-PACKS-R106.6:** Hot-path proof.
@@ -293,6 +295,7 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R108.14:** Dashboards, reports, saved queries and templates.
 - [ ] **EG-TYPED-PACKS-R108.15:** AI and ML model assets.
 - [ ] **EG-TYPED-PACKS-R108.16:** One ranked index across all asset families.
+- [x] **EG-TYPED-PACKS-R108.16.1:** Ranked search over connector assets and their terms.
 
 - [ ] **EG-TYPED-PACKS-R109:** The dashboard is a first-class catalog asset (rollup).
 - [ ] **EG-TYPED-PACKS-R109.1:** Model.
