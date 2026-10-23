@@ -2,38 +2,26 @@
 //! (EG-TYPED-PACKS-R105.3).
 #![cfg(feature = "owl")]
 
-use eg_rdf::mapping::parse_turtle;
+mod common;
+
+use common::{has_iri, parse_all, BFO, KG, RDFS};
 use eg_rdf::owl::Reasoner;
 use eg_rdf::oxrdf::{NamedNode, Term, Triple};
 
-const KG: &str = "http://knuckles.team/kg#";
 const INFRA: &str = "http://knuckles.team/kg/infrastructure#";
-const BFO: &str = "http://purl.obolibrary.org/obo/BFO_";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
 const OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
 const ALT_LABEL: &str = "http://www.w3.org/2004/02/skos/core#altLabel";
 
 fn documents() -> Vec<Triple> {
-    [
+    parse_all(&[
         include_str!("../../eg-core/ontology/core-foundation-v1.ttl"),
         include_str!("../../eg-core/ontology/software-v1.ttl"),
         include_str!("../../eg-core/ontology/sdlc_lifecycle-v1.ttl"),
         include_str!("../../eg-core/ontology/company-v1.ttl"),
         include_str!("../../eg-core/ontology/infrastructure-v1.ttl"),
         include_str!("../../eg-core/ontology/supply_chain-v1.ttl"),
-    ]
-    .into_iter()
-    .flat_map(|document| parse_turtle(document).unwrap())
-    .collect()
-}
-
-fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> bool {
-    triples.contains(&Triple::new(
-        NamedNode::new(subject).unwrap(),
-        NamedNode::new(predicate).unwrap(),
-        NamedNode::new(object).unwrap(),
-    ))
+    ])
 }
 
 fn has_literal(triples: &[Triple], subject: &str, predicate: &str) -> bool {

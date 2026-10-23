@@ -2,18 +2,17 @@
 //! (EG-TYPED-PACKS-R105.4, EG-TYPED-PACKS-R105.5).
 #![cfg(feature = "owl")]
 
-use eg_rdf::mapping::parse_turtle;
+mod common;
+
+use common::{has_iri, parse_all, BFO, KG, RDFS};
 use eg_rdf::owl::Reasoner;
 use eg_rdf::oxrdf::{NamedNode, NamedOrBlankNode, Term, Triple};
 
-const KG: &str = "http://knuckles.team/kg#";
-const BFO: &str = "http://purl.obolibrary.org/obo/BFO_";
 const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
-const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
 const OWL: &str = "http://www.w3.org/2002/07/owl#";
 
 fn documents() -> Vec<Triple> {
-    [
+    parse_all(&[
         include_str!("../../eg-core/ontology/core-foundation-v1.ttl"),
         include_str!("../../eg-core/ontology/company-v1.ttl"),
         include_str!("../../eg-core/ontology/software-v1.ttl"),
@@ -24,22 +23,11 @@ fn documents() -> Vec<Triple> {
         include_str!("../../eg-core/ontology/archimate-v1.ttl"),
         include_str!("../../eg-core/ontology/sdd-v1.ttl"),
         include_str!("../../eg-core/ontology/service_operations-v1.ttl"),
-    ]
-    .into_iter()
-    .flat_map(|document| parse_turtle(document).unwrap())
-    .collect()
+    ])
 }
 
 fn kg(name: &str) -> String {
     format!("{KG}{name}")
-}
-
-fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> bool {
-    triples.contains(&Triple::new(
-        NamedNode::new(subject).unwrap(),
-        NamedNode::new(predicate).unwrap(),
-        NamedNode::new(object).unwrap(),
-    ))
 }
 
 /// The named classes an `rdfs:domain` / `rdfs:range` value stands for: the class
