@@ -1360,6 +1360,7 @@ mod mutation_batch_tests {
                 outcome: outcome.into(),
                 result_ref: Some("cas:result:terminal".into()),
                 outcome_extension: Some(Box::new(extension.clone())),
+                run_completion: None,
                 error_ref: None,
                 retryable,
                 now_ms: 1_000,
@@ -2741,20 +2742,7 @@ mod mutation_batch_tests {
         assert_eq!(claimed.lease_epoch, Some(1));
         assert_eq!(claimed.fencing_token, Some(1));
 
-        let terminal_method = Method::CommitWorkItemResult {
-            tenant: "tenant-a".into(),
-            work_item_id: "work-1".into(),
-            worker_id: "worker-a".into(),
-            lease_epoch: 1,
-            fencing_token: 1,
-            idempotency_key: "terminal-key".into(),
-            outcome: "succeeded".into(),
-            result_ref: Some("result:sha256:one".into()),
-            outcome_extension: None,
-            error_ref: None,
-            retryable: false,
-            now_ms: 1_000,
-        };
+        let terminal_method = crate::test_support::terminal_method(1, 1);
         let mut terminal = batch(
             "work:terminal-stable-batch",
             "work-idem:terminal-stable-key",
@@ -2931,6 +2919,7 @@ mod mutation_batch_tests {
             outcome: "succeeded".into(),
             result_ref: Some("result:sha256:bundled".into()),
             outcome_extension: None,
+            run_completion: None,
             error_ref: None,
             retryable: false,
             now_ms: 1_000,
@@ -3037,6 +3026,7 @@ mod mutation_batch_tests {
             outcome: "succeeded".into(),
             result_ref: Some("result:sha256:disallowed".into()),
             outcome_extension: None,
+            run_completion: None,
             error_ref: None,
             retryable: false,
             now_ms: 1_000,
@@ -3162,6 +3152,7 @@ mod mutation_batch_tests {
                     outcome: "succeeded".into(),
                     result_ref: Some("result:sha256:double-one".into()),
                     outcome_extension: None,
+                    run_completion: None,
                     error_ref: None,
                     retryable: false,
                     now_ms: 1_000,
@@ -3181,6 +3172,7 @@ mod mutation_batch_tests {
                     outcome: "succeeded".into(),
                     result_ref: Some("result:sha256:double-two".into()),
                     outcome_extension: None,
+                    run_completion: None,
                     error_ref: None,
                     retryable: false,
                     now_ms: 1_000,

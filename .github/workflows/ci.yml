@@ -130,8 +130,10 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: &eg-native-validation-runner ubuntu-latest
+    if: &eg-code-change needs.changes.outputs.code == 'true'
+    # Pin the libc baseline while ubuntu-latest rolls to newer distributions.
+    # Native artifacts must remain executable on supported older Linux hosts.
+    runs-on: &eg-native-validation-runner ubuntu-24.04
     # Build and cleanup must choose the same backend if the daemon restarts.
     # Backend settings alone do not wrap any other Cargo command.
     env: &eg-validation-compiler-cache-backend
@@ -139,6 +141,7 @@ jobs:
       # finite, but above these jobs' maximum 60-minute execution window.
       SCCACHE_IDLE_TIMEOUT: '7200'
       SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_GHA_VERSION: 'eg-ci-ubuntu-24.04-v1'
       SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
       - &eg-gates-checkout
@@ -181,7 +184,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
+          shared-key: eg-ci-gates-ubuntu-24.04-v1
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Save completed compiler outputs even if the later test link times out.
@@ -224,6 +227,8 @@ jobs:
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
       - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
+        id: engine-contract-parity
+        if: ${{ !cancelled() }}
         run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
       - name: Generated Python client contract
         run: python3 tests/test_generated_client_contract.py
@@ -234,19 +239,52 @@ jobs:
           echo 'Cache statistics cover the current daemon only; a restart resets its counters.'
           sccache --show-stats
 
+  # Canonical repair must not wait behind unrelated lower-crate test suites.
+  # The original required gate still rechecks parity; only this job exports.
+  gates-contract:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    name: Canonical engine contract parity
+    needs: changes
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
+    env: *eg-validation-compiler-cache-backend
+    steps:
+      # The exporter needs only Python's standard library, not client test deps.
+      - *eg-gates-checkout
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+      - *eg-validation-compiler-cache
+      - *eg-gates-python
+      - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
+        id: engine-contract-preflight
+        if: ${{ !cancelled() }}
+        env: *eg-validation-compiler-cache-env
+        run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
+      - name: Export fresh canonical contracts after parity failure
+        id: engine-contract-export
+        if: ${{ failure() && steps.engine-contract-preflight.outcome == 'failure' }}
+        env: *eg-validation-compiler-cache-env
+        run: python3 scripts/export_canonical_contract.py --export-dir target/canonical-engine-contract
+      - name: Upload fresh canonical contract repair evidence
+        if: ${{ !cancelled() && steps.engine-contract-export.outputs.fresh_export == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: canonical-engine-contract-${{ github.sha }}
+          path: target/canonical-engine-contract/
+          if-no-files-found: error
+
   # Independent required fuzz acceptance avoids serial lower-crate compilation.
   gates-plan-fuzz:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (plan fuzz and chaos)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
-      - *eg-gates-toolchain
+      - &eg-native-validation-setup
+        uses: ./.github/actions/native-validation-setup
       - *eg-gates-cache
       - *eg-gates-sqlite
       - *eg-validation-compiler-cache
@@ -264,13 +302,11 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (installed wheel)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
-      - *eg-gates-toolchain
+      - *eg-native-validation-setup
       - *eg-gates-cache
 
       # Preserve the locked test environment inherited before the job split.
@@ -339,6 +375,17 @@ jobs:
           python scripts/check_wheel_privacy.py dist-gates/*.whl
       - name: Require a complete gates wheel (numeric + engine kernels + no executables + RECORD)
         run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-gates/*.whl
+      - name: Record the exact wheel before installation
+        run: |
+          set -euo pipefail
+          test ! -L dist-gates
+          set -- dist-gates/epistemic_graph-*.whl
+          test "$#" -eq 1
+          test -f "$1"
+          test ! -L "$1"
+          proof="${RUNNER_TEMP:?}/installed-eg-wheel.sha256"
+          test ! -e "$proof"
+          sha256sum "$1" > "$proof"
       - name: Install the folded epistemic-graph wheel into a clean throwaway venv
         run: |
           python -m venv "$EG_GATES_WHEEL_VENV"
@@ -399,6 +446,49 @@ jobs:
           cd "$(mktemp -d)"
           EG_INSTALLED_WHEEL_GATE=1 PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
             "$REPO/tests/test_installed_wheel_decision_client_boundary.py" --noconftest -q
+      - name: Package validated wheel for installed acceptance
+        run: |
+          set -euo pipefail
+          revision="$(git rev-parse HEAD)"
+          test "$revision" = "${GITHUB_SHA:?}"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test ! -L dist-gates
+          proof="${RUNNER_TEMP:?}/installed-eg-wheel.sha256"
+          test -f "$proof"
+          test ! -L "$proof"
+          sha256sum --check "$proof"
+          set -- dist-gates/epistemic_graph-*.whl
+          test "$#" -eq 1
+          test -f "$1"
+          test ! -L "$1"
+          bundle="${RUNNER_TEMP:?}/validated-eg-wheel"
+          test ! -e "$bundle"
+          mkdir -p "$bundle"
+          printf '%s\n' "$revision" > "$bundle/source.sha"
+          git rev-parse 'HEAD^{tree}' > "$bundle/source.tree"
+          cp -- "$1" "$bundle/"
+          expected="$(cut -d ' ' -f 1 "$proof")"
+          actual="$(sha256sum "$bundle/$(basename "$1")" | cut -d ' ' -f 1)"
+          test "$actual" = "$expected"
+          sha256sum Cargo.lock rust-toolchain.toml pyproject.toml \
+            .github/workflows/ci.yml scripts/inject_numeric_kernel.py \
+            scripts/strip_wheel_executables.py scripts/normalize_wheel_sbom.py \
+            scripts/normalize_wheel_build_paths.py scripts/check_wheel_privacy.py \
+            scripts/check_wheel_completeness.py > "$bundle/build-recipe.sha256"
+          (cd "$bundle" && sha256sum source.sha source.tree build-recipe.sha256 \
+            epistemic_graph-*.whl > SHA256SUMS)
+      - name: Upload validated wheel for installed acceptance
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: validated-eg-wheel-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/validated-eg-wheel/epistemic_graph-*.whl
+            ${{ runner.temp }}/validated-eg-wheel/source.sha
+            ${{ runner.temp }}/validated-eg-wheel/source.tree
+            ${{ runner.temp }}/validated-eg-wheel/build-recipe.sha256
+            ${{ runner.temp }}/validated-eg-wheel/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 3
 
 
   # ── STAGE 1 (continued): the release-critical cargo selections are split
@@ -409,28 +499,25 @@ jobs:
   # failure, with nine selections still to go). Every step is carried over
   # verbatim; `build` needs all three.
   gates-facade:
-    # Full engine compilation/test execution exceeds the short PR budget.
-    # Run 38392685303 exhausted even 45m; retain this cap pending build profiling.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    # Run 39883574578 spent 42m34s compiling, then hit 45m during passing tests.
+    # Keep the complete native and memory suites within a bounded one-hour job.
+    timeout-minutes: 60
     name: gates (facade full)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-gates-checkout
 
-      - *eg-gates-python
-
-      - *eg-gates-pydeps
-
-      - *eg-gates-toolchain
+      - *eg-native-validation-setup
       # A cold target took 41m13s before tests in run 38486393509.
       # Preserve trusted-main workspace outputs; Cargo still checks current inputs.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - &eg-gates-cache-workspace
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
+          shared-key: eg-ci-gates-ubuntu-24.04-v1
           cache-workspace-crates: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -466,13 +553,11 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (Whisper real model)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
-      - *eg-gates-toolchain
+      - *eg-native-validation-setup
       - *eg-gates-cache
 
       # These real-model tests fail loudly when their fixture is absent. Fetch the
@@ -492,13 +577,13 @@ jobs:
   gates-variants:
     timeout-minutes: 360
     name: gates (slim server + raft cluster)
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     steps:
       - *eg-gates-checkout
 
-      # Unconditionally ubuntu-latest (never self-hosted), so this keeps
+      # Unconditionally hosted (never self-hosted), so this keeps
       # actions/setup-python rather than the *eg-gates-python uv alias.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -547,8 +632,8 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (workspace crates)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: &eg-native-crate-steps
       - *eg-gates-checkout
@@ -666,8 +751,8 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates (storage crate)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: *eg-native-crate-steps
 
@@ -677,8 +762,8 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (pyo3 crates)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: *eg-native-crate-steps
 
@@ -735,8 +820,8 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python native kernels
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     # Validation-only profile, also warmed on main. Published wheels use defaults.
     env:
       CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
@@ -776,8 +861,8 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Python full server preparation
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-python-checkout
@@ -785,12 +870,7 @@ jobs:
       # A seeded main cache still missed 16 workspace compilations and exceeded
       # ten minutes in PR555 attempt 2. Retain workspace outputs on trusted main;
       # Cargo validates restored inputs, and the full-engine budget covers misses.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
-          cache-workspace-crates: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - *eg-gates-cache-workspace
       # Also cache individual compiler outputs without bypassing Cargo. Install
       # before setting the wrapper: a missing global wrapper broke CI previously.
       - *eg-validation-compiler-cache
@@ -817,8 +897,8 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: backward-python (3.12)
     needs: [changes, python-kernels]
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     steps:
       - *eg-python-checkout
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -844,7 +924,7 @@ jobs:
     name: Python suite (tests/)
     needs: [changes, python-kernels, python-server]
     if: always() && needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *eg-native-validation-runner
     steps:
       - name: Require successful native preparation
         env:
@@ -871,7 +951,7 @@ jobs:
           exit "$bad"
       - *eg-python-checkout
 
-      # Unconditionally ubuntu-latest (never self-hosted), so this keeps
+      # Unconditionally hosted (never self-hosted), so this keeps
       # actions/setup-python rather than the *eg-gates-python uv alias.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -956,8 +1036,8 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: eg-tts-piper real-inference tests
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -973,7 +1053,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
+          shared-key: eg-ci-gates-ubuntu-24.04-v1
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test eg-tts-piper against the pinned onnxruntime (fails, never skips, without it)
         run: |
@@ -994,7 +1074,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Go and JavaScript clients
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: ubuntu-latest
     # `shell: bash` runs every step as `bash -eo pipefail`, so no step can hide a
     # failing command behind a later one in a pipe.
@@ -1007,7 +1087,17 @@ jobs:
       - name: Install the pinned toolchain's wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - name: Rebuild the embedded method-body codec and require the committed copies
-        run: python3 scripts/build_method_codec_wasm.py --check
+        id: method-codec
+        run: python3 scripts/build_method_codec_wasm.py --check --export-dir target/canonical-method-codec
+      - name: Upload freshly built canonical method codec
+        if: ${{ !cancelled() && steps.method-codec.outputs.fresh_export == 'true' && hashFiles('target/canonical-method-codec/eg_method_codec.provenance.json') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: canonical-method-codec-${{ github.sha }}
+          path: |
+            target/canonical-method-codec/eg_method_codec.wasm
+            target/canonical-method-codec/eg_method_codec.provenance.json
+          if-no-files-found: error
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: clients/go/go.mod
@@ -1107,11 +1197,13 @@ jobs:
   # published build (`full,ast-extended` = MATURIN_FEATURES, which has no raft) or
   # the slim `server` build; each profile is its own leg.
   quality-advisory:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    # Run 39892903596 finished workspace Clippy at 9m38s, then hit the 10m job cap.
+    # Give only that cold all-feature profile room for setup and completion.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && (matrix.profile.name == 'workspace-all-features' && 15 || 10) || 60 }}
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: *eg-code-change
+    runs-on: *eg-native-validation-runner
     strategy:
       fail-fast: false
       matrix:
@@ -1133,7 +1225,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates
+          shared-key: eg-ci-gates-ubuntu-24.04-v1
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: clippy-${{ matrix.profile.name }}
 
@@ -1152,7 +1244,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Scanner + architecture quality (advisory)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -1563,7 +1655,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security, lint-and-architecture]
+    needs: [gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security, lint-and-architecture]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -1581,7 +1673,7 @@ jobs:
       EG_WHEEL_MANYLINUX: "2_28"
     steps:
       - *eg-gates-checkout
-      # Unconditionally ubuntu-latest (never self-hosted), so this keeps
+      # Unconditionally hosted (never self-hosted), so this keeps
       # actions/setup-python rather than the *eg-gates-python uv alias.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:

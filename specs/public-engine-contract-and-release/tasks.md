@@ -84,3 +84,7 @@ The linked requirement rows retain the full contract, hashes, acceptance, and ow
 - [ ] **EG-CONTRACT-R053.10:** Keep `binary_path()` and `BinaryNotFoundError` with their tests in the package.
 - [ ] **EG-CONTRACT-R053.11:** Build the server image from the server wheel and publish one multi-architecture tag.
 - [ ] **EG-CONTRACT-R053.12:** Bump the package with the engine and add the tagged-source dispatch.
+
+- [ ] **EG-CONTRACT-R006.3:** Deliver and qualify bounded hosted canonical contract export with source provenance.
+
+- [ ] **EG-CONTRACT-R053.13:** Retain and verify the qualified wheel for isolated installed-artifact acceptance.

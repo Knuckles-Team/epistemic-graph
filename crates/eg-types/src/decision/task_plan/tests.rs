@@ -201,3 +201,48 @@ fn deserialization_enforces_collection_bounds() {
         .collect::<Vec<_>>());
     assert!(serde_json::from_value::<TaskPlanProposal>(value).is_err());
 }
+
+// spec: EG-DECISION-ENGINE-R134.111.4
+#[test]
+fn index_refusal_precedence_is_stable() {
+    let mut input = proposal();
+    input.max_steps = 0;
+    input.tasks = BoundedVec::default();
+    assert_eq!(
+        index(&input).unwrap_err(),
+        "empty_plan: at least one task is required"
+    );
+    input.tasks = BoundedVec::new(vec![task("bad id", &[])]).unwrap();
+    assert_eq!(
+        index(&input).unwrap_err(),
+        "plan_bounds: invalid task or concurrency ceiling"
+    );
+    input.max_steps = 4;
+    let mut invalid = task("bad id", &["missing", "missing"]);
+    invalid.prompt = " ".into();
+    input.tasks = BoundedVec::new(vec![invalid.clone()]).unwrap();
+    assert_eq!(index(&input).unwrap_err(), "invalid_task_id: bad id");
+    invalid.task_id = "a".into();
+    input.tasks = BoundedVec::new(vec![invalid.clone()]).unwrap();
+    assert_eq!(index(&input).unwrap_err(), "plan_text_bounds: a");
+    invalid.prompt = "Valid prompt".into();
+    input.tasks = BoundedVec::new(vec![task("a", &[]), invalid]).unwrap();
+    assert_eq!(index(&input).unwrap_err(), "duplicate_dependency: a");
+}
+
+// spec: EG-DECISION-ENGINE-R134.111.4
+#[test]
+fn index_accepts_exact_total_prompt_byte_limit() {
+    let mut input = proposal();
+    let mut tasks = input.tasks.as_slice().to_vec();
+    for task in &mut tasks {
+        task.prompt = "é".repeat(MAX_PROMPT_BYTES / 2);
+    }
+    input.tasks = BoundedVec::new(tasks).unwrap();
+    assert!(index(&input).is_ok());
+    let mut tasks = input.tasks.as_slice().to_vec();
+    tasks.push(task("extra", &[]));
+    input.tasks = BoundedVec::new(tasks).unwrap();
+    input.max_steps = 5;
+    assert_eq!(index(&input).unwrap_err(), "plan_text_bounds: extra");
+}

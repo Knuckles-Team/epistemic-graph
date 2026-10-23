@@ -427,6 +427,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
                 outcome: "succeeded".to_string(),
                 result_ref: Some("adopt-ne036-result-ref".to_string()),
                 outcome_extension: None,
+                run_completion: None,
                 error_ref: None,
                 retryable: false,
                 now_ms: epoch_ms + 10_200,

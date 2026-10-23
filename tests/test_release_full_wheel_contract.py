@@ -256,11 +256,24 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     # (CONCEPT:EG-346) and normalizes/audits its numeric kernel, pyengine
     # kernel and folded wheel, rather than `pip install`ing the standalone
     # `eg-numeric` build (the 2026-08-21 stale-install incident).
-    both = raw + CI_WORKFLOW.read_text(encoding="utf-8")
-    assert both.count("scripts/inject_numeric_kernel.py") == 1
-    assert both.count("scripts/normalize_wheel_sbom.py") == 2
-    assert both.count("scripts/normalize_wheel_build_paths.py") == 2
-    assert both.count("scripts/check_wheel_privacy.py") == 2
+    ci_raw = CI_WORKFLOW.read_text(encoding="utf-8")
+    both = raw + ci_raw
+    # Artifact recipe hashes also name these scripts, but do not execute them.
+    # Count actual Python invocations in run steps, not filenames in the YAML.
+    commands = "\n".join(
+        step.get("run", "")
+        for source in (raw, ci_raw)
+        for job in yaml.safe_load(source)["jobs"].values()
+        for step in job.get("steps", [])
+    )
+    for script, expected in (
+        ("inject_numeric_kernel", 1),
+        ("normalize_wheel_sbom", 2),
+        ("normalize_wheel_build_paths", 2),
+        ("check_wheel_privacy", 2),
+    ):
+        pattern = rf"(?m)^\s*python3? scripts/{script}\.py(?=\s|$)"
+        assert len(re.findall(pattern, commands)) == expected, script
     assert "Remove primary native build state" in raw
     assert "release wheel digest mismatch" in both
 
@@ -364,8 +377,8 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "macos-14",
         }
     else:
-        # Only full-engine jobs retain the longer PR compilation budget.
-        # Classification, lint, security and independently split jobs stay short.
+        # Native compilation jobs retain the longer PR build budget, including
+        # the independent canonical generator. Classification/lint stay short.
         # python-server/python-suite build/run the full engine suite and exceed
         # the short budget on cold hosted PR runners; gates-crates' per-crate
         # narrowing falls back to the FULL workspace on a broad/unmapped diff
@@ -373,6 +386,7 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
         # (release PR #666 cancelled at ~10:15 on 3/3 runs).
         if workflow.name in {"ci.yml", "release.yml"} and name in {
             "gates",
+            "gates-contract",
             "gates-wheel",
             "gates-facade",
             "gates-whisper",
@@ -382,13 +396,65 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "gates-pyo3",
             "gates-crates",
         }:
-            expected = "${{ github.event_name == 'pull_request' && 45 || 60 }}"
+            expected = {("ci.yml", "gates-facade"): 60}.get(
+                (workflow.name, name),
+                "${{ github.event_name == 'pull_request' && 45 || 60 }}",
+            )
             assert job.get("timeout-minutes") == expected
         else:
-            pr_scoped = "${{ github.event_name == 'pull_request' && 10 || 60 }}"
-            assert job.get("timeout-minutes") in (360, 5, pr_scoped), (
-                f"{workflow.name}:{name}"
-            )
+            _assert_short_runner_budget(workflow, name, job)
+
+
+def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
+    pr_scoped = {
+        ("ci.yml", "quality-advisory"): (
+            "${{ github.event_name == 'pull_request' && "
+            "(matrix.profile.name == 'workspace-all-features' "
+            "&& 15 || 10) || 60 }}"
+        )
+    }.get(
+        (workflow.name, name),
+        "${{ github.event_name == 'pull_request' && 10 || 60 }}",
+    )
+    if (workflow.name, name) == ("ci.yml", "quality-advisory"):
+        assert job.get("timeout-minutes") == pr_scoped
+    else:
+        assert job.get("timeout-minutes") in (360, 5, pr_scoped), (
+            f"{workflow.name}:{name}"
+        )
+
+
+@pytest.mark.parametrize(
+    "timeout",
+    [10, 15, 45, 60, 360, "${{ github.event_name == 'pull_request' && 45 || 60 }}"],
+)
+def test_workspace_clippy_budget_rejects_unscoped_limits(timeout: int | str) -> None:
+    """EG-CONTRACT-R031: only the workspace matrix leg receives extra time."""
+    with pytest.raises(AssertionError):
+        _assert_runner_budget(
+            CI_WORKFLOW, "quality-advisory", {"timeout-minutes": timeout}
+        )
+
+
+@pytest.mark.parametrize(
+    "workflow,name",
+    [
+        ("release.yml", "quality-advisory"),
+        ("ci.yml", "security"),
+        ("ci.yml", "lint-and-architecture"),
+    ],
+)
+def test_workspace_clippy_budget_cannot_expand_other_jobs(
+    workflow: str, name: str
+) -> None:
+    """EG-CONTRACT-R031: the matrix budget is not a general runner exception."""
+    budget = (
+        "${{ github.event_name == 'pull_request' && "
+        "(matrix.profile.name == 'workspace-all-features' "
+        "&& 15 || 10) || 60 }}"
+    )
+    with pytest.raises(AssertionError):
+        _assert_runner_budget(Path(workflow), name, {"timeout-minutes": budget})
 
 
 def _assert_workflow_job_budget(workflow: Path, name: str, job: dict) -> None:

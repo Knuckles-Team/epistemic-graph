@@ -318,6 +318,7 @@ SEND_BY_METHOD = {
     "GetNodesByLabel": graph.send_get_nodes_by_label,
     "GetPredecessors": graph.send_get_predecessors,
     "GetRdf": reasoning.send_get_rdf,
+    "GetRunWorkItem": coordination.send_get_run_work_item,
     "GetShortestPath": compute.send_get_shortest_path,
     "GetSubgraph": graph.send_get_subgraph,
     "GetSuccessors": graph.send_get_successors,

@@ -311,8 +311,8 @@ For runtime rows, name the actual production call site and its served integratio
 | Federated query and reasoning | [modality_serving.md](../../docs/architecture/modality_serving.md) and `crates/eg-modality/` | Define native ingest, typed predicates, concurrent updates and removals, cold restoration, and evidence-location contracts separately. |
 | Decision engine and federated query | [native-program-optimization.md](../../docs/architecture/native-program-optimization.md), `crates/eg-program/` | Confirm one semantic owner for `ProgramOptimize`; link the other owner. Preserve UQL and compiled-run contracts separately. |
 | Unified data plane | R040 and federation R039.1 | Resolve video promotion scope without silently expanding the existing acceptance. |
-| Federated query and durable kernel | `crates/eg-stream/`, `crates/eg-tsdb/`, existing stream dispatch | Define runtime windows, watermarks, state recovery, and refusal independently of the stream grammar. |
-| Durable graph kernel | [engine.md](../../docs/architecture/engine.md), `crates/eg-core/src/read_through.rs`, `src/redb_store/` | Add safe-eviction/read-through acceptance under the existing durability owner, with cache-miss and restart observations. |
+| Federated query and durable kernel | `crates/eg-stream/`, `crates/eg-tsdb/`, existing stream dispatch | Define runtime windows, watermarks, state recovery, and refusal separately from stream grammar. |
+| Durable graph kernel | [engine.md](../../docs/architecture/engine.md), `crates/eg-core/src/read_through.rs`, `src/redb_store/` | The durability owner covers safe eviction and read-through. Add cache-miss and restart observations. |
 
 No follow-on above asserts a passed test or changes a subsystem's acceptance in this batch.
 
@@ -495,3 +495,35 @@ Canonical Cargo resolution also rebinds eight Windows-only dependency edges to c
 No other package version changes, and no package is added or removed outside those three replacements.
 Validate the locked graph, the unchanged advisory gate and the affected client and server paths.
 Raw cargo-audit findings covered by existing, dated policy exceptions remain separate from these fixes.
+
+### 2026-10-22: recover canonical codec bytes from hosted CI
+
+EG-CONTRACT-R006.1 / EG-C-06 permits an artifact export from the canonical builder.
+Export follows a successful, import-verified build and precedes freshness comparison. Export the WASM with SHA-256, checked-out source revision/tree, dirty
+state, pinned toolchain and build-recipe provenance. A failed build must never
+export cached bytes. The language-clients job may upload a completed fresh export
+even when committed copies are stale; the freshness check must still fail.
+Existing codec-builder Python tests cover success, failed builds and provenance.
+
+This export-only child does not complete EG-CONTRACT-R006 or EG-T-05/EG-T-06.
+Two-build reproducibility, size-budget acceptance and Go/JS vector replay remain
+separate qualification obligations; baseline committed WASM bytes and pins stay unchanged.
+
+## Hosted canonical contract repair
+
+EG-CONTRACT-R006.3 uses the authoritative generator after a hosted parity failure. It exports only receipt-listed generated contracts plus the two receipts and catalog digest. The archive includes the clean source commit/tree, toolchain, command, recipe hashes and file hashes. An independent required job avoids waiting for unrelated lower-crate tests. Generation failure exports nothing. The initial parity failure stays blocking until verified generated files are committed and fresh CI passes.
+
+EG-CONTRACT-R053.13 retains the existing gates-wheel product after all installed-wheel checks. It adds no alternate build or release path. Capture the wheel digest before installation and require unchanged bytes before export. The archive carries one wheel, source commit/tree and hashed build recipes. Consumers verify these records before installing into an isolated environment; full-stack acceptance remains separate. Pin native validation producers and consumers to Ubuntu 24.04. Version both target and compiler cache namespaces so a newer libc image cannot supply incompatible cached outputs.
+
+### 2026-10-23: preserve the measured workspace Clippy budget boundary
+
+EG-CONTRACT-R031 keeps all three Clippy profiles blocking. The measured cold
+workspace build needs fifteen minutes for a pull request, rather than ten.
+Only workspace-all-features receives this budget. Other pull-request profiles
+keep ten minutes, and non-pull-request jobs keep sixty minutes. The earlier
+forty-five-minute draft is not the selected budget.
+
+Regression tests reject unscoped limits and reuse by release, security or lint
+jobs. Existing checks preserve the profile matrix, warnings-as-errors and locked
+commands. These static checks do not establish native lint acceptance or complete
+EG-CONTRACT-R031.2. Exact-head hosted qualification remains required.

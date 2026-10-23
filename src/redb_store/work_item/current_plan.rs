@@ -19,15 +19,6 @@ struct StoredPlan {
     payload_digest: String,
 }
 
-fn owned(row: &Row, graph: &str, tenant: &str, run_id: &str, id: &str, actor: &str) -> bool {
-    row.get("run_owner_binding")
-        == Some(&serde_json::json!({
-            "graph": graph, "tenant": tenant, "run_id": run_id, "work_item_id": id, "principal": actor
-        }))
-        && property_string(row, "tenant") == tenant
-        && !actor.is_empty()
-}
-
 fn live(row: &Row, worker: &str, epoch: u64, token: u64, now_ms: u64) -> bool {
     matches!(property_string(row, "status"), "leased" | "running")
         && row.get("lease_epoch").and_then(serde_json::Value::as_u64) == Some(epoch)
@@ -55,7 +46,7 @@ pub(crate) fn publish(
         .ok_or("current-plan owner unavailable")?;
     let row: Row = decode_durable(&crypto.unseal(bytes.value())?)?;
     drop(bytes);
-    if !owned(
+    if !run_owner::binding_matches(
         &row,
         graph,
         &request.tenant,
@@ -150,7 +141,7 @@ pub(crate) fn is_owner(
 ) -> Result<bool, String> {
     let id = run_owner::work_item_id(graph, tenant, run_id)?;
     let (_, row) = read::snapshot_row(shard, graph, &id, crypto)?;
-    Ok(row.is_some_and(|row| owned(&row, graph, tenant, run_id, &id, actor)))
+    Ok(row.is_some_and(|row| run_owner::binding_matches(&row, graph, tenant, run_id, &id, actor)))
 }
 
 /// Owner, snapshot and lease are decoded from one authoritative MVCC row.
@@ -174,7 +165,7 @@ pub(crate) fn read_current(
     let Some(row) = row else {
         return Ok(None);
     };
-    if !owned(&row, graph, tenant, run_id, &id, actor) {
+    if !run_owner::binding_matches(&row, graph, tenant, run_id, &id, actor) {
         return Ok(None);
     }
     let plans = read.scoped_owner_table(CURRENT_PLANS)?;
