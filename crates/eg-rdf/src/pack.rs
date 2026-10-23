@@ -204,5 +204,79 @@ pub fn declared_shape_iris(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
+/// One named `owl:ObjectProperty` with a named `rdfs:domain` and `rdfs:range`,
+/// reduced to the IRI local names connectors use as resource and relation names.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DeclaredObjectProperty {
+    pub name: String,
+    pub domain: String,
+    pub range: String,
+}
+
+fn local_name(iri: &str) -> &str {
+    iri.rsplit(['#', '/']).next().unwrap_or(iri)
+}
+
+/// The object properties the pack ontologies declare, with their domain and
+/// range local names. A property lacking a named domain or range, or declaring
+/// more than one of either, names no single relation and is left out. Malformed
+/// Turtle declares nothing. Sorted, so the result is stable.
+pub fn declared_object_properties(documents: &[&str]) -> Vec<DeclaredObjectProperty> {
+    use crate::oxrdf::{NamedOrBlankNode, Term};
+    use std::collections::BTreeMap;
+
+    const OWL_OBJECT_PROPERTY: &str = "http://www.w3.org/2002/07/owl#ObjectProperty";
+    const RDFS_DOMAIN: &str = "http://www.w3.org/2000/01/rdf-schema#domain";
+    const RDFS_RANGE: &str = "http://www.w3.org/2000/01/rdf-schema#range";
+
+    let mut properties = BTreeSet::new();
+    let mut domains: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut ranges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for text in documents {
+        for triple in crate::mapping::parse_turtle(text).unwrap_or_default() {
+            let (NamedOrBlankNode::NamedNode(subject), Term::NamedNode(object)) =
+                (&triple.subject, &triple.object)
+            else {
+                continue;
+            };
+            let subject = subject.as_str().to_string();
+            match triple.predicate.as_str() {
+                RDF_TYPE_IRI if object.as_str() == OWL_OBJECT_PROPERTY => {
+                    properties.insert(subject);
+                }
+                RDFS_DOMAIN => {
+                    domains
+                        .entry(subject)
+                        .or_default()
+                        .insert(object.as_str().to_string());
+                }
+                RDFS_RANGE => {
+                    ranges
+                        .entry(subject)
+                        .or_default()
+                        .insert(object.as_str().to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+    let single = |map: &BTreeMap<String, BTreeSet<String>>, iri: &String| {
+        map.get(iri)
+            .filter(|set| set.len() == 1)
+            .and_then(|set| set.iter().next())
+            .map(|iri| local_name(iri).to_string())
+    };
+    properties
+        .iter()
+        .filter_map(|iri| {
+            Some(DeclaredObjectProperty {
+                name: local_name(iri).to_string(),
+                domain: single(&domains, iri)?,
+                range: single(&ranges, iri)?,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests;

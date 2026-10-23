@@ -198,13 +198,17 @@ def model_profile(connector: str, index: int, window: int = 128_000) -> EntrySpe
     )
 
 
-def manifest(connector: str) -> EntrySpec:
+def declaration(connector: str) -> EntrySpec:
+    """The connector's `connector://resources` data-source declaration."""
     return EntrySpec(
-        kind="manifest",
-        uri="manifest://connector",
-        name="manifest",
+        kind="resource",
+        uri="connector://resources",
+        name="connector-resources",
         media_type=JSON,
-        body=canonical_json({"connector": connector, "synthetic": True}),
+        body=canonical_json(
+            {"connector": connector, "schema_mappings": {}, "sources": []}
+        ),
+        output_schema=canonical_json({"type": "object"}),
     )
 
 

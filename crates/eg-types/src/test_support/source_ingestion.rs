@@ -18,7 +18,7 @@ pub fn request() -> SourceIngestionRequest {
         records: BoundedVec::new(vec![SourceRecord {
             stream: stream.clone(),
             record_id: "item-1".into(),
-            mapping_reference: "manifest:demo-connector#schema_mappings/item".into(),
+            mapping_reference: "connector:demo-connector#mappings/item".into(),
             payload: SourceJson::new(serde_json::json!({"name": "one", "id": 1}))
                 .expect("bounded source JSON"),
             updated_at: Some("2026-09-20T00:00:00Z".into()),

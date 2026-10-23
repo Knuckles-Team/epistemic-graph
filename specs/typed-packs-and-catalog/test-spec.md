@@ -339,16 +339,18 @@ No test named here has run; names describe acceptance obligations, not evidence.
 
 ## Connector packs as native RDF (R101, R102)
 
-- `EG-TYPED-PACKS-R101`: Rollup closes when every child `.1` to `.8` passes its proving test.
+- `EG-TYPED-PACKS-R101`: Rollup closes when every live child passes its proving test.
 - `EG-TYPED-PACKS-R101.1`: `crates/eg-core/tests/connector_pack_vocabulary.rs::contract_terms_resolve_with_domain_and_range`.
 - `EG-TYPED-PACKS-R101.2`: `crates/eg-shacl/tests/connector_pack_shapes.rs::each_contract_shape_accepts_valid_and_refuses_invalid`.
-- `EG-TYPED-PACKS-R101.3`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::contract_entry_validates_and_projects_triples`.
-- `EG-TYPED-PACKS-R101.4`: `src/server/persistence/connector_pack/contract_index_tests.rs::mapping_resolution_reads_contract_triples`.
-- `EG-TYPED-PACKS-R101.5`: `src/server/handlers/admin/connector_pack/tests/contract_wiring.rs::import_and_ingest_reach_contract_index`.
-- `EG-TYPED-PACKS-R101.6`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::contract_refusals_leave_state_unchanged`.
-- `EG-TYPED-PACKS-R101.7`: `src/server/handlers/source_ingestion/contract_receipt_tests.rs::receipt_binds_contract_digest_and_governed_by`.
-- `EG-TYPED-PACKS-R101.8`: `tests/typed_packs/test_ingest_contract_rdf_served.py::test_contract_import_governs_ingest`.
+- `EG-TYPED-PACKS-R101.3`: Retired; see R101.10 and R101.11.
+- `EG-TYPED-PACKS-R101.4`: Retired; see R101.10 and R101.11.
+- `EG-TYPED-PACKS-R101.5`: Retired; see R101.10 and R101.11.
+- `EG-TYPED-PACKS-R101.6`: Retired; see R101.10 and R101.11.
+- `EG-TYPED-PACKS-R101.7`: Retired; see R101.10 and R101.11.
+- `EG-TYPED-PACKS-R101.8`: Retired; see R101.10 and R101.11.
 - `EG-TYPED-PACKS-R101.9`: a served test imports a pack through `ConnectorPack.Import` and submits one mapped record through `SourceIngest`; the engine accepts it.
+- `EG-TYPED-PACKS-R101.10`: `src/server/handlers/admin/connector_pack/tests/scale.rs::the_selector_resolves_to_the_declared_class_and_field_map`; `src/server/handlers/admin/connector_pack/tests/scale.rs::relations_resolve_from_the_pack_ontology`.
+- `EG-TYPED-PACKS-R101.11`: `src/server/handlers/admin/connector_pack/tests/scale.rs::an_undeclared_type_is_refused_with_a_typed_error`.
 - `EG-TYPED-PACKS-R102`: Rollup closes when every child `.1` to `.7` passes its proving test.
 - `EG-TYPED-PACKS-R102.1`: `crates/eg-shacl/tests/connector_pack_shapes.rs::surface_shapes_accept_valid_and_refuse_invalid`.
 - `EG-TYPED-PACKS-R102.2`: `src/server/connector_pack_projection/surface_tests.rs::surface_nodes_follow_pack_head`.

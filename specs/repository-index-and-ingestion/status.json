@@ -456,7 +456,7 @@
         "2a47417c6cfc"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/scale.rs:145"
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:278"
       ]
     },
     {
