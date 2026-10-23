@@ -728,7 +728,7 @@ ex:parent a owl:AsymmetricProperty .
         // company, infrastructure and supply-chain modules (EG-TYPED-PACKS-R105.3).
         // +162: the service-operations module and the priority domain
         // union (EG-TYPED-PACKS-R105.4).
-        assert_eq!(composed.ontology.len(), 14_053);
+        assert_eq!(composed.ontology.len(), 14_054);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
