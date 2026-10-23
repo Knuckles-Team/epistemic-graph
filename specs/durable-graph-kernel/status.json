@@ -2128,7 +2128,8 @@
         "3d4fa03a7682",
         "7e4bef3469df",
         "8dbb5bd9de53",
-        "90d1006b8a33"
+        "90d1006b8a33",
+        "ac67c9771c78"
       ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
@@ -2148,7 +2149,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3d4fa03a7682",
-        "7e4bef3469df"
+        "7e4bef3469df",
+        "ac67c9771c78"
       ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
