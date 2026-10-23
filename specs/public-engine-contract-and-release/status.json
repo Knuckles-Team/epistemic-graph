@@ -1100,6 +1100,7 @@
       "title": "Fresh canonical codec export with provenance",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2b8dd458b459",
         "b6d6bdedcd35"
       ],
       "verified_by": [
@@ -1122,6 +1123,7 @@
       "title": "Export fresh typed contracts for parity repair",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2b8dd458b459",
         "b6d6bdedcd35"
       ],
       "verified_by": [

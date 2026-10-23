@@ -3632,12 +3632,13 @@
       "title": "Pure reference inspection",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2b8dd458b459",
         "b6d6bdedcd35"
       ],
       "verified_by": [
         "crates/eg-types/src/identity/tests/session_evidence.rs:168",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:211",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:348"
+        "crates/eg-types/src/identity/tests/session_evidence.rs:204",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:334"
       ]
     },
     {
@@ -3661,14 +3662,15 @@
       "title": "Pure renewal ceiling transitions",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2b8dd458b459",
         "b6d6bdedcd35"
       ],
       "verified_by": [
-        "crates/eg-types/src/identity/tests/session_evidence.rs:234",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:349",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:378",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:406",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:469"
+        "crates/eg-types/src/identity/tests/session_evidence.rs:220",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:335",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:364",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:385",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:420"
       ]
     },
     {
@@ -3677,7 +3679,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:166"
+        "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:161"
       ]
     },
     {
@@ -3694,6 +3696,7 @@
       "title": "Pure registered approval-key transitions",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2b8dd458b459",
         "b6d6bdedcd35"
       ],
       "verified_by": [
@@ -3710,7 +3713,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-core/src/isolation/identity_store_tests/approval_keys.rs:65"
+        "crates/eg-core/src/isolation/identity_store_tests/approval_keys.rs:63"
       ]
     },
     {
@@ -3734,11 +3737,12 @@
       "title": "Pure credential observation",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2b8dd458b459",
         "b6d6bdedcd35"
       ],
       "verified_by": [
-        "crates/eg-types/src/identity/tests/session_evidence.rs:293",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:324"
+        "crates/eg-types/src/identity/tests/session_evidence.rs:279",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:310"
       ]
     },
     {
