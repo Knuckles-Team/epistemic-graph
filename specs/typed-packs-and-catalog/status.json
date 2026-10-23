@@ -2590,8 +2590,8 @@
       "title": "The parent catalog declares the recurring connector concepts",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "10068973d6b2",
-        "ef3e9cc27301"
+        "477202610516",
+        "c0cfa36da392"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/connector_parent_classes.rs:48"
