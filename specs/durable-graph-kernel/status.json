@@ -4265,10 +4265,10 @@
       ],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:316",
-        "src/redb_store/work_item/run_owner/tests.rs:104",
-        "src/redb_store/work_item/run_owner/tests.rs:132",
-        "src/redb_store/work_item/run_owner/tests.rs:164",
-        "src/redb_store/work_item/run_owner/tests.rs:463"
+        "src/redb_store/work_item/run_owner/tests.rs:115",
+        "src/redb_store/work_item/run_owner/tests.rs:147",
+        "src/redb_store/work_item/run_owner/tests.rs:446",
+        "src/redb_store/work_item/run_owner/tests.rs:48"
       ]
     },
     {
@@ -4472,11 +4472,11 @@
         "b286edc1b3bf"
       ],
       "verified_by": [
-        "src/redb_store/work_item/run_owner/tests.rs:217",
-        "src/redb_store/work_item/run_owner/tests.rs:242",
-        "src/redb_store/work_item/run_owner/tests.rs:266",
-        "src/redb_store/work_item/run_owner/tests.rs:342",
-        "src/redb_store/work_item/run_owner/tests.rs:463"
+        "src/redb_store/work_item/run_owner/tests.rs:200",
+        "src/redb_store/work_item/run_owner/tests.rs:225",
+        "src/redb_store/work_item/run_owner/tests.rs:249",
+        "src/redb_store/work_item/run_owner/tests.rs:325",
+        "src/redb_store/work_item/run_owner/tests.rs:446"
       ]
     },
     {
@@ -4515,14 +4515,15 @@
       "title": "Reserve ordered conversation turns with native run admission",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2df788ead124"
+        "2df788ead124",
+        "a1874ae34e29"
       ],
       "verified_by": [
-        "src/redb_store/work_item/conversation/tests.rs:141",
-        "src/redb_store/work_item/conversation/tests.rs:162",
-        "src/redb_store/work_item/conversation/tests.rs:178",
-        "src/redb_store/work_item/conversation/tests.rs:215",
-        "src/redb_store/work_item/conversation/tests.rs:235"
+        "src/redb_store/work_item/conversation/tests.rs:138",
+        "src/redb_store/work_item/conversation/tests.rs:159",
+        "src/redb_store/work_item/conversation/tests.rs:175",
+        "src/redb_store/work_item/conversation/tests.rs:212",
+        "src/redb_store/work_item/conversation/tests.rs:232"
       ]
     }
   ]
