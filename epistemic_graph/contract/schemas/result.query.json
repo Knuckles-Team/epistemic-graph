@@ -7744,6 +7744,35 @@
       },
       "type": "object"
     },
+    "ConversationTurnAdmission": {
+      "additionalProperties": false,
+      "description": "Expected conversation head for one newly admitted run. Revision zero creates\na context; later turns name the exact preceding successful run. A host must\nseparately validate its completed model history before executing the run.",
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "predecessor_run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "context_id",
+        "expected_revision"
+      ],
+      "type": "object"
+    },
     "CostBudget": {
       "additionalProperties": false,
       "description": "A currency-denominated ceiling on the selection's declared cost.",
@@ -52940,6 +52969,17 @@
         },
         "context": {
           "$ref": "#/$defs/RequestContext"
+        },
+        "conversation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversationTurnAdmission"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional ordered conversation reservation, never a history or execution grant.\nBoxed to preserve the existing Method enum allocation-size bound."
         },
         "deadline_unix": {
           "format": "double",

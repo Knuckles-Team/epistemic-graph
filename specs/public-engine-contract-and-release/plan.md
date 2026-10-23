@@ -570,3 +570,13 @@ Exact prior-union generated contracts and codec bytes remain temporary placehold
 No generated schema, receipt or binary was merged by hand.
 Fresh composed-source exports and parity must qualify the additional admission schema.
 The prior-union facade passed; its remaining generated failures are not final-union acceptance.
+
+### 2026-10-23: generated admission and identity union
+
+Run 39942779457 exported canonical artifact 12497600166 and codec artifact 12496593695.
+Both identify source 8e8a1e8f9deace15e7e8b7b659bc7f85d398d2c0 and the exact published fb37a103 tree.
+Archive, recipe and output hashes were verified before importing generated files.
+All 73 canonical outputs match their receipt; both client codecs match the import-free native export.
+The generated schema includes conversation admission alongside identity and recovery operations.
+These outputs replace prior-union placeholders without changing production source or test assertions.
+Final-head native and generated parity remain required; complete served identity acceptance stays open.

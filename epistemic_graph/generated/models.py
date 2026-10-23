@@ -3071,6 +3071,15 @@ class ConvergenceGate(BaseModel):
     total: Annotated[int, Field(ge=0)]
 
 
+class ConversationTurnAdmission(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    expected_revision: Annotated[int, Field(ge=0)]
+    predecessor_run_id: str | None = None
+    schema_version: NativeControlSchemaVersion
+
+
 class CostModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -22697,6 +22706,7 @@ class SubmitWorkItemRequest(BaseModel):
     catalog_digest: str
     command_digest: str
     context: RequestContext
+    conversation: ConversationTurnAdmission | None = None
     deadline_unix: float | None = None
     depends_on: list[str]
     idempotency_key: str
@@ -26182,6 +26192,7 @@ __all__ = [
     "ControlLeaseView",
     "ControlSetting",
     "ConvergenceGate",
+    "ConversationTurnAdmission",
     "CostBudget",
     "CostFacts",
     "CostModel",
