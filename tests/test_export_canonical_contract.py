@@ -108,7 +108,8 @@ def test_workflow_preserves_failed_parity():
     job = jobs["gates-contract"]
     assert job["needs"] == "changes"
     assert job["if"] == jobs["gates"]["if"]
-    assert job["steps"][:5] == jobs["gates"]["steps"][:5]
+    assert job["steps"][0] == jobs["gates"]["steps"][0]
+    assert all(step in jobs["gates"]["steps"] for step in job["steps"][:5])
     assert "gates-contract" in jobs["engine-main-wheel"]["needs"]
     parity = next(
         step for step in job["steps"] if step.get("id") == "engine-contract-preflight"

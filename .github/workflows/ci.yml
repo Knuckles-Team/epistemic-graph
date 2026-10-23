@@ -246,12 +246,12 @@ jobs:
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
+      # The exporter needs only Python's standard library, not client test deps.
       - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
       - *eg-gates-toolchain
       - *eg-gates-cache
       - *eg-validation-compiler-cache
+      - *eg-gates-python
       - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
         id: engine-contract-preflight
         if: ${{ !cancelled() }}
