@@ -256,11 +256,24 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     # (CONCEPT:EG-346) and normalizes/audits its numeric kernel, pyengine
     # kernel and folded wheel, rather than `pip install`ing the standalone
     # `eg-numeric` build (the 2026-08-21 stale-install incident).
-    both = raw + CI_WORKFLOW.read_text(encoding="utf-8")
-    assert both.count("scripts/inject_numeric_kernel.py") == 1
-    assert both.count("scripts/normalize_wheel_sbom.py") == 2
-    assert both.count("scripts/normalize_wheel_build_paths.py") == 2
-    assert both.count("scripts/check_wheel_privacy.py") == 2
+    ci_raw = CI_WORKFLOW.read_text(encoding="utf-8")
+    both = raw + ci_raw
+    # Artifact recipe hashes also name these scripts, but do not execute them.
+    # Count actual Python invocations in run steps, not filenames in the YAML.
+    commands = "\n".join(
+        step.get("run", "")
+        for source in (raw, ci_raw)
+        for job in yaml.safe_load(source)["jobs"].values()
+        for step in job.get("steps", [])
+    )
+    for script, expected in (
+        ("inject_numeric_kernel", 1),
+        ("normalize_wheel_sbom", 2),
+        ("normalize_wheel_build_paths", 2),
+        ("check_wheel_privacy", 2),
+    ):
+        pattern = rf"(?m)^\s*python3? scripts/{script}\.py(?=\s|$)"
+        assert len(re.findall(pattern, commands)) == expected, script
     assert "Remove primary native build state" in raw
     assert "release wheel digest mismatch" in both
 
@@ -364,8 +377,8 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "macos-14",
         }
     else:
-        # Only full-engine jobs retain the longer PR compilation budget.
-        # Classification, lint, security and independently split jobs stay short.
+        # Native compilation jobs retain the longer PR build budget, including
+        # the independent canonical generator. Classification/lint stay short.
         # python-server/python-suite build/run the full engine suite and exceed
         # the short budget on cold hosted PR runners; gates-crates' per-crate
         # narrowing falls back to the FULL workspace on a broad/unmapped diff
@@ -373,6 +386,7 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
         # (release PR #666 cancelled at ~10:15 on 3/3 runs).
         if workflow.name in {"ci.yml", "release.yml"} and name in {
             "gates",
+            "gates-contract",
             "gates-wheel",
             "gates-facade",
             "gates-whisper",

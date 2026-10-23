@@ -264,14 +264,17 @@ def _cache_job_steps(job: dict) -> tuple[list[dict], dict, dict]:
 
 def _assert_step_cache_scope(job_name: str, step: dict) -> None:
     """Require wrappers on precisely the reviewed command allowlist."""
-    expected = step.get("name") in COMPILER_CACHE_COMMANDS.get(job_name, {})
+    allowed = set(COMPILER_CACHE_COMMANDS.get(job_name, {}))
+    if job_name == "gates-contract":
+        allowed.update(CONTRACT_CACHE_COMMANDS)
+    expected = step.get("name") in allowed
     assert ("RUSTC_WRAPPER" in step.get("env", {})) == expected
 
 
 def _assert_job_cache_scope(job_name: str, job: dict, reference: dict) -> None:
     """Keep the backend shared and unrelated jobs free of cache settings."""
     assert "RUSTC_WRAPPER" not in job.get("env", {})
-    if job_name in COMPILER_CACHE_COMMANDS:
+    if job_name in COMPILER_CACHE_COMMANDS or job_name == "gates-contract":
         assert job["env"] is reference["env"]
         setup = _cache_step(job["steps"], "Install validation compiler cache")
         assert setup is _cache_step(
@@ -292,6 +295,7 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
         if job_name
         in {
             "gates",
+            "gates-contract",
             "gates-plan-fuzz",
             "gates-facade",
             "python-server",
@@ -642,9 +646,26 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
+# The exporter invokes Cargo internally; its conditional repair path is separate
+# from the ordinary native-test commands and their final cache-statistics step.
+CONTRACT_CACHE_COMMANDS = {
+    "Engine contract parity (registry ⇄ Method enum ⇄ generated client)": (
+        "cargo run -q --locked -p eg-capabilities --features contract "
+        "--bin gen_contract -- --check",
+        "${{ !cancelled() }}",
+    ),
+    "Export fresh canonical contracts after parity failure": (
+        "python3 scripts/export_canonical_contract.py "
+        "--export-dir target/canonical-engine-contract",
+        "${{ failure() && steps.engine-contract-preflight.outcome == 'failure' }}",
+    ),
+}
+
+
 CACHE_BACKEND = {
     "SCCACHE_IDLE_TIMEOUT": "7200",
     "SCCACHE_GHA_ENABLED": "true",
+    "SCCACHE_GHA_VERSION": "eg-ci-ubuntu-24.04-v1",
     "SCCACHE_GHA_RW_MODE": (
         "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
     ),
@@ -709,6 +730,27 @@ def test_compiler_cache_covers_only_explicit_step_local_commands(
     if len(commands) == 1:
         assert build["run"] == commands[0]
     _assert_cache_backend(workflow, job, build)
+
+
+@pytest.mark.parametrize("step_name", CONTRACT_CACHE_COMMANDS)
+def test_canonical_cache_wraps_only_blocking_parity_and_conditional_export(
+    step_name: str,
+) -> None:
+    workflow = _workflow()
+    job = workflow["jobs"]["gates-contract"]
+    _assert_cache_job_settings("gates-contract", job)
+    steps = job["steps"]
+    setup = _cache_step(steps, "Install validation compiler cache")
+    _assert_cache_installation(setup)
+    step = _cache_step(steps, step_name)
+    command, condition = CONTRACT_CACHE_COMMANDS[step_name]
+    assert steps.index(setup) < steps.index(step)
+    assert step["run"] == command
+    assert step["if"] == condition
+    assert step["env"] == {"RUSTC_WRAPPER": "sccache"}
+    assert "continue-on-error" not in job
+    assert "continue-on-error" not in step
+    _assert_cache_backend(workflow, job, step)
 
 
 def _step_by_name(steps: list[dict], name: str) -> dict:
@@ -798,7 +840,7 @@ def test_workspace_cache_is_main_written_and_build_remains_required(
     )
     assert cache["with"] == {
         "workspaces": ". -> target-isolated",
-        "shared-key": "eg-ci-gates",
+        "shared-key": "eg-ci-gates-ubuntu-24.04-v1",
         "cache-workspace-crates": True,
         "save-if": "${{ github.ref == 'refs/heads/main' }}",
     }
@@ -834,11 +876,18 @@ def test_plan_fuzz_remains_independent_required_acceptance() -> None:
 
 @pytest.mark.parametrize(
     "job_name",
-    ["gates", "gates-plan-fuzz", "gates-wheel", "gates-facade", "gates-whisper"],
+    [
+        "gates",
+        "gates-contract",
+        "gates-plan-fuzz",
+        "gates-wheel",
+        "gates-facade",
+        "gates-whisper",
+    ],
 )
 def test_native_acceptance_uses_hosted_runners_for_every_event(job_name: str) -> None:
     job = _workflow()["jobs"][job_name]
-    assert job["runs-on"] == "ubuntu-latest"
+    assert job["runs-on"] == "ubuntu-24.04"
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
     assert "continue-on-error" not in job
