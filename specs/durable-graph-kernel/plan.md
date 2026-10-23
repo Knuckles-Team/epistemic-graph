@@ -918,3 +918,16 @@ The source merge preserves conversation admission and the new ontology fields.
 The conflicting receipt and catalog files retain exact parent versions pending fresh child generation.
 Those placeholders do not certify the combined child schema.
 Fresh native exports and final-head parity remain required before merge.
+
+## Store migration at open and copied-store restore (R070.1, R070.2, R862)
+
+**Migration at open.** The entry point is `main.rs`, which calls `server_startup::acquire_persist_lock`.
+That function takes the exclusive lock and then calls `migrate_stores_on_open` (`src/server_startup.rs:155`).
+`store_upgrade::migrate_on_open` reuses `discover`, `classify_owner_store_format`, `Staging` and `apply_store` of R070.
+It adds no second upgrade path. `open_persistence` keeps the R070 refusal; it fires only with the switch off.
+The journal is evidence and a resume signal. The store manifests stay the authority on format.
+A store left by an unclean shutdown is not inspected at open. Its ordinary open recovers it first.
+
+**Copied-store restore.** `StoreIncarnation::derive` binds a store root to its files' device and inode.
+That binding stops a copied file from replacing a live store unnoticed. R862 keeps it for the ordinary open.
+Only an explicit restore or `rebind` re-binds a store, and only after a content-digest check.

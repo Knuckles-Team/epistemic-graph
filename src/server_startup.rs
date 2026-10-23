@@ -152,8 +152,35 @@ pub(super) fn acquire_persist_lock(
     let dir = persist_dir?;
     let lock = epistemic_graph::persist_lock::acquire(dir).unwrap_or_else(|e| exit_with(e, 1));
     info!("Acquired the configured single-writer persistence lock");
+    migrate_stores_on_open(dir, &lock);
     Some(lock)
 }
+
+/// Migrate an older but supported store before anything opens it, under the
+/// lock just taken (EG-DURABLE-KERNEL-R070.1). With the switch off, nothing is
+/// migrated and `open_persistence` refuses such a store and names the command.
+#[cfg(feature = "redb")]
+fn migrate_stores_on_open(dir: &str, lock: &epistemic_graph::persist_lock::PersistDirLock) {
+    use server::persistence::store_upgrade as upgrade;
+
+    let enabled = upgrade::auto_migrate_enabled().unwrap_or_else(|error| exit_with(error, 2));
+    if !enabled {
+        info!(
+            "Automatic store migration is off ({}=false)",
+            upgrade::AUTO_MIGRATE_ENV
+        );
+        epistemic_graph::metrics::store_migration_step("run", "disabled");
+        return;
+    }
+    let migration = upgrade::migrate_on_open(std::path::Path::new(dir), lock)
+        .unwrap_or_else(|error| exit_with(error, 1));
+    if let Some(refusal) = migration.startup_refusal() {
+        exit_with(refusal, 1);
+    }
+}
+
+#[cfg(not(feature = "redb"))]
+fn migrate_stores_on_open(_dir: &str, _lock: &epistemic_graph::persist_lock::PersistDirLock) {}
 
 /// A positive `variable` override, bounded by `bound`. Absent, unparsable and
 /// zero values yield `None`.
@@ -284,9 +311,10 @@ pub(super) fn run_fuseki_startup_health_check() {
     }
 }
 
-/// The engine never upgrades a store itself. A data directory holding a store
-/// that a registered offline upgrade applies to is refused before any store is
-/// opened, with that store's named error and the exact operator command.
+/// A data directory still holding a store that a registered offline upgrade
+/// applies to is refused before any store is opened, with that store's named
+/// error and the exact operator command. Automatic migration at lock time
+/// leaves no such store, so this refuses only with the switch off.
 #[cfg(feature = "redb")]
 fn refuse_upgradable_stores(dir: &str) {
     let checked =

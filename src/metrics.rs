@@ -841,6 +841,10 @@ pub use imp::*;
 mod outbox;
 pub use outbox::{outbox_dead_lettered, set_outbox_head};
 
+// Automatic store migration at open (EG-DURABLE-KERNEL-R070.1).
+mod store_migration;
+pub use store_migration::store_migration_step;
+
 // ── No-op shims (feature `metrics` disabled) ─────────────────────────────
 #[cfg(not(feature = "metrics"))]
 mod noop;
