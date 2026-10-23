@@ -139,3 +139,46 @@ fn union_keeps_document_order_prefixes_and_blank_node_references() {
     );
     assert!(scoped_union(&[]).unwrap().triples.is_empty());
 }
+
+// spec: EG-TYPED-PACKS-R105.1
+#[test]
+fn imports_may_name_the_parent_catalog_and_its_modules() {
+    let allowed = BTreeSet::from(["urn:current"]);
+    for parent in ["http://knuckles.team/kg", "http://knuckles.team/kg/core"] {
+        let text = format!("<urn:current> <http://www.w3.org/2002/07/owl#imports> <{parent}> .");
+        assert_eq!(
+            validate_ontology_imports(&text, "urn:current", &allowed),
+            Ok(())
+        );
+    }
+    assert!(!is_parent_ontology_iri("http://knuckles.team/kg/core/x"));
+    assert!(!is_parent_ontology_iri("http://knuckles.team/kgx"));
+}
+
+// spec: EG-TYPED-PACKS-R105.1
+#[test]
+fn orphan_classes_are_those_without_a_path_to_a_parent_class() {
+    let parent = BTreeSet::from(["http://knuckles.team/kg#Event".to_string()]);
+    let linked = "@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix c: <urn:connector#> .
+c:Incident a owl:Class ; rdfs:subClassOf c:Ticket .
+c:Ticket a owl:Class ; rdfs:subClassOf <http://knuckles.team/kg#Event> .
+";
+    let orphan = "@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix c: <urn:connector#> .
+c:Widget a owl:Class .
+<http://knuckles.team/kg#Event> a owl:Class .
+";
+    assert!(ontology_orphan_classes(&[linked], &parent).is_empty());
+    assert_eq!(
+        ontology_orphan_classes(&[linked, orphan], &parent),
+        vec!["urn:connector#Widget".to_string()]
+    );
+    // A path that runs through another pack document still links.
+    let split = "@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<urn:connector#Gadget> a owl:Class ; rdfs:subClassOf <urn:connector#Ticket> .
+";
+    assert!(ontology_orphan_classes(&[split, linked], &parent).is_empty());
+}

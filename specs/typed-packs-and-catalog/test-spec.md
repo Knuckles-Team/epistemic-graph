@@ -462,3 +462,45 @@ requires an error response with no result. Canonical artifact freshness passes. 
 | `EG-TYPED-PACKS-R802.7` | `tests/test_stewardship_served.py::test_deprecation_lowers_rank_and_notifies` |
 | `EG-TYPED-PACKS-R802.8` | `tests/test_stewardship_served.py::test_critical_element_gaps_reported` |
 | `EG-TYPED-PACKS-R805.7` | `tests/test_data_product_served.py::test_usage_cluster_yields_product_proposal` |
+
+- `EG-TYPED-PACKS-R106`: See each child.
+- `EG-TYPED-PACKS-R106.1`: `crates/eg-core/tests/connector_pack_surfaces.rs::resource_field_and_owner_shapes_validate`.
+- `EG-TYPED-PACKS-R106.2`: `crates/eg-core/tests/connector_pack_surfaces.rs::every_asset_has_owner_term_lineage_and_class_link`.
+- `EG-TYPED-PACKS-R106.3`: `tests/typed_packs/test_connector_catalog_served.py::test_import_reaches_the_one_projection_and_catalog_search`.
+- `EG-TYPED-PACKS-R106.4`: `crates/eg-core/tests/connector_pack_surfaces.rs::unresolved_class_unowned_resource_and_missing_owner_are_reported`.
+- `EG-TYPED-PACKS-R106.5`: `tests/typed_packs/test_connector_catalog_served.py::test_asset_carries_digest_usage_freshness_and_class_counts`.
+- `EG-TYPED-PACKS-R106.6`: `tests/typed_packs/test_connector_catalog_served.py::test_catalog_search_finds_assets_with_owner_term_and_lineage`.
+- `EG-TYPED-PACKS-R107`: See each child.
+- `EG-TYPED-PACKS-R107.1`: `crates/eg-types/tests/pack_contract.rs::version_and_grant_round_trip`.
+- `EG-TYPED-PACKS-R107.2`: `crates/eg-core/tests/pack_contract.rs::non_breaking_applies_breaking_waits_and_queries_use_active_version`.
+- `EG-TYPED-PACKS-R107.3`: `tests/typed_packs/test_pack_contract_served.py::test_diff_runs_in_import_and_orphan_report_is_served`.
+- `EG-TYPED-PACKS-R107.4`: `crates/eg-core/tests/pack_contract.rs::ungranted_incomplete_breaking_and_in_use_refuse`.
+- `EG-TYPED-PACKS-R107.5`: `tests/typed_packs/test_pack_contract_served.py::test_receipt_carries_digests_break_count_request_and_grant`.
+- `EG-TYPED-PACKS-R107.6`: `tests/typed_packs/test_pack_contract_served.py::test_breaking_release_waits_for_approval_then_serves`.
+
+- `EG-TYPED-PACKS-R108`: See each child.
+- `EG-TYPED-PACKS-R108.1`: `crates/eg-core/tests/catalog_assets.rs::four_families_validate_and_share_one_parent_asset_class`.
+- `EG-TYPED-PACKS-R108.2`: `crates/eg-core/tests/catalog_assets.rs::existing_records_project_with_owner_term_and_lineage_without_copies`.
+- `EG-TYPED-PACKS-R108.3`: `tests/typed_packs/test_catalog_assets_served.py::test_publish_register_and_create_reach_the_one_projector`.
+- `EG-TYPED-PACKS-R108.4`: `crates/eg-core/tests/catalog_assets.rs::orphan_class_missing_owner_and_marked_field_are_handled`.
+- `EG-TYPED-PACKS-R108.5`: `tests/typed_packs/test_catalog_assets_served.py::test_node_carries_owner_steward_revision_usage_and_history`.
+- `EG-TYPED-PACKS-R108.6`: `tests/typed_packs/test_catalog_assets_served.py::test_one_query_returns_agents_business_workflows_graphs_and_connector_assets`.
+
+- `EG-TYPED-PACKS-R108.7`: `tests/typed_packs/test_catalog_capabilities_served.py::test_contract_harvest_stores_schema_keys_views_indexes_and_no_rows`
+- `EG-TYPED-PACKS-R108.8`: `tests/typed_packs/test_catalog_capabilities_served.py::test_tool_call_and_query_provenance_feed_usage_frequency_and_top_queries`
+- `EG-TYPED-PACKS-R108.9`: `tests/typed_packs/test_catalog_capabilities_served.py::test_sensitivity_propagates_downstream_as_proposal_and_asset_names_its_policy`
+- `EG-TYPED-PACKS-R108.10`: `tests/typed_packs/test_catalog_capabilities_served.py::test_lineage_walks_source_operation_workflow_dashboard_agent_and_model`
+- `EG-TYPED-PACKS-R108.11`: `tests/typed_packs/test_catalog_capabilities_served.py::test_metric_formula_binds_terms_and_unknown_term_refuses`
+- `EG-TYPED-PACKS-R108.12`: `tests/typed_packs/test_catalog_capabilities_served.py::test_annotations_attach_to_any_asset_and_trust_flags_reuse_the_steward_path`
+- `EG-TYPED-PACKS-R108.13`: `tests/typed_packs/test_catalog_capabilities_served.py::test_article_attaches_to_asset_and_domain_and_is_found_by_text_and_by_asset`
+- `EG-TYPED-PACKS-R108.14`: `tests/typed_packs/test_catalog_capabilities_served.py::test_dashboard_report_saved_query_and_template_register_with_reads_and_usage`
+- `EG-TYPED-PACKS-R108.15`: `tests/typed_packs/test_catalog_capabilities_served.py::test_model_asset_links_registry_ref_schemas_and_training_lineage_without_weights`
+- `EG-TYPED-PACKS-R108.16`: `tests/typed_packs/test_catalog_capabilities_served.py::test_one_search_ranks_all_families_with_usage_and_endorsement_boost`
+
+- `EG-TYPED-PACKS-R109`: See each child.
+- `EG-TYPED-PACKS-R109.1`: `crates/eg-core/tests/dashboard_asset.rs::dashboard_asset_shape_validates_body_revision_owner_grants_and_links`.
+- `EG-TYPED-PACKS-R109.2`: `crates/eg-core/tests/dashboard_asset.rs::save_bumps_revision_rebuilds_links_and_delete_keeps_then_purges`.
+- `EG-TYPED-PACKS-R109.3`: `tests/typed_packs/test_dashboard_asset_served.py::test_save_read_share_and_delete_reach_the_one_projector_with_authority_checks`.
+- `EG-TYPED-PACKS-R109.4`: `crates/eg-core/tests/dashboard_asset.rs::stale_revision_missing_grant_invalid_body_and_purged_asset_refuse`.
+- `EG-TYPED-PACKS-R109.5`: `tests/typed_packs/test_dashboard_asset_served.py::test_revision_grant_and_delete_history_and_usage_are_served`.
+- `EG-TYPED-PACKS-R109.6`: `tests/typed_packs/test_dashboard_asset_served.py::test_dashboard_save_conflict_share_lineage_search_and_soft_delete`.
