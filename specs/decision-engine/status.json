@@ -1936,7 +1936,8 @@
       "title": "Digest-bound model input declaration source",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "85a51f886e90"
+        "85a51f886e90",
+        "e21a42b2f88c"
       ],
       "verified_by": [
         "crates/eg-types/src/agent_component.rs:1618",
@@ -1951,7 +1952,8 @@
       "title": "Generated media-facts consumer contract",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "85a51f886e90"
+        "85a51f886e90",
+        "e21a42b2f88c"
       ],
       "verified_by": [
         "tests/test_generated_model_input_capabilities.py:13"
