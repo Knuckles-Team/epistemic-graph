@@ -76,7 +76,8 @@ pub(crate) struct LifecycleAttempt<'a> {
     /// The durable graph name, NOT the sanitized on-disk file name.
     pub(crate) graph: &'a str,
     pub(crate) request_id: u64,
-    /// Authenticated per-attempt transport nonce; see [`MutationCtx`].
+    /// Authenticated per-attempt transport nonce; see [`MutationCtx`]. A replay
+    /// probe refuses an attempt that re-presents the nonce its receipt consumed.
     pub(crate) attempt_nonce: Option<eg_types::contract::Nonce>,
     pub(crate) principal: Option<&'a str>,
     /// Stable across attempts, unlike `request_id`/`attempt_nonce`.

@@ -27,6 +27,8 @@ pub(crate) use internal::commit_internal_graph_methods;
 pub(crate) use internal::{
     commit_internal_graph_methods_with_nonce, lock_graph, InternalGraphCommitRequest,
 };
+#[cfg(all(test, feature = "redb"))]
+pub(crate) use lifecycle::lifecycle_identity_matches;
 pub(crate) use lifecycle::{commit_lifecycle, lifecycle_was_committed, LifecycleCommitRequest};
 #[cfg(test)]
 pub(crate) use work_item::changed_work_item_ids;

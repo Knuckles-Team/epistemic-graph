@@ -19,7 +19,6 @@ async fn reconcile_existing_graph_create(
             graph_name: graph_name.to_string(),
             graph_type,
         },
-        &created_result,
     )
     .await
     {
@@ -302,7 +301,6 @@ async fn reconcile_missing_graph_delete(
         Method::DeleteGraph {
             graph_name: graph_name.to_string(),
         },
-        &deleted_result,
     )
     .await
     {

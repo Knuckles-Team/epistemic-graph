@@ -63,15 +63,30 @@ async fn list_graphs(
         .iter()
         .filter(|(name, _)| {
             s.registry.get(name).is_some_and(|entry| {
-                check_graph_access(
+                match check_graph_access(
                     &s.isolation,
                     read_authority.actor(),
                     name,
                     entry.graph_type,
                     entry.owner.as_deref(),
                     AccessLevel::Read,
-                )
-                .is_ok()
+                ) {
+                    Ok(()) => true,
+                    Err(reason) => {
+                        // A filtered graph is not an error to the caller, but the
+                        // reason must not vanish (#709): an unprovisioned policy or
+                        // an unregistered caller drops every graph at once. The
+                        // reason names the refusal class and the graph only.
+                        tracing::debug!(
+                            target: "epistemic_graph::access::list_graphs",
+                            graph = name.as_str(),
+                            graph_type = ?entry.graph_type,
+                            reason = %reason,
+                            "graph filtered from ListGraphs"
+                        );
+                        false
+                    }
+                }
             })
         })
         .map(|(name, graph_type)| graph_listing(&s.registry, name, *graph_type))

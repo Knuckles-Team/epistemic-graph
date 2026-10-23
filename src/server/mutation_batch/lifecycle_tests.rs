@@ -7,6 +7,7 @@ use crate::server::persistence::PersistenceBackend;
 use eg_types::contract::Nonce;
 use eg_types::mutation_batch::CommittedVersion;
 
+use super::commit::lifecycle_identity_matches;
 use super::{
     commit_lifecycle, lifecycle_batch_id, lifecycle_was_committed, LifecycleCommitRequest,
 };
@@ -443,7 +444,7 @@ async fn lifecycle_receipt_is_not_replayed_across_tenants() {
         lifecycle_batch_id("create", "carrier-tenant:a", graph, principal, "same-key"),
         lifecycle_batch_id("create", "carrier-tenant:b", graph, principal, "same-key"),
     );
-    let probe = |tenant_scope: &'static str, nonce: u8| {
+    let probe = |tenant_scope: &'static str, _attempt: u8| {
         lifecycle_was_committed(
             &persistence,
             crate::server::mutation::LifecycleAttempt {
@@ -451,12 +452,11 @@ async fn lifecycle_receipt_is_not_replayed_across_tenants() {
                 tenant_scope,
                 graph,
                 request_id: 2,
-                attempt_nonce: Some(Nonce::from_bytes([nonce; 32])),
+                attempt_nonce: None,
                 principal,
                 idempotency_key: "same-key",
             },
             method(),
-            &result,
         )
     };
     assert!(
@@ -467,6 +467,142 @@ async fn lifecycle_receipt_is_not_replayed_across_tenants() {
         probe("carrier-tenant:a", 6).await.expect("tenant A probe"),
         "tenant A's own retry still replays its receipt"
     );
+    persistence.shutdown();
+    drop(persistence);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// #709: a retry after an upgrade reads a receipt an earlier release wrote. Its
+/// build-dependent bytes (catalog digest, stored result, timestamps) differ from
+/// what this build would compile, yet the retained CreateGraph identity is the
+/// same, so it is committed. A receipt for another graph type is a conflict.
+#[cfg(feature = "redb")]
+// spec: EG-DURABLE-KERNEL-R861.1
+#[tokio::test(flavor = "multi_thread")]
+async fn lifecycle_replay_compares_identity_not_recompiled_bytes() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let dir = crate::test_support::temp_dir("eg-lifecycle-replay", "identity");
+    let persistence = open_backend(&dir);
+    let graph = "lifecycle-identity-graph";
+    let principal = Some("principal:identity-agent");
+    let create = |graph_type| Method::CreateGraph {
+        graph_name: graph.to_string(),
+        graph_type,
+    };
+    let result = ResultPayload::Json(serde_json::json!({"created": graph}));
+    commit_lifecycle(
+        LifecycleCommitRequest::new(
+            &persistence,
+            "create",
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 1,
+                principal,
+            },
+            "identity-key",
+            graph,
+            create(GraphType::Global),
+            &result,
+        )
+        .with_attempt_nonce(Some(Nonce::from_bytes([7; 32])))
+        .with_tenant_scope(TENANT),
+    )
+    .await
+    .expect("first create commits");
+    let batch_id = lifecycle_batch_id("create", TENANT, graph, principal, "identity-key");
+    let mut stored = persistence
+        .read_mutation_batch(&crate::persist::sanitize(graph), &batch_id)
+        .await
+        .expect("read receipt")
+        .expect("receipt stored");
+
+    // Same identity, different bytes: an older build's catalog digest, result
+    // encoding and timestamps.
+    if let eg_types::mutation_batch::MutationEnvelope::Operation(operation) =
+        &mut stored.batch.envelope
+    {
+        operation.authority.catalog_digest = eg_types::contract::Digest256::from_bytes([9; 32]);
+    }
+    stored.result_msgpack = Some(vec![0xc0]);
+    stored.batch.created_at_ms += 1;
+    stored.committed_at_ms += 1;
+    lifecycle_identity_matches(
+        &stored,
+        &batch_id,
+        principal,
+        "identity-key",
+        &create(GraphType::Global),
+    )
+    .expect("same identity with different bytes is committed");
+
+    // Different identity: another graph type, principal or key is a conflict.
+    let conflict = lifecycle_identity_matches(
+        &stored,
+        &batch_id,
+        principal,
+        "identity-key",
+        &create(GraphType::Team),
+    )
+    .expect_err("a different graph type is a conflict");
+    assert!(conflict.contains("conflicting identity"), "{conflict}");
+    lifecycle_identity_matches(
+        &stored,
+        &batch_id,
+        Some("principal:someone-else"),
+        "identity-key",
+        &create(GraphType::Global),
+    )
+    .expect_err("a different principal is a conflict");
+    lifecycle_identity_matches(
+        &stored,
+        &batch_id,
+        principal,
+        "other-key",
+        &create(GraphType::Global),
+    )
+    .expect_err("a different idempotency key is a conflict");
+
+    // End to end through the probe: this build's retry replays; a retry naming
+    // another graph type under the same key is refused, not replayed.
+    let probe = |graph_type| {
+        lifecycle_was_committed(
+            &persistence,
+            crate::server::mutation::LifecycleAttempt {
+                action: "create",
+                tenant_scope: TENANT,
+                graph,
+                request_id: 2,
+                attempt_nonce: None,
+                principal,
+                idempotency_key: "identity-key",
+            },
+            create(graph_type),
+        )
+    };
+    assert!(probe(GraphType::Global).await.expect("retry probe"));
+    assert!(probe(GraphType::Team).await.is_err());
+
+    // A reused attempt nonce is refused before the identity replay: only a fresh
+    // attempt under the same key replays the stored outcome.
+    let nonce_probe = |nonce: u8| {
+        lifecycle_was_committed(
+            &persistence,
+            crate::server::mutation::LifecycleAttempt {
+                action: "create",
+                tenant_scope: TENANT,
+                graph,
+                request_id: 3,
+                attempt_nonce: Some(Nonce::from_bytes([nonce; 32])),
+                principal,
+                idempotency_key: "identity-key",
+            },
+            create(GraphType::Global),
+        )
+    };
+    let reused = nonce_probe(7)
+        .await
+        .expect_err("the consumed nonce is refused");
+    assert!(reused.starts_with("REPLAY_NONCE_CONSUMED:"), "{reused}");
+    assert!(nonce_probe(8).await.expect("a fresh nonce replays"));
     persistence.shutdown();
     drop(persistence);
     let _ = std::fs::remove_dir_all(dir);
