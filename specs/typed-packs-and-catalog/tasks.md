@@ -274,3 +274,11 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R107.4:** Refusal.
 - [ ] **EG-TYPED-PACKS-R107.5:** Evidence.
 - [ ] **EG-TYPED-PACKS-R107.6:** Hot-path proof.
+
+- [ ] **EG-TYPED-PACKS-R108:** The metadata catalog also governs agents, the business, workflows and knowledge graphs (rollup).
+- [ ] **EG-TYPED-PACKS-R108.1:** Model.
+- [ ] **EG-TYPED-PACKS-R108.2:** Behavior.
+- [ ] **EG-TYPED-PACKS-R108.3:** Wiring.
+- [ ] **EG-TYPED-PACKS-R108.4:** Refusal.
+- [ ] **EG-TYPED-PACKS-R108.5:** Evidence.
+- [ ] **EG-TYPED-PACKS-R108.6:** Hot-path proof.
