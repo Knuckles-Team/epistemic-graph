@@ -2684,6 +2684,7 @@
       "title": "The parent catalog declares the IT4IT delivery data objects",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2bb0e4497517",
         "46a8e6fb45fd"
       ],
       "verified_by": [
@@ -2697,6 +2698,7 @@
       "title": "The parent catalog declares a data-platform and machine-learning module aligned to DCAT, PROV-O and ML-Schema",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2bb0e4497517",
         "46a8e6fb45fd"
       ],
       "verified_by": [
@@ -2710,6 +2712,7 @@
       "title": "The parent catalog declares a media and content module aligned to schema.org media types, EBUCore, IFLA LRM and ActivityStreams",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2bb0e4497517",
         "46a8e6fb45fd"
       ],
       "verified_by": [
@@ -2723,6 +2726,7 @@
       "title": "The parent catalog declares a search, retrieval and information-source module aligned to OpenSearch, DCMI Terms and PROV-O",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2bb0e4497517",
         "46a8e6fb45fd"
       ],
       "verified_by": [

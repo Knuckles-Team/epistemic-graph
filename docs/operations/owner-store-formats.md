@@ -108,7 +108,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 
 ## Offline upgrade procedure
 
-A predecessor listed in the table below is upgraded in place, with its rows preserved, by an explicit operator command. The engine never runs an upgrade itself: it refuses to start on such a store and names the command.
+A predecessor listed in the table below is upgraded in place, with its rows preserved. By default the engine runs these upgrades itself when it opens the data directory. It holds its own lock and keeps a crash-safe journal. Set `EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE=false` to turn that off: the engine then refuses to start on such a store and names the command below.
 
 1. Stop the engine. Both verbs refuse while an engine holds the data directory.
 2. Inspect: `epistemic-graph-server store-upgrade inspect <data-dir>`. This reads every store's manifest and changes nothing. Exit status `0` means nothing to do, `10` an upgrade is available, `20` a store is in a format this build neither opens nor upgrades, `30` a store can not be read, and `1` the command was refused.
