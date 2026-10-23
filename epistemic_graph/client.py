@@ -4681,23 +4681,29 @@ def _control_lease_view(value: Any) -> dict[str, Any]:
     if value["status"] not in ("active", "consumed", "revoked", "expired"):
         raise RuntimeError("control lease view carries an unknown status")
     if "host_start_provenance" in value:
-        provenance = value["host_start_provenance"]
-        if (
-            value["kind"] != "host.start"
-            or not isinstance(provenance, dict)
-            or set(provenance) != {"schema_version", "issuer_ref"}
-            or type(provenance["schema_version"]) is not int
-            or provenance["schema_version"] != 1
-            or not isinstance(provenance["issuer_ref"], str)
-            or not provenance["issuer_ref"].strip()
-            or len(provenance["issuer_ref"].encode("utf-8")) > 512
-            or any(
-                ord(char) < 32 or 127 <= ord(char) <= 159
-                for char in provenance["issuer_ref"]
-            )
-        ):
-            raise RuntimeError("invalid native host-start provenance")
+        _validate_host_start_provenance(value["kind"], value["host_start_provenance"])
     return value
+
+
+def _validate_host_start_provenance(kind: Any, provenance: Any) -> None:
+    if (
+        kind != "host.start"
+        or not isinstance(provenance, dict)
+        or set(provenance) != {"schema_version", "issuer_ref"}
+        or type(provenance["schema_version"]) is not int
+        or provenance["schema_version"] != 1
+        or not _valid_host_start_issuer_ref(provenance["issuer_ref"])
+    ):
+        raise RuntimeError("invalid native host-start provenance")
+
+
+def _valid_host_start_issuer_ref(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and len(value.encode("utf-8")) <= 512
+        and not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value)
+    )
 
 
 def _control_lease_answer(value: Any, outcomes: set[str]) -> dict[str, Any]:

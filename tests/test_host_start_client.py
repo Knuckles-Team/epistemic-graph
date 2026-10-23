@@ -44,6 +44,12 @@ def test_legacy_grant_json_cannot_become_native_provenance() -> None:
     [
         None,
         {},
+        {"schema_version": 1},
+        {"issuer_ref": "issuer"},
+        {"schema_version": 1, "issuer_ref": "issuer", "extra": True},
+        {"schema_version": 1, "issuer_ref": None},
+        {"schema_version": 1, "issuer_ref": "   "},
+        {"schema_version": 1, "issuer_ref": "é" * 257},
         {"schema_version": True, "issuer_ref": "issuer"},
         {"schema_version": 2, "issuer_ref": "issuer"},
         {"schema_version": 1, "issuer_ref": "issuer\nforged"},
@@ -54,6 +60,23 @@ def test_malformed_top_level_provenance_refuses(provenance: Any) -> None:
     malformed = view() | {"host_start_provenance": provenance}
     with pytest.raises(RuntimeError, match="provenance"):
         _control_lease_view(malformed)
+
+
+@pytest.mark.parametrize("kind", ["identity.session", "approval.human", "HOST.START"])
+def test_host_provenance_refuses_other_lease_kinds(kind: str) -> None:
+    foreign = view() | {
+        "kind": kind,
+        "host_start_provenance": {"schema_version": 1, "issuer_ref": "native-issuer"},
+    }
+    with pytest.raises(RuntimeError, match="invalid native host-start provenance"):
+        _control_lease_view(foreign)
+
+
+def test_host_provenance_preserves_exact_utf8_boundary() -> None:
+    valid = view() | {
+        "host_start_provenance": {"schema_version": 1, "issuer_ref": "é" * 256}
+    }
+    assert _control_lease_view(valid) is valid
 
 
 def test_dedicated_issue_sends_binding_without_caller_provenance() -> None:
