@@ -32187,6 +32187,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "`NlQuery` that also discloses the generated query (EG-FEDERATED-QUERY-R058.2.2.1):\nthe SAME request, planner, budget, parse, authority and rows as `NlQuery`, answered\nas `{uql, rows}` so a caller can show the exact UQL the engine executed. Like\n`NlQuery`, the handler is gated behind the facade `nl-query` feature.",
+          "properties": {
+            "method": {
+              "const": "NlQueryExplain",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "graph": {
+                  "default": "",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Register (or replace) a foreign RowSet source under `name`. `source` is the\n[`crate::wire::ForeignSourceSpec`] (a remote engine or an HTTP/JSON API). A\nlater `ForeignScan` can name this registered source by id (the registry-backed\nform) instead of inlining the whole spec. Returns the name on success.",
           "properties": {
             "method": {
@@ -39241,6 +39272,41 @@
           "type": "object"
         }
       ]
+    },
+    "NlQueryExplainResult": {
+      "description": "The executed UQL and its rows, the served form of `eg_plan::nl::NlQueryResult` in\nexecuting mode.",
+      "properties": {
+        "rows": {
+          "description": "The `[node id, score | nil]` rows of that UQL, identical to `NlQuery`'s rows.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "uql": {
+          "description": "The exact UQL text the planner produced; the engine parsed and ran this text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uql",
+        "rows"
+      ],
+      "type": "object"
     },
     "NlTarget": {
       "description": "Which request a template fills.",
@@ -57103,6 +57169,18 @@
               "type": "array"
             },
             "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "NlQueryExplain": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/NlQueryExplainResult"
           }
         }
       },

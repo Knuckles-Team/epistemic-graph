@@ -49,7 +49,7 @@ pub(crate) fn handle_nl_query_plan(
     text: &str,
     core: &Arc<GraphCore>,
     req_id: u64,
-) -> Result<eg_plan::Plan, Response> {
+) -> Result<(String, eg_plan::Plan), Response> {
     let planner = crate::server::nl::resolve_planner().ok_or_else(|| {
         Response::err(
             req_id,
@@ -82,7 +82,7 @@ pub(crate) fn handle_nl_query_plan(
                 ),
             )
         })?;
-    eg_plan::uql::parse(&uql).map_err(|e| {
+    let plan = eg_plan::uql::parse(&uql).map_err(|e| {
         Response::err(
             req_id,
             format!(
@@ -90,7 +90,8 @@ pub(crate) fn handle_nl_query_plan(
                 e.render(&uql)
             ),
         )
-    })
+    })?;
+    Ok((uql, plan))
 }
 
 #[cfg(feature = "nl-query")]
@@ -99,6 +100,41 @@ pub(crate) async fn handle_nl_query(
     text: String,
     graph: String,
 ) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    Ok(match run_nl_query(ctx, text, graph).await {
+        Ok((_uql, rows)) => result_response::<query_results::NlQuery>(req_id, &rows),
+        Err(resp) => resp,
+    })
+}
+
+/// `Method::NlQueryExplain` (EG-FEDERATED-QUERY-R058.2.2.1): exactly [`handle_nl_query`]
+/// — the same planner, budget, parse, authority, legs, snapshot and refusals — answered
+/// as `{uql, rows}` so the caller sees the exact UQL the engine executed.
+#[cfg(feature = "nl-query")]
+pub(crate) async fn handle_nl_query_explain(
+    ctx: &QueryHandlerCtx<'_>,
+    text: String,
+    graph: String,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    Ok(match run_nl_query(ctx, text, graph).await {
+        Ok((uql, rows)) => result_response::<query_results::NlQueryExplain>(
+            req_id,
+            &eg_types::nl_query::NlQueryExplainResult { uql, rows },
+        ),
+        Err(resp) => resp,
+    })
+}
+
+/// The one NL run both NL handlers share: plan `text` to UQL, then run it on the
+/// caller's RLS-filtered snapshot. Answers the planner's exact UQL and the rows, or the
+/// refusal response.
+#[cfg(feature = "nl-query")]
+async fn run_nl_query(
+    ctx: &QueryHandlerCtx<'_>,
+    text: String,
+    graph: String,
+) -> Result<(String, Vec<(String, Option<f32>)>), Response> {
     let state = ctx.state;
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
@@ -114,18 +150,14 @@ pub(crate) async fn handle_nl_query(
     // new execution path — the produced query rides the deterministic pipeline.
     // The graph was already used for routing; the handler runs against `core`.
     let _ = graph;
-    let plan = match handle_nl_query_plan(&text, &core, req_id) {
-        Ok(plan) => plan,
-        Err(resp) => return Ok(resp),
-    };
+    let (uql, plan) = handle_nl_query_plan(&text, &core, req_id)?;
     // Verified-carrier legs: the committed tsdb scope for `Op::TsScan` fusion
     // (CONCEPT:EG-KG.query.native-time-series) and the CALLER'S owner-scoped foreign
     // registry (EH-373), so an NL-planned `FOREIGN "<name>"` / `Named` `ForeignScan`
     // leg resolves only sources the caller (tenant+principal) registered.
-    let legs = match ServedPlanLegs::resolve(state, graph_name, read_authority, &plan).await {
-        Ok(legs) => legs,
-        Err(denied) => return Ok(Response::err(req_id, denied)),
-    };
+    let legs = ServedPlanLegs::resolve(state, graph_name, read_authority, &plan)
+        .await
+        .map_err(|denied| Response::err(req_id, denied))?;
     // RLS-filtered off-lock snapshot, exactly like the Sql/Uql reads.
     // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
     // NL text would risk serving a stale/foreign result.
@@ -135,15 +167,13 @@ pub(crate) async fn handle_nl_query(
     rls.filter_view(caller, &mut snap);
     // The same off-lock run as `Uql`: persistent vector/lexical/spatial/
     // shape indexes and the caller's owner-scoped foreign registry are bound inside it.
-    let resp = match run_unified_off_lock(state, req_id, &core, Arc::new(snap), plan, legs).await {
-        Ok(Ok(rows)) => result_response::<query_results::NlQuery>(req_id, &rows),
-        Ok(Err(msg)) => Response::err(
+    match run_unified_off_lock(state, req_id, &core, Arc::new(snap), plan, legs).await? {
+        Ok(rows) => Ok((uql, rows)),
+        Err(msg) => Err(Response::err(
             req_id,
             eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", &msg),
-        ),
-        Err(resp) => resp,
-    };
-    Ok(resp)
+        )),
+    }
 }
 
 #[cfg(all(test, feature = "nl-query"))]

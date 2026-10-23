@@ -50,6 +50,8 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [ ] Wire `Method::NlQuery`'s dispatch handler and result contract to the typed disclosure model so the served result carries the executed UQL, and expose a plan-only entry point to callers. **EG-FEDERATED-QUERY-R058.2**
   - [x] Enforce the typed NL budget at the dispatch handler before parsing. **EG-FEDERATED-QUERY-R058.2.1**
   - [ ] Wire the result contract to carry the executed UQL and expose a plan-only entry point. **EG-FEDERATED-QUERY-R058.2.2**
+    - [x] Serve `NlQueryExplain`: the executed UQL with the same rows as `NlQuery`. **EG-FEDERATED-QUERY-R058.2.2.1**
+    - [ ] Expose the plan-only entry point. **EG-FEDERATED-QUERY-R058.2.2.2**
 - [ ] Confirm natural-language results are never cached on the NL text and that no mutating/side-effecting operation is reachable from the NL surface. **EG-FEDERATED-QUERY-R058.3**
   - [x] Guard that NL results are never cached on the NL text. **EG-FEDERATED-QUERY-R058.3.1**
   - [ ] Confirm no mutating operation is reachable from the NL surface. **EG-FEDERATED-QUERY-R058.3.2**

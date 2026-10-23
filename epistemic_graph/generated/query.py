@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     CausalCounterfactualRequest = _models.MethodCausalCounterfactualParams
     RankByProvenanceRequest = _models.MethodRankByProvenanceParams
     NlQueryRequest = _models.MethodNlQueryParams
+    NlQueryExplainRequest = _models.MethodNlQueryExplainParams
     TxnUnifiedQueryRequest = _models.MethodTxnUnifiedQueryParams
     TxnUqlRequest = _models.MethodTxnUqlParams
     EdgeSearchRequest = _models.MethodEdgeSearchParams
@@ -1203,6 +1204,47 @@ def decode_nl_query(result: OpaqueResult) -> _models.NlQueryResult:
     return decode_result("NlQuery", models().NlQueryResult, result)
 
 
+async def send_nl_query_explain(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        NlQueryExplain
+    Authorization:
+        query:nl
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/NlQueryExplain
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodNlQueryExplainParams.model_validate(params or {})
+    payload = await client._send(
+        "NlQueryExplain",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("NlQueryExplain", payload)
+
+
+def decode_nl_query_explain(result: OpaqueResult) -> _models.NlQueryExplainResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("NlQueryExplain", models().NlQueryExplainResult, result)
+
+
 async def send_txn_unified_query(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1487,6 +1529,7 @@ _REQUEST_METHODS = frozenset(
         "CausalCounterfactual",
         "RankByProvenance",
         "NlQuery",
+        "NlQueryExplain",
         "TxnUnifiedQuery",
         "TxnUql",
         "EdgeSearch",

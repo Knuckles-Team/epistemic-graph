@@ -14,7 +14,7 @@ only the new wire ops from B1.7:
 | RBAC admin | `RbacAddRole` `RbacRemoveRole` `RbacAddGrant` `RbacRemoveGrant` `RbacList` | EG-KG.compute.feature |
 | Identity security | `RegisterIdentity` `BootstrapSystemIdentity` `ApplyMultisigMutation` | Signed current-context operations |
 | Ops | `Backup(destination, label)` `Restore(source, targetShards)` | EG-090 |
-| NL→query | `NlQuery` | EG-080 |
+| NL→query | `NlQuery` `NlQueryExplain` | EG-080 |
 
 > **Generated-from-the-Method-list.** Every method maps 1:1 to a Rust `Method`
 > variant in [`crates/eg-types/src/protocol.rs`](../../crates/eg-types/src/protocol.rs),

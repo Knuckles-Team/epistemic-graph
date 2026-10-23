@@ -396,6 +396,15 @@ $($variants)*
         #[serde(default)]
         graph: String,
     },
+    /// `NlQuery` that also discloses the generated query (EG-FEDERATED-QUERY-R058.2.2.1):
+    /// the SAME request, planner, budget, parse, authority and rows as `NlQuery`, answered
+    /// as `{uql, rows}` so a caller can show the exact UQL the engine executed. Like
+    /// `NlQuery`, the handler is gated behind the facade `nl-query` feature.
+    NlQueryExplain {
+        text: String,
+        #[serde(default)]
+        graph: String,
+    },
 
 
     // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────

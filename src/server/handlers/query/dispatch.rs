@@ -315,6 +315,8 @@ async fn dispatch_external_query_method(
     match method {
         #[cfg(feature = "nl-query")]
         Method::NlQuery { text, graph } => handle_nl_query(ctx, text, graph).await,
+        #[cfg(feature = "nl-query")]
+        Method::NlQueryExplain { text, graph } => handle_nl_query_explain(ctx, text, graph).await,
         #[cfg(feature = "graphql")]
         Method::GraphQl { query, variables } => handle_graphql(ctx, query, variables).await,
         #[cfg(feature = "cypher")]

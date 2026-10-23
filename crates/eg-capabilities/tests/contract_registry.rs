@@ -215,9 +215,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // EG-DECISION-ENGINE-R802 `SelectWebPages`.
     // 468 -> 470: EG-DURABLE-KERNEL-R028.5 `PublishCurrentPlan` and `GetCurrentPlan`.
     // 470 -> 471: EG-DURABLE-KERNEL-R028.4.1 owner-bound GetRunWorkItem.
+    // 471 -> 472: EG-FEDERATED-QUERY-R058.2.2.1 read-only `NlQueryExplain`.
     assert_eq!(
         variants.len(),
-        471,
+        472,
         "the wire method census changed; update this exact count deliberately"
     );
 }

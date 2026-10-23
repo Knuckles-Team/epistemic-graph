@@ -30571,6 +30571,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "`NlQuery` that also discloses the generated query (EG-FEDERATED-QUERY-R058.2.2.1):\nthe SAME request, planner, budget, parse, authority and rows as `NlQuery`, answered\nas `{uql, rows}` so a caller can show the exact UQL the engine executed. Like\n`NlQuery`, the handler is gated behind the facade `nl-query` feature.",
+          "properties": {
+            "method": {
+              "const": "NlQueryExplain",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "graph": {
+                  "default": "",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Register (or replace) a foreign RowSet source under `name`. `source` is the\n[`crate::wire::ForeignSourceSpec`] (a remote engine or an HTTP/JSON API). A\nlater `ForeignScan` can name this registered source by id (the registry-backed\nform) instead of inlining the whole spec. Returns the name on success.",
           "properties": {
             "method": {
@@ -66198,6 +66229,37 @@
       "properties": {
         "method": {
           "const": "NlQuery",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "graph": {
+              "default": "",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "NlQueryExplain": {
+      "additionalProperties": false,
+      "description": "`NlQuery` that also discloses the generated query (EG-FEDERATED-QUERY-R058.2.2.1):\nthe SAME request, planner, budget, parse, authority and rows as `NlQuery`, answered\nas `{uql, rows}` so a caller can show the exact UQL the engine executed. Like\n`NlQuery`, the handler is gated behind the facade `nl-query` feature.",
+      "properties": {
+        "method": {
+          "const": "NlQueryExplain",
           "type": "string"
         },
         "params": {
