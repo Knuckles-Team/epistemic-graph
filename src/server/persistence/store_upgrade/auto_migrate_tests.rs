@@ -106,6 +106,28 @@ fn open_is_idempotent_and_writes_nothing_on_a_current_store() {
 
 // spec: EG-DURABLE-KERNEL-R070.1
 #[test]
+fn open_creates_nothing_in_a_fresh_data_directory() {
+    // An empty directory is how a new store is recognised, so the migration
+    // must not leave its staging directory behind when it has nothing to do.
+    let dir = data_dir();
+    let held = lock(dir.path());
+
+    let migration = migrate_on_open(dir.path(), &held).unwrap();
+
+    assert!(migration.stores.is_empty() && migration.refused.is_empty());
+    let entries: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        entries,
+        ["engine.lock"],
+        "migration wrote into a fresh directory"
+    );
+}
+
+// spec: EG-DURABLE-KERNEL-R070.1
+#[test]
 fn an_interrupted_migration_resumes_at_the_next_open() {
     let dir = data_dir();
     let (shard, library) = previous_patch_store(dir.path());
