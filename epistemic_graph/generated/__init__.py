@@ -319,7 +319,6 @@ SEND_BY_METHOD = {
     "GetPredecessors": graph.send_get_predecessors,
     "GetRdf": reasoning.send_get_rdf,
     "GetRunWorkItem": coordination.send_get_run_work_item,
-    "GetSessionUsage": coordination.send_get_session_usage,
     "GetShortestPath": compute.send_get_shortest_path,
     "GetSubgraph": graph.send_get_subgraph,
     "GetSuccessors": graph.send_get_successors,

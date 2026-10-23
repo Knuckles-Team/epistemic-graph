@@ -1287,6 +1287,63 @@ class ApiKeyUse(BaseModel):
     secret: Secret
 
 
+class ApprovalKeyAttestation(str, Enum):
+    BROKER_VERIFIED_ED25519 = "broker_verified_ed25519"
+
+
+class ApprovalKeyBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_revision: Annotated[int, Field(ge=0)]
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    key_id: str
+    principal_id: str
+    public_key_hex: str
+    purpose: ApprovalKeyPurpose
+    tenant: str
+
+
+class ApprovalKeyLookup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key_id: str
+    principal_id: str
+    purpose: ApprovalKeyPurpose
+
+
+class ApprovalKeyPurpose(str, Enum):
+    SIGNED_APPROVAL = "signed_approval"
+
+
+class ApprovalKeyRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    key_id: str
+    principal_id: str
+    public_key_hex: str
+    purpose: ApprovalKeyPurpose
+    revision: Annotated[int, Field(ge=0)]
+    revoked_at_ms: Annotated[int, Field(ge=0)] | None = None
+    tenant: str
+
+
+class ApprovalKeyRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    attestation: ApprovalKeyAttestation
+    binding: ApprovalKeyBinding
+    session_token: Secret
+
+
+class ApprovalKeyRevocation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_revision: Annotated[int, Field(ge=0)]
+    key: ApprovalKeyLookup
+    session_token: Secret
+
+
 class AsrOpTranscribeFile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -6896,6 +6953,30 @@ IdentityOpUser = Annotated[
 ]
 
 
+class IdentityOpCredentialRegisterApprovalKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["credential"]
+    op: Literal["register_approval_key"]
+    request: ApprovalKeyRegistration
+
+
+class IdentityOpCredentialInspectApprovalKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["credential"]
+    op: Literal["inspect_approval_key"]
+    request: ApprovalKeyLookup
+
+
+class IdentityOpCredentialRevokeApprovalKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["credential"]
+    op: Literal["revoke_approval_key"]
+    request: ApprovalKeyRevocation
+
+
 class IdentityOpCredentialSetPassword(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -6937,13 +7018,36 @@ class IdentityOpCredentialBootstrapSession(BaseModel):
 
 
 IdentityOpCredential = Annotated[
-    IdentityOpCredentialSetPassword
+    IdentityOpCredentialRegisterApprovalKey
+    | IdentityOpCredentialInspectApprovalKey
+    | IdentityOpCredentialRevokeApprovalKey
+    | IdentityOpCredentialSetPassword
     | IdentityOpCredentialChangePassword
     | IdentityOpCredentialAuthenticate
     | IdentityOpCredentialExternalLogin
     | IdentityOpCredentialBootstrapSession,
     Field(discriminator="op"),
 ]
+
+
+class IdentityOpSessionInspectReference(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["session"]
+    op: Literal["inspect_reference"]
+    session_ref: str
+    tenant: str
+
+
+class IdentityOpSessionRenewReference(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_authority_revision: Annotated[int, Field(ge=0)]
+    expected_scopes: Annotated[list[str], AfterValidator(_eg_unique_items)]
+    family: Literal["session"]
+    op: Literal["renew_reference"]
+    session_ref: str
+    tenant: str
 
 
 class IdentityOpSessionResolve(BaseModel):
@@ -6979,7 +7083,9 @@ class IdentityOpSessionList(BaseModel):
 
 
 IdentityOpSession = Annotated[
-    IdentityOpSessionResolve
+    IdentityOpSessionInspectReference
+    | IdentityOpSessionRenewReference
+    | IdentityOpSessionResolve
     | IdentityOpSessionRevoke
     | IdentityOpSessionRevokeAll
     | IdentityOpSessionList,
@@ -7314,6 +7420,13 @@ IdentityOp = Annotated[
 ]
 
 
+class IdentityReplyApprovalKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["approval_key"]
+    value: ApprovalKeyRecord
+
+
 class IdentityReplyDone(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -7368,6 +7481,20 @@ class IdentityReplySessions(BaseModel):
 
     kind: Literal["sessions"]
     value: list[SessionView]
+
+
+class IdentityReplySessionRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["session_record"]
+    value: SessionRecordProjection
+
+
+class IdentityReplySessionAuthority(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["session_authority"]
+    value: IdentityReplySessionAuthorityValue
 
 
 class IdentityReplyRoles(BaseModel):
@@ -7441,7 +7568,8 @@ class IdentityReplyResetDelivery(BaseModel):
 
 
 IdentityReply = Annotated[
-    IdentityReplyDone
+    IdentityReplyApprovalKey
+    | IdentityReplyDone
     | IdentityReplyConfig
     | IdentityReplyPrincipal
     | IdentityReplyUser
@@ -7449,6 +7577,8 @@ IdentityReply = Annotated[
     | IdentityReplyResolution
     | IdentityReplyAuthenticate
     | IdentityReplySessions
+    | IdentityReplySessionRecord
+    | IdentityReplySessionAuthority
     | IdentityReplyRoles
     | IdentityReplyGroups
     | IdentityReplyIdps
@@ -7473,6 +7603,14 @@ class IdentityReplyPrincipalValue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     principal_id: str
+
+
+class IdentityReplySessionAuthorityValue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    authority_revision: Annotated[int, Field(ge=0)]
+    record: SessionRecordProjection
+    scopes: Annotated[list[str], AfterValidator(_eg_unique_items)]
 
 
 class IdentityStamp(BaseModel):
@@ -11892,13 +12030,6 @@ class MethodGetCurrentPlan(BaseModel):
     params: MethodGetCurrentPlanParams
 
 
-class MethodGetSessionUsage(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    method: Literal["GetSessionUsage"]
-    params: MethodGetSessionUsageParams
-
-
 class MethodGetRunWorkItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12509,7 +12640,6 @@ Method = Annotated[
     | MethodEdgeSearch
     | MethodPublishCurrentPlan
     | MethodGetCurrentPlan
-    | MethodGetSessionUsage
     | MethodGetRunWorkItem
     | MethodGetWorkItem
     | MethodListWorkItems
@@ -14236,13 +14366,6 @@ class MethodGetRunWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     run_id: str
-    tenant: str
-
-
-class MethodGetSessionUsageParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    context_id: str
     tenant: str
 
 
@@ -21694,19 +21817,8 @@ class SessionTouch(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     code: Secret | None = None
+    refresh: bool | None = None
     session_token: Secret
-
-
-class SessionUsage(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    context_id: str
-    count_coverage: dict[str, Annotated[int, Field(ge=0)]]
-    counts: dict[str, Annotated[int, Field(ge=0)]]
-    expected_runs: Annotated[int, Field(ge=0)]
-    inventory_complete: bool
-    missing_runs: Annotated[int, Field(ge=0)]
-    recorded_runs: Annotated[int, Field(ge=0)]
 
 
 class SessionView(BaseModel):
@@ -25666,6 +25778,13 @@ __all__ = [
     "ApiKeyIssue",
     "ApiKeyUse",
     "AppendStepResult",
+    "ApprovalKeyAttestation",
+    "ApprovalKeyBinding",
+    "ApprovalKeyLookup",
+    "ApprovalKeyPurpose",
+    "ApprovalKeyRecord",
+    "ApprovalKeyRegistration",
+    "ApprovalKeyRevocation",
     "ArrayEncoding",
     "AsrOp",
     "AsrOpTranscribeFile",
@@ -26694,6 +26813,9 @@ __all__ = [
     "IdentityOpCredentialBootstrapSession",
     "IdentityOpCredentialChangePassword",
     "IdentityOpCredentialExternalLogin",
+    "IdentityOpCredentialInspectApprovalKey",
+    "IdentityOpCredentialRegisterApprovalKey",
+    "IdentityOpCredentialRevokeApprovalKey",
     "IdentityOpCredentialSetPassword",
     "IdentityOpIdp",
     "IdentityOpIdpLink",
@@ -26717,7 +26839,9 @@ __all__ = [
     "IdentityOpMfaVerifyWebauthn",
     "IdentityOpMfaWebauthnCredentials",
     "IdentityOpSession",
+    "IdentityOpSessionInspectReference",
     "IdentityOpSessionList",
+    "IdentityOpSessionRenewReference",
     "IdentityOpSessionResolve",
     "IdentityOpSessionRevoke",
     "IdentityOpSessionRevokeAll",
@@ -26737,6 +26861,7 @@ __all__ = [
     "IdentityOpUserUnlock",
     "IdentityOpUserUpdate",
     "IdentityReply",
+    "IdentityReplyApprovalKey",
     "IdentityReplyAudit",
     "IdentityReplyAuthenticate",
     "IdentityReplyConfig",
@@ -26752,6 +26877,9 @@ __all__ = [
     "IdentityReplyResetDelivery",
     "IdentityReplyResolution",
     "IdentityReplyRoles",
+    "IdentityReplySessionAuthority",
+    "IdentityReplySessionAuthorityValue",
+    "IdentityReplySessionRecord",
     "IdentityReplySessions",
     "IdentityReplySql",
     "IdentityReplyUser",
@@ -27448,8 +27576,6 @@ __all__ = [
     "MethodGetRdf",
     "MethodGetRunWorkItem",
     "MethodGetRunWorkItemParams",
-    "MethodGetSessionUsage",
-    "MethodGetSessionUsageParams",
     "MethodGetShortestPath",
     "MethodGetShortestPathParams",
     "MethodGetSubgraph",
@@ -28718,7 +28844,6 @@ __all__ = [
     "ServerTransport",
     "SessionRecordProjection",
     "SessionTouch",
-    "SessionUsage",
     "SessionView",
     "Sha256Digest",
     "ShaclSeverity",

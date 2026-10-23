@@ -2092,3 +2092,12 @@ R801.7 reuses the immutable ordinary run-completion ledger from R028.6. It does 
 The reader examines at most 10,000 graph rows or 32 MiB of encoded node rows. Either bound makes inventory_complete false. An older owned terminal row without immutable admission also makes inventory incomplete rather than trusting mutable metadata. No continuation cursor is supplied, so a large graph can remain partial. Missing usage and empty measurements are missing coverage; an explicit zero remains measured. Each run contributes at most once.
 
 Arbora exposes this shared result to all consumers. Actual AU request/run timings remain separate immediate metrics, not durable token receipts or generation speed. No costs, queue delays or TTFT are inferred. R801.7.3 stays open until fresh hosted generation, native execution, installed consumer acceptance and maximum-input measurements pass. No live data or infrastructure is changed by source reconciliation.
+
+### 2026-10-23: compose qualified identity main
+
+Retain the immutable session-usage projection and its finite dispatch compiler budget.
+Main fdb75651 contributes the qualified identity approval and Human-session renewal contracts.
+All canonical contract, codec and ledger files are exact main placeholders, not hand-merged outputs.
+The earlier session-usage exports remain evidence only for their original source tree.
+Fresh composed-source exports and all required native and Clippy checks must qualify this union.
+R801.7.3 retains installed-session, incomplete-coverage and resource-budget acceptance.

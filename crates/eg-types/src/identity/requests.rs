@@ -120,6 +120,10 @@ pub struct AuthenticateRequest {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SessionTouch {
+    /// Resolve only: omitted means refresh; false verifies without touching expiry.
+    /// Other session-token operations ignore this flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<bool>,
     pub session_token: Secret,
     /// A TOTP or recovery code, for the second-factor ops.
     #[serde(default)]

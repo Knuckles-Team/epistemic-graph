@@ -42,7 +42,6 @@ if TYPE_CHECKING:
     PublishCurrentPlanRequest = _models.MethodPublishCurrentPlanParams
     GetCurrentPlanRequest = _models.MethodGetCurrentPlanParams
     GetRunWorkItemRequest = _models.MethodGetRunWorkItemParams
-    GetSessionUsageRequest = _models.MethodGetSessionUsageParams
     GetWorkItemRequest = _models.MethodGetWorkItemParams
     ListWorkItemsRequest = _models.MethodListWorkItemsParams
     GetWorkItemOutcomeRequest = _models.MethodGetWorkItemOutcomeParams
@@ -1124,47 +1123,6 @@ async def send_get_run_work_item(
 def decode_get_run_work_item(result: OpaqueResult) -> _models.GetRunWorkItemResult:
     """Validate this method's result against its contract model."""
     return decode_result("GetRunWorkItem", models().GetRunWorkItemResult, result)
-
-
-async def send_get_session_usage(
-    client: Any,
-    params: dict[str, Any] | None = None,
-    graph: str | None = None,
-    *,
-    idempotency_key: str | None = None,
-) -> OpaqueResult:
-    """Send one engine-contract request.
-
-    Method:
-        GetSessionUsage
-    Authorization:
-        usage:read
-    Durability:
-        None
-    Replay:
-        NotReplayable
-    Result:
-        ResultPayload::Raw
-    Result schema:
-        contract/schemas/result.coordination.json
-        #/methods/GetSessionUsage
-    Errors:
-        - INVALID_ARGUMENT
-        - ACCESS_DENIED
-    """
-    models().MethodGetSessionUsageParams.model_validate(params or {})
-    payload = await client._send(
-        "GetSessionUsage",
-        params,
-        graph,
-        idempotency_key=idempotency_key,
-    )
-    return OpaqueResult("GetSessionUsage", payload)
-
-
-def decode_get_session_usage(result: OpaqueResult) -> _models.SessionUsage:
-    """Validate this method's result against its contract model."""
-    return decode_result("GetSessionUsage", models().SessionUsage, result)
 
 
 async def send_get_work_item(
@@ -2747,7 +2705,6 @@ _REQUEST_METHODS = frozenset(
         "PublishCurrentPlan",
         "GetCurrentPlan",
         "GetRunWorkItem",
-        "GetSessionUsage",
         "GetWorkItem",
         "ListWorkItems",
         "GetWorkItemOutcome",

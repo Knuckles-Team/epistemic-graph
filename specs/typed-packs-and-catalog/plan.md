@@ -620,9 +620,7 @@ No bulk data: the seed graph names objects and their references. Entity rows sta
 
 ## 2026-10-18 amendment — R085.1 durable session facts
 
-Reuse the existing session record and Resolve path. Persist an opaque storage
-reference and deployment tenant only when the existing verified request context
-matches the configured owner policy at creation. No current caller backfills old
+Reuse the existing session record and Resolve path. Persist an opaque storage reference and deployment tenant at creation. Require the existing verified request context to match the configured owner policy. No current caller backfills old
 records. Project six fields after the existing touch; publication follows
 successful persistence. No new operation, read surface or authority verdict is
 introduced. Arbora consumes the optional projection and owns admission.
@@ -681,3 +679,78 @@ runtime behavior, Arbora admission or live host startup.
 Masking enforcement lives in EG-FEDERATED-QUERY-R706. Quality scores live in
 EG-UNIFIED-DATA-PLANE-R762. Approval admission lives in arbora; the record and the reviewer
 choice stay here.
+
+## 2026-10-20 amendment — R085.5 registered approval keys
+
+Add a purpose-bound public Ed25519 key lifecycle to the existing identity
+credential family and durable store. The existing identity broker attests that
+Arbora verified possession of the key against canonical registration bytes.
+EG derives the human subject from a live, non-pending native session and binds
+the record to the stamped deployment tenant. Registration and revocation use
+exact revision CAS. Broker lookup returns only public key facts and grants no
+human authority. Arbora must separately validate the current human session.
+
+The source slice includes create, rotation, read, revoke, expiry and refusal
+fixtures. It adds no crypto dependency, privilege, live enrollment or adapter.
+The final combined unit run and canonical generation passed, as recorded below.
+Core durable execution, server tests, served broker proof verification and full
+signed approval acceptance remain pending owner integration and gates.
+
+Registration and revocation require a direct broker; delegated brokers may
+read public facts under the existing broker policy. Storage is capped at 32
+key records per principal, including tombstones. Measure create, lookup and
+revoke latency and allocation at this cap in the qualifying native job; retain
+pending benchmark status until measured. The current fixture tests a serialized
+image round trip, not durable reopen or concurrent commit CAS. Those acceptance
+checks remain pending the integrated native owner test.
+
+## 2026-10-20 combined producer qualification update
+
+The final combined identity producer source passed 108 `eg-types`
+`identity::tests` tests in 159.02 seconds. Canonical generation passed in
+219.05 seconds. These results supersede earlier pending statements only for
+the unit test run and canonical generation on this candidate. Historical
+receipts above remain unchanged and do not qualify the newer source.
+
+Canonical WASM generation passed in 255.04 seconds. Contract freshness passed in 45.01 seconds and WASM freshness passed in 3.00 seconds. The unchanged Rust dependency advisory gate passed. No core
+durable, server or served tests ran for this candidate. R085.4–R085.7 retain
+separate pure-store, durable and served acceptance children. Unit success does
+not complete a durable or served child. The combined generated/served children
+remain SPECIFIED until their full acceptance runs. Preserve the original parent
+criteria and complete normal gates before publication.
+
+## 2026-10-20 unpublished approval format naming
+
+The candidate key records were absent from upstream main at `1242b7dd`. They had no published native commit or release. The paired Arbora consumer remains draft PR395. Rename the new purpose to `signed_approval` and attestation to `broker_verified_ed25519` before publication. Update generated contracts and exact registration bytes together. Keep the existing signature domain, field order, length encoding and verification unchanged. This candidate does not migrate a deployed format or enroll a live key. Earlier native evidence applies before this naming correction; record targeted regeneration and test results separately. Durable core, server and served approval qualification remain pending.
+
+Publication-only checks passed after the rename: five native key tests and canonical contract generation. The stable-source contract freshness check passed, followed by WASM generation and freshness. A codec attempt interrupted during temporary hook stashing provides no qualification evidence. The completed stable-source sequence replaces it. No durable core, server, benchmark or served acceptance test ran.
+
+
+### Identity qualification helper boundaries
+
+R085.4, R085.5 and R085.7 retain their authority and refusal ordering.
+Approval-key replacement validation and unique session-reference lookup use
+small shared helpers. Native fixtures reuse setup without changing assertions.
+Fresh hosted native tests and canonical generation remain required.
+
+Hosted artifacts 12481088380 and 12481785495 came from source
+7d3ff1feb1b83943e20370f09de3b501ed0f3ac8, tree
+cd8aab733a002e72a588f01c8845701f52103b00. Archive, recipe and output
+hashes were verified before importing all 73 canonical files and both codecs.
+The helper cleanup changes no DTO fields or wire validation rules.
+Final-head native, generated parity and served qualification remain pending.
+
+At published head cd7569af, hosted job 120258833170 passed the new
+pure identity and durable reopen tests. These include rotation, revocation,
+renewal CAS, original scope ceilings, human ownership and absolute expiry.
+Its only failing test was committed canonical artifact parity.
+These are prior-head receipts, not execution proof for the helper cleanup.
+
+### Current-main ontology integration qualification
+
+The identity source now includes main 5b227a9ca and its connector ontology fields.
+The merged source preserves both operation sets.
+The three conflicting generated receipt and catalog files retain the exact main versions temporarily.
+These files are stale for the identity union, not a qualified combined contract.
+Fresh hosted native generation and final-source parity must replace this draft baseline before merge.
+The earlier identity exports remain preserved with their original source receipts.

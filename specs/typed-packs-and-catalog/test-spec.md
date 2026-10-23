@@ -72,7 +72,7 @@ Every row's regression test must pass against an exact merged head, as PACK-06/0
 
 | Repair | Requirement | Regression | Acceptance |
 | --- | --- | --- | --- |
-| TP-PARSE-IDENTITY | EG-TYPED-PACKS-R093.1 | Native public and bounded Turtle readers parse the same explicit and anonymous blank nodes independently, then union the results. | Six subjects stay distinct across three parses; same-document references remain equal; composition retains explicit source labels; existing bounded refusal tests pass. |
+| TP-PARSE-IDENTITY | EG-TYPED-PACKS-R093.1 | Native public and bounded Turtle readers parse the same explicit and anonymous blank nodes independently. They then union the results. | Six subjects stay distinct across three parses; same-document references remain equal; composition retains explicit source labels; existing bounded refusal tests pass. |
 | TP-REPROJECT-IDENTITY | EG-TYPED-PACKS-R093.2 | Served reproject combines independent connector-pack members with reused blank labels. | Isolated member identities and repeatable composed digests; remains open until the served regression executes. |
 
 ## Capability annotation evidence
@@ -504,3 +504,88 @@ requires an error response with no result. Canonical artifact freshness passes. 
 - `EG-TYPED-PACKS-R109.4`: `crates/eg-core/tests/dashboard_asset.rs::stale_revision_missing_grant_invalid_body_and_purged_asset_refuse`.
 - `EG-TYPED-PACKS-R109.5`: `tests/typed_packs/test_dashboard_asset_served.py::test_revision_grant_and_delete_history_and_usage_are_served`.
 - `EG-TYPED-PACKS-R109.6`: `tests/typed_packs/test_dashboard_asset_served.py::test_dashboard_save_conflict_share_lineage_search_and_soft_delete`.
+
+## R085.7 original session reference inspection
+
+`original_reference_inspection_is_owner_bound_and_does_not_touch` checks exact stored reference, stamped principal/tenant, expiry and revocation refusals. The durable R085.1 reopen fixture also inspects the original record through `SessionOp::InspectReference`. Neither fixture proves served admission. The unit fixture passed in the 2026-10-20 run recorded below. Durable execution remains pending; canonical generation passed.
+
+## R085.4 global authority revision renewal
+
+`renewal_uses_global_revision_and_survives_reopen_without_resurrection` exercises the durable owner. The expected revision is global, so unrelated authority mutations also require a fresh read. Renewal never extends absolute authentication lifetime. This durable fixture remains unexecuted. Canonical generation passed; see the evidence below.
+
+`renewal_preserves_original_scope_ceiling_and_refuses_legacy_evidence` checks that the captured ceiling survives serialization. Missing legacy evidence and expanded scopes refuse. Narrowed scopes can renew without changing the ceiling. Existing credential resolution behavior is unchanged.
+
+## R085.5 approval key lifecycle
+
+Source fixtures cover create/read/persistence, rotation/revocation CAS and exact subject/tenant/purpose. They also cover expired or pending sessions, disabled/service subjects and absent broker authority. Canonical proof bytes are deterministic; native tests do not verify broker proof or served enrollment. The pure store tests passed in the run below. Durable, server and served qualification remain pending.
+
+## R085.6 non-touch credential resolution
+
+The existing Resolve operation accepts optional `refresh`. False preserves the current credential authority checks and returns the existing resolution without touching session state. Native test sources cover no mutation, exact expiry, revoke despite false, missing authority and omitted-field compatibility. The durable session fixture checks unchanged revision and policy image. The unit tests and canonical generation passed. Durable execution, codec checks and served qualification remain pending.
+
+## R085 acceptance qualification layers
+
+R085.4–R085.7 preserve their parent obligations as rollups. Their .1 children cover pure store transitions; .2 children require durable owner execution. R085.5.3 covers request stamping only. R085.7.3, R085.4.3, R085.5.4 and R085.6.3 retain generated/served qualification. A passing unit filter is not evidence for unexecuted durable or served acceptance. Source markers bind only their matching layer.
+
+## 2026-10-20 combined identity producer evidence
+
+The final combined `eg-types` `identity::tests` run passed all 108 tests in
+159.02 seconds. This includes the reference inspection, renewal ceiling,
+approval-key lifecycle and non-touch credential unit fixtures. The result
+supports R085.7.1, R085.4.1, R085.5.1 and R085.6.1 only within their stated
+pure-store acceptance. It does not execute the core durable or server fixtures.
+
+Canonical contract generation completed successfully in 219.05 seconds against
+the combined source. Codec generation/checks and remaining artifact checks are
+pending. A generator result does not prove execution of its generated routes.
+
+Core durable tests, server tests and served acceptance have not run for this
+candidate. Keep R085.7.2, R085.4.2, R085.5.2, R085.5.3 and R085.6.2 pending.
+The combined generated/served children R085.7.3, R085.4.3, R085.5.4 and R085.6.3
+remain SPECIFIED because their served acceptance is unexecuted. The parent
+criteria remain intact. These receipts do not qualify live enrollment, host
+admission or full signed-approval consumption.
+
+Reconciliation fixtures (2026-10-22, authored but not executed):
+- `reference_operations_refuse_service_principal_substitution_without_mutation`
+  refuses both reference operations for a service principal without mutation.
+- `renewal_clamps_idle_to_original_absolute_expiry_and_preserves_subject_mfa`
+  proves only last-seen and idle expiry change, clamps at the original absolute
+  deadline, and refuses renewal at that deadline without mutation.
+
+Additional R085.4.1 renewal regressions (authored 2026-10-22; execution pending):
+- Renewal refuses revoked, idle/absolute-expired, pending-MFA, disabled,
+  ambiguous, wrong-owner, wrong-tenant and delegated authority without mutation.
+- Repeated idle renewals retain the original principal, tenant, MFA timestamp,
+  scope ceiling and absolute deadline. Reaching the deadline requires issuer
+  reauthentication, not another renewal; a saturated idle window refuses.
+
+The additional R085.4.3 `reference_renewal_rechecks_boundary_and_global_revision`
+fixture is source-only until server execution. It covers caller-stamp replacement,
+delegation refusal, unrelated authority revision changes, and original expiry/MFA
+preservation. It does not qualify installed brokers or the TUI scheduler.
+
+2026-10-22 isolated reconciliation attempt: pinned Rust 1.96.0,
+`cargo test --locked --offline -p eg-types identity::tests::session_evidence`,
+no features, one build job, test/dev debuginfo disabled, incremental disabled,
+test opt-level 0. SIGKILL stopped the compiler process for `eg-types` before test execution. This provides no native pass evidence. The earlier
+2026-10-20 receipts above describe the old candidate, not this reconciled tree.
+Durable, server, generated and end-to-end renewal qualification remain pending.
+
+
+## 2026-10-23 current-main reconciliation qualification
+
+The 2026-10-20 results above qualify only the original producer source, not
+this reconciled candidate. The 2026-10-22 compiler failure remains a failed
+attempt, not native evidence. This reconciliation preserves current-main
+caller/security behavior and includes the Human-owner guard with the producer.
+Its reference-inspection subtree uses R085.7 because current-main R085.3 owns a
+distinct served liveness response contract. Neither contract substitutes for
+the other. The additional renewal regressions remain authored, not executed.
+
+Fresh canonical contract and WASM generation must run against this exact source
+before promotion. Main's generated outputs are retained only as a visibly
+unqualified starting point, not represented as matching the added DTOs. Hosted
+source-only draft qualification is authorized; no failing merge or release is
+qualified. Durable, native server, installed broker and full signed-approval
+consumption acceptance remain open. No atomic approval consumption is added.

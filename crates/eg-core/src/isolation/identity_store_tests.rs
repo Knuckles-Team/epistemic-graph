@@ -407,6 +407,7 @@ fn stale_policy_writer_cannot_restore_a_revoked_session() {
     let mut value = serde_json::to_value(snapshot.policy()).unwrap();
     value["identity"]["sessions"][&hash] = serde_json::to_value(SessionRecord {
         session_hash: hash.clone(),
+        original_scopes: None,
         session_ref: None,
         session_tenant: None,
         principal_id: "usr:alice".into(),
@@ -469,6 +470,7 @@ fn failed_session_touch_persistence_publishes_no_record_projection() {
     owner_stamp.minted_session_ref = Some("ses:stored-record".into());
     owner_stamp.session_tenant = Some("tenant-record".into());
     let request = SessionTouch {
+        refresh: None,
         session_token: Secret::default(),
         code: Secret::default(),
     };
@@ -502,6 +504,7 @@ fn failed_session_touch_persistence_publishes_no_record_projection() {
     );
 }
 
+mod approval_keys;
 #[path = "identity_store_tests/session_evidence.rs"]
 mod session_evidence;
 
@@ -521,4 +524,29 @@ fn admin_capability_refuses_missing_or_unreadable_authority() {
     assert!(!layer.has_admin_capability("system"));
     layer.persist = None;
     assert!(!layer.has_admin_capability("system"));
+}
+
+fn durable_fixture_dir(label: &str) -> std::path::PathBuf {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("{label}-{}-{nonce}", std::process::id()))
+}
+
+fn session_fixture(owner: &IdentityStamp) -> IsolationLayer {
+    let mut fixture = seeded();
+    apply(
+        &mut fixture,
+        IdentityOp::Credential(CredentialOp::BootstrapSession {
+            request: SessionTouch {
+                refresh: None,
+                session_token: Secret::default(),
+                code: Secret::default(),
+            },
+        }),
+        owner,
+    )
+    .unwrap();
+    fixture
 }
