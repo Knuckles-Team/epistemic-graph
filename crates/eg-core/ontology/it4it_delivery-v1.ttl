@@ -1,0 +1,219 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<http://knuckles.team/kg/it4it_delivery> a owl:Ontology ;
+    rdfs:label "IT4IT Delivery Ontology" ;
+    rdfs:comment "IT4IT value-stream data objects not covered by the service-operations core: Strategy to Portfolio and Requirement to Deploy (portfolio backlog item, backlog, build, build package, deployment, environment), Request to Fulfil (service catalog entry, subscription, service request) and Detect to Correct (alert, known error, service-level target, monitor, heartbeat, status page, dashboard, panel, configuration item collection). Release, Job, Runner, Problem and Incident are reused, not redeclared (EG-TYPED-PACKS-R105.6)." ;
+    dcterms:source "Open Group IT4IT Reference Architecture, value-stream data objects" ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/sdlc_lifecycle>, <http://knuckles.team/kg/software>, <http://knuckles.team/kg/service_operations>, <http://knuckles.team/kg/orchestration>, <http://knuckles.team/kg/sdd> .
+
+:PortfolioBacklogItem a owl:Class ;
+    rdfs:label "Portfolio Backlog Item" ;
+    rdfs:comment "IT4IT Strategy to Portfolio backlog item: a prioritised unit of demand (epic, initiative, enhancement) that is refined into requirements and delivered through releases." ;
+    skos:altLabel "Epic", "Initiative", "Portfolio Item" ;
+    rdfs:subClassOf :WorkItem .
+
+:Backlog a owl:Class ;
+    rdfs:label "Backlog" ;
+    rdfs:comment "IT4IT Requirement to Deploy backlog: the ordered collection of backlog items for a product or service." ;
+    skos:altLabel "Product Backlog" ;
+    rdfs:subClassOf :Collection .
+
+:Build a owl:Class ;
+    rdfs:label "Build" ;
+    rdfs:comment "IT4IT Requirement to Deploy build: one execution that compiles, tests and packages a source revision. A kind of job." ;
+    skos:altLabel "Build Run" ;
+    rdfs:subClassOf :Job .
+
+:BuildPackage a owl:Class ;
+    rdfs:label "Build Package" ;
+    rdfs:comment "IT4IT build package: the versioned deployable artifact a build produces and a release includes." ;
+    skos:altLabel "Deployable Package", "Build Artifact" ;
+    rdfs:subClassOf :Artifact .
+
+:Deployment a owl:Class ;
+    rdfs:label "Deployment" ;
+    rdfs:comment "IT4IT Requirement to Deploy deployment: the act of installing a release into an environment." ;
+    skos:altLabel "Deployment Run", "Rollout" ;
+    rdfs:subClassOf :RunEvent, bfo:0000015 .
+
+:Environment a owl:Class ;
+    rdfs:label "Environment" ;
+    rdfs:comment "IT4IT deployment environment: a named, bounded set of infrastructure that releases are deployed into (development, test, production)." ;
+    skos:altLabel "Deployment Environment" ;
+    rdfs:subClassOf :ResourceGroup .
+
+:ServiceCatalogEntry a owl:Class ;
+    rdfs:label "Service Catalog Entry" ;
+    rdfs:comment "IT4IT Request to Fulfil service catalog entry: the published, requestable offer of a business service." ;
+    skos:altLabel "Catalog Entry", "Service Catalog Item", "Service Offer", "Offer" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Subscription a owl:Class ;
+    rdfs:label "Subscription" ;
+    rdfs:comment "IT4IT Request to Fulfil subscription: a consumer's standing entitlement to a service catalog entry." ;
+    skos:altLabel "Service Subscription", "Entitlement" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ServiceRequest a owl:Class ;
+    rdfs:label "Service Request" ;
+    rdfs:comment "IT4IT Request to Fulfil request: a ticket asking for a catalog entry to be fulfilled." ;
+    skos:altLabel "Fulfillment Request" ;
+    rdfs:subClassOf :Ticket .
+
+:Alert a owl:Class ;
+    rdfs:label "Alert" ;
+    rdfs:comment "IT4IT Detect to Correct event raised by a monitor when a threshold is crossed; may open an incident." ;
+    skos:altLabel "Monitoring Alert", "Alarm" ;
+    rdfs:subClassOf :Event .
+
+:KnownError a owl:Class ;
+    rdfs:label "Known Error" ;
+    rdfs:comment "IT4IT Detect to Correct known error: a problem with a documented root cause and workaround." ;
+    skos:altLabel "Known Error Record" ;
+    rdfs:subClassOf :Problem .
+
+:ServiceLevelTarget a owl:Class ;
+    rdfs:label "Service Level Target" ;
+    rdfs:comment "IT4IT service-level target: a measurable objective for a service (availability, response time)." ;
+    skos:altLabel "SLO", "Service Level Objective", "SLA Target" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Monitor a owl:Class ;
+    rdfs:label "Monitor" ;
+    rdfs:comment "IT4IT Detect to Correct monitor: a configured check that observes a configuration item." ;
+    skos:altLabel "Uptime Monitor", "Health Check", "Probe" ;
+    rdfs:subClassOf :ConfigurationItem .
+
+:Heartbeat a owl:Class ;
+    rdfs:label "Heartbeat" ;
+    rdfs:comment "One measurement a monitor takes: status and latency at a point in time." ;
+    skos:altLabel "Monitor Check", "Check Result" ;
+    rdfs:subClassOf :Observation .
+
+:StatusPage a owl:Class ;
+    rdfs:label "Status Page" ;
+    rdfs:comment "A published page that shows the current status of services." ;
+    skos:altLabel "Service Status Page" ;
+    rdfs:subClassOf :Document .
+
+:Dashboard a owl:Class ;
+    rdfs:label "Dashboard" ;
+    rdfs:comment "A visualisation view that lays out panels of metrics, logs or traces." ;
+    skos:altLabel "Monitoring Dashboard" ;
+    rdfs:subClassOf :Document .
+
+:Panel a owl:Class ;
+    rdfs:label "Panel" ;
+    rdfs:comment "One visualisation within a dashboard." ;
+    skos:altLabel "Dashboard Panel" ;
+    rdfs:subClassOf :Document .
+
+:ConfigurationItemCollection a owl:Class ;
+    rdfs:label "Configuration Item Collection" ;
+    rdfs:comment "A named collection of configuration items managed together: an inventory, an upstream pool, a cluster." ;
+    skos:altLabel "Inventory", "Upstream", "Upstream Pool", "Cluster" ;
+    rdfs:subClassOf :ResourceGroup .
+
+:deploysRelease a owl:ObjectProperty ;
+    rdfs:label "deploys release" ;
+    rdfs:comment "Links a deployment to the release it installs." ;
+    rdfs:domain :Deployment ;
+    rdfs:range :Release .
+
+:deployedToEnvironment a owl:ObjectProperty ;
+    rdfs:label "deployed to environment" ;
+    rdfs:comment "Links a deployment to the environment it targets." ;
+    rdfs:domain :Deployment ;
+    rdfs:range :Environment .
+
+:producesPackage a owl:ObjectProperty ;
+    rdfs:label "produces package" ;
+    rdfs:comment "Links a build to the build package it creates." ;
+    rdfs:domain :Build ;
+    rdfs:range :BuildPackage .
+
+:includesPackage a owl:ObjectProperty ;
+    rdfs:label "includes package" ;
+    rdfs:comment "Links a release to the build packages it contains." ;
+    rdfs:domain :Release ;
+    rdfs:range :BuildPackage .
+
+:deliversItem a owl:ObjectProperty ;
+    rdfs:label "delivers item" ;
+    rdfs:comment "Links a release to the portfolio backlog items it delivers." ;
+    rdfs:domain :Release ;
+    rdfs:range :PortfolioBacklogItem .
+
+:itemOfBacklog a owl:ObjectProperty ;
+    rdfs:label "item of backlog" ;
+    rdfs:comment "Links a portfolio backlog item to the backlog that orders it." ;
+    rdfs:domain :PortfolioBacklogItem ;
+    rdfs:range :Backlog ;
+    rdfs:subPropertyOf :partOf .
+
+:offersService a owl:ObjectProperty ;
+    rdfs:label "offers service" ;
+    rdfs:comment "Links a service catalog entry to the business service it offers." ;
+    rdfs:domain :ServiceCatalogEntry ;
+    rdfs:range :BusinessService .
+
+:subscribesToEntry a owl:ObjectProperty ;
+    rdfs:label "subscribes to entry" ;
+    rdfs:comment "Links a subscription to the catalog entry it entitles." ;
+    rdfs:domain :Subscription ;
+    rdfs:range :ServiceCatalogEntry .
+
+:fulfilsEntry a owl:ObjectProperty ;
+    rdfs:label "fulfils entry" ;
+    rdfs:comment "Links a service request to the catalog entry it asks for." ;
+    rdfs:domain :ServiceRequest ;
+    rdfs:range :ServiceCatalogEntry .
+
+:alertsOn a owl:ObjectProperty ;
+    rdfs:label "alerts on" ;
+    rdfs:comment "Links an alert to the configuration item it concerns." ;
+    rdfs:domain :Alert ;
+    rdfs:range :ConfigurationItem .
+
+:monitorsItem a owl:ObjectProperty ;
+    rdfs:label "monitors item" ;
+    rdfs:comment "Links a monitor to the configuration item it observes." ;
+    rdfs:domain :Monitor ;
+    rdfs:range :ConfigurationItem .
+
+:checkOf a owl:ObjectProperty ;
+    rdfs:label "check of" ;
+    rdfs:comment "Links a heartbeat to the monitor that took it." ;
+    rdfs:domain :Heartbeat ;
+    rdfs:range :Monitor ;
+    rdfs:subPropertyOf :partOf .
+
+:statusOf a owl:ObjectProperty ;
+    rdfs:label "status of" ;
+    rdfs:comment "Links a status page to the service it reports on." ;
+    rdfs:domain :StatusPage ;
+    rdfs:range :BusinessService .
+
+:panelOf a owl:ObjectProperty ;
+    rdfs:label "panel of" ;
+    rdfs:comment "Links a panel to the dashboard it belongs to." ;
+    rdfs:domain :Panel ;
+    rdfs:range :Dashboard ;
+    rdfs:subPropertyOf :partOf .
+
+:documentsProblem a owl:ObjectProperty ;
+    rdfs:label "documents problem" ;
+    rdfs:comment "Links a known error to the problem it documents." ;
+    rdfs:domain :KnownError ;
+    rdfs:range :Problem .
+
+:targetsService a owl:ObjectProperty ;
+    rdfs:label "targets service" ;
+    rdfs:comment "Links a service-level target to the service it applies to." ;
+    rdfs:domain :ServiceLevelTarget ;
+    rdfs:range :BusinessService .

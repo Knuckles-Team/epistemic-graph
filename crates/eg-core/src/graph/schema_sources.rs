@@ -20,7 +20,9 @@ use super::LegacyIntegrityPolicy;
 /// vocabulary and shapes (37, ST-1), the finance module and its shapes (39,
 /// EH-411), the temporal bi-temporal-fact shapes (40, AU-SEMANTIC-R004), and
 /// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037), and
-/// the service-operations module (43, EG-TYPED-PACKS-R105.4).
+/// the service-operations module (43, EG-TYPED-PACKS-R105.4), and the
+/// data-platform, IT4IT-delivery, media and retrieval domain modules (47,
+/// EG-TYPED-PACKS-R105.6 to R105.9).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -636,6 +638,12 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/concepts-v1.ttl")),
         },
         CoreSpec {
+            module: "dataplatform",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/dataplatform-v1.ttl")),
+        },
+        CoreSpec {
             module: "documentation",
             version: 1,
             shapes: None,
@@ -678,10 +686,22 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/infrastructure-v1.ttl")),
         },
         CoreSpec {
+            module: "it4it_delivery",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/it4it_delivery-v1.ttl")),
+        },
+        CoreSpec {
             module: "medical",
             version: 1,
             shapes: None,
             ontology: Some(include_str!("../../ontology/medical-v1.ttl")),
+        },
+        CoreSpec {
+            module: "media",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/media-v1.ttl")),
         },
         CoreSpec {
             module: "native_source_connector",
@@ -708,6 +728,12 @@ fn core_specs() -> &'static [CoreSpec] {
             version: 1,
             shapes: None,
             ontology: Some(include_str!("../../ontology/process_intelligence-v1.ttl")),
+        },
+        CoreSpec {
+            module: "retrieval",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/retrieval-v1.ttl")),
         },
         CoreSpec {
             module: "sdd",
@@ -898,7 +924,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 43);
+        assert_eq!(sources.core.len(), 47);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1185,7 +1211,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "be8508591e04952e855ee79e9fc7b1751d1554db4d72ee9c14317e7529fdfdb2",
+                "e51d86e483d8d1a0647369f72a1cef07b39cf1d9b2434a4ad1bef1c20bf54a0e",
             ),
             (
                 "company",
@@ -1267,6 +1293,22 @@ mod tests {
             (
                 "service_operations",
                 "12498d7bb52e26cca7a40f3bb1dff60a06290cb70a6b319659697c6986184295",
+            ),
+            (
+                "dataplatform",
+                "85467e7f305a29c68a0de04d345cf98954bf0864ff830a75d29055cb9f195135",
+            ),
+            (
+                "it4it_delivery",
+                "54f25a4583b59f73256eefc7bec9781c6bbc7f0a6ff1fbd4b4735fbc2807b080",
+            ),
+            (
+                "media",
+                "9ec45d345d8995429c75603cdd4ea9b726e72d5b467c68c5d45706cd1e9e0a5a",
+            ),
+            (
+                "retrieval",
+                "a4aded0ccadcf3bf5fae62d5071dc330e4e73e56daf7b2dfb8e288d865a0346f",
             ),
             (
                 "sdlc_lifecycle",

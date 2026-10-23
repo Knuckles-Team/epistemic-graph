@@ -550,7 +550,7 @@
       "title": "Register `orchestration-v1.shapes.ttl` with the shape loader",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:168"
@@ -599,7 +599,7 @@
       "title": "Add property `:terminationReason`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:126",
@@ -611,7 +611,7 @@
       "title": "Add property `:peakContextTokens`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:127"
@@ -622,7 +622,7 @@
       "title": "Add property `:contextBudgetTokens`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:128"
@@ -633,7 +633,7 @@
       "title": "Add property `:elisionCount`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:129"
@@ -644,7 +644,7 @@
       "title": "Add property `:summarizationCount`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:130"
@@ -655,7 +655,7 @@
       "title": "Add property `:turnCount`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:131"
@@ -666,7 +666,7 @@
       "title": "Add property `:toolCallCount`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:132"
@@ -677,7 +677,7 @@
       "title": "Add property `:costUsd`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:133"
@@ -709,7 +709,8 @@
       "title": "Add counter shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5",
+        "a5636f58936e"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:194"
@@ -720,7 +721,7 @@
       "title": "Add context-budget shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4d433d4443ef"
+        "4d9de9157ff5"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:226"
