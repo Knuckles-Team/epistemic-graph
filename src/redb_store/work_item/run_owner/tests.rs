@@ -402,13 +402,17 @@ fn ordinary_completion_native_fence_and_terminal_noop_preserve_binding() {
                 *lease_epoch += 1;
             }
         }
-        apply(
+        let response = apply(
             &shard,
             tag,
             method,
             if tag == "expired" { 62_001 } else { 3000 },
         )
         .unwrap();
+        let crate::protocol::ResultPayload::Json(refusal) = response else {
+            panic!("expected a typed commit refusal");
+        };
+        assert_eq!(refusal["status"], "fenced", "{tag} must be fenced");
         assert_eq!(row(&shard), before, "{tag} must not alter terminal binding");
     }
     apply(
@@ -431,11 +435,13 @@ fn ordinary_completion_native_fence_and_terminal_noop_preserve_binding() {
         &shard,
         "finish",
         commit(hold.fencing_token.unwrap(), None),
-        3000,
+        4000,
     )
     .unwrap();
     let finished = row(&shard);
     assert_eq!(finished["status"], "failed");
+    // Backdated caller time cannot choose the durable terminal timestamp.
+    assert_eq!(finished["completed_at"], serde_json::json!(4.0));
     assert!(finished["result_ref"].is_null());
     assert_eq!(finished[RUN_COMPLETION_BATCH], "finish");
     assert!(finished[RUN_COMPLETION_DIGEST].as_str().unwrap().len() == 64);

@@ -111,7 +111,14 @@ pub(crate) fn apply_work_item_rows(
             result_ref,
             error_ref,
             retryable: *retryable,
-            now_ms: *now_ms,
+            // Ordinary completion binds both the live fence and terminal timestamp to
+            // the engine commit clock, never the caller's backdated wire value.
+            // Legacy and delegated commits retain their existing clock semantics.
+            now_ms: if run_completion.is_some() {
+                committed_at_ms
+            } else {
+                *now_ms
+            },
             outcome_extension: outcome_extension.as_deref(),
             run_completion: run_completion.as_deref(),
             batch_id,

@@ -855,7 +855,10 @@ extensions cannot share one operation. The original admitted run and verified
 owner binding remain authoritative. A caller cannot attach a different run.
 
 Reuse the native WorkItem transaction and MutationBatch ledger. Check the live
-worker lease before changing the terminal row. Bind one completion event's batch
+worker lease before changing the terminal row. Use the committed batch timestamp
+for ordinary completion fencing and terminal time. Backdated caller input cannot
+revive an expired lease or choose the recorded completion time. Replay uses the
+recorded engine clock, not a new wall-clock read. Bind one completion event's batch
 and byte digest to that row. Read the row, ledger and event from one snapshot.
 Return the exact scope, sequence, ordinal and digest. Missing or corrupt bound
 evidence refuses; an older unbound row has no ordinary completion receipt.

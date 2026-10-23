@@ -400,7 +400,8 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - Commit failure with observed counters and with empty usage. Empty stays empty.
 - Refuse negative, fractional, boolean, unsafe-sized or inconsistent counters.
 - Refuse foreign run, tenant, graph, worker, lease epoch and fencing token.
-- Refuse expired lease without changing the row, receipt or outbox.
+- Refuse expired lease without changing the row, receipt or outbox, even with
+  backdated caller time. Bind successful completion time to the engine commit.
 - Refuse an ordinary completion with a delegated extension or failed answer.
 - Replay with the same and a new key. Preserve the first terminal receipt.
 - Reopen storage and read the same scope, sequence, ordinal and payload digest.
