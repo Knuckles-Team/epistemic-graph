@@ -123,6 +123,7 @@
     "EG-DURABLE-KERNEL-R063.2",
     "EG-DURABLE-KERNEL-R064",
     "EG-DURABLE-KERNEL-R065",
+    "EG-DURABLE-KERNEL-R065.1",
     "EG-DURABLE-KERNEL-R066",
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
@@ -2043,12 +2044,24 @@
     {
       "id": "EG-DURABLE-KERNEL-R065",
       "title": "Signed dispatch commit recovers correctly after an ack-lost fault window",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "57a12eb06632"
       ],
       "verified_by": [
         "tests/txn_reconcile_ack_lost_retry.rs:573"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R065.1"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R065.1",
+      "title": "The transaction coordinator lane is disjoint from graph lanes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/mutation_batch/commit/internal.rs:611"
       ]
     },
     {
