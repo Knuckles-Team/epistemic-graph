@@ -92,6 +92,7 @@ fn work_item_tenant_value(method: &Method) -> Result<String, String> {
 
 fn control_lease_tenant(method: &Method) -> Result<String, String> {
     match method {
+        Method::IssueHostStartGrant { request } => Ok(request.tenant.clone()),
         Method::IssueControlLease { request } => Ok(request.tenant.clone()),
         Method::TransitionControlLease { request } => Ok(request.tenant.clone()),
         Method::RetireSealedRecord { request } => Ok(request.tenant.clone()),

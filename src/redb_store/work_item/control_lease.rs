@@ -17,6 +17,7 @@ use eg_types::result_contract::coordination::{IssueControlLease, TransitionContr
 
 use super::*;
 
+pub(crate) mod host_start;
 mod pending_call;
 mod plan_pair;
 
@@ -107,6 +108,13 @@ pub(crate) fn apply_transition_control_lease_row(
         return transition_result(ControlLeaseTransitionOutcome::NotFound, None, false);
     };
     let current = ControlLeaseView::from_row(&request.lease_id, &row)?;
+    if current.kind == eg_types::host_start::HOST_START_KIND
+        && request.to == ControlLeaseTarget::Consumed
+    {
+        return Err(
+            "ACCESS_DENIED: host-start consumption requires a qualified launch reservation".into(),
+        );
+    }
     // Use the mutation's authoritative timestamp, including on replicated replay.
     // Refuse expiry against the engine-stamped mutation time, not caller time.
     let expired = request.to == ControlLeaseTarget::Consumed

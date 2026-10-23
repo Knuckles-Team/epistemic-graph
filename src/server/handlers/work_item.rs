@@ -45,6 +45,7 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::DeferWorkItem { .. }
         | Method::CasWorkItemMetadata { .. }
         | Method::PublishCurrentPlan { .. }
+        | Method::IssueHostStartGrant { .. }
         | Method::IssueControlLease { .. }
         | Method::TransitionControlLease { .. }
         | Method::PolicyEvolutionStore { .. }
@@ -173,3 +174,6 @@ async fn prepare_current_plan(ctx: &HandleContext<'_>, method: Method) -> Result
     #[cfg(not(feature = "redb"))]
     Err("current-plan publication requires native persistence".into())
 }
+
+#[cfg(all(test, feature = "redb"))]
+mod host_start_tests;

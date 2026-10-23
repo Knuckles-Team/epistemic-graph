@@ -842,3 +842,24 @@ The KV-cache tier ladder reuses `crates/eg-kvcache`. `tiered.rs` holds the hot, 
 The benchmark rows R042.2 to R042.6 publish each result as the `BenchmarkClaim` of R042.1. Each target is a starting default. A measurement on this platform replaces it.
 
 The four wire listeners already start in `src/main.rs`. R860 binds them to one admission path and to round-trip tests. R035 keeps the PostgreSQL operational parity work.
+
+### 2026-10-20 — R030.1 issuer-bound host-start records
+
+Arbora decides startup policy and calls a dedicated native storage operation.
+EG records the issuer assertions in the existing ControlLease store.
+It does not execute infrastructure or grant a deployed principal a scope.
+The authenticated MutationBatch actor supplies the immutable top-level provenance.
+Generic grant JSON cannot supply that provenance. Existing manager capabilities remain unchanged.
+Arbora owns session freshness and workspace admission.
+This slice does not qualify execution reservation or atomic cross-owner admission.
+
+Validation checkpoint: Python legacy/provenance and lease-client checks passed.
+Canonical generation and freshness checking passed for all 73 artifacts on 2026-10-20.
+The generation-only continuation took 776.2 seconds.
+Earlier attempts timed out during eg-types compilation at 360 and 540 seconds.
+Rust typed, redb and signed-dispatch tests exist but remain unexecuted.
+No deployed issuer, live host execution, atomic external-effect reservation or native terminal handoff is qualified.
+Normal publication gates remain required.
+The signed-dispatch runtime test must qualify authenticated issuer attribution and idempotent retry.
+
+The current-main reconciliation preserves current security and uses fresh hosted canonical generation for host-start DTO changes. R030.1.1 through R030.1.3 separate typed/client, native store and signed dispatch evidence. R030.1.4 keeps the complete producer qualification open. Arbora remains responsible for live session and construction-owner policy; these storage assertions cannot reserve an external effect atomically.

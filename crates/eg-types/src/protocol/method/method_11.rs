@@ -48,6 +48,8 @@ $($variants)*
     /// A row already holding the id answers `collision` and is left untouched.
     /// `request.tenant` must equal the verified request tenant. See
     /// [`crate::control_lease`].
+    /// Persist a grant from an explicitly authorized host-start issuer.
+    IssueHostStartGrant { request: crate::host_start::IssueHostStartGrantRequest },
     IssueControlLease {
         request: crate::control_lease::IssueControlLeaseRequest,
     },

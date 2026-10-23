@@ -394,3 +394,21 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - **EG-DURABLE-KERNEL-R028.5.2:** `current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it` checks initial and later attachment. `current_plan_attachment_refusals_preserve_rows` checks conflicting plans, malformed digests, foreign owners, stale fences and expiry. Refusals leave both private snapshot and owner rows unchanged.
 - **EG-DURABLE-KERNEL-R028.5.3:** `publication_attachment_changes_content_not_retry_identity` checks stable identity and changed canonical content. `current_plan_native_publish_read_and_receipt_replay` exercises authenticated attachment, unchanged replay receipts, conflict and exact restart readback. Expired replay returns historical evidence only.
 - **EG-DURABLE-KERNEL-R028.5.4:** Planned benchmark `current_plan_publication_readback` must measure attached-plan latency and transient memory against the parent budgets. No benchmark implementation or measurement receipt is claimed by the functional attachment tests.
+- **EG-DURABLE-KERNEL-R030.1:** Typed host-start tests cover bounded bindings,
+  expiry clamping and caller provenance injection. Native shard tests cover
+  absent issuer refusal, immutable issuer stamping, collision, tenant read
+  isolation, revocation and generic consumption refusal. The signed dispatch
+  test `signed_issuer_is_stamped_and_retry_retains_attribution` must prove
+  exact-scope refusal and stable native principal fingerprint across a retry.
+  These Rust tests remain unexecuted. Python provenance and existing lease-client
+  checks passed; dedicated issue transport runtime validation remains pending.
+  Session liveness, external execution reservation, restart and latency qualification
+  remain separate pending acceptance; fixture objects do not prove live policy.
+
+## Current-main host-start qualification boundaries
+
+R030.1.1 binds the typed host-start tests and `tests/test_host_start_client.py`. R030.1.2 binds the native redb host-start tests. R030.1.3 binds the signed-dispatch host-start tests. The Rust fixtures remain unexecuted in this reconciliation.
+
+R030.1.4 retains the complete parent qualification. Old canonical outputs do not qualify current-main source. Fresh hosted generation, native suites, installed consumer and benchmark evidence remain required. No issuer enrollment, policy grant or infrastructure start is performed.
+
+The authored R030.1.3 signed negative fixture sends a foreign body tenant through the signed issuer request path. It also attempts generic host-start issuance with forged provenance inside grant JSON. Each must refuse with no grant or graph-version change. A subsequent legitimate dedicated issue must still succeed with native issuer attribution. This test remains unexecuted locally and does not complete R030.1.3 or R030.1.4.

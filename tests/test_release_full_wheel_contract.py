@@ -373,6 +373,7 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
         # (release PR #666 cancelled at ~10:15 on 3/3 runs).
         if workflow.name in {"ci.yml", "release.yml"} and name in {
             "gates",
+            "gates-contract",
             "gates-wheel",
             "gates-facade",
             "gates-whisper",

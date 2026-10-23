@@ -278,3 +278,12 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.5.2:** Bind the first attachment immutably through the existing owner transaction; preserve omitted attachments and refuse conflicts.
 - [ ] **EG-DURABLE-KERNEL-R028.5.3:** Verify native attachment replay, restart and scoped availability.
 - [ ] **EG-DURABLE-KERNEL-R028.5.4:** Implement and measure the attached-plan publication/readback benchmark; preserve this performance residual until a reproducible receipt exists.
+- [ ] **EG-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
+  records through canonical contract generation, typed and signed native tests,
+  and normal publication gates. Keep execution reservation, current session policy,
+  restart and benchmark acceptance pending; no live grant or host deployment.
+
+- [ ] **EG-DURABLE-KERNEL-R030.1.1:** Qualify typed assertions and dedicated Python client projection.
+- [ ] **EG-DURABLE-KERNEL-R030.1.2:** Qualify protected native storage, provenance and refusal persistence.
+- [ ] **EG-DURABLE-KERNEL-R030.1.3:** Qualify signed issuer scope and tenant boundaries.
+- [ ] **EG-DURABLE-KERNEL-R030.1.4:** Complete exact-source artifacts, native acceptance, installed consumer and benchmark evidence.

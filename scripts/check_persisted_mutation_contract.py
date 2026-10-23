@@ -550,6 +550,7 @@ def _check_mutation_applier_inventory(
         "CasWorkItemMetadata",
         "PublishCurrentPlan",
         # graph-os EG-2: native control-lease writes in the same WorkItem kernel.
+        "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
         "PolicyEvolutionStore",

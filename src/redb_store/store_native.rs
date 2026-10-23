@@ -383,6 +383,28 @@ pub(crate) fn apply_native_work_item_family_operation(
     crypto: DurableCrypto<'_>,
     committed_at_ms: u64,
 ) -> Result<(), String> {
+    if let Method::IssueHostStartGrant { request } = method {
+        if generated_result.is_some() || batch.operations.len() != 1 {
+            return Err("host-start issuance requires one operation".into());
+        }
+        let actor = batch
+            .envelope
+            .operation()
+            .map(|op| op.authority.actor.as_str());
+        let result = super::work_item::control_lease::host_start::issue(
+            graph_fname,
+            request,
+            actor,
+            &mut tables.graph.nodes,
+            crypto,
+            committed_at_ms,
+        )?;
+        let payload = crate::protocol::ResultPayload::of::<
+            eg_types::result_contract::coordination::IssueHostStartGrant,
+        >(result)?;
+        *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
     if let Method::PublishCurrentPlan { request } = method {
         let actor = batch
             .envelope

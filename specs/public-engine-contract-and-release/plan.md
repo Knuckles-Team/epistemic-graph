@@ -495,3 +495,5 @@ Canonical Cargo resolution also rebinds eight Windows-only dependency edges to c
 No other package version changes, and no package is added or removed outside those three replacements.
 Validate the locked graph, the unchanged advisory gate and the affected client and server paths.
 Raw cargo-audit findings covered by existing, dated policy exceptions remain separate from these fixes.
+
+Reuse the R006.1 and R006.3 fresh-export path for host-start source qualification. Preserve parity failures and exact source/build provenance. Keep R006.2 native, measured-size and cross-language acceptance open.

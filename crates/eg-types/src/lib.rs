@@ -381,6 +381,7 @@ pub mod keyset_page;
 // graph-os EG-2 — native control leases: a tenant-bound, time-boxed grant with
 // a one-way active -> revoked|expired lifecycle (not a capacity admission).
 pub mod control_lease;
+pub mod host_start;
 // The engine-owned identity store: principals, credentials,
 // sessions, roles/groups/IdPs, the auth-mode singleton and scope classes.
 pub mod identity;

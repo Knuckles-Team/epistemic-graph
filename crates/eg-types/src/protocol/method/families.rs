@@ -62,6 +62,7 @@ impl Method {
             | Self::DeferWorkItem { .. }
             | Self::CasWorkItemMetadata { .. }
             | Self::PublishCurrentPlan { .. }
+            | Self::IssueHostStartGrant { .. }
             | Self::IssueControlLease { .. }
             | Self::TransitionControlLease { .. }
             | Self::PolicyEvolutionStore { .. }

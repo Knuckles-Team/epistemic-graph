@@ -74,6 +74,7 @@ method_results! {
     GetWorkItemOutcome(GetWorkItemOutcome) => Raw<Option<WorkItemOutcomeView>>;
     // graph-os EG-2 native control leases. `null` when no lease with this id
     // is visible to the verified tenant.
+    IssueHostStartGrant(IssueHostStartGrant) => Json<ControlLeaseIssued>;
     IssueControlLease(IssueControlLease) => Json<ControlLeaseIssued>;
     TransitionControlLease(TransitionControlLease) => Json<ControlLeaseTransition>;
     GetControlLease(GetControlLease) => Raw<Option<ControlLeaseView>>;

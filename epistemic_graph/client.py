@@ -4453,6 +4453,39 @@ class ControlLeaseClient:
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
+    async def issue_host_start(
+        self,
+        *,
+        tenant: str,
+        lease_id: str,
+        binding: dict[str, Any],
+        expires_at_ms: int,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Persist access-owner assertions; native storage stamps issuer provenance.
+
+        Requires exact host:issue-start. This neither authorizes nor launches a host.
+        """
+        if not isinstance(binding, dict):
+            raise TypeError("IssueHostStartGrant.binding must be a mapping")
+        request = {
+            "tenant": _string("IssueHostStartGrant.tenant", tenant),
+            "lease_id": _string("IssueHostStartGrant.lease_id", lease_id),
+            "binding": binding,
+            "expires_at_ms": _integer(
+                "IssueHostStartGrant.expires_at_ms", expires_at_ms
+            ),
+            "idempotency_key": _string(
+                "IssueHostStartGrant.idempotency_key", idempotency_key
+            ),
+        }
+        value = (
+            await _gen.coordination.send_issue_host_start_grant(
+                self._client, {"request": request}, idempotency_key=idempotency_key
+            )
+        ).payload
+        return _control_lease_answer(value, {"issued", "collision"})
+
     async def issue(
         self,
         *,
@@ -4601,10 +4634,30 @@ _CONTROL_LEASE_VIEW_FIELDS = frozenset(
 
 
 def _control_lease_view(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != _CONTROL_LEASE_VIEW_FIELDS:
+    if not isinstance(value, dict) or set(value) not in (
+        _CONTROL_LEASE_VIEW_FIELDS,
+        _CONTROL_LEASE_VIEW_FIELDS | {"host_start_provenance"},
+    ):
         raise RuntimeError("control lease view does not match the typed contract")
     if value["status"] not in ("active", "consumed", "revoked", "expired"):
         raise RuntimeError("control lease view carries an unknown status")
+    if "host_start_provenance" in value:
+        provenance = value["host_start_provenance"]
+        if (
+            value["kind"] != "host.start"
+            or not isinstance(provenance, dict)
+            or set(provenance) != {"schema_version", "issuer_ref"}
+            or type(provenance["schema_version"]) is not int
+            or provenance["schema_version"] != 1
+            or not isinstance(provenance["issuer_ref"], str)
+            or not provenance["issuer_ref"].strip()
+            or len(provenance["issuer_ref"].encode("utf-8")) > 512
+            or any(
+                ord(char) < 32 or 127 <= ord(char) <= 159
+                for char in provenance["issuer_ref"]
+            )
+        ):
+            raise RuntimeError("invalid native host-start provenance")
     return value
 
 
