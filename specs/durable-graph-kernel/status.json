@@ -405,7 +405,12 @@
     "EG-DURABLE-KERNEL-R028.5.4",
     "EG-DURABLE-KERNEL-R861",
     "EG-DURABLE-KERNEL-R861.1",
-    "EG-DURABLE-KERNEL-R861.2"
+    "EG-DURABLE-KERNEL-R861.2",
+    "EG-DURABLE-KERNEL-R030.1",
+    "EG-DURABLE-KERNEL-R030.1.1",
+    "EG-DURABLE-KERNEL-R030.1.2",
+    "EG-DURABLE-KERNEL-R030.1.3",
+    "EG-DURABLE-KERNEL-R030.1.4"
   ],
   "requirements": [
     {
@@ -1164,12 +1169,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R030",
       "title": "Reserved RBAC elevation lease kind cannot be issued generically",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "3157bcbb4ac2",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R030.1"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R031",
@@ -1185,7 +1193,7 @@
       "verified_by": [
         "src/redb_store/operation_audit_tests.rs:278",
         "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:687",
-        "src/server/mutation_batch/tests.rs:1407"
+        "src/server/mutation_batch/tests.rs:1408"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R031.1",
@@ -1212,7 +1220,7 @@
         "aeb9c998476a"
       ],
       "verified_by": [
-        "src/server/mutation_batch/tests.rs:1407"
+        "src/server/mutation_batch/tests.rs:1408"
       ]
     },
     {
@@ -1271,7 +1279,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R033.1",
-      "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed, and winner selection refuses rather than silently defaulting",
+      "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed. Winner selection refuses rather than silently defaulting",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "19da6ec1bc9b",
@@ -4431,7 +4439,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/server/mutation_batch/digest.rs:319",
+        "src/server/mutation_batch/digest.rs:320",
         "tests/adopt_workitem_authenticated_replay.rs:582",
         "tests/decide/test_task_plan_served.py:230",
         "tests/decide/test_task_plan_served.py:351"
@@ -4471,6 +4479,60 @@
     {
       "id": "EG-DURABLE-KERNEL-R861.2",
       "title": "Graph listing survives a patch upgrade",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1",
+      "title": "Issuer-bound host-start record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R030.1.1",
+        "EG-DURABLE-KERNEL-R030.1.2",
+        "EG-DURABLE-KERNEL-R030.1.3",
+        "EG-DURABLE-KERNEL-R030.1.4"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1.1",
+      "title": "Typed host-start assertions and client projection",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a27a7c804f9e"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/host_start/tests.rs:1",
+        "tests/test_host_start_client.py:1"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1.2",
+      "title": "Durable native issuer provenance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a27a7c804f9e"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/control_lease/host_start/tests.rs:1"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1.3",
+      "title": "Signed dispatch for dedicated host-start issuance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a27a7c804f9e"
+      ],
+      "verified_by": [
+        "src/server/handlers/work_item/host_start_tests.rs:1"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1.4",
+      "title": "Complete host-start producer qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

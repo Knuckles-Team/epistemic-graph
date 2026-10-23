@@ -85,7 +85,10 @@
     "EG-CONTRACT-R053.9",
     "EG-CONTRACT-R053.10",
     "EG-CONTRACT-R053.11",
-    "EG-CONTRACT-R053.12"
+    "EG-CONTRACT-R053.12",
+    "EG-CONTRACT-R006.1",
+    "EG-CONTRACT-R006.2",
+    "EG-CONTRACT-R006.3"
   ],
   "requirements": [
     {
@@ -215,12 +218,17 @@
     {
       "id": "EG-CONTRACT-R006",
       "title": "Deterministic, size-budgeted WASM codec artifact",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2b681e1a159c",
         "6cd6c7ea0c87"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONTRACT-R006.1",
+        "EG-CONTRACT-R006.2",
+        "EG-CONTRACT-R006.3"
+      ]
     },
     {
       "id": "EG-CONTRACT-R007",
@@ -300,8 +308,8 @@
         "tests/test_release_python_suite_contract.py:103",
         "tests/test_release_python_suite_contract.py:120",
         "tests/test_release_python_suite_contract.py:131",
-        "tests/test_release_python_suite_contract.py:354",
-        "tests/test_release_python_suite_contract.py:371"
+        "tests/test_release_python_suite_contract.py:358",
+        "tests/test_release_python_suite_contract.py:375"
       ]
     },
     {
@@ -591,7 +599,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:726"
+        "tests/test_release_python_suite_contract.py:765"
       ]
     },
     {
@@ -1030,7 +1038,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:688"
+        "tests/test_release_full_wheel_contract.py:689"
       ]
     },
     {
@@ -1085,6 +1093,39 @@
       "verified_by": [
         "tests/test_server_package.py:139",
         "tests/test_server_package.py:157"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R006.1",
+      "title": "Fresh canonical codec export with provenance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a27a7c804f9e"
+      ],
+      "verified_by": [
+        "tests/test_build_method_codec_wasm.py:248",
+        "tests/test_build_method_codec_wasm.py:276",
+        "tests/test_build_method_codec_wasm.py:297",
+        "tests/test_build_method_codec_wasm.py:305",
+        "tests/test_build_method_codec_wasm.py:315"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R006.2",
+      "title": "Complete canonical WASM qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R006.3",
+      "title": "Export fresh typed contracts for parity repair",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a27a7c804f9e"
+      ],
+      "verified_by": [
+        "tests/test_export_canonical_contract.py:11"
       ]
     }
   ]
