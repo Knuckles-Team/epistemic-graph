@@ -426,7 +426,14 @@
     "EG-CQ-CONN-R084.3",
     "EG-CQ-CONN-R084.4",
     "EG-CQ-CONN-R084.5",
-    "EG-CQ-CONN-R084.6"
+    "EG-CQ-CONN-R084.6",
+    "EG-CQ-CONN-R085",
+    "EG-CQ-CONN-R085.1",
+    "EG-CQ-CONN-R085.2",
+    "EG-CQ-CONN-R085.3",
+    "EG-CQ-CONN-R085.4",
+    "EG-CQ-CONN-R085.5",
+    "EG-CQ-CONN-R085.6"
   ],
   "requirements": [
     {
@@ -3890,6 +3897,63 @@
     },
     {
       "id": "EG-CQ-CONN-R084.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R085",
+      "title": "Competency check: a question spans a connector's live data and the ontology (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R085.1",
+        "EG-CQ-CONN-R085.2",
+        "EG-CQ-CONN-R085.3",
+        "EG-CQ-CONN-R085.4",
+        "EG-CQ-CONN-R085.5",
+        "EG-CQ-CONN-R085.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R085.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R085.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R085.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R085.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R085.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R085.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
