@@ -309,6 +309,13 @@ pub enum NlConfigError {
     ExtraBodyNotObject,
     /// The extra request body sets a member the planner owns.
     ExtraBodyReservedKey(String),
+    /// A value could not be parsed; carries where it came from (env var name or config
+    /// key), the raw rejected text and why it was rejected.
+    InvalidValue {
+        source: String,
+        raw: String,
+        reason: String,
+    },
 }
 
 #[cfg(feature = "nl-query")]
@@ -319,6 +326,9 @@ impl std::fmt::Display for NlConfigError {
                 f,
                 "nl-query: read_timeout_secs {s} outside {NL_READ_TIMEOUT_MIN_SECS}..={NL_READ_TIMEOUT_MAX_SECS} seconds"
             ),
+            Self::InvalidValue { source, raw, reason } => {
+                write!(f, "nl-query: {source}='{raw}' {reason}")
+            }
             Self::ExtraBodyNotObject => write!(f, "nl-query: extra_body must be a JSON object"),
             Self::ExtraBodyReservedKey(k) => {
                 write!(f, "nl-query: extra_body may not set reserved key `{k}`")
