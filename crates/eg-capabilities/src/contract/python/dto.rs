@@ -802,6 +802,29 @@ pub(super) fn push_dto_imports(
     if body.contains("(str, Enum)") || !typing_names.is_empty() {
         out.push('\n');
     }
+    let has_pydantic_imports = push_pydantic_imports(out, body);
+    let mut local = foreign.clone();
+    let digest_names: Vec<String> = [
+        "canonical_msgpack",
+        "framed_named_msgpack_digest",
+        "framed_sha256",
+    ]
+    .into_iter()
+    .filter(|name| body.contains(&format!("{name}(")))
+    .map(str::to_owned)
+    .collect();
+    if !digest_names.is_empty() {
+        local.insert("digest", digest_names);
+    }
+    if !local.is_empty() && has_pydantic_imports {
+        out.push('\n');
+    }
+    for (module, names) in local {
+        write_import_block(out, module, names);
+    }
+}
+
+fn push_pydantic_imports(out: &mut String, body: &str) -> bool {
     let pydantic_names = [
         ("AfterValidator", "AfterValidator("),
         ("BaseModel", "(BaseModel)"),
@@ -826,23 +849,5 @@ pub(super) fn push_dto_imports(
             out.push_str(")\n");
         }
     }
-    let mut local = foreign.clone();
-    let digest_names: Vec<String> = [
-        "canonical_msgpack",
-        "framed_named_msgpack_digest",
-        "framed_sha256",
-    ]
-    .into_iter()
-    .filter(|name| body.contains(&format!("{name}(")))
-    .map(str::to_owned)
-    .collect();
-    if !digest_names.is_empty() {
-        local.insert("digest", digest_names);
-    }
-    if !local.is_empty() && !pydantic_names.is_empty() {
-        out.push('\n');
-    }
-    for (module, names) in local {
-        write_import_block(out, module, names);
-    }
+    !pydantic_names.is_empty()
 }

@@ -1,4 +1,4 @@
-use super::super::test_shard::{open, with_nodes, with_write, GRAPH};
+use super::super::test_shard::{apply, open, with_nodes, with_write, GRAPH};
 use super::*;
 use eg_types::native_control::SubmitWorkItemRequest;
 
@@ -339,41 +339,6 @@ fn ordinary_completion_projection_requires_exact_committed_payload() {
     assert!(project("tenant", "run", "failed", &digest, &corrupt).is_err());
 }
 
-fn apply(
-    shard: &Shard,
-    tag: &str,
-    method: Method,
-    now_ms: u64,
-) -> Result<crate::protocol::ResultPayload, String> {
-    let op_id = format!("completion-row-test/{tag}");
-    with_write(shard, &op_id, now_ms, |admitted| {
-        let member = admitted.graph(GRAPH).unwrap();
-        let mut graph = crate::redb_store::store_rows::GraphRowTables::open(member).unwrap();
-        let (mut holds, index, mut counters, mut pressure, policies) =
-            crate::redb_store::store_state_tables::open_native_operation_lane_tables(
-                admitted, GRAPH,
-            )
-            .unwrap();
-        apply_work_item_rows(WorkItemApplyRequest {
-            graph: GRAPH,
-            batch_id: tag,
-            method: &method,
-            nodes: &mut graph.nodes,
-            holds: &mut holds,
-            work_item_index: &index,
-            counters: &mut counters,
-            pressure_index: &mut pressure,
-            policies: &policies,
-            native_work_items: &mut graph.native_work_items,
-            edges: &mut graph.edges,
-            command_sequences: &mut graph.command_sequences,
-            committed_at_ms: now_ms,
-            crypto: DurableCrypto::none(),
-        })
-        .map(|result| result.expect("a WorkItem-family write always answers"))
-    })
-}
-
 // spec: EG-DURABLE-KERNEL-R028.6
 // Row-authority regression; this does not qualify ledger/outbox integration.
 #[test]
@@ -404,25 +369,17 @@ fn ordinary_completion_native_fence_and_terminal_noop_preserve_binding() {
         other => panic!("unexpected claim {other:?}"),
     };
     assert!(hold.claimed);
-    let commit = |fence, result_ref| Method::CommitWorkItemResult {
-        tenant: "tenant".into(),
-        work_item_id: id.clone(),
-        worker_id: "worker".into(),
-        lease_epoch: hold.lease_epoch.unwrap(),
-        fencing_token: fence,
-        idempotency_key: "finish".into(),
-        outcome: "failed".into(),
-        result_ref,
-        error_ref: Some("error".into()),
-        retryable: false,
-        now_ms: 3000,
-        outcome_extension: None,
-        run_completion: Some(Box::new(RunCompletionInput {
-            schema_version: 1,
-            run_id: "run".into(),
-            usage: None,
-        })),
+    let commit = |fence, result_ref| {
+        completion_method(
+            &id,
+            hold.lease_epoch.unwrap(),
+            fence,
+            "failed",
+            result_ref,
+            None,
+        )
     };
+
     let row = |shard: &Shard| {
         super::super::read::snapshot_row(shard, GRAPH, &id, DurableCrypto::none())
             .unwrap()
@@ -643,25 +600,17 @@ fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
         ))
         .unwrap();
         assert!(hold.claimed);
-        let finish = |fence| Method::CommitWorkItemResult {
-            tenant: "tenant".into(),
-            work_item_id: id.clone(),
-            worker_id: "worker".into(),
-            lease_epoch: hold.lease_epoch.unwrap(),
-            fencing_token: fence,
-            idempotency_key: "finish".into(),
-            outcome: outcome.into(),
-            result_ref: (outcome == "succeeded").then(|| "answer:verified".into()),
-            error_ref: Some("error".into()),
-            retryable: false,
-            now_ms: 3000,
-            outcome_extension: None,
-            run_completion: Some(Box::new(RunCompletionInput {
-                schema_version: 1,
-                run_id: "run".into(),
-                usage: Some(usage.clone()),
-            })),
+        let finish = |fence| {
+            completion_method(
+                &id,
+                hold.lease_epoch.unwrap(),
+                fence,
+                outcome,
+                (outcome == "succeeded").then(|| "answer:verified".into()),
+                Some(usage.clone()),
+            )
         };
+
         let before = row(&shard, &id);
         let counters_before = counters(&shard);
         let stale = commit(
@@ -750,5 +699,35 @@ fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
         assert!(read(&shard, "tenant", "run", "intruder").unwrap().is_none());
         drop(shard);
         std::fs::remove_file(path).unwrap();
+    }
+}
+
+/// Construct the same owner-bound completion for row and atomic-ledger tests.
+fn completion_method(
+    id: &str,
+    lease_epoch: u64,
+    fencing_token: u64,
+    outcome: &str,
+    result_ref: Option<String>,
+    usage: Option<eg_types::run_completion::RunUsage>,
+) -> Method {
+    Method::CommitWorkItemResult {
+        tenant: "tenant".into(),
+        work_item_id: id.into(),
+        worker_id: "worker".into(),
+        lease_epoch,
+        fencing_token,
+        idempotency_key: "finish".into(),
+        outcome: outcome.into(),
+        result_ref,
+        error_ref: Some("error".into()),
+        retryable: false,
+        now_ms: 3000,
+        outcome_extension: None,
+        run_completion: Some(Box::new(eg_types::run_completion::RunCompletionInput {
+            schema_version: 1,
+            run_id: "run".into(),
+            usage,
+        })),
     }
 }

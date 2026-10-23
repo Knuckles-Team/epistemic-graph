@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-CONTRACT-R006.3")]
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,15 +104,43 @@ def test_digest_mismatch_never_exports(exporter, monkeypatch, tmp_path):
 
 
 def test_workflow_preserves_failed_parity():
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    section = workflow.split("- name: Engine contract parity", 1)[1].split(
-        "- name: Generated Python client", 1
-    )[0]
-    assert "if: ${{ !cancelled() }}" in section.split("- name: Export", 1)[0]
-    assert "-- --check" in section
-    assert "continue-on-error" not in section
-    assert "steps.engine-contract-parity.outcome == 'failure'" in section
-    assert "steps.engine-contract-export.outputs.fresh_export == 'true'" in section
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    job = jobs["gates-contract"]
+    assert job["needs"] == "changes"
+    assert job["if"] == jobs["gates"]["if"]
+    assert job["steps"][:5] == jobs["gates"]["steps"][:5]
+    assert "gates-contract" in jobs["engine-main-wheel"]["needs"]
+    parity = next(
+        step for step in job["steps"] if step.get("id") == "engine-contract-preflight"
+    )
+    export = next(
+        step for step in job["steps"] if step.get("id") == "engine-contract-export"
+    )
+    upload = job["steps"][-1]
+    assert parity["if"] == "${{ !cancelled() }}"
+    assert (
+        parity["run"] == "cargo run -q --locked -p eg-capabilities --features contract "
+        "--bin gen_contract -- --check"
+    )
+    assert "steps.engine-contract-preflight.outcome == 'failure'" in export["if"]
+    assert "steps.engine-contract-export.outputs.fresh_export == 'true'" in upload["if"]
+    assert all("continue-on-error" not in step for step in (parity, export, upload))
+    assert (
+        sum(
+            step.get("id") == "engine-contract-preflight"
+            for entry in jobs.values()
+            for step in entry.get("steps", [])
+        )
+        == 1
+    )
+
+    retained = next(
+        step
+        for step in jobs["gates"]["steps"]
+        if step.get("id") == "engine-contract-parity"
+    )
+    assert retained["run"] == parity["run"]
+    assert "continue-on-error" not in retained
 
 
 def test_dirty_source_refuses_before_generation(exporter, monkeypatch, tmp_path):
@@ -160,29 +189,17 @@ def test_untracked_source_refuses_before_generation(exporter, monkeypatch, tmp_p
         exporter.export(tmp_path, tmp_path / "export")
 
 
-def test_generator_untracked_source_refuses_export(exporter, monkeypatch, tmp_path):
+@pytest.mark.parametrize("operation", ["ls-files", "diff"])
+def test_generator_unexpected_source_refuses_export(
+    exporter, monkeypatch, tmp_path, operation
+):
     original = exporter.subprocess.check_output
 
     def output(command, **kwargs):
-        if command[1:2] == ["ls-files"]:
+        if command[1:2] == [operation]:
+            if operation == "diff":
+                assert command[-1] == "HEAD"
             return "unexpected.rs"
-        return original(command, **kwargs)
-
-    monkeypatch.setattr(exporter.subprocess, "check_output", output)
-    monkeypatch.setattr(
-        exporter.subprocess, "run", lambda *_a, **_kw: produce(exporter, tmp_path)
-    )
-    with pytest.raises(ValueError, match="non-contract"):
-        exporter.export(tmp_path, tmp_path / "export")
-
-
-def test_generator_staged_source_refuses_export(exporter, monkeypatch, tmp_path):
-    original = exporter.subprocess.check_output
-
-    def output(command, **kwargs):
-        if command[1:2] == ["diff"]:
-            assert command[-1] == "HEAD"
-            return "source.rs"
         return original(command, **kwargs)
 
     monkeypatch.setattr(exporter.subprocess, "check_output", output)

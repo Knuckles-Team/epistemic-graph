@@ -226,22 +226,7 @@ pub(crate) fn apply_commit_work_item_result_row(
     };
     let mut props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
     let pre_props = props.clone();
-    if let Some(completion) = input.run_completion {
-        completion.validate()?;
-        run_owner::validate_completion_owner(
-            &props,
-            input.graph,
-            input.tenant,
-            &completion.run_id,
-            input.work_item_id,
-        )?;
-        if input.outcome_extension.is_some()
-            || input.retryable
-            || (input.outcome != "succeeded" && input.result_ref.is_some())
-        {
-            return Err("ordinary completion requires an exclusive final result without failed answer artifacts".into());
-        }
-    }
+    validate_ordinary_completion(&input, &props)?;
     if let Some(refusal) = commit_work_item_result_precheck(
         &props,
         input.work_item_id,
@@ -604,6 +589,29 @@ fn apply_receipt_rows(
         nodes
             .insert((graph, receipt.node_id.as_str()), sealed.as_ref())
             .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn validate_ordinary_completion(
+    input: &CommitWorkItemResultInput<'_, '_, '_>,
+    props: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    if let Some(completion) = input.run_completion {
+        completion.validate()?;
+        run_owner::validate_completion_owner(
+            props,
+            input.graph,
+            input.tenant,
+            &completion.run_id,
+            input.work_item_id,
+        )?;
+        if input.outcome_extension.is_some()
+            || input.retryable
+            || (input.outcome != "succeeded" && input.result_ref.is_some())
+        {
+            return Err("ordinary completion requires an exclusive final result without failed answer artifacts".into());
+        }
     }
     Ok(())
 }

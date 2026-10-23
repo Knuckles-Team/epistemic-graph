@@ -23,9 +23,11 @@ pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-DURABLE-KERNEL-R028.4.
 
 
 @pytest.fixture
-def authenticated_plan_client(tmp_path, test_auth_secret):
+def authenticated_plan_client(tmp_path):
     from test_native_no_auth_served import server
 
+    # Public loopback fixture value, matching the authenticated TaskPlan suite.
+    test_auth_secret = "-".join(("test", "epistemic", "graph", "secret"))
     env = strict_server_env(
         str(tmp_path / "security"),
         auth_secret=test_auth_secret,

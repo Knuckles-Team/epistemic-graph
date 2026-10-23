@@ -392,7 +392,7 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - **EG-DURABLE-KERNEL-R028.5.3:** `publication_attachment_changes_content_not_retry_identity` checks stable identity and changed canonical content. `current_plan_native_publish_read_and_receipt_replay` exercises authenticated attachment, unchanged replay receipts, conflict and exact restart readback. Expired replay returns historical evidence only.
 - **EG-DURABLE-KERNEL-R028.5.4:** Planned benchmark `current_plan_publication_readback` must measure attached-plan latency and transient memory against the parent budgets. No benchmark implementation or measurement receipt is claimed by the functional attachment tests.
 
-- **EG-DURABLE-KERNEL-R028.4.1:** `run_admission_recovery_preserves_original_request`, `run_admission_recovery_checks_complete_owner`, `run_admission_recovery_refuses_missing_evidence` and `run_admission_snapshot_cannot_be_planted_or_removed` verify durable records and refusal. Served and client tests verify typed owner-only reads.
+- **EG-DURABLE-KERNEL-R028.4.1:** `run_admission_recovery_preserves_original_request`, `run_admission_recovery_checks_complete_owner`, `run_admission_recovery_refuses_missing_evidence` and `run_admission_snapshot_cannot_be_planted_or_removed` check durable records and refusal. Served and client tests check typed owner-only reads.
 - **EG-DURABLE-KERNEL-R028.4.2:** Record a dedicated native recovery benchmark; acceptance remains pending.
 ## Ordinary terminal completion acceptance (EG-DURABLE-KERNEL-R028.6)
 

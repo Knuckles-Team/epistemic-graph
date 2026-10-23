@@ -186,6 +186,7 @@ METHOD_IDS = frozenset(
         "CasWorkItemMetadata",
         "PublishCurrentPlan",
         "GetCurrentPlan",
+        "GetRunWorkItem",
         "GetWorkItem",
         "ListWorkItems",
         "GetWorkItemOutcome",

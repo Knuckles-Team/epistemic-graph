@@ -689,19 +689,6 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
     // `Field` is imported only where an aliased keyword field actually uses it: an
     // unused import is a ruff F401 on every other module.
     out.push_str(&pydantic_import(body));
-    let mut imports: Vec<&str> = Vec::new();
-    if body.contains("OpaqueResult(") {
-        imports.push("OpaqueResult");
-    }
-    for name in RESULT_CHECKERS {
-        if body.contains(&format!("{name}(")) {
-            imports.push(name);
-        }
-    }
-    imports.sort_unstable();
-    // Always the exploded, magic-trailing-comma form: the one-line form exceeds the
-    // formatter's width once a module uses several checkers, and a formatter that
-    // rewrites generated output would fight `--check` forever.
     let mut surfaces: Vec<_> = DTO_SURFACES.iter().collect();
     surfaces.sort_unstable_by_key(|surface| surface.module);
     // isort puts the package-relative module imports (`from . import x as _x`)
@@ -713,14 +700,7 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
             emitted_local_import = true;
         }
     }
-    if !imports.is_empty() {
-        out.push_str("from ._runtime import (\n");
-        for name in &imports {
-            let _ = writeln!(out, "    {name},");
-        }
-        out.push_str(")\n");
-        emitted_local_import = true;
-    }
+    emitted_local_import |= push_runtime_imports(out, body);
     let mut octets_imported = !body.contains("_EgOctets");
     for surface in surfaces {
         if !octets_imported && surface.module > "models" {
@@ -737,6 +717,31 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
     if emitted_local_import {
         out.push('\n');
     }
+}
+
+fn push_runtime_imports(out: &mut String, body: &str) -> bool {
+    let mut imports: Vec<&str> = Vec::new();
+    if body.contains("OpaqueResult(") {
+        imports.push("OpaqueResult");
+    }
+    for name in RESULT_CHECKERS {
+        if body.contains(&format!("{name}(")) {
+            imports.push(name);
+        }
+    }
+    imports.sort_unstable();
+    // Always the exploded, magic-trailing-comma form: the one-line form exceeds the
+    // formatter's width once a module uses several checkers, and a formatter that
+    // rewrites generated output would fight `--check` forever.
+    if !imports.is_empty() {
+        out.push_str("from ._runtime import (\n");
+        for name in &imports {
+            let _ = writeln!(out, "    {name},");
+        }
+        out.push_str(")\n");
+        return true;
+    }
+    false
 }
 
 /// The pydantic names a domain module's body uses, and nothing else: a module whose

@@ -38,7 +38,7 @@ pub(super) fn admit_owner(
     ))
 }
 
-pub(super) fn owned(
+pub(super) fn binding_matches(
     row: &serde_json::Map<String, serde_json::Value>,
     graph: &str,
     tenant: &str,
@@ -50,9 +50,20 @@ pub(super) fn owned(
         == Some(&serde_json::json!({
             "graph": graph, "tenant": tenant, "run_id": run_id, "work_item_id": id, "principal": actor
         }))
-        && property_string(row, "node_type") == "WorkItem"
         && property_string(row, "tenant") == tenant
         && !actor.is_empty()
+}
+
+pub(super) fn owned(
+    row: &serde_json::Map<String, serde_json::Value>,
+    graph: &str,
+    tenant: &str,
+    run_id: &str,
+    id: &str,
+    actor: &str,
+) -> bool {
+    binding_matches(row, graph, tenant, run_id, id, actor)
+        && property_string(row, "node_type") == "WorkItem"
 }
 
 /// Historical owner-bound evidence, independent of current execution authority.
@@ -178,38 +189,18 @@ fn project_completion(
     records: &[eg_types::MutationOutboxRecord],
 ) -> Result<eg_types::run_completion::CommittedRunCompletion, String> {
     use eg_types::run_completion::*;
-    use sha2::{Digest, Sha256};
     let mut matching = records
         .iter()
         .filter(|r| r.intent.topic == RUN_COMPLETION_TOPIC);
     let event = matching.next().ok_or("missing committed run completion")?;
-    if event.schema_version != eg_types::mutation_batch::MUTATION_BATCH_VERSION
-        || matching.next().is_some()
-        || &event.identity != scope
-        || event.batch_id != batch
-        || event.intent.key != batch
-        || receipt.status != eg_types::MutationBatchStatus::Committed
-        || &receipt.identity != scope
-        || receipt.batch.batch_id != batch
-        || receipt.batch.outbox.get(event.ordinal as usize) != Some(&event.intent)
-        || receipt.committed_version != event.committed_version
-        || hex::encode(Sha256::digest(&event.intent.payload)) != digest
-    {
+    if matching.next().is_some() {
         return Err("run completion ledger/outbox binding mismatch".into());
     }
+    validate_completion_event(scope, batch, digest, receipt, event)?;
     let payload: RunCompletionPayload = rmp_serde::from_slice(&event.intent.payload)
         .map_err(|_| "malformed run completion payload")?;
     payload.completion.validate()?;
-    if payload.tenant != tenant
-        || payload.completion.run_id != run
-        || payload.work_item_id != id
-        || payload.batch_id != batch
-        || payload.outcome != status
-        || !matches!(status, "succeeded" | "failed" | "cancelled")
-        || (status != "succeeded" && payload.result_ref.is_some())
-    {
-        return Err("run completion task/status mismatch".into());
-    }
+    validate_completion_payload(&payload, tenant, run, id, status, batch)?;
     let sequence = event
         .commit_sequence
         .filter(|n| *n > 0)
@@ -228,4 +219,61 @@ fn project_completion(
         ordinal: event.ordinal,
         payload_digest: digest.into(),
     })
+}
+
+fn validate_completion_payload(
+    payload: &eg_types::run_completion::RunCompletionPayload,
+    tenant: &str,
+    run: &str,
+    id: &str,
+    status: &str,
+    batch: &str,
+) -> Result<(), String> {
+    if payload.tenant != tenant
+        || payload.completion.run_id != run
+        || payload.work_item_id != id
+        || payload.batch_id != batch
+        || payload.outcome != status
+        || !matches!(status, "succeeded" | "failed" | "cancelled")
+        || (status != "succeeded" && payload.result_ref.is_some())
+    {
+        return Err("run completion task/status mismatch".into());
+    }
+    Ok(())
+}
+
+fn validate_completion_event(
+    scope: &eg_types::MutationScopeIdentity,
+    batch: &str,
+    digest: &str,
+    receipt: &eg_types::MutationBatchRecord,
+    event: &eg_types::MutationOutboxRecord,
+) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    if event.schema_version != eg_types::mutation_batch::MUTATION_BATCH_VERSION
+        || &event.identity != scope
+        || event.batch_id != batch
+        || event.intent.key != batch
+        || hex::encode(Sha256::digest(&event.intent.payload)) != digest
+    {
+        return Err("run completion ledger/outbox binding mismatch".into());
+    }
+    validate_completion_ledger(scope, batch, receipt, event)
+}
+
+fn validate_completion_ledger(
+    scope: &eg_types::MutationScopeIdentity,
+    batch: &str,
+    receipt: &eg_types::MutationBatchRecord,
+    event: &eg_types::MutationOutboxRecord,
+) -> Result<(), String> {
+    if receipt.status != eg_types::MutationBatchStatus::Committed
+        || &receipt.identity != scope
+        || receipt.batch.batch_id != batch
+        || receipt.batch.outbox.get(event.ordinal as usize) != Some(&event.intent)
+        || receipt.committed_version != event.committed_version
+    {
+        return Err("run completion ledger/outbox binding mismatch".into());
+    }
+    Ok(())
 }

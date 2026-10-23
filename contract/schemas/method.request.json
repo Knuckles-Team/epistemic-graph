@@ -20307,6 +20307,16 @@
                   "default": false,
                   "type": "boolean"
                 },
+                "run_completion": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/RunCompletionInput"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "tenant": {
                   "type": "string"
                 },
@@ -35697,6 +35707,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "Historical native run admission, visible only to its verified immutable\nowner. Missing and foreign rows return null; missing original admission\nevidence refuses explicitly. Independent of current lease or terminal state.",
+          "properties": {
+            "method": {
+              "const": "GetRunWorkItem",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "run_id": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tenant",
+                "run_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "The caller's view of one native WorkItem row, or `null` when no row with\nthis id is visible to `tenant`. `tenant` must equal the verified request\ntenant (`ACCESS_DENIED` otherwise); lease owner, epoch and fencing token\nare never returned. See [`crate::work_item_read`].",
           "properties": {
             "method": {
@@ -43990,6 +44031,34 @@
       "minimum": 0,
       "type": "integer"
     },
+    "RunCompletionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunEvent": {
       "additionalProperties": false,
       "description": "One durable projection event a [`CommitOutcomeBundle`]'s commit (or a\nrepair pass) publishes. Streaming/AG-UI/SSE/WebSocket/terminal/MCP\nsurfaces are projections of a sequence of these, never a second event\nauthority (lane doc \"Cursor/streaming semantics\").",
@@ -44120,6 +44189,52 @@
         "cursor_token",
         "carrier_digest"
       ],
+      "type": "object"
+    },
+    "RunUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "requests": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tool_calls": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "SafetyOutcome": {
@@ -56194,6 +56309,16 @@
               "default": false,
               "type": "boolean"
             },
+            "run_completion": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RunCompletionInput"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "tenant": {
               "type": "string"
             },
@@ -62485,6 +62610,37 @@
       },
       "required": [
         "method"
+      ],
+      "type": "object"
+    },
+    "GetRunWorkItem": {
+      "additionalProperties": false,
+      "description": "Historical native run admission, visible only to its verified immutable\nowner. Missing and foreign rows return null; missing original admission\nevidence refuses explicitly. Independent of current lease or terminal state.",
+      "properties": {
+        "method": {
+          "const": "GetRunWorkItem",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "run_id": {
+              "type": "string"
+            },
+            "tenant": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tenant",
+            "run_id"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
       ],
       "type": "object"
     },

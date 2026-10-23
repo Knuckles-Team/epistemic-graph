@@ -312,7 +312,7 @@ For runtime rows, name the actual production call site and its served integratio
 | Decision engine and federated query | [native-program-optimization.md](../../docs/architecture/native-program-optimization.md), `crates/eg-program/` | Confirm one semantic owner for `ProgramOptimize`; link the other owner. Preserve UQL and compiled-run contracts separately. |
 | Unified data plane | R040 and federation R039.1 | Resolve video promotion scope without silently expanding the existing acceptance. |
 | Federated query and durable kernel | `crates/eg-stream/`, `crates/eg-tsdb/`, existing stream dispatch | Define runtime windows, watermarks, state recovery, and refusal independently of the stream grammar. |
-| Durable graph kernel | [engine.md](../../docs/architecture/engine.md), `crates/eg-core/src/read_through.rs`, `src/redb_store/` | Add safe-eviction/read-through acceptance under the existing durability owner, with cache-miss and restart observations. |
+| Durable graph kernel | [engine.md](../../docs/architecture/engine.md), `crates/eg-core/src/read_through.rs`, `src/redb_store/` | The durability owner covers safe eviction and read-through. Add cache-miss and restart observations. |
 
 No follow-on above asserts a passed test or changes a subsystem's acceptance in this batch.
 
@@ -498,9 +498,8 @@ Raw cargo-audit findings covered by existing, dated policy exceptions remain sep
 
 ### 2026-10-22: recover canonical codec bytes from hosted CI
 
-EG-CONTRACT-R006.1 / EG-C-06 permits an optional artifact export from the existing
-canonical builder after a successful, import-verified build and before freshness
-comparison. Export the WASM with SHA-256, checked-out source revision/tree, dirty
+EG-CONTRACT-R006.1 / EG-C-06 permits an artifact export from the canonical builder.
+Export follows a successful, import-verified build and precedes freshness comparison. Export the WASM with SHA-256, checked-out source revision/tree, dirty
 state, pinned toolchain and build-recipe provenance. A failed build must never
 export cached bytes. The language-clients job may upload a completed fresh export
 even when committed copies are stale; the freshness check must still fail.
@@ -512,4 +511,6 @@ separate qualification obligations; baseline committed WASM bytes and pins stay 
 
 ## Hosted canonical contract repair
 
-EG-CONTRACT-R006.3 uses the authoritative generator after a hosted parity failure. It exports only receipt-listed generated contracts plus the two receipts and catalog digest. The archive includes the clean source commit/tree, toolchain, command, recipe hashes and file hashes. Generation failure exports nothing. The initial parity failure stays blocking until verified generated files are committed and fresh CI passes.
+EG-CONTRACT-R006.3 uses the authoritative generator after a hosted parity failure. It exports only receipt-listed generated contracts plus the two receipts and catalog digest. The archive includes the clean source commit/tree, toolchain, command, recipe hashes and file hashes. An independent required job avoids waiting for unrelated lower-crate tests. Generation failure exports nothing. The initial parity failure stays blocking until verified generated files are committed and fresh CI passes.
+
+EG-CONTRACT-R053.13 retains the existing gates-wheel product after all installed-wheel checks. It adds no alternate build or release path. Capture the wheel digest before installation and require unchanged bytes before export. The archive carries one wheel, source commit/tree and hashed build recipes. Consumers verify these records before installing into an isolated environment; full-stack acceptance remains separate.

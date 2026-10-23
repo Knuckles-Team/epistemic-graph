@@ -1202,6 +1202,12 @@
       "retryable": false
     },
     {
+      "class": "availability",
+      "code": "RUN_ADMISSION_UNAVAILABLE",
+      "http_status_hint": 409,
+      "retryable": false
+    },
+    {
       "class": "schema",
       "code": "SCHEMA_APPROVAL_MISMATCH",
       "http_status_hint": 400,

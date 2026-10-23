@@ -96,12 +96,7 @@ impl RowGuard<'_, '_> {
         refuse_policy_row(Some(&incoming))?;
         // Reserve this key even before a row is labelled WorkItem; otherwise
         // a caller could plant it on a plain row and relabel that row later.
-        if incoming.contains_key(eg_types::run_completion::RUN_COMPLETION_BATCH)
-            || incoming.contains_key(eg_types::run_completion::RUN_COMPLETION_DIGEST)
-            || incoming.contains_key("current_plan")
-            || incoming.contains_key("run_owner_binding")
-            || incoming.contains_key(super::run_owner::ADMISSION_REQUEST)
-            || incoming.contains_key("pending_call_lease_ref")
+        if has_reserved_run_binding(&incoming)
             || (is_work_item_row(&incoming)
                 && stored
                     .as_ref()
@@ -402,4 +397,18 @@ mod completion_tests {
             assert!(check_guard(&temp.shard, key, method).is_err());
         }
     }
+}
+
+/// Reserve native bindings even on rows not yet labelled WorkItem.
+fn has_reserved_run_binding(row: &NodeMap) -> bool {
+    [
+        eg_types::run_completion::RUN_COMPLETION_BATCH,
+        eg_types::run_completion::RUN_COMPLETION_DIGEST,
+        "current_plan",
+        "run_owner_binding",
+        super::run_owner::ADMISSION_REQUEST,
+        "pending_call_lease_ref",
+    ]
+    .iter()
+    .any(|key| row.contains_key(*key))
 }

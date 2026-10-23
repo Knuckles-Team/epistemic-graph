@@ -65,3 +65,58 @@ pub(super) fn check_guard(shard: &Shard, tag: &str, method: Method) -> Result<()
         ))
     })
 }
+
+/// Apply a native WorkItem method atomically through the production row dispatch.
+pub(super) fn apply(
+    shard: &Shard,
+    tag: &str,
+    method: Method,
+    now_ms: u64,
+) -> Result<crate::protocol::ResultPayload, String> {
+    let op_id = format!("work-item-test/{tag}");
+    with_write(shard, &op_id, now_ms, |admitted| {
+        let member = admitted.graph(GRAPH).unwrap();
+        let mut graph = crate::redb_store::store_rows::GraphRowTables::open(member).unwrap();
+        let (mut holds, index, mut counters, mut pressure, policies) =
+            crate::redb_store::store_state_tables::open_native_operation_lane_tables(
+                admitted, GRAPH,
+            )
+            .unwrap();
+        apply_work_item_rows(WorkItemApplyRequest {
+            graph: GRAPH,
+            batch_id: tag,
+            method: &method,
+            nodes: &mut graph.nodes,
+            holds: &mut holds,
+            work_item_index: &index,
+            counters: &mut counters,
+            pressure_index: &mut pressure,
+            policies: &policies,
+            native_work_items: &mut graph.native_work_items,
+            edges: &mut graph.edges,
+            command_sequences: &mut graph.command_sequences,
+            committed_at_ms: now_ms,
+            crypto: DurableCrypto::none(),
+        })
+        .map(|result| result.expect("a WorkItem-family write always answers"))
+    })
+}
+
+/// Common terminal fixture used by durable and transport retry identity tests.
+pub(crate) fn terminal_method(lease_epoch: u64, fencing_token: u64) -> Method {
+    Method::CommitWorkItemResult {
+        tenant: "tenant-a".into(),
+        work_item_id: "work-1".into(),
+        worker_id: "worker-a".into(),
+        lease_epoch,
+        fencing_token,
+        idempotency_key: "terminal-key".into(),
+        outcome: "succeeded".into(),
+        result_ref: Some("result:sha256:one".into()),
+        outcome_extension: None,
+        run_completion: None,
+        error_ref: None,
+        retryable: false,
+        now_ms: 1_000,
+    }
+}

@@ -71,3 +71,5 @@ No test below has run; these are acceptance targets only.
 Both definitions remain SPECIFIED. No test receipt or closure is claimed.
 
 - **EG-CONTRACT-R006.3:** `tests/test_export_canonical_contract.py` proves export provenance, allowlist refusal, failed generation and retained parity failure. Hosted artifact promotion requires exact source and recipe verification.
+
+- **EG-CONTRACT-R053.13:** `tests/test_ci_change_scope.py` exercises successful bounded packaging and rejects missing, multiple, symlinked and stale wheels, source mismatch and dirty tracked input. Changed bytes after installation, missing digest evidence and symlinked wheel directories also refuse. Workflow assertions require successful completeness, privacy and installed-wheel checks before export.

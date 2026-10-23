@@ -20,6 +20,18 @@ pub struct RunUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_tokens: Option<u64>,
 }
+fn validate_token_totals(usage: &RunUsage) -> Result<(), String> {
+    if let Some(total) = usage.total_tokens {
+        if usage.input_tokens.is_some_and(|n| n > total)
+            || usage.output_tokens.is_some_and(|n| n > total)
+            || matches!((usage.input_tokens, usage.output_tokens), (Some(i), Some(o)) if i + o != total)
+        {
+            return Err("incoherent run usage counters".into());
+        }
+    }
+    Ok(())
+}
+
 impl RunUsage {
     pub fn validate(&self) -> Result<(), String> {
         if [
@@ -35,15 +47,7 @@ impl RunUsage {
         {
             return Err("run usage exceeds exact JSON integer range".into());
         }
-        if let Some(total) = self.total_tokens {
-            if self.input_tokens.is_some_and(|n| n > total)
-                || self.output_tokens.is_some_and(|n| n > total)
-                || matches!((self.input_tokens, self.output_tokens), (Some(i), Some(o)) if i + o != total)
-            {
-                return Err("incoherent run usage counters".into());
-            }
-        }
-        Ok(())
+        validate_token_totals(self)
     }
 }
 
