@@ -561,3 +561,12 @@ The import-free codec matches both client copies and the canonical ledger.
 Its recipe includes the patched ctutils lockfile.
 These exports replace the earlier placeholders; final-head parity and native qualification remain required.
 R006.2 and the complete durable and served identity residuals remain open.
+
+### 2026-10-23: compose qualified conversation admission
+
+Main dc434020e adds the qualified conversation-turn admission source and tests.
+The identity union retains those changes without production-source conflicts.
+Exact prior-union generated contracts and codec bytes remain temporary placeholders.
+No generated schema, receipt or binary was merged by hand.
+Fresh composed-source exports and parity must qualify the additional admission schema.
+The prior-union facade passed; its remaining generated failures are not final-union acceptance.
