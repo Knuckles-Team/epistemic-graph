@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     CasWorkItemMetadataRequest = _models.MethodCasWorkItemMetadataParams
     PublishCurrentPlanRequest = _models.MethodPublishCurrentPlanParams
     GetCurrentPlanRequest = _models.MethodGetCurrentPlanParams
+    GetRunWorkItemRequest = _models.MethodGetRunWorkItemParams
     GetWorkItemRequest = _models.MethodGetWorkItemParams
     ListWorkItemsRequest = _models.MethodListWorkItemsParams
     GetWorkItemOutcomeRequest = _models.MethodGetWorkItemOutcomeParams
@@ -1081,6 +1082,47 @@ async def send_get_current_plan(
 def decode_get_current_plan(result: OpaqueResult) -> _models.GetCurrentPlanResult:
     """Validate this method's result against its contract model."""
     return decode_result("GetCurrentPlan", models().GetCurrentPlanResult, result)
+
+
+async def send_get_run_work_item(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GetRunWorkItem
+    Authorization:
+        work:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GetRunWorkItem
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodGetRunWorkItemParams.model_validate(params or {})
+    payload = await client._send(
+        "GetRunWorkItem",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GetRunWorkItem", payload)
+
+
+def decode_get_run_work_item(result: OpaqueResult) -> _models.GetRunWorkItemResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetRunWorkItem", models().GetRunWorkItemResult, result)
 
 
 async def send_get_work_item(
@@ -2662,6 +2704,7 @@ _REQUEST_METHODS = frozenset(
         "CasWorkItemMetadata",
         "PublishCurrentPlan",
         "GetCurrentPlan",
+        "GetRunWorkItem",
         "GetWorkItem",
         "ListWorkItems",
         "GetWorkItemOutcome",

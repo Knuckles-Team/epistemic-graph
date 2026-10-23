@@ -549,3 +549,15 @@ Previously generated identity contracts and codec bytes remain unchanged placeho
 They do not qualify the composed source or new lockfile recipe.
 Fresh hosted union exports must replace them before final qualification.
 R006.2 and the complete durable and served identity residuals remain open.
+
+### 2026-10-23: generated identity and recovery union
+
+Run 39936755442 exported canonical artifact 12494537180 and codec artifact 12495141918.
+Both identify source 38d1d67798236c00f3aaceec966763bfad8931e2 and the exact published cde04231 tree.
+Archive, recipe and output hashes were verified before importing generated files.
+All 73 canonical outputs match their receipt, including both security schemas.
+The catalog adds GetRunWorkItem without removing identity methods or changing existing descriptors.
+The import-free codec matches both client copies and the canonical ledger.
+Its recipe includes the patched ctutils lockfile.
+These exports replace the earlier placeholders; final-head parity and native qualification remain required.
+R006.2 and the complete durable and served identity residuals remain open.

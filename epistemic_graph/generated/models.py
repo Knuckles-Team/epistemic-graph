@@ -9,7 +9,14 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+)
 
 from ._shared import (
     AbstainReason,
@@ -639,6 +646,23 @@ from .write_back import (
     WriteBackReceiptRecordAttempt,
     WriteBackReceiptRecordReconciliation,
 )
+
+
+def _eg_octets(value):
+    if isinstance(value, list):
+        if any(type(item) is not int or not 0 <= item <= 255 for item in value):
+            raise ValueError("engine octets must be integers between 0 and 255")
+        return bytes(value)
+    if not isinstance(value, bytes):
+        raise ValueError("engine octets must be bytes or an integer array")
+    return value
+
+
+_EgOctets = Annotated[
+    bytes,
+    BeforeValidator(_eg_octets),
+    PlainSerializer(list, return_type=list[int], when_used="json"),
+]
 
 
 def _eg_utf8_text(max_bytes):
@@ -1329,7 +1353,7 @@ class AsrOpTranscribeFile(BaseModel):
 class AsrOpTranscribeFileBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    audio_wav: bytes
+    audio_wav: _EgOctets
     language: str | None = None
     model_path: str
     model_sha256: str
@@ -2049,13 +2073,13 @@ class CasWorkItemMetadataRequest(BaseModel):
 
     expected_checkpoint_id: str | None = None
     expected_lease: CasWorkItemMetadataLeaseFence | None = None
-    expected_metadata_msgpack: bytes | None = None
+    expected_metadata_msgpack: _EgOctets | None = None
     expected_prio_bucket: int | None = None
     expected_status: list[str]
     now_ms: Annotated[int, Field(ge=0)]
     schema_version: CasWorkItemMetadataRequestSchemaVersion
     set_checkpoint_id: str | None = None
-    set_metadata_msgpack: bytes | None = None
+    set_metadata_msgpack: _EgOctets | None = None
     set_prio_bucket: int | None = None
     tenant_ref: str
     work_item_id: str
@@ -2141,8 +2165,8 @@ class CausalRelationRow(BaseModel):
 class CdcEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    after: bytes = Field(default_factory=bytes)
-    before: bytes = Field(default_factory=bytes)
+    after: _EgOctets = Field(default_factory=bytes)
+    before: _EgOctets = Field(default_factory=bytes)
     graph: str
     had_after: bool | None = None
     had_before: bool | None = None
@@ -2553,7 +2577,7 @@ class ClaimedAnalyticsJob(BaseModel):
     algo: JobAlgoVersion
     cancel_requested: bool
     created_at_ms: int
-    input_payload: bytes | None = None
+    input_payload: _EgOctets | None = None
     input_snapshot: JobInputSnapshot
     job_id: str
     last_worker_ref: str
@@ -2815,6 +2839,16 @@ class CommitOutcomeValue1(BaseModel):
 
     committed: bool
     replayed: bool
+
+
+class CommittedRunCompletion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    commit_sequence: Annotated[int, Field(ge=0)]
+    ordinal: Annotated[int, Field(ge=0)]
+    payload: RunCompletionPayload
+    payload_digest: str
+    scope: MutationScopeIdentity
 
 
 class CommittedVersionGraph(BaseModel):
@@ -4990,7 +5024,7 @@ class EvidenceRecord(BaseModel):
 
     content_digest: str
     evidence_id: str
-    locus_msgpack: bytes
+    locus_msgpack: _EgOctets
     modality: str
     object_id: str
     operation: MaterialOperation
@@ -5177,7 +5211,7 @@ class FeatureRecord(BaseModel):
     model_version: str
     object_id: str
     operation: MaterialOperation
-    value_msgpack: bytes
+    value_msgpack: _EgOctets
 
 
 class FeatureStandardisation(BaseModel):
@@ -5378,7 +5412,7 @@ FinanceSignalModelsOp = Annotated[
 class FiredAction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    action: bytes = Field(default_factory=bytes)
+    action: _EgOctets = Field(default_factory=bytes)
     change_seq: Annotated[int, Field(ge=0)]
     fire_seq: Annotated[int, Field(ge=0)]
     graph: str
@@ -7939,7 +7973,7 @@ class JobCheckpoint(BaseModel):
 
     progress: float
     stage: str
-    state_blob: bytes | None = None
+    state_blob: _EgOctets | None = None
     updated_at_ms: int
 
 
@@ -7976,7 +8010,7 @@ class JobKindProgramOptimize(BaseModel):
 class JobKindProgramOptimizeBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    request_msgpack: bytes
+    request_msgpack: _EgOctets
 
 
 class JobOpCancel(BaseModel):
@@ -8390,7 +8424,7 @@ class KnowledgeStreamBatch(BaseModel):
 
     cursor: KnowledgeStreamCursor
     family: KnowledgeResultFamily
-    payload: bytes
+    payload: _EgOctets
     projection: KnowledgeStreamProjection
     schema_version: Annotated[int, Field(ge=0, le=65535)]
 
@@ -8430,7 +8464,7 @@ class KnowledgeStreamQuerySql(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["sql"]
-    params_msgpack: bytes = Field(default_factory=bytes)
+    params_msgpack: _EgOctets = Field(default_factory=bytes)
     query: str
 
 
@@ -8507,7 +8541,7 @@ class KvCasOutcome(BaseModel):
 class KvEntry(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    value: bytes
+    value: _EgOctets
     version: Annotated[int, Field(ge=0)]
 
 
@@ -8522,7 +8556,7 @@ class KvScanRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     key: str
-    value: bytes
+    value: _EgOctets
     version: Annotated[int, Field(ge=0)]
 
 
@@ -11987,6 +12021,13 @@ class MethodGetCurrentPlan(BaseModel):
     params: MethodGetCurrentPlanParams
 
 
+class MethodGetRunWorkItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetRunWorkItem"]
+    params: MethodGetRunWorkItemParams
+
+
 class MethodGetWorkItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12590,6 +12631,7 @@ Method = Annotated[
     | MethodEdgeSearch
     | MethodPublishCurrentPlan
     | MethodGetCurrentPlan
+    | MethodGetRunWorkItem
     | MethodGetWorkItem
     | MethodListWorkItems
     | MethodGetWorkItemOutcome
@@ -12625,7 +12667,7 @@ class MethodAcquireCapacityParams(BaseModel):
 class MethodAddEdgeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    properties_msgpack: bytes
+    properties_msgpack: _EgOctets
     source_id: str
     target_id: str
 
@@ -12641,14 +12683,14 @@ class MethodAddNodeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     node_id: str
-    properties_msgpack: bytes
+    properties_msgpack: _EgOctets
 
 
 class MethodAddSceneObjectParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     parent: str | None = None
-    pose_msgpack: bytes
+    pose_msgpack: _EgOctets
 
 
 class MethodAddTriplesParams(BaseModel):
@@ -12697,7 +12739,7 @@ class MethodAnalyticsJobParams(BaseModel):
 class MethodAppendStepParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    action_msgpack: bytes
+    action_msgpack: _EgOctets
     next_state_ref: str | None = None
     reward: float
     state_ref: str | None = None
@@ -12797,7 +12839,7 @@ class MethodBatchL2NormalizeParams(BaseModel):
 class MethodBatchUpdateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    operations_msgpack: bytes
+    operations_msgpack: _EgOctets
 
 
 class MethodBeginTxnParams(BaseModel):
@@ -12839,7 +12881,7 @@ class MethodBlobChunkPutParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     cursor: Annotated[int, Field(ge=0)]
-    data: bytes
+    data: _EgOctets
 
 
 class MethodBlobCommitParams(BaseModel):
@@ -13014,7 +13056,7 @@ class MethodCepSubscribeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     buffer: Annotated[int, Field(ge=0)] | None = None
-    pattern_msgpack: bytes
+    pattern_msgpack: _EgOctets
 
 
 class MethodCepUnsubscribeParams(BaseModel):
@@ -13034,7 +13076,7 @@ class MethodClaimNextParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     label: str
-    updates_msgpack: bytes
+    updates_msgpack: _EgOctets
 
 
 class MethodClaimWorkItemParams(BaseModel):
@@ -13097,6 +13139,7 @@ class MethodCommitWorkItemResultParams(BaseModel):
     outcome_extension: TerminalOutcomeExtension | None = None
     result_ref: str | None = None
     retryable: bool | None = None
+    run_completion: RunCompletionInput | None = None
     tenant: str
     work_item_id: str
     worker_id: str
@@ -13127,9 +13170,9 @@ class MethodCompactNodesByTypeParams(BaseModel):
 class MethodCompareAndSetNodeFieldsParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    conditions_msgpack: bytes
+    conditions_msgpack: _EgOctets
     node_id: str
-    updates_msgpack: bytes
+    updates_msgpack: _EgOctets
 
 
 class MethodComputeSimilarityEdgesParams(BaseModel):
@@ -13148,7 +13191,7 @@ class MethodConsolidateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     episodic_ids: list[str]
-    semantic_props_msgpack: bytes
+    semantic_props_msgpack: _EgOctets
 
 
 class MethodCreateChannelParams(BaseModel):
@@ -13179,7 +13222,7 @@ class MethodCreateNodeIfAbsentParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     node_id: str
-    properties_msgpack: bytes
+    properties_msgpack: _EgOctets
 
 
 class MethodCreateSummaryNodeParams(BaseModel):
@@ -13187,7 +13230,7 @@ class MethodCreateSummaryNodeParams(BaseModel):
 
     child_ids: list[str]
     level: Annotated[int, Field(ge=0)]
-    props_msgpack: bytes
+    props_msgpack: _EgOctets
 
 
 class MethodCypherQueryParams(BaseModel):
@@ -14143,7 +14186,7 @@ class MethodFreshnessFeedParams(BaseModel):
 class MethodFromMsgpackParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    msgpack: bytes
+    msgpack: _EgOctets
 
 
 class MethodGapGetParams(BaseModel):
@@ -14310,6 +14353,13 @@ class MethodGetPredecessorsParams(BaseModel):
     node_id: str
 
 
+class MethodGetRunWorkItemParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    run_id: str
+    tenant: str
+
+
 class MethodGetShortestPathParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14446,7 +14496,7 @@ class MethodInDegreeParams(BaseModel):
 class MethodIndexRepositoryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    files_msgpack: bytes
+    files_msgpack: _EgOctets
     scope: IndexRepositoryScope | None = None
 
 
@@ -14491,7 +14541,7 @@ class MethodKvCasParams(BaseModel):
     expected_version: Annotated[int, Field(ge=0)]
     key: str
     namespace: str
-    new: bytes | None = None
+    new: _EgOctets | None = None
     shared: bool | None = None
 
 
@@ -14517,7 +14567,7 @@ class MethodKvPutParams(BaseModel):
     key: str
     namespace: str
     shared: bool | None = None
-    value: bytes
+    value: _EgOctets
 
 
 class MethodKvScanParams(BaseModel):
@@ -14886,7 +14936,7 @@ class MethodMintWorkItemClaimCapabilityParams(BaseModel):
 class MethodMultiGraphBatchUpdateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    batches_msgpack: bytes
+    batches_msgpack: _EgOctets
 
 
 class MethodMutationOutboxParams(BaseModel):
@@ -14911,7 +14961,7 @@ class MethodObserveDevelopmentLaneParams(BaseModel):
 class MethodObserveScreenParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    obs_msgpack: bytes
+    obs_msgpack: _EgOctets
 
 
 class MethodOntologyInspectParams(BaseModel):
@@ -14965,13 +15015,13 @@ class MethodParseFileParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     file_path: str
-    source: bytes
+    source: _EgOctets
 
 
 class MethodParseFilesParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    files_msgpack: bytes
+    files_msgpack: _EgOctets
 
 
 class MethodPersonalizedPageRankParams(BaseModel):
@@ -15045,7 +15095,7 @@ class MethodPublishConfirmedParams(BaseModel):
     delay_ms: Annotated[int, Field(ge=0)] | None = None
     exchange: str
     now_ms: Annotated[int, Field(ge=0)] | None = None
-    payload: bytes
+    payload: _EgOctets
     priority: int | None = None
     routing_key: str
     ttl_ms: Annotated[int, Field(ge=0)] | None = None
@@ -15063,7 +15113,7 @@ class MethodPublishExParams(BaseModel):
     delay_ms: Annotated[int, Field(ge=0)] | None = None
     exchange: str
     now_ms: Annotated[int, Field(ge=0)] | None = None
-    payload: bytes
+    payload: _EgOctets
     priority: int | None = None
     routing_key: str
     ttl_ms: Annotated[int, Field(ge=0)] | None = None
@@ -15075,7 +15125,7 @@ class MethodPublishIdempotentParams(BaseModel):
     delay_ms: Annotated[int, Field(ge=0)] | None = None
     exchange: str
     now_ms: Annotated[int, Field(ge=0)] | None = None
-    payload: bytes
+    payload: _EgOctets
     priority: int | None = None
     producer_id: str | None = None
     routing_key: str
@@ -15087,7 +15137,7 @@ class MethodPublishParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     exchange: str
-    payload: bytes
+    payload: _EgOctets
     routing_key: str
 
 
@@ -15201,7 +15251,7 @@ class MethodReconcileParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     graph_name: str
-    msgpack: bytes
+    msgpack: _EgOctets
 
 
 class MethodRefreshMatViewParams(BaseModel):
@@ -15214,7 +15264,7 @@ class MethodRegisterContinuousQueryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     name: str
-    spec_msgpack: bytes
+    spec_msgpack: _EgOctets
 
 
 class MethodRegisterForeignSourceParams(BaseModel):
@@ -15248,7 +15298,7 @@ class MethodRegisterServerParams(BaseModel):
 class MethodRegisterTriggerParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    action_msgpack: bytes = Field(default_factory=bytes)
+    action_msgpack: _EgOctets = Field(default_factory=bytes)
     graph: str
     label: str | None = None
     name: str
@@ -15259,7 +15309,7 @@ class MethodRegisterUdfParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     id: str
-    wasm: bytes
+    wasm: _EgOctets
 
 
 class MethodReinforceParams(BaseModel):
@@ -15438,7 +15488,7 @@ class MethodRunUdfParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     id: str
-    input: bytes
+    input: _EgOctets
 
 
 class MethodSceneChildrenParams(BaseModel):
@@ -15484,7 +15534,7 @@ class MethodSetPoseParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     node_id: str
-    pose_msgpack: bytes
+    pose_msgpack: _EgOctets
 
 
 class MethodShaclValidateParams(BaseModel):
@@ -15543,7 +15593,7 @@ class MethodSparqlVirtualParams(BaseModel):
 class MethodSqlParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    params_msgpack: bytes = Field(default_factory=bytes)
+    params_msgpack: _EgOctets = Field(default_factory=bytes)
     query: str
 
 
@@ -15556,7 +15606,7 @@ class MethodSqlSourceBatchParams(BaseModel):
 class MethodStartTrajectoryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    props_msgpack: bytes
+    props_msgpack: _EgOctets
 
 
 class MethodStatechartParams(BaseModel):
@@ -15592,7 +15642,7 @@ class MethodStreamPublishParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     now_ms: Annotated[int, Field(ge=0)]
-    payload: bytes
+    payload: _EgOctets
     stream: str
 
 
@@ -15641,7 +15691,7 @@ class MethodSupersedeEdgeParams(BaseModel):
     prior_relationship: str
     prior_source: str
     prior_target: str
-    properties_msgpack: bytes
+    properties_msgpack: _EgOctets
     source_id: str
     target_id: str
     tx_now: Annotated[int, Field(ge=0)]
@@ -15658,7 +15708,7 @@ class MethodTelemetryDeriveParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     from_ms: Annotated[int, Field(ge=0)]
-    policy_msgpack: bytes
+    policy_msgpack: _EgOctets
     streams: list[str] = Field(default_factory=list)
     to_ms: Annotated[int, Field(ge=0)]
 
@@ -15687,14 +15737,14 @@ class MethodTsAppendParams(BaseModel):
     bucket_ns: Annotated[int, Field(ge=0)]
     field_names: list[str] = Field(default_factory=list)
     n_fields: Annotated[int, Field(ge=0)]
-    points_msgpack: bytes
+    points_msgpack: _EgOctets
     series_id: str
 
 
 class MethodTsAsofJoinParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    left_ts_msgpack: bytes
+    left_ts_msgpack: _EgOctets
     series_id: str
     tolerance: int | None = None
 
@@ -15751,7 +15801,7 @@ class MethodTxnAddEdgeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     graph: str | None = None
-    properties_msgpack: bytes
+    properties_msgpack: _EgOctets
     source_id: str
     target_id: str
     txn_id: str
@@ -15770,7 +15820,7 @@ class MethodTxnAddMeasurementParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     graph: str | None = None
-    points: bytes
+    points: _EgOctets
     series: str
     txn_id: str
 
@@ -15780,7 +15830,7 @@ class MethodTxnAddNodeParams(BaseModel):
 
     graph: str | None = None
     node_id: str
-    properties_msgpack: bytes
+    properties_msgpack: _EgOctets
     txn_id: str
 
 
@@ -15804,11 +15854,11 @@ class MethodTxnBlobRefParams(BaseModel):
 class MethodTxnCasParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    conditions_msgpack: bytes
+    conditions_msgpack: _EgOctets
     graph: str | None = None
     node_id: str
     txn_id: str
-    updates_msgpack: bytes
+    updates_msgpack: _EgOctets
 
 
 class MethodTxnConstructParams(BaseModel):
@@ -16147,7 +16197,7 @@ class MutationOutboxIntent(BaseModel):
 
     headers: dict[str, str]
     key: str
-    payload: bytes
+    payload: _EgOctets
     topic: str
 
 
@@ -18524,7 +18574,7 @@ class ReceiptNode(BaseModel):
     outbox_id: str
     payload_digest: str
     payload_ref: str
-    properties_msgpack: bytes
+    properties_msgpack: _EgOctets
     result_ref: str | None = None
     run_id: str
     work_item_id: str
@@ -19524,6 +19574,26 @@ class RuleReasonResponse(BaseModel):
     same_as: list[RuleReasonResponseSameAsItem]
 
 
+class RunCompletionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    run_id: str
+    schema_version: Annotated[int, Field(ge=0)]
+    usage: RunUsage | None = None
+
+
+class RunCompletionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    batch_id: str
+    completion: RunCompletionInput
+    error_ref: str | None = None
+    outcome: str
+    result_ref: str | None = None
+    tenant: str
+    work_item_id: str
+
+
 class RunEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19552,6 +19622,24 @@ class RunEvent(BaseModel):
     timestamp_ms: Annotated[int, Field(ge=0)]
     tool_call_ref: str | None = None
     work_item_id: str
+
+
+class RunUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    input_tokens: Annotated[int, Field(ge=0)] | None = None
+    output_tokens: Annotated[int, Field(ge=0)] | None = None
+    requests: Annotated[int, Field(ge=0)] | None = None
+    tool_calls: Annotated[int, Field(ge=0)] | None = None
+    total_tokens: Annotated[int, Field(ge=0)] | None = None
+
+
+class RunWorkItemView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    admission: SubmitWorkItemRequest
+    run_completion: CommittedRunCompletion | None = None
+    work_item: WorkItemView
 
 
 class SabrFit(BaseModel):
@@ -21091,7 +21179,7 @@ class SemanticSqlSourcePageAdmission(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     complete: bool
-    next_cursor: bytes | None = None
+    next_cursor: _EgOctets | None = None
     receipts: list[SemanticMutationReceipt]
 
 
@@ -21482,10 +21570,10 @@ class ServedModalityEventKind(str, Enum):
 class ServedModalityIngestItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    bundle_msgpack: bytes
+    bundle_msgpack: _EgOctets
     expected_version: Annotated[int, Field(ge=0)] | None = None
     idempotency_ref: str
-    source_bytes: bytes
+    source_bytes: _EgOctets
     target_occurrence_id: str
 
 
@@ -21505,12 +21593,12 @@ class ServedModalityOpAuthority(BaseModel):
 class ServedModalityOpIngest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    bundle_msgpack: bytes
+    bundle_msgpack: _EgOctets
     expected_version: Annotated[int, Field(ge=0)] | None = None
     idempotency_ref: str
     modality: ServedModalityKind
     operation: Literal["ingest"]
-    source_bytes: bytes
+    source_bytes: _EgOctets
     target_occurrence_id: str
 
 
@@ -22141,7 +22229,7 @@ class SqlSourceCellBytes(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     kind: Literal["bytes"]
-    value: bytes
+    value: _EgOctets
 
 
 class SqlSourceCellJson(BaseModel):
@@ -22183,7 +22271,7 @@ class SqlSourceDescriptor(BaseModel):
 class SqlSourceMappingDescriptor(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    content: bytes
+    content: _EgOctets
     format: str
 
 
@@ -22361,7 +22449,7 @@ class StatechartOpDefine(BaseModel):
 class StatechartOpDefineBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    def_msgpack: bytes
+    def_msgpack: _EgOctets
 
 
 class StatechartOpGetState(BaseModel):
@@ -23574,7 +23662,7 @@ class VizRenderRequest(BaseModel):
 class VizRenderResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    bytes: bytes
+    bytes: _EgOctets
     cached: bool
     content_type: str
     format: VizFormat
@@ -23717,7 +23805,7 @@ class WorkItemClaimCapabilityRequestSchemaVersion(str, Enum):
 class WorkItemClaimCapabilityResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    capability: bytes | None = None
+    capability: _EgOctets | None = None
     decision: WorkItemClaimCapabilityDecision
     schema_version: WorkItemClaimCapabilityResultSchemaVersion
     valid: bool
@@ -23730,7 +23818,7 @@ class WorkItemClaimCapabilityResultSchemaVersion(str, Enum):
 class WorkItemClaimCapabilityVerifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    capability: bytes
+    capability: _EgOctets
     schema_version: WorkItemClaimCapabilityRequestSchemaVersion
     work_item_id: str
 
@@ -24271,7 +24359,7 @@ ConnectedComponentsResult = list[list[str]]
 
 
 ContextViewEdgesItem = Annotated[
-    tuple[str, str, bytes],
+    tuple[str, str, _EgOctets],
     Field(
         min_length=3,
         max_length=3,
@@ -24680,7 +24768,7 @@ GetControlLeaseResult = ControlLeaseView | None
 GetCurrentPlanResult = CurrentPlanSnapshot | None
 
 
-PropertyBlob = bytes
+PropertyBlob = _EgOctets
 
 
 GetEdgePropertiesBatchResult = list[list[PropertyBlob]]
@@ -24690,7 +24778,7 @@ GetEdgesPageResultValueItemItem2 = Annotated[int, Field(ge=0)]
 
 
 GetEdgesPageResultValueItem = Annotated[
-    tuple[str, str, GetEdgesPageResultValueItemItem2, bytes],
+    tuple[str, str, GetEdgesPageResultValueItemItem2, _EgOctets],
     Field(
         min_length=4,
         max_length=4,
@@ -24735,6 +24823,9 @@ GetNodePropertiesBatchResult = list[GetNodePropertiesBatchResultValueItem]
 
 
 GetRdfResult = str
+
+
+GetRunWorkItemResult = RunWorkItemView | None
 
 
 GetShortestPathResult = list[str] | None
@@ -25092,7 +25183,7 @@ MotifSearch = MotifSearchLike | MotifSearchPairs | MotifSearchDiscord
 MutationEnvelope = MutationEnvelopeOperation | MutationEnvelopeMaintenance
 
 
-MutationScopeDigest = Annotated[bytes, Field(min_length=32, max_length=32)]
+MutationScopeDigest = Annotated[_EgOctets, Field(min_length=32, max_length=32)]
 
 
 NlQueryResultValueItemItem1 = float | None
@@ -25343,7 +25434,7 @@ SqlSourceBatchRequest = SqlSourceBatch
 SqlSourceFloat = float
 
 
-SqlSourceJson = bytes
+SqlSourceJson = _EgOctets
 
 
 SqlSourceText = str
@@ -25365,7 +25456,7 @@ StreamCommittedOffsetResult = int | None
 
 
 StreamReadResultValueItem = Annotated[
-    tuple[int, bytes],
+    tuple[int, _EgOctets],
     Field(
         min_length=2,
         max_length=2,
@@ -25409,7 +25500,7 @@ TensorOpKindSliceBodyRangesItem = Annotated[
 ]
 
 
-ToMsgpackResult = bytes
+ToMsgpackResult = _EgOctets
 
 
 TopologicalSortResult = list[str]
@@ -26008,6 +26099,7 @@ __all__ = [
     "CommitOutcome",
     "CommitOutcomeBundle",
     "CommitOutcomeValue1",
+    "CommittedRunCompletion",
     "CommittedVersion",
     "CommittedVersionGraph",
     "CommittedVersionGraphBody",
@@ -26603,6 +26695,7 @@ __all__ = [
     "GetNodePropertiesBatchResult",
     "GetNodePropertiesBatchResultValueItem",
     "GetRdfResult",
+    "GetRunWorkItemResult",
     "GetShortestPathResult",
     "GetWorkItemOutcomeResult",
     "GetWorkItemResult",
@@ -27470,6 +27563,8 @@ __all__ = [
     "MethodGetPredecessors",
     "MethodGetPredecessorsParams",
     "MethodGetRdf",
+    "MethodGetRunWorkItem",
+    "MethodGetRunWorkItemParams",
     "MethodGetShortestPath",
     "MethodGetShortestPathParams",
     "MethodGetSubgraph",
@@ -28484,7 +28579,11 @@ __all__ = [
     "RuleProofNode",
     "RuleReasonResponse",
     "RuleReasonResponseSameAsItem",
+    "RunCompletionInput",
+    "RunCompletionPayload",
     "RunEvent",
+    "RunUsage",
+    "RunWorkItemView",
     "SabrFit",
     "SafetyOutcome",
     "Scalar",
