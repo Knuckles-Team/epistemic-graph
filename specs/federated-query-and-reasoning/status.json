@@ -1333,9 +1333,9 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:171",
-        "src/server/handlers/query/nl.rs:177",
-        "src/server/handlers/query/nl.rs:200"
+        "src/server/handlers/query/nl.rs:180",
+        "src/server/handlers/query/nl.rs:186",
+        "src/server/handlers/query/nl.rs:209"
       ]
     },
     {
@@ -2962,7 +2962,8 @@
         "crates/eg-plan/src/nl_regressions.rs:281",
         "crates/eg-plan/src/nl_regressions.rs:293",
         "crates/eg-plan/src/nl_regressions.rs:322",
-        "src/server/nl.rs:415"
+        "src/server/handlers/query/nl.rs:228",
+        "src/server/nl.rs:412"
       ]
     },
     {

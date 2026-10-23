@@ -515,3 +515,4 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 | Behavior | `EG-FEDERATED-QUERY-R058.5` | `nl_regressions::planner_sends_configured_extra_body_and_honours_read_timeout` sees the extra body at a stub server and a timeout inside 3 s. |
 | Default | `EG-FEDERATED-QUERY-R058.5` | `nl_regressions::planner_request_defaults_disable_thinking` sees `enable_thinking=false` in the body. |
 | Refusal | `EG-FEDERATED-QUERY-R058.5` | `nl_regressions::planner_refuses_invalid_request_config_with_typed_errors` returns each `NlConfigError` variant. |
+| Served refusal | `EG-FEDERATED-QUERY-R058.5` | `nl_config_refusal_tests::invalid_planner_config_is_refused_with_code_and_key` sees `ENGINE_UNAVAILABLE` and the bad key in the detail. |
