@@ -1,0 +1,187 @@
+"""A reopened store lists its graphs after a patch upgrade (EG-DURABLE-KERNEL-R861.2).
+
+A writer engine bootstraps a store, registers an identity with no grants and creates a
+`Global` tenant graph the way arbora does. This build then reopens the same store.
+Recovery leaves every graph catalog-only until first access, so `ListGraphs` must decide
+each graph from its catalog record. Before the fix it read the resident entry, found
+none, and dropped every graph without an access decision, on any restart.
+
+The stored policy still decides: the System identity sees both graphs, and the
+registered identity with no grants, or an unregistered principal, sees neither.
+
+The writer is this build, and also the previous patch's published engine when
+`EPISTEMIC_GRAPH_PREVIOUS_PATCH_BINARY` names it (`pip install
+epistemic-graph-server==<previous>`). A store binds to its files' device and inode, so a
+copied store cannot be committed as a fixture; the writer creates it in place.
+"""
+
+import asyncio
+import json
+import os
+from pathlib import Path
+
+import pytest
+from conftest import find_server_binary, spawn_server, stop_server, wait_for_server
+
+from epistemic_graph.client import EpistemicGraphClient
+from epistemic_graph.generated.cluster import (
+    decode_list_graphs,
+    send_create_graph,
+    send_list_graphs,
+)
+
+pytestmark = [
+    pytest.mark.no_engine,  # Each case owns its engines on its own store.
+    pytest.mark.spec("EG-DURABLE-KERNEL-R861.2"),
+]
+
+AGENT = "service:test-suite"
+SIGNER_KEY = "test-operation-signer-key"  # sanitizer:ignore — test-only value
+AUTH_SECRET = "test-upgrade-listing-secret"  # sanitizer:ignore — test-only value
+TENANT_GRAPH = "tenant__homelab____commons__"
+UNGRANTED = "service:upgrade-ungranted"
+UNREGISTERED = "service:upgrade-unregistered"
+BOTH = ["__commons__", TENANT_GRAPH]
+PREVIOUS_PATCH_ENV = "EPISTEMIC_GRAPH_PREVIOUS_PATCH_BINARY"
+
+
+def _context(agent: str = AGENT, *, roles=None, scopes=None) -> dict[str, object]:
+    return {
+        "principal": agent,
+        "tenant": "tenant:test",
+        "audience": "epistemic-graph-test",
+        "agent_id": agent,
+        "roles": list(roles if roles is not None else ["test"]),
+        "scopes": list(scopes if scopes is not None else ["*"]),
+        "policy_version": "policy:test",
+        "delegation": [],
+    }
+
+
+def _env(state_dir: Path) -> dict[str, str]:
+    inherited = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("GRAPH_SERVICE_", "EPISTEMIC_GRAPH_"))
+    }
+    return {
+        **inherited,
+        "GRAPH_SERVICE_AUTH_SECRET": AUTH_SECRET,
+        "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
+        "EPISTEMIC_GRAPH_AUDIENCE": "epistemic-graph-test",
+        "EPISTEMIC_GRAPH_TENANT": "tenant:test",
+        "EPISTEMIC_GRAPH_POLICY_VERSION": "policy:test",
+        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": str(state_dir),
+        "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
+            {AGENT: {"key": SIGNER_KEY, "allowed_roles": [], "may_grant_system": True}}
+        ),
+    }
+
+
+async def _connect(
+    socket_path: str, context: dict[str, object]
+) -> EpistemicGraphClient:
+    return await EpistemicGraphClient.connect(
+        socket_path=socket_path, auth_secret=AUTH_SECRET, verified_context=context
+    )
+
+
+async def _populate(socket_path: str) -> None:
+    client = await _connect(
+        socket_path, _context(roles=[], scopes=["security:bootstrap"])
+    )
+    try:
+        await client.consensus.bootstrap_system_identity(
+            agent_id=AGENT, signer_id=AGENT, signer_key=SIGNER_KEY
+        )
+    finally:
+        await client.close()
+    client = await _connect(socket_path, _context())
+    try:
+        await client.consensus.register_identity(
+            UNGRANTED, "Agent", [], [], signer_id=AGENT, signer_key=SIGNER_KEY
+        )
+        await send_create_graph(
+            client,
+            {"graph_name": TENANT_GRAPH, "graph_type": "Global"},
+            TENANT_GRAPH,
+            idempotency_key=f"arbora:create-graph:{TENANT_GRAPH}",
+        )
+    finally:
+        await client.close()
+
+
+async def _listed(socket_path: str, agent: str) -> list[str] | str:
+    client = await _connect(socket_path, _context(agent))
+    try:
+        result = await send_list_graphs(client, {}, TENANT_GRAPH)
+        return sorted(listing.name for listing in decode_list_graphs(result))
+    except Exception as refused:  # an outright refusal also lists nothing
+        return f"refused: {refused}"
+    finally:
+        await client.close()
+
+
+class _Store:
+    """One store on disk, served by a fresh engine process per `run`."""
+
+    def __init__(self, root: Path):
+        self.persist = root / "persist"
+        self.state = root / "security"
+        self.socket = str(root / "engine.sock")
+        self.log = root / "engine.log"
+        self.persist.mkdir()
+
+    def run(self, binary: str, check) -> None:
+        if os.path.exists(self.socket):
+            os.remove(self.socket)
+        process = spawn_server(
+            [binary, "--socket-path", self.socket, "--persist-dir", str(self.persist)],
+            env=_env(self.state),
+            log_path=self.log,
+        )
+        try:
+            wait_for_server(
+                process, self.socket, name="upgrade engine", log_path=self.log
+            )
+            asyncio.run(check())
+        finally:
+            stop_server(process, name="upgrade engine", log_path=self.log)
+
+
+def _writers() -> list:
+    previous = os.environ.get(PREVIOUS_PATCH_ENV, "").strip()
+    return [
+        pytest.param("", id="written-by-this-build"),
+        pytest.param(
+            previous,
+            id="written-by-previous-patch",
+            marks=pytest.mark.skipif(
+                not previous,
+                reason=f"set {PREVIOUS_PATCH_ENV} to a previous-patch engine",
+            ),
+        ),
+    ]
+
+
+@pytest.mark.parametrize("writer", _writers())
+def test_reopened_store_lists_graphs_for_the_stored_policy(writer, tmp_path):
+    binary = find_server_binary()
+    if binary is None:
+        pytest.skip("build the full-featured engine binary before this served test")
+    store = _Store(tmp_path)
+
+    async def written() -> None:
+        await _populate(store.socket)
+        assert await _listed(store.socket, AGENT) == BOTH
+
+    async def reopened() -> None:
+        assert await _listed(store.socket, AGENT) == BOTH
+        for stranger in (UNGRANTED, UNREGISTERED):
+            listed = await _listed(store.socket, stranger)
+            assert not isinstance(listed, list) or listed == [], (stranger, listed)
+
+    store.run(writer or binary, written)
+    store.run(binary, reopened)
+    # A second restart of the upgraded store still lists both graphs.
+    store.run(binary, reopened)
