@@ -923,14 +923,12 @@ fn bind_verified_identity(
     let token = oidc_token
         .map(str::trim)
         .filter(|t| !t.is_empty())
-        .ok_or_else(|| "request context requires a verified OIDC bearer token".to_string())?;
+        .ok_or_else(|| UNKNOWN_PRINCIPAL_NO_TOKEN.to_string())?;
     let verified = validator
         .validate_claims(token)
-        .ok_or_else(|| "OIDC bearer token failed verification".to_string())?;
+        .ok_or_else(|| UNKNOWN_PRINCIPAL_UNVERIFIED.to_string())?;
     if verified.subject != claims.principal {
-        return Err(
-            "request context principal does not match the verified OIDC subject".to_string(),
-        );
+        return Err(UNKNOWN_PRINCIPAL_SUBJECT.to_string());
     }
     // A tenant claim is required, not merely compared-if-present: an absent
     // tenant claim is proof of nothing, and this codebase's own equivalent
@@ -1059,7 +1057,7 @@ fn verify_envelope_v2_with(
     replay: &dyn ReplayLedger,
 ) -> Result<VerifiedRequestContext, String> {
     let envelope = decode_envelope(req)?;
-    let got_mac = hex::decode(&envelope.mac).map_err(|_| "Authentication failed".to_string())?;
+    let got_mac = hex::decode(&envelope.mac).map_err(|_| BAD_SIGNATURE.to_string())?;
     let params = VerifiedEnvelopeParams {
         context: &envelope.context,
         timestamp: envelope.timestamp,
@@ -1069,13 +1067,13 @@ fn verify_envelope_v2_with(
     let mac =
         envelope_v2_mac(secret, req, &params).ok_or_else(|| "Authentication failed".to_string())?;
     if mac.verify_slice(&got_mac).is_err() {
-        return Err("Authentication failed".to_string());
+        return Err(BAD_SIGNATURE.to_string());
     }
 
     let now = now_secs();
     let skew = envelope_skew_secs();
     if now.abs_diff(envelope.timestamp) > skew {
-        return Err("request timestamp is outside the allowed clock-skew window".to_string());
+        return Err(EXPIRED.to_string());
     }
     validate_context_claims(req, &envelope.context, policy)?;
     bind_verified_identity(&envelope.context, envelope.oidc_token.as_deref())?;
@@ -1103,6 +1101,68 @@ fn verify_envelope_v2_with(
         envelope.idempotency_key,
         Some(wire_nonce),
     ))
+}
+
+// ── typed authentication refusals ──────────────────────────────────────────
+
+/// The envelope MAC did not verify. Keeps the historic "Authentication failed"
+/// phrase so existing callers that match on it still recognise the refusal.
+const BAD_SIGNATURE: &str =
+    "AUTH_BAD_SIGNATURE: Authentication failed: request signature did not verify";
+/// Checked only after the MAC verifies, so it never answers for a forged request.
+const EXPIRED: &str = "AUTH_EXPIRED: request timestamp is outside the allowed clock-skew window";
+const UNKNOWN_PRINCIPAL_NO_TOKEN: &str =
+    "AUTH_UNKNOWN_PRINCIPAL: request context requires a verified OIDC bearer token";
+const UNKNOWN_PRINCIPAL_UNVERIFIED: &str =
+    "AUTH_UNKNOWN_PRINCIPAL: OIDC bearer token failed verification";
+const UNKNOWN_PRINCIPAL_SUBJECT: &str =
+    "AUTH_UNKNOWN_PRINCIPAL: request context principal does not match the verified OIDC subject";
+/// The redacted refusal for every failure without a published cause class.
+const AUTHENTICATION_FAILED: &str = "AUTHENTICATION_REQUIRED: Authentication failed";
+
+/// The wire refusal for a failed request verification, shared by every
+/// transport that verifies an envelope (dispatch and QoS admission alike).
+///
+/// A failure keeps its typed cause class only when it is one of the fixed,
+/// engine-authored sentences below (the audience mismatch may also name the
+/// deployment's expected audience, which is configuration, not a secret). A
+/// node mismatch drops its detail, which names nodes. Every other failure stays
+/// redacted, so verification is never an oracle for secrets or nonces. Every
+/// class except a bad signature is decided after the MAC verifies, so only a
+/// holder of the signing secret ever learns it.
+pub(crate) fn authentication_refusal(error: &str) -> String {
+    const FIXED: [&str; 7] = [
+        "AUTH_TENANT_MISMATCH: request context tenant does not match graph tenant",
+        "AUTH_POLICY_VERSION_MISMATCH: request context policy version is not active",
+        BAD_SIGNATURE,
+        EXPIRED,
+        UNKNOWN_PRINCIPAL_NO_TOKEN,
+        UNKNOWN_PRINCIPAL_UNVERIFIED,
+        UNKNOWN_PRINCIPAL_SUBJECT,
+    ];
+    if let Some(fixed) = FIXED.into_iter().find(|fixed| *fixed == error) {
+        return fixed.to_string();
+    }
+    let audience = "AUTH_AUDIENCE_MISMATCH: request context audience does not match deployment";
+    if error == audience {
+        return error.to_string();
+    }
+    if let Some(expected) = error
+        .strip_prefix(audience)
+        .and_then(|rest| rest.strip_prefix(" (expected '"))
+        .and_then(|rest| rest.strip_suffix("')"))
+    {
+        // Only `validate_deployment_binding` authors this shape; the bracketed
+        // value is the configured audience. Anything else drops the value.
+        if !expected.contains(['\'', '\n', '\r']) {
+            return error.to_string();
+        }
+        return audience.to_string();
+    }
+    if error.starts_with("NODE_MISMATCH:") {
+        return "NODE_MISMATCH: Authentication failed".to_string();
+    }
+    AUTHENTICATION_FAILED.to_string()
 }
 
 // ── policy entry point ─────────────────────────────────────────────────────
@@ -1988,6 +2048,86 @@ mod tests {
         assert!(error.contains("audience"));
     }
 
+    /// Each verification failure with a published cause class keeps its typed
+    /// code on the wire; everything else stays the redacted generic refusal.
+    // spec: EG-CONTRACT-R014.1
+    #[test]
+    fn verification_failures_carry_a_typed_safe_cause_class() {
+        let _opt_out = require_oidc_off();
+        let refused = |req: &Request, secret: &str| {
+            let error = verify_envelope_v2_with(secret, req, &verified_policy(), &memory_replay())
+                .unwrap_err();
+            crate::protocol::Response::err(req.id, authentication_refusal(&error))
+        };
+
+        let mut claims = verified_claims();
+        claims.audience = "other-service".into();
+        let wrong_audience = refused(&signed_v2_with_claims(520, "cls-aud", claims), SECRET);
+        assert_eq!(
+            wrong_audience.error.as_deref(),
+            Some("AUTH_AUDIENCE_MISMATCH")
+        );
+        assert_eq!(
+            wrong_audience.error_detail.as_deref(),
+            Some("request context audience does not match deployment (expected 'engine')")
+        );
+
+        let bad_signature = refused(&signed(521, "cls-sig"), "a-different-secret");
+        assert_eq!(bad_signature.error.as_deref(), Some("AUTH_BAD_SIGNATURE"));
+        let detail = bad_signature.error_detail.unwrap();
+        assert!(detail.contains("Authentication failed"), "{detail}");
+        assert!(!detail.contains(SECRET), "{detail}");
+
+        let mut stale = ping_request(522, "tenant-a-graph", String::new());
+        stale.agent_id = Some("agent:planner".into());
+        stale.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &stale,
+            &VerifiedEnvelopeParams {
+                context: &verified_claims(),
+                timestamp: now_secs() - 86_400,
+                nonce: "cls-expired",
+                idempotency_key: "idem-v2",
+            },
+        );
+        let expired = refused(&stale, SECRET);
+        assert_eq!(expired.error.as_deref(), Some("AUTH_EXPIRED"));
+
+        for (error, code) in [
+            (UNKNOWN_PRINCIPAL_SUBJECT, "AUTH_UNKNOWN_PRINCIPAL"),
+            (UNKNOWN_PRINCIPAL_NO_TOKEN, "AUTH_UNKNOWN_PRINCIPAL"),
+            (UNKNOWN_PRINCIPAL_UNVERIFIED, "AUTH_UNKNOWN_PRINCIPAL"),
+            (
+                "NODE_MISMATCH: request context is bound to node 'n7', which does not match",
+                "NODE_MISMATCH",
+            ),
+            (
+                "nonce already used (replay rejected)",
+                "AUTHENTICATION_REQUIRED",
+            ),
+            (
+                "AUTH_AUDIENCE_MISMATCH: request context audience does not match deployment \
+                 (expected 'x'\n')",
+                "AUTH_AUDIENCE_MISMATCH",
+            ),
+        ] {
+            let response = crate::protocol::Response::err(1, authentication_refusal(error));
+            assert_eq!(response.error.as_deref(), Some(code), "{error}");
+        }
+        // Redacted classes never echo request values back.
+        let node = crate::protocol::Response::err(
+            1,
+            authentication_refusal("NODE_MISMATCH: bound to node 'n7'"),
+        );
+        assert_eq!(node.error_detail.as_deref(), Some("Authentication failed"));
+        let replay =
+            crate::protocol::Response::err(1, authentication_refusal("nonce 'abc' already used"));
+        assert_eq!(
+            replay.error_detail.as_deref(),
+            Some("Authentication failed")
+        );
+    }
+
     #[test]
     fn v2_rejects_cross_tenant_context_before_dispatch() {
         let mut claims = verified_claims();
@@ -2198,7 +2338,10 @@ mod tests {
             ),
             (
                 |c| c.audience = "other".into(),
-                Some("AUTH_AUDIENCE_MISMATCH: request context audience does not match deployment"),
+                Some(
+                    "AUTH_AUDIENCE_MISMATCH: request context audience does not match \
+                     deployment (expected 'engine')",
+                ),
             ),
             (
                 |c| c.tenant = "tenant-b".into(),

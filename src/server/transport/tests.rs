@@ -142,6 +142,54 @@ async fn qos_verification_rejects_unsigned_agent_before_admission() {
     assert_eq!(scheduler.stats().in_flight, 0);
 }
 
+// spec: EG-CONTRACT-R014.1
+#[tokio::test]
+async fn qos_verification_names_the_audience_mismatch_cause() {
+    use super::super::auth::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+    use crate::acl::RequestContextClaims;
+    let scheduler = Arc::new(super::super::qos::QosScheduler::new(
+        super::super::qos::QosConfig::auto(8),
+    ));
+    let state = RwLock::new(ServerState::new_for_test(
+        "transport-test-secret",
+        ServerState::test_isolation("transport-test-agent"),
+    ));
+    let mut request = frame_test_request(82);
+    request.agent_id = Some("svc:connector".to_string());
+    let context = RequestContextClaims {
+        principal: "svc:connector".to_string(),
+        agent_id: "svc:connector".to_string(),
+        tenant: "tenant-shared".to_string(),
+        // A client configured for another audience than this deployment's.
+        audience: "epistemic-graph".to_string(),
+        policy_version: "policy-test".to_string(),
+        scopes: vec!["graph:read".to_string()],
+        ..RequestContextClaims::default()
+    };
+    request.auth_token = compute_verified_envelope_token(
+        "transport-test-secret",
+        &request,
+        &VerifiedEnvelopeParams {
+            context: &context,
+            timestamp: crate::server::dispatch::authoritative_now_ms() / 1000,
+            nonce: "qos-audience-mismatch",
+            idempotency_key: "qos-audience-mismatch",
+        },
+    );
+    let response = match admit_qos_request(&request, &state, Some(&scheduler)).await {
+        Err(response) => response,
+        Ok(_) => panic!("a context for another audience must never enter QoS accounting"),
+    };
+    assert_eq!(response.error.as_deref(), Some("AUTH_AUDIENCE_MISMATCH"));
+    assert_eq!(
+        response.error_detail.as_deref(),
+        Some(
+            "request context audience does not match deployment (expected 'epistemic-graph-test')"
+        )
+    );
+    assert_eq!(scheduler.stats().in_flight, 0);
+}
+
 #[test]
 fn conn_guard_refcounts() {
     let coord = ShutdownCoordinator::new();

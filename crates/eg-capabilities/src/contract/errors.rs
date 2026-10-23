@@ -53,6 +53,9 @@ const CODE_CLASSES: &[(&str, &str)] = &[
     ("AUTH_TENANT_MISMATCH", "auth"),
     ("AUTH_AUDIENCE_MISMATCH", "auth"),
     ("AUTH_POLICY_VERSION_MISMATCH", "auth"),
+    ("AUTH_EXPIRED", "auth"),
+    ("AUTH_BAD_SIGNATURE", "auth"),
+    ("AUTH_UNKNOWN_PRINCIPAL", "auth"),
     ("NODE_MISMATCH", "auth"),
     ("ACCESS_DENIED", "policy"),
     ("POLICY_NATIVE_AUTHORITY_REQUIRED", "policy"),
@@ -124,6 +127,9 @@ const HTTP_HINTS: &[(&str, u16)] = &[
     ("AUTH_TENANT_MISMATCH", 403),
     ("AUTH_AUDIENCE_MISMATCH", 403),
     ("AUTH_POLICY_VERSION_MISMATCH", 403),
+    ("AUTH_EXPIRED", 401),
+    ("AUTH_BAD_SIGNATURE", 401),
+    ("AUTH_UNKNOWN_PRINCIPAL", 401),
     ("NODE_MISMATCH", 403),
     ("ACCESS_DENIED", 403),
     ("POLICY_NATIVE_AUTHORITY_REQUIRED", 403),
@@ -490,6 +496,15 @@ mod tests {
         assert!(codes.contains("AUTH_TENANT_MISMATCH"));
         assert!(codes.contains("AUTH_AUDIENCE_MISMATCH"));
         assert!(codes.contains("AUTH_POLICY_VERSION_MISMATCH"));
+        for code in [
+            "AUTH_EXPIRED",
+            "AUTH_BAD_SIGNATURE",
+            "AUTH_UNKNOWN_PRINCIPAL",
+        ] {
+            assert!(codes.contains(code), "{code}");
+            assert_eq!(http_status_hint(code), 401, "{code}");
+            assert_eq!(class(code, "engine"), "auth", "{code}");
+        }
     }
 
     #[test]
