@@ -2163,7 +2163,7 @@
         "7e4bef3469df"
       ],
       "verified_by": [
-        "tests/test_store_auto_migrate.py:43"
+        "tests/test_store_auto_migrate.py:44"
       ]
     },
     {
