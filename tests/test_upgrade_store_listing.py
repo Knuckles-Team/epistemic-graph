@@ -12,12 +12,16 @@ registered identity with no grants, or an unregistered principal, sees neither.
 The writer is this build, and also the previous patch's published engine when
 `EPISTEMIC_GRAPH_PREVIOUS_PATCH_BINARY` names it (`pip install
 epistemic-graph-server==<previous>`). A store binds to its files' device and inode, so a
-copied store cannot be committed as a fixture; the writer creates it in place.
+copied store cannot be committed as a fixture; the writer creates it in place. Between
+writer and reader the test runs `store-upgrade apply`, the documented offline step. That
+upgrade refuses a store under `/tmp`, so run the previous-patch leg with `--basetemp`
+outside it.
 """
 
 import asyncio
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -132,6 +136,17 @@ class _Store:
         self.log = root / "engine.log"
         self.persist.mkdir()
 
+    def upgrade(self, binary: str) -> None:
+        """The operator's offline step between patches; a no-op on a current store."""
+
+        upgraded = subprocess.run(
+            [binary, "store-upgrade", "apply", str(self.persist), "--confirm"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
+
     def run(self, binary: str, check) -> None:
         if os.path.exists(self.socket):
             os.remove(self.socket)
@@ -182,6 +197,7 @@ def test_reopened_store_lists_graphs_for_the_stored_policy(writer, tmp_path):
             assert not isinstance(listed, list) or listed == [], (stranger, listed)
 
     store.run(writer or binary, written)
+    store.upgrade(binary)
     store.run(binary, reopened)
     # A second restart of the upgraded store still lists both graphs.
     store.run(binary, reopened)
