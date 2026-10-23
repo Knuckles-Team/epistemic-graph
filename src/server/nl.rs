@@ -77,6 +77,8 @@ struct NlSettings {
     read_timeout_secs: Option<u64>,
     /// Extra chat-completions body members (`None` ⇒ the planner default: thinking off).
     extra_body: Option<serde_json::Value>,
+    /// The first unparseable request value (env or config), refused when the planner is built.
+    request_error: Option<NlConfigError>,
 }
 
 /// Env overrides (take precedence over the config file when set).
@@ -120,6 +122,9 @@ fn build_default_from_config() -> ConfigDefault {
         .with_headers(settings.headers)
         .with_tls_ca_path(settings.tls_ca_path)
         .with_oauth2(oauth2);
+    if let Some(e) = settings.request_error {
+        return Err(e);
+    }
     let planner = apply_request_settings(planner, settings.read_timeout_secs, settings.extra_body)?;
     Ok(Some(Arc::new(planner) as Arc<dyn NlPlanner>))
 }
@@ -176,18 +181,11 @@ fn load_or_scaffold_settings() -> NlSettings {
     if env_key_env.is_some() {
         settings.api_key_env = env_key_env;
     }
-    // An unparseable env value is carried as an impossible timeout / non-object body so the
-    // typed refusal fires at build time instead of being silently ignored.
-    if let Ok(v) = std::env::var(READ_TIMEOUT_ENV) {
-        if !v.is_empty() {
-            settings.read_timeout_secs = Some(v.trim().parse().unwrap_or(0));
-        }
-    }
-    if let Ok(v) = std::env::var(EXTRA_BODY_ENV) {
-        if !v.is_empty() {
-            settings.extra_body = Some(serde_json::from_str(&v).unwrap_or(serde_json::Value::Null));
-        }
-    }
+    apply_env_request_values(
+        &mut settings,
+        std::env::var(READ_TIMEOUT_ENV).ok(),
+        std::env::var(EXTRA_BODY_ENV).ok(),
+    );
     if let Some(ca) = env_tls_ca {
         settings.tls_ca_path = Some(ca);
     }
@@ -195,6 +193,39 @@ fn load_or_scaffold_settings() -> NlSettings {
         settings.model = "gpt-4o-mini".to_string();
     }
     settings
+}
+
+/// Apply the env request overrides. An unparseable value keeps its source and raw text so
+/// the refusal names them (EG-FEDERATED-QUERY-R058.5).
+fn apply_env_request_values(
+    settings: &mut NlSettings,
+    timeout: Option<String>,
+    extra_body: Option<String>,
+) {
+    if let Some(v) = timeout.filter(|v| !v.is_empty()) {
+        match v.trim().parse() {
+            Ok(secs) => settings.read_timeout_secs = Some(secs),
+            Err(_) => {
+                settings.request_error = Some(NlConfigError::InvalidValue {
+                    source: READ_TIMEOUT_ENV.into(),
+                    raw: v,
+                    reason: "is not an integer".into(),
+                })
+            }
+        }
+    }
+    if let Some(v) = extra_body.filter(|v| !v.is_empty()) {
+        match serde_json::from_str(&v) {
+            Ok(body) => settings.extra_body = Some(body),
+            Err(_) => {
+                settings.request_error = Some(NlConfigError::InvalidValue {
+                    source: EXTRA_BODY_ENV.into(),
+                    raw: v,
+                    reason: "is not valid JSON".into(),
+                })
+            }
+        }
+    }
 }
 
 impl NlSettings {
@@ -209,6 +240,7 @@ impl NlSettings {
             oauth2: None,
             read_timeout_secs: None,
             extra_body: None,
+            request_error: None,
         }
     }
 }
@@ -292,10 +324,16 @@ fn parse_config(path: &std::path::Path) -> Option<NlSettings> {
         headers,
         tls_ca_path,
         oauth2,
-        read_timeout_secs: section
-            .get("read_timeout_secs")
-            .map(|v| v.as_u64().unwrap_or(0)),
+        read_timeout_secs: section.get("read_timeout_secs").and_then(|v| v.as_u64()),
         extra_body: section.get("extra_body").cloned(),
+        request_error: section
+            .get("read_timeout_secs")
+            .filter(|v| v.as_u64().is_none())
+            .map(|v| NlConfigError::InvalidValue {
+                source: "read_timeout_secs".into(),
+                raw: v.to_string(),
+                reason: "is not an unsigned integer".into(),
+            }),
     })
 }
 
@@ -432,6 +470,35 @@ mod tests {
         assert_eq!(
             apply_request_settings(planner(), None, Some(serde_json::Value::Null)).err(),
             Some(NlConfigError::ExtraBodyNotObject)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // spec: EG-FEDERATED-QUERY-R058.5
+    #[test]
+    fn unparseable_env_values_are_refused_with_source_and_raw_value() {
+        let mut s = NlSettings::empty();
+        apply_env_request_values(&mut s, Some("abc".into()), None);
+        assert_eq!(
+            s.request_error.unwrap().to_string(),
+            "nl-query: EPISTEMIC_GRAPH_NL_READ_TIMEOUT_SECS='abc' is not an integer"
+        );
+        let mut s = NlSettings::empty();
+        apply_env_request_values(&mut s, Some("45".into()), Some("{oops".into()));
+        assert_eq!(s.read_timeout_secs, Some(45));
+        assert!(s
+            .request_error
+            .unwrap()
+            .to_string()
+            .contains("EPISTEMIC_GRAPH_NL_EXTRA_BODY='{oops' is not valid JSON"));
+        let dir = std::env::temp_dir().join(format!("eg-nl-cfg2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        std::fs::write(&path, r#"{"nl_query":{"read_timeout_secs":"soon"}}"#).unwrap();
+        let err = parse_config(&path).unwrap().request_error.unwrap();
+        assert_eq!(
+            err.to_string(),
+            "nl-query: read_timeout_secs='\"soon\"' is not an unsigned integer"
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
