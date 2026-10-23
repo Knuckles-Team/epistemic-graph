@@ -51,3 +51,11 @@ These tests remain PENDING; this documentation change supplies no implementation
 - `EG-CQ-CONN-R084.4`: `crates/eg-core/tests/connector_pack_competency.rs::record_governance_answers`.
 - `EG-CQ-CONN-R084.5`: `crates/eg-core/tests/connector_pack_competency.rs::finance_method_terms_and_shape`.
 - `EG-CQ-CONN-R084.6`: `tests/typed_packs/test_connector_pack_competency_served.py::test_pack_questions_end_to_end`.
+
+- `EG-CQ-CONN-R085`: See each child.
+- `EG-CQ-CONN-R085.1`: `crates/eg-core/tests/connector_auto_onboard.rs::fixture_parses_and_is_linked_to_the_parent`.
+- `EG-CQ-CONN-R085.2`: `crates/eg-core/tests/connector_auto_onboard.rs::parent_term_question_returns_native_and_live_connector_rows`.
+- `EG-CQ-CONN-R085.3`: `tests/typed_packs/test_connector_auto_onboard_served.py::test_check_uses_production_import_and_scan`.
+- `EG-CQ-CONN-R085.4`: `crates/eg-core/tests/connector_auto_onboard.rs::orphan_and_held_variants_abstain_by_name`.
+- `EG-CQ-CONN-R085.5`: `tests/typed_packs/test_connector_auto_onboard_served.py::test_answer_cites_digest_revision_fetch_time_and_load_set`.
+- `EG-CQ-CONN-R085.6`: `tests/typed_packs/test_connector_auto_onboard_served.py::test_onboarded_connector_answers_a_cross_ontology_live_question`.

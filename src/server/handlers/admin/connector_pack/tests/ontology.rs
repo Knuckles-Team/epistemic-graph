@@ -119,3 +119,54 @@ async fn a_cancelled_import_does_not_block_the_next_bind() {
         .await
         .expect("the next bind must not queue behind the abandoned import");
 }
+
+/// EG-TYPED-PACKS-R105.1: a connector class that subclasses a parent-catalog
+/// class joins the parent graph with no warning; a class with no such path is
+/// imported and reported as `ONTOLOGY_ORPHAN`, naming the class.
+fn parent_linked(orphan: bool) -> String {
+    const SUB: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+    let mut body = format!(
+        "<https://example.org/conn#Contract> a <{OWL}Class> ;\n\
+         <{SUB}> <http://knuckles.team/kg#Agreement> .\n\
+         <https://example.org/conn#Lease> a <{OWL}Class> ;\n\
+         <{SUB}> <https://example.org/conn#Contract> .\n"
+    );
+    if orphan {
+        body.push_str(&format!(
+            "<https://example.org/conn#Widget> a <{OWL}Class> .\n"
+        ));
+    }
+    body
+}
+
+fn orphan_warnings(result: &PackImportResult) -> Vec<String> {
+    match result {
+        PackImportResult::Imported { receipt } => receipt
+            .warnings
+            .iter()
+            .filter(|w| w.code == eg_types::connector_pack::PackWarningCode::OntologyOrphan)
+            .map(|w| w.detail.clone())
+            .collect(),
+        other => panic!("the ontology must import: {other:?}"),
+    }
+}
+
+// spec: EG-TYPED-PACKS-R105.1
+#[tokio::test]
+async fn a_class_linked_to_a_parent_class_imports_without_an_orphan_warning() {
+    let result = import_ontology("r105-linked", parent_linked(false)).await;
+    assert!(orphan_warnings(&result).is_empty(), "{result:?}");
+}
+
+// spec: EG-TYPED-PACKS-R105.1
+#[tokio::test]
+async fn an_orphan_class_is_imported_and_flagged_by_name() {
+    let result = import_ontology("r105-orphan", parent_linked(true)).await;
+    let warnings = orphan_warnings(&result);
+    assert_eq!(warnings.len(), 1, "{result:?}");
+    assert!(
+        warnings[0].contains("https://example.org/conn#Widget"),
+        "{warnings:?}"
+    );
+    assert!(!warnings[0].contains("conn#Lease"), "{warnings:?}");
+}

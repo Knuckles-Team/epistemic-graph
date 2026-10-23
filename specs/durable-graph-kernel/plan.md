@@ -907,3 +907,14 @@ Native qualification found that inline conversation admission enlarged Method.
 Keep the optional admission boxed without changing its wire form or the existing
 Method-size regression bound. Regenerate native artifacts for the corrected
 source; earlier artifact receipts do not qualify the changed codec.
+
+### Conversation admission: final native evidence and base integration
+
+Head d408d51a passed the complete hosted workflow 39906163268.
+The facade library passed 2,379 tests with four ignored tests.
+Both previous conversation fixture failures now pass, with their refusal assertions unchanged.
+The current draft also includes recovery base f9dc071d and its connector ontology additions.
+The source merge preserves conversation admission and the new ontology fields.
+The conflicting receipt and catalog files retain exact parent versions pending fresh child generation.
+Those placeholders do not certify the combined child schema.
+Fresh native exports and final-head parity remain required before merge.

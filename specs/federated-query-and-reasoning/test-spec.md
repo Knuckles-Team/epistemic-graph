@@ -499,3 +499,11 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 | Wiring and store authority | `EG-FEDERATED-QUERY-R721.2` | `tests/test_store_registry_modalities.py::test_every_modality_has_one_redb_authority` |
 | Refusal | `EG-FEDERATED-QUERY-R721.3` | `crates/eg-plan/tests/uql_epistemic_stages.rs::unknown_modality_refuses` |
 | Hot-path proof: cross-modal queries with default configuration | `EG-FEDERATED-QUERY-R721.4` | `tests/advanced_crossmodal_roundtrip.rs::fresh_engine_answers_cross_modal_query` |
+
+- `EG-FEDERATED-QUERY-R722`: See each child.
+- `EG-FEDERATED-QUERY-R722.1`: `crates/eg-types/tests/pack_source.rs::access_kinds_map_to_foreign_source_kinds`.
+- `EG-FEDERATED-QUERY-R722.2`: `crates/eg-plan/tests/pack_source.rs::held_serves_none_approved_serves_rows_and_changed_contract_returns_to_held`.
+- `EG-FEDERATED-QUERY-R722.3`: `tests/federated/test_pack_source_served.py::test_import_registers_through_the_one_catalog`.
+- `EG-FEDERATED-QUERY-R722.4`: `tests/federated/test_pack_source_served.py::test_secret_guard_held_and_unavailable_refuse_with_named_codes`.
+- `EG-FEDERATED-QUERY-R722.5`: `tests/federated/test_pack_source_served.py::test_rows_carry_contract_provenance_and_nothing_is_copied`.
+- `EG-FEDERATED-QUERY-R722.6`: `tests/federated/test_pack_source_served.py::test_uql_joins_native_fact_to_live_connector_rows_with_zero_copy`.

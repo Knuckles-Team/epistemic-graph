@@ -117,3 +117,11 @@ A documentation edit alone must not complete these tasks.
 - [ ] **EG-CQ-CONN-R084.4:** Record governance question. Pass the proving test in test-spec.md.
 - [ ] **EG-CQ-CONN-R084.5:** Finance method vocabulary. Pass the proving test in test-spec.md.
 - [ ] **EG-CQ-CONN-R084.6:** Hot-path proof. Pass the proving test in test-spec.md.
+
+- [ ] **EG-CQ-CONN-R085:** Competency check: a question spans a connector's live data and the ontology (rollup).
+- [ ] **EG-CQ-CONN-R085.1:** Model.
+- [ ] **EG-CQ-CONN-R085.2:** Behavior.
+- [ ] **EG-CQ-CONN-R085.3:** Wiring.
+- [ ] **EG-CQ-CONN-R085.4:** Refusal.
+- [ ] **EG-CQ-CONN-R085.5:** Evidence.
+- [ ] **EG-CQ-CONN-R085.6:** Hot-path proof.
