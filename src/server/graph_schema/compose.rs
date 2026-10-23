@@ -728,10 +728,10 @@ ex:parent a owl:AsymmetricProperty .
         // company, infrastructure and supply-chain modules (EG-TYPED-PACKS-R105.3).
         // +162: the service-operations module and the priority domain
         // union (EG-TYPED-PACKS-R105.4).
-        // +1080 (provisional, repinned from the engine count): the data-platform,
+        // +1077 (engine count): the data-platform,
         // IT4IT-delivery, media and retrieval domain modules and their catalog
         // imports (EG-TYPED-PACKS-R105.6 to R105.9).
-        assert_eq!(composed.ontology.len(), 15_141);
+        assert_eq!(composed.ontology.len(), 15_138);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -764,10 +764,10 @@ ex:parent a owl:AsymmetricProperty .
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:Ontology` header subject (its shapes pack's prefix-declaration
         // subject is not itself one).
-        assert_eq!(ontology_subjects.len(), 36);
+        assert_eq!(ontology_subjects.len(), 41);
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:imports <.../core>`.
-        assert_eq!(imports, 72);
+        assert_eq!(imports, 97);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -780,7 +780,9 @@ ex:parent a owl:AsymmetricProperty .
         // +8: the two orchestration vocabulary class declarations.
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
-        assert_eq!(semantic_axioms, 13_577);
+        // Repinned from the engine count for the service-operations, data-platform,
+        // IT4IT-delivery, media and retrieval modules (EG-TYPED-PACKS-R105.4 to R105.9).
+        assert_eq!(semantic_axioms, 14_907);
 
         let count_type = |object: &str| {
             composed
@@ -805,7 +807,7 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_type("http://www.w3.org/2002/07/owl#SymmetricProperty"),
-            8
+            9
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
@@ -834,7 +836,7 @@ ex:parent a owl:AsymmetricProperty .
             // +9: finance (EH-411); +1: EH-420/EH-421.
             // +4: Account, Position, Activity and Lot specialize BFO GDC.
             // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
-            464
+            605
         );
     }
 
