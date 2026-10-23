@@ -591,3 +591,5 @@ qualified. Durable, native server, installed broker and full signed-approval
 consumption acceptance remain open. No atomic approval consumption is added.
 
 - `EG-TYPED-PACKS-R105.3`: `crates/eg-rdf/tests/connector_parent_classes.rs::recurring_connector_concepts_sit_under_their_upper_classes`.
+- `EG-TYPED-PACKS-R105.4`: `crates/eg-rdf/tests/service_operations_classes.rs::service_operations_classes_exist_with_their_parents`, `crates/eg-rdf/tests/service_operations_classes.rs::competency_question_edges_declare_domain_and_range`.
+- `EG-TYPED-PACKS-R105.5`: `crates/eg-rdf/tests/service_operations_classes.rs::self_contained_modules_align_to_the_core`.

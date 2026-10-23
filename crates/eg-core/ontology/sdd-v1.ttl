@@ -82,8 +82,8 @@
 
 :priority a owl:DatatypeProperty ;
     rdfs:label "priority" ;
-    rdfs:comment "Requirement priority: critical, high, medium, low." ;
-    rdfs:domain :Requirement ;
+    rdfs:comment "Priority of a requirement (critical, high, medium, low) or of a ticket such as an incident (for example P1)." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Requirement :Ticket ) ] ;
     rdfs:range xsd:string .
 
 :realizes a owl:ObjectProperty ;
