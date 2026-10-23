@@ -19,7 +19,8 @@ use super::LegacyIntegrityPolicy;
 /// slice, the world-model shapes (35 artifacts, EH-364) and the swarm-topology
 /// vocabulary and shapes (37, ST-1), the finance module and its shapes (39,
 /// EH-411), the temporal bi-temporal-fact shapes (40, AU-SEMANTIC-R004), and
-/// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037).
+/// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037), and
+/// the service-operations module (43, EG-TYPED-PACKS-R105.4).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -721,6 +722,12 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/sdlc_lifecycle-v1.ttl")),
         },
         CoreSpec {
+            module: "service_operations",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/service_operations-v1.ttl")),
+        },
+        CoreSpec {
             module: "software",
             version: 1,
             shapes: None,
@@ -891,7 +898,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 42);
+        assert_eq!(sources.core.len(), 43);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1178,7 +1185,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "7b3a24987e3d63e3b5b21c78111cae7d5b4397c16f8b4e528ccff40559d1f5fb",
+                "be8508591e04952e855ee79e9fc7b1751d1554db4d72ee9c14317e7529fdfdb2",
             ),
             (
                 "company",
@@ -1230,7 +1237,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "a14ccc9d0c004c92e50bb3ac10dff4fcd06f4c46131f8b4b2ee079994f1bdab1",
+                "3a97753afe8acd19d5c9718dc4bb19ef05baf65e779278b56d3f57e456e27a9c",
             ),
             (
                 "medical",
@@ -1254,7 +1261,11 @@ mod tests {
             ),
             (
                 "sdd",
-                "1763e32c22024ad0a4716872955ac972853e4b79631bac4925bb65e260af40df",
+                "cec7d01ec167a97a063fa7c1643f5172c0e0b11caadd42f5ae63bf165b4792f2",
+            ),
+            (
+                "service_operations",
+                "82f826bc756faf4aa3cc0e0f2832c42a0a41269959042144688e0ad88a590dc3",
             ),
             (
                 "sdlc_lifecycle",

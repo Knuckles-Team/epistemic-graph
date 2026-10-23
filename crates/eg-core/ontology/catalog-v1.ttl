@@ -33,6 +33,7 @@
         <http://knuckles.team/kg/process_intelligence>,
         <http://knuckles.team/kg/sdd>,
         <http://knuckles.team/kg/sdlc_lifecycle>,
+        <http://knuckles.team/kg/service_operations>,
         <http://knuckles.team/kg/software>,
         <http://knuckles.team/kg/swarm>,
         <http://knuckles.team/kg/system>,
