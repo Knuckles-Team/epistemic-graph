@@ -87,7 +87,8 @@ fn service_operations_classes_exist_with_their_parents() {
     let owl_class = format!("{OWL}Class");
     let sub = format!("{RDFS}subClassOf");
     let expected = [
-        ("Issue", kg("Ticket")),
+        ("Issue", kg("WorkItem")),
+        ("Ticket", kg("WorkItem")),
         ("Incident", kg("Ticket")),
         ("Problem", kg("Ticket")),
         ("Change", kg("Ticket")),
@@ -96,9 +97,10 @@ fn service_operations_classes_exist_with_their_parents() {
         ("Application", kg("ConfigurationItem")),
         ("BusinessApplication", kg("Application")),
         ("BusinessService", kg("ConfigurationItem")),
-        ("AssignmentGroup", kg("Team")),
+        ("Server", kg("ConfigurationItem")),
+        ("AssignmentGroup", kg("Organization")),
         ("TRMStandard", kg("TechnologyStandard")),
-        ("TRMPhase", kg("Phase")),
+        ("TRMPhase", kg("Concept")),
         ("Task", format!("{BFO}0000015")),
         ("Prompt", format!("{BFO}0000031")),
         ("AssetInstance", format!("{BFO}0000004")),
@@ -125,9 +127,9 @@ fn competency_question_edges_declare_domain_and_range() {
         ("touches", "ObjectProperty", &["ChangeRequest"], &["ConfigurationItem"]),
         ("usesTechnology", "ObjectProperty", &["ConfigurationItem"], &["TechnologyStandard"]),
         ("hostedOn", "ObjectProperty", &["Application", "BusinessService"], &["Server"]),
-        ("relatedTo", "ObjectProperty", &["Repository", "Ticket", "Application"], &["Repository", "Ticket", "Application"]),
+        ("relatedTo", "ObjectProperty", &["Repository", "WorkItem", "Application"], &["Repository", "WorkItem", "Application"]),
         ("systemPromptFor", "ObjectProperty", &["Prompt"], &["Task"]),
-        ("appliesTo", "ObjectProperty", &["Skill", "Agent", "Prompt"], &["Task", "Incident"]),
+        ("canHandle", "ObjectProperty", &["Skill", "Agent", "Prompt"], &["Task", "Incident"]),
         ("hasPhase", "ObjectProperty", &["TechnologyStandard"], &["TRMPhase"]),
     ];
     for (name, kind, domains, ranges) in edges {
@@ -144,12 +146,12 @@ fn competency_question_edges_declare_domain_and_range() {
         want.sort();
         assert_eq!(got, want, "{name} range");
     }
-    // Datatype properties: state and priority apply to tickets.
+    // Datatype properties: state and priority apply to work items.
     let datatype = format!("{OWL}DatatypeProperty");
     for name in ["state", "priority"] {
         let property = kg(name);
         assert!(has_iri(&triples, &property, &format!("{RDF}type"), &datatype), "{name}");
-        assert!(members(&triples, &property, &domain).contains(&kg("Ticket")), "{name} domain");
+        assert!(members(&triples, &property, &domain).contains(&kg("WorkItem")), "{name} domain");
     }
     assert!(has_iri(&triples, &kg("relatedTo"), &format!("{RDF}type"), &format!("{OWL}SymmetricProperty")));
 }

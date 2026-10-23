@@ -19,8 +19,10 @@
 :Issue a owl:Class ;
     rdfs:label "Issue" ;
     rdfs:comment "A tracked unit of work or defect in an issue tracker (GitHub, GitLab, Plane, Jira). The shared ancestor of every tracker's issue class." ;
-    skos:altLabel "Work Item", "Backlog Item" ;
-    rdfs:subClassOf :Ticket .
+    skos:altLabel "Backlog Item" ;
+    rdfs:subClassOf :WorkItem .
+
+:Ticket rdfs:subClassOf :WorkItem .
 
 :Incident rdfs:subClassOf :Ticket .
 
@@ -40,6 +42,8 @@
 # -- Configuration items and services ---------------------------------------------------
 
 :AssetInstance rdfs:subClassOf bfo:0000004 .
+
+:Server rdfs:subClassOf :ConfigurationItem .
 
 :ConfigurationItem a owl:Class ;
     rdfs:label "Configuration Item" ;
@@ -65,8 +69,8 @@
 
 :AssignmentGroup a owl:Class ;
     rdfs:label "Assignment Group" ;
-    rdfs:comment "The team that owns services and configuration items and works tickets." ;
-    rdfs:subClassOf :Team .
+    rdfs:comment "The group that owns services and configuration items and works tickets." ;
+    rdfs:subClassOf :Organization .
 
 # -- Technology standard and phase ------------------------------------------------------
 
@@ -78,7 +82,7 @@
 :TRMPhase a owl:Class ;
     rdfs:label "Technology Phase" ;
     rdfs:comment "The lifecycle phase of a technology standard (emerging, standard, contained, retired)." ;
-    rdfs:subClassOf :Phase .
+    rdfs:subClassOf :Concept .
 
 # -- Prompts and tasks ------------------------------------------------------------------
 
@@ -117,9 +121,9 @@
 
 :relatedTo a owl:ObjectProperty, owl:SymmetricProperty ;
     rdfs:label "related to" ;
-    rdfs:comment "Cross-source association between a repository, a ticket and an application, in either direction." ;
-    rdfs:domain [ a owl:Class ; owl:unionOf ( :Repository :Ticket :Application ) ] ;
-    rdfs:range [ a owl:Class ; owl:unionOf ( :Repository :Ticket :Application ) ] .
+    rdfs:comment "Cross-source association between a repository, a work item and an application, in either direction." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Repository :WorkItem :Application ) ] ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :Repository :WorkItem :Application ) ] .
 
 :systemPromptFor a owl:ObjectProperty ;
     rdfs:label "system prompt for" ;
@@ -127,9 +131,9 @@
     rdfs:domain :Prompt ;
     rdfs:range :Task .
 
-:appliesTo a owl:ObjectProperty ;
-    rdfs:label "applies to" ;
-    rdfs:comment "Links a skill, agent or prompt to the task or incident it can handle." ;
+:canHandle a owl:ObjectProperty ;
+    rdfs:label "can handle" ;
+    rdfs:comment "Links a skill, agent or prompt to the task or incident it can handle. Distinct from appliesTo, which links a PEFT adapter to its base language model and keeps that domain and range." ;
     rdfs:domain [ a owl:Class ; owl:unionOf ( :Skill :Agent :Prompt ) ] ;
     rdfs:range [ a owl:Class ; owl:unionOf ( :Task :Incident ) ] .
 
@@ -141,8 +145,8 @@
 
 :state a owl:DatatypeProperty ;
     rdfs:label "state" ;
-    rdfs:comment "Lifecycle state of a ticket (for example new, in progress, closed)." ;
-    rdfs:domain :Ticket ;
+    rdfs:comment "Lifecycle state of a work item (for example new, in progress, closed)." ;
+    rdfs:domain :WorkItem ;
     rdfs:range xsd:string .
 
 # -- Alignment of self-contained modules to the core --------------------------------------
