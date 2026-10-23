@@ -213,3 +213,15 @@ BFO:Process — it unfolds through open→ack→resolved over time.""" ;
     rdfs:subPropertyOf :specifies ;
     rdfs:domain :Ticket ;
     rdfs:range :Spec .
+
+:Job a owl:Class ;
+    rdfs:label "Job" ;
+    rdfs:comment "A unit of work executed by a worker as part of a larger run: one CI job in a pipeline run, one process job in a workflow engine, one dataset run. Sits below a run and above a task step." ;
+    skos:altLabel "CI Job", "Pipeline Job", "Workflow Job", "Check Run" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Runner a owl:Class ;
+    rdfs:label "Runner" ;
+    rdfs:comment "A worker that picks up and executes Jobs (a CI runner, an agent worker)." ;
+    skos:altLabel "CI Runner", "Job Worker" ;
+    rdfs:subClassOf bfo:0000004 .

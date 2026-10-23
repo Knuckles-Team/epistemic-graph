@@ -651,3 +651,21 @@ BFO:GenericallyDependentContinuant — an information entity.""" ;
     rdfs:comment "One of the kinds of subject :runsOn links: two rdfs:domain values on :runsOn itself would be intersected, making every subject both kinds." ;
     rdfs:subPropertyOf :runsOn ;
     rdfs:domain :Container .
+
+:Namespace a owl:Class ;
+    rdfs:label "Namespace" ;
+    rdfs:comment "A named scope that partitions names and resources inside a platform, registry or catalog (a cluster namespace, a registry namespace, a table namespace)." ;
+    skos:altLabel "Cluster Namespace", "Registry Namespace", "Catalog Namespace", "Schema Namespace" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Volume a owl:Class ;
+    rdfs:label "Volume" ;
+    rdfs:comment "A unit of persistent storage that can be attached to a Container or Host (a container volume, a disk volume, a managed volume)." ;
+    skos:altLabel "Container Volume", "Disk Volume", "Storage Volume" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Network a owl:Class ;
+    rdfs:label "Network" ;
+    rdfs:comment "A logical network that connects containers, services or hosts and carries their traffic (a container network, an overlay network, a bridge network). A NetworkSubnet is an address range inside one." ;
+    skos:altLabel "Container Network", "Overlay Network", "Bridge Network", "Virtual Network" ;
+    rdfs:subClassOf bfo:0000004 .
