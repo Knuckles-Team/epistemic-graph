@@ -1231,7 +1231,8 @@
       "landed_in": [
         "19da6ec1bc9b",
         "1ef84395fa69",
-        "49c43fca68d0"
+        "49c43fca68d0",
+        "644cc8097bd3"
       ],
       "verified_by": [
         "crates/eg-types/src/fast_path.rs:109",
@@ -1249,7 +1250,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "19da6ec1bc9b",
-        "49c43fca68d0"
+        "49c43fca68d0",
+        "644cc8097bd3"
       ],
       "verified_by": [
         "crates/eg-types/src/fast_path.rs:109",
@@ -3171,14 +3173,15 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "591ec7592b23",
+        "644cc8097bd3",
         "a0357cb95dc8"
       ],
       "verified_by": [
+        "crates/eg-capabilities/src/error_routing.rs:420",
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:353",
         "crates/eg-storage/src/owner/lineage_tests.rs:224",
         "crates/eg-storage/src/owner/lineage_tests.rs:245",
-        "crates/eg-types/src/run_checkpoint/tests.rs:120",
-        "crates/eg-types/src/run_checkpoint/tests.rs:140"
+        "crates/eg-storage/src/owner/lineage_tests.rs:283"
       ]
     },
     {
@@ -3193,7 +3196,8 @@
       "title": "Checkpoint native and generated qualification remains open",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "591ec7592b23"
+        "591ec7592b23",
+        "644cc8097bd3"
       ],
       "verified_by": [
         "tests/test_run_checkpoint_client.py:21",
