@@ -9658,8 +9658,8 @@
       "title": "Canonical task-plan feature schema",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "08b2e64fa587",
-        "0aa259f20f2e"
+        "4921c4ce8e46",
+        "87df3529b8ec"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/task_plan/tests.rs:250",
