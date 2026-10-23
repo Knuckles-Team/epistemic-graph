@@ -59,8 +59,8 @@ pub const CONNECTOR_PACK_IMPORT_TOPIC: &str = "eg.connector-pack.import.v1";
 /// Typed mutation-result schema carried by a committed import receipt.
 pub const CONNECTOR_PACK_RESULT_SCHEMA_ID: &str = "connector-pack-import-result.v1";
 
-/// Closed mapping selected from a connector pack's authoritative manifest.
-/// Ingestion consumes this type and never parses caller-supplied manifest text.
+/// Closed mapping selected from a connector pack's authoritative `connector://resources` declaration.
+/// Ingestion consumes this type and never parses caller-supplied mapping text.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -69,8 +69,8 @@ pub struct ConnectorSchemaMapping {
     pub fields: std::collections::BTreeMap<String, String>,
 }
 
-/// One relationship declaration selected from a Connector Manifest resource.
-/// Source ingestion resolves this projection by exact manifest path; callers
+/// One relationship declared by a pack ontology object property.
+/// Source ingestion resolves this projection by exact reference path; callers
 /// cannot mint an edge predicate that the imported pack did not publish.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]

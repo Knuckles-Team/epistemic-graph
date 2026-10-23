@@ -14,7 +14,9 @@ use eg_types::connector_pack::{
 use eg_types::contract::Digest256;
 
 use crate::server::persistence::agent_library::AgentLibraryStore;
-use crate::server::persistence::connector_pack::ConnectorPackMemberRow;
+use crate::server::persistence::connector_pack::{
+    ConnectorPackMemberRow, CONNECTOR_DECLARATION_URI,
+};
 
 use super::annotations::partition_capabilities;
 use super::facts::{component_kind, facts};
@@ -245,8 +247,8 @@ impl DesiredBuilder<'_> {
         let digest = eg_types::connector_pack::digest::entry_digest(entry)?;
         let facts = self.component_facts(entry, &digest);
         let mut attributes = component_attributes(self.request, entry, &digest);
-        if entry.kind == PackEntryKind::Manifest {
-            attributes.insert("connector.manifest".into(), "true".into());
+        if entry.kind == PackEntryKind::Resource && entry.uri == CONNECTOR_DECLARATION_URI {
+            attributes.insert("connector.declaration".into(), "true".into());
         }
         add_mcp_resource_attributes(&mut attributes, self.request, entry);
         super::catalog_attributes::add_catalog_attributes(&mut attributes, entry, body);

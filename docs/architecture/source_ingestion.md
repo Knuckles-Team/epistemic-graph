@@ -1,19 +1,19 @@
 # Native source ingestion authority
 
 `SourceIngest` is the RF-ADR-009 boundary for connector observations. The
-request contains typed records and relationships, their provenance, a provider
-checkpoint with its exact expected previous value, and exact Connector Manifest
-references. It cannot contain a tenant, mapping body, graph mutation, prior
+request contains typed records and relationships and their provenance. It also
+holds a provider checkpoint with its exact expected previous value and exact
+mapping references into the connector's declaration. It cannot contain a tenant, mapping body, graph mutation, prior
 durable live-set diff, or caller-selected authority.
 
 The server executes one governed flow:
 
-1. Resolve every record's `manifest:<connector>#schema_mappings/<key>` and every
-   relationship's
-   `manifest:<connector>#resources/<resource>/relations/<relation>` from the
-   verified tenant's current published Connector Manifest. Unknown, stale,
-   withdrawn, headless, ambiguous, mixed-revision, or caller-supplied mapping
-   content fails closed.
+1. Resolve every record's `connector:<connector>#mappings/<key>` against the
+   verified tenant's current pack. Schema mappings come from its
+   `connector://resources` declaration. Resolve every relationship's
+   `connector:<connector>#relations/<resource>/<relation>` against the object
+   properties of its ontology. Unknown, stale, withdrawn, headless, ambiguous,
+   mixed-revision, or caller-supplied mapping content fails closed.
 2. Capture each canonical raw record and relationship in Blob CAS and admit an
    idempotent owner-scoped holder. Content duplicates share CAS bytes without
    losing per-observation provenance.

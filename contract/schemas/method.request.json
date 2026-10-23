@@ -39724,7 +39724,6 @@
         "shapes",
         "model_profile",
         "a2a_card",
-        "manifest",
         "skill_file"
       ],
       "type": "string"
@@ -49295,7 +49294,7 @@
       "additionalProperties": false,
       "properties": {
         "mapping_reference": {
-          "description": "Exact Connector Manifest schema-mapping reference for this entity.",
+          "description": "Exact connector mapping reference for this entity.",
           "type": "string"
         },
         "payload": {
@@ -49376,7 +49375,7 @@
           "$ref": "#/$defs/SourceRecordProvenance"
         },
         "relation_reference": {
-          "description": "Exact Connector Manifest resource-relation reference, for example\n`manifest:demo#resources/Document/relations/contains`.",
+          "description": "Exact connector relation reference, for example\n`connector:demo#relations/Document/contains`.",
           "type": "string"
         },
         "source": {

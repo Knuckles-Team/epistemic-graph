@@ -40,7 +40,7 @@
     {
       "name": "pack_digest/one_entry_per_kind",
       "domain": "eg/connector-pack/v2",
-      "sha256": "e2a2c3e1d6de237975c8d1f71bcf338860e86b9b9d576ef585d4baf0ddafc5e5"
+      "sha256": "bf379d4af75cc24a6b8c1edb46abc5747390d9e5758ea3ea98e79ad5ed46a286"
     },
     {
       "name": "component_id/escaped",

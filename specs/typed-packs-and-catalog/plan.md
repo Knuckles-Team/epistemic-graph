@@ -76,7 +76,7 @@ The body store can commit before the Agent Library transaction. An orphan has no
 
 ### Pack encoding
 
-Entries are a closed kind set: `mcp_server`, `tool`, `skill`, `prompt`, `ontology`, `shapes`, `model_profile`, `a2a_card`, `manifest`. Each entry has a URI, name, media type, raw-body section, optional input/output schema sections, typed annotations and bounded sibling references. Every section carries offset, length and SHA-256. Section ranges use checked arithmetic, cover the uncompressed archive once, and never overlap. Text is UTF-8 without BOM; JSON has no duplicate keys, NaN or infinity and is depth/node bounded. `$ref` remains data rather than a network fetch.
+Entries are a closed kind set: `mcp_server`, `tool`, `skill`, `prompt`, `ontology`, `shapes`, `model_profile`, `a2a_card`. Each entry has a URI, name, media type, raw-body section, optional input/output schema sections, typed annotations and bounded sibling references. Every section carries offset, length and SHA-256. Section ranges use checked arithmetic, cover the uncompressed archive once, and never overlap. Text is UTF-8 without BOM; JSON has no duplicate keys, NaN or infinity and is depth/node bounded. `$ref` remains data rather than a network fetch.
 
 `Digest256::framed` hashes length-framed fields in domain-separated order. Nested digest values are 32 raw bytes. String lists are UTF-8 byte sorted and deduplicated. Integers are big-endian u64. Absent optionals encode an empty field. Tri-state booleans use `00` absent, `01` false, `02` true. `entry_digest` frames kind, URI, name, media type, body/schema digests, annotations digest and reference digest under `eg/connector-pack-entry/v1`. `pack_digest` frames connector, server-entry digest, count and URI-sorted entry digests under `eg/connector-pack/v1`. Archive offsets and package version are excluded. Tool input/output schema digests are computed by EG over the exact received bytes. The SDK must serialize MCP JSON objects deterministically before byte hashing and replay the shared vectors. The SDK's normalized contract pin is a claim, not an EG-verified digest.
 
@@ -581,19 +581,17 @@ Every connector ships one OWL/RDF ontology pack. The pack holds the connector's 
 
 ### Current state
 
-Only pack ontology and shapes entries are native RDF today. They become one graph schema source through `projection_documents_from_store` (`src/server/handlers/admin/connector_pack/reproject.rs:227`). The manifest entry is an opaque engine body. Import extracts a YAML subset into `ConnectorSchemaMapping` structs (`src/server/persistence/connector_pack/manifest.rs:13`). Mapping resolution matches `manifest:` selector strings (`src/server/persistence/connector_pack.rs:381`). Checkpoint positions are opaque JSON (`crates/eg-types/src/source_ingestion.rs:193`). Tools, prompts and skills are typed component rows without graph nodes. No shape validates any contract element. The `virtual_graph-v1` vocabulary already declares contract, mapping and field-pair classes; R101 extends it.
+Ontology and shapes entries are native RDF. They become one graph schema source through `projection_documents_from_store` (`src/server/handlers/admin/connector_pack/reproject.rs:227`).
+
+A connector serves its data sources and mappings as JSON at `connector://resources`. The pack holds that body as a `resource` entry. Import decodes its `schema_mappings` with a closed JSON decoder (`src/server/persistence/connector_pack/declaration.rs`). Import reads relations from the ontology entries' object properties. Both projections commit beside the declaration member.
+
+`SourceIngest` resolves `connector:<connector>#mappings/<type>` and `connector:<connector>#relations/<resource>/<relation>`. The resolvers are `resolve_connector_schema_mapping` and `resolve_connector_relationship_mapping` (`src/server/persistence/connector_pack.rs`). The engine holds no manifest entry kind and no YAML parser.
 
 ### Design
 
-Import enters at `ConnectorPack.Import` and `run_import` (`import.rs:63`). Contract planning runs at `import/planning.rs:314`. The engine parses the body with the bounded Turtle parser (R033). It validates the body with step-bounded SHACL (R035, R058). The owner commit then records the pack head.
+The `connector_pack-v1.ttl` vocabulary of R101.1 and R101.2 and the surface triples of R102 remain the planned direction for graph-resident contracts. Until they land, the declaration and the pack ontology are the only mapping authority.
 
-The outbox consumer runs `project` (`src/server/connector_pack_projection.rs:220`) and `project_head` (`reproject.rs:72`). Projection writes the pack graph triples and fills the typed contract index.
-
-`SourceIngest` resolves mappings at `src/server/handlers/source_ingestion.rs:400` through the contract index. The receipt carries the contract digest. Each node carries `cp:governedBy`. The checkpoint compare-and-swap binds the cursor policy at `source_ingestion.rs:473`.
-
-Projection commit upserts the capability index (`EG-DECISION-ENGINE-R172.12.3`). `Decide` answers `CapabilityDesignation` questions at `src/server/handlers/decide/stat_decide.rs:137`. Reads use the SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `OntologyInspect` (R098).
-
-All engine work is native Rust. The engine holds no YAML parser for contracts.
+The outbox consumer runs `project` (`src/server/connector_pack_projection.rs:220`) and `project_head` (`reproject.rs:72`). Projection commit upserts the capability index (`EG-DECISION-ENGINE-R172.12.3`). `Decide` answers `CapabilityDesignation` questions at `src/server/handlers/decide/stat_decide.rs:137`. Reads use the SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `OntologyInspect` (R098).
 
 ### Runtime ontology import (R103)
 

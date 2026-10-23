@@ -19,7 +19,7 @@ use crate::server::persistence::connector_pack::commit::{
 };
 use crate::server::persistence::connector_pack::{
     decode_relationship_mappings, decode_schema_mappings, ConnectorPackBodyHolderRow,
-    ConnectorPackMemberRow,
+    ConnectorPackMemberRow, CONNECTOR_DECLARATION_URI,
 };
 
 use super::desired::{build_all_desired, Desired};
@@ -114,6 +114,7 @@ pub(super) fn prepare(
         return rejected(request, violations);
     }
     let mut plan = PlanCollector::new(store, blob, request);
+    plan.relations = declared_relations(&all, &desired);
     for entry in &all {
         let wanted = desired
             .remove(&entry.uri)
@@ -191,6 +192,8 @@ struct PlanCollector<'a> {
     body_inputs: Vec<(Digest256, Vec<u8>)>,
     records: Vec<PackEntryRecord>,
     server_pin: Option<ComponentDependency>,
+    /// Relations the pack ontologies declare, attached to the declaration member.
+    relations: BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping>,
 }
 
 impl<'a> PlanCollector<'a> {
@@ -210,6 +213,7 @@ impl<'a> PlanCollector<'a> {
             body_inputs: Vec::new(),
             records: Vec::new(),
             server_pin: None,
+            relations: BTreeMap::new(),
         }
     }
 
@@ -311,7 +315,8 @@ impl<'a> PlanCollector<'a> {
     ) -> Result<(), String> {
         let prior_holder =
             prior.map(|member| (member.engine_manifest_digest.clone(), member.body_length));
-        let (schema_mappings, relationship_mappings) = manifest_projections(entry, &wanted.body)?;
+        let (schema_mappings, relationship_mappings) =
+            declaration_projections(entry, &wanted.body, &self.relations)?;
         self.members.push(ConnectorPackMemberRow {
             uri: entry.uri.clone(),
             kind: entry.kind,
@@ -485,19 +490,36 @@ fn disposition_for(
     }
 }
 
-type ManifestProjections = (
+type DeclarationProjections = (
     Option<BTreeMap<String, eg_types::connector_pack::ConnectorSchemaMapping>>,
     Option<BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping>>,
 );
 
-fn manifest_projections(entry: &PackEntry, body: &[u8]) -> Result<ManifestProjections, String> {
-    if entry.kind != PackEntryKind::Manifest {
+fn declaration_projections(
+    entry: &PackEntry,
+    body: &[u8],
+    relations: &BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping>,
+) -> Result<DeclarationProjections, String> {
+    if entry.kind != PackEntryKind::Resource || entry.uri != CONNECTOR_DECLARATION_URI {
         return Ok((None, None));
     }
-    let malformed = |error| format!("MALFORMED_BODY: manifest {}: {error}", entry.uri);
-    let schemas = decode_schema_mappings(body).map_err(malformed)?;
-    let relationships = decode_relationship_mappings(body).map_err(malformed)?;
-    Ok((Some(schemas), Some(relationships)))
+    let schemas = decode_schema_mappings(body)
+        .map_err(|error| format!("MALFORMED_BODY: declaration {}: {error}", entry.uri))?;
+    Ok((Some(schemas), Some(relations.clone())))
+}
+
+/// The relations the pack's live ontology entries declare as object properties.
+fn declared_relations(
+    all: &[&PackEntry],
+    desired: &BTreeMap<String, Desired>,
+) -> BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping> {
+    let documents: Vec<&str> = all
+        .iter()
+        .filter(|entry| entry.kind == PackEntryKind::Ontology)
+        .filter_map(|entry| desired.get(&entry.uri))
+        .filter_map(|wanted| std::str::from_utf8(&wanted.body).ok())
+        .collect();
+    decode_relationship_mappings(&documents)
 }
 
 fn import_record(
