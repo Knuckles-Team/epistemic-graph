@@ -918,6 +918,16 @@ These checks do not authenticate a caller-supplied receipt or authorize executio
 
 The `bounded_task_plan` performance receipt for R134.111.6 remains pending.
 
+Typed tool steps (R134.111.8 to R134.111.13) are covered in `crates/eg-types/src/decision/task_plan/tests.rs` and `src/server/handlers/decide/stat_tests/task_plan_tests.rs`.
+The bindings are static: no test claims that a path exists in a run-time output.
+
+- `EG-DECISION-ENGINE-R134.111.8`: `task_plan_round_trips` keeps a tool step, its literals and its bindings. It accepts a mixed plan. It rejects an unknown call field and a `$ref` object with extra keys.
+- `EG-DECISION-ENGINE-R134.111.9`: `binding_canonicalization_is_order_independent` yields one plan digest for reordered argument keys. `binding_bounds` accepts each ceiling and refuses one value past it.
+- `EG-DECISION-ENGINE-R134.111.10`: `refuses_each_binding_defect` returns the reason, task id and argument pointer for all six reasons. A binding to a non-dependency refuses with `binding_not_dependency` and returns no plan.
+- `EG-DECISION-ENGINE-R134.111.11`: `digest_covers_calls_and_bindings` changes the digest for a changed tool, literal, reference or server. `premises_name_calls_and_bindings` lists the premises. The receipt check refuses a receipt whose call differs from the proposal.
+- `EG-DECISION-ENGINE-R134.111.12`: `decide_routes_task_plan_with_calls` enters `handle_decide` and returns the typed plan with calls. The Python test checks that the exported digest equals the new body's digest.
+- `EG-DECISION-ENGINE-R134.111.13`: `tests/decide/test_task_plan_served.py::test_tool_step_bindings_end_to_end`.
+
 - `EG-DECISION-ENGINE-R814`: See each child.
 - `EG-DECISION-ENGINE-R814.1`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role`.
 - `EG-DECISION-ENGINE-R814.2`: `crates/eg-core/tests/prompt_candidate.rs::assemble_selects_covering_candidate_and_abstains_without_one`.

@@ -2084,3 +2084,15 @@ must use the direct response from the configured engine, not a caller receipt.
 Validation uses deterministic local fixtures only. The served fixture publishes
 its own feature schema through the authenticated mutation path.
 An authorized isolated fixture may instead use explicit no-auth mode. It never changes live auth.
+
+### 2026-10-23 amendment: typed tool steps (R134.111.8 to R134.111.13)
+
+A task-plan task may be a tool step. Today every task is a free-text prompt that a model runs. A value moves between steps because the harness appends the prerequisite output to the prompt. A tool step is a deterministic call. Its arguments are literals or references to a prerequisite's output.
+
+Data flow: `Method::Decide`, `stat_decide`, `stat_task_plan`, then `decision::task_plan::plan_explicit_tasks`. That function validates and canonicalizes calls and bindings. The result is sealed in `StatisticalDecisionRecord.task_plan`.
+
+Arbora asks for the plan and serves it (`ARBORA-RELEASE-R003.4.6`). The harness resolves bindings from completed outputs. It calls an injected caller (`AU-BOUNDARY-R043.6.2`, `AU-BOUNDARY-R043.6.3`). The engine invokes nothing and grants no authority. Arbora's governed caller applies authority, idempotency and audit (`ARBORA-RELEASE-R003.4.7`).
+
+The engine checks only static rules. A reference must name a direct dependency. The path must obey the grammar. Counts and bytes stay in bounds. A run-time output is unknown to the engine. A missing path is therefore a typed step failure in the harness.
+
+A reference adds no edge. The existing `plan_cycle` check still decides cycles over `depends_on`. The `binding_cycle` reason covers a binding edge that closes a cycle. A task that references itself is one such case.

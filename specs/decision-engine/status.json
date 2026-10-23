@@ -927,6 +927,12 @@
     "EG-DECISION-ENGINE-R134.111.5",
     "EG-DECISION-ENGINE-R134.111.6",
     "EG-DECISION-ENGINE-R134.111.7",
+    "EG-DECISION-ENGINE-R134.111.8",
+    "EG-DECISION-ENGINE-R134.111.9",
+    "EG-DECISION-ENGINE-R134.111.10",
+    "EG-DECISION-ENGINE-R134.111.11",
+    "EG-DECISION-ENGINE-R134.111.12",
+    "EG-DECISION-ENGINE-R134.111.13",
     "EG-DECISION-ENGINE-R814",
     "EG-DECISION-ENGINE-R814.1",
     "EG-DECISION-ENGINE-R814.2",
@@ -9586,7 +9592,13 @@
         "EG-DECISION-ENGINE-R134.111.4",
         "EG-DECISION-ENGINE-R134.111.5",
         "EG-DECISION-ENGINE-R134.111.6",
-        "EG-DECISION-ENGINE-R134.111.7"
+        "EG-DECISION-ENGINE-R134.111.7",
+        "EG-DECISION-ENGINE-R134.111.8",
+        "EG-DECISION-ENGINE-R134.111.9",
+        "EG-DECISION-ENGINE-R134.111.10",
+        "EG-DECISION-ENGINE-R134.111.11",
+        "EG-DECISION-ENGINE-R134.111.12",
+        "EG-DECISION-ENGINE-R134.111.13"
       ]
     },
     {
@@ -9665,6 +9677,48 @@
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:181",
         "tests/test_decision_stat_client.py:80"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.8",
+      "title": "Tool step model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.9",
+      "title": "Canonical form and static checks",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.10",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.11",
+      "title": "Digest and evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.12",
+      "title": "Wiring and schema",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.13",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R814",
