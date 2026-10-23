@@ -775,7 +775,8 @@ ex:parent a owl:AsymmetricProperty .
         // +8: the two orchestration vocabulary class declarations.
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
-        assert_eq!(semantic_axioms, 13_577);
+        // +129: the 19 connector parent classes (EG-TYPED-PACKS-R105.3).
+        assert_eq!(semantic_axioms, 13_706);
 
         let count_type = |object: &str| {
             composed
@@ -829,7 +830,8 @@ ex:parent a owl:AsymmetricProperty .
             // +9: finance (EH-411); +1: EH-420/EH-421.
             // +4: Account, Position, Activity and Lot specialize BFO GDC.
             // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
-            464
+            // +19: the connector parent classes (EG-TYPED-PACKS-R105.3).
+            483
         );
     }
 
