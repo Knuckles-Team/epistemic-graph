@@ -75,3 +75,22 @@ def test_body_json_preserves_constant_names_as_strings(constant: str) -> None:
     body = {"value": constant}
     digest, attributes = ds.encode_body(body)
     assert ds.decode_body(digest, attributes) == body
+
+
+# spec: EG-DECISION-ENGINE-R134.111.7
+def test_task_plan_feature_schema_export_is_the_engine_body_and_digest():
+    """The exported schema is self-consistent: its digest is the body's digest
+    under the same codec the engine uses, and its publish identity is stable."""
+    from epistemic_graph.decision_client import TASK_PLAN_FEATURE_SCHEMA as pin
+
+    assert pin["kind"] == "feature_schema"
+    assert pin["component_id"] == "task-plan-features"
+    assert pin["schema_version"] == ds.FEATURE_SCHEMA_VERSION
+    assert pin["body"]["schema_version"] == pin["schema_version"]
+    digest, attributes = ds.encode_body(pin["body"])
+    assert digest == pin["content_digest"]
+    assert ds.decode_body(digest, attributes) == pin["body"]
+    assert pin["idempotency_key"] == f"eg:task-plan-feature-schema:{digest}"
+    assert pin["body"] == ds.feature_schema_body(
+        [ds.feature("task_position", ds.number("task_position"))]
+    )

@@ -19,6 +19,10 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from epistemic_graph.generated._task_plan_feature_schema import (
+    TASK_PLAN_FEATURE_SCHEMA,
+)
+
 Q32_ONE = 1 << 32
 
 
@@ -419,6 +423,7 @@ class DecisionClient:
 
 __all__ = [
     "Q32_ONE",
+    "TASK_PLAN_FEATURE_SCHEMA",
     "DecisionClient",
     "DeclaredOption",
     "aggregate_op",

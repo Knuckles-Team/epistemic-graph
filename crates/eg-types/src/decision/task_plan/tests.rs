@@ -246,3 +246,19 @@ fn index_accepts_exact_total_prompt_byte_limit() {
     input.max_steps = 5;
     assert_eq!(index(&input).unwrap_err(), "plan_text_bounds: extra");
 }
+
+// spec: EG-DECISION-ENGINE-R134.111.7
+#[test]
+fn the_canonical_task_plan_feature_schema_is_valid_and_stable() {
+    let body = task_plan_feature_schema().checked().unwrap();
+    assert_eq!(body.names(), ["task_position"]);
+    let digest = crate::decision::statistical::body::encode_body(&body)
+        .unwrap()
+        .content_digest;
+    assert_eq!(
+        digest,
+        crate::decision::statistical::body::encode_body(&task_plan_feature_schema())
+            .unwrap()
+            .content_digest
+    );
+}

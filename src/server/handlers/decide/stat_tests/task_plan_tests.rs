@@ -174,3 +174,55 @@ async fn task_plan_cannot_use_score_replay() {
         .unwrap_err()
         .contains("evaluate-only"));
 }
+
+/// The canonical task-plan schema publishes once per tenant: a repeat publish
+/// under its publish key replays the same component revision and digest, and
+/// that pin routes a task-plan Decide.
+// spec: EG-DECISION-ENGINE-R134.111.7
+#[tokio::test]
+async fn canonical_task_plan_schema_publishes_once_and_routes() {
+    use eg_types::decision::task_plan::{
+        task_plan_feature_schema, TASK_PLAN_FEATURE_SCHEMA_COMPONENT_ID,
+    };
+    let h = Harness::new().await;
+    let body = task_plan_feature_schema().checked().unwrap();
+    let encoded = encode_body(&body).unwrap();
+    let key = format!("eg:task-plan-feature-schema:{}", encoded.content_digest);
+    let publish = |nonce: u8| {
+        let mut draft = test_component_draft(TENANT, TASK_PLAN_FEATURE_SCHEMA_COMPONENT_ID);
+        draft.kind = AgentComponentKind::FeatureSchema;
+        draft.summary = "task plan features".to_string();
+        draft.content_digest = encoded.content_digest.clone();
+        draft.attributes = encoded.attributes.clone();
+        h.store
+            .publish_component(AgentComponentPublishRequest {
+                context: mutation_context(
+                    &h.store,
+                    TENANT,
+                    &key,
+                    nonce,
+                    0,
+                    "agent-component:publish",
+                ),
+                component: draft,
+                evaluation_receipt_digest: None,
+            })
+            .unwrap()
+            .result
+            .component
+            .definition_digest
+    };
+    let first = publish(201);
+    let second = publish(202);
+    assert_eq!(
+        first, second,
+        "a repeat publish must replay the same revision"
+    );
+    let pin = ComponentDependency {
+        component_id: TASK_PLAN_FEATURE_SCHEMA_COMPONENT_ID.to_string(),
+        kind: AgentComponentKind::FeatureSchema,
+        definition_digest: first,
+    };
+    let batch = decide(&h, task_request(&pin)).await.unwrap();
+    assert!(batch.records.as_slice()[0].task_plan.is_some());
+}

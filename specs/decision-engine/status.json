@@ -926,6 +926,7 @@
     "EG-DECISION-ENGINE-R134.111.4",
     "EG-DECISION-ENGINE-R134.111.5",
     "EG-DECISION-ENGINE-R134.111.6",
+    "EG-DECISION-ENGINE-R134.111.7",
     "EG-DECISION-ENGINE-R814",
     "EG-DECISION-ENGINE-R814.1",
     "EG-DECISION-ENGINE-R814.2",
@@ -2535,8 +2536,8 @@
         "e8aaa8ae5ccd"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:578",
-        "crates/eg-capabilities/src/contract.rs:606"
+        "crates/eg-capabilities/src/contract.rs:637",
+        "crates/eg-capabilities/src/contract.rs:665"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R078.1",
@@ -2552,8 +2553,8 @@
         "1f2d473cf663"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:578",
-        "crates/eg-capabilities/src/contract.rs:606"
+        "crates/eg-capabilities/src/contract.rs:637",
+        "crates/eg-capabilities/src/contract.rs:665"
       ]
     },
     {
@@ -2566,7 +2567,7 @@
         "e8aaa8ae5ccd"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:606"
+        "crates/eg-capabilities/src/contract.rs:665"
       ]
     },
     {
@@ -9584,7 +9585,8 @@
         "EG-DECISION-ENGINE-R134.111.3",
         "EG-DECISION-ENGINE-R134.111.4",
         "EG-DECISION-ENGINE-R134.111.5",
-        "EG-DECISION-ENGINE-R134.111.6"
+        "EG-DECISION-ENGINE-R134.111.6",
+        "EG-DECISION-ENGINE-R134.111.7"
       ]
     },
     {
@@ -9650,6 +9652,17 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.7",
+      "title": "Canonical task-plan feature schema",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:205",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:181",
+        "tests/test_decision_stat_client.py:80"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R814",
