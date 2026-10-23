@@ -107,8 +107,14 @@ fn service_operations_classes_exist_with_their_parents() {
     ];
     for (class, parent) in expected {
         let class = kg(class);
-        assert!(has_iri(&triples, &class, &format!("{RDF}type"), &owl_class), "{class}");
-        assert!(has_iri(&triples, &class, &sub, &parent), "{class} under {parent}");
+        assert!(
+            has_iri(&triples, &class, &format!("{RDF}type"), &owl_class),
+            "{class}"
+        );
+        assert!(
+            has_iri(&triples, &class, &sub, &parent),
+            "{class} under {parent}"
+        );
     }
     let classification = Reasoner::from_triples(&triples).classify();
     assert!(classification.consistent);
@@ -123,18 +129,61 @@ fn competency_question_edges_declare_domain_and_range() {
     let domain = format!("{RDFS}domain");
     let range = format!("{RDFS}range");
     let edges: [(&str, &str, &[&str], &[&str]); 8] = [
-        ("affects", "ObjectProperty", &["Incident", "Problem", "Change"], &["ConfigurationItem"]),
-        ("touches", "ObjectProperty", &["ChangeRequest"], &["ConfigurationItem"]),
-        ("usesTechnology", "ObjectProperty", &["ConfigurationItem"], &["TechnologyStandard"]),
-        ("hostedOn", "ObjectProperty", &["Application", "BusinessService"], &["Server"]),
-        ("relatedTo", "ObjectProperty", &["Repository", "WorkItem", "Application"], &["Repository", "WorkItem", "Application"]),
+        (
+            "affects",
+            "ObjectProperty",
+            &["Incident", "Problem", "Change"],
+            &["ConfigurationItem"],
+        ),
+        (
+            "touches",
+            "ObjectProperty",
+            &["ChangeRequest"],
+            &["ConfigurationItem"],
+        ),
+        (
+            "usesTechnology",
+            "ObjectProperty",
+            &["ConfigurationItem"],
+            &["TechnologyStandard"],
+        ),
+        (
+            "hostedOn",
+            "ObjectProperty",
+            &["Application", "BusinessService"],
+            &["Server"],
+        ),
+        (
+            "relatedTo",
+            "ObjectProperty",
+            &["Repository", "WorkItem", "Application"],
+            &["Repository", "WorkItem", "Application"],
+        ),
         ("systemPromptFor", "ObjectProperty", &["Prompt"], &["Task"]),
-        ("canHandle", "ObjectProperty", &["Skill", "Agent", "Prompt"], &["Task", "Incident"]),
-        ("hasPhase", "ObjectProperty", &["TechnologyStandard"], &["TRMPhase"]),
+        (
+            "canHandle",
+            "ObjectProperty",
+            &["Skill", "Agent", "Prompt"],
+            &["Task", "Incident"],
+        ),
+        (
+            "hasPhase",
+            "ObjectProperty",
+            &["TechnologyStandard"],
+            &["TRMPhase"],
+        ),
     ];
     for (name, kind, domains, ranges) in edges {
         let property = kg(name);
-        assert!(has_iri(&triples, &property, &format!("{RDF}type"), &format!("{OWL}{kind}")), "{name}");
+        assert!(
+            has_iri(
+                &triples,
+                &property,
+                &format!("{RDF}type"),
+                &format!("{OWL}{kind}")
+            ),
+            "{name}"
+        );
         let mut got = members(&triples, &property, &domain);
         got.sort();
         let mut want: Vec<String> = domains.iter().map(|c| kg(c)).collect();
@@ -150,10 +199,21 @@ fn competency_question_edges_declare_domain_and_range() {
     let datatype = format!("{OWL}DatatypeProperty");
     for name in ["state", "priority"] {
         let property = kg(name);
-        assert!(has_iri(&triples, &property, &format!("{RDF}type"), &datatype), "{name}");
-        assert!(members(&triples, &property, &domain).contains(&kg("WorkItem")), "{name} domain");
+        assert!(
+            has_iri(&triples, &property, &format!("{RDF}type"), &datatype),
+            "{name}"
+        );
+        assert!(
+            members(&triples, &property, &domain).contains(&kg("WorkItem")),
+            "{name} domain"
+        );
     }
-    assert!(has_iri(&triples, &kg("relatedTo"), &format!("{RDF}type"), &format!("{OWL}SymmetricProperty")));
+    assert!(has_iri(
+        &triples,
+        &kg("relatedTo"),
+        &format!("{RDF}type"),
+        &format!("{OWL}SymmetricProperty")
+    ));
 }
 
 // spec: EG-TYPED-PACKS-R105.5
