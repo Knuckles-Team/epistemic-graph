@@ -81,7 +81,7 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 | STOMP broker `EG-KG.ontology.stomp-frame-codec-unit` | `stomp-wire` | `EPISTEMIC_GRAPH_STOMP_ADDR` | `127.0.0.1:61613` | `EPISTEMIC_GRAPH_STOMP_GRAPH`, `…_STOMP_EXCHANGE` |
 | S3 REST (object store) `EG-KG.ontology.object-put-get-head` | `s3-api` | `EPISTEMIC_GRAPH_S3_ADDR` | `127.0.0.1:9000` | `EPISTEMIC_GRAPH_S3_ACCESS_KEY`, `…_S3_SECRET_KEY` |
 | Shared KV-cache HTTP `EG-KG.backend.is-configured-so-co` | `kvcache-server` | `EPISTEMIC_GRAPH_KVCACHE_ADDR` | `127.0.0.1:9130` | `EPISTEMIC_GRAPH_KVCACHE_TOKEN` |
-| SPARQL HTTP + `/nl` | `sparql-http` (+ `nl-query`) | `EPISTEMIC_GRAPH_SPARQL_ADDR` (`--sparql-addr`) | `127.0.0.1:7878` | `EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH`, `…_SPARQL_SERVICE_ALLOW`; NL: `…_NL_ENDPOINT`, `…_NL_MODEL`, `…_NL_API_KEY_ENV` |
+| SPARQL HTTP + `/nl` | `sparql-http` (+ `nl-query`) | `EPISTEMIC_GRAPH_SPARQL_ADDR` (`--sparql-addr`) | `127.0.0.1:7878` | `EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH`, `…_SPARQL_SERVICE_ALLOW`; NL: `…_NL_ENDPOINT`, `…_NL_MODEL`, `…_NL_API_KEY_ENV`, `…_NL_READ_TIMEOUT_SECS`, `…_NL_EXTRA_BODY` |
 | GraphQL SSE | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR` (`--graphql-addr`) | `127.0.0.1:7879` | `EPISTEMIC_GRAPH_GRAPHQL_MAX_CONNECTIONS`, `EPISTEMIC_GRAPH_GRAPHQL_MAX_SESSION_SECS` |
 | Obs: logs + PromQL + traces + VRL | `obs`/`promql`/`traces` | `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`) | `127.0.0.1:5080` | `EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS` |
 | Federated search `EG-KG.ontology.federation-client` | `federation-search` | `EPISTEMIC_GRAPH_FEDERATED_ADDR` (`--federated-addr`) | `127.0.0.1:7900` | `EPISTEMIC_GRAPH_FEDERATION_PEERS`, `…_FEDERATION_ALLOW` |

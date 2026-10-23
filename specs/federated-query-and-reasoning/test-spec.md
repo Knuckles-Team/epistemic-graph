@@ -507,3 +507,11 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 - `EG-FEDERATED-QUERY-R722.4`: `tests/federated/test_pack_source_served.py::test_secret_guard_held_and_unavailable_refuse_with_named_codes`.
 - `EG-FEDERATED-QUERY-R722.5`: `tests/federated/test_pack_source_served.py::test_rows_carry_contract_provenance_and_nothing_is_copied`.
 - `EG-FEDERATED-QUERY-R722.6`: `tests/federated/test_pack_source_served.py::test_uql_joins_native_fact_to_live_connector_rows_with_zero_copy`.
+
+## EG-FEDERATED-QUERY-R058.5 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Behavior | `EG-FEDERATED-QUERY-R058.5` | `nl_regressions::planner_sends_configured_extra_body_and_honours_read_timeout` sees the extra body at a stub server and a timeout inside 3 s. |
+| Default | `EG-FEDERATED-QUERY-R058.5` | `nl_regressions::planner_request_defaults_disable_thinking` sees `enable_thinking=false` in the body. |
+| Refusal | `EG-FEDERATED-QUERY-R058.5` | `nl_regressions::planner_refuses_invalid_request_config_with_typed_errors` returns each `NlConfigError` variant. |
