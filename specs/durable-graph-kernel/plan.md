@@ -979,3 +979,12 @@ canonical contract comparison; it reports no new runtime failure.
 The imported native format document passes the actual prose and duplication gates.
 The integrated final source still needs fresh exports and complete hosted gates.
 The complete Python suite passes 4073 tests with 46 skips.
+
+Run 39919217919 exports the integrated source at head `149a3c24`.
+Artifact 12487138842 records clean source tree `b3b31aee`.
+All 73 output hashes and four build recipe hashes match that source.
+The exact five-file output updates both method catalogs and receipts.
+It also updates the native catalog digest. The only method changes declare
+checkpoint nonce reuse and live-claim conflict refusals.
+Independent review confirms the artifact and source match.
+Final hosted parity and complete native gates remain open.

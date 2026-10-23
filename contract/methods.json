@@ -12280,6 +12280,7 @@
         "OPERATION_REDIRECTED",
         "READ_ONLY",
         "REDIRECTED",
+        "REPLAY_NONCE_CONSUMED",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
         "TIMEOUT"
@@ -12336,6 +12337,7 @@
         "BUSY",
         "CANCELLED",
         "CAPACITY_DENIED",
+        "CONFLICT",
         "ENGINE_DEADLINE_EXCEEDED",
         "ENGINE_INTERNAL_METHOD",
         "ENGINE_RESOURCE_EXHAUSTED",
