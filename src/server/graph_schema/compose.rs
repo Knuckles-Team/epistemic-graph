@@ -761,10 +761,11 @@ ex:parent a owl:AsymmetricProperty .
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:Ontology` header subject (its shapes pack's prefix-declaration
         // subject is not itself one).
-        assert_eq!(ontology_subjects.len(), 36);
+        assert_eq!(ontology_subjects.len(), 37);
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
-        // `owl:imports <.../core>`.
-        assert_eq!(imports, 72);
+        // `owl:imports <.../core>`; +6: the service-operations module's five
+        // imports and its catalog entry.
+        assert_eq!(imports, 78);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -778,7 +779,8 @@ ex:parent a owl:AsymmetricProperty .
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
         // +129: the 19 connector parent classes (EG-TYPED-PACKS-R105.3).
-        assert_eq!(semantic_axioms, 13_706);
+        // +152: the service-operations module (EG-TYPED-PACKS-R105.4).
+        assert_eq!(semantic_axioms, 13_858);
 
         let count_type = |object: &str| {
             composed
@@ -803,7 +805,7 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_type("http://www.w3.org/2002/07/owl#SymmetricProperty"),
-            8
+            9
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
@@ -833,7 +835,8 @@ ex:parent a owl:AsymmetricProperty .
             // +4: Account, Position, Activity and Lot specialize BFO GDC.
             // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
             // +18: the connector parent classes (EG-TYPED-PACKS-R105.3).
-            482
+            // +18: the service-operations classes and alignments (EG-TYPED-PACKS-R105.4).
+            500
         );
     }
 
