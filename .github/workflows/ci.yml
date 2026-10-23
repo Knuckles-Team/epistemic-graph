@@ -130,7 +130,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: &eg-code-change needs.changes.outputs.code == 'true'
     # Pin the libc baseline while ubuntu-latest rolls to newer distributions.
     # Native artifacts must remain executable on supported older Linux hosts.
     runs-on: &eg-native-validation-runner ubuntu-24.04
@@ -245,7 +245,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Canonical engine contract parity
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
@@ -278,7 +278,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (plan fuzz and chaos)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
@@ -303,7 +303,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (installed wheel)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
@@ -507,7 +507,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (facade full)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
@@ -520,7 +520,8 @@ jobs:
       - *eg-gates-toolchain
       # A cold target took 41m13s before tests in run 38486393509.
       # Preserve trusted-main workspace outputs; Cargo still checks current inputs.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - &eg-gates-cache-workspace
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
           shared-key: eg-ci-gates-ubuntu-24.04-v1
@@ -559,7 +560,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (Whisper real model)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
@@ -640,7 +641,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (workspace crates)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: &eg-native-crate-steps
@@ -759,7 +760,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates (storage crate)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: *eg-native-crate-steps
@@ -770,7 +771,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (pyo3 crates)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: *eg-native-crate-steps
@@ -828,7 +829,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python native kernels
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     # Validation-only profile, also warmed on main. Published wheels use defaults.
     env:
@@ -869,7 +870,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Python full server preparation
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
@@ -878,12 +879,7 @@ jobs:
       # A seeded main cache still missed 16 workspace compilations and exceeded
       # ten minutes in PR555 attempt 2. Retain workspace outputs on trusted main;
       # Cargo validates restored inputs, and the full-engine budget covers misses.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates-ubuntu-24.04-v1
-          cache-workspace-crates: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - *eg-gates-cache-workspace
       # Also cache individual compiler outputs without bypassing Cargo. Install
       # before setting the wrapper: a missing global wrapper broke CI previously.
       - *eg-validation-compiler-cache
@@ -910,7 +906,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: backward-python (3.12)
     needs: [changes, python-kernels]
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     steps:
       - *eg-python-checkout
@@ -1049,7 +1045,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: eg-tts-piper real-inference tests
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1087,7 +1083,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Go and JavaScript clients
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: ubuntu-latest
     # `shell: bash` runs every step as `bash -eo pipefail`, so no step can hide a
     # failing command behind a later one in a pipe.
@@ -1213,7 +1209,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: *eg-native-validation-runner
     strategy:
       fail-fast: false
@@ -1255,7 +1251,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Scanner + architecture quality (advisory)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: *eg-code-change
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
