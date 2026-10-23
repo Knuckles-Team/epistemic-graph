@@ -228,3 +228,38 @@ def test_server_sdist_is_built_proven_published_and_verified() -> None:
     assert 'epistemic_graph_server-"${GITHUB_REF_NAME#v}".tar.gz' in _script(
         jobs["verify-pypi"]
     )
+
+
+def _path_crates(manifest_dir: Path, seen: dict[Path, None]) -> None:
+    manifest = tomllib.loads((manifest_dir / "Cargo.toml").read_text())
+    tables = [manifest, *manifest.get("target", {}).values()]
+    for table in tables:
+        for kind in ("dependencies", "dev-dependencies", "build-dependencies"):
+            for spec in table.get(kind, {}).values():
+                if isinstance(spec, dict) and "path" in spec:
+                    crate = (manifest_dir / spec["path"]).resolve()
+                    if crate not in seen:
+                        seen[crate] = None
+                        _path_crates(crate, seen)
+
+
+@pytest.mark.spec("EG-CONTRACT-R053.9")
+def test_sdist_carries_every_path_crate_cargo_needs_to_load_the_manifest() -> None:
+    """maturin drops path crates reached only through unselected optional features,
+    but `cargo metadata` still loads their manifests, so the isolated rebuild fails
+    unless each crate tree is an explicit sdist include. maturin rejects `..` in
+    include patterns, so the package dir carries a `crates` symlink to the workspace
+    crates and the patterns are relative to it."""
+    seen: dict[Path, None] = {}
+    _path_crates(ROOT, seen)
+    members = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
+    expected = {str(c.relative_to(ROOT)) for c in seen} | set(members)
+    project = tomllib.loads((PACKAGE / "pyproject.toml").read_text())
+    includes = project["tool"]["maturin"]["include"]
+    assert all(i["format"] == "sdist" for i in includes)
+    included = {i["path"].removesuffix("/**/*") for i in includes}
+    link = PACKAGE / "crates"
+    assert link.is_symlink() and link.resolve() == ROOT / "crates"
+    assert expected - included == set(), "crates missing from the sdist include list"
+    assert "crates/eg-asr-whisper" in included
+    assert "crates/eg-tts-piper" in included
