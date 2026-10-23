@@ -1,6 +1,8 @@
 #![allow(non_local_definitions)]
 #![allow(dead_code)]
-#![cfg_attr(test, recursion_limit = "256")]
+// The all-features dispatch future needs query depth 130. Use the same
+// bounded compiler budget for production and test builds.
+#![recursion_limit = "256"]
 // No unsafe anywhere except a few platform/C-FFI boundaries, each carrying a
 // scoped #[allow(unsafe_code)] with a soundness note: the tree-sitter block
 // (eg-compute ast/parser.rs), the CycloneDDS loan (server/dds.rs, ros2-rmw only),
