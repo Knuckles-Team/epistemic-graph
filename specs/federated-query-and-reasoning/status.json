@@ -2956,7 +2956,7 @@
       "title": "Configurable NL planner request",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "36f886b81771"
+        "53659e2fe6f4"
       ],
       "verified_by": [
         "crates/eg-plan/src/nl_regressions.rs:281",
