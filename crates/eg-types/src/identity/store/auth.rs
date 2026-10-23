@@ -29,6 +29,15 @@ impl IdentityStore {
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
         match op {
+            CredentialOp::RegisterApprovalKey { request } => {
+                self.register_approval_key(request, stamp, ctx.now_ms)
+            }
+            CredentialOp::InspectApprovalKey { request } => {
+                self.inspect_approval_key(request, stamp, ctx.now_ms)
+            }
+            CredentialOp::RevokeApprovalKey { request } => {
+                self.revoke_approval_key(request, stamp, ctx.now_ms)
+            }
             CredentialOp::SetPassword { request } => {
                 self.admin_set_password(request, stamp, ctx.now_ms)
             }

@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::access::IdpConfig;
+use super::approval_key::{ApprovalKeyLookup, ApprovalKeyRegistration, ApprovalKeyRevocation};
 use super::config::ModeTransition;
 use super::requests::{
     ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
@@ -187,6 +188,15 @@ pub enum UserOp {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CredentialOp {
+    RegisterApprovalKey {
+        request: ApprovalKeyRegistration,
+    },
+    InspectApprovalKey {
+        request: ApprovalKeyLookup,
+    },
+    RevokeApprovalKey {
+        request: ApprovalKeyRevocation,
+    },
     SetPassword {
         request: PasswordSet,
     },
@@ -210,6 +220,18 @@ pub enum CredentialOp {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SessionOp {
+    /// Inspect original durable session facts without refreshing or issuing authority.
+    InspectReference {
+        session_ref: String,
+        tenant: String,
+    },
+    /// Extend idle expiry within the original absolute lifetime using a global authority CAS.
+    RenewReference {
+        session_ref: String,
+        tenant: String,
+        expected_authority_revision: u64,
+        expected_scopes: std::collections::BTreeSet<String>,
+    },
     /// Touch a live session and answer its principal's resolution.
     Resolve {
         request: SessionTouch,
@@ -427,6 +449,15 @@ impl UserOp {
 impl CredentialOp {
     fn meta(&self) -> OpMeta {
         match self {
+            Self::RegisterApprovalKey { .. } => {
+                meta("register_approval_key", true, OpAuthority::Broker)
+            }
+            Self::InspectApprovalKey { .. } => {
+                meta("inspect_approval_key", false, OpAuthority::Broker)
+            }
+            Self::RevokeApprovalKey { .. } => {
+                meta("revoke_approval_key", true, OpAuthority::Broker)
+            }
             Self::SetPassword { .. } => meta("set_password", true, OpAuthority::Admin),
             Self::ChangePassword { .. } => meta("change_password", true, OpAuthority::SelfService),
             Self::Authenticate { .. } => meta("authenticate", true, OpAuthority::Broker),
@@ -439,7 +470,17 @@ impl CredentialOp {
 impl SessionOp {
     fn meta(&self) -> OpMeta {
         match self {
-            Self::Resolve { .. } => meta("resolve_session", true, OpAuthority::Broker),
+            Self::Resolve { request } => meta(
+                "resolve_session",
+                request.refresh.unwrap_or(true),
+                OpAuthority::Broker,
+            ),
+            Self::InspectReference { .. } => {
+                meta("inspect_session_reference", false, OpAuthority::SelfService)
+            }
+            Self::RenewReference { .. } => {
+                meta("renew_session_reference", true, OpAuthority::SelfService)
+            }
             Self::Revoke { .. } => meta("revoke_session", true, OpAuthority::Broker),
             Self::RevokeAll { .. } => meta("revoke_user_sessions", true, OpAuthority::Admin),
             Self::List { .. } => meta("list_sessions", false, OpAuthority::Read),

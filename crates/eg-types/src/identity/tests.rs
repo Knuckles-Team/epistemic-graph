@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use super::*;
 
 mod access;
+mod approval_keys;
 mod auth;
 mod factors;
 mod modes;

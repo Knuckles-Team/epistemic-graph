@@ -224,6 +224,8 @@ jobs:
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
       - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
+        id: engine-contract-parity
+        if: ${{ !cancelled() }}
         run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
       - name: Generated Python client contract
         run: python3 tests/test_generated_client_contract.py
@@ -233,6 +235,40 @@ jobs:
         run: &eg-validation-compiler-cache-stats |
           echo 'Cache statistics cover the current daemon only; a restart resets its counters.'
           sccache --show-stats
+
+  # Canonical repair must not wait behind unrelated lower-crate test suites.
+  # The original required gate still rechecks parity; only this job exports.
+  gates-contract:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    name: Canonical engine contract parity
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: *eg-native-validation-runner
+    env: *eg-validation-compiler-cache-backend
+    steps:
+      # The exporter needs only Python's standard library, not client test deps.
+      - *eg-gates-checkout
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+      - *eg-validation-compiler-cache
+      - *eg-gates-python
+      - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
+        id: engine-contract-preflight
+        if: ${{ !cancelled() }}
+        env: *eg-validation-compiler-cache-env
+        run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
+      - name: Export fresh canonical contracts after parity failure
+        id: engine-contract-export
+        if: ${{ failure() && steps.engine-contract-preflight.outcome == 'failure' }}
+        env: *eg-validation-compiler-cache-env
+        run: python3 scripts/export_canonical_contract.py --export-dir target/canonical-engine-contract
+      - name: Upload fresh canonical contract repair evidence
+        if: ${{ !cancelled() && steps.engine-contract-export.outputs.fresh_export == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: canonical-engine-contract-${{ github.sha }}
+          path: target/canonical-engine-contract/
+          if-no-files-found: error
 
   # Independent required fuzz acceptance avoids serial lower-crate compilation.
   gates-plan-fuzz:
@@ -1007,7 +1043,17 @@ jobs:
       - name: Install the pinned toolchain's wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - name: Rebuild the embedded method-body codec and require the committed copies
-        run: python3 scripts/build_method_codec_wasm.py --check
+        id: method-codec
+        run: python3 scripts/build_method_codec_wasm.py --check --export-dir target/canonical-method-codec
+      - name: Upload freshly built canonical method codec
+        if: ${{ !cancelled() && steps.method-codec.outputs.fresh_export == 'true' && hashFiles('target/canonical-method-codec/eg_method_codec.provenance.json') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: canonical-method-codec-${{ github.sha }}
+          path: |
+            target/canonical-method-codec/eg_method_codec.wasm
+            target/canonical-method-codec/eg_method_codec.provenance.json
+          if-no-files-found: error
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: clients/go/go.mod
@@ -1563,7 +1609,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security, lint-and-architecture]
+    needs: [gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security, lint-and-architecture]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'

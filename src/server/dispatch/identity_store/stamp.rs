@@ -213,6 +213,15 @@ fn derive_credential(
         stamp.minted_session_ref = Some(format!("ses:{}", uuid::Uuid::new_v4()));
     }
     match op {
+        CredentialOp::RegisterApprovalKey { request } => {
+            stamp.token_hashes = vec![take_token(&mut request.session_token, Floor::Lookup)?];
+            Ok(())
+        }
+        CredentialOp::RevokeApprovalKey { request } => {
+            stamp.token_hashes = vec![take_token(&mut request.session_token, Floor::Lookup)?];
+            Ok(())
+        }
+        CredentialOp::InspectApprovalKey { .. } => Ok(()),
         CredentialOp::SetPassword { request } => {
             let (account, credential) = account_of(env, &request.principal_id)?;
             let hash = new_password(&mut request.password, account, credential, env.min_chars())?;
@@ -269,7 +278,10 @@ fn derive_sign_in(
 fn derive_session(op: &mut SessionOp, stamp: &mut IdentityStamp) -> Derived {
     let request = match op {
         SessionOp::Resolve { request } | SessionOp::Revoke { request } => request,
-        SessionOp::RevokeAll { .. } | SessionOp::List { .. } => return Ok(()),
+        SessionOp::RevokeAll { .. }
+        | SessionOp::List { .. }
+        | SessionOp::InspectReference { .. }
+        | SessionOp::RenewReference { .. } => return Ok(()),
     };
     stamp.token_hashes = vec![take_token(&mut request.session_token, Floor::Lookup)?];
     request.code.take();

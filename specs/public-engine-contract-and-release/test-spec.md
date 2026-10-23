@@ -69,3 +69,7 @@ No test below has run; these are acceptance targets only.
 | `EG-CONTRACT-R001.2` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` | `blueprint_canonical_disk_roundtrip_has_no_difference` | Run blueprint_canonical_disk_roundtrip_has_no_difference with served R094 export and governed SDK disk write/read. Import and re-export after restart. Include nested defaults, nulls, ordered arrays, Unicode, and schema-boundary numeric values. Compare exact canonical bytes and schema-typed values. Lost fields, unknowns, coerced numbers, changed array order, and changed final newline SHALL fail. Capture source-effect receipt. A serializer-only test does not pass. Planned only. No test, served readback, receipt, implementation, or closure is claimed. |
 
 Both definitions remain SPECIFIED. No test receipt or closure is claimed.
+
+- **EG-CONTRACT-R006.1:** `tests/test_build_method_codec_wasm.py` binds fresh export, build failures, provenance and upload gating. Injected builder fixtures do not prove native reproducibility.
+- **EG-CONTRACT-R006.2:** Retain the full independent-build, size and cross-language vector matrix. No native artifact evidence is supplied by this source reconciliation.
+- **EG-CONTRACT-R006.3:** `tests/test_export_canonical_contract.py` proves export provenance, allowlist refusal, failed generation and retained parity failure. Hosted artifact promotion requires exact source and recipe verification.
