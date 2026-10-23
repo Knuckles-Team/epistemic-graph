@@ -110,7 +110,8 @@ fn checkpoint_cas_is_atomic_private_and_owner_bound() {
             3 => bad.fencing_token = 3,
             _ => (),
         }
-        assert!(apply(shard, &format!("bad-{index}"), &bad, "owner", 2000).is_err());
+        let refusal = apply(shard, &format!("bad-{index}"), &bad, "owner", 2000).unwrap_err();
+        assert!(refusal.starts_with("CONFLICT: "), "{refusal}");
         assert_eq!(
             get(shard, "owner", true, 2000).unwrap(),
             Some(before.clone())
@@ -147,7 +148,10 @@ fn completed_history_survives_claim_expiry_but_resume_requires_live_fence() {
     let shard = &tmp.shard;
     seed(shard);
     apply(shard, "first", &request(None), "owner", 2000).unwrap();
-    assert!(get(shard, "owner", true, 10000).is_err());
+    assert_eq!(
+        get(shard, "owner", true, 10000).unwrap_err(),
+        "CONFLICT: checkpoint live claim conflict"
+    );
     assert!(get(shard, "owner", false, 10000).unwrap().is_some());
     with_nodes(shard, "terminal", |nodes| {
         let id = request(None).work_item_id;
@@ -157,7 +161,10 @@ fn completed_history_survives_claim_expiry_but_resume_requires_live_fence() {
         row.insert("status".into(), "succeeded".into());
         write_work_item_props(nodes, GRAPH, &id, &mut row, DurableCrypto::none())
     });
-    assert!(get(shard, "owner", true, 2000).is_err());
+    assert_eq!(
+        get(shard, "owner", true, 2000).unwrap_err(),
+        "CONFLICT: checkpoint live claim conflict"
+    );
     assert!(get(shard, "owner", false, 2000).unwrap().is_some());
     assert_eq!(count(shard), 1);
 }

@@ -56,6 +56,21 @@ mod tests {
         );
     }
 
+    // spec: EG-DURABLE-KERNEL-R028.1.1
+    #[test]
+    fn checkpoint_nonce_and_fence_refusals_survive_the_served_boundary() {
+        for (method, code) in [
+            ("PublishRunCheckpoint", "REPLAY_NONCE_CONSUMED"),
+            ("PublishRunCheckpoint", "IDEMPOTENCY_CONFLICT"),
+            ("PublishRunCheckpoint", "CONFLICT"),
+            ("GetRunCheckpoint", "CONFLICT"),
+        ] {
+            let response = enforce(method, Response::err(9, format!("{code}: refused")));
+            assert_eq!(response.error.as_deref(), Some(code), "{method}");
+            assert_eq!(response.error_detail.as_deref(), Some("refused"));
+        }
+    }
+
     #[test]
     fn an_unknown_method_fails_closed_and_success_is_unchanged() {
         let denied = enforce("NotADeclaredMethod", Response::err(3, "ACCESS_DENIED"));

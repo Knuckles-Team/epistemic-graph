@@ -256,11 +256,11 @@ fn predecessor_document_reuses_only_compatible_table_sets() {
     };
     assert_eq!(
         render_predecessor_tables(&current, Some(&previous)),
-        "same table set as **earlier table set** above, plus `work_item_run_checkpoints`"
+        "Same table set as **earlier table set** above. Added tables: `work_item_run_checkpoints`."
     );
     assert_eq!(
         render_predecessor_tables(&previous, Some(&previous)),
-        "same table set as **earlier table set** above"
+        "Same table set as **earlier table set** above."
     );
     assert_eq!(
         render_predecessor_tables(&previous, Some(&current)),
@@ -277,5 +277,20 @@ fn predecessor_document_reuses_only_compatible_table_sets() {
     assert_eq!(
         render_predecessor_tables(&previous, None),
         "`nodes`, `ledger`"
+    );
+}
+
+// spec: EG-DURABLE-KERNEL-R028.1.1
+#[test]
+fn predecessor_document_keeps_operator_clauses_when_splitting_sentences() {
+    assert_eq!(
+        render_predecessor_prose(
+            "rows remain; upgrade offline, or move the file aside, so re-ingest"
+        ),
+        "rows remain. upgrade offline. Alternatively, move the file aside. Thus, re-ingest"
+    );
+    assert_eq!(
+        render_predecessor_prose("unchanged table data"),
+        "unchanged table data"
     );
 }

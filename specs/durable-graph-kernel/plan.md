@@ -929,3 +929,30 @@ A focused native test covers those cases and equal table sets.
 The checked-in document still contains the prior exact native output.
 Fresh hosted renderer output and a passing duplication gate remain required.
 This source-only draft update does not waive those gates or authorize merge.
+
+Run 39901436674 qualifies published head `fa7ca15558188edac02812970310842a24bffc66`.
+Its canonical contract and Go/JavaScript codec parity jobs pass.
+Storage job 120246693153 passes 125 tests and five documentation tests.
+The checkpoint layout pin, predecessor migration and table-set renderer tests pass.
+Only the checked-in format document differs from the native renderer output.
+That output exposes long references and unsupported asterisk-bullet paragraph joins
+in the prose scanner. The revised renderer uses dash bullets and short sentences.
+The complete changed-section preview has zero blocking prose findings and zero
+pinned-scanner duplicate pairs. The offline procedure remains byte-identical.
+This preview is not native generation evidence and is not the canonical document.
+The next source-matched native output must replace the prior checked-in document.
+Authenticated checkpoint acceptance and final repository gates remain pending.
+
+The fresh all-features Clippy job reached compiler layout-query depth 130.
+The production crate now uses the existing test compiler budget of 256.
+This changes no runtime or layout assertion. Final all-features qualification
+remains pending a hosted rerun.
+
+The fresh facade job passed 2378 library tests. Its physical census expectation
+still named 60 tables rather than the native checkpoint layout's 61 tables.
+Authenticated checkpoint publication succeeded, but exact nonce reuse was masked
+as INTERNAL. The method error catalog lacked REPLAY_NONCE_CONSUMED.
+The checkpoint error catalog now preserves that refusal and live-claim conflicts.
+Focused tests retain strict nonce, identity-conflict and CAS refusal assertions.
+Fresh canonical exports and native integration reruns remain required.
+The same run's complete Python suite and plan fuzz jobs passed.

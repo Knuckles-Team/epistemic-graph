@@ -450,20 +450,29 @@ pub fn render_owner_store_formats() -> String {
         for (index, predecessor) in predecessors.iter().enumerate() {
             let previous = index.checked_sub(1).map(|index| &predecessors[index]);
             out.push_str(&format!(
-                "\n## `{code}`: {label}\n\n* Store file: `{file}`\n* Refused generation: {label}\n\
-                 * Data lost: {lost}\n* Owner tables of the refused generation: {tables}\n\
-                 * Removal step: {removal}\n",
+                "\n## `{code}`: {label}\n\n- Store file: `{file}`\n- Refused generation: {label}\n\
+                 - Data lost: {lost}\n- Tables: {tables}\n\
+                 - Removal step: {removal}\n",
                 code = predecessor.error_code(),
                 file = predecessor.file_name,
                 label = predecessor.label,
-                lost = predecessor.data_lost,
+                lost = render_predecessor_prose(predecessor.data_lost),
                 tables = render_predecessor_tables(predecessor, previous),
-                removal = crate::owner::offline_upgrade::render_removal_step(predecessor),
+                removal = render_predecessor_prose(
+                    &crate::owner::offline_upgrade::render_removal_step(predecessor),
+                ),
             ));
         }
     }
     out.push_str(&crate::owner::offline_upgrade::render_offline_upgrade_procedure());
     out
+}
+
+/// Separate independent operator clauses without changing persisted lineage data.
+fn render_predecessor_prose(text: &str) -> String {
+    text.replace("; ", ". ")
+        .replace(", or ", ". Alternatively, ")
+        .replace(", so ", ". Thus, ")
 }
 
 /// Describe inherited table sets once; additions do not imply manifest ordering.
@@ -487,10 +496,10 @@ fn render_predecessor_tables(
         .join(", ");
     match shared {
         Some(previous) if tables.is_empty() => {
-            format!("same table set as **{}** above", previous.label)
+            format!("Same table set as **{}** above.", previous.label)
         }
         Some(previous) => format!(
-            "same table set as **{}** above, plus {tables}",
+            "Same table set as **{}** above. Added tables: {tables}.",
             previous.label
         ),
         None => tables,

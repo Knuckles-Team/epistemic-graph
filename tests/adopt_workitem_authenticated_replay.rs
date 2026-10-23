@@ -982,7 +982,11 @@ async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
         vec![admitted.work_item_id.clone()]
     );
     let exact = test_support::dispatch(&state, authenticated).await;
-    assert_eq!(exact.error.as_deref(), Some("REPLAY_NONCE_CONSUMED"));
+    assert_eq!(
+        exact.error.as_deref(),
+        Some("REPLAY_NONCE_CONSUMED"),
+        "{exact:?}"
+    );
     let version = concrete.read_mutation_graph_version(GRAPH).await.unwrap();
     let replay: RunCheckpointPublished = decode_raw(
         &test_support::dispatch(
@@ -999,9 +1003,10 @@ async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
         signed_run_request(905, publish(request.clone()), "other-executor-key"),
     )
     .await;
-    assert!(
-        loser.error.is_some(),
-        "distinct executor must lose the expected-head CAS"
+    assert_eq!(
+        loser.error.as_deref(),
+        Some("CONFLICT"),
+        "distinct executor must lose the expected-head CAS: {loser:?}"
     );
     let foreign_retry = test_support::dispatch(
         &state,
@@ -1110,6 +1115,33 @@ async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
     .await;
     assert!(expired.error.is_none());
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    let Method::GetRunCheckpoint {
+        request: mut claimed_read,
+    } = get()
+    else {
+        unreachable!("checkpoint read fixture")
+    };
+    claimed_read.current_claim = Some(eg_types::run_checkpoint::CheckpointClaim {
+        worker_id: request.worker_id.clone(),
+        lease_epoch: request.lease_epoch,
+        fencing_token: request.fencing_token,
+    });
+    let refused_read = test_support::dispatch(
+        &state,
+        signed_run_request(
+            943,
+            Method::GetRunCheckpoint {
+                request: claimed_read,
+            },
+            "expired-claim-read",
+        ),
+    )
+    .await;
+    assert_eq!(
+        refused_read.error.as_deref(),
+        Some("CONFLICT"),
+        "{refused_read:?}"
+    );
     let before_replay = concrete.read_mutation_graph_version(GRAPH).await.unwrap();
     let historical: RunCheckpointPublished = decode_raw(
         &test_support::dispatch(

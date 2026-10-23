@@ -178,7 +178,7 @@ pub(crate) fn publish(
         request.fencing_token,
         now_ms,
     ) {
-        return Err("checkpoint live claim conflict".into());
+        return Err("CONFLICT: checkpoint live claim conflict".into());
     }
     if !admitted_context(
         &row,
@@ -191,7 +191,7 @@ pub(crate) fn publish(
     }
     let previous = head(&row)?;
     if previous.as_ref().map(|(_, revision, _)| *revision) != request.expected_revision {
-        return Err("checkpoint expected revision conflict".into());
+        return Err("CONFLICT: checkpoint expected revision conflict".into());
     }
     if let Some((reference, revision, digest)) = previous {
         let bytes = tables
@@ -340,7 +340,7 @@ pub(crate) fn read_current(
             claim.fencing_token,
             now_ms,
         ) {
-            return Err("checkpoint live claim conflict".into());
+            return Err("CONFLICT: checkpoint live claim conflict".into());
         }
     }
     let Some((reference, revision, digest)) = head(&row)? else {

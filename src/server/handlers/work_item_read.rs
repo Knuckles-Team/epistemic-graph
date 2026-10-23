@@ -98,17 +98,20 @@ pub(crate) async fn answer(
         return Response::err(req_id, denied);
     }
     let graph = crate::persist::sanitize(graph_name);
+    let checkpoint = matches!(&read, WorkItemRead::Checkpoint { .. });
     match serve_native(&graph, persistence, read).await {
         Ok(payload) => Response::ok(req_id, payload),
-        Err(error)
-            if error.split_once(": ").is_some_and(|(code, _)| {
-                code == eg_types::contract::ServerErrorCode::RunAdmissionUnavailable.as_str()
-            }) =>
-        {
-            Response::err(req_id, error)
-        }
+        Err(error) if preserves_native_refusal(&error, checkpoint) => Response::err(req_id, error),
         Err(error) => Response::err(req_id, format!("WorkItem read failed: {error}")),
     }
+}
+
+/// Keep checkpoint claim conflicts typed without widening other read contracts.
+fn preserves_native_refusal(error: &str, checkpoint: bool) -> bool {
+    error.split_once(": ").is_some_and(|(code, _)| {
+        code == eg_types::contract::ServerErrorCode::RunAdmissionUnavailable.as_str()
+            || (checkpoint && code == eg_types::contract::EngineErrorCode::Conflict.as_str())
+    })
 }
 
 async fn serve_native(
