@@ -6,6 +6,7 @@
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 @prefix dc: <http://purl.org/dc/terms/> .
 @prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
@@ -243,3 +244,21 @@
     rdfs:subPropertyOf :produced ;
     rdfs:domain :WorkspaceAction ;
     rdfs:range :WorkspaceObservation .
+
+:Repository a owl:Class ;
+    rdfs:label "Repository" ;
+    rdfs:comment "A named, addressable store of versioned or catalogued content: a source-control repository, an image repository, an archival source holder. Not itself a software project; a project may live in one." ;
+    skos:altLabel "Code Repository", "Image Repository", "Source Repository" ;
+    rdfs:subClassOf :Collection .
+
+:Branch a owl:Class ;
+    rdfs:label "Branch" ;
+    rdfs:comment "A named movable line of development inside a Repository, pointing at a head Commit." ;
+    skos:altLabel "Source Branch", "Code Branch" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Release a owl:Class ;
+    rdfs:label "Release" ;
+    rdfs:comment "A published, versioned snapshot of a software project with a tag, notes and attached assets. Distinct from a Deployment, which places a build on infrastructure." ;
+    skos:altLabel "Software Release", "Version Release" ;
+    rdfs:subClassOf bfo:0000031 .
