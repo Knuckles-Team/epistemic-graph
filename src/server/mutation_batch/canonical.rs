@@ -642,6 +642,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // nothing, so like every other read they carry the surface-keyed default.
         | Method::GetCurrentPlan { .. }
         | Method::GetRunWorkItem { .. }
+        | Method::GetSessionUsage { .. }
         | Method::GetWorkItem { .. }
         | Method::ListWorkItems { .. }
         | Method::GetWorkItemOutcome { .. }

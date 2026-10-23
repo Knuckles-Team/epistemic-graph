@@ -1,25 +1,9 @@
+use super::super::test_shard::run_request as request;
 use super::super::test_shard::{apply, open, with_nodes, with_write, GRAPH};
 use super::*;
 use eg_types::native_control::SubmitWorkItemRequest;
 
 type Row = serde_json::Map<String, serde_json::Value>;
-
-fn request() -> SubmitWorkItemRequest {
-    serde_json::from_value(serde_json::json!({
-        "schema_version":"1", "run_id":"run", "work_item_id":null,
-        "context": {"schema_version":"2", "request_id":"request", "subject_id":"owner",
-            "tenant_id":"tenant", "agent_id":"worker", "scopes":["work:*"],
-            "audience":"engine", "authentication_method":"local_process", "policy_version":"v1",
-            "graph":GRAPH, "placement_epoch":null, "trace_id":"trace", "issued_at_ms":1,
-            "expires_at_ms":2},
-        "idempotency_key":"run-key", "command_digest":"A".repeat(64), "kind":"test",
-        "priority":2, "depends_on":[], "input_ref":"input", "policy_digest":"policy",
-        "catalog_digest":"catalog", "model_digest":"model", "max_attempts":3,
-        "deadline_unix":null, "metadata":{"original":true}, "provenance_refs":["source"],
-        "max_tenant_in_flight":0
-    }))
-    .unwrap()
-}
 
 fn admit(shard: &Shard) -> String {
     admit_request(shard, &request())
@@ -27,22 +11,8 @@ fn admit(shard: &Shard) -> String {
 
 fn admit_request(shard: &Shard, request: &SubmitWorkItemRequest) -> String {
     with_write(shard, "admit", 1000, |admitted| {
-        let member = admitted.graph(GRAPH)?;
-        let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
-        super::super::apply_submit_work_item_rows(
-            GRAPH,
-            request,
-            &mut rows.nodes,
-            &mut rows.edges,
-            &mut rows.command_sequences,
-            WorkItemCommitScope {
-                crypto: DurableCrypto::none(),
-                authoritative_now_ms: 1000,
-                admitted_actor: Some("owner"),
-                outbox_id: "outbox",
-            },
-        )
-        .map(|result| result.work_item_id)
+        super::super::test_shard::submit_run_rows(admitted, request, "owner")
+            .map(|result| result.work_item_id)
     })
     .unwrap()
 }

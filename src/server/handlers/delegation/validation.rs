@@ -147,6 +147,7 @@ pub(crate) fn lower_work_item(
     provenance_refs: Vec<String>,
 ) -> SubmitWorkItemRequest {
     SubmitWorkItemRequest {
+        conversation: None,
         run_id: None,
         schema_version: NativeControlSchemaVersion::V1,
         context: request.context.clone(),
