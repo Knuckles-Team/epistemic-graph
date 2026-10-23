@@ -1253,3 +1253,51 @@ bfo:0000001 a owl:Class ;
 
 [] a owl:AllDisjointClasses ;
     owl:members ( :Person :Organization :Server :Event ) .
+
+:Collection a owl:Class ;
+    rdfs:label "Collection" ;
+    rdfs:comment "A named, user-curated grouping of items of one kind that other things are filed under (a document collection, a credential collection, a vector collection, a game collection). Vendor-neutral parent for connector collection classes." ;
+    skos:altLabel "Document Collection", "Vector Collection", "Game Collection", "Item Collection" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Folder a owl:Class ;
+    rdfs:label "Folder" ;
+    rdfs:comment "A hierarchical container that holds files or other folders and can itself sit in a parent folder (a file-sync folder, a vault folder, a media root folder)." ;
+    skos:altLabel "Directory", "Root Folder", "Vault Folder" ;
+    rdfs:subClassOf :Collection .
+
+:ResourceGroup a owl:Class ;
+    rdfs:label "Resource Group" ;
+    rdfs:comment "A named group of managed resources that is acted on or authorized as one unit (an inventory group, a host group, an endpoint group, a message consumer group)." ;
+    skos:altLabel "Inventory Group", "Host Group", "Endpoint Group", "Consumer Group" ;
+    rdfs:subClassOf :Collection .
+
+:Category a owl:Class ;
+    rdfs:label "Category" ;
+    rdfs:comment "A coarse classifying label from a small curated set that items are sorted into (a budget category, a feed category, a recipe category, a torrent category, a research category)." ;
+    skos:altLabel "Feed Category", "Recipe Category", "Torrent Category", "Research Category", "Budget Category" ;
+    rdfs:subClassOf :Concept .
+
+:Template a owl:Class ;
+    rdfs:label "Template" ;
+    rdfs:comment "A reusable pre-filled definition that new items are instantiated from (an email template, an assessment template, a deployment template)." ;
+    skos:altLabel "Email Template", "Assessment Template", "Stack Template" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Message a owl:Class ;
+    rdfs:label "Message" ;
+    rdfs:comment "A unit of communication sent from a sender to one or more recipients (a mail message, a chat message, a transactional message). Distinct from the agent and bus messages of the orchestration module, which stay as they are." ;
+    skos:altLabel "Chat Message", "Mail Message", "Transactional Message" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Order a owl:Class ;
+    rdfs:label "Order" ;
+    rdfs:comment "A request to buy, sell or supply goods, services or financial instruments, with lines and a status (a purchase order, a sales order, a trading order)." ;
+    skos:altLabel "Purchase Order", "Sales Order", "Trade Order" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Metric a owl:Class ;
+    rdfs:label "Metric" ;
+    rdfs:comment "A named quantitative measure with a defined way of computing it, reported as values over time or over a run (an evaluation metric, a backtest metric, a service metric)." ;
+    skos:altLabel "Evaluation Metric", "Backtest Metric", "Measure" ;
+    rdfs:subClassOf bfo:0000031 .

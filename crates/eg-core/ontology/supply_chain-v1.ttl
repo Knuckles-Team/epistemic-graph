@@ -1,6 +1,7 @@
 @prefix : <http://knuckles.team/kg#> .
 @prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
 <http://knuckles.team/kg/supply_chain> a owl:Ontology ;
@@ -23,3 +24,9 @@
     rdfs:comment "Links a supplier to an item it supplies. Procurement mappings derive this relation from purchase orders without changing the existing suppliedBy property." ;
     rdfs:domain :Supplier ;
     rdfs:range :SupplyChainItem .
+
+:Vulnerability a owl:Class ;
+    rdfs:label "Vulnerability" ;
+    rdfs:comment "A known weakness in a software component, image or system that can be exploited, with a severity and a fix state (a CVE record, a scanner finding). The properties that describe it belong to EG-SUPPLY-VOCAB-R002.6." ;
+    skos:altLabel "CVE", "Security Finding", "Weakness" ;
+    rdfs:subClassOf bfo:0000031 .

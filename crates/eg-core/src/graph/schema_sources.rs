@@ -19,7 +19,10 @@ use super::LegacyIntegrityPolicy;
 /// slice, the world-model shapes (35 artifacts, EH-364) and the swarm-topology
 /// vocabulary and shapes (37, ST-1), the finance module and its shapes (39,
 /// EH-411), the temporal bi-temporal-fact shapes (40, AU-SEMANTIC-R004), and
-/// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037).
+/// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037), and
+/// the service-operations module (43, EG-TYPED-PACKS-R105.4), and the
+/// data-platform, IT4IT-delivery, media and retrieval domain modules (47,
+/// EG-TYPED-PACKS-R105.6 to R105.9).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -635,6 +638,12 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/concepts-v1.ttl")),
         },
         CoreSpec {
+            module: "dataplatform",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/dataplatform-v1.ttl")),
+        },
+        CoreSpec {
             module: "documentation",
             version: 1,
             shapes: None,
@@ -677,10 +686,22 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/infrastructure-v1.ttl")),
         },
         CoreSpec {
+            module: "it4it_delivery",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/it4it_delivery-v1.ttl")),
+        },
+        CoreSpec {
             module: "medical",
             version: 1,
             shapes: None,
             ontology: Some(include_str!("../../ontology/medical-v1.ttl")),
+        },
+        CoreSpec {
+            module: "media",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/media-v1.ttl")),
         },
         CoreSpec {
             module: "native_source_connector",
@@ -709,6 +730,12 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/process_intelligence-v1.ttl")),
         },
         CoreSpec {
+            module: "retrieval",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/retrieval-v1.ttl")),
+        },
+        CoreSpec {
             module: "sdd",
             version: 1,
             shapes: None,
@@ -719,6 +746,12 @@ fn core_specs() -> &'static [CoreSpec] {
             version: 1,
             shapes: None,
             ontology: Some(include_str!("../../ontology/sdlc_lifecycle-v1.ttl")),
+        },
+        CoreSpec {
+            module: "service_operations",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/service_operations-v1.ttl")),
         },
         CoreSpec {
             module: "software",
@@ -891,7 +924,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 42);
+        assert_eq!(sources.core.len(), 47);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1178,11 +1211,11 @@ mod tests {
             ),
             (
                 "catalog",
-                "7b3a24987e3d63e3b5b21c78111cae7d5b4397c16f8b4e528ccff40559d1f5fb",
+                "e51d86e483d8d1a0647369f72a1cef07b39cf1d9b2434a4ad1bef1c20bf54a0e",
             ),
             (
                 "company",
-                "77b0c36d8818fbab307b201acfcceb339289090e44f420834960b346af48a1a9",
+                "db896668d88d609de6a9b0652bcaa09feb788281ab5d3b576d68b2de5166fd50",
             ),
             (
                 "company_infra",
@@ -1230,7 +1263,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "a14ccc9d0c004c92e50bb3ac10dff4fcd06f4c46131f8b4b2ee079994f1bdab1",
+                "3a97753afe8acd19d5c9718dc4bb19ef05baf65e779278b56d3f57e456e27a9c",
             ),
             (
                 "medical",
@@ -1254,7 +1287,27 @@ mod tests {
             ),
             (
                 "sdd",
-                "1763e32c22024ad0a4716872955ac972853e4b79631bac4925bb65e260af40df",
+                "0701adf9b634ba96548484b30ac3f951e97e04027518e55e1990401d50bb3c61",
+            ),
+            (
+                "service_operations",
+                "12498d7bb52e26cca7a40f3bb1dff60a06290cb70a6b319659697c6986184295",
+            ),
+            (
+                "dataplatform",
+                "85467e7f305a29c68a0de04d345cf98954bf0864ff830a75d29055cb9f195135",
+            ),
+            (
+                "it4it_delivery",
+                "54f25a4583b59f73256eefc7bec9781c6bbc7f0a6ff1fbd4b4735fbc2807b080",
+            ),
+            (
+                "media",
+                "9ec45d345d8995429c75603cdd4ea9b726e72d5b467c68c5d45706cd1e9e0a5a",
+            ),
+            (
+                "retrieval",
+                "a4aded0ccadcf3bf5fae62d5071dc330e4e73e56daf7b2dfb8e288d865a0346f",
             ),
             (
                 "sdlc_lifecycle",

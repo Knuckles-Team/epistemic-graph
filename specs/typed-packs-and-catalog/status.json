@@ -223,6 +223,13 @@
     "EG-TYPED-PACKS-R105",
     "EG-TYPED-PACKS-R105.1",
     "EG-TYPED-PACKS-R105.2",
+    "EG-TYPED-PACKS-R105.3",
+    "EG-TYPED-PACKS-R105.4",
+    "EG-TYPED-PACKS-R105.5",
+    "EG-TYPED-PACKS-R105.6",
+    "EG-TYPED-PACKS-R105.7",
+    "EG-TYPED-PACKS-R105.8",
+    "EG-TYPED-PACKS-R105.9",
     "EG-TYPED-PACKS-R750",
     "EG-TYPED-PACKS-R750.750",
     "EG-TYPED-PACKS-R750.751",
@@ -2558,7 +2565,14 @@
       "verified_by": [],
       "rollup_of": [
         "EG-TYPED-PACKS-R105.1",
-        "EG-TYPED-PACKS-R105.2"
+        "EG-TYPED-PACKS-R105.2",
+        "EG-TYPED-PACKS-R105.3",
+        "EG-TYPED-PACKS-R105.4",
+        "EG-TYPED-PACKS-R105.5",
+        "EG-TYPED-PACKS-R105.6",
+        "EG-TYPED-PACKS-R105.7",
+        "EG-TYPED-PACKS-R105.8",
+        "EG-TYPED-PACKS-R105.9"
       ]
     },
     {
@@ -2582,6 +2596,89 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.3",
+      "title": "The parent catalog declares the recurring connector concepts",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "10068973d6b2",
+        "ef3e9cc27301"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_parent_classes.rs:48"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.4",
+      "title": "The parent catalog declares a service-operations core aligned to the Open Group IT4IT data objects",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2910c7af4805",
+        "d8cc7453179c",
+        "f144e6ccf866"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/service_operations_classes.rs:124",
+        "crates/eg-rdf/tests/service_operations_classes.rs:83"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.5",
+      "title": "The competency-question paths are complete on the engine side",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d8cc7453179c",
+        "f144e6ccf866"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/service_operations_classes.rs:125",
+        "crates/eg-rdf/tests/service_operations_classes.rs:219"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.6",
+      "title": "The parent catalog declares the IT4IT delivery data objects",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-rdf/tests/domain_modules_classes.rs:654",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:661",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:706"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.7",
+      "title": "The parent catalog declares a data-platform and machine-learning module aligned to DCAT, PROV-O and ML-Schema",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-rdf/tests/domain_modules_classes.rs:667",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:674",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:707"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.8",
+      "title": "The parent catalog declares a media and content module aligned to schema.org media types, EBUCore, IFLA LRM and ActivityStreams",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-rdf/tests/domain_modules_classes.rs:680",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:687",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:708"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.9",
+      "title": "The parent catalog declares a search, retrieval and information-source module aligned to OpenSearch, DCMI Terms and PROV-O",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-rdf/tests/domain_modules_classes.rs:693",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:700",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:709"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R750",
