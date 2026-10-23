@@ -25,7 +25,8 @@ pub(crate) struct CommitOrigin<'a> {
 ))]
 pub(crate) use internal::commit_internal_graph_methods;
 pub(crate) use internal::{
-    commit_internal_graph_methods_with_nonce, lock_graph, InternalGraphCommitRequest,
+    commit_internal_graph_methods_with_nonce, lock_graph, lock_txn_coordinator,
+    InternalGraphCommitRequest,
 };
 #[cfg(all(test, feature = "redb"))]
 pub(crate) use lifecycle::lifecycle_identity_matches;
