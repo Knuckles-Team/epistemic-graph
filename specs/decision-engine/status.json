@@ -76,6 +76,9 @@
     "EG-DECISION-ENGINE-R048",
     "EG-DECISION-ENGINE-R049",
     "EG-DECISION-ENGINE-R050",
+    "EG-DECISION-ENGINE-R050.1",
+    "EG-DECISION-ENGINE-R050.2",
+    "EG-DECISION-ENGINE-R050.3",
     "EG-DECISION-ENGINE-R051",
     "EG-DECISION-ENGINE-R052",
     "EG-DECISION-ENGINE-R053",
@@ -1143,7 +1146,7 @@
         "52f333ca756e"
       ],
       "verified_by": [
-        "src/server/persistence/agent_component.rs:1101"
+        "src/server/persistence/agent_component.rs:1146"
       ]
     },
     {
@@ -1262,7 +1265,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2278"
+        "crates/eg-types/src/agent_component.rs:2364"
       ]
     },
     {
@@ -1288,9 +1291,9 @@
         "d6baf6dfc8c9"
       ],
       "verified_by": [
-        "src/server/persistence/decision_record/tests.rs:167",
-        "src/server/persistence/decision_record/tests.rs:196",
-        "src/server/persistence/decision_record/tests.rs:222"
+        "src/server/persistence/decision_record/tests.rs:168",
+        "src/server/persistence/decision_record/tests.rs:197",
+        "src/server/persistence/decision_record/tests.rs:223"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R019.100"
@@ -1913,15 +1916,53 @@
     {
       "id": "EG-DECISION-ENGINE-R050",
       "title": "Typed optional model and tool facts",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "dc8d8d712d7f",
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1970"
+        "crates/eg-types/src/agent_component.rs:2056"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R050.1",
+        "EG-DECISION-ENGINE-R050.2",
+        "EG-DECISION-ENGINE-R050.3"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050.1",
+      "title": "Digest-bound model input declaration source",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "85a51f886e90"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/agent_component.rs:1618",
+        "crates/eg-types/src/agent_component.rs:1660",
+        "crates/eg-types/src/agent_component/input_capabilities.rs:106",
+        "crates/eg-types/src/agent_component/input_capabilities.rs:124",
+        "crates/eg-types/src/connector_pack/digest.rs:325"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050.2",
+      "title": "Generated media-facts consumer contract",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "85a51f886e90"
+      ],
+      "verified_by": [
+        "tests/test_generated_model_input_capabilities.py:13"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050.3",
+      "title": "Native media-facts qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R051",
@@ -1933,9 +1974,9 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/persistence/decision_record/tests.rs:168",
-        "src/server/persistence/decision_record/tests.rs:223",
-        "src/server/persistence/decision_record/tests.rs:242"
+        "src/server/persistence/decision_record/tests.rs:169",
+        "src/server/persistence/decision_record/tests.rs:224",
+        "src/server/persistence/decision_record/tests.rs:243"
       ]
     },
     {
@@ -2112,7 +2153,7 @@
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
-        "crates/eg-types/src/agent_component.rs:2307"
+        "crates/eg-types/src/agent_component.rs:2393"
       ]
     },
     {
@@ -2284,7 +2325,7 @@
         "c4c13898a493"
       ],
       "verified_by": [
-        "src/server/persistence/decision_record/tests.rs:262"
+        "src/server/persistence/decision_record/tests.rs:263"
       ]
     },
     {
@@ -2520,7 +2561,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2335"
+        "crates/eg-types/src/agent_component.rs:2421"
       ]
     },
     {
