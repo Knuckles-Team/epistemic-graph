@@ -2366,7 +2366,7 @@
         "a0743ba9b542"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:344",
+        "crates/eg-capabilities/src/error_routing.rs:345",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:29",
@@ -2438,7 +2438,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:344",
+        "crates/eg-capabilities/src/error_routing.rs:345",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
@@ -9621,14 +9621,16 @@
     {
       "id": "EG-DECISION-ENGINE-R134.111.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f9bfc0da8ae7"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/task_plan/tests.rs:117",
         "crates/eg-types/src/decision/task_plan/tests.rs:195",
-        "crates/eg-types/src/decision/task_plan/tests.rs:82",
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:117",
-        "tests/decide/test_task_plan_served.py:296"
+        "crates/eg-types/src/decision/task_plan/tests.rs:205",
+        "crates/eg-types/src/decision/task_plan/tests.rs:233",
+        "crates/eg-types/src/decision/task_plan/tests.rs:82"
       ]
     },
     {

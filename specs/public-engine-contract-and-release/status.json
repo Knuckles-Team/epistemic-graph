@@ -13,6 +13,8 @@
     "EG-CONTRACT-R004",
     "EG-CONTRACT-R005",
     "EG-CONTRACT-R006",
+    "EG-CONTRACT-R006.1",
+    "EG-CONTRACT-R006.2",
     "EG-CONTRACT-R007",
     "EG-CONTRACT-R008",
     "EG-CONTRACT-R008.1",
@@ -86,9 +88,8 @@
     "EG-CONTRACT-R053.10",
     "EG-CONTRACT-R053.11",
     "EG-CONTRACT-R053.12",
-    "EG-CONTRACT-R006.1",
-    "EG-CONTRACT-R006.2",
-    "EG-CONTRACT-R006.3"
+    "EG-CONTRACT-R006.3",
+    "EG-CONTRACT-R053.13"
   ],
   "requirements": [
     {
@@ -206,10 +207,11 @@
         "37a29ee3fe0e",
         "6cd6c7ea0c87",
         "72c7dfa478ba",
+        "924601ce5495",
         "e2b2f1cfa8ee"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:116",
+        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:121",
         "tests/test_generated_models.py:123",
         "tests/test_generated_union_variants.py:25",
         "tests/test_generated_union_variants.py:27"
@@ -229,6 +231,31 @@
         "EG-CONTRACT-R006.2",
         "EG-CONTRACT-R006.3"
       ]
+    },
+    {
+      "id": "EG-CONTRACT-R006.1",
+      "title": "Fresh canonical codec export with provenance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2b8dd458b459",
+        "79c49c6fc412",
+        "b6d6bdedcd35",
+        "fc65d45d509d"
+      ],
+      "verified_by": [
+        "tests/test_build_method_codec_wasm.py:248",
+        "tests/test_build_method_codec_wasm.py:276",
+        "tests/test_build_method_codec_wasm.py:297",
+        "tests/test_build_method_codec_wasm.py:305",
+        "tests/test_build_method_codec_wasm.py:315"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R006.2",
+      "title": "Complete canonical WASM qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R007",
@@ -305,11 +332,11 @@
         "8baee8a94894"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:103",
-        "tests/test_release_python_suite_contract.py:120",
-        "tests/test_release_python_suite_contract.py:131",
-        "tests/test_release_python_suite_contract.py:358",
-        "tests/test_release_python_suite_contract.py:375"
+        "tests/test_release_python_suite_contract.py:104",
+        "tests/test_release_python_suite_contract.py:121",
+        "tests/test_release_python_suite_contract.py:132",
+        "tests/test_release_python_suite_contract.py:361",
+        "tests/test_release_python_suite_contract.py:380"
       ]
     },
     {
@@ -396,8 +423,8 @@
         "394f82a01e83"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:476",
-        "crates/eg-capabilities/src/error_routing.rs:353",
+        "crates/eg-capabilities/src/contract/errors.rs:478",
+        "crates/eg-capabilities/src/error_routing.rs:354",
         "crates/eg-types/src/governed_change/tests.rs:183",
         "src/server/auth.rs:2053",
         "src/server/transport/tests.rs:145"
@@ -599,7 +626,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:765"
+        "tests/test_release_python_suite_contract.py:773"
       ]
     },
     {
@@ -628,13 +655,14 @@
       "title": "Complexity, duplication and architecture censuses pass at zero backlog",
       "delivery_state": "SPECIFIED",
       "landed_in": [
+        "2b1bcdda23e6",
+        "924601ce5495",
         "a0da67babeae",
         "be0f1acb05c6",
-        "cd7bf0364ebd",
-        "e729dc1650b6"
+        "cd7bf0364ebd"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:194"
+        "tests/test_ci_change_scope.py:227"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -649,7 +677,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:195"
+        "tests/test_ci_change_scope.py:228"
       ]
     },
     {
@@ -668,7 +696,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:327"
+        "tests/test_release_feature_matrix.py:329"
       ]
     },
     {
@@ -703,7 +731,7 @@
         "69411a23a248"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:476",
+        "tests/test_ci_change_scope.py:509",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -727,7 +755,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "04a134298236",
-        "4342dc5bc1c6"
+        "4342dc5bc1c6",
+        "cbad9fe59fba"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:219"
@@ -837,7 +866,7 @@
         "5bf5b719de7e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:306"
+        "tests/test_release_feature_matrix.py:308"
       ]
     },
     {
@@ -974,7 +1003,8 @@
         "EG-CONTRACT-R053.9",
         "EG-CONTRACT-R053.10",
         "EG-CONTRACT-R053.11",
-        "EG-CONTRACT-R053.12"
+        "EG-CONTRACT-R053.12",
+        "EG-CONTRACT-R053.13"
       ]
     },
     {
@@ -1038,7 +1068,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:689"
+        "tests/test_release_full_wheel_contract.py:754"
       ]
     },
     {
@@ -1096,39 +1126,35 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R006.1",
-      "title": "Fresh canonical codec export with provenance",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2b8dd458b459",
-        "b6d6bdedcd35"
-      ],
-      "verified_by": [
-        "tests/test_build_method_codec_wasm.py:248",
-        "tests/test_build_method_codec_wasm.py:276",
-        "tests/test_build_method_codec_wasm.py:297",
-        "tests/test_build_method_codec_wasm.py:305",
-        "tests/test_build_method_codec_wasm.py:315"
-      ]
-    },
-    {
-      "id": "EG-CONTRACT-R006.2",
-      "title": "Complete canonical WASM qualification",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
       "id": "EG-CONTRACT-R006.3",
       "title": "Export fresh typed contracts for parity repair",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "2a1515f6e252",
         "2b8dd458b459",
-        "b6d6bdedcd35"
+        "8b5cbc59e851",
+        "b6d6bdedcd35",
+        "fc65d45d509d"
       ],
       "verified_by": [
         "tests/test_export_canonical_contract.py:11"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.13",
+      "title": "Retain the validated wheel for installed acceptance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42376299456f",
+        "701e8e498e07",
+        "88b8c1a73156",
+        "b286edc1b3bf",
+        "be072c1cf996"
+      ],
+      "verified_by": [
+        "tests/test_ci_change_scope.py:661",
+        "tests/test_ci_change_scope.py:705",
+        "tests/test_ci_change_scope.py:834"
       ]
     }
   ]
