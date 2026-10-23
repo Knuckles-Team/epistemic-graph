@@ -3,22 +3,7 @@ use super::*;
 use crate::control_lease::ControlLeaseView;
 
 fn request() -> IssueHostStartGrantRequest {
-    IssueHostStartGrantRequest {
-        tenant: "tenant-a".into(),
-        lease_id: "host-grant".into(),
-        binding: HostStartBinding {
-            principal_ref: "subject".into(),
-            session_ref: "session".into(),
-            workspace_ref: "workspace".into(),
-            configuration_digest: "a".repeat(64),
-            interfaces: HostStartInterfaces::Both,
-            web_logs: false,
-            policy_revision: "policy-1".into(),
-            session_expires_at_ms: 5_000,
-        },
-        expires_at_ms: 10_000,
-        idempotency_key: "issue-host".into(),
-    }
+    crate::test_support::host_start::host_start_request("tenant-a")
 }
 
 #[test]

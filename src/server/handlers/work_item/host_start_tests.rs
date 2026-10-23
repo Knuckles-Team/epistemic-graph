@@ -101,7 +101,8 @@ async fn fixture() -> (
 #[tokio::test]
 async fn signed_issuer_is_stamped_and_retry_retains_attribution() {
     let _env = crate::crypto::acquire_test_env_read_lock().await;
-    let (_dir, state, _backend, request) = fixture().await;
+    let (_dir, state, backend, request) = fixture().await;
+    let before = authority_snapshot(&backend).await;
     let mut denied_request = request.clone();
     denied_request.idempotency_key = "denied-issue".into();
     let denied = call(
@@ -119,8 +120,9 @@ async fn signed_issuer_is_stamped_and_retry_retains_attribution() {
         .error
         .as_deref()
         .expect("generic lease writer must be refused");
-    assert!(error.contains("ACCESS_DENIED"), "{error}");
-    assert!(error.contains("host:issue-start"), "{error}");
+    // Public dispatch intentionally strips private policy details.
+    assert_eq!(error, "ACCESS_DENIED");
+    assert_eq!(authority_snapshot(&backend).await, before);
     let issued = decode(
         call(
             &state,
@@ -181,18 +183,18 @@ async fn signed_wrong_tenant_and_forged_provenance_refuse_without_mutation() {
         "host_start_provenance".into(),
         serde_json::json!({"schema_version": 1, "issuer_ref": "forged-issuer"}),
     );
-    for (id, key, method, reason) in [
+    for (id, key, method, scenario) in [
         (
             20,
             "foreign-issue",
             Method::IssueHostStartGrant { request: foreign },
-            "request tenant must match verified request tenant",
+            "foreign body tenant",
         ),
         (
             21,
             "forged-issue",
             Method::IssueControlLease { request: forged },
-            "host.start is issued by IssueHostStartGrant only",
+            "forged generic host-start grant",
         ),
     ] {
         let denied = call(
@@ -208,10 +210,7 @@ async fn signed_wrong_tenant_and_forged_provenance_refuse_without_mutation() {
             .error
             .as_deref()
             .expect("signed invalid authority must refuse");
-        assert!(
-            error.contains("ACCESS_DENIED") && error.contains(reason),
-            "{error}"
-        );
+        assert_eq!(error, "ACCESS_DENIED", "{scenario}");
         assert_eq!(authority_snapshot(&backend).await, before);
     }
     let issued = decode(

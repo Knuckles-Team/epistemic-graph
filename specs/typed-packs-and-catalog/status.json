@@ -219,6 +219,8 @@
     "EG-TYPED-PACKS-R104.5",
     "EG-TYPED-PACKS-R104.6",
     "EG-TYPED-PACKS-R105",
+    "EG-TYPED-PACKS-R105.1",
+    "EG-TYPED-PACKS-R105.2",
     "EG-TYPED-PACKS-R750",
     "EG-TYPED-PACKS-R750.750",
     "EG-TYPED-PACKS-R750.751",
@@ -674,7 +676,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:177"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:198"
       ]
     },
     {
@@ -1181,7 +1183,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:211"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:256"
       ]
     },
     {
@@ -1193,7 +1195,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:212"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:257"
       ]
     },
     {
@@ -2506,6 +2508,30 @@
     {
       "id": "EG-TYPED-PACKS-R105",
       "title": "A connector ontology joins the parent graph on import",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R105.1",
+        "EG-TYPED-PACKS-R105.2"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.1",
+      "title": "Stage one: record the parent link and flag orphans",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-rdf/src/pack/tests.rs:143",
+        "crates/eg-rdf/src/pack/tests.rs:158",
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:232",
+        "src/server/handlers/admin/connector_pack/tests/ontology.rs:154",
+        "src/server/handlers/admin/connector_pack/tests/ontology.rs:161"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.2",
+      "title": "Stage two: the import edge, parent-class reads and enforcement",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -1,25 +1,13 @@
 // spec: EG-DURABLE-KERNEL-R030.1.2
 use super::*;
 use crate::redb_store::work_item::test_shard::{open, with_nodes, GRAPH};
-use eg_types::host_start::{HostStartBinding, HostStartInterfaces};
+use eg_types::host_start::HostStartInterfaces;
 
 fn request() -> IssueHostStartGrantRequest {
-    IssueHostStartGrantRequest {
-        tenant: "tenant-a".into(),
-        lease_id: "host-grant".into(),
-        binding: HostStartBinding {
-            principal_ref: "subject".into(),
-            session_ref: "session".into(),
-            workspace_ref: "workspace".into(),
-            configuration_digest: "a".repeat(64),
-            interfaces: HostStartInterfaces::Terminal,
-            web_logs: false,
-            policy_revision: "revision-1".into(),
-            session_expires_at_ms: 5_000,
-        },
-        expires_at_ms: 10_000,
-        idempotency_key: "issue-host".into(),
-    }
+    let mut request = eg_types::test_support::host_start::host_start_request("tenant-a");
+    request.binding.interfaces = HostStartInterfaces::Terminal;
+    request.binding.policy_revision = "revision-1".into();
+    request
 }
 
 #[test]

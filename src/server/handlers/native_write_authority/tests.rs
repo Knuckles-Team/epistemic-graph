@@ -81,11 +81,7 @@ fn writes(tenant: &str) -> Vec<(&'static str, Value)> {
         ),
         (
             "IssueHostStartGrant",
-            json!({"request": {"tenant": tenant, "lease_id": "h", "binding": {
-                "principal_ref": "p", "session_ref": "s", "workspace_ref": "w",
-                "configuration_digest": "a".repeat(64), "interfaces": "terminal",
-                "web_logs": false, "policy_revision": "r", "session_expires_at_ms": 3
-            }, "expires_at_ms": 2, "idempotency_key": "k"}}),
+            json!({"request": eg_types::test_support::host_start::host_start_request(tenant)}),
         ),
         (
             "IssueControlLease",

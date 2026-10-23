@@ -5344,7 +5344,8 @@
         "INVALID_COMPONENT",
         "IMPORTER_MISMATCH",
         "PACK_MASS_WITHDRAWAL",
-        "RETIRED_ENTRY_RETURNED"
+        "RETIRED_ENTRY_RETURNED",
+        "ONTOLOGY_ORPHAN"
       ],
       "type": "string"
     },
@@ -5377,7 +5378,8 @@
       "enum": [
         "EMPTY_DESCRIPTION",
         "UNRESOLVED_CAPABILITY_IRI",
-        "DUPLICATE_SHAPE_IRI"
+        "DUPLICATE_SHAPE_IRI",
+        "ONTOLOGY_ORPHAN"
       ],
       "type": "string"
     },
