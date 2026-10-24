@@ -147,3 +147,8 @@ required-features = ["decision"]
 name = "web_fetch_selection"
 harness = false
 required-features = ["decision"]
+
+[[bench]]
+name = "harness_contrast"
+harness = false
+required-features = ["decision"]

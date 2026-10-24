@@ -398,70 +398,80 @@
         "EG-TYPED-PACKS-R001.8",
         "EG-TYPED-PACKS-R001.9",
         "EG-TYPED-PACKS-R001.100"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.1",
       "title": "Original pack index and entry types",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.2",
       "title": "Original section and annotation types",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.3",
       "title": "Original pack and content operations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.4",
       "title": "Original framed digest vectors",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.5",
       "title": "All generated clients share the pack contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.6",
       "title": "Versioned prompt graph identity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.7",
       "title": "Prompt payload validation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.8",
       "title": "Deterministic runtime rendering",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.9",
       "title": "Generated prompt operation contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002",
@@ -488,84 +498,96 @@
         "EG-TYPED-PACKS-R002.9",
         "EG-TYPED-PACKS-R002.10",
         "EG-TYPED-PACKS-R002.11"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.1",
       "title": "Original engine body staging",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.2",
       "title": "Original unchanged holder transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.3",
       "title": "Original revised holder transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.4",
       "title": "Original withdrawn holder transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.5",
       "title": "Original orphan grace and fault recovery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.6",
       "title": "Original verified body serving",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.7",
       "title": "Native prompt body persistence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.8",
       "title": "Prompt graph projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.9",
       "title": "Served prompt rendering",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.10",
       "title": "Refusal before model dispatch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R002.11",
       "title": "Durable prompt restart proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R003",
@@ -1134,70 +1156,80 @@
         "EG-TYPED-PACKS-R045.7",
         "EG-TYPED-PACKS-R045.8",
         "EG-TYPED-PACKS-R045.9"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R045.1",
       "title": "Annotation type carries side effects, declarer and schema size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R045.2",
       "title": "Absent facts take safe defaults, never zero",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R045.3",
       "title": "The annotation digest covers the new fields without moving old vectors",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R045.4",
       "title": "Admission refuses an unknown side-effect or declarer value",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R045.5",
       "title": "Admission records an unproven read-only claim",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R045.6",
       "title": "The tool-subset path abstains for a tool with no size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R045.7",
       "title": "No decision premise treats an unproven read-only claim as certified",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R045.8",
       "title": "The generated contract and Python client carry the new fields",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R045.9",
       "title": "End-to-end proof: a two-tool pack yields a budget-respecting subset",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R046",
@@ -1237,14 +1269,16 @@
         "EG-TYPED-PACKS-R048.3",
         "EG-TYPED-PACKS-R048.4",
         "EG-TYPED-PACKS-R048.5"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R048.1",
       "title": "Context window is a named model fact",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R048.2",
@@ -1486,14 +1520,16 @@
         "EG-TYPED-PACKS-R066.1",
         "EG-TYPED-PACKS-R066.2",
         "EG-TYPED-PACKS-R066.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R066.1",
       "title": "SHACL shapes validate the measured model facts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R066.2",
@@ -1513,7 +1549,8 @@
       "title": "The shell-centric fact is inherited by task subclasses",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R067",
@@ -1545,7 +1582,8 @@
       "verified_by": [],
       "rollup_of": [
         "EG-TYPED-PACKS-R069.100"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R070",
@@ -1570,7 +1608,8 @@
       "rollup_of": [
         "EG-TYPED-PACKS-R071.1",
         "EG-TYPED-PACKS-R071.100"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R071.1",
@@ -1585,49 +1624,56 @@
         "EG-TYPED-PACKS-R071.1.4",
         "EG-TYPED-PACKS-R071.1.5",
         "EG-TYPED-PACKS-R071.1.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R072",
@@ -1640,7 +1686,8 @@
       "verified_by": [],
       "rollup_of": [
         "EG-TYPED-PACKS-R072.100"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R073",
@@ -1787,7 +1834,8 @@
         "EG-TYPED-PACKS-R085.4",
         "EG-TYPED-PACKS-R085.5",
         "EG-TYPED-PACKS-R085.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.1",
@@ -1800,21 +1848,24 @@
         "crates/eg-types/src/identity/tests/session_evidence.rs:128",
         "crates/eg-types/src/identity/tests/session_evidence.rs:142",
         "crates/eg-types/src/identity/tests/session_evidence.rs:34"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.3",
       "title": "Served session-liveness check by opaque session reference",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.2",
       "title": "Remaining identity-domain qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.7",
@@ -1826,7 +1877,8 @@
         "EG-TYPED-PACKS-R085.7.1",
         "EG-TYPED-PACKS-R085.7.2",
         "EG-TYPED-PACKS-R085.7.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.4",
@@ -1838,7 +1890,8 @@
         "EG-TYPED-PACKS-R085.4.1",
         "EG-TYPED-PACKS-R085.4.2",
         "EG-TYPED-PACKS-R085.4.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R086",
@@ -1990,56 +2043,64 @@
         "EG-TYPED-PACKS-R094.5",
         "EG-TYPED-PACKS-R094.6",
         "EG-TYPED-PACKS-R094.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R094.1",
       "title": "Original Stable content route",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R094.2",
       "title": "Pinned native blueprint export",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R094.3",
       "title": "Modified native blueprint import",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R094.4",
       "title": "Blueprint retry identity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R094.5",
       "title": "Served lossless round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R094.6",
       "title": "Optimization proposals carry no authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R094.7",
       "title": "Approved repository-source effect dependency",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R095",
@@ -2075,7 +2136,8 @@
         "EG-TYPED-PACKS-R097.2",
         "EG-TYPED-PACKS-R097.700",
         "EG-TYPED-PACKS-R097.701"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.1",
@@ -2100,49 +2162,56 @@
         "EG-TYPED-PACKS-R097.2.5",
         "EG-TYPED-PACKS-R097.2.6",
         "EG-TYPED-PACKS-R097.2.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R098",
@@ -2186,112 +2255,128 @@
         "EG-TYPED-PACKS-R100.8",
         "EG-TYPED-PACKS-R100.100",
         "EG-TYPED-PACKS-R100.101"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.7",
       "title": "Exact rendered-package validation gate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.7",
       "title": "Directional external-schema import and complete unmapped-term report",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.8",
       "title": "Lossless versioned workflow RDF export/import",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R069.100",
       "title": "Semantic fingerprint separates cosmetic from structural repository changes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.100",
       "title": "Lossless SKILL.md frontmatter and step editing round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R100.101",
       "title": "Skill consumer compatibility and declared-migration admission",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R001.100",
       "title": "Versioned nested prompt/tool schemas with incremental compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R072.100",
       "title": "Workflow registration and invocation through typed registry",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R071.100",
       "title": "Canonical shared hierarchical concept paths across repositories",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R101",
@@ -2311,21 +2396,24 @@
         "EG-TYPED-PACKS-R101.9",
         "EG-TYPED-PACKS-R101.10",
         "EG-TYPED-PACKS-R101.11"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R101.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 24
     },
     {
       "id": "EG-TYPED-PACKS-R101.2",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R101.3",
@@ -2428,56 +2516,64 @@
         "EG-TYPED-PACKS-R102.5",
         "EG-TYPED-PACKS-R102.6",
         "EG-TYPED-PACKS-R102.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R102.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 24
     },
     {
       "id": "EG-TYPED-PACKS-R102.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R102.3",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R102.4",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R102.5",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R102.6",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R102.7",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R103",
@@ -2492,49 +2588,56 @@
         "EG-TYPED-PACKS-R103.4",
         "EG-TYPED-PACKS-R103.5",
         "EG-TYPED-PACKS-R103.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R103.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R103.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R103.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R103.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R103.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R103.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R104",
@@ -2549,49 +2652,56 @@
         "EG-TYPED-PACKS-R104.4",
         "EG-TYPED-PACKS-R104.5",
         "EG-TYPED-PACKS-R104.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R104.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R104.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R104.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R104.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R104.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R104.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R105",
@@ -2605,7 +2715,8 @@
         "EG-TYPED-PACKS-R105.3",
         "EG-TYPED-PACKS-R105.4",
         "EG-TYPED-PACKS-R105.5"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R105.1",
@@ -2627,7 +2738,8 @@
       "title": "Stage two: the import edge, parent-class reads and enforcement",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R105.3",
@@ -2725,35 +2837,40 @@
         "EG-TYPED-PACKS-R751.751",
         "EG-TYPED-PACKS-R751.752",
         "EG-TYPED-PACKS-R751.753"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R751.750",
       "title": "Model: Specialist registry, provider discovery, transactional install and capability contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R751.751",
       "title": "Behavior: Specialist registry, provider discovery, transactional install and capability contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R751.752",
       "title": "Refusal: Specialist registry, provider discovery, transactional install and capability contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R751.753",
       "title": "Hot-path proof: Specialist registry, provider discovery, transactional install and capability contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R650",
@@ -2768,49 +2885,56 @@
         "EG-TYPED-PACKS-R650.4",
         "EG-TYPED-PACKS-R650.5",
         "EG-TYPED-PACKS-R650.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R650.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R650.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R650.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R650.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R650.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R650.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R651",
@@ -2825,49 +2949,56 @@
         "EG-TYPED-PACKS-R651.4",
         "EG-TYPED-PACKS-R651.5",
         "EG-TYPED-PACKS-R651.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R651.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R651.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R651.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R651.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R651.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R651.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R652",
@@ -2882,49 +3013,56 @@
         "EG-TYPED-PACKS-R652.4",
         "EG-TYPED-PACKS-R652.5",
         "EG-TYPED-PACKS-R652.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R652.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R652.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R652.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R652.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R652.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R652.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R700",
@@ -2939,63 +3077,72 @@
         "EG-TYPED-PACKS-R700.4",
         "EG-TYPED-PACKS-R700.5",
         "EG-TYPED-PACKS-R700.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R700.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R700.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R700.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R700.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R700.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R700.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.700",
       "title": "Domain pack manifest, mapping language, loader and promotion bridge: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R097.701",
       "title": "Domain pack manifest, mapping language, loader and promotion bridge: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R710",
@@ -3032,28 +3179,32 @@
       "title": "Process, lifecycle, temporal and harness shape artifacts are generated: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R713",
       "title": "Process, lifecycle, temporal and harness shape artifacts are generated: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R714",
       "title": "Delivery-path wiring of drift classification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R715",
       "title": "Served quarantine of a drifted delivery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R800",
@@ -3068,49 +3219,56 @@
         "EG-TYPED-PACKS-R800.4",
         "EG-TYPED-PACKS-R800.5",
         "EG-TYPED-PACKS-R800.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R800.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R800.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R800.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R800.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R800.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R801",
@@ -3126,56 +3284,64 @@
         "EG-TYPED-PACKS-R801.5",
         "EG-TYPED-PACKS-R801.6",
         "EG-TYPED-PACKS-R801.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R801.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R801.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R801.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R801.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R801.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R801.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R801.7",
       "title": "Proposed descriptions for terms and assets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R802",
@@ -3192,63 +3358,72 @@
         "EG-TYPED-PACKS-R802.6",
         "EG-TYPED-PACKS-R802.7",
         "EG-TYPED-PACKS-R802.8"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R802.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R802.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R802.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R802.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R802.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R802.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R802.7",
       "title": "Trust flags on assets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R802.8",
       "title": "Critical data elements",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R803",
@@ -3263,49 +3438,56 @@
         "EG-TYPED-PACKS-R803.4",
         "EG-TYPED-PACKS-R803.5",
         "EG-TYPED-PACKS-R803.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R803.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R803.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R803.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R803.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R803.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R803.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R804",
@@ -3320,49 +3502,56 @@
         "EG-TYPED-PACKS-R804.4",
         "EG-TYPED-PACKS-R804.5",
         "EG-TYPED-PACKS-R804.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R804.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R804.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R804.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R804.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R804.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R804.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R805",
@@ -3378,56 +3567,64 @@
         "EG-TYPED-PACKS-R805.5",
         "EG-TYPED-PACKS-R805.6",
         "EG-TYPED-PACKS-R805.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R805.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R805.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R805.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R805.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R805.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R805.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R805.7",
       "title": "Data product proposals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R106",
@@ -3443,56 +3640,64 @@
         "EG-TYPED-PACKS-R106.5",
         "EG-TYPED-PACKS-R106.6",
         "EG-TYPED-PACKS-R106.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R106.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R106.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R106.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R106.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R106.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R106.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R106.7",
       "title": "Competency queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R107",
@@ -3507,49 +3712,56 @@
         "EG-TYPED-PACKS-R107.4",
         "EG-TYPED-PACKS-R107.5",
         "EG-TYPED-PACKS-R107.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R107.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R107.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R107.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R107.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R107.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R107.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108",
@@ -3574,119 +3786,136 @@
         "EG-TYPED-PACKS-R108.14",
         "EG-TYPED-PACKS-R108.15",
         "EG-TYPED-PACKS-R108.16"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.7",
       "title": "Technical metadata from contracts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.8",
       "title": "Operational metadata from provenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.9",
       "title": "Sensitivity propagation and policy link",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.10",
       "title": "End-to-end lineage across the platform",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.11",
       "title": "Metric and KPI definitions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.12",
       "title": "Annotations: comments, tags, ratings and threads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.13",
       "title": "Curated articles and guides",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.14",
       "title": "Dashboards, reports, saved queries and templates",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.15",
       "title": "AI and ML model assets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R108.16",
       "title": "One ranked index across all asset families, callable from queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R109",
@@ -3701,49 +3930,56 @@
         "EG-TYPED-PACKS-R109.4",
         "EG-TYPED-PACKS-R109.5",
         "EG-TYPED-PACKS-R109.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R109.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R109.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R109.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R109.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R109.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R109.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.5",
@@ -3756,7 +3992,8 @@
         "EG-TYPED-PACKS-R085.5.2",
         "EG-TYPED-PACKS-R085.5.3",
         "EG-TYPED-PACKS-R085.5.4"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.6",
@@ -3768,7 +4005,8 @@
         "EG-TYPED-PACKS-R085.6.1",
         "EG-TYPED-PACKS-R085.6.2",
         "EG-TYPED-PACKS-R085.6.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.7.1",
@@ -3791,14 +4029,16 @@
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.7.3",
       "title": "Reference contract and served qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.4.1",
@@ -3823,7 +4063,8 @@
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:161"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.4.3",
@@ -3832,7 +4073,8 @@
       "landed_in": [],
       "verified_by": [
         "src/server/dispatch/identity_store/resolution_context/tests.rs:681"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.5.1",
@@ -3857,7 +4099,8 @@
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests/approval_keys.rs:63"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.5.3",
@@ -3866,14 +4109,16 @@
       "landed_in": [],
       "verified_by": [
         "src/server/dispatch/identity_store/tests/approval_keys.rs:4"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.5.4",
       "title": "Approval-key served qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.6.1",
@@ -3895,14 +4140,436 @@
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-TYPED-PACKS-R085.6.3",
       "title": "Observation contract and served qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     }
+  ],
+  "frontier": [
+    "EG-TYPED-PACKS-R001.1",
+    "EG-TYPED-PACKS-R001.2",
+    "EG-TYPED-PACKS-R001.3",
+    "EG-TYPED-PACKS-R001.4",
+    "EG-TYPED-PACKS-R001.5",
+    "EG-TYPED-PACKS-R001.6",
+    "EG-TYPED-PACKS-R001.7",
+    "EG-TYPED-PACKS-R001.8",
+    "EG-TYPED-PACKS-R001.9",
+    "EG-TYPED-PACKS-R002.1",
+    "EG-TYPED-PACKS-R002.2",
+    "EG-TYPED-PACKS-R002.3",
+    "EG-TYPED-PACKS-R002.4",
+    "EG-TYPED-PACKS-R002.5",
+    "EG-TYPED-PACKS-R002.6",
+    "EG-TYPED-PACKS-R002.7",
+    "EG-TYPED-PACKS-R002.8",
+    "EG-TYPED-PACKS-R002.9",
+    "EG-TYPED-PACKS-R002.10",
+    "EG-TYPED-PACKS-R002.11",
+    "EG-TYPED-PACKS-R045.1",
+    "EG-TYPED-PACKS-R045.2",
+    "EG-TYPED-PACKS-R045.3",
+    "EG-TYPED-PACKS-R045.4",
+    "EG-TYPED-PACKS-R045.5",
+    "EG-TYPED-PACKS-R045.6",
+    "EG-TYPED-PACKS-R045.7",
+    "EG-TYPED-PACKS-R045.8",
+    "EG-TYPED-PACKS-R045.9",
+    "EG-TYPED-PACKS-R048.1",
+    "EG-TYPED-PACKS-R066.1",
+    "EG-TYPED-PACKS-R066.3",
+    "EG-TYPED-PACKS-R071.1.1",
+    "EG-TYPED-PACKS-R071.1.2",
+    "EG-TYPED-PACKS-R071.1.3",
+    "EG-TYPED-PACKS-R071.1.4",
+    "EG-TYPED-PACKS-R071.1.5",
+    "EG-TYPED-PACKS-R071.1.6",
+    "EG-TYPED-PACKS-R085.1",
+    "EG-TYPED-PACKS-R085.3",
+    "EG-TYPED-PACKS-R085.2",
+    "EG-TYPED-PACKS-R094.1",
+    "EG-TYPED-PACKS-R094.2",
+    "EG-TYPED-PACKS-R094.3",
+    "EG-TYPED-PACKS-R094.4",
+    "EG-TYPED-PACKS-R094.5",
+    "EG-TYPED-PACKS-R094.6",
+    "EG-TYPED-PACKS-R094.7",
+    "EG-TYPED-PACKS-R097.2.1",
+    "EG-TYPED-PACKS-R097.2.2",
+    "EG-TYPED-PACKS-R097.2.3",
+    "EG-TYPED-PACKS-R097.2.4",
+    "EG-TYPED-PACKS-R097.2.5",
+    "EG-TYPED-PACKS-R097.2.6",
+    "EG-TYPED-PACKS-R100.1",
+    "EG-TYPED-PACKS-R100.2",
+    "EG-TYPED-PACKS-R100.3",
+    "EG-TYPED-PACKS-R100.4",
+    "EG-TYPED-PACKS-R100.5",
+    "EG-TYPED-PACKS-R100.6",
+    "EG-TYPED-PACKS-R100.7",
+    "EG-TYPED-PACKS-R097.2.7",
+    "EG-TYPED-PACKS-R100.8",
+    "EG-TYPED-PACKS-R069.100",
+    "EG-TYPED-PACKS-R100.100",
+    "EG-TYPED-PACKS-R100.101",
+    "EG-TYPED-PACKS-R001.100",
+    "EG-TYPED-PACKS-R072.100",
+    "EG-TYPED-PACKS-R071.100",
+    "EG-TYPED-PACKS-R101.1",
+    "EG-TYPED-PACKS-R101.2",
+    "EG-TYPED-PACKS-R102.1",
+    "EG-TYPED-PACKS-R102.2",
+    "EG-TYPED-PACKS-R102.3",
+    "EG-TYPED-PACKS-R102.4",
+    "EG-TYPED-PACKS-R102.5",
+    "EG-TYPED-PACKS-R102.6",
+    "EG-TYPED-PACKS-R102.7",
+    "EG-TYPED-PACKS-R103.1",
+    "EG-TYPED-PACKS-R103.2",
+    "EG-TYPED-PACKS-R103.3",
+    "EG-TYPED-PACKS-R103.4",
+    "EG-TYPED-PACKS-R103.5",
+    "EG-TYPED-PACKS-R103.6",
+    "EG-TYPED-PACKS-R104.1",
+    "EG-TYPED-PACKS-R104.2",
+    "EG-TYPED-PACKS-R104.3",
+    "EG-TYPED-PACKS-R104.4",
+    "EG-TYPED-PACKS-R104.5",
+    "EG-TYPED-PACKS-R104.6",
+    "EG-TYPED-PACKS-R105.2",
+    "EG-TYPED-PACKS-R751.750",
+    "EG-TYPED-PACKS-R751.751",
+    "EG-TYPED-PACKS-R751.752",
+    "EG-TYPED-PACKS-R751.753",
+    "EG-TYPED-PACKS-R650.1",
+    "EG-TYPED-PACKS-R650.2",
+    "EG-TYPED-PACKS-R650.3",
+    "EG-TYPED-PACKS-R650.4",
+    "EG-TYPED-PACKS-R650.5",
+    "EG-TYPED-PACKS-R650.6",
+    "EG-TYPED-PACKS-R651.1",
+    "EG-TYPED-PACKS-R651.2",
+    "EG-TYPED-PACKS-R651.3",
+    "EG-TYPED-PACKS-R651.4",
+    "EG-TYPED-PACKS-R651.5",
+    "EG-TYPED-PACKS-R651.6",
+    "EG-TYPED-PACKS-R652.1",
+    "EG-TYPED-PACKS-R652.2",
+    "EG-TYPED-PACKS-R652.3",
+    "EG-TYPED-PACKS-R652.4",
+    "EG-TYPED-PACKS-R652.5",
+    "EG-TYPED-PACKS-R652.6",
+    "EG-TYPED-PACKS-R700.1",
+    "EG-TYPED-PACKS-R700.2",
+    "EG-TYPED-PACKS-R700.3",
+    "EG-TYPED-PACKS-R700.4",
+    "EG-TYPED-PACKS-R700.5",
+    "EG-TYPED-PACKS-R700.6",
+    "EG-TYPED-PACKS-R097.700",
+    "EG-TYPED-PACKS-R097.701",
+    "EG-TYPED-PACKS-R711",
+    "EG-TYPED-PACKS-R713",
+    "EG-TYPED-PACKS-R714",
+    "EG-TYPED-PACKS-R715",
+    "EG-TYPED-PACKS-R800.1",
+    "EG-TYPED-PACKS-R800.2",
+    "EG-TYPED-PACKS-R800.3",
+    "EG-TYPED-PACKS-R800.4",
+    "EG-TYPED-PACKS-R800.5",
+    "EG-TYPED-PACKS-R800.6",
+    "EG-TYPED-PACKS-R801.1",
+    "EG-TYPED-PACKS-R801.2",
+    "EG-TYPED-PACKS-R801.3",
+    "EG-TYPED-PACKS-R801.4",
+    "EG-TYPED-PACKS-R801.5",
+    "EG-TYPED-PACKS-R801.6",
+    "EG-TYPED-PACKS-R801.7",
+    "EG-TYPED-PACKS-R802.1",
+    "EG-TYPED-PACKS-R802.2",
+    "EG-TYPED-PACKS-R802.3",
+    "EG-TYPED-PACKS-R802.4",
+    "EG-TYPED-PACKS-R802.5",
+    "EG-TYPED-PACKS-R802.6",
+    "EG-TYPED-PACKS-R802.7",
+    "EG-TYPED-PACKS-R802.8",
+    "EG-TYPED-PACKS-R803.1",
+    "EG-TYPED-PACKS-R803.2",
+    "EG-TYPED-PACKS-R803.3",
+    "EG-TYPED-PACKS-R803.4",
+    "EG-TYPED-PACKS-R803.5",
+    "EG-TYPED-PACKS-R803.6",
+    "EG-TYPED-PACKS-R804.1",
+    "EG-TYPED-PACKS-R804.2",
+    "EG-TYPED-PACKS-R804.3",
+    "EG-TYPED-PACKS-R804.4",
+    "EG-TYPED-PACKS-R804.5",
+    "EG-TYPED-PACKS-R804.6",
+    "EG-TYPED-PACKS-R805.1",
+    "EG-TYPED-PACKS-R805.2",
+    "EG-TYPED-PACKS-R805.3",
+    "EG-TYPED-PACKS-R805.4",
+    "EG-TYPED-PACKS-R805.5",
+    "EG-TYPED-PACKS-R805.6",
+    "EG-TYPED-PACKS-R805.7",
+    "EG-TYPED-PACKS-R106.1",
+    "EG-TYPED-PACKS-R106.2",
+    "EG-TYPED-PACKS-R106.3",
+    "EG-TYPED-PACKS-R106.4",
+    "EG-TYPED-PACKS-R106.5",
+    "EG-TYPED-PACKS-R106.6",
+    "EG-TYPED-PACKS-R106.7",
+    "EG-TYPED-PACKS-R107.1",
+    "EG-TYPED-PACKS-R107.2",
+    "EG-TYPED-PACKS-R107.3",
+    "EG-TYPED-PACKS-R107.4",
+    "EG-TYPED-PACKS-R107.5",
+    "EG-TYPED-PACKS-R107.6",
+    "EG-TYPED-PACKS-R108.1",
+    "EG-TYPED-PACKS-R108.2",
+    "EG-TYPED-PACKS-R108.3",
+    "EG-TYPED-PACKS-R108.4",
+    "EG-TYPED-PACKS-R108.5",
+    "EG-TYPED-PACKS-R108.6",
+    "EG-TYPED-PACKS-R108.7",
+    "EG-TYPED-PACKS-R108.8",
+    "EG-TYPED-PACKS-R108.9",
+    "EG-TYPED-PACKS-R108.10",
+    "EG-TYPED-PACKS-R108.11",
+    "EG-TYPED-PACKS-R108.12",
+    "EG-TYPED-PACKS-R108.13",
+    "EG-TYPED-PACKS-R108.14",
+    "EG-TYPED-PACKS-R108.15",
+    "EG-TYPED-PACKS-R108.16",
+    "EG-TYPED-PACKS-R109.1",
+    "EG-TYPED-PACKS-R109.2",
+    "EG-TYPED-PACKS-R109.3",
+    "EG-TYPED-PACKS-R109.4",
+    "EG-TYPED-PACKS-R109.5",
+    "EG-TYPED-PACKS-R109.6",
+    "EG-TYPED-PACKS-R085.7.2",
+    "EG-TYPED-PACKS-R085.7.3",
+    "EG-TYPED-PACKS-R085.4.2",
+    "EG-TYPED-PACKS-R085.4.3",
+    "EG-TYPED-PACKS-R085.5.2",
+    "EG-TYPED-PACKS-R085.5.3",
+    "EG-TYPED-PACKS-R085.5.4",
+    "EG-TYPED-PACKS-R085.6.2",
+    "EG-TYPED-PACKS-R085.6.3"
+  ],
+  "unserved": [
+    "EG-TYPED-PACKS-R001.1",
+    "EG-TYPED-PACKS-R001.2",
+    "EG-TYPED-PACKS-R001.3",
+    "EG-TYPED-PACKS-R001.4",
+    "EG-TYPED-PACKS-R001.5",
+    "EG-TYPED-PACKS-R001.6",
+    "EG-TYPED-PACKS-R001.7",
+    "EG-TYPED-PACKS-R001.8",
+    "EG-TYPED-PACKS-R001.9",
+    "EG-TYPED-PACKS-R002.1",
+    "EG-TYPED-PACKS-R002.2",
+    "EG-TYPED-PACKS-R002.3",
+    "EG-TYPED-PACKS-R002.4",
+    "EG-TYPED-PACKS-R002.5",
+    "EG-TYPED-PACKS-R002.6",
+    "EG-TYPED-PACKS-R002.7",
+    "EG-TYPED-PACKS-R002.8",
+    "EG-TYPED-PACKS-R002.9",
+    "EG-TYPED-PACKS-R002.10",
+    "EG-TYPED-PACKS-R002.11",
+    "EG-TYPED-PACKS-R045.1",
+    "EG-TYPED-PACKS-R045.2",
+    "EG-TYPED-PACKS-R045.3",
+    "EG-TYPED-PACKS-R045.4",
+    "EG-TYPED-PACKS-R045.5",
+    "EG-TYPED-PACKS-R045.6",
+    "EG-TYPED-PACKS-R045.7",
+    "EG-TYPED-PACKS-R045.8",
+    "EG-TYPED-PACKS-R045.9",
+    "EG-TYPED-PACKS-R048.1",
+    "EG-TYPED-PACKS-R066.1",
+    "EG-TYPED-PACKS-R066.3",
+    "EG-TYPED-PACKS-R071.1.1",
+    "EG-TYPED-PACKS-R071.1.2",
+    "EG-TYPED-PACKS-R071.1.3",
+    "EG-TYPED-PACKS-R071.1.4",
+    "EG-TYPED-PACKS-R071.1.5",
+    "EG-TYPED-PACKS-R071.1.6",
+    "EG-TYPED-PACKS-R085.1",
+    "EG-TYPED-PACKS-R085.3",
+    "EG-TYPED-PACKS-R085.2",
+    "EG-TYPED-PACKS-R094.1",
+    "EG-TYPED-PACKS-R094.2",
+    "EG-TYPED-PACKS-R094.3",
+    "EG-TYPED-PACKS-R094.4",
+    "EG-TYPED-PACKS-R094.5",
+    "EG-TYPED-PACKS-R094.6",
+    "EG-TYPED-PACKS-R094.7",
+    "EG-TYPED-PACKS-R097.2.1",
+    "EG-TYPED-PACKS-R097.2.2",
+    "EG-TYPED-PACKS-R097.2.3",
+    "EG-TYPED-PACKS-R097.2.4",
+    "EG-TYPED-PACKS-R097.2.5",
+    "EG-TYPED-PACKS-R097.2.6",
+    "EG-TYPED-PACKS-R100.1",
+    "EG-TYPED-PACKS-R100.2",
+    "EG-TYPED-PACKS-R100.3",
+    "EG-TYPED-PACKS-R100.4",
+    "EG-TYPED-PACKS-R100.5",
+    "EG-TYPED-PACKS-R100.6",
+    "EG-TYPED-PACKS-R100.7",
+    "EG-TYPED-PACKS-R097.2.7",
+    "EG-TYPED-PACKS-R100.8",
+    "EG-TYPED-PACKS-R069.100",
+    "EG-TYPED-PACKS-R100.100",
+    "EG-TYPED-PACKS-R100.101",
+    "EG-TYPED-PACKS-R001.100",
+    "EG-TYPED-PACKS-R072.100",
+    "EG-TYPED-PACKS-R071.100",
+    "EG-TYPED-PACKS-R101.2",
+    "EG-TYPED-PACKS-R102.2",
+    "EG-TYPED-PACKS-R102.3",
+    "EG-TYPED-PACKS-R102.4",
+    "EG-TYPED-PACKS-R102.5",
+    "EG-TYPED-PACKS-R102.6",
+    "EG-TYPED-PACKS-R102.7",
+    "EG-TYPED-PACKS-R103.1",
+    "EG-TYPED-PACKS-R103.2",
+    "EG-TYPED-PACKS-R103.3",
+    "EG-TYPED-PACKS-R103.4",
+    "EG-TYPED-PACKS-R103.5",
+    "EG-TYPED-PACKS-R103.6",
+    "EG-TYPED-PACKS-R104.1",
+    "EG-TYPED-PACKS-R104.2",
+    "EG-TYPED-PACKS-R104.3",
+    "EG-TYPED-PACKS-R104.4",
+    "EG-TYPED-PACKS-R104.5",
+    "EG-TYPED-PACKS-R104.6",
+    "EG-TYPED-PACKS-R105.2",
+    "EG-TYPED-PACKS-R751.750",
+    "EG-TYPED-PACKS-R751.751",
+    "EG-TYPED-PACKS-R751.752",
+    "EG-TYPED-PACKS-R751.753",
+    "EG-TYPED-PACKS-R650.1",
+    "EG-TYPED-PACKS-R650.2",
+    "EG-TYPED-PACKS-R650.3",
+    "EG-TYPED-PACKS-R650.4",
+    "EG-TYPED-PACKS-R650.5",
+    "EG-TYPED-PACKS-R650.6",
+    "EG-TYPED-PACKS-R651.1",
+    "EG-TYPED-PACKS-R651.2",
+    "EG-TYPED-PACKS-R651.3",
+    "EG-TYPED-PACKS-R651.4",
+    "EG-TYPED-PACKS-R651.5",
+    "EG-TYPED-PACKS-R651.6",
+    "EG-TYPED-PACKS-R652.1",
+    "EG-TYPED-PACKS-R652.2",
+    "EG-TYPED-PACKS-R652.3",
+    "EG-TYPED-PACKS-R652.4",
+    "EG-TYPED-PACKS-R652.5",
+    "EG-TYPED-PACKS-R652.6",
+    "EG-TYPED-PACKS-R700.1",
+    "EG-TYPED-PACKS-R700.2",
+    "EG-TYPED-PACKS-R700.3",
+    "EG-TYPED-PACKS-R700.4",
+    "EG-TYPED-PACKS-R700.5",
+    "EG-TYPED-PACKS-R700.6",
+    "EG-TYPED-PACKS-R097.700",
+    "EG-TYPED-PACKS-R097.701",
+    "EG-TYPED-PACKS-R711",
+    "EG-TYPED-PACKS-R713",
+    "EG-TYPED-PACKS-R714",
+    "EG-TYPED-PACKS-R715",
+    "EG-TYPED-PACKS-R800.1",
+    "EG-TYPED-PACKS-R800.2",
+    "EG-TYPED-PACKS-R800.3",
+    "EG-TYPED-PACKS-R800.4",
+    "EG-TYPED-PACKS-R800.5",
+    "EG-TYPED-PACKS-R800.6",
+    "EG-TYPED-PACKS-R801.1",
+    "EG-TYPED-PACKS-R801.2",
+    "EG-TYPED-PACKS-R801.3",
+    "EG-TYPED-PACKS-R801.4",
+    "EG-TYPED-PACKS-R801.5",
+    "EG-TYPED-PACKS-R801.6",
+    "EG-TYPED-PACKS-R801.7",
+    "EG-TYPED-PACKS-R802.1",
+    "EG-TYPED-PACKS-R802.2",
+    "EG-TYPED-PACKS-R802.3",
+    "EG-TYPED-PACKS-R802.4",
+    "EG-TYPED-PACKS-R802.5",
+    "EG-TYPED-PACKS-R802.6",
+    "EG-TYPED-PACKS-R802.7",
+    "EG-TYPED-PACKS-R802.8",
+    "EG-TYPED-PACKS-R803.1",
+    "EG-TYPED-PACKS-R803.2",
+    "EG-TYPED-PACKS-R803.3",
+    "EG-TYPED-PACKS-R803.4",
+    "EG-TYPED-PACKS-R803.5",
+    "EG-TYPED-PACKS-R803.6",
+    "EG-TYPED-PACKS-R804.1",
+    "EG-TYPED-PACKS-R804.2",
+    "EG-TYPED-PACKS-R804.3",
+    "EG-TYPED-PACKS-R804.4",
+    "EG-TYPED-PACKS-R804.5",
+    "EG-TYPED-PACKS-R804.6",
+    "EG-TYPED-PACKS-R805.1",
+    "EG-TYPED-PACKS-R805.2",
+    "EG-TYPED-PACKS-R805.3",
+    "EG-TYPED-PACKS-R805.4",
+    "EG-TYPED-PACKS-R805.5",
+    "EG-TYPED-PACKS-R805.6",
+    "EG-TYPED-PACKS-R805.7",
+    "EG-TYPED-PACKS-R106.1",
+    "EG-TYPED-PACKS-R106.2",
+    "EG-TYPED-PACKS-R106.3",
+    "EG-TYPED-PACKS-R106.4",
+    "EG-TYPED-PACKS-R106.5",
+    "EG-TYPED-PACKS-R106.6",
+    "EG-TYPED-PACKS-R106.7",
+    "EG-TYPED-PACKS-R107.1",
+    "EG-TYPED-PACKS-R107.2",
+    "EG-TYPED-PACKS-R107.3",
+    "EG-TYPED-PACKS-R107.4",
+    "EG-TYPED-PACKS-R107.5",
+    "EG-TYPED-PACKS-R107.6",
+    "EG-TYPED-PACKS-R108.1",
+    "EG-TYPED-PACKS-R108.2",
+    "EG-TYPED-PACKS-R108.3",
+    "EG-TYPED-PACKS-R108.4",
+    "EG-TYPED-PACKS-R108.5",
+    "EG-TYPED-PACKS-R108.6",
+    "EG-TYPED-PACKS-R108.7",
+    "EG-TYPED-PACKS-R108.8",
+    "EG-TYPED-PACKS-R108.9",
+    "EG-TYPED-PACKS-R108.10",
+    "EG-TYPED-PACKS-R108.11",
+    "EG-TYPED-PACKS-R108.12",
+    "EG-TYPED-PACKS-R108.13",
+    "EG-TYPED-PACKS-R108.14",
+    "EG-TYPED-PACKS-R108.15",
+    "EG-TYPED-PACKS-R108.16",
+    "EG-TYPED-PACKS-R109.1",
+    "EG-TYPED-PACKS-R109.2",
+    "EG-TYPED-PACKS-R109.3",
+    "EG-TYPED-PACKS-R109.4",
+    "EG-TYPED-PACKS-R109.5",
+    "EG-TYPED-PACKS-R109.6",
+    "EG-TYPED-PACKS-R085.7.2",
+    "EG-TYPED-PACKS-R085.7.3",
+    "EG-TYPED-PACKS-R085.4.2",
+    "EG-TYPED-PACKS-R085.4.3",
+    "EG-TYPED-PACKS-R085.5.2",
+    "EG-TYPED-PACKS-R085.5.3",
+    "EG-TYPED-PACKS-R085.5.4",
+    "EG-TYPED-PACKS-R085.6.2",
+    "EG-TYPED-PACKS-R085.6.3"
   ]
 }

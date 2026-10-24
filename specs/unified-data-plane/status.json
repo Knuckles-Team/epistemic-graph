@@ -353,7 +353,10 @@
         "23ba8c7eab2a",
         "b28c6e06c13a"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R002.1"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R002.3",
@@ -362,7 +365,11 @@
       "landed_in": [
         "9a7674d1bae5"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R002.1",
+        "EG-DURABLE-KERNEL-R024"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R003",
@@ -532,6 +539,9 @@
         "crates/eg-durable/src/change_envelope.rs:157",
         "crates/eg-durable/src/change_envelope.rs:176"
       ],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R002"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R008.1"
       ]
@@ -596,6 +606,9 @@
         "crates/eg-lake/src/acceleration_policy.rs:72",
         "crates/eg-lake/src/acceleration_policy.rs:83",
         "crates/eg-lake/src/acceleration_policy.rs:94"
+      ],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R008"
       ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R010.1"
@@ -717,7 +730,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R014.1",
         "EG-UNIFIED-DATA-PLANE-R014.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R014.1",
@@ -742,7 +756,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R014.2.1",
         "EG-UNIFIED-DATA-PLANE-R014.2.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R014.2.1",
@@ -764,7 +779,8 @@
       "title": "Live MySQL/MariaDB binlog/GTID capture and per-engine conformance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015",
@@ -777,7 +793,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R015.1",
         "EG-UNIFIED-DATA-PLANE-R015.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015.1",
@@ -804,7 +821,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R015.2.1",
         "EG-UNIFIED-DATA-PLANE-R015.2.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015.2.1",
@@ -826,7 +844,8 @@
       "title": "Real WAL-frame tailing / watermark polling under concurrent writers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R016",
@@ -837,7 +856,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R016.1",
         "EG-UNIFIED-DATA-PLANE-R016.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R016.1",
@@ -864,7 +884,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R016.2.1",
         "EG-UNIFIED-DATA-PLANE-R016.2.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R016.2.1",
@@ -886,7 +907,8 @@
       "title": "Real tiberius connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture loop",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R017",
@@ -897,7 +919,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R017.1",
         "EG-UNIFIED-DATA-PLANE-R017.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R017.1",
@@ -926,7 +949,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R017.2.1",
         "EG-UNIFIED-DATA-PLANE-R017.2.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R017.2.1",
@@ -948,7 +972,11 @@
       "title": "Live HTTP/native client federated query pushdown",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R017.2.1"
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018",
@@ -961,7 +989,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R018.1",
         "EG-UNIFIED-DATA-PLANE-R018.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.1",
@@ -990,21 +1019,27 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R018.2.1",
         "EG-UNIFIED-DATA-PLANE-R018.2.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.2.1",
       "title": "`RelationalDriverConfig` builds from a validated engine/host/port/service name, and `connect` refuses an unsafe or invalid destination before issuing any request",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 2
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.2.2",
       "title": "Live driver/ODBC catalog read and Debezium bridge wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R018.2.1"
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019",
@@ -1018,7 +1053,8 @@
         "EG-UNIFIED-DATA-PLANE-R019.1",
         "EG-UNIFIED-DATA-PLANE-R019.2",
         "EG-UNIFIED-DATA-PLANE-R019.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.1",
@@ -1049,21 +1085,27 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R019.2.1",
         "EG-UNIFIED-DATA-PLANE-R019.2.2"
-      ]
+      ],
+      "priority": 2
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.2.1",
       "title": "`DocumentDriverConfig` builds from a validated host/port/database, and `connect` refuses an unsafe or invalid destination before issuing any request",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 2
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.2.2",
       "title": "Live native driver connection and change-stream capture into `ChangeEnvelope`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R019.2.1"
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.3",
@@ -1074,7 +1116,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R019.3.1",
         "EG-UNIFIED-DATA-PLANE-R019.3.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.3.1",
@@ -1096,7 +1139,12 @@
       "title": "Live comparison of EG's query results and captured change stream against native MongoDB/DocumentDB",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R019.3.1",
+        "EG-UNIFIED-DATA-PLANE-R019.2"
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020",
@@ -1110,7 +1158,8 @@
         "EG-UNIFIED-DATA-PLANE-R020.1",
         "EG-UNIFIED-DATA-PLANE-R020.2",
         "EG-UNIFIED-DATA-PLANE-R020.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020.1",
@@ -1137,7 +1186,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R020.2.1",
         "EG-UNIFIED-DATA-PLANE-R020.2.2"
-      ]
+      ],
+      "priority": 2
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020.2.1",
@@ -1159,7 +1209,11 @@
       "title": "Live Arrow Flight SQL / native query pushdown per kind, extending `eg-query::sql::iceberg_federation` for Iceberg",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R020.2.1"
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020.3",
@@ -1170,7 +1224,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R020.3.1",
         "EG-UNIFIED-DATA-PLANE-R020.3.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020.3.1",
@@ -1192,7 +1247,12 @@
       "title": "Live comparison of federated query results against each native warehouse/lake engine",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R020.3.1",
+        "EG-UNIFIED-DATA-PLANE-R020.2"
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021",
@@ -1268,7 +1328,8 @@
         "EG-UNIFIED-DATA-PLANE-R022.2",
         "EG-UNIFIED-DATA-PLANE-R022.3",
         "EG-UNIFIED-DATA-PLANE-R022.4"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.1",
@@ -1291,7 +1352,8 @@
       "title": "Containerized matrix runner per adapter/engine version",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 2
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.3",
@@ -1302,7 +1364,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R022.3.1",
         "EG-UNIFIED-DATA-PLANE-R022.3.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.3.1",
@@ -1323,7 +1386,12 @@
       "title": "Live change-capture replay comparison against a real source snapshot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R022.3.1",
+        "EG-UNIFIED-DATA-PLANE-R022.2"
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.4",
@@ -1333,14 +1401,16 @@
       "verified_by": [],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R022.4.1"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.4.1",
       "title": "Residency column",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023",
@@ -1354,7 +1424,8 @@
         "EG-UNIFIED-DATA-PLANE-R023.1",
         "EG-UNIFIED-DATA-PLANE-R023.2",
         "EG-UNIFIED-DATA-PLANE-R023.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023.1",
@@ -1381,7 +1452,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R023.2.1",
         "EG-UNIFIED-DATA-PLANE-R023.2.2"
-      ]
+      ],
+      "priority": 2
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023.2.1",
@@ -1403,7 +1475,11 @@
       "title": "Live CloudNativePG/MariaDB operator wiring and PITR schedule installation to object storage",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R023.2.1"
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023.3",
@@ -1414,7 +1490,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R023.3.1",
         "EG-UNIFIED-DATA-PLANE-R023.3.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023.3.1",
@@ -1436,7 +1513,12 @@
       "title": "Live restore-drill automation and post-restore data-match verification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "depends_on": [
+        "EG-UNIFIED-DATA-PLANE-R023.3.1",
+        "EG-UNIFIED-DATA-PLANE-R023.2"
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024",
@@ -1542,7 +1624,8 @@
         "EG-UNIFIED-DATA-PLANE-R025.1",
         "EG-UNIFIED-DATA-PLANE-R025.2",
         "EG-UNIFIED-DATA-PLANE-R025.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.1",
@@ -1598,7 +1681,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R025.3.1",
         "EG-UNIFIED-DATA-PLANE-R025.3.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.3.1",
@@ -1620,7 +1704,8 @@
       "title": "File the approved pgrx ADR from the live spike results",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026",
@@ -1635,7 +1720,8 @@
         "EG-UNIFIED-DATA-PLANE-R026.2",
         "EG-UNIFIED-DATA-PLANE-R026.3",
         "EG-UNIFIED-DATA-PLANE-R026.4"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.1",
@@ -1664,7 +1750,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R026.2.1",
         "EG-UNIFIED-DATA-PLANE-R026.2.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.2.1",
@@ -1686,7 +1773,8 @@
       "title": "Run P0-P2 live: real baseline capture, Postgres control, unmodified corpus replay",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.3",
@@ -1697,7 +1785,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R026.3.1",
         "EG-UNIFIED-DATA-PLANE-R026.3.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.3.1",
@@ -1719,7 +1808,8 @@
       "title": "Run P4-P5 live: restore verification and the schema-understanding demonstration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027",
@@ -1827,7 +1917,8 @@
         "EG-UNIFIED-DATA-PLANE-R028.1",
         "EG-UNIFIED-DATA-PLANE-R028.2",
         "EG-UNIFIED-DATA-PLANE-R028.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.1",
@@ -1879,7 +1970,8 @@
       "title": "Run the captured-application-traffic corpus and publish the harness report",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029",
@@ -1945,7 +2037,8 @@
         "EG-UNIFIED-DATA-PLANE-R030.3",
         "EG-UNIFIED-DATA-PLANE-R030.700",
         "EG-UNIFIED-DATA-PLANE-R030.701"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.1",
@@ -1968,14 +2061,16 @@
       "title": "Blocking and field-similarity candidate generation across Gramps/Immich/Twenty/Firefly",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.3",
       "title": "Real Fellegi-Sunter scoring and the approval workflow",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R031",
@@ -1986,7 +2081,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R031.1",
         "EG-UNIFIED-DATA-PLANE-R031.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R031.1",
@@ -2009,7 +2105,8 @@
       "title": "Real fault-isolation enforcement and quota metering",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R032",
@@ -2020,7 +2117,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R032.1",
         "EG-UNIFIED-DATA-PLANE-R032.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R032.1",
@@ -2043,7 +2141,8 @@
       "title": "Run phase I0 (version-pinned OpenAPI client generation and digest)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033",
@@ -2056,7 +2155,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R033.1",
         "EG-UNIFIED-DATA-PLANE-R033.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033.1",
@@ -2079,7 +2179,8 @@
       "title": "Real production cutover: Postgres replica, nightly independent XML export, and the rehearsed failover test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R034",
@@ -2133,49 +2234,56 @@
         "EG-UNIFIED-DATA-PLANE-R760.4",
         "EG-UNIFIED-DATA-PLANE-R760.5",
         "EG-UNIFIED-DATA-PLANE-R760.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.1",
       "title": "Model: served incident authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.2",
       "title": "Behavior: served incident authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.3",
       "title": "Wiring: served incident authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.4",
       "title": "Refusal: served incident authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.5",
       "title": "Evidence: served incident authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.6",
       "title": "Hot-path proof: served incident authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R037",
@@ -2206,7 +2314,8 @@
         "EG-UNIFIED-DATA-PLANE-R038.5",
         "EG-UNIFIED-DATA-PLANE-R038.6",
         "EG-UNIFIED-DATA-PLANE-R038.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.1",
@@ -2228,7 +2337,8 @@
       "title": "Real per-source-kind discovery writing the contract, the copy pipeline, and EXPLAIN's per-fragment live/copy reporting",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.3",
@@ -2243,49 +2353,56 @@
         "EG-UNIFIED-DATA-PLANE-R038.3.4",
         "EG-UNIFIED-DATA-PLANE-R038.3.5",
         "EG-UNIFIED-DATA-PLANE-R038.3.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.3.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.3.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.3.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.3.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.3.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.3.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.4",
@@ -2300,49 +2417,56 @@
         "EG-UNIFIED-DATA-PLANE-R038.4.4",
         "EG-UNIFIED-DATA-PLANE-R038.4.5",
         "EG-UNIFIED-DATA-PLANE-R038.4.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.4.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.4.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.4.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.4.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.4.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.4.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.5",
@@ -2357,49 +2481,56 @@
         "EG-UNIFIED-DATA-PLANE-R038.5.4",
         "EG-UNIFIED-DATA-PLANE-R038.5.5",
         "EG-UNIFIED-DATA-PLANE-R038.5.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.5.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.5.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.5.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.5.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.5.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.5.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6",
@@ -2414,49 +2545,56 @@
         "EG-UNIFIED-DATA-PLANE-R038.6.4",
         "EG-UNIFIED-DATA-PLANE-R038.6.5",
         "EG-UNIFIED-DATA-PLANE-R038.6.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.7",
@@ -2472,56 +2610,64 @@
         "EG-UNIFIED-DATA-PLANE-R038.7.5",
         "EG-UNIFIED-DATA-PLANE-R038.7.6",
         "EG-UNIFIED-DATA-PLANE-R038.7.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.7.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.7.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.7.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.7.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.7.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.7.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.7.7",
       "title": "Candidate handoff",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R039",
@@ -2535,42 +2681,48 @@
         "EG-UNIFIED-DATA-PLANE-R039.3",
         "EG-UNIFIED-DATA-PLANE-R039.4",
         "EG-UNIFIED-DATA-PLANE-R039.5"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R039.1",
       "title": "`CatalogPrincipal` typed model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R039.2",
       "title": "Catalog authorization refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R039.3",
       "title": "Locate and wire the REST listener",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R039.4",
       "title": "Partition spec in emitted Iceberg metadata",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R039.5",
       "title": "End-to-end external read",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040",
@@ -2585,56 +2737,64 @@
         "EG-UNIFIED-DATA-PLANE-R040.4",
         "EG-UNIFIED-DATA-PLANE-R040.5",
         "EG-UNIFIED-DATA-PLANE-R040.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.4",
       "title": "EG:64 source definition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R612",
@@ -2649,49 +2809,56 @@
         "EG-UNIFIED-DATA-PLANE-R612.4",
         "EG-UNIFIED-DATA-PLANE-R612.5",
         "EG-UNIFIED-DATA-PLANE-R612.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R612.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R612.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R612.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R612.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R612.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R612.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R750",
@@ -2704,35 +2871,40 @@
         "EG-UNIFIED-DATA-PLANE-R750.751",
         "EG-UNIFIED-DATA-PLANE-R750.752",
         "EG-UNIFIED-DATA-PLANE-R750.753"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R750.750",
       "title": "Model: Conversation history source, run audit rows and step store",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R750.751",
       "title": "Behavior: Conversation history source, run audit rows and step store",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R750.752",
       "title": "Refusal: Conversation history source, run audit rows and step store",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R750.753",
       "title": "Hot-path proof: Conversation history source, run audit rows and step store",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R650",
@@ -2747,49 +2919,56 @@
         "EG-UNIFIED-DATA-PLANE-R650.4",
         "EG-UNIFIED-DATA-PLANE-R650.5",
         "EG-UNIFIED-DATA-PLANE-R650.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R650.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R650.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R650.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R650.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R650.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R650.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651",
@@ -2805,49 +2984,56 @@
         "EG-UNIFIED-DATA-PLANE-R651.5",
         "EG-UNIFIED-DATA-PLANE-R651.6",
         "EG-UNIFIED-DATA-PLANE-R651.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7",
@@ -2865,7 +3051,8 @@
         "EG-UNIFIED-DATA-PLANE-R651.7.5",
         "EG-UNIFIED-DATA-PLANE-R651.7.6",
         "EG-UNIFIED-DATA-PLANE-R651.7.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.1",
@@ -2949,7 +3136,8 @@
       "title": "Extraction",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700",
@@ -2964,49 +3152,56 @@
         "EG-UNIFIED-DATA-PLANE-R700.4",
         "EG-UNIFIED-DATA-PLANE-R700.5",
         "EG-UNIFIED-DATA-PLANE-R700.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701",
@@ -3021,49 +3216,56 @@
         "EG-UNIFIED-DATA-PLANE-R701.4",
         "EG-UNIFIED-DATA-PLANE-R701.5",
         "EG-UNIFIED-DATA-PLANE-R701.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702",
@@ -3078,77 +3280,88 @@
         "EG-UNIFIED-DATA-PLANE-R702.4",
         "EG-UNIFIED-DATA-PLANE-R702.5",
         "EG-UNIFIED-DATA-PLANE-R702.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R710",
       "title": "Message-stream adapters normalize into ChangeEnvelope: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R711",
       "title": "Message-stream adapters normalize into ChangeEnvelope: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.700",
       "title": "Identity evidence kinds and merge decisions for candidate links: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.701",
       "title": "Identity evidence kinds and merge decisions for candidate links: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R761",
@@ -3163,49 +3376,56 @@
         "EG-UNIFIED-DATA-PLANE-R761.4",
         "EG-UNIFIED-DATA-PLANE-R761.5",
         "EG-UNIFIED-DATA-PLANE-R761.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R761.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R761.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R761.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R761.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R761.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R761.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762",
@@ -3222,63 +3442,72 @@
         "EG-UNIFIED-DATA-PLANE-R762.6",
         "EG-UNIFIED-DATA-PLANE-R762.7",
         "EG-UNIFIED-DATA-PLANE-R762.8"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.7",
       "title": "Rule proposals from profiles",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.8",
       "title": "Quality results from outside checkers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R763",
@@ -3293,49 +3522,56 @@
         "EG-UNIFIED-DATA-PLANE-R763.4",
         "EG-UNIFIED-DATA-PLANE-R763.5",
         "EG-UNIFIED-DATA-PLANE-R763.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R763.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R763.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R763.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R763.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R763.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R763.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764",
@@ -3352,63 +3588,366 @@
         "EG-UNIFIED-DATA-PLANE-R764.6",
         "EG-UNIFIED-DATA-PLANE-R764.7",
         "EG-UNIFIED-DATA-PLANE-R764.8"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.7",
       "title": "Usage from attached-source query logs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.8",
       "title": "Frequent users and usage suggestions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     }
+  ],
+  "frontier": [
+    "EG-UNIFIED-DATA-PLANE-R014.2.2",
+    "EG-UNIFIED-DATA-PLANE-R015.2.2",
+    "EG-UNIFIED-DATA-PLANE-R016.2.2",
+    "EG-UNIFIED-DATA-PLANE-R017.2.2",
+    "EG-UNIFIED-DATA-PLANE-R018.2.1",
+    "EG-UNIFIED-DATA-PLANE-R019.2.1",
+    "EG-UNIFIED-DATA-PLANE-R020.2.2",
+    "EG-UNIFIED-DATA-PLANE-R022.2",
+    "EG-UNIFIED-DATA-PLANE-R022.4.1",
+    "EG-UNIFIED-DATA-PLANE-R023.2.2",
+    "EG-UNIFIED-DATA-PLANE-R025.3.2",
+    "EG-UNIFIED-DATA-PLANE-R026.2.2",
+    "EG-UNIFIED-DATA-PLANE-R026.3.2",
+    "EG-UNIFIED-DATA-PLANE-R028.3",
+    "EG-UNIFIED-DATA-PLANE-R030.2",
+    "EG-UNIFIED-DATA-PLANE-R030.3",
+    "EG-UNIFIED-DATA-PLANE-R031.2",
+    "EG-UNIFIED-DATA-PLANE-R032.2",
+    "EG-UNIFIED-DATA-PLANE-R033.2",
+    "EG-UNIFIED-DATA-PLANE-R760.1",
+    "EG-UNIFIED-DATA-PLANE-R760.2",
+    "EG-UNIFIED-DATA-PLANE-R760.3",
+    "EG-UNIFIED-DATA-PLANE-R760.4",
+    "EG-UNIFIED-DATA-PLANE-R760.5",
+    "EG-UNIFIED-DATA-PLANE-R760.6",
+    "EG-UNIFIED-DATA-PLANE-R038.2",
+    "EG-UNIFIED-DATA-PLANE-R038.3.1",
+    "EG-UNIFIED-DATA-PLANE-R038.3.2",
+    "EG-UNIFIED-DATA-PLANE-R038.3.3",
+    "EG-UNIFIED-DATA-PLANE-R038.3.4",
+    "EG-UNIFIED-DATA-PLANE-R038.3.5",
+    "EG-UNIFIED-DATA-PLANE-R038.3.6",
+    "EG-UNIFIED-DATA-PLANE-R038.4.1",
+    "EG-UNIFIED-DATA-PLANE-R038.4.2",
+    "EG-UNIFIED-DATA-PLANE-R038.4.3",
+    "EG-UNIFIED-DATA-PLANE-R038.4.4",
+    "EG-UNIFIED-DATA-PLANE-R038.4.5",
+    "EG-UNIFIED-DATA-PLANE-R038.4.6",
+    "EG-UNIFIED-DATA-PLANE-R038.5.1",
+    "EG-UNIFIED-DATA-PLANE-R038.5.2",
+    "EG-UNIFIED-DATA-PLANE-R038.5.3",
+    "EG-UNIFIED-DATA-PLANE-R038.5.4",
+    "EG-UNIFIED-DATA-PLANE-R038.5.5",
+    "EG-UNIFIED-DATA-PLANE-R038.5.6",
+    "EG-UNIFIED-DATA-PLANE-R038.6.1",
+    "EG-UNIFIED-DATA-PLANE-R038.6.2",
+    "EG-UNIFIED-DATA-PLANE-R038.6.3",
+    "EG-UNIFIED-DATA-PLANE-R038.6.4",
+    "EG-UNIFIED-DATA-PLANE-R038.6.5",
+    "EG-UNIFIED-DATA-PLANE-R038.6.6",
+    "EG-UNIFIED-DATA-PLANE-R038.7.1",
+    "EG-UNIFIED-DATA-PLANE-R038.7.2",
+    "EG-UNIFIED-DATA-PLANE-R038.7.3",
+    "EG-UNIFIED-DATA-PLANE-R038.7.4",
+    "EG-UNIFIED-DATA-PLANE-R038.7.5",
+    "EG-UNIFIED-DATA-PLANE-R038.7.6",
+    "EG-UNIFIED-DATA-PLANE-R038.7.7",
+    "EG-UNIFIED-DATA-PLANE-R039.1",
+    "EG-UNIFIED-DATA-PLANE-R039.2",
+    "EG-UNIFIED-DATA-PLANE-R039.3",
+    "EG-UNIFIED-DATA-PLANE-R039.4",
+    "EG-UNIFIED-DATA-PLANE-R039.5",
+    "EG-UNIFIED-DATA-PLANE-R040.1",
+    "EG-UNIFIED-DATA-PLANE-R040.2",
+    "EG-UNIFIED-DATA-PLANE-R040.3",
+    "EG-UNIFIED-DATA-PLANE-R040.4",
+    "EG-UNIFIED-DATA-PLANE-R040.5",
+    "EG-UNIFIED-DATA-PLANE-R040.6",
+    "EG-UNIFIED-DATA-PLANE-R026.4",
+    "EG-UNIFIED-DATA-PLANE-R612.1",
+    "EG-UNIFIED-DATA-PLANE-R612.2",
+    "EG-UNIFIED-DATA-PLANE-R612.3",
+    "EG-UNIFIED-DATA-PLANE-R612.4",
+    "EG-UNIFIED-DATA-PLANE-R612.5",
+    "EG-UNIFIED-DATA-PLANE-R612.6",
+    "EG-UNIFIED-DATA-PLANE-R750.750",
+    "EG-UNIFIED-DATA-PLANE-R750.751",
+    "EG-UNIFIED-DATA-PLANE-R750.752",
+    "EG-UNIFIED-DATA-PLANE-R750.753",
+    "EG-UNIFIED-DATA-PLANE-R650.1",
+    "EG-UNIFIED-DATA-PLANE-R650.2",
+    "EG-UNIFIED-DATA-PLANE-R650.3",
+    "EG-UNIFIED-DATA-PLANE-R650.4",
+    "EG-UNIFIED-DATA-PLANE-R650.5",
+    "EG-UNIFIED-DATA-PLANE-R650.6",
+    "EG-UNIFIED-DATA-PLANE-R651.1",
+    "EG-UNIFIED-DATA-PLANE-R651.2",
+    "EG-UNIFIED-DATA-PLANE-R651.3",
+    "EG-UNIFIED-DATA-PLANE-R651.4",
+    "EG-UNIFIED-DATA-PLANE-R651.5",
+    "EG-UNIFIED-DATA-PLANE-R651.6",
+    "EG-UNIFIED-DATA-PLANE-R651.7.7",
+    "EG-UNIFIED-DATA-PLANE-R700.1",
+    "EG-UNIFIED-DATA-PLANE-R700.2",
+    "EG-UNIFIED-DATA-PLANE-R700.3",
+    "EG-UNIFIED-DATA-PLANE-R700.4",
+    "EG-UNIFIED-DATA-PLANE-R700.5",
+    "EG-UNIFIED-DATA-PLANE-R700.6",
+    "EG-UNIFIED-DATA-PLANE-R701.1",
+    "EG-UNIFIED-DATA-PLANE-R701.2",
+    "EG-UNIFIED-DATA-PLANE-R701.3",
+    "EG-UNIFIED-DATA-PLANE-R701.4",
+    "EG-UNIFIED-DATA-PLANE-R701.5",
+    "EG-UNIFIED-DATA-PLANE-R701.6",
+    "EG-UNIFIED-DATA-PLANE-R702.1",
+    "EG-UNIFIED-DATA-PLANE-R702.2",
+    "EG-UNIFIED-DATA-PLANE-R702.3",
+    "EG-UNIFIED-DATA-PLANE-R702.4",
+    "EG-UNIFIED-DATA-PLANE-R702.5",
+    "EG-UNIFIED-DATA-PLANE-R702.6",
+    "EG-UNIFIED-DATA-PLANE-R710",
+    "EG-UNIFIED-DATA-PLANE-R711",
+    "EG-UNIFIED-DATA-PLANE-R030.700",
+    "EG-UNIFIED-DATA-PLANE-R030.701",
+    "EG-UNIFIED-DATA-PLANE-R761.1",
+    "EG-UNIFIED-DATA-PLANE-R761.2",
+    "EG-UNIFIED-DATA-PLANE-R761.3",
+    "EG-UNIFIED-DATA-PLANE-R761.4",
+    "EG-UNIFIED-DATA-PLANE-R761.5",
+    "EG-UNIFIED-DATA-PLANE-R761.6",
+    "EG-UNIFIED-DATA-PLANE-R762.1",
+    "EG-UNIFIED-DATA-PLANE-R762.2",
+    "EG-UNIFIED-DATA-PLANE-R762.3",
+    "EG-UNIFIED-DATA-PLANE-R762.4",
+    "EG-UNIFIED-DATA-PLANE-R762.5",
+    "EG-UNIFIED-DATA-PLANE-R762.6",
+    "EG-UNIFIED-DATA-PLANE-R762.7",
+    "EG-UNIFIED-DATA-PLANE-R762.8",
+    "EG-UNIFIED-DATA-PLANE-R763.1",
+    "EG-UNIFIED-DATA-PLANE-R763.2",
+    "EG-UNIFIED-DATA-PLANE-R763.3",
+    "EG-UNIFIED-DATA-PLANE-R763.4",
+    "EG-UNIFIED-DATA-PLANE-R763.5",
+    "EG-UNIFIED-DATA-PLANE-R763.6",
+    "EG-UNIFIED-DATA-PLANE-R764.1",
+    "EG-UNIFIED-DATA-PLANE-R764.2",
+    "EG-UNIFIED-DATA-PLANE-R764.3",
+    "EG-UNIFIED-DATA-PLANE-R764.4",
+    "EG-UNIFIED-DATA-PLANE-R764.5",
+    "EG-UNIFIED-DATA-PLANE-R764.6",
+    "EG-UNIFIED-DATA-PLANE-R764.7",
+    "EG-UNIFIED-DATA-PLANE-R764.8"
+  ],
+  "unserved": [
+    "EG-UNIFIED-DATA-PLANE-R014.2.2",
+    "EG-UNIFIED-DATA-PLANE-R015.2.2",
+    "EG-UNIFIED-DATA-PLANE-R016.2.2",
+    "EG-UNIFIED-DATA-PLANE-R017.2.2",
+    "EG-UNIFIED-DATA-PLANE-R018.2.1",
+    "EG-UNIFIED-DATA-PLANE-R018.2.2",
+    "EG-UNIFIED-DATA-PLANE-R019.2.1",
+    "EG-UNIFIED-DATA-PLANE-R019.2.2",
+    "EG-UNIFIED-DATA-PLANE-R019.3.2",
+    "EG-UNIFIED-DATA-PLANE-R020.2.2",
+    "EG-UNIFIED-DATA-PLANE-R020.3.2",
+    "EG-UNIFIED-DATA-PLANE-R022.2",
+    "EG-UNIFIED-DATA-PLANE-R022.3.2",
+    "EG-UNIFIED-DATA-PLANE-R022.4.1",
+    "EG-UNIFIED-DATA-PLANE-R023.2.2",
+    "EG-UNIFIED-DATA-PLANE-R023.3.2",
+    "EG-UNIFIED-DATA-PLANE-R025.3.2",
+    "EG-UNIFIED-DATA-PLANE-R026.2.2",
+    "EG-UNIFIED-DATA-PLANE-R026.3.2",
+    "EG-UNIFIED-DATA-PLANE-R028.3",
+    "EG-UNIFIED-DATA-PLANE-R030.2",
+    "EG-UNIFIED-DATA-PLANE-R030.3",
+    "EG-UNIFIED-DATA-PLANE-R031.2",
+    "EG-UNIFIED-DATA-PLANE-R032.2",
+    "EG-UNIFIED-DATA-PLANE-R033.2",
+    "EG-UNIFIED-DATA-PLANE-R760.1",
+    "EG-UNIFIED-DATA-PLANE-R760.2",
+    "EG-UNIFIED-DATA-PLANE-R760.3",
+    "EG-UNIFIED-DATA-PLANE-R760.4",
+    "EG-UNIFIED-DATA-PLANE-R760.5",
+    "EG-UNIFIED-DATA-PLANE-R760.6",
+    "EG-UNIFIED-DATA-PLANE-R038.2",
+    "EG-UNIFIED-DATA-PLANE-R038.3.1",
+    "EG-UNIFIED-DATA-PLANE-R038.3.2",
+    "EG-UNIFIED-DATA-PLANE-R038.3.3",
+    "EG-UNIFIED-DATA-PLANE-R038.3.4",
+    "EG-UNIFIED-DATA-PLANE-R038.3.5",
+    "EG-UNIFIED-DATA-PLANE-R038.3.6",
+    "EG-UNIFIED-DATA-PLANE-R038.4.1",
+    "EG-UNIFIED-DATA-PLANE-R038.4.2",
+    "EG-UNIFIED-DATA-PLANE-R038.4.3",
+    "EG-UNIFIED-DATA-PLANE-R038.4.4",
+    "EG-UNIFIED-DATA-PLANE-R038.4.5",
+    "EG-UNIFIED-DATA-PLANE-R038.4.6",
+    "EG-UNIFIED-DATA-PLANE-R038.5.1",
+    "EG-UNIFIED-DATA-PLANE-R038.5.2",
+    "EG-UNIFIED-DATA-PLANE-R038.5.3",
+    "EG-UNIFIED-DATA-PLANE-R038.5.4",
+    "EG-UNIFIED-DATA-PLANE-R038.5.5",
+    "EG-UNIFIED-DATA-PLANE-R038.5.6",
+    "EG-UNIFIED-DATA-PLANE-R038.6.1",
+    "EG-UNIFIED-DATA-PLANE-R038.6.2",
+    "EG-UNIFIED-DATA-PLANE-R038.6.3",
+    "EG-UNIFIED-DATA-PLANE-R038.6.4",
+    "EG-UNIFIED-DATA-PLANE-R038.6.5",
+    "EG-UNIFIED-DATA-PLANE-R038.6.6",
+    "EG-UNIFIED-DATA-PLANE-R038.7.1",
+    "EG-UNIFIED-DATA-PLANE-R038.7.2",
+    "EG-UNIFIED-DATA-PLANE-R038.7.3",
+    "EG-UNIFIED-DATA-PLANE-R038.7.4",
+    "EG-UNIFIED-DATA-PLANE-R038.7.5",
+    "EG-UNIFIED-DATA-PLANE-R038.7.6",
+    "EG-UNIFIED-DATA-PLANE-R038.7.7",
+    "EG-UNIFIED-DATA-PLANE-R039.1",
+    "EG-UNIFIED-DATA-PLANE-R039.2",
+    "EG-UNIFIED-DATA-PLANE-R039.3",
+    "EG-UNIFIED-DATA-PLANE-R039.4",
+    "EG-UNIFIED-DATA-PLANE-R039.5",
+    "EG-UNIFIED-DATA-PLANE-R040.1",
+    "EG-UNIFIED-DATA-PLANE-R040.2",
+    "EG-UNIFIED-DATA-PLANE-R040.3",
+    "EG-UNIFIED-DATA-PLANE-R040.4",
+    "EG-UNIFIED-DATA-PLANE-R040.5",
+    "EG-UNIFIED-DATA-PLANE-R040.6",
+    "EG-UNIFIED-DATA-PLANE-R026.4",
+    "EG-UNIFIED-DATA-PLANE-R612.1",
+    "EG-UNIFIED-DATA-PLANE-R612.2",
+    "EG-UNIFIED-DATA-PLANE-R612.3",
+    "EG-UNIFIED-DATA-PLANE-R612.4",
+    "EG-UNIFIED-DATA-PLANE-R612.5",
+    "EG-UNIFIED-DATA-PLANE-R612.6",
+    "EG-UNIFIED-DATA-PLANE-R750.750",
+    "EG-UNIFIED-DATA-PLANE-R750.751",
+    "EG-UNIFIED-DATA-PLANE-R750.752",
+    "EG-UNIFIED-DATA-PLANE-R750.753",
+    "EG-UNIFIED-DATA-PLANE-R650.1",
+    "EG-UNIFIED-DATA-PLANE-R650.2",
+    "EG-UNIFIED-DATA-PLANE-R650.3",
+    "EG-UNIFIED-DATA-PLANE-R650.4",
+    "EG-UNIFIED-DATA-PLANE-R650.5",
+    "EG-UNIFIED-DATA-PLANE-R650.6",
+    "EG-UNIFIED-DATA-PLANE-R651.1",
+    "EG-UNIFIED-DATA-PLANE-R651.2",
+    "EG-UNIFIED-DATA-PLANE-R651.3",
+    "EG-UNIFIED-DATA-PLANE-R651.4",
+    "EG-UNIFIED-DATA-PLANE-R651.5",
+    "EG-UNIFIED-DATA-PLANE-R651.6",
+    "EG-UNIFIED-DATA-PLANE-R651.7.7",
+    "EG-UNIFIED-DATA-PLANE-R700.1",
+    "EG-UNIFIED-DATA-PLANE-R700.2",
+    "EG-UNIFIED-DATA-PLANE-R700.3",
+    "EG-UNIFIED-DATA-PLANE-R700.4",
+    "EG-UNIFIED-DATA-PLANE-R700.5",
+    "EG-UNIFIED-DATA-PLANE-R700.6",
+    "EG-UNIFIED-DATA-PLANE-R701.1",
+    "EG-UNIFIED-DATA-PLANE-R701.2",
+    "EG-UNIFIED-DATA-PLANE-R701.3",
+    "EG-UNIFIED-DATA-PLANE-R701.4",
+    "EG-UNIFIED-DATA-PLANE-R701.5",
+    "EG-UNIFIED-DATA-PLANE-R701.6",
+    "EG-UNIFIED-DATA-PLANE-R702.1",
+    "EG-UNIFIED-DATA-PLANE-R702.2",
+    "EG-UNIFIED-DATA-PLANE-R702.3",
+    "EG-UNIFIED-DATA-PLANE-R702.4",
+    "EG-UNIFIED-DATA-PLANE-R702.5",
+    "EG-UNIFIED-DATA-PLANE-R702.6",
+    "EG-UNIFIED-DATA-PLANE-R710",
+    "EG-UNIFIED-DATA-PLANE-R711",
+    "EG-UNIFIED-DATA-PLANE-R030.700",
+    "EG-UNIFIED-DATA-PLANE-R030.701",
+    "EG-UNIFIED-DATA-PLANE-R761.1",
+    "EG-UNIFIED-DATA-PLANE-R761.2",
+    "EG-UNIFIED-DATA-PLANE-R761.3",
+    "EG-UNIFIED-DATA-PLANE-R761.4",
+    "EG-UNIFIED-DATA-PLANE-R761.5",
+    "EG-UNIFIED-DATA-PLANE-R761.6",
+    "EG-UNIFIED-DATA-PLANE-R762.1",
+    "EG-UNIFIED-DATA-PLANE-R762.2",
+    "EG-UNIFIED-DATA-PLANE-R762.3",
+    "EG-UNIFIED-DATA-PLANE-R762.4",
+    "EG-UNIFIED-DATA-PLANE-R762.5",
+    "EG-UNIFIED-DATA-PLANE-R762.6",
+    "EG-UNIFIED-DATA-PLANE-R762.7",
+    "EG-UNIFIED-DATA-PLANE-R762.8",
+    "EG-UNIFIED-DATA-PLANE-R763.1",
+    "EG-UNIFIED-DATA-PLANE-R763.2",
+    "EG-UNIFIED-DATA-PLANE-R763.3",
+    "EG-UNIFIED-DATA-PLANE-R763.4",
+    "EG-UNIFIED-DATA-PLANE-R763.5",
+    "EG-UNIFIED-DATA-PLANE-R763.6",
+    "EG-UNIFIED-DATA-PLANE-R764.1",
+    "EG-UNIFIED-DATA-PLANE-R764.2",
+    "EG-UNIFIED-DATA-PLANE-R764.3",
+    "EG-UNIFIED-DATA-PLANE-R764.4",
+    "EG-UNIFIED-DATA-PLANE-R764.5",
+    "EG-UNIFIED-DATA-PLANE-R764.6",
+    "EG-UNIFIED-DATA-PLANE-R764.7",
+    "EG-UNIFIED-DATA-PLANE-R764.8"
   ]
 }
