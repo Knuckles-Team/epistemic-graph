@@ -28,6 +28,7 @@
 //! mtime) before any write. An open that found a valid marker re-stamps it
 //! against that post-open file, so a process killed before its first write
 //! keeps a marker that is still true.
+//!
 //! The digest also binds the store incarnation (device + inode), the physical
 //! identity, the file length and its modification time, so a copied, restored,
 //! upgraded or otherwise rewritten file never matches.
@@ -156,9 +157,10 @@ impl CleanMarker {
 
     /// Re-run the full recovery content scan on the CLOSED file, read-only.
     fn closed_content_is_valid(&self) -> bool {
-        let Ok(store) =
-            crate::physical::read_only::open_read_only(&self.database, self.private_integrity.clone())
-        else {
+        let Ok(store) = crate::physical::read_only::open_read_only(
+            &self.database,
+            self.private_integrity.clone(),
+        ) else {
             return false;
         };
         let Ok(rtx) = redb::ReadableDatabase::begin_read(store.database()) else {
