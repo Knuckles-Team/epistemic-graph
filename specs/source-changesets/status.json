@@ -32,7 +32,8 @@
       "title": "Content-addressed blob store",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R002",
@@ -42,84 +43,96 @@
       "verified_by": [],
       "rollup_of": [
         "EG-SCM-R002.1"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R002.1",
       "title": "Structured trailers on a changeset",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R003",
       "title": "Lock-free acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R004",
       "title": "Tree materialization by query",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R005",
       "title": "Derived history indexes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R006",
       "title": "Code graph stays live with changesets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R007",
       "title": "Path-scoped access control",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R008",
       "title": "Gate verdicts are records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R009",
       "title": "Bisect and revert decisions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R010",
       "title": "Git import and export fidelity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R011",
       "title": "Simulation harness",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R012",
       "title": "Agent-only principals and run provenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R013",
@@ -135,56 +148,106 @@
         "EG-SCM-R013.5",
         "EG-SCM-R013.6",
         "EG-SCM-R013.7"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R013.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R013.2",
       "title": "Projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R013.3",
       "title": "Round-trip check",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R013.4",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R013.5",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R013.6",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-SCM-R013.7",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     }
+  ],
+  "frontier": [
+    "EG-SCM-R001",
+    "EG-SCM-R002.1",
+    "EG-SCM-R003",
+    "EG-SCM-R004",
+    "EG-SCM-R005",
+    "EG-SCM-R006",
+    "EG-SCM-R007",
+    "EG-SCM-R008",
+    "EG-SCM-R009",
+    "EG-SCM-R010",
+    "EG-SCM-R011",
+    "EG-SCM-R012",
+    "EG-SCM-R013.1",
+    "EG-SCM-R013.2",
+    "EG-SCM-R013.3",
+    "EG-SCM-R013.4",
+    "EG-SCM-R013.5",
+    "EG-SCM-R013.6",
+    "EG-SCM-R013.7"
+  ],
+  "unserved": [
+    "EG-SCM-R001",
+    "EG-SCM-R002.1",
+    "EG-SCM-R003",
+    "EG-SCM-R004",
+    "EG-SCM-R005",
+    "EG-SCM-R006",
+    "EG-SCM-R007",
+    "EG-SCM-R008",
+    "EG-SCM-R009",
+    "EG-SCM-R010",
+    "EG-SCM-R011",
+    "EG-SCM-R012",
+    "EG-SCM-R013.1",
+    "EG-SCM-R013.2",
+    "EG-SCM-R013.3",
+    "EG-SCM-R013.4",
+    "EG-SCM-R013.5",
+    "EG-SCM-R013.6",
+    "EG-SCM-R013.7"
   ]
 }
