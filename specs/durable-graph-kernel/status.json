@@ -2125,11 +2125,11 @@
       "title": "Operator command inspects and applies registered offline store upgrades",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2d6a22cb9bb4",
+        "4dfe8b2f33e0",
         "8dbb5bd9de53",
-        "9746845654d0",
-        "9a4c2376e181",
-        "a36f2c2035e4",
-        "bd22fd1a4be8"
+        "c3827ffe4f44",
+        "d44e49b9d67c"
       ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
@@ -2148,9 +2148,9 @@
       "title": "The engine migrates an older supported store when it opens it",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "9746845654d0",
-        "a36f2c2035e4",
-        "bd22fd1a4be8"
+        "4dfe8b2f33e0",
+        "c3827ffe4f44",
+        "d44e49b9d67c"
       ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
@@ -2165,9 +2165,9 @@
       "title": "Hot-path proof: a previous-patch store migrates and serves at open",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "9746845654d0",
-        "9a4c2376e181",
-        "a36f2c2035e4"
+        "2d6a22cb9bb4",
+        "c3827ffe4f44",
+        "d44e49b9d67c"
       ],
       "verified_by": [
         "tests/test_store_auto_migrate.py:39"
