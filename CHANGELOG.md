@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.27.6] - 2026-10-23 — Connector-resource mappings and configurable NL planner timeout
+
+### Added
+- **Connector pack mappings from `connector://resources` (#751)** — the connector
+  pack resolves its mappings from the connector's `connector://resources`
+  declaration.
+- **Configurable NL planner timeout (#752)** — the NL planner read timeout and an
+  optional extra request body are configurable (`eg-plan`). Invalid planner
+  configuration now fails `query.nl` with the typed `NlConfigError`. The error
+  carries the raw rejected value and its source.
+
 ## [Unreleased]
 
 > **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment. There is no configuration or flag to disable them.
