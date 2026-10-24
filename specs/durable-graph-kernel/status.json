@@ -502,9 +502,9 @@
       "landed_in": [
         "03670fc1f33c",
         "20c64b28144f",
+        "51d84d58e174",
         "8dbb5bd9de53",
-        "ace497f2c64a",
-        "be7d13fed7f9"
+        "ace497f2c64a"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:768",
@@ -540,10 +540,10 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "20c64b28144f",
+        "51d84d58e174",
         "ace497f2c64a",
         "cdf5f87230de",
-        "d9fa4b417ab8",
-        "e146502189ea"
+        "d9fa4b417ab8"
       ],
       "verified_by": [
         "tests/shard_open_budget.rs:175",
