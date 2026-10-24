@@ -770,7 +770,7 @@ fn assert_session_measurements(
     result
 }
 
-// spec: EG-DECISION-ENGINE-R801.7.2
+// spec: EG-DECISION-ENGINE-R801.8.2
 #[test]
 fn session_inventory_uses_original_context_and_marks_missing_admission_partial() {
     let temp = open("session-inventory");
@@ -822,7 +822,7 @@ fn session_inventory_uses_original_context_and_marks_missing_admission_partial()
     assert_eq!(unavailable.expected_runs, 0);
 }
 
-// spec: EG-DECISION-ENGINE-R801.7.2
+// spec: EG-DECISION-ENGINE-R801.8.2
 #[test]
 fn session_inventory_bound_counts_unrelated_rows() {
     let temp = open("session-bound");

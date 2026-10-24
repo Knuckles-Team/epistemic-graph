@@ -296,7 +296,7 @@ def test_control_lease_list_sends_the_typed_filter_and_validates_views() -> None
         )
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R801.7.1")
+@pytest.mark.spec("EG-DECISION-ENGINE-R801.8.1")
 def test_session_usage_preserves_native_counts_and_partial_coverage() -> None:
     result = {
         "context_id": "context",
@@ -319,7 +319,7 @@ def test_session_usage_preserves_native_counts_and_partial_coverage() -> None:
     ]
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R801.7.1")
+@pytest.mark.spec("EG-DECISION-ENGINE-R801.8.1")
 @pytest.mark.parametrize(
     "patch",
     [
@@ -374,7 +374,7 @@ def session_response_transport(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R801.7.1")
+@pytest.mark.spec("EG-DECISION-ENGINE-R801.8.1")
 @pytest.mark.parametrize(
     "counts", [{}, {"requests": 0}, {"input_tokens": 9_007_199_254_740_991}]
 )
@@ -402,7 +402,7 @@ def test_session_response_validation_preserves_unknown_zero_and_exact_maximum(
     )
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R801.7.1")
+@pytest.mark.spec("EG-DECISION-ENGINE-R801.8.1")
 def test_session_usage_forwards_explicit_owner_graph(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

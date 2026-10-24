@@ -1,4 +1,4 @@
-//! Bounded aggregation of native immutable run-completion measurements (R801.7).
+//! Bounded aggregation of native immutable run-completion measurements (R801.8).
 //! No prices, inferred counts or client-side authority live in this contract.
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -150,7 +150,7 @@ mod tests {
             counts: BTreeMap::from([("input_tokens".into(), 7)]),
         }
     }
-    // spec: EG-DECISION-ENGINE-R801.7.1
+    // spec: EG-DECISION-ENGINE-R801.8.1
     #[test]
     fn deduplicates_and_preserves_partial_coverage() {
         let one = record("one");
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(result.count_coverage["input_tokens"], 1);
         assert!(!result.counts.contains_key("output_tokens"));
     }
-    // spec: EG-DECISION-ENGINE-R801.7.1
+    // spec: EG-DECISION-ENGINE-R801.8.1
     #[test]
     fn explicit_zero_is_measured_but_absent_counter_is_unknown() {
         let mut zero = record("one");
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(result.missing_runs, 1);
     }
 
-    // spec: EG-DECISION-ENGINE-R801.7.1
+    // spec: EG-DECISION-ENGINE-R801.8.1
     #[test]
     fn rejects_conflicts_foreign_attribution_and_overflow() {
         let original = record("one");
@@ -226,7 +226,7 @@ mod tests {
         )
         .is_err());
     }
-    // spec: EG-DECISION-ENGINE-R801.7.1
+    // spec: EG-DECISION-ENGINE-R801.8.1
     #[test]
     fn bounded_inventory_and_count_validation() {
         let records: Vec<_> = (0..MAX_SESSION_USAGE_RUNS)

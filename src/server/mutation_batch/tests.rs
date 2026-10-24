@@ -1431,7 +1431,7 @@ async fn the_authoritative_version_accounts_a_durable_write_the_projection_misse
     assert_eq!(core.version(), 7);
 }
 
-// spec: EG-DECISION-ENGINE-R801.7.2
+// spec: EG-DECISION-ENGINE-R801.8.2
 #[test]
 fn session_usage_keeps_the_existing_read_only_domain_classification() {
     let usage = Method::GetSessionUsage {

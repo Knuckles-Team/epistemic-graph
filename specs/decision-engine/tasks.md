@@ -836,10 +836,10 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 
 - [ ] **EG-DECISION-ENGINE-R134.111.6:** Qualify the named maximum-input benchmark; record the profile, hardware and latency/memory results before claiming the performance budget.
 
-- [ ] **EG-DECISION-ENGINE-R801.7 (rollup):** Qualify committed session usage from native completion receipts.
-- [ ] **EG-DECISION-ENGINE-R801.7.1:** Implement and exercise bounded aggregation and public client validation.
-- [ ] **EG-DECISION-ENGINE-R801.7.2:** Exercise native same-snapshot receipt projection, original context, retries and restart.
-- [ ] **EG-DECISION-ENGINE-R801.7.3:** Qualify installed clients, signed scope refusal and measured maximum-input latency/memory.
+- [ ] **EG-DECISION-ENGINE-R801.8 (rollup):** Qualify committed session usage from native completion receipts.
+- [ ] **EG-DECISION-ENGINE-R801.8.1:** Implement and exercise bounded aggregation and public client validation.
+- [ ] **EG-DECISION-ENGINE-R801.8.2:** Exercise native same-snapshot receipt projection, original context, retries and restart.
+- [ ] **EG-DECISION-ENGINE-R801.8.3:** Qualify installed clients, signed scope refusal and measured maximum-input latency/memory.
 
 - [ ] **EG-DECISION-ENGINE-R814:** Connector prompts are system-prompt candidates that agent assembly selects (rollup).
 - [ ] **EG-DECISION-ENGINE-R814.1:** Model.
