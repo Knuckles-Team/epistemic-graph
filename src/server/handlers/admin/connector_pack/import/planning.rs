@@ -69,7 +69,9 @@ impl ReadyPlan {
                 .find(|member| {
                     member.component_id == component_id && member.entry_revision == entry_revision
                 })
-                .ok_or_else(|| "connector body has no planned member".to_string())?;
+                .ok_or_else(|| {
+                    "CORRUPT_CONNECTOR_PACK: connector body has no planned member".to_string()
+                })?;
             member.engine_manifest_digest = body.manifest_digest.clone();
             member.body_length = body.length;
         }
@@ -343,11 +345,22 @@ impl<'a> PlanCollector<'a> {
         current: &[&PackEntry],
     ) -> Result<(), String> {
         let current_uris: BTreeSet<_> = current.iter().map(|entry| entry.uri.as_str()).collect();
+        // A component this import already republishes under a new URI moved:
+        // withdrawing it too would plan a second revision of the same component.
+        let republished: BTreeSet<String> = self
+            .components
+            .iter()
+            .map(|component| component.entry.component_id.clone())
+            .collect();
         for old in prior {
             if current_uris.contains(old.uri.as_str()) {
                 continue;
             }
-            if old.lifecycle == AgentLibraryLifecycle::Published {
+            if old.lifecycle == AgentLibraryLifecycle::Published
+                && republished.contains(&old.component_id)
+            {
+                self.add_moved_member(old);
+            } else if old.lifecycle == AgentLibraryLifecycle::Published {
                 self.withdraw_one(old)?;
             } else {
                 let mut carried = old;
@@ -356,6 +369,25 @@ impl<'a> PlanCollector<'a> {
             }
         }
         Ok(())
+    }
+
+    /// The old URI of a component this import republishes under a new URI. The
+    /// URI is withdrawn; the component keeps the one revision the new URI plans,
+    /// and the old row keeps the revision it last served.
+    fn add_moved_member(&mut self, old: ConnectorPackMemberRow) {
+        let mut member = old.clone();
+        member.lifecycle = AgentLibraryLifecycle::Withdrawn;
+        member.last_record_id = self.record_id.clone();
+        self.members.push(member);
+        self.records.push(PackEntryRecord {
+            uri: old.uri,
+            kind: old.kind,
+            entry_digest: old.entry_digest,
+            disposition: PackDisposition::Withdrawn,
+            component_id: old.component_id,
+            entry_revision: old.entry_revision,
+            definition_digest: old.definition_digest,
+        });
     }
 
     fn withdraw_one(&mut self, old: ConnectorPackMemberRow) -> Result<(), String> {
