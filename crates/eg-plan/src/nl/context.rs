@@ -330,7 +330,10 @@ impl SchemaContext {
     /// spelling variants to the stored names (EG-FEDERATED-QUERY-R058.4.7).
     pub fn ground(&self, plan: &Plan) -> Result<Grounded, SchemaViolation> {
         let mut repairs = Vec::new();
-        let ops = self.ground_ops(&plan.ops, Scope::AnyLocal, &mut repairs)?;
+        // A pipeline with a federation stage may seed a label only the foreign
+        // source holds; the foreign leg supplies those rows.
+        let federated = plan.ops.iter().any(is_foreign_op);
+        let ops = self.ground_ops(&plan.ops, Scope::AnyLocal, federated, &mut repairs)?;
         Ok(Grounded {
             plan: Plan::new(ops),
             repairs,
@@ -341,11 +344,12 @@ impl SchemaContext {
         &self,
         ops: &[Op],
         mut scope: Scope,
+        federated: bool,
         repairs: &mut Vec<Repair>,
     ) -> Result<Vec<Op>, SchemaViolation> {
         let mut out = Vec::with_capacity(ops.len());
         for op in ops {
-            let (grounded, next) = self.ground_op(op, scope, repairs)?;
+            let (grounded, next) = self.ground_op(op, scope, federated, repairs)?;
             out.push(grounded);
             scope = next;
         }
@@ -356,14 +360,11 @@ impl SchemaContext {
         &self,
         op: &Op,
         scope: Scope,
+        federated: bool,
         repairs: &mut Vec<Repair>,
     ) -> Result<(Op, Scope), SchemaViolation> {
         match op {
-            Op::Scan { label } => {
-                let label = self.resolve_label(label, repairs)?;
-                let scope = Scope::Labels(BTreeSet::from([label.clone()]));
-                Ok((Op::Scan { label }, scope))
-            }
+            Op::Scan { label } => self.ground_scan(label, federated, repairs),
             Op::ScanAll {} => Ok((op.clone(), Scope::AnyLocal)),
             Op::Filter { preds } => {
                 let preds = self.ground_preds(preds, &scope, repairs)?;
@@ -394,6 +395,30 @@ impl SchemaContext {
                 known: sources.iter().cloned().collect(),
             }),
             _ => Ok(()),
+        }
+    }
+
+    /// `MATCH (:label)`: a stored label (or a spelling variant of one) scopes
+    /// the rows to it. In a federated pipeline a label the local graph lacks is
+    /// left to the foreign leg, and its rows are not checked locally.
+    fn ground_scan(
+        &self,
+        label: &str,
+        federated: bool,
+        repairs: &mut Vec<Repair>,
+    ) -> Result<(Op, Scope), SchemaViolation> {
+        match self.resolve_label(label, repairs) {
+            Ok(label) => {
+                let scope = Scope::Labels(BTreeSet::from([label.clone()]));
+                Ok((Op::Scan { label }, scope))
+            }
+            Err(_) if federated => Ok((
+                Op::Scan {
+                    label: label.to_string(),
+                },
+                Scope::External,
+            )),
+            Err(violation) => Err(violation),
         }
     }
 
@@ -535,6 +560,16 @@ impl SchemaContext {
                 .map(|f| (*f).clone())
                 .collect(),
         }
+    }
+}
+
+/// True for an op that reads rows from a federation source.
+fn is_foreign_op(op: &Op) -> bool {
+    match op {
+        Op::Foreign { .. } => true,
+        #[cfg(feature = "federation")]
+        Op::ForeignScan { .. } => true,
+        _ => false,
     }
 }
 

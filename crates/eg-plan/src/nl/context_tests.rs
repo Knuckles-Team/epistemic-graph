@@ -548,6 +548,15 @@ fn rows_from_outside_the_local_graph_are_not_checked_against_it() {
         .ground(&crate::uql::parse("FOREIGN 'remote' |> WHERE anything = 1").unwrap())
         .expect("external rows are not local-schema checked");
     assert!(grounded.repairs.is_empty());
+    // A label only the foreign source holds is left to the foreign leg.
+    assert!(context
+        .ground(&crate::uql::parse("MATCH (:RemoteDoc) |> FOREIGN 'remote' |> LIMIT 10").unwrap())
+        .is_ok());
+    // Without a federation stage the same label is unknown.
+    assert!(matches!(
+        context.ground(&crate::uql::parse("MATCH (:RemoteDoc) |> LIMIT 10").unwrap()),
+        Err(SchemaViolation::UnknownLabel { .. })
+    ));
     context.declare_foreign_sources(BTreeSet::from(["remote".to_string()]));
     assert!(context
         .ground(&crate::uql::parse("FOREIGN 'remote'").unwrap())
