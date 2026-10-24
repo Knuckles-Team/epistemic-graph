@@ -2389,8 +2389,8 @@
       "title": "Mappings come from the connector's declaration",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4b92f8b744a9",
-        "b1f8543799db"
+        "1441a36e7b30",
+        "81059c6ca5db"
       ],
       "verified_by": [
         "crates/eg-rdf/src/pack/tests.rs:186",
@@ -2405,7 +2405,7 @@
       "title": "Undeclared mappings are refused by type",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4b92f8b744a9"
+        "81059c6ca5db"
       ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/scale.rs:153"

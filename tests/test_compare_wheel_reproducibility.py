@@ -38,6 +38,12 @@ pytestmark = pytest.mark.no_engine
 
 WHEEL_NAME = "epistemic_graph-9.9.9-py3-none-any.whl"
 
+# Fixed zip entry timestamp for every fixture wheel. ``ZipFile.writestr(name, ...)``
+# stamps the wall clock, so two fixtures built seconds apart differed in
+# ``date_time`` and the identical-wheels test flaked across a 2-second tick.
+# Pinning the timestamp is the reproducible-builds convention (SOURCE_DATE_EPOCH).
+_FIXED_DATE_TIME = (2020, 1, 1, 0, 0, 0)
+
 
 def _make_wheel(
     directory: Path,
@@ -49,13 +55,11 @@ def _make_wheel(
     wheel = directory / name
     with zipfile.ZipFile(wheel, "w", zipfile.ZIP_DEFLATED) as archive:
         for member_name, payload in sorted(members.items()):
+            info = zipfile.ZipInfo(member_name, date_time=_FIXED_DATE_TIME)
+            info.compress_type = zipfile.ZIP_DEFLATED
             if modes and member_name in modes:
-                info = zipfile.ZipInfo(member_name)
-                info.compress_type = zipfile.ZIP_DEFLATED
                 info.external_attr = modes[member_name] << 16
-                archive.writestr(info, payload)
-            else:
-                archive.writestr(member_name, payload)
+            archive.writestr(info, payload)
     return wheel
 
 
