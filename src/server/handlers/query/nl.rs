@@ -47,14 +47,17 @@ pub(crate) fn nl_config_refusal(e: &eg_plan::NlConfigError) -> String {
 
 #[cfg(feature = "nl-query")]
 /// The NL → executable-UQL-plan resolution of [`handle_nl_query`]: resolve the
-/// configured/injected `NlPlanner`, turn `text` into a UQL query STRING, then
-/// parse it into the SAME `wire::Plan` a UQL pipeline parses to. NO LLM in the
-/// engine core and NO new execution path — the produced query rides the
-/// deterministic pipeline.
+/// configured/injected `NlPlanner`, ground it on the caller's snapshot (labels,
+/// stored property keys, relationships and the composed GraphSchema's ontology
+/// names, EG-FEDERATED-QUERY-R058.4.7/.4.8), and run the bounded correction loop:
+/// every candidate is budget-checked, parsed with the caller grammar and
+/// validated against that schema before anything executes. NO LLM in the engine
+/// core and NO new execution path — the grounded plan rides the deterministic
+/// pipeline.
 #[cfg(feature = "nl-query")]
 pub(crate) fn handle_nl_query_plan(
     text: &str,
-    core: &Arc<GraphCore>,
+    view: &crate::graph::GraphView,
     req_id: u64,
 ) -> Result<(String, eg_plan::Plan), Response> {
     let planner = crate::server::nl::resolve_planner()
@@ -69,38 +72,64 @@ pub(crate) fn handle_nl_query_plan(
                     .to_string(),
             )
         })?;
-    let hint = nl_schema_hint(core);
-    let uql = planner.plan(text, &hint).map_err(|e| {
-        Response::err(
-            req_id,
-            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", &e),
-        )
-    })?;
-    // EG-FEDERATED-QUERY-R058.2.1: refuse an over-budget planner answer BEFORE it
-    // ever reaches the parser, with the SAME typed budget the eg-plan disclosure
-    // model (EG-FEDERATED-QUERY-R058.1) defines — enforced here too so the dispatch
-    // path cannot run unbounded planner text that the typed model would refuse.
-    eg_plan::nl::NlQueryBudget::default()
-        .check(&uql)
-        .map_err(|e| {
-            Response::err(
-                req_id,
-                format!(
-                    "{}: {e}",
-                    eg_types::contract::EngineErrorCode::UqlBudgetExceeded.as_str()
-                ),
-            )
-        })?;
-    let plan = eg_plan::uql::parse(&uql).map_err(|e| {
-        Response::err(
-            req_id,
-            format!(
-                "INVALID_ARGUMENT: NlQuery produced invalid UQL: {}",
-                e.render(&uql)
-            ),
-        )
-    })?;
-    Ok((uql, plan))
+    let context = nl_schema_context(view);
+    // EG-FEDERATED-QUERY-R058.2.1: the SAME typed budget refuses an over-budget
+    // answer before it reaches the parser, inside every correction step.
+    let candidate = eg_plan::nl::context::plan_grounded(
+        planner.as_ref(),
+        text,
+        &context,
+        eg_plan::nl::NlQueryBudget::default(),
+        eg_plan::nl::context::DEFAULT_MAX_STEPS,
+    )
+    .map_err(|e| Response::err(req_id, nl_refusal(&e)))?;
+    Ok((candidate.uql, candidate.plan))
+}
+
+/// The schema the planner may target: what the caller's snapshot stores, with
+/// the composed GraphSchema's ontology property names linked onto stored keys.
+#[cfg(feature = "nl-query")]
+pub(crate) fn nl_schema_context(
+    view: &crate::graph::GraphView,
+) -> eg_plan::nl::context::SchemaContext {
+    let mut context = eg_plan::nl::context::SchemaContext::from_view(view);
+    #[cfg(all(feature = "rdf", feature = "shacl"))]
+    context.link_ontology(&crate::server::handlers::rdf::composed_ontology_properties(
+        &view.schema_sources,
+    ));
+    context
+}
+
+/// The served refusal for a planner answer that was never executed.
+#[cfg(feature = "nl-query")]
+pub(crate) fn nl_refusal(error: &eg_plan::nl::NlQueryError) -> String {
+    use eg_plan::nl::NlQueryError as E;
+    match error {
+        E::Planner(message) => {
+            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", message)
+        }
+        E::BudgetExceeded { .. } => format!(
+            "{}: {error}",
+            eg_types::contract::EngineErrorCode::UqlBudgetExceeded.as_str()
+        ),
+        E::Ungrounded { steps } => format!(
+            "INVALID_ARGUMENT: NlQuery produced invalid UQL: {}",
+            ungrounded_detail(steps)
+        ),
+        other => format!("INVALID_ARGUMENT: NlQuery: {other}"),
+    }
+}
+
+/// The last step's typed reason first, then every step's text and outcome.
+#[cfg(feature = "nl-query")]
+fn ungrounded_detail(steps: &[eg_plan::nl::context::NlPlanStep]) -> String {
+    let last = steps.last().map_or("no step ran", |s| s.outcome.as_str());
+    let trail: Vec<String> = steps
+        .iter()
+        .enumerate()
+        .map(|(i, s)| format!("step {}: `{}` -> {}", i + 1, s.query_text, s.outcome))
+        .collect();
+    format!("{last} ({})", trail.join("; "))
 }
 
 #[cfg(feature = "nl-query")]
@@ -154,7 +183,15 @@ async fn run_nl_query(
     // new execution path — the produced query rides the deterministic pipeline.
     // The graph was already used for routing; the handler runs against `core`.
     let _ = graph;
-    let (uql, plan) = handle_nl_query_plan(&text, &core, req_id)?;
+    // RLS-filtered off-lock snapshot, exactly like the Sql/Uql reads. The planner
+    // is grounded on this same view, so it never sees a name the caller cannot.
+    // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
+    // NL text would risk serving a stale/foreign result.
+    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+    let mut snap = core.analysis_snapshot();
+    #[cfg(feature = "security")]
+    ctx.rls.filter_view(ctx.caller, &mut snap);
+    let (uql, plan) = handle_nl_query_plan(&text, &snap, req_id)?;
     // Verified-carrier legs: the committed tsdb scope for `Op::TsScan` fusion
     // (CONCEPT:EG-KG.query.native-time-series) and the CALLER'S owner-scoped foreign
     // registry (EH-373), so an NL-planned `FOREIGN "<name>"` / `Named` `ForeignScan`
@@ -162,13 +199,6 @@ async fn run_nl_query(
     let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan)
         .await
         .map_err(|denied| Response::err(req_id, denied))?;
-    // RLS-filtered off-lock snapshot, exactly like the Sql/Uql reads.
-    // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
-    // NL text would risk serving a stale/foreign result.
-    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-    let mut snap = core.analysis_snapshot();
-    #[cfg(feature = "security")]
-    ctx.rls.filter_view(ctx.caller, &mut snap);
     // The same off-lock run as `Uql`: persistent vector/lexical/spatial/
     // shape indexes and the caller's owner-scoped foreign registry are bound inside it.
     match run_unified_off_lock(state, req_id, &core, Arc::new(snap), plan, legs).await? {

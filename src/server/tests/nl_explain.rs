@@ -104,3 +104,32 @@ async fn nl_query_explain_refuses_exactly_like_nl_query() {
         );
     }
 }
+
+// spec: EG-FEDERATED-QUERY-R058.4.7
+#[tokio::test]
+async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let state = echo_planned_fixture().await;
+
+    // A spelling variant of a stored label and property runs as the stored name,
+    // and the explain result discloses the UQL that actually ran.
+    let explained = send(&state, 960, nl_explain("MATCH (:doc) |> WHERE Year > 2024")).await;
+    assert_ok(&explained);
+    let body = explain_body(&explained);
+    assert!(body.uql.contains("(:Doc)"), "{}", body.uql);
+    assert!(body.uql.contains("year"), "{}", body.uql);
+    let mut ids: Vec<&str> = body.rows.iter().map(|(id, _)| id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec!["d1", "d2", "d5"]);
+
+    // A property no Doc stores is refused with the typed reason, never run.
+    let text = "MATCH (:Doc) |> WHERE source = 'ServiceNow'";
+    let plain = send(&state, 961, nl(text)).await;
+    let explained = send(&state, 962, nl_explain(text)).await;
+    assert!(plain.result.is_none() && explained.result.is_none());
+    assert_eq!(plain.error.as_deref(), Some("INVALID_ARGUMENT"));
+    let detail = plain.error_detail.clone().unwrap_or_default();
+    assert!(detail.contains("NL_SCHEMA_UNKNOWN_PROPERTY"), "{detail}");
+    assert!(detail.contains("step 2"), "{detail}");
+    assert_eq!(explained.error_detail, plain.error_detail);
+}
