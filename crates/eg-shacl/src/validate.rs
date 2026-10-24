@@ -269,7 +269,7 @@ impl Validator<'_> {
         datatype: &NamedNode,
         out: &mut Vec<ValidationResult>,
     ) {
-        let ok = matches!(vn, Term::Literal(l) if l.datatype().as_str() == datatype.as_str());
+        let ok = matches!(vn, Term::Literal(l) if l.datatype().as_str() == datatype.as_str() && crate::decimal::valid_literal(l));
         if !ok {
             self.push_violation(
                 shape,
@@ -772,10 +772,12 @@ impl Validator<'_> {
     }
 }
 
-/// SPARQL/XSD-style comparison for `sh:minInclusive` etc.: numeric if both lexical forms
-/// parse as `f64`, else a lexical string compare. `None` if the value node has no lexical
-/// form (a blank node).
+/// Compare integer/decimal values exactly; preserve the existing floating-point
+/// and lexical ordering for other datatypes. Invalid numeric values are incomparable.
 fn cmp_value(vn: &Term, bound: &Term) -> Option<Ordering> {
+    if let Some(order) = crate::decimal::comparison(vn, bound) {
+        return order;
+    }
     let a = lexical(vn)?;
     let b = lexical(bound)?;
     match (a.trim().parse::<f64>(), b.trim().parse::<f64>()) {
