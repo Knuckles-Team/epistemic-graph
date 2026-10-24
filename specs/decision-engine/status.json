@@ -76,6 +76,9 @@
     "EG-DECISION-ENGINE-R048",
     "EG-DECISION-ENGINE-R049",
     "EG-DECISION-ENGINE-R050",
+    "EG-DECISION-ENGINE-R050.1",
+    "EG-DECISION-ENGINE-R050.2",
+    "EG-DECISION-ENGINE-R050.3",
     "EG-DECISION-ENGINE-R051",
     "EG-DECISION-ENGINE-R052",
     "EG-DECISION-ENGINE-R053",
@@ -927,6 +930,10 @@
     "EG-DECISION-ENGINE-R134.111.5",
     "EG-DECISION-ENGINE-R134.111.6",
     "EG-DECISION-ENGINE-R134.111.7",
+    "EG-DECISION-ENGINE-R801.7",
+    "EG-DECISION-ENGINE-R801.7.1",
+    "EG-DECISION-ENGINE-R801.7.2",
+    "EG-DECISION-ENGINE-R801.7.3",
     "EG-DECISION-ENGINE-R814",
     "EG-DECISION-ENGINE-R814.1",
     "EG-DECISION-ENGINE-R814.2",
@@ -1914,7 +1921,7 @@
     {
       "id": "EG-DECISION-ENGINE-R050",
       "title": "Typed optional model and tool facts",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "dc8d8d712d7f",
@@ -1922,7 +1929,33 @@
       ],
       "verified_by": [
         "crates/eg-types/src/agent_component.rs:1970"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R050.1",
+        "EG-DECISION-ENGINE-R050.2",
+        "EG-DECISION-ENGINE-R050.3"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050.1",
+      "title": "Digest-bound model input declaration source",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050.2",
+      "title": "Generated media-facts consumer contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050.3",
+      "title": "Native media-facts qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R051",
@@ -8997,7 +9030,8 @@
         "EG-DECISION-ENGINE-R801.3",
         "EG-DECISION-ENGINE-R801.4",
         "EG-DECISION-ENGINE-R801.5",
-        "EG-DECISION-ENGINE-R801.6"
+        "EG-DECISION-ENGINE-R801.6",
+        "EG-DECISION-ENGINE-R801.7"
       ]
     },
     {
@@ -9665,6 +9699,39 @@
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:181",
         "tests/test_decision_stat_client.py:80"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R801.7",
+      "title": "Fenced committed-run usage and caller-context aggregation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R801.7.1",
+        "EG-DECISION-ENGINE-R801.7.2",
+        "EG-DECISION-ENGINE-R801.7.3"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R801.7.1",
+      "title": "Bounded aggregation and client contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R801.7.2",
+      "title": "Native completion projection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R801.7.3",
+      "title": "Installed session qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R814",

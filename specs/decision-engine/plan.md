@@ -7,7 +7,7 @@
 3. **Qualify pack fact admission.** Consume validated component revisions only. Preserve claim provenance, reject decision-owned pack kinds, exclude withdrawn entries and refuse stale projection facts. Gate: E.
 4. **Complete statistical boundary.** Reuse `eg-numeric/decision`, decision jobs, and record v2; make visible-only features, exact propensity logging, independent-outcome admission, calibration, replay and receipt-bound promotion testable. Gate: C–D.
 5. **Add question adapters.** Implement typed retrieval, routing, enrichment, entity-resolution, schema mapping, topology and informational recommendation questions through the same ladder. No adapter owns a second policy or decision store. Gate: D and question-specific negative tests.
-6. **Publish evidence.** Run quality and hosted checks on the exact branch head, land on main, rerun or cite hosted main checks, and update each requirement's delivery and acceptance states. A branch green status is not a main acceptance verdict.
+6. **Publish evidence.** Run quality and hosted checks on the exact branch head, then land on main. Rerun or cite hosted main checks. Update each requirement's delivery and acceptance states. A branch green status is not a main acceptance verdict.
 
 ## Task-plan facts
 
@@ -66,7 +66,7 @@ The independent certificate verifier checks the input digest, sorted variable ma
 
 ### 4. Statistical decision and evidence
 
-Feature extraction is over the RLS-filtered candidate set. Candidate-local BM25 and visible-only vector scoring avoid corpus statistics and overfetch effects from invisible rows. The feature schema is versioned, records missingness and provenance, and includes only policy-approved facts: similarity, entailed coverage, evidence quality, belief/confidence, cost and latency. The resident option-marker scorer can encode state once and score each structured option in process. It must retain deterministic fixed-point output and CPU portability. Statistical heads are bounded, fitted components, not generative models; text generation and LLM weights stay outside EG.
+Feature extraction is over the RLS-filtered candidate set. Candidate-local BM25 and visible-only vector scoring avoid corpus statistics and overfetch effects from invisible rows. The versioned feature schema records missingness and provenance. It includes only policy-approved facts: similarity, entailed coverage, evidence quality, belief/confidence, cost and latency. The resident option-marker scorer can encode state once and score each structured option in process. It must retain deterministic fixed-point output and CPU portability. Statistical heads are bounded, fitted components, not generative models; text generation and LLM weights stay outside EG.
 
 Gold-labelled data and executed-option-only bandit data are different datasets. The latter requires exact action propensities and support diagnostics. It also requires inverse propensity or doubly robust estimators, effective sample size and censoring. Self-reported run outcomes cannot promote a head. Independent evaluations with sufficient trace fidelity and approved principal are joined to records. Hierarchical pooling requires minimum support and coarse output to avoid individual-run inference. Conformal and selective-risk calibration use held-out or walk-forward folds. They account for drift and explicitly abstain when their stated bound lacks support. `DecisionEval` receipts pin head, dataset window, policy, feature schema, metrics and thresholds. A policy change or head digest change invalidates the receipt for promotion.
 
@@ -145,6 +145,9 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R048 | T2 | LANDED | NOT_RUN | WP A2 — Derivation: is_a records, weakest-premise evidence class, task→capability closure, claim-premised task mappings, verifier |
 | EG-DECISION-ENGINE-R049 | T4 | BUILT | NOT_RUN | WP A3 — Solver: preprocess; find a greedy incumbent; use branch-and-bound and a Lagrangian/dual covering bound. Set a node budget, emit a certificate, and check it with verify_certificate. List templates, run no-good cuts, and compare with a brute-force oracle |
 | EG-DECISION-ENGINE-R050 | T2 | LANDED | NOT_RUN | WP A4 — Facts: typed optional ModelProfile/tool facts (modality, cost, latency, schema digests); delete unread provides |
+| EG-DECISION-ENGINE-R050.1 | T2 | BUILT | NOT_RUN | Optional digest-bound media declaration source and producer fixtures; no media-run admission |
+| EG-DECISION-ENGINE-R050.2 | T2 | SPECIFIED | NOT_RUN | Fresh generated contract and strict client preservation; missing generation remains a red boundary |
+| EG-DECISION-ENGINE-R050.3 | T2 | SPECIFIED | NOT_RUN | Exact-commit native qualification and planned maximum-parts benchmark receipt |
 | EG-DECISION-ENGINE-R051 | T2 | LANDED | NOT_RUN | WP A5 — Executor and commit: AgentAssemble/DecisionCommit handlers, one-agent-graph rule, refuse DecisionRecord in packs, audit lines |
 | EG-DECISION-ENGINE-R052 | T2 | LANDED | NOT_RUN | WP A6 — Acceptance: routing fixture with acceptability sets, planted bad inputs, oracle, golden vectors, latency report, outcome-link test |
 | EG-DECISION-ENGINE-R053 | T2 | LANDED | NOT_RUN | G0 — Gold set: ≈50 labelled typed-requirements→acceptable-assemblies items for 2.27.x, growing to ≈500 (≈100/class) before any 2.28 calibration claim |
@@ -204,7 +207,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R106 | T6 | BUILT | NOT_RUN | **ST-2** — Reference templates (single, pipeline, fan-out/join, supervisor→workers, critique loop, council) as AgentGraph templates with TopologyFacts — AU decide/topology/templates.py |
 | EG-DECISION-ENGINE-R107 | T6 | BUILT | NOT_RUN | **ST-3** — Contract: topology.rs types (≤12), AssemblyRequirements.topology, TopologyFacts on template facts, record version increment + v1 goldens, generated Python, one pin move — EG crates/eg-types/src/decision/topology.rs (new), decision/request.rs, decision/record/outcome.rs, agent_component.rs; eg-capabilities pins |
 | EG-DECISION-ENGINE-R108 | T6 | BUILT | NOT_RUN | **ST-4** — Publish-time TemplateTopologyShape validation, programmatic and fail-closed — EG src/server/handlers/admin/agent.rs hook + src/server/handlers/decide/topology_shape.rs (new) |
-| EG-DECISION-ENGINE-R109 | T6 | BUILT | NOT_RUN | **ST-5** — Admissibility entailment stage: composed-schema digest in inputs, OWL derivation, TopologyAdmissible derivation, elimination — EG crates/eg-compute/src/assemble/topology/admissible.rs (new) |
+| EG-DECISION-ENGINE-R109 | T6 | BUILT | NOT_RUN | **ST-5** — Admissibility entailment stage. Inputs bind the composed-schema digest. OWL and TopologyAdmissible derivations govern elimination. Source: EG crates/eg-compute/src/assemble/topology/admissible.rs (new) |
 | EG-DECISION-ENGINE-R110 | T6 | BUILT | NOT_RUN | **ST-6** — Model rows: one-hot width/rounds, lease/deadline/demand/verify/cap rows, precomputed tables, brute-force oracle ≤20 vars — EG crates/eg-compute/src/assemble/topology/{model.rs,tables.rs} (new), assemble/template.rs (call site) |
 | EG-DECISION-ENGINE-R111 | T6 | BUILT | NOT_RUN | **ST-7** — AU convergence: topology.py asks the topology question; delete TopologyEngine.record_outcome/EMA and KGTeamComposer success-rate reuse; build ElasticTopologyAdmission from the plan; source gate bans Cypher TopologyTemplate writes — AU decide/consumers/topology.py, graph/{subagent_patterns,topology_engine,team_composer}.py, scripts/ gate |
 | EG-DECISION-ENGINE-R112 | T6 | BUILT | NOT_RUN | **ST-8** — Capacity premise: CapacityStatus → headroom observations at the request priority. Infeasible{lease:*} naming — EG src/server/handlers/decide/capacity_premise.rs (new) |
@@ -623,7 +626,7 @@ Types: `RunTraceRecord`, `RuntimeQuota`, `QuotaDefaults`, `QuestionKind::Runtime
 
 Existing code: `crates/eg-types/src/outcome_bundle.rs:56`, `crates/eg-durable/src/project.rs:68`, `crates/eg-core/ontology/orchestration-v1.ttl:250`, `crates/eg-types/src/decision/topology.rs:75`. Reachable today: the fenced terminal outcome extension and receipt writes already exist. RuntimeQuota dispatch, RunTraceRecord adaptation, and produced-link materialization are new work. The end-to-end fixture queries Decide first, commits the summary through CommitWorkItemResult second, then queries the persisted produced link; it also proves invalid fences write neither trace nor link. Search terms used with no match: `quota`, `wall_time`, `process_limit`, `memory_limit`, `RuntimeQuota`. Moves from agent-utilities: none named.
 
-Decision: the engine fixes the numbers and the harness enforces them, so a tenant policy changes limits without a harness release. Rejected alternative: constants in the harness, because they cannot differ per tenant or task class.
+Decision: the engine fixes the numbers and the harness enforces them. A tenant policy changes limits without a harness release. Rejected alternative: constants in the harness, because they cannot differ per tenant or task class.
 
 Cross-repository: `AU-CONTROL-R041` receives `RuntimeQuota` and enforces it; `AU-CONTROL-R040` emits the run events that become the trace.
 
@@ -2084,3 +2087,70 @@ must use the direct response from the configured engine, not a caller receipt.
 Validation uses deterministic local fixtures only. The served fixture publishes
 its own feature schema through the authenticated mutation path.
 An authorized isolated fixture may instead use explicit no-auth mode. It never changes live auth.
+
+
+## Amendment 2026-10-23: model media producer and qualification split
+
+R050.1 extends the existing component facts, pack annotations and digest owners.
+Its optional declaration binds exact MIME membership, aggregate decoded bytes
+and part count; absence or null emits no new digest bytes and remains unknown.
+The source preserves the original component V3/V4 and pack golden vectors.
+Image declarations require explicit vision support at component validation.
+Pack import reuses the existing G18 draft validation before body persistence,
+component writes, receipts or outbox records; it adds no parallel validator.
+
+R050.2 owns generated schema and client compatibility. The strict generated
+model fixture is intentionally unskipped and requires a valid declaration to
+succeed before testing refusal. Rust source alone cannot satisfy it. Regenerate
+through the canonical generator, never by hand-editing contract or client files.
+R050.3 separately requires exact-commit native execution and resource evidence.
+Source annotations and generated status are not test-execution receipts. The
+planned `model_media_capabilities_max_parts` benchmark is not implemented here.
+Its workload is four declared media types and 128 supplied part sizes totaling
+at most 64 MiB; the checker processes metadata, not 64 MiB of image buffers.
+
+The existing CandidateFacts constructor already copies the complete component
+facts with its revision and definition digest. DecisionCommit compares those
+facts inside the Agent Library write transaction. This protects a decision's
+catalog snapshot, not a run's media admission. The new validate_parts helper
+has no production admission caller, accepts already supplied decoded sizes,
+and grants no authority. Empty part lists are not forbidden by this max-only
+contract; neither a minimum count nor an image decoder is introduced.
+
+R036 retains selected-profile authority and atomic decision/task admission.
+A media-specific selected-profile/run snapshot, owner-issued authority binding,
+consumer enforcement, and successful served PNG journey remain open. Do not
+infer them from catalog visibility, supports_vision, model identity, transport,
+or a successful producer fixture. Preserve TUI104's honest refusal until the
+separate consumer/admission/served evidence exists; this amendment changes no
+terminal or admission behavior and does not close that end-to-end gap.
+
+## 2026-10-23: identity-main union for R050
+
+The producer source run passed 2,385 native facade tests. Pack round trips,
+nonvision refusal without mutation, and restart isolation passed. Genuine
+source-matched exports then passed local consumer and JavaScript checks.
+The final artifact run passed hosted canonical parity and client replay.
+
+Main now includes the qualified identity producer from PR 695. This union
+preserves both source implementations. All canonical outputs and codec pins
+retain exact main bytes as temporary placeholders. They do not qualify the
+combined media and identity schemas. Fresh hosted exports and final native
+checks remain required. R050.3 benchmarks and R036 served admission stay open.
+
+### Current-main session usage reconciliation
+
+R801.7 reuses the immutable ordinary run-completion ledger from R028.6. It does not add a parallel usage observation writer or require a delegated OutcomeBundle. The existing fenced terminal transaction remains the only producer. GetSessionUsage reads the node inventory, original admission, ledger and outbox in one snapshot. The original a2a_context_id determines session membership; later metadata changes do not move counts or missing coverage.
+
+The reader examines at most 10,000 graph rows or 32 MiB of encoded node rows. Either bound makes inventory_complete false. An older owned terminal row without immutable admission also makes inventory incomplete rather than trusting mutable metadata. No continuation cursor is supplied, so a large graph can remain partial. Missing usage and empty measurements are missing coverage; an explicit zero remains measured. Each run contributes at most once.
+
+Arbora exposes this shared result to all consumers. Actual AU request/run timings remain separate immediate metrics, not durable token receipts or generation speed. No costs, queue delays or TTFT are inferred. R801.7.3 stays open until fresh hosted generation, native execution, installed consumer acceptance and maximum-input measurements pass. No live data or infrastructure is changed by source reconciliation.
+
+### 2026-10-23: compose qualified identity main
+
+Retain the immutable session-usage projection and its finite dispatch compiler budget.
+Main fdb75651 contributes the qualified identity approval and Human-session renewal contracts.
+All canonical contract, codec and ledger files are exact main placeholders, not hand-merged outputs.
+The earlier session-usage exports remain evidence only for their original source tree.
+Fresh composed-source exports and all required native and Clippy checks must qualify this union.
+R801.7.3 retains installed-session, incomplete-coverage and resource-budget acceptance.

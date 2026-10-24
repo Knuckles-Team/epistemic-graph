@@ -86,7 +86,7 @@
 - [x] D18 **EG-DECISION-ENGINE-R078.2:** Skipped this lane (2026-10-09) -- it requires the authorized contract-generation ceremony to regenerate and commit `contract/FREEZE-RECEIPT.json`/`contract/receipt.json` under `--all-features`, which needs a cargo build this lane does not run. R078.1 (its blocker) is confirmed `LANDED` on `origin/main` (commit `1527a97f211825f02feaa1f9475c494a822918f5`), so R078.2 is now unblocked for whichever lane next runs that ceremony.
 
 - [ ] D20 **EG-DECISION-ENGINE-R001.1 (reopened 2026-10-09, audit gap):** Constraint and Entailment resolution kinds are actually constructed. `graph.assemble()` and `stat_decide()` must construct `ResolutionKind::Constraint` and `ResolutionKind::Entailment` for representative cases. Today assemble only emits Optimization/Abstention and stat_decide only Statistical/Abstention, so the two declared kinds are never produced. Test: `crates/eg-types/src/decision/rapid_r001.rs::tests::assemble_and_stat_decide_each_construct_a_constraint_and_an_entailment_resolution`.
-- [ ] D21 **EG-DECISION-ENGINE-R012.1 (reopened 2026-10-09, audit gap):** Slot-level crediting across questions sharing an assembly template. When multiple questions are answered against the same assembly template, outcomes must be credited at the slot level across the shared template; today only whole- or sub-slate crediting exists. Test: `crates/eg-types/src/decision/rapid_r012.rs::tests::credits_outcomes_at_the_slot_level_across_a_shared_assembly_template`.
+- [ ] D21 **EG-DECISION-ENGINE-R012.1 (reopened 2026-10-09, audit gap):** Slot-level crediting across questions sharing an assembly template. Multiple questions can share an assembly template. Outcomes must receive slot-level credit across that template; today only whole- or sub-slate crediting exists. Test: `crates/eg-types/src/decision/rapid_r012.rs::tests::credits_outcomes_at_the_slot_level_across_a_shared_assembly_template`.
 - [ ] D22 **EG-DECISION-ENGINE-R026.1 (reopened 2026-10-09, audit gap):** Calibration-weighting half of audit sampling is tested in-crate. The audit-flag sampling half of inverse-probability-weighted audit sampling has a bound test, but the calibration-weighting half (`pub(crate) audit_weight`/targets) has no in-crate `#[cfg(test)]` test confirming calibration correctly applies the inverse-probability weight. Test: `crates/eg-numeric/src/decision/audit.rs::tests::calibration_applies_the_pub_crate_inverse_probability_audit_weight`.
 - [ ] D23 **EG-DECISION-ENGINE-R032.1 (reopened 2026-10-09, audit gap):** QuestionKind::ResolveEntity path with isotonic calibration and a conformal guarantee. No `QuestionKind::ResolveEntity` path exists. The path must wire the binary entity-matching head. It needs isotonic calibration and a conformal guarantee validated against a gold label set. Test: `src/server/handlers/decide/stat_tests/consumer_tests.rs::resolve_entity_question_applies_isotonic_calibration_and_reports_a_conformal_guarantee`.
 - [ ] D24 **EG-DECISION-ENGINE-R033.1 (reopened 2026-10-09, audit gap):** QuestionKind::SchemaMapping path from a SQL column to an ontology property. No `QuestionKind::SchemaMapping` path exists routing a SQL-column-to-ontology-property mapping decision through the typed decision mechanism; today such mappings are unverified direct assignments. Test: `src/server/handlers/decide/stat_tests/consumer_tests.rs::schema_mapping_question_maps_a_sql_column_to_the_expected_ontology_property_with_evidence_class`.
@@ -836,6 +836,11 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 
 - [ ] **EG-DECISION-ENGINE-R134.111.6:** Qualify the named maximum-input benchmark; record the profile, hardware and latency/memory results before claiming the performance budget.
 
+- [ ] **EG-DECISION-ENGINE-R801.7 (rollup):** Qualify committed session usage from native completion receipts.
+- [ ] **EG-DECISION-ENGINE-R801.7.1:** Implement and exercise bounded aggregation and public client validation.
+- [ ] **EG-DECISION-ENGINE-R801.7.2:** Exercise native same-snapshot receipt projection, original context, retries and restart.
+- [ ] **EG-DECISION-ENGINE-R801.7.3:** Qualify installed clients, signed scope refusal and measured maximum-input latency/memory.
+
 - [ ] **EG-DECISION-ENGINE-R814:** Connector prompts are system-prompt candidates that agent assembly selects (rollup).
 - [ ] **EG-DECISION-ENGINE-R814.1:** Model.
 - [ ] **EG-DECISION-ENGINE-R814.2:** Behavior.
@@ -843,3 +848,18 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R814.4:** Refusal.
 - [ ] **EG-DECISION-ENGINE-R814.5:** Evidence.
 - [ ] **EG-DECISION-ENGINE-R814.6:** Hot-path proof.
+
+
+## Model media producer qualification
+
+- [ ] **EG-DECISION-ENGINE-R050.1:** Land optional bounded media declarations,
+  digest compatibility, pack propagation and the eight producer fixtures.
+  Source exists; native execution is not inferred from test annotations.
+- [ ] **EG-DECISION-ENGINE-R050.2:** Regenerate canonical contracts and clients;
+  pass the strict generated-model fixture and freshness gate on the same head.
+- [ ] **EG-DECISION-ENGINE-R050.3:** Run native declaration, digest,
+  persistence and signed pack-import fixtures on that head; implement and
+  qualify the planned maximum-parts benchmark with a hardware/profile receipt.
+- [ ] Keep **EG-DECISION-ENGINE-R036** selected-profile authority and atomic
+  admission open. Record the missing media-run snapshot, downstream consumer
+  enforcement and served PNG evidence before changing the TUI104 refusal.
