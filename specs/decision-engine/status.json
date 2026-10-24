@@ -9684,8 +9684,10 @@
     {
       "id": "EG-DECISION-ENGINE-R814.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1274d990f940"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/metadata_catalog_classes.rs:200",
         "crates/eg-rdf/tests/metadata_catalog_classes.rs:40"
