@@ -88,3 +88,21 @@ Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.
 | Row | Proving test |
 |---|---|
 | `EG-ORCH-VOCAB-R012.9` | `crates/eg-core/tests/spec_folder_mapping.rs::requirement_rows_become_nodes` |
+
+## Run measurement schema evidence (2026-10-24)
+
+The schema tests live in `crates/eg-rdf/tests/orchestration_vocabulary.rs::run_trace`.
+This crate already owns the native parser, SPARQL evaluator and SHACL test dependency.
+The tests cover R008.1, R009.1 through R009.8, R009.12 and R009.13.
+They use ASK for declarations and native SHACL validation for constraints.
+They test all termination reasons, unknown reasons, missing measurements and measured zero.
+They also test negative, fractional and malformed typed counters, negative cost, and budget overshoot.
+Exact numeric regressions cover adjacent integers above 2^53 and a negative decimal below floating-point range.
+Shared decimal tests cover lexical validity, signs, scale and arbitrary-length values.
+
+Validation command: `cargo test --locked -p eg-rdf --features owl,sparql --test orchestration_vocabulary`.
+Shared validator command: `cargo test --locked -p eg-shacl`.
+Both commands passed on this source: eight orchestration tests and 55 shared SHACL tests.
+Independent source review approved the schema and exact numeric handling.
+These tests do not establish native producer, authority, restart or generated-client acceptance.
+R009.9 through R009.11 and R009.14 through R009.17 remain open.

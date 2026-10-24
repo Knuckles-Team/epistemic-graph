@@ -174,6 +174,11 @@ fn cmp_expr(
         eval_term(ctx, left, solution)?,
         eval_term(ctx, right, solution)?,
     );
+    if let (Some(left), Some(right)) = (&left_value, &right_value) {
+        if let Some(order) = crate::decimal::comparison(left, right) {
+            return Ok(Some(bool_term(order.is_some_and(is_valid))));
+        }
+    }
     let order = match (
         left_value.as_ref().and_then(literal_lexical),
         right_value.as_ref().and_then(literal_lexical),

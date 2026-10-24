@@ -694,7 +694,7 @@ fn core_specs() -> &'static [CoreSpec] {
         CoreSpec {
             module: "orchestration",
             version: 1,
-            shapes: None,
+            shapes: Some(include_str!("../../ontology/orchestration-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/orchestration-v1.ttl")),
         },
         CoreSpec {

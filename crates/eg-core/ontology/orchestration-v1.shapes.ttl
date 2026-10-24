@@ -1,0 +1,36 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Optional measurements stay absent; a recorded zero is valid.
+:RunTraceTerminationShape a sh:NodeShape ;
+    sh:targetClass :RunTrace ;
+    sh:property [ sh:path :terminationReason ;
+        sh:datatype xsd:string ;
+        sh:in ( "final_answer" "context_overflow" "stuck" "step_budget" "error" ) ] .
+
+:RunTraceCounterShape a sh:NodeShape ;
+    sh:targetClass :RunTrace ;
+    sh:property [ sh:path :peakContextTokens ; sh:datatype xsd:integer ; sh:minInclusive 0 ],
+    [ sh:path :contextBudgetTokens ; sh:datatype xsd:integer ; sh:minInclusive 0 ],
+    [ sh:path :elisionCount ; sh:datatype xsd:integer ; sh:minInclusive 0 ],
+    [ sh:path :summarizationCount ; sh:datatype xsd:integer ; sh:minInclusive 0 ],
+    [ sh:path :turnCount ; sh:datatype xsd:integer ; sh:minInclusive 0 ],
+    [ sh:path :toolCallCount ; sh:datatype xsd:integer ; sh:minInclusive 0 ],
+    [ sh:path :costUsd ; sh:datatype xsd:decimal ; sh:minInclusive 0 ] .
+
+# The completed-trace requirement will separately require absent fields.
+:RunTraceBudgetShape a sh:NodeShape ;
+    sh:targetClass :RunTrace ;
+    sh:sparql [
+        sh:message "Peak context exceeds its budget without context_overflow." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :peakContextTokens ?peak ; :contextBudgetTokens ?budget .
+                FILTER (?peak > ?budget)
+                OPTIONAL { $this :terminationReason ?reason }
+                FILTER (!BOUND(?reason) || ?reason != "context_overflow")
+            }
+        """
+    ] .
