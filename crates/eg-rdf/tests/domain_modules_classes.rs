@@ -59,7 +59,7 @@ const IT4IT_DELIVERY_CLASSES: &[ClassRow] = &[
     ("Backlog", &["Collection"]),
     ("Build", &["Job"]),
     ("BuildPackage", &["Artifact"]),
-    ("Deployment", &["RunEvent", "bfo:0000015"]),
+    ("DeploymentRun", &["RunEvent", "bfo:0000015"]),
     ("Environment", &["ResourceGroup"]),
     ("ServiceCatalogEntry", &["bfo:0000031"]),
     ("Subscription", &["bfo:0000031"]),
@@ -76,10 +76,10 @@ const IT4IT_DELIVERY_CLASSES: &[ClassRow] = &[
 ];
 
 const IT4IT_DELIVERY_EDGES: &[EdgeRow] = &[
-    ("deploysRelease", &["Deployment"], &["Release"], None),
+    ("deploysRelease", &["DeploymentRun"], &["Release"], None),
     (
         "deployedToEnvironment",
-        &["Deployment"],
+        &["DeploymentRun"],
         &["Environment"],
         None,
     ),

@@ -35,10 +35,10 @@
     skos:altLabel "Deployable Package", "Build Artifact" ;
     rdfs:subClassOf :Artifact .
 
-:Deployment a owl:Class ;
-    rdfs:label "Deployment" ;
+:DeploymentRun a owl:Class ;
+    rdfs:label "Deployment Run" ;
     rdfs:comment "IT4IT Requirement to Deploy deployment: the act of installing a release into an environment." ;
-    skos:altLabel "Deployment Run", "Rollout" ;
+    skos:altLabel "Deployment", "Rollout" ;
     rdfs:subClassOf :RunEvent, bfo:0000015 .
 
 :Environment a owl:Class ;
@@ -122,13 +122,13 @@
 :deploysRelease a owl:ObjectProperty ;
     rdfs:label "deploys release" ;
     rdfs:comment "Links a deployment to the release it installs." ;
-    rdfs:domain :Deployment ;
+    rdfs:domain :DeploymentRun ;
     rdfs:range :Release .
 
 :deployedToEnvironment a owl:ObjectProperty ;
     rdfs:label "deployed to environment" ;
     rdfs:comment "Links a deployment to the environment it targets." ;
-    rdfs:domain :Deployment ;
+    rdfs:domain :DeploymentRun ;
     rdfs:range :Environment .
 
 :producesPackage a owl:ObjectProperty ;
