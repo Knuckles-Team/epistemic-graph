@@ -53,7 +53,7 @@ fn attach_list_and_detach_share_one_authoritative_source_set() {
             _ => None,
         })
         .collect();
-    // The listing reports exactly the immutable core catalog: all 43 core
+    // The listing reports exactly the immutable core catalog: all 44 core
     // artifacts (35 ontologies, the governance, world-model, swarm-topology,
     // finance, temporal and virtual-graph shapes).
     let catalog = core.schema_sources();
