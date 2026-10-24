@@ -501,10 +501,10 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "03670fc1f33c",
-        "0ed1c7ff900b",
-        "754b6f51aa6d",
-        "87dcb507fa48",
-        "8dbb5bd9de53"
+        "20c64b28144f",
+        "8dbb5bd9de53",
+        "ace497f2c64a",
+        "be7d13fed7f9"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:768",
@@ -524,10 +524,10 @@
       "title": "A clean reopen writes nothing, and a fresh shard is ready in one commit",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0ed1c7ff900b",
-        "754b6f51aa6d",
-        "87dcb507fa48",
-        "a5f042565aa9"
+        "20c64b28144f",
+        "ace497f2c64a",
+        "cdf5f87230de",
+        "d9fa4b417ab8"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:995",
@@ -539,10 +539,11 @@
       "title": "Startup open has a time budget that holds under host load, and each open is diagnosable",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0ed1c7ff900b",
-        "754b6f51aa6d",
-        "87dcb507fa48",
-        "a5f042565aa9"
+        "20c64b28144f",
+        "ace497f2c64a",
+        "cdf5f87230de",
+        "d9fa4b417ab8",
+        "e146502189ea"
       ],
       "verified_by": [
         "tests/shard_open_budget.rs:175",
@@ -554,11 +555,11 @@
       "title": "A clean-shutdown marker lets open skip the full recovery scan",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0ed1c7ff900b",
-        "754b6f51aa6d",
-        "87dcb507fa48",
-        "a5f042565aa9",
-        "c081cda9d197"
+        "20c64b28144f",
+        "ace497f2c64a",
+        "be7d13fed7f9",
+        "cdf5f87230de",
+        "d9fa4b417ab8"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:768",
