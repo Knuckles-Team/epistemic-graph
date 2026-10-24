@@ -60,7 +60,7 @@ fn attach_list_and_detach_share_one_authoritative_source_set() {
     let catalog_ids: std::collections::BTreeSet<_> =
         catalog.core.keys().map(String::as_str).collect();
     assert_eq!(core_ids, catalog_ids);
-    assert_eq!(core_ids.len(), 43);
+    assert_eq!(core_ids.len(), 44);
     for anchor in [
         "core:catalog@1",
         "core:foundation@1",
