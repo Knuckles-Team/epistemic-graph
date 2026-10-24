@@ -285,7 +285,7 @@ pub(super) fn skill(connector: &str, name: &str, tools: &[&Content]) -> Content 
     }
 }
 
-fn server(connector: &str) -> Content {
+pub(super) fn server(connector: &str) -> Content {
     Content {
         kind: PackEntryKind::McpServer,
         uri: format!("mcp-server://{connector}"),
@@ -427,7 +427,7 @@ pub(super) async fn import_uploaded_with(
     allow_mass_withdrawal: bool,
 ) -> Response {
     let key = format!(
-        "connector-pack:{}:import:{}:{}:{allow_mass_withdrawal}",
+        "connector-pack:{}:import:{}:{}",
         index.connector.as_str(),
         index.pack_digest,
         expected_head

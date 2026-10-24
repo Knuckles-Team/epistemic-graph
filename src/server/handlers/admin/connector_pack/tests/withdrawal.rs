@@ -189,7 +189,8 @@ async fn an_approved_mass_withdrawal_that_moves_every_uri_imports() {
         content.uri = format!("tool://renamed-server/{}", content.name);
         content
     };
-    let renamed = build_pack(connector, &[moved(alpha), moved(beta)]);
+    let tools = [moved(alpha), moved(beta)];
+    let renamed = build_pack(connector, &tools);
 
     // Without approval the move is refused as a mass withdrawal.
     match import_approved(&served, &renamed, head_of(&first), false).await {
@@ -199,8 +200,16 @@ async fn an_approved_mass_withdrawal_that_moves_every_uri_imports() {
         other => panic!("expected PACK_MASS_WITHDRAWAL, got {other:?}"),
     }
 
-    // With the approval it lands.
-    let receipt = match import_approved(&served, &renamed, head_of(&first), true).await {
+    // With the approval it lands. The tool bodies are unchanged, the failing
+    // production case; a revised server entry gives the request its own pack
+    // digest and so its own deterministic operation key.
+    let mut server = super::server(connector);
+    server.body = format!(
+        r#"{{"contract_version":"1","instructions":"Renamed server.","name":"{connector}"}}"#
+    )
+    .into_bytes();
+    let approved = super::build_pack_with_server(connector, &server, &tools);
+    let receipt = match import_approved(&served, &approved, head_of(&first), true).await {
         PackImportResult::Imported { receipt } => receipt,
         other => panic!("approved import did not land: {other:?}"),
     };
