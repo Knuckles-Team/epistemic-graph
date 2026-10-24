@@ -542,6 +542,10 @@ mod tests {
             "eg-storage owner-adoption negative unit-test fixture (tempdir)",
         ),
         (
+            "aborted.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): an aborted write keeps the marker",
+        ),
+        (
             "bound.redb",
             "eg-storage clean-shutdown marker unit-test fixture (tempdir): a reopened bound store writes nothing",
         ),

@@ -792,7 +792,7 @@ fn a_store_with_no_marker_runs_the_full_scan() {
 
 // spec: EG-DURABLE-KERNEL-R006.3
 #[test]
-fn the_first_write_after_open_removes_the_marker_before_committing() {
+fn the_first_commit_after_open_removes_the_marker_before_committing() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("cleared.redb");
     create_and_close(&path);
@@ -803,12 +803,40 @@ fn the_first_write_after_open_removes_the_marker_before_committing() {
     );
     let write = store.begin_write().unwrap();
     assert!(
-        !marker_for(&path).exists(),
-        "removed before the write begins"
+        marker_for(&path).exists(),
+        "beginning a write does not remove the marker"
     );
     write.commit().unwrap();
+    assert!(!marker_for(&path).exists(), "the commit removed the marker");
     drop(store);
     assert!(marker_for(&path).exists(), "close after writes re-marks it");
+    assert!(
+        reopen_store(&path)
+            .unwrap()
+            .open_report()
+            .recovery_scan_skipped
+    );
+}
+
+// spec: EG-DURABLE-KERNEL-R006.3
+#[test]
+fn an_aborted_write_keeps_the_marker_valid() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aborted.redb");
+    create_and_close(&path);
+    let store = reopen_store(&path).unwrap();
+    store.begin_write().unwrap().abort().unwrap();
+    let (incarnation, _) = crate::physical::incarnation::StoreIncarnation::derive(&path).unwrap();
+    let name = PhysicalStoreIdentity::new(TEST_PHYSICAL)
+        .unwrap()
+        .name()
+        .as_str()
+        .to_string();
+    assert!(
+        crate::physical::clean_marker::is_valid(&path, &incarnation, &name),
+        "an aborted write leaves the marker in place and still matching the file"
+    );
+    drop(store);
     assert!(
         reopen_store(&path)
             .unwrap()

@@ -74,6 +74,10 @@ pub(crate) const WRITE_DURABILITY: redb::Durability = redb::Durability::Immediat
 /// row access, which is one-way: a raw transaction never becomes a token.
 pub(crate) struct ValidatedWrite {
     transaction: WriteTransaction,
+    /// The store's clean-shutdown marker (R006.3), removed durably inside
+    /// [`Self::commit`] before redb's commit. Declared after `transaction` so
+    /// the transaction drops first.
+    marker: Option<Arc<CleanMarker>>,
 }
 
 impl ValidatedWrite {
@@ -83,7 +87,15 @@ impl ValidatedWrite {
     /// `redb_commit` phase span (EH-290: the `Durability::Immediate` fsync plus
     /// redb's own page flush) is measured identically for a sole writer and
     /// for a scope group.
+    ///
+    /// The clean-shutdown marker is removed, and its directory fsynced, BEFORE
+    /// redb's commit starts, so no commit can become durable while a marker
+    /// exists (EG-DURABLE-KERNEL-R006.3). An aborted write never reaches this,
+    /// so it leaves the marker in place and still valid.
     pub(crate) fn commit(self) -> Result<(), String> {
+        if let Some(marker) = &self.marker {
+            marker.clear_before_commit()?;
+        }
         let _phase = tracing::debug_span!("commit_phase", phase = "redb_commit").entered();
         self.transaction.commit().map_err(|error| error.to_string())
     }
@@ -130,8 +142,10 @@ pub(crate) struct PhysicalStore {
     /// How this open validated and phase timings (R006.2 diagnosability).
     open_report: OpenReport,
     /// Clean-shutdown marker (R006.3). MUST stay the last field: its `Drop`
-    /// has to run after `database` has been dropped.
-    marker: Option<CleanMarker>,
+    /// has to run after `database` has been dropped. A live `ValidatedWrite`
+    /// holds a second handle, which can only delay that `Drop`, never run it
+    /// before the database drops.
+    marker: Option<Arc<CleanMarker>>,
 }
 
 /// Where one physical open spent its time, and whether it skipped the O(data)
@@ -150,7 +164,7 @@ impl PhysicalStore {
             recovery_scan_skipped: marker.skipped_scan(),
             ..report
         };
-        self.marker = Some(marker);
+        self.marker = Some(Arc::new(marker));
         self
     }
 
@@ -180,15 +194,15 @@ impl PhysicalStore {
         if self.options.is_read_only() {
             return Err("store was opened read-only".to_string());
         }
-        if let Some(marker) = &self.marker {
-            marker.clear_before_write()?;
-        }
         tracing::debug_span!("commit_phase", phase = "root_validation")
             .in_scope(|| self.validate_physical_root())?;
         let transaction = self.begin_durable_write()?;
         tracing::debug_span!("commit_phase", phase = "write_authority_validation")
             .in_scope(|| self.validate_write_authority(&transaction))?;
-        Ok(ValidatedWrite { transaction })
+        Ok(ValidatedWrite {
+            transaction,
+            marker: self.marker.clone(),
+        })
     }
 
     /// Revalidate the persisted root, the owner manifest and the declared

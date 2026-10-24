@@ -9,15 +9,18 @@
 //! Crash safety rests on ordering, not on the marker's own durability:
 //!   * the marker is written only AFTER the database handle is dropped (redb
 //!     clears its own recovery flag on drop), so it describes the final file;
-//!   * the marker is unlinked, and the directory fsynced, BEFORE the first write
-//!     transaction of an open begins. No commit can land while a durable marker
-//!     exists, so a crash after any write leaves no valid marker;
+//!   * the marker is unlinked, and the directory fsynced, inside the first
+//!     commit of an open, BEFORE redb's commit starts. No commit can become
+//!     durable while a marker exists, so a crash after any commit leaves no
+//!     valid marker. A write transaction that is aborted never reaches that
+//!     point, so it leaves the marker in place and still valid (the ledger
+//!     bootstrap on every open is one);
 //!   * the marker is never fsynced when written: losing it merely forces the
 //!     full scan, and a torn file fails its digest.
 //!
 //! The marker vouches for content that passed `validate_recovery_content`. An
 //! open that scanned, or that skipped on a valid marker, starts from validated
-//! content. A session that began any write (or created the file) no longer
+//! content. A session that committed a write (or created the file) no longer
 //! does, so its close re-runs the scan on the closed file, read-only, and
 //! writes the marker only when the scan passes. A refused store therefore
 //! never gets a marker and its next open scans and refuses again. The skipped
@@ -25,7 +28,7 @@
 //! (`validate_recovery_identity`).
 //!
 //! redb's writable open rewrites the header's recovery flag (and so the
-//! mtime) before any write. An open that found a valid marker re-stamps it
+//! mtime) before any commit. An open that found a valid marker re-stamps it
 //! against that post-open file, so a process killed before its first write
 //! keeps a marker that is still true.
 //!
@@ -105,7 +108,7 @@ pub(crate) struct CleanMarker {
     clear_lock: Mutex<()>,
     skipped_scan: bool,
     /// This open's content has not been through the recovery scan: the file
-    /// was created by it, or a write transaction has begun on it.
+    /// was created by it, or a write has committed on it.
     content_unvalidated: AtomicBool,
     private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
 }
@@ -134,7 +137,7 @@ impl CleanMarker {
     }
 
     /// Rewrite the marker against the file as it is now. Called only while
-    /// the marker is still true (valid at open, no write begun). Best effort:
+    /// the marker is still true (valid at open, nothing committed). Best effort:
     /// a failure leaves a stale marker, which only forces the full scan.
     pub(crate) fn restamp(&self) {
         if self.writable {
@@ -178,8 +181,8 @@ impl CleanMarker {
         self.skipped_scan
     }
 
-    /// Durably remove the marker before the first write of this open.
-    pub(crate) fn clear_before_write(&self) -> Result<(), String> {
+    /// Durably remove the marker before the first commit of this open.
+    pub(crate) fn clear_before_commit(&self) -> Result<(), String> {
         // From here on this open's content is unproven until its close scans it.
         self.content_unvalidated.store(true, Ordering::Release);
         if !self.armed.load(Ordering::Acquire) {
