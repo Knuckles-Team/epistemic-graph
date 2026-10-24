@@ -88,3 +88,23 @@ Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.
 | Row | Proving test |
 |---|---|
 | `EG-ORCH-VOCAB-R012.9` | `crates/eg-core/tests/spec_folder_mapping.rs::requirement_rows_become_nodes` |
+
+## R009 native producer acceptance proposal (2026-10-24)
+
+These are planned acceptance cases for existing R009.15 through R009.17.
+No test execution, generated contract or native receipt is claimed here.
+
+- Submit each existing termination fixture through generated public mutation methods.
+- Commit a terminal trace and its applied-decision edge atomically, then read both through the public query path.
+- Preserve exact original run ID, separate trace node ID, zero counters and zero cost.
+- Read the recorded decision answer; changing the current configuration must not alter the trace projection.
+- Refuse a negative or fractional counter, non-finite cost and forbidden budget overshoot before commit.
+- Refuse standalone terminal writes lacking the required edge, and invalid later field or edge mutations.
+- Refuse conflicting run-to-trace associations and prove no partial node, edge or receipt survives.
+- Prove original-owner access and foreign-owner absence within the same tenant, plus cross-tenant refusal.
+- Prove mutable work-item metadata cannot transfer trace ownership or change the recorded association.
+- Exercise authenticated and explicit local no-auth modes through their existing public request paths.
+- Keep legacy traces without native admission association unavailable; do not guess a task/hash alias.
+
+Arbora REST/MCP acceptance remains a separate consumer proof under ARBORA-OPS-R021.4.5 and .4.6.
+R009 remains open until actual producer and native readback evidence exists.
