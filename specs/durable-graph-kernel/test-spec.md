@@ -419,6 +419,17 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - Keep current-source native tests, generated freshness and served tests separate.
   No historical test receipt establishes acceptance for a new source revision.
 
+## Admission retry replay (EG-DURABLE-KERNEL-R028.4.4)
+
+Tests live beside `tests/adopt_workitem_authenticated_replay.rs`.
+They drive the served MutationBatch path with authenticated requests.
+
+- Repeat an admission with a refreshed request context. Require the original receipt.
+- Require no new outbox event and an unchanged WorkItem version, also after a restart.
+- Refuse a changed policy, input or command.
+- Refuse missing or corrupt retained evidence with `RUN_ADMISSION_UNAVAILABLE`.
+- Open a store written by the server before this change and replay one of its admissions.
+
 ## Ordered conversation admission (EG-DURABLE-KERNEL-R028.4.3)
 
 Source tests live in `src/redb_store/work_item/conversation/tests.rs`.

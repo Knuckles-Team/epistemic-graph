@@ -775,6 +775,10 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 
 - [ ] **EG-DECISION-ENGINE-R036.102:** Bind the existing graph prepare writer and recovery readers to versioned transaction/participant identity; qualify refusal and legacy recovery.
 
+- [ ] `EG-DECISION-ENGINE-R036.103` Implement durable RBAC prepare, writer interlock and coordinator resolution; qualify reopen, conflicting writes, replay and offline layout upgrade. No profile-admission completion claim.
+- [ ] **EG-DECISION-ENGINE-R036.105:** Qualify atomic certificate persistence, strict expiry, immutable recovery and exact cross-owner binding.
+- [ ] **EG-DECISION-ENGINE-R036.104:** Implement and qualify AgentLibraryOwner durable prepare, all-writer fencing and decision-record materialization/recovery against the native coordinator certificate.
+- [ ] **EG-DECISION-ENGINE-R801.8:** Co-commit caller-bound observed run usage and aggregate unique committed runs with explicit coverage.
 - [ ] **EG-DECISION-ENGINE-R804:** Evaluation sets and the program optimizer loop (rollup).
 - [ ] **EG-DECISION-ENGINE-R804.1:** Model.
 - [ ] **EG-DECISION-ENGINE-R804.2:** Behavior.
@@ -849,3 +853,4 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R814.7:** Competency query.
 ## Usage ledger (R801)
 - [ ] **EG-DECISION-ENGINE-R801.7:** Serve `UsageRead` over the durable ledger; take the tenant from the verified context; add the served test.
+- [ ] **EG-DECISION-ENGINE-R036.106:** Wire profile-use grant records and the offline RBAC layout upgrade. Qualify grant issuance and composed model admission.
