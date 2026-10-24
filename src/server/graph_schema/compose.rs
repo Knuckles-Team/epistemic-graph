@@ -728,7 +728,9 @@ ex:parent a owl:AsymmetricProperty .
         // company, infrastructure and supply-chain modules (EG-TYPED-PACKS-R105.3).
         // +162: the service-operations module and the priority domain
         // union (EG-TYPED-PACKS-R105.4).
-        assert_eq!(composed.ontology.len(), 14_054);
+        // +32 (EG-ORCH-VOCAB-R009.12, R009.13): the RunTrace termination and
+        // budget properties.
+        assert_eq!(composed.ontology.len(), 14_086);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -780,7 +782,8 @@ ex:parent a owl:AsymmetricProperty .
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
         // +129: the 19 connector parent classes (EG-TYPED-PACKS-R105.3).
         // +152: the service-operations module (EG-TYPED-PACKS-R105.4).
-        assert_eq!(semantic_axioms, 13_858);
+        // +32: the RunTrace termination and budget properties (EG-ORCH-VOCAB-R009.12).
+        assert_eq!(semantic_axioms, 13_890);
 
         let count_type = |object: &str| {
             composed
