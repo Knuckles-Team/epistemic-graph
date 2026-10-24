@@ -2389,7 +2389,8 @@
       "title": "Mappings come from the connector's declaration",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4b92f8b744a9"
+        "4b92f8b744a9",
+        "b1f8543799db"
       ],
       "verified_by": [
         "crates/eg-rdf/src/pack/tests.rs:186",
