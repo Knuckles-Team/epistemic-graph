@@ -9686,7 +9686,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:200",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:40"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R814.2",
@@ -9707,7 +9710,9 @@
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:221"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R814.5",

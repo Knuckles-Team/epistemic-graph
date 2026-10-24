@@ -20,7 +20,8 @@ use super::LegacyIntegrityPolicy;
 /// vocabulary and shapes (37, ST-1), the finance module and its shapes (39,
 /// EH-411), the temporal bi-temporal-fact shapes (40, AU-SEMANTIC-R004), and
 /// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037), and
-/// the service-operations module (43, EG-TYPED-PACKS-R105.4).
+/// the service-operations module (43, EG-TYPED-PACKS-R105.4), and the
+/// metadata-catalog vocabulary and shapes (46, EG-TYPED-PACKS-R106.1).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -820,6 +821,22 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: Some(include_str!("../../ontology/temporal-v1.shapes.ttl")),
             ontology: None,
         },
+        // The metadata catalog: assets, owners and stewards, lineage, glossary and
+        // the Agent Library (EG-TYPED-PACKS-R106.1, EG-DECISION-ENGINE-R814.1).
+        CoreSpec {
+            module: "metadata_catalog",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/metadata_catalog-v1.ttl")),
+        },
+        CoreSpec {
+            module: "metadata_catalog-shapes",
+            version: 1,
+            shapes: Some(include_str!(
+                "../../ontology/metadata_catalog-v1.shapes.ttl"
+            )),
+            ontology: None,
+        },
         CoreSpec {
             module: "virtual-graph",
             version: 1,
@@ -906,7 +923,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 44);
+        assert_eq!(sources.core.len(), 46);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1193,7 +1210,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "be8508591e04952e855ee79e9fc7b1751d1554db4d72ee9c14317e7529fdfdb2",
+                "84b89dfbeaf53ae3ec554c5c0e8a4731a19a1d4a680089d86a94f4372a368315",
             ),
             (
                 "company",
@@ -1333,6 +1350,14 @@ mod tests {
             (
                 "worldview",
                 "1c42096ed2fdbd70d2f65b1f7b0a40bba7f7c83f4929a8cc5f16090ba1903fb1",
+            ),
+            (
+                "metadata_catalog",
+                "a1c95129c61140235431749e9339d84bea9dcbc749996462f32571221b844163",
+            ),
+            (
+                "metadata_catalog-shapes",
+                "87de64872564e5b31503e95e90252294c66e2528c643e762c1f2b0de017d0973",
             ),
             (
                 "temporal-shapes",

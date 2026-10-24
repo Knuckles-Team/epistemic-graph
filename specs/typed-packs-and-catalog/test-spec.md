@@ -466,7 +466,7 @@ requires an error response with no result. Canonical artifact freshness passes. 
 | `EG-TYPED-PACKS-R805.7` | `tests/test_data_product_served.py::test_usage_cluster_yields_product_proposal` |
 
 - `EG-TYPED-PACKS-R106`: See each child.
-- `EG-TYPED-PACKS-R106.1`: `crates/eg-core/tests/connector_pack_surfaces.rs::resource_field_and_owner_shapes_validate`.
+- `EG-TYPED-PACKS-R106.1`: `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_classes_roll_up_to_eg_core_and_align_to_w3c`, `crates/eg-rdf/tests/metadata_catalog_classes.rs::owner_steward_and_lineage_properties_specialise_prov`, `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_shapes_accept_a_complete_catalog`, `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_shapes_refuse_incomplete_or_open_vocabulary_records`.
 - `EG-TYPED-PACKS-R106.2`: `crates/eg-core/tests/connector_pack_surfaces.rs::every_asset_has_owner_term_lineage_and_class_link`.
 - `EG-TYPED-PACKS-R106.3`: `tests/typed_packs/test_connector_catalog_served.py::test_import_reaches_the_one_projection_and_catalog_search`.
 - `EG-TYPED-PACKS-R106.4`: `crates/eg-core/tests/connector_pack_surfaces.rs::unresolved_class_unowned_resource_and_missing_owner_are_reported`.
