@@ -1,6 +1,8 @@
 #![allow(non_local_definitions)]
 #![allow(dead_code)]
-#![cfg_attr(test, recursion_limit = "256")]
+// The all-features dispatch future needs query depth 130. Use the same
+// bounded compiler budget for production and test builds.
+#![recursion_limit = "256"]
 // No unsafe anywhere except a few platform/C-FFI boundaries, each carrying a
 // scoped #[allow(unsafe_code)] with a soundness note: the tree-sitter block
 // (eg-compute ast/parser.rs), the CycloneDDS loan (server/dds.rs, ros2-rmw only),
@@ -58,6 +60,8 @@ macro_rules! work_item_kernel_writes {
             | $crate::protocol::Method::DeferWorkItem { .. }
             | $crate::protocol::Method::CasWorkItemMetadata { .. }
             | $crate::protocol::Method::PublishCurrentPlan { .. }
+            | $crate::protocol::Method::IssueHostStartGrant { .. }
+            | $crate::protocol::Method::PublishRunCheckpoint { .. }
             | $crate::protocol::Method::IssueControlLease { .. }
             | $crate::protocol::Method::TransitionControlLease { .. }
             | $crate::protocol::Method::PolicyEvolutionStore { .. }

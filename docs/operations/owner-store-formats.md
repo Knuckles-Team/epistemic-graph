@@ -23,88 +23,96 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `tenant_catalog` | `01b945d16fa187e69ca3dd5777a27066310b64a8b351380af1ba810f5dcd57aa` | none |
 | `node_info` | `02e5ca262822f4de0a1507780b2e908e605655d3a758e78c2a75f205ffa80347` | none |
 | `cluster_hierarchy` | `0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431` | none |
-| `graph_shard` | `cfc47e43654abc32fbf63cf3d9d7ffd4e04c742e3c955c259d2d05f5316e0a27` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
+| `graph_shard` | `3d32d052bba344a00ecdb4bd0aededaadf6d55e86fe0d1e43575e1705c78fc51` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
 | `agent_library` | `e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
 
 ## `BLOB_FORMAT_UPGRADE_REQUIRED`: blob store from before holder-scoped references
 
-* Store file: `blob.redb`
-* Refused generation: blob store from before holder-scoped references
-* Data lost: its chunks, manifests, reference counts and uploads are not migrated, so media blobs referenced by graphs must be uploaded again
-* Owner tables of the refused generation: `cas_chunks`, `cas_blobs`, `cas_refcount`, `cas_uploads`
-* Removal step: stop the engine, move `blob.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
+- Store file: `blob.redb`
+- Refused generation: blob store from before holder-scoped references
+- Data lost: its chunks, manifests, reference counts and uploads are not migrated. Thus, media blobs referenced by graphs must be uploaded again
+- Tables: `cas_chunks`, `cas_blobs`, `cas_refcount`, `cas_uploads`
+- Removal step: stop the engine, move `blob.redb` aside (keep it until the restarted engine is confirmed healthy), and restart. a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
 ## `SQL_FORMAT_UPGRADE_REQUIRED`: SQL catalog store before durable source checkpoints
 
-* Store file: `sql.redb`
-* Refused generation: SQL catalog store before durable source checkpoints
-* Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open, or re-ingestion after moving the file aside
-* Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+- Store file: `sql.redb`
+- Refused generation: SQL catalog store before durable source checkpoints
+- Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open. Alternatively, re-ingestion after moving the file aside
+- Tables: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`
+- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `SQL_FORMAT_UPGRADE_REQUIRED`: SQL catalog store before durable ANN and edge index generations
 
-* Store file: `sql.redb`
-* Refused generation: SQL catalog store before durable ANN and edge index generations
-* Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open, or re-ingestion after moving the file aside
-* Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`, `__sql_source_checkpoints__`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+- Store file: `sql.redb`
+- Refused generation: SQL catalog store before durable ANN and edge index generations
+- Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open. Alternatively, re-ingestion after moving the file aside
+- Tables: Same table set as **SQL catalog store before durable source checkpoints** above. Added tables: `__sql_source_checkpoints__`.
+- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard store before the background node-payload scrub
 
-* Store file: `graph-*.redb`
-* Refused generation: graph shard store before the background node-payload scrub
-* Data lost: its graphs are not migrated; re-ingest the sources
-* Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`
-* Removal step: stop the engine, move `graph-*.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
+- Store file: `graph-*.redb`
+- Refused generation: graph shard store before the background node-payload scrub
+- Data lost: its graphs are not migrated. re-ingest the sources
+- Tables: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`
+- Removal step: stop the engine, move `graph-*.redb` aside (keep it until the restarted engine is confirmed healthy), and restart. a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before repository enrichment budgets and supersession
 
-* Store file: `graph-*.redb`
-* Refused generation: graph shard before repository enrichment budgets and supersession
-* Data lost: its graph rows require the explicit offline enrichment layout upgrade before normal open, or re-ingestion after moving the file aside
-* Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+- Store file: `graph-*.redb`
+- Refused generation: graph shard before repository enrichment budgets and supersession
+- Data lost: its graph rows require the explicit offline enrichment layout upgrade before normal open. Alternatively, re-ingestion after moving the file aside
+- Tables: Same table set as **graph shard store before the background node-payload scrub** above. Added tables: `storage_scrub_cursor`.
+- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before repository enrichment policy revisions
 
-* Store file: `graph-*.redb`
-* Refused generation: graph shard before repository enrichment policy revisions
-* Data lost: its graph rows require re-ingestion after moving the file aside; the offline enrichment upgrade only accepts the exact pre-enrichment layout
-* Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
-* Removal step: stop the engine, move `graph-*.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
+- Store file: `graph-*.redb`
+- Refused generation: graph shard before repository enrichment policy revisions
+- Data lost: its graph rows require re-ingestion after moving the file aside. the offline enrichment upgrade only accepts the exact pre-enrichment layout
+- Tables: Same table set as **graph shard before repository enrichment budgets and supersession** above. Added tables: `repository_enrichment_budgets`, `repository_enrichment_supersessions`, `repository_enrichment_parks`.
+- Removal step: stop the engine, move `graph-*.redb` aside (keep it until the restarted engine is confirmed healthy), and restart. a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before the operation audit-append idempotency index
 
-* Store file: `graph-*.redb`
-* Refused generation: graph shard before the operation audit-append idempotency index
-* Data lost: its graph rows require the explicit offline audit-request-index layout upgrade before normal open, or re-ingestion after moving the file aside
-* Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_policy_revisions`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+- Store file: `graph-*.redb`
+- Refused generation: graph shard before the operation audit-append idempotency index
+- Data lost: its graph rows require the explicit offline audit-request-index layout upgrade before normal open. Alternatively, re-ingestion after moving the file aside
+- Tables: Same table set as **graph shard before repository enrichment policy revisions** above. Added tables: `repository_enrichment_policy_revisions`.
+- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before private current-plan snapshots
 
-* Store file: `graph-*.redb`
-* Refused generation: graph shard before private current-plan snapshots
-* Data lost: none after the explicit offline current-plan layout upgrade. Normal open refuses this predecessor.
-* Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_policy_revisions`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `audit_requests`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+- Store file: `graph-*.redb`
+- Refused generation: graph shard before private current-plan snapshots
+- Data lost: none after the explicit offline current-plan layout upgrade. Normal open refuses this predecessor.
+- Tables: Same table set as **graph shard before the operation audit-append idempotency index** above. Added tables: `audit_requests`.
+- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+
+## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before private run checkpoints
+
+- Store file: `graph-*.redb`
+- Refused generation: graph shard before private run checkpoints
+- Data lost: none. an explicit offline layout upgrade is required. Normal open refuses this predecessor.
+- Tables: Same table set as **graph shard before private current-plan snapshots** above. Added tables: `work_item_current_plans`.
+- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before connector packs and governed write-back
 
-* Store file: `agent_library.redb`
-* Refused generation: Agent Library before connector packs and governed write-back
-* Data lost: its pre-ConnectorPack and governed-write-back Agent Library rows are intentionally not upgraded
-* Owner tables of the refused generation: `agent_library`, `agent_library_heads`, `agent_graph`, `agent_graph_heads`, `agent_component`, `agent_component_heads`, `agent_template`, `agent_template_heads`
-* Removal step: stop the engine, move `agent_library.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
+- Store file: `agent_library.redb`
+- Refused generation: Agent Library before connector packs and governed write-back
+- Data lost: its pre-ConnectorPack and governed-write-back Agent Library rows are intentionally not upgraded
+- Tables: `agent_library`, `agent_library_heads`, `agent_graph`, `agent_graph_heads`, `agent_component`, `agent_component_heads`, `agent_template`, `agent_template_heads`
+- Removal step: stop the engine, move `agent_library.redb` aside (keep it until the restarted engine is confirmed healthy), and restart. a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
 ## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before served MCP catalog authority
 
-* Store file: `agent_library.redb`
-* Refused generation: Agent Library before served MCP catalog authority
-* Data lost: its rows require the explicit offline MCP catalog layout upgrade before normal open, or republishing after moving the file aside
-* Owner tables of the refused generation: `agent_library`, `agent_library_heads`, `agent_graph`, `agent_graph_heads`, `agent_component`, `agent_component_heads`, `agent_template`, `agent_template_heads`, `connector_pack_heads`, `connector_pack_members`, `connector_pack_imports`, `connector_pack_body_holders`, `connector_pack_bindings`, `decision_artifacts`, `decision_records`, `write_back_change_sets`, `write_back_idempotency`, `write_back_receipts`, `write_back_receipt_heads`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+- Store file: `agent_library.redb`
+- Refused generation: Agent Library before served MCP catalog authority
+- Data lost: its rows require the explicit offline MCP catalog layout upgrade before normal open. Alternatively, republishing after moving the file aside
+- Tables: Same table set as **Agent Library before connector packs and governed write-back** above. Added tables: `connector_pack_heads`, `connector_pack_members`, `connector_pack_imports`, `connector_pack_body_holders`, `connector_pack_bindings`, `decision_artifacts`, `decision_records`, `write_back_change_sets`, `write_back_idempotency`, `write_back_receipts`, `write_back_receipt_heads`.
+- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## Offline upgrade procedure
 
@@ -121,6 +129,7 @@ The last output line of both verbs is one JSON object with the outcome, the exit
 
 | Store | Predecessor generation | Store file |
 |---|---|---|
+| `graph_shard` | graph shard before private run checkpoints | `graph-*.redb` |
 | `graph_shard` | graph shard before private current-plan snapshots | `graph-*.redb` |
 | `sql` | SQL catalog store before durable source checkpoints | `sql.redb` |
 | `sql` | SQL catalog store before durable ANN and edge index generations | `sql.redb` |

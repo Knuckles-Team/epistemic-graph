@@ -82,6 +82,8 @@ pub(crate) fn apply_add_edge_row(
 /// what keeps the writers below inside the argument cap without threading six
 /// same-shaped handles positionally through every one of them.
 pub(crate) struct GraphRowTables<'g> {
+    pub(crate) run_checkpoints:
+        ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) current_plans: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) nodes: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) edges:
@@ -126,6 +128,8 @@ impl<'g> GraphRowTables<'g> {
     ) -> Result<Self, String> {
         Ok(Self {
             nodes: member.open_scoped_table(NODES)?,
+            run_checkpoints: member
+                .open_scoped_table(super::work_item::checkpoint::RUN_CHECKPOINTS)?,
             current_plans: member
                 .open_scoped_table(super::work_item::current_plan::CURRENT_PLANS)?,
             edges: member.open_scoped_table(EDGES)?,

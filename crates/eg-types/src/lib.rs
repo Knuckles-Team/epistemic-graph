@@ -365,6 +365,7 @@ pub mod types;
 // `result_contract::compute`; gated per compute family like `wire`.
 pub mod compute_result;
 pub mod current_plan;
+pub mod run_checkpoint;
 // GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
 // idempotency replay + per-authority fencing), built on GOC-03's
 // `commit_descriptor::CommitDescriptor` currency. Unconditional, pure
@@ -384,6 +385,7 @@ pub mod keyset_page;
 // graph-os EG-2 — native control leases: a tenant-bound, time-boxed grant with
 // a one-way active -> revoked|expired lifecycle (not a capacity admission).
 pub mod control_lease;
+pub mod host_start;
 // The engine-owned identity store: principals, credentials,
 // sessions, roles/groups/IdPs, the auth-mode singleton and scope classes.
 pub mod identity;
@@ -458,6 +460,7 @@ pub mod immich_pilot_phase;
 // (`src/server/handlers/viz.rs`, facade feature `viz-static-export`) is the one
 // place that parses `VizRenderRequest::spec_json` into a real
 // `eg_viz_core::ViewSpec` and resolves it.
+pub mod run_usage;
 pub mod usage;
 #[cfg(feature = "viz")]
 pub mod viz;
