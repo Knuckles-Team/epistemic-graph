@@ -25,6 +25,7 @@ use crate::server::state::ServerState;
 
 mod admin;
 mod content_model;
+mod model_input_capabilities;
 #[cfg(all(feature = "owl", feature = "shacl"))]
 mod ontology;
 #[cfg(feature = "shacl")]

@@ -53,23 +53,38 @@ pub enum GraphShardSource {
     BeforeAuditRequests,
     /// Before private current-plan snapshots.
     BeforeCurrentPlans,
+    /// Before private context-bound run checkpoints.
+    BeforeRunCheckpoints,
 }
 
 impl GraphShardSource {
-    fn declared_generation(self) -> &'static LayoutPredecessor {
+    fn descriptor(self) -> (&'static LayoutPredecessor, [u8; 32]) {
         match self {
-            Self::BeforeEnrichment => &GRAPH_SHARD_BEFORE_ENRICHMENT,
-            Self::BeforeAuditRequests => &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
-            Self::BeforeCurrentPlans => &GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+            Self::BeforeEnrichment => (
+                &GRAPH_SHARD_BEFORE_ENRICHMENT,
+                super::lineage::GRAPH_SHARD_PRE_ENRICHMENT_DIGEST,
+            ),
+            Self::BeforeAuditRequests => (
+                &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
+                super::lineage::GRAPH_SHARD_PRE_AUDIT_REQUESTS_DIGEST,
+            ),
+            Self::BeforeCurrentPlans => (
+                &GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+                super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST,
+            ),
+            Self::BeforeRunCheckpoints => (
+                &super::lineage::GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS,
+                super::lineage::GRAPH_SHARD_PRE_RUN_CHECKPOINTS_DIGEST,
+            ),
         }
     }
 
+    fn declared_generation(self) -> &'static LayoutPredecessor {
+        self.descriptor().0
+    }
+
     fn frozen_digest(self) -> [u8; 32] {
-        match self {
-            Self::BeforeEnrichment => super::lineage::GRAPH_SHARD_PRE_ENRICHMENT_DIGEST,
-            Self::BeforeAuditRequests => super::lineage::GRAPH_SHARD_PRE_AUDIT_REQUESTS_DIGEST,
-            Self::BeforeCurrentPlans => super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST,
-        }
+        self.descriptor().1
     }
 }
 

@@ -76,6 +76,9 @@
     "EG-DECISION-ENGINE-R048",
     "EG-DECISION-ENGINE-R049",
     "EG-DECISION-ENGINE-R050",
+    "EG-DECISION-ENGINE-R050.1",
+    "EG-DECISION-ENGINE-R050.2",
+    "EG-DECISION-ENGINE-R050.3",
     "EG-DECISION-ENGINE-R051",
     "EG-DECISION-ENGINE-R052",
     "EG-DECISION-ENGINE-R053",
@@ -857,6 +860,9 @@
     "EG-DECISION-ENGINE-R801.6",
     "EG-DECISION-ENGINE-R801.7",
     "EG-DECISION-ENGINE-R801.8",
+    "EG-DECISION-ENGINE-R801.8.1",
+    "EG-DECISION-ENGINE-R801.8.2",
+    "EG-DECISION-ENGINE-R801.8.3",
     "EG-DECISION-ENGINE-R802",
     "EG-DECISION-ENGINE-R802.1",
     "EG-DECISION-ENGINE-R802.2",
@@ -1155,7 +1161,7 @@
         "52f333ca756e"
       ],
       "verified_by": [
-        "src/server/persistence/agent_component.rs:1101"
+        "src/server/persistence/agent_component.rs:1146"
       ]
     },
     {
@@ -1275,7 +1281,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2278"
+        "crates/eg-types/src/agent_component.rs:2364"
       ]
     },
     {
@@ -1301,9 +1307,9 @@
         "d6baf6dfc8c9"
       ],
       "verified_by": [
-        "src/server/persistence/decision_record/tests.rs:167",
-        "src/server/persistence/decision_record/tests.rs:196",
-        "src/server/persistence/decision_record/tests.rs:222"
+        "src/server/persistence/decision_record/tests.rs:168",
+        "src/server/persistence/decision_record/tests.rs:197",
+        "src/server/persistence/decision_record/tests.rs:223"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R019.100"
@@ -1948,15 +1954,53 @@
     {
       "id": "EG-DECISION-ENGINE-R050",
       "title": "Typed optional model and tool facts",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "dc8d8d712d7f",
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1970"
-      ]
+        "crates/eg-types/src/agent_component.rs:2056"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R050.1",
+        "EG-DECISION-ENGINE-R050.2",
+        "EG-DECISION-ENGINE-R050.3"
+      ],
+      "priority": 0
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050.1",
+      "title": "Digest-bound model input declaration source",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/agent_component.rs:1618",
+        "crates/eg-types/src/agent_component.rs:1660",
+        "crates/eg-types/src/agent_component/input_capabilities.rs:106",
+        "crates/eg-types/src/agent_component/input_capabilities.rs:124",
+        "crates/eg-types/src/connector_pack/digest.rs:324"
+      ],
+      "priority": 0
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050.2",
+      "title": "Generated media-facts consumer contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_generated_model_input_capabilities.py:13"
+      ],
+      "priority": 0
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050.3",
+      "title": "Native media-facts qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-DECISION-ENGINE-R051",
@@ -1968,9 +2012,9 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/persistence/decision_record/tests.rs:168",
-        "src/server/persistence/decision_record/tests.rs:223",
-        "src/server/persistence/decision_record/tests.rs:242"
+        "src/server/persistence/decision_record/tests.rs:169",
+        "src/server/persistence/decision_record/tests.rs:224",
+        "src/server/persistence/decision_record/tests.rs:243"
       ]
     },
     {
@@ -2153,7 +2197,7 @@
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
-        "crates/eg-types/src/agent_component.rs:2307"
+        "crates/eg-types/src/agent_component.rs:2393"
       ]
     },
     {
@@ -2327,7 +2371,7 @@
         "c4c13898a493"
       ],
       "verified_by": [
-        "src/server/persistence/decision_record/tests.rs:262"
+        "src/server/persistence/decision_record/tests.rs:263"
       ]
     },
     {
@@ -2409,7 +2453,7 @@
         "a0743ba9b542"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:367",
+        "crates/eg-capabilities/src/error_routing.rs:369",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:29",
@@ -2481,7 +2525,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:367",
+        "crates/eg-capabilities/src/error_routing.rs:369",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
@@ -2563,7 +2607,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2335"
+        "crates/eg-types/src/agent_component.rs:2421"
       ]
     },
     {
@@ -9754,6 +9798,45 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R801.8.1",
+        "EG-DECISION-ENGINE-R801.8.2",
+        "EG-DECISION-ENGINE-R801.8.3"
+      ],
+      "priority": 0
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R801.8.1",
+      "title": "Bounded aggregation and client contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-capabilities/tests/contract_registry.rs:280",
+        "crates/eg-types/src/run_usage.rs:153",
+        "crates/eg-types/src/run_usage.rs:171",
+        "crates/eg-types/src/run_usage.rs:191",
+        "crates/eg-types/src/run_usage.rs:229"
+      ],
+      "priority": 0
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R801.8.2",
+      "title": "Native completion projection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/redb_store/work_item/run_owner/tests.rs:773",
+        "src/redb_store/work_item/run_owner/tests.rs:825",
+        "src/server/mutation_batch/tests.rs:1434"
+      ],
+      "priority": 0
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R801.8.3",
+      "title": "Installed session qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
       "priority": 0
     },
     {
@@ -9857,9 +9940,17 @@
     {
       "id": "EG-DECISION-ENGINE-R803",
       "title": "Contrastive harness composition decision (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:559",
+        "crates/eg-types/src/decision/harness_contrast.rs:611",
+        "crates/eg-types/src/decision/harness_contrast.rs:704",
+        "crates/eg-types/src/decision/harness_contrast.rs:925",
+        "tests/decide/test_harness_contrast_served.py:257"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R803.1",
         "EG-DECISION-ENGINE-R803.2",
@@ -9867,70 +9958,75 @@
         "EG-DECISION-ENGINE-R803.4",
         "EG-DECISION-ENGINE-R803.5",
         "EG-DECISION-ENGINE-R803.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:559"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:611"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "tests/decide/test_harness_contrast_served.py:257",
         "tests/decide/test_harness_contrast_served.py:258"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:704"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:925"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "tests/decide/test_harness_contrast_served.py:379",
         "tests/decide/test_harness_contrast_served.py:380"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R810",
@@ -10619,6 +10715,9 @@
     "EG-DECISION-ENGINE-R033.2",
     "EG-DECISION-ENGINE-R039.2",
     "EG-DECISION-ENGINE-R044.2.2",
+    "EG-DECISION-ENGINE-R050.1",
+    "EG-DECISION-ENGINE-R050.2",
+    "EG-DECISION-ENGINE-R050.3",
     "EG-DECISION-ENGINE-R054.1",
     "EG-DECISION-ENGINE-R056.2.2",
     "EG-DECISION-ENGINE-R066.4",
@@ -11182,13 +11281,9 @@
     "EG-DECISION-ENGINE-R801.5",
     "EG-DECISION-ENGINE-R801.6",
     "EG-DECISION-ENGINE-R801.7",
-    "EG-DECISION-ENGINE-R801.8",
-    "EG-DECISION-ENGINE-R803.1",
-    "EG-DECISION-ENGINE-R803.2",
-    "EG-DECISION-ENGINE-R803.3",
-    "EG-DECISION-ENGINE-R803.4",
-    "EG-DECISION-ENGINE-R803.5",
-    "EG-DECISION-ENGINE-R803.6",
+    "EG-DECISION-ENGINE-R801.8.1",
+    "EG-DECISION-ENGINE-R801.8.2",
+    "EG-DECISION-ENGINE-R801.8.3",
     "EG-DECISION-ENGINE-R810.1",
     "EG-DECISION-ENGINE-R810.2",
     "EG-DECISION-ENGINE-R810.3",
@@ -11257,6 +11352,9 @@
     "EG-DECISION-ENGINE-R033.2",
     "EG-DECISION-ENGINE-R039.2",
     "EG-DECISION-ENGINE-R044.2.2",
+    "EG-DECISION-ENGINE-R050.1",
+    "EG-DECISION-ENGINE-R050.2",
+    "EG-DECISION-ENGINE-R050.3",
     "EG-DECISION-ENGINE-R054.1",
     "EG-DECISION-ENGINE-R056.2.2",
     "EG-DECISION-ENGINE-R066.4",
@@ -11822,13 +11920,9 @@
     "EG-DECISION-ENGINE-R801.5",
     "EG-DECISION-ENGINE-R801.6",
     "EG-DECISION-ENGINE-R801.7",
-    "EG-DECISION-ENGINE-R801.8",
-    "EG-DECISION-ENGINE-R803.1",
-    "EG-DECISION-ENGINE-R803.2",
-    "EG-DECISION-ENGINE-R803.3",
-    "EG-DECISION-ENGINE-R803.4",
-    "EG-DECISION-ENGINE-R803.5",
-    "EG-DECISION-ENGINE-R803.6",
+    "EG-DECISION-ENGINE-R801.8.1",
+    "EG-DECISION-ENGINE-R801.8.2",
+    "EG-DECISION-ENGINE-R801.8.3",
     "EG-DECISION-ENGINE-R810.1",
     "EG-DECISION-ENGINE-R810.2",
     "EG-DECISION-ENGINE-R810.3",

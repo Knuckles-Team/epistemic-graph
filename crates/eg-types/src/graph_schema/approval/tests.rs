@@ -34,6 +34,7 @@ fn lease(status: ControlLeaseStatus, grant: Value) -> ControlLeaseView {
         unreachable!("fixture grants are objects")
     };
     ControlLeaseView {
+        host_start_provenance: None,
         lease_id: "action_approval:1".to_string(),
         kind: SCHEMA_APPROVAL_LEASE_KIND.to_string(),
         status,

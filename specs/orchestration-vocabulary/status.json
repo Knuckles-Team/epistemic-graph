@@ -1470,9 +1470,17 @@
     {
       "id": "EG-ORCH-VOCAB-R801",
       "title": "Versioned harness components as graph facts (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/orchestration/mod.rs:460",
+        "crates/eg-types/tests/harness_components.rs:141",
+        "crates/eg-types/tests/harness_components.rs:209",
+        "crates/eg-types/tests/harness_components.rs:32",
+        "crates/eg-types/tests/harness_components.rs:70"
+      ],
       "rollup_of": [
         "EG-ORCH-VOCAB-R801.1",
         "EG-ORCH-VOCAB-R801.2",
@@ -1480,76 +1488,89 @@
         "EG-ORCH-VOCAB-R801.4",
         "EG-ORCH-VOCAB-R801.5",
         "EG-ORCH-VOCAB-R801.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/src/orchestration/mod.rs:460",
         "crates/eg-types/tests/harness_components.rs:32"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_components.rs:70"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "src/server/harness_admission/tests.rs:58"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_components.rs:141"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_components.rs:209"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "tests/orchestration/test_harness_components_served.py:63"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802",
       "title": "Improvement library: adopted harnesses, contrasts and lessons (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/harness_lessons.rs:176",
+        "crates/eg-types/tests/harness_lessons.rs:253",
+        "crates/eg-types/tests/harness_lessons.rs:408",
+        "crates/eg-types/tests/harness_lessons.rs:568",
+        "crates/eg-types/tests/harness_lessons.rs:76"
+      ],
       "rollup_of": [
         "EG-ORCH-VOCAB-R802.1",
         "EG-ORCH-VOCAB-R802.2",
@@ -1557,68 +1578,73 @@
         "EG-ORCH-VOCAB-R802.4",
         "EG-ORCH-VOCAB-R802.5",
         "EG-ORCH-VOCAB-R802.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:76"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:176"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.3",
       "title": "Query",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:253"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.4",
       "title": "Supersession",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:408"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.5",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:568"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5b98e15277b7"
+      ],
       "verified_by": [
         "tests/orchestration/test_harness_lessons_served.py:154"
-      ],
-      "priority": 0
+      ]
     }
   ],
   "frontier": [
@@ -1729,19 +1755,7 @@
     "EG-ORCH-VOCAB-R004.700",
     "EG-ORCH-VOCAB-R004.701",
     "EG-ORCH-VOCAB-R009.700",
-    "EG-ORCH-VOCAB-R009.701",
-    "EG-ORCH-VOCAB-R801.1",
-    "EG-ORCH-VOCAB-R801.2",
-    "EG-ORCH-VOCAB-R801.3",
-    "EG-ORCH-VOCAB-R801.4",
-    "EG-ORCH-VOCAB-R801.5",
-    "EG-ORCH-VOCAB-R801.6",
-    "EG-ORCH-VOCAB-R802.1",
-    "EG-ORCH-VOCAB-R802.2",
-    "EG-ORCH-VOCAB-R802.3",
-    "EG-ORCH-VOCAB-R802.4",
-    "EG-ORCH-VOCAB-R802.5",
-    "EG-ORCH-VOCAB-R802.6"
+    "EG-ORCH-VOCAB-R009.701"
   ],
   "unserved": [
     "EG-ORCH-VOCAB-R001.2",
@@ -1851,18 +1865,6 @@
     "EG-ORCH-VOCAB-R004.700",
     "EG-ORCH-VOCAB-R004.701",
     "EG-ORCH-VOCAB-R009.700",
-    "EG-ORCH-VOCAB-R009.701",
-    "EG-ORCH-VOCAB-R801.1",
-    "EG-ORCH-VOCAB-R801.2",
-    "EG-ORCH-VOCAB-R801.3",
-    "EG-ORCH-VOCAB-R801.4",
-    "EG-ORCH-VOCAB-R801.5",
-    "EG-ORCH-VOCAB-R801.6",
-    "EG-ORCH-VOCAB-R802.1",
-    "EG-ORCH-VOCAB-R802.2",
-    "EG-ORCH-VOCAB-R802.3",
-    "EG-ORCH-VOCAB-R802.4",
-    "EG-ORCH-VOCAB-R802.5",
-    "EG-ORCH-VOCAB-R802.6"
+    "EG-ORCH-VOCAB-R009.701"
   ]
 }

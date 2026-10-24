@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 472,
+  "method_count": 476,
   "methods": [
     {
       "consumer_profiles": [
@@ -3634,7 +3634,7 @@
       "format_identities": [],
       "id": "ClusterHierarchyExpand",
       "is_wire_callable": true,
-      "note": "VIZ-1: GET expand(graph, cluster_id) -- a level-1 cluster's member nodes/edges read live off the graph",
+      "note": "VIZ-1: GET expand(graph, cluster_id). Read the level-1 cluster members directly from the graph",
       "policy": {
         "audited": false,
         "authz_action": "compute:graph-algo",
@@ -12266,6 +12266,139 @@
         "BUSY",
         "CANCELLED",
         "CAPACITY_DENIED",
+        "CONFLICT",
+        "CORRUPT_MUTATION_LEDGER",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "IDEMPOTENCY_CONFLICT",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "READ_ONLY",
+        "REDIRECTED",
+        "REPLAY_NONCE_CONSUMED",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "PublishRunCheckpoint",
+      "is_wire_callable": true,
+      "note": "owner and live fence atomically bind an immutable private checkpoint and WorkItem head",
+      "policy": {
+        "audited": true,
+        "authz_action": "work:write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/PublishRunCheckpoint"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/PublishRunCheckpoint",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_BAD_SIGNATURE",
+        "AUTH_EXPIRED",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "AUTH_UNKNOWN_PRINCIPAL",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "CONFLICT",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [],
+      "id": "GetRunCheckpoint",
+      "is_wire_callable": true,
+      "note": "private owner-bound checkpoint and same-snapshot WorkItem view",
+      "policy": {
+        "audited": false,
+        "authz_action": "work:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GetRunCheckpoint"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GetRunCheckpoint",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_BAD_SIGNATURE",
+        "AUTH_EXPIRED",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "AUTH_UNKNOWN_PRINCIPAL",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
         "ENGINE_DEADLINE_EXCEEDED",
         "ENGINE_INTERNAL_METHOD",
         "ENGINE_RESOURCE_EXHAUSTED",
@@ -12368,6 +12501,67 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.coordination.json#/methods/GetRunWorkItem",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_BAD_SIGNATURE",
+        "AUTH_EXPIRED",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "AUTH_UNKNOWN_PRINCIPAL",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [],
+      "id": "GetSessionUsage",
+      "is_wire_callable": true,
+      "note": "bounded caller-context committed usage",
+      "policy": {
+        "audited": false,
+        "authz_action": "usage:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GetSessionUsage"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GetSessionUsage",
         "selected_by": null
       },
       "stability": "stable"
@@ -12551,6 +12745,76 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.coordination.json#/methods/GetWorkItemOutcome",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_BAD_SIGNATURE",
+        "AUTH_EXPIRED",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "AUTH_UNKNOWN_PRINCIPAL",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "CONFLICT",
+        "CORRUPT_MUTATION_LEDGER",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "IDEMPOTENCY_CONFLICT",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "READ_ONLY",
+        "REDIRECTED",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "IssueHostStartGrant",
+      "is_wire_callable": true,
+      "note": "bounded immutable host-start assertions with native issuer provenance; application session/execution admission remains with Arbora",
+      "policy": {
+        "audited": true,
+        "authz_action": "host:issue-start",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/IssueHostStartGrant"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/IssueHostStartGrant",
         "selected_by": null
       },
       "stability": "stable"

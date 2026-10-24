@@ -15,6 +15,7 @@ fn model(window: u32, vision: bool, output: &[&str]) -> AgentComponentFacts {
         supports_tools: true,
         supports_structured_output: false,
         supports_vision: vision,
+        input_capabilities: None,
         modalities: ModalityFacts {
             input: vec!["eg:modality/text".into()],
             output: output.iter().map(|m| m.to_string()).collect(),

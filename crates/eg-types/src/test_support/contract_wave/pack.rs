@@ -59,6 +59,7 @@ pub fn annotations() -> PackAnnotations {
             supports_tools: Some(true),
             supports_structured_output: Some(true),
             supports_vision: Some(false),
+            input_capabilities: None,
             shell_proficiency: None,
             stopping_behaviour: None,
         }),
