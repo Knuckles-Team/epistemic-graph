@@ -2470,7 +2470,7 @@
       ],
       "verified_by": [
         "crates/eg-types/src/connector_pack/rapid_r075.rs:43",
-        "src/server/handlers/admin/connector_pack/import/validation.rs:952"
+        "src/server/handlers/admin/connector_pack/import/validation.rs:956"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R075.1",
@@ -2496,7 +2496,7 @@
         "d16ee611a394"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/validation.rs:952"
+        "src/server/handlers/admin/connector_pack/import/validation.rs:956"
       ]
     },
     {
