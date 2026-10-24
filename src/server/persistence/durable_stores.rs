@@ -541,6 +541,46 @@ mod tests {
             "wrong-table.redb",
             "eg-storage owner-adoption negative unit-test fixture (tempdir)",
         ),
+        (
+            "bound.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a reopened bound store writes nothing",
+        ),
+        (
+            "clean.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a graceful close skips the next scan",
+        ),
+        (
+            "cleared.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): the first write removes the marker",
+        ),
+        (
+            "fence.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a skipped scan still refuses a foreign fence",
+        ),
+        (
+            "killed.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a kill after a write leaves no marker",
+        ),
+        (
+            "killed-ro.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a kill before any write keeps the marker",
+        ),
+        (
+            "nomarker.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a missing marker runs the full scan",
+        ),
+        (
+            "orig.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a copied marker is rejected",
+        ),
+        (
+            "outside.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): an outside commit invalidates the marker",
+        ),
+        (
+            "torn.redb",
+            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a torn marker is rejected",
+        ),
     ];
 
     /// THE anti-rot gate for the backup set (BUG-PE-054).

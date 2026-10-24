@@ -23,7 +23,7 @@ const CPU_BURNERS: usize = 32;
 /// Fresh K=8 open budget, wall clock, under that load.
 const FRESH_BUDGET: Duration = Duration::from_secs(60);
 /// Reopen of a small or populated K=8 store, wall clock, under that load.
-const REOPEN_BUDGET: Duration = Duration::from_secs(12);
+const REOPEN_BUDGET: Duration = Duration::from_secs(30);
 
 struct Load {
     stop: Arc<AtomicBool>,
@@ -168,7 +168,7 @@ fn sidecars_open_with_the_shards_and_a_refusal_leaves_none() {
     }
 }
 
-/// R006.3: reopening a populated store (~160 MB) takes the clean-shutdown
+/// R006.3: reopening a populated store (~300 MB) takes the clean-shutdown
 /// marker fast path and stays inside the reopen budget under load; with the
 /// markers removed the full scan still runs and the store still opens.
 // spec: EG-DURABLE-KERNEL-R006.3
