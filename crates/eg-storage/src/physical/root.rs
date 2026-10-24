@@ -4,6 +4,7 @@ use crate::owner::{validate_declared_tables_write, validate_manifest_write};
 use crate::physical::incarnation::{
     persisted_root, require_persisted_root, StoreIncarnation, STORE_ROOT_KEY,
 };
+use crate::physical::clean_marker::CleanMarker;
 use crate::physical::integrity::{authenticate_with, PrivatePayloadIntegrity};
 use crate::physical::manifest::OwnerManifest;
 use crate::physical::write_authority::WriteValidationCounters;
@@ -126,9 +127,37 @@ pub(crate) struct PhysicalStore {
     options: StoreOpenOptions,
     /// How often each write-authority check has run on this handle (EH-390).
     validations: WriteValidationCounters,
+    /// How this open validated and phase timings (R006.2 diagnosability).
+    open_report: OpenReport,
+    /// Clean-shutdown marker (R006.3). MUST stay the last field: its `Drop`
+    /// has to run after `database` has been dropped.
+    marker: Option<CleanMarker>,
+}
+
+/// Where one physical open spent its time, and whether it skipped the O(data)
+/// recovery scan because a valid clean-shutdown marker was present.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OpenReport {
+    pub file_open: std::time::Duration,
+    pub table_validation: std::time::Duration,
+    pub recovery: std::time::Duration,
+    pub recovery_scan_skipped: bool,
 }
 
 impl PhysicalStore {
+    pub(crate) fn with_marker(mut self, marker: CleanMarker, report: OpenReport) -> Self {
+        self.open_report = OpenReport {
+            recovery_scan_skipped: marker.skipped_scan(),
+            ..report
+        };
+        self.marker = Some(marker);
+        self
+    }
+
+    pub(crate) fn open_report(&self) -> OpenReport {
+        self.open_report
+    }
+
     pub(crate) fn database(&self) -> &Database {
         &self.database
     }
@@ -150,6 +179,9 @@ impl PhysicalStore {
         // can write a store that was opened read-only.
         if self.options.is_read_only() {
             return Err("store was opened read-only".to_string());
+        }
+        if let Some(marker) = &self.marker {
+            marker.clear_before_write()?;
         }
         tracing::debug_span!("commit_phase", phase = "root_validation")
             .in_scope(|| self.validate_physical_root())?;
@@ -230,6 +262,8 @@ impl PhysicalStore {
             owner_manifest,
             options: StoreOpenOptions::default(),
             validations: WriteValidationCounters::default(),
+            open_report: OpenReport::default(),
+            marker: None,
         }
     }
 

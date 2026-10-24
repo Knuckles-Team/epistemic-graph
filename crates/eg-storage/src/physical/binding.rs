@@ -51,6 +51,44 @@ pub(crate) fn bind_scope_in(
     }
 }
 
+/// Read-only twin of [`bind_scope_in`]'s exact-re-entry case: `true` only when
+/// the binding is already persisted, equals what binding would write, and has
+/// its version row. Any other state (absent, different, half-written) is
+/// `false`/`Err` so the caller falls back to the write path, which owns the
+/// refusal and creation semantics. Writes nothing.
+pub(crate) fn scope_binding_is_current(
+    handle: &StoreHandle,
+    rtx: &ReadTransaction,
+    identity: &MutationScopeIdentity,
+    initial_version: u64,
+) -> Result<bool, String> {
+    identity.validate_digest()?;
+    let key = identity.binding_digest().to_hex();
+    let proposed = ScopeBinding {
+        schema_version: STORAGE_KERNEL_SCHEMA_VERSION,
+        store_identity_digest: handle.incarnation.identity_digest(),
+        identity: identity.clone(),
+        initial_version,
+    };
+    let bindings = rtx
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    let stored = bindings
+        .get(key.as_str())
+        .map_err(|error| error.to_string())?
+        .map(|bytes| decode_binding(bytes.value()))
+        .transpose()?;
+    if stored.as_ref() != Some(&proposed) {
+        return Ok(false);
+    }
+    let versions = rtx.open_table(VERSIONS).map_err(|error| error.to_string())?;
+    let has_version = versions
+        .get(key.as_str())
+        .map_err(|error| error.to_string())?
+        .is_some();
+    Ok(has_version)
+}
+
 fn read_scope_binding(wtx: &WriteTransaction, key: &str) -> Result<Option<ScopeBinding>, String> {
     let table = wtx
         .open_table(SCOPE_BINDINGS)

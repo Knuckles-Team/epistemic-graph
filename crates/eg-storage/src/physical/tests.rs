@@ -753,3 +753,160 @@ fn a_missing_owner_table_fails_recovery_validation() {
         Err(error) => assert!(error.contains("census") || error.contains("kv"), "{error}"),
     }
 }
+
+// ---- clean-shutdown marker (EG-DURABLE-KERNEL-R006.3) -------------------
+
+fn marker_for(path: &Path) -> std::path::PathBuf {
+    crate::physical::clean_marker::marker_path(path)
+}
+
+fn create_and_close(path: &Path) {
+    let identity = native_identity("tenant", "inc");
+    drop(open_store(path, &identity));
+}
+
+#[test]
+fn a_gracefully_closed_store_reopens_without_the_recovery_scan() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("clean.redb");
+    create_and_close(&path);
+    assert!(marker_for(&path).exists(), "graceful close writes the marker");
+    let store = reopen_store(&path).unwrap();
+    assert!(store.open_report().recovery_scan_skipped);
+}
+
+#[test]
+fn a_store_with_no_marker_runs_the_full_scan() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nomarker.redb");
+    create_and_close(&path);
+    std::fs::remove_file(marker_for(&path)).unwrap();
+    let store = reopen_store(&path).unwrap();
+    assert!(!store.open_report().recovery_scan_skipped);
+}
+
+#[test]
+fn the_first_write_after_open_removes_the_marker_before_committing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cleared.redb");
+    create_and_close(&path);
+    let store = reopen_store(&path).unwrap();
+    assert!(marker_for(&path).exists(), "an unwritten open keeps the marker");
+    let write = store.begin_write().unwrap();
+    assert!(!marker_for(&path).exists(), "removed before the write begins");
+    write.commit().unwrap();
+    drop(store);
+    assert!(marker_for(&path).exists(), "close after writes re-marks it");
+    assert!(reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+}
+
+#[test]
+fn a_marker_copied_to_another_file_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("orig.redb");
+    create_and_close(&path);
+    let copy = dir.path().join("copy.redb");
+    std::fs::copy(&path, &copy).unwrap();
+    std::fs::copy(marker_for(&path), marker_for(&copy)).unwrap();
+    let store = reopen_store(&copy).unwrap();
+    assert!(!store.open_report().recovery_scan_skipped);
+}
+
+#[test]
+fn a_torn_or_stale_marker_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("torn.redb");
+    create_and_close(&path);
+    let text = std::fs::read_to_string(marker_for(&path)).unwrap();
+    std::fs::write(marker_for(&path), &text[..text.len() / 2]).unwrap();
+    assert!(!reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+}
+
+#[test]
+fn a_commit_made_outside_the_store_invalidates_the_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("outside.redb");
+    create_and_close(&path);
+    let database = redb::Database::open(&path).unwrap();
+    let write = database.begin_write().unwrap();
+    write.commit().unwrap();
+    drop(database);
+    assert!(!reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+}
+
+const CRASH_ENV: &str = "EG_CLEAN_MARKER_CRASH_CHILD";
+
+/// Child half of the kill test: runs only when the parent sets the env var,
+/// then dies by abort() with no destructor, exactly like kill -9.
+#[test]
+fn clean_marker_crash_child() {
+    let Ok(spec) = std::env::var(CRASH_ENV) else {
+        return;
+    };
+    let (mode, path) = spec.split_once(':').unwrap();
+    let store = reopen_store(Path::new(path)).unwrap();
+    if mode == "write" {
+        store.begin_write().unwrap().commit().unwrap();
+    }
+    std::process::abort();
+}
+
+fn run_crash_child(mode: &str, path: &Path) {
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "physical::tests::clean_marker_crash_child"])
+        .env(CRASH_ENV, format!("{mode}:{}", path.display()))
+        .status()
+        .unwrap();
+    assert!(!status.success(), "the child must die uncleanly");
+}
+
+#[test]
+fn a_process_killed_after_a_write_leaves_no_valid_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("killed.redb");
+    create_and_close(&path);
+    run_crash_child("write", &path);
+    assert!(!marker_for(&path).exists(), "no marker survives a write then a kill");
+    assert!(!reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+}
+
+#[test]
+fn a_process_killed_without_writing_keeps_the_still_true_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("killed-ro.redb");
+    create_and_close(&path);
+    run_crash_child("read", &path);
+    assert!(reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+}
+
+#[test]
+fn reopening_a_bound_store_writes_nothing() {
+    use crate::kernel::StorageKernel;
+    use crate::owner::domain::LedgerOnlyOwner;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bound.redb");
+    let identity = native_identity("tenant", "inc");
+    let physical = PhysicalStoreIdentity::new(TEST_PHYSICAL).unwrap();
+    let kernel = StorageKernel::create_owner_bound::<LedgerOnlyOwner>(
+        &path,
+        physical.clone(),
+        None,
+        &[(identity.clone(), 0)],
+    )
+    .unwrap();
+    assert!(kernel.scope_binding_exists(&identity).unwrap(), "bound in the create commit");
+    drop(kernel);
+    let kernel = StorageKernel::open_owner::<LedgerOnlyOwner>(&path, physical, None).unwrap();
+    let header = |p: &Path| std::fs::read(p).unwrap();
+    let before = header(&path);
+    let verifier = TestScopeVerifier {
+        tenant: "tenant",
+        principal: "p",
+        layout: OwnerLayout::LedgerOnly,
+    };
+    let grant = kernel
+        .authenticate_scope::<LedgerOnlyOwner>(&verifier, identity, "p".to_string(), b"verified")
+        .unwrap();
+    kernel.bind_serving_scope(grant, 0).unwrap();
+    assert_eq!(before, header(&path), "re-binding a bound scope must not touch the file");
+}
