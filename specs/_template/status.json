@@ -4,5 +4,7 @@
   "owner_repo": "epistemic-graph",
   "delivery_state": "RETIRED",
   "requirement_ids": [],
-  "requirements": []
+  "requirements": [],
+  "frontier": [],
+  "unserved": []
 }

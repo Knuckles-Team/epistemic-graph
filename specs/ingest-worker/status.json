@@ -172,168 +172,192 @@
         "EG-INGEST-WORKER-R001.1009",
         "EG-INGEST-WORKER-R001.1010",
         "EG-INGEST-WORKER-R001.1011"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.1",
       "title": "Typed ingest job envelope with refusal tests",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.2",
       "title": "Typed job kinds and lane derivation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.3",
       "title": "Partition key function",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.4",
       "title": "Enqueue maps onto the served task queue with deterministic ids",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.5",
       "title": "Prerequisite: durable task queue (this repository, EG-DURABLE-KERNEL-R071, R072, R073)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.6",
       "title": "Prerequisite: worker registry, reserved admission and scheduler floors (this repository, EG-DURABLE-KERNEL-R074, R075, R076)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.7",
       "title": "Typed retry policy with validation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.8",
       "title": "Retry delay function with jitter",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.9",
       "title": "Failure routing: retry then dead letter",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.10",
       "title": "Hydration-reserved lane served as a distinct queue",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.11",
       "title": "Backpressure read and producer refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.12",
       "title": "Lease renewal for long jobs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.13",
       "title": "Ingest queue metrics",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.14",
       "title": "Cross-repo (connector SDK repository): ingest worker runner",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.15",
       "title": "Cross-repo (connector SDK repository): CLI entry point and autosize",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.16",
       "title": "Cross-repo (graph-os): host and supervise the worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.17",
       "title": "Parity test against the deleted module",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.1006",
       "title": "Model: catalogue, log and declaration ingest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.1007",
       "title": "Behavior: catalogue, log and declaration ingest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.1008",
       "title": "Wiring: catalogue, log and declaration ingest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.1009",
       "title": "Refusal: catalogue, log and declaration ingest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.1010",
       "title": "Evidence: catalogue, log and declaration ingest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R001.1011",
       "title": "Hot-path proof: catalogue, log and declaration ingest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R002",
@@ -348,49 +372,56 @@
         "EG-INGEST-WORKER-R002.4",
         "EG-INGEST-WORKER-R002.5",
         "EG-INGEST-WORKER-R002.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R002.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R002.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R002.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R002.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R002.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R002.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003",
@@ -419,133 +450,152 @@
         "EG-INGEST-WORKER-R003.18",
         "EG-INGEST-WORKER-R003.700",
         "EG-INGEST-WORKER-R003.701"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.7",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.8",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.9",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.10",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.11",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.12",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.13",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.14",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.15",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.16",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.17",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.18",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R604",
@@ -560,49 +610,56 @@
         "EG-INGEST-WORKER-R604.4",
         "EG-INGEST-WORKER-R604.5",
         "EG-INGEST-WORKER-R604.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R604.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R604.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R604.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R604.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R604.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R604.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R605",
@@ -617,49 +674,56 @@
         "EG-INGEST-WORKER-R605.4",
         "EG-INGEST-WORKER-R605.5",
         "EG-INGEST-WORKER-R605.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R605.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R605.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R605.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R605.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R605.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R605.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R606",
@@ -674,49 +738,56 @@
         "EG-INGEST-WORKER-R606.4",
         "EG-INGEST-WORKER-R606.5",
         "EG-INGEST-WORKER-R606.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R606.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R606.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R606.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R606.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R606.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R606.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R700",
@@ -731,49 +802,56 @@
         "EG-INGEST-WORKER-R700.4",
         "EG-INGEST-WORKER-R700.5",
         "EG-INGEST-WORKER-R700.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R700.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R700.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R700.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R700.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R700.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R700.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R701",
@@ -788,49 +866,56 @@
         "EG-INGEST-WORKER-R701.4",
         "EG-INGEST-WORKER-R701.5",
         "EG-INGEST-WORKER-R701.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R701.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R701.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R701.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R701.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R701.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R701.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R702",
@@ -845,63 +930,72 @@
         "EG-INGEST-WORKER-R702.4",
         "EG-INGEST-WORKER-R702.5",
         "EG-INGEST-WORKER-R702.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R702.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R702.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R702.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R702.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R702.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R702.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.700",
       "title": "Knowledge-base run outcomes, entity and claim extraction, link inference and note-vault sync: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R003.701",
       "title": "Knowledge-base run outcomes, entity and claim extraction, link inference and note-vault sync: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R910",
@@ -916,49 +1010,56 @@
         "EG-INGEST-WORKER-R910.4",
         "EG-INGEST-WORKER-R910.5",
         "EG-INGEST-WORKER-R910.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R910.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R910.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R910.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R910.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R910.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R910.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R900",
@@ -973,49 +1074,56 @@
         "EG-INGEST-WORKER-R900.4",
         "EG-INGEST-WORKER-R900.5",
         "EG-INGEST-WORKER-R900.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R900.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R900.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R900.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R900.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R900.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R900.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R901",
@@ -1030,49 +1138,56 @@
         "EG-INGEST-WORKER-R901.4",
         "EG-INGEST-WORKER-R901.5",
         "EG-INGEST-WORKER-R901.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R901.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R901.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R901.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R901.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R901.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R901.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R902",
@@ -1087,49 +1202,56 @@
         "EG-INGEST-WORKER-R902.4",
         "EG-INGEST-WORKER-R902.5",
         "EG-INGEST-WORKER-R902.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R902.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R902.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R902.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R902.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R902.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R902.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R903",
@@ -1144,49 +1266,56 @@
         "EG-INGEST-WORKER-R903.4",
         "EG-INGEST-WORKER-R903.5",
         "EG-INGEST-WORKER-R903.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R903.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R903.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R903.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R903.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R903.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R903.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R904",
@@ -1201,49 +1330,302 @@
         "EG-INGEST-WORKER-R904.4",
         "EG-INGEST-WORKER-R904.5",
         "EG-INGEST-WORKER-R904.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R904.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R904.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R904.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R904.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R904.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-INGEST-WORKER-R904.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     }
+  ],
+  "frontier": [
+    "EG-INGEST-WORKER-R001.1",
+    "EG-INGEST-WORKER-R001.2",
+    "EG-INGEST-WORKER-R001.3",
+    "EG-INGEST-WORKER-R001.4",
+    "EG-INGEST-WORKER-R001.5",
+    "EG-INGEST-WORKER-R001.6",
+    "EG-INGEST-WORKER-R001.7",
+    "EG-INGEST-WORKER-R001.8",
+    "EG-INGEST-WORKER-R001.9",
+    "EG-INGEST-WORKER-R001.10",
+    "EG-INGEST-WORKER-R001.11",
+    "EG-INGEST-WORKER-R001.12",
+    "EG-INGEST-WORKER-R001.13",
+    "EG-INGEST-WORKER-R001.14",
+    "EG-INGEST-WORKER-R001.15",
+    "EG-INGEST-WORKER-R001.16",
+    "EG-INGEST-WORKER-R001.17",
+    "EG-INGEST-WORKER-R001.1006",
+    "EG-INGEST-WORKER-R001.1007",
+    "EG-INGEST-WORKER-R001.1008",
+    "EG-INGEST-WORKER-R001.1009",
+    "EG-INGEST-WORKER-R001.1010",
+    "EG-INGEST-WORKER-R001.1011",
+    "EG-INGEST-WORKER-R002.1",
+    "EG-INGEST-WORKER-R002.2",
+    "EG-INGEST-WORKER-R002.3",
+    "EG-INGEST-WORKER-R002.4",
+    "EG-INGEST-WORKER-R002.5",
+    "EG-INGEST-WORKER-R002.6",
+    "EG-INGEST-WORKER-R003.1",
+    "EG-INGEST-WORKER-R003.2",
+    "EG-INGEST-WORKER-R003.3",
+    "EG-INGEST-WORKER-R003.4",
+    "EG-INGEST-WORKER-R003.5",
+    "EG-INGEST-WORKER-R003.6",
+    "EG-INGEST-WORKER-R003.7",
+    "EG-INGEST-WORKER-R003.8",
+    "EG-INGEST-WORKER-R003.9",
+    "EG-INGEST-WORKER-R003.10",
+    "EG-INGEST-WORKER-R003.11",
+    "EG-INGEST-WORKER-R003.12",
+    "EG-INGEST-WORKER-R003.13",
+    "EG-INGEST-WORKER-R003.14",
+    "EG-INGEST-WORKER-R003.15",
+    "EG-INGEST-WORKER-R003.16",
+    "EG-INGEST-WORKER-R003.17",
+    "EG-INGEST-WORKER-R003.18",
+    "EG-INGEST-WORKER-R604.1",
+    "EG-INGEST-WORKER-R604.2",
+    "EG-INGEST-WORKER-R604.3",
+    "EG-INGEST-WORKER-R604.4",
+    "EG-INGEST-WORKER-R604.5",
+    "EG-INGEST-WORKER-R604.6",
+    "EG-INGEST-WORKER-R605.1",
+    "EG-INGEST-WORKER-R605.2",
+    "EG-INGEST-WORKER-R605.3",
+    "EG-INGEST-WORKER-R605.4",
+    "EG-INGEST-WORKER-R605.5",
+    "EG-INGEST-WORKER-R605.6",
+    "EG-INGEST-WORKER-R606.1",
+    "EG-INGEST-WORKER-R606.2",
+    "EG-INGEST-WORKER-R606.3",
+    "EG-INGEST-WORKER-R606.4",
+    "EG-INGEST-WORKER-R606.5",
+    "EG-INGEST-WORKER-R606.6",
+    "EG-INGEST-WORKER-R700.1",
+    "EG-INGEST-WORKER-R700.2",
+    "EG-INGEST-WORKER-R700.3",
+    "EG-INGEST-WORKER-R700.4",
+    "EG-INGEST-WORKER-R700.5",
+    "EG-INGEST-WORKER-R700.6",
+    "EG-INGEST-WORKER-R701.1",
+    "EG-INGEST-WORKER-R701.2",
+    "EG-INGEST-WORKER-R701.3",
+    "EG-INGEST-WORKER-R701.4",
+    "EG-INGEST-WORKER-R701.5",
+    "EG-INGEST-WORKER-R701.6",
+    "EG-INGEST-WORKER-R702.1",
+    "EG-INGEST-WORKER-R702.2",
+    "EG-INGEST-WORKER-R702.3",
+    "EG-INGEST-WORKER-R702.4",
+    "EG-INGEST-WORKER-R702.5",
+    "EG-INGEST-WORKER-R702.6",
+    "EG-INGEST-WORKER-R003.700",
+    "EG-INGEST-WORKER-R003.701",
+    "EG-INGEST-WORKER-R910.1",
+    "EG-INGEST-WORKER-R910.2",
+    "EG-INGEST-WORKER-R910.3",
+    "EG-INGEST-WORKER-R910.4",
+    "EG-INGEST-WORKER-R910.5",
+    "EG-INGEST-WORKER-R910.6",
+    "EG-INGEST-WORKER-R900.1",
+    "EG-INGEST-WORKER-R900.2",
+    "EG-INGEST-WORKER-R900.3",
+    "EG-INGEST-WORKER-R900.4",
+    "EG-INGEST-WORKER-R900.5",
+    "EG-INGEST-WORKER-R900.6",
+    "EG-INGEST-WORKER-R901.1",
+    "EG-INGEST-WORKER-R901.2",
+    "EG-INGEST-WORKER-R901.3",
+    "EG-INGEST-WORKER-R901.4",
+    "EG-INGEST-WORKER-R901.5",
+    "EG-INGEST-WORKER-R901.6",
+    "EG-INGEST-WORKER-R902.1",
+    "EG-INGEST-WORKER-R902.2",
+    "EG-INGEST-WORKER-R902.3",
+    "EG-INGEST-WORKER-R902.4",
+    "EG-INGEST-WORKER-R902.5",
+    "EG-INGEST-WORKER-R902.6",
+    "EG-INGEST-WORKER-R903.1",
+    "EG-INGEST-WORKER-R903.2",
+    "EG-INGEST-WORKER-R903.3",
+    "EG-INGEST-WORKER-R903.4",
+    "EG-INGEST-WORKER-R903.5",
+    "EG-INGEST-WORKER-R903.6",
+    "EG-INGEST-WORKER-R904.1",
+    "EG-INGEST-WORKER-R904.2",
+    "EG-INGEST-WORKER-R904.3",
+    "EG-INGEST-WORKER-R904.4",
+    "EG-INGEST-WORKER-R904.5",
+    "EG-INGEST-WORKER-R904.6"
+  ],
+  "unserved": [
+    "EG-INGEST-WORKER-R001.1",
+    "EG-INGEST-WORKER-R001.2",
+    "EG-INGEST-WORKER-R001.3",
+    "EG-INGEST-WORKER-R001.4",
+    "EG-INGEST-WORKER-R001.5",
+    "EG-INGEST-WORKER-R001.6",
+    "EG-INGEST-WORKER-R001.7",
+    "EG-INGEST-WORKER-R001.8",
+    "EG-INGEST-WORKER-R001.9",
+    "EG-INGEST-WORKER-R001.10",
+    "EG-INGEST-WORKER-R001.11",
+    "EG-INGEST-WORKER-R001.12",
+    "EG-INGEST-WORKER-R001.13",
+    "EG-INGEST-WORKER-R001.14",
+    "EG-INGEST-WORKER-R001.15",
+    "EG-INGEST-WORKER-R001.16",
+    "EG-INGEST-WORKER-R001.17",
+    "EG-INGEST-WORKER-R001.1006",
+    "EG-INGEST-WORKER-R001.1007",
+    "EG-INGEST-WORKER-R001.1008",
+    "EG-INGEST-WORKER-R001.1009",
+    "EG-INGEST-WORKER-R001.1010",
+    "EG-INGEST-WORKER-R001.1011",
+    "EG-INGEST-WORKER-R002.1",
+    "EG-INGEST-WORKER-R002.2",
+    "EG-INGEST-WORKER-R002.3",
+    "EG-INGEST-WORKER-R002.4",
+    "EG-INGEST-WORKER-R002.5",
+    "EG-INGEST-WORKER-R002.6",
+    "EG-INGEST-WORKER-R003.1",
+    "EG-INGEST-WORKER-R003.2",
+    "EG-INGEST-WORKER-R003.3",
+    "EG-INGEST-WORKER-R003.4",
+    "EG-INGEST-WORKER-R003.5",
+    "EG-INGEST-WORKER-R003.6",
+    "EG-INGEST-WORKER-R003.7",
+    "EG-INGEST-WORKER-R003.8",
+    "EG-INGEST-WORKER-R003.9",
+    "EG-INGEST-WORKER-R003.10",
+    "EG-INGEST-WORKER-R003.11",
+    "EG-INGEST-WORKER-R003.12",
+    "EG-INGEST-WORKER-R003.13",
+    "EG-INGEST-WORKER-R003.14",
+    "EG-INGEST-WORKER-R003.15",
+    "EG-INGEST-WORKER-R003.16",
+    "EG-INGEST-WORKER-R003.17",
+    "EG-INGEST-WORKER-R003.18",
+    "EG-INGEST-WORKER-R604.1",
+    "EG-INGEST-WORKER-R604.2",
+    "EG-INGEST-WORKER-R604.3",
+    "EG-INGEST-WORKER-R604.4",
+    "EG-INGEST-WORKER-R604.5",
+    "EG-INGEST-WORKER-R604.6",
+    "EG-INGEST-WORKER-R605.1",
+    "EG-INGEST-WORKER-R605.2",
+    "EG-INGEST-WORKER-R605.3",
+    "EG-INGEST-WORKER-R605.4",
+    "EG-INGEST-WORKER-R605.5",
+    "EG-INGEST-WORKER-R605.6",
+    "EG-INGEST-WORKER-R606.1",
+    "EG-INGEST-WORKER-R606.2",
+    "EG-INGEST-WORKER-R606.3",
+    "EG-INGEST-WORKER-R606.4",
+    "EG-INGEST-WORKER-R606.5",
+    "EG-INGEST-WORKER-R606.6",
+    "EG-INGEST-WORKER-R700.1",
+    "EG-INGEST-WORKER-R700.2",
+    "EG-INGEST-WORKER-R700.3",
+    "EG-INGEST-WORKER-R700.4",
+    "EG-INGEST-WORKER-R700.5",
+    "EG-INGEST-WORKER-R700.6",
+    "EG-INGEST-WORKER-R701.1",
+    "EG-INGEST-WORKER-R701.2",
+    "EG-INGEST-WORKER-R701.3",
+    "EG-INGEST-WORKER-R701.4",
+    "EG-INGEST-WORKER-R701.5",
+    "EG-INGEST-WORKER-R701.6",
+    "EG-INGEST-WORKER-R702.1",
+    "EG-INGEST-WORKER-R702.2",
+    "EG-INGEST-WORKER-R702.3",
+    "EG-INGEST-WORKER-R702.4",
+    "EG-INGEST-WORKER-R702.5",
+    "EG-INGEST-WORKER-R702.6",
+    "EG-INGEST-WORKER-R003.700",
+    "EG-INGEST-WORKER-R003.701",
+    "EG-INGEST-WORKER-R910.1",
+    "EG-INGEST-WORKER-R910.2",
+    "EG-INGEST-WORKER-R910.3",
+    "EG-INGEST-WORKER-R910.4",
+    "EG-INGEST-WORKER-R910.5",
+    "EG-INGEST-WORKER-R910.6",
+    "EG-INGEST-WORKER-R900.1",
+    "EG-INGEST-WORKER-R900.2",
+    "EG-INGEST-WORKER-R900.3",
+    "EG-INGEST-WORKER-R900.4",
+    "EG-INGEST-WORKER-R900.5",
+    "EG-INGEST-WORKER-R900.6",
+    "EG-INGEST-WORKER-R901.1",
+    "EG-INGEST-WORKER-R901.2",
+    "EG-INGEST-WORKER-R901.3",
+    "EG-INGEST-WORKER-R901.4",
+    "EG-INGEST-WORKER-R901.5",
+    "EG-INGEST-WORKER-R901.6",
+    "EG-INGEST-WORKER-R902.1",
+    "EG-INGEST-WORKER-R902.2",
+    "EG-INGEST-WORKER-R902.3",
+    "EG-INGEST-WORKER-R902.4",
+    "EG-INGEST-WORKER-R902.5",
+    "EG-INGEST-WORKER-R902.6",
+    "EG-INGEST-WORKER-R903.1",
+    "EG-INGEST-WORKER-R903.2",
+    "EG-INGEST-WORKER-R903.3",
+    "EG-INGEST-WORKER-R903.4",
+    "EG-INGEST-WORKER-R903.5",
+    "EG-INGEST-WORKER-R903.6",
+    "EG-INGEST-WORKER-R904.1",
+    "EG-INGEST-WORKER-R904.2",
+    "EG-INGEST-WORKER-R904.3",
+    "EG-INGEST-WORKER-R904.4",
+    "EG-INGEST-WORKER-R904.5",
+    "EG-INGEST-WORKER-R904.6"
   ]
 }
