@@ -467,3 +467,21 @@ The spec-folder indexer already classifies each file of a spec folder (R012.1 to
 adds one parse step for `requirements.md`. Each table row becomes a `:Requirement` node keyed by
 its row ID. EG-SDLC-R005 derives each row state from these nodes and the changeset log. The call
 site is the non-code branch of `IndexRepository` at `src/server/dispatch/router/source_ingest.rs:24`.
+
+## Run measurement schema implementation (2026-10-24)
+
+This batch implements existing R008.1, R009.1 through R009.8, R009.12 and R009.13.
+It adds measured-property declarations and loads the run-trace shapes through the core catalog.
+Native RDF tests live in eg-rdf, which already owns the parser, SPARQL and SHACL test dependencies.
+The tests query declarations with ASK and validate zeros, absent measurements, invalid counters and budget overshoot.
+The shared SHACL validator now checks integer and decimal lexical forms.
+Its range and SPARQL comparisons preserve exact integer and decimal values.
+This fixes malformed typed counters and overshoot lost above 2^53.
+The core catalog computes document digests from the compiled source bytes.
+No generated contract artifact is edited by this batch.
+
+R009.9 through R009.11 and R009.14 through R009.17 remain open.
+No served producer, owner binding, configuration linkage or restart acceptance is claimed.
+The decision-reference proposal remains separate in EG PR 756.
+It must resolve the existing authoritative DecisionLog record, not trust a graph-authored answer.
+EG741 owner helpers and generated artifacts remain untouched.

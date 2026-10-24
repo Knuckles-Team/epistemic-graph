@@ -49,22 +49,22 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 - [ ] EG-ORCH-VOCAB-R007.3 Add the composed read
 - [ ] EG-ORCH-VOCAB-R007.4 Enforce slot agent-kind constraints before assembly selection
 - [ ] EG-ORCH-VOCAB-R008 Catalog registration and ontology gates (rollup)
-- [ ] EG-ORCH-VOCAB-R008.1 Register `orchestration-v1.shapes.ttl` with the shape loader
+- [x] EG-ORCH-VOCAB-R008.1 Register `orchestration-v1.shapes.ttl` with the shape loader
 - [ ] EG-ORCH-VOCAB-R008.2 Regenerate ontology artifacts
 - [ ] EG-ORCH-VOCAB-R009 Harness run-trace vocabulary (rollup)
-- [ ] EG-ORCH-VOCAB-R009.1 Add property `:terminationReason`
-- [ ] EG-ORCH-VOCAB-R009.2 Add property `:peakContextTokens`
-- [ ] EG-ORCH-VOCAB-R009.3 Add property `:contextBudgetTokens`
-- [ ] EG-ORCH-VOCAB-R009.4 Add property `:elisionCount`
-- [ ] EG-ORCH-VOCAB-R009.5 Add property `:summarizationCount`
-- [ ] EG-ORCH-VOCAB-R009.6 Add property `:turnCount`
-- [ ] EG-ORCH-VOCAB-R009.7 Add property `:toolCallCount`
-- [ ] EG-ORCH-VOCAB-R009.8 Add property `:costUsd`
+- [x] EG-ORCH-VOCAB-R009.1 Add property `:terminationReason`
+- [x] EG-ORCH-VOCAB-R009.2 Add property `:peakContextTokens`
+- [x] EG-ORCH-VOCAB-R009.3 Add property `:contextBudgetTokens`
+- [x] EG-ORCH-VOCAB-R009.4 Add property `:elisionCount`
+- [x] EG-ORCH-VOCAB-R009.5 Add property `:summarizationCount`
+- [x] EG-ORCH-VOCAB-R009.6 Add property `:turnCount`
+- [x] EG-ORCH-VOCAB-R009.7 Add property `:toolCallCount`
+- [x] EG-ORCH-VOCAB-R009.8 Add property `:costUsd`
 - [ ] EG-ORCH-VOCAB-R009.9 Add property `:appliedHarnessConfig`
 - [ ] EG-ORCH-VOCAB-R009.10 Add property `:runModel`
 - [ ] EG-ORCH-VOCAB-R009.11 Add property `:runTaskClass`
-- [ ] EG-ORCH-VOCAB-R009.12 Add counter shape
-- [ ] EG-ORCH-VOCAB-R009.13 Add context-budget shape
+- [x] EG-ORCH-VOCAB-R009.12 Add counter shape
+- [x] EG-ORCH-VOCAB-R009.13 Add context-budget shape
 - [ ] EG-ORCH-VOCAB-R009.14 Add completed-trace shape
 - [ ] EG-ORCH-VOCAB-R009.15 Refuse a shape-invalid RunTrace write
 - [ ] EG-ORCH-VOCAB-R009.16 Fixture trace for each termination reason

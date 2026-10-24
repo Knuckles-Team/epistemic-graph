@@ -34,6 +34,8 @@
 //! ([`validate_icv`]), with a SPARQL **explain witness** per violation and a
 //! [`check_write`] guard for constraint-enforced transactions.
 
+mod decimal;
+
 pub mod icv;
 pub mod policy;
 pub mod report;
