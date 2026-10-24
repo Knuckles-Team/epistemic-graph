@@ -2,6 +2,7 @@
 //! root, its scope bindings, and its read-only validation handle.
 
 pub(crate) mod binding;
+pub(crate) mod clean_marker;
 pub(crate) mod incarnation;
 pub(crate) mod integrity;
 pub(crate) mod manifest;

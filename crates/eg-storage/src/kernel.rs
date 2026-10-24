@@ -14,7 +14,7 @@ use crate::owner::{
     open_declared_owner_tables, validate_declared_owner_tables, validate_manifest_read,
     write_new_manifest,
 };
-use crate::physical::binding::bind_scope_in;
+use crate::physical::binding::{bind_scope_in, scope_binding_is_current};
 use crate::physical::incarnation::StoreIncarnation;
 use crate::physical::integrity::{authenticate_with, PrivatePayloadIntegrity};
 use crate::physical::manifest::{OwnerManifest, OwnerManifestDigest};
@@ -192,6 +192,26 @@ impl StorageKernel {
         .map(Self::from_store)
     }
 
+    /// Create an owner file with `scopes` already bound in the single create
+    /// commit (EG-DURABLE-KERNEL-R006.1). Binding them again through
+    /// [`Self::bind_serving_scope`] afterwards is a no-write re-entry.
+    pub fn create_owner_bound<D: OwnerDomain>(
+        path: &Path,
+        physical_identity: PhysicalStoreIdentity,
+        private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+        scopes: &[(MutationScopeIdentity, u64)],
+    ) -> Result<Self, String> {
+        create_physical_prebound_with(
+            path,
+            physical_identity,
+            private_integrity,
+            D::LAYOUT,
+            StoreOpenOptions::default(),
+            scopes,
+        )
+        .map(Self::from_store)
+    }
+
     /// Open only an exact current-format owner file under the default open
     /// options; absent or invalid declarations fail closed.
     pub fn open_owner<D: OwnerDomain>(
@@ -222,6 +242,11 @@ impl StorageKernel {
             options,
         )
         .map(Self::from_store)
+    }
+
+    /// Phase split of this open and whether it skipped the recovery scan.
+    pub fn open_report(&self) -> crate::physical::root::OpenReport {
+        self.store.open_report()
     }
 
     /// The open options this kernel's handle is actually running under.
@@ -571,6 +596,17 @@ pub(crate) fn bind_serving_scope_in<D: OwnerDomain>(
     {
         return Err("authenticated serving grant does not match this store".to_string());
     }
+    // Read first: an already-bound scope (every clean reopen) is proved in a
+    // read transaction and takes no write transaction and no fsync
+    // (EG-DURABLE-KERNEL-R006.1). Anything else falls through to the write.
+    {
+        let rtx = store.begin_read()?;
+        if scope_binding_is_current(&store.handle, &rtx, grant.identity(), initial_version)? {
+            drop(rtx);
+            let (identity, principal, authority_digest) = grant.into_parts();
+            return Ok(OwnedStoreHandle::new(identity, principal, authority_digest));
+        }
+    }
     let transaction = store.begin_write()?;
     bind_scope_in(
         &store.handle,
@@ -620,6 +656,36 @@ pub(crate) fn create_physical_with(
     layout: OwnerLayout,
     options: StoreOpenOptions,
 ) -> Result<PhysicalStore, String> {
+    create_physical_prebound_with(
+        path,
+        physical_identity,
+        private_integrity,
+        layout,
+        options,
+        &[],
+    )
+}
+
+/// Create one owner file and bind `scopes` inside the SAME create commit, so a
+/// fresh file is ready after one commit instead of create + one bind commit per
+/// scope. Each scope is checked against the layout first; authentication of the
+/// grant still happens afterwards through the normal path, which then finds the
+/// binding current and writes nothing.
+pub(crate) fn create_physical_prebound_with(
+    path: &Path,
+    physical_identity: PhysicalStoreIdentity,
+    private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    layout: OwnerLayout,
+    options: StoreOpenOptions,
+    scopes: &[(MutationScopeIdentity, u64)],
+) -> Result<PhysicalStore, String> {
+    for (identity, _) in scopes {
+        identity.validate_digest()?;
+        if !layout.accepts(identity) {
+            return Err("serving scope is outside the declared owner layout".to_string());
+        }
+        permit_reserved_name(layout, identity)?;
+    }
     if path.exists() {
         return Err("mutation store create target already exists".to_string());
     }
@@ -632,10 +698,21 @@ pub(crate) fn create_physical_with(
     let handle = initialize_strict_in(&wtx, &incarnation, &manifest)?;
     open_declared_owner_tables(&wtx, layout)?;
     write_new_manifest(&wtx, &manifest)?;
+    for (identity, initial_version) in scopes {
+        bind_scope_in(&handle, &wtx, identity, *initial_version)?;
+    }
     wtx.commit().map_err(|error| error.to_string())?;
+    let marker = crate::physical::clean_marker::CleanMarker::new(
+        path,
+        &incarnation,
+        manifest.physical_identity.name().as_str(),
+        !options.is_read_only(),
+        false,
+    );
     Ok(
         PhysicalStore::from_parts(database, handle, physical_path, private_integrity, manifest)
-            .with_options(options),
+            .with_options(options)
+            .with_marker(marker, crate::physical::root::OpenReport::default()),
     )
 }
 
@@ -668,17 +745,37 @@ pub(crate) fn open_physical_with(
     // A declared predecessor is refused by name on a read-only open, before
     // redb's writable open could repair (and so rewrite) the file.
     crate::owner::lineage::refuse_lineage_file(path, layout)?;
+    let started = std::time::Instant::now();
+    // Judge the marker against the file BEFORE redb opens it (an unclean file
+    // is repaired, i.e. rewritten, by the open itself).
+    let (pre_incarnation, _) = StoreIncarnation::derive(path)?;
+    let physical_name = physical_identity.name().as_str().to_string();
+    let marker_valid = crate::physical::clean_marker::is_valid(path, &pre_incarnation, &physical_name);
     let database = options.open_database(path)?;
+    let file_open = started.elapsed();
     let (incarnation, physical_path) = StoreIncarnation::derive(path)?;
+    let validation_started = std::time::Instant::now();
     let rtx = database.begin_read().map_err(|error| error.to_string())?;
     validate_incarnation_read(&rtx, &incarnation)?;
     let manifest = validate_manifest_read(&rtx, &physical_identity, layout)?;
     validate_declared_owner_tables(&rtx, layout)?;
-    let authenticate = |sealed: &[u8], digest: &str| {
-        authenticate_with(private_integrity.as_deref(), sealed, digest)
-    };
-    validate_recovery_content(&incarnation, &rtx, &authenticate)?;
+    let table_validation = validation_started.elapsed();
+    let recovery_started = std::time::Instant::now();
+    if !marker_valid {
+        let authenticate = |sealed: &[u8], digest: &str| {
+            authenticate_with(private_integrity.as_deref(), sealed, digest)
+        };
+        validate_recovery_content(&incarnation, &rtx, &authenticate)?;
+    }
+    let recovery = recovery_started.elapsed();
     drop(rtx);
+    let marker = crate::physical::clean_marker::CleanMarker::new(
+        path,
+        &incarnation,
+        &physical_name,
+        !options.is_read_only(),
+        marker_valid,
+    );
     Ok(PhysicalStore::from_parts(
         database,
         store_handle(incarnation),
@@ -686,5 +783,14 @@ pub(crate) fn open_physical_with(
         private_integrity,
         manifest,
     )
-    .with_options(options))
+    .with_options(options)
+    .with_marker(
+        marker,
+        crate::physical::root::OpenReport {
+            file_open,
+            table_validation,
+            recovery,
+            recovery_scan_skipped: marker_valid,
+        },
+    ))
 }

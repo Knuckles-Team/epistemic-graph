@@ -1203,16 +1203,64 @@ pub(crate) fn open_kernel_owned_store<D: OwnerDomain>(
     physical_name: &str,
     scope_identity: &MutationScopeIdentity,
 ) -> Result<(StorageKernel, MutationKernel, Arc<OwnedStoreHandle<D>>), String> {
+    let started = std::time::Instant::now();
     let physical = PhysicalStoreIdentity::new(physical_name)?;
-    let kernel = if path.exists() {
+    let existed = path.exists();
+    // A fresh file binds its control scope inside the single create commit
+    // (EG-DURABLE-KERNEL-R006.1); the bind below then finds it current.
+    let kernel = if existed {
         StorageKernel::open_owner::<D>(path, physical, None)
     } else {
-        StorageKernel::create_owner::<D>(path, physical, None)
+        StorageKernel::create_owner_bound::<D>(
+            path,
+            physical,
+            None,
+            &[(scope_identity.clone(), 0)],
+        )
     }?;
+    let kernel_elapsed = started.elapsed();
+    let report = kernel.open_report();
     let (kernel, authority) = kernel.into_read_and_mutation_authority()?;
     let mutations = MutationKernel::new(authority);
+    let bind_started = std::time::Instant::now();
     let bound = bind_scope::<D>(&kernel, scope_identity)?;
+    let bind_elapsed = bind_started.elapsed();
+    let ledger_started = std::time::Instant::now();
     mutations.bootstrap_ledger(&bound)?;
+    tracing::info!(
+        store = %path.display(),
+        existed,
+        recovery_scan_skipped = report.recovery_scan_skipped,
+        file_open_ms = report.file_open.as_millis() as u64,
+        table_validation_ms = report.table_validation.as_millis() as u64,
+        recovery_ms = report.recovery.as_millis() as u64,
+        kernel_ms = kernel_elapsed.as_millis() as u64,
+        bind_ms = bind_elapsed.as_millis() as u64,
+        ledger_ms = ledger_started.elapsed().as_millis() as u64,
+        total_ms = started.elapsed().as_millis() as u64,
+        "redb: store opened in {:?} (kernel {:?}, bind {:?}, ledger {:?})",
+        started.elapsed(),
+        kernel_elapsed,
+        bind_elapsed,
+        ledger_started.elapsed(),
+    );
+    crate::metrics::store_open(
+        &[
+            ("file_open", report.file_open.as_secs_f64()),
+            ("table_validation", report.table_validation.as_secs_f64()),
+            ("recovery", report.recovery.as_secs_f64()),
+            ("bind", bind_elapsed.as_secs_f64()),
+            ("ledger", ledger_started.elapsed().as_secs_f64()),
+            ("total", started.elapsed().as_secs_f64()),
+        ],
+        if !existed {
+            "created"
+        } else if report.recovery_scan_skipped {
+            "skipped_clean_marker"
+        } else {
+            "ran"
+        },
+    );
     Ok((kernel, mutations, bound))
 }
 
