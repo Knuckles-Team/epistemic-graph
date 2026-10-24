@@ -94,6 +94,7 @@ runs:
       shell: bash
       run: |
         python scripts/inject_numeric_kernel.py "$(ls dist-${{ inputs.pass }}/epistemic_graph-*.whl)" "$(ls numdist-${{ inputs.pass }}/*.whl)"
+        python scripts/inject_ontology.py "$(ls dist-${{ inputs.pass }}/epistemic_graph-*.whl)"
 
     # Safety net: this wheel path builds no executable, but the published wheel
     # must stay executable-free whatever a future build change emits.
