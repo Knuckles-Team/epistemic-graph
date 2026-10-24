@@ -16,35 +16,54 @@
       "title": "Typed object-store backend specification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-OBJECT-STORAGE-BACKEND-R002",
       "title": "Object-store read path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-OBJECT-STORAGE-BACKEND-R003",
       "title": "Object-store commit path (commit before ack)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-OBJECT-STORAGE-BACKEND-R004",
       "title": "Shared-root multi-node access",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-OBJECT-STORAGE-BACKEND-R005",
       "title": "Comparative cost gate across releases",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     }
+  ],
+  "frontier": [
+    "EG-OBJECT-STORAGE-BACKEND-R001",
+    "EG-OBJECT-STORAGE-BACKEND-R002",
+    "EG-OBJECT-STORAGE-BACKEND-R003",
+    "EG-OBJECT-STORAGE-BACKEND-R004",
+    "EG-OBJECT-STORAGE-BACKEND-R005"
+  ],
+  "unserved": [
+    "EG-OBJECT-STORAGE-BACKEND-R001",
+    "EG-OBJECT-STORAGE-BACKEND-R002",
+    "EG-OBJECT-STORAGE-BACKEND-R003",
+    "EG-OBJECT-STORAGE-BACKEND-R004",
+    "EG-OBJECT-STORAGE-BACKEND-R005"
   ]
 }

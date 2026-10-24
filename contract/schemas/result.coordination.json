@@ -1736,6 +1736,28 @@
       ],
       "type": "string"
     },
+    "CheckpointMemoryRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "revision",
+        "digest"
+      ],
+      "type": "object"
+    },
     "ClaimWorkItemResult": {
       "additionalProperties": false,
       "properties": {
@@ -2276,6 +2298,17 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "host_start_provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostStartProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Native issuance provenance, absent on legacy and ordinary leases."
         },
         "issued_at_ms": {
           "format": "uint64",
@@ -5836,6 +5869,25 @@
           "type": "string"
         }
       ]
+    },
+    "HostStartProvenance": {
+      "additionalProperties": false,
+      "description": "Storage-owned provenance, never read from the arbitrary grant body.\n`issuer_ref` is the existing MutationBatch privacy-safe principal fingerprint\n(`principal:sha256:<digest>`), not a raw principal or a caller assertion.",
+      "properties": {
+        "issuer_ref": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "issuer_ref"
+      ],
+      "type": "object"
     },
     "IncarnationId": {
       "description": "Opaque logical-generation identity. It is never derived from a resource name.",
@@ -9658,6 +9710,91 @@
       ],
       "type": "object"
     },
+    "RunCheckpointPublished": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "context_id": {
+          "type": "string"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "changed_work_item_ids",
+        "replayed",
+        "work_item_id",
+        "run_id",
+        "context_id",
+        "revision",
+        "payload_digest"
+      ],
+      "type": "object"
+    },
+    "RunCheckpointRead": {
+      "description": "Owner-authorized checkpoint and WorkItem projection from one native read snapshot.",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "context_id": {
+          "type": "string"
+        },
+        "long_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "short_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        },
+        "work_item": {
+          "$ref": "#/$defs/WorkItemView"
+        }
+      },
+      "required": [
+        "context_id",
+        "work_item",
+        "revision",
+        "content",
+        "payload_digest",
+        "short_term",
+        "long_term"
+      ],
+      "type": "object"
+    },
     "RunCompletionInput": {
       "additionalProperties": false,
       "properties": {
@@ -9928,6 +10065,59 @@
         "retired_by",
         "retired_at_ms",
         "reason"
+      ],
+      "type": "object"
+    },
+    "SessionUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "count_coverage": {
+          "additionalProperties": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Counts are partial when not every expected run measured that counter.",
+          "type": "object"
+        },
+        "counts": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "object"
+        },
+        "expected_runs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inventory_complete": {
+          "type": "boolean"
+        },
+        "missing_runs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recorded_runs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "context_id",
+        "inventory_complete",
+        "counts",
+        "expected_runs",
+        "recorded_runs",
+        "missing_runs",
+        "count_coverage"
       ],
       "type": "object"
     },
@@ -12771,6 +12961,25 @@
       },
       "selected_by": null
     },
+    "GetRunCheckpoint": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RunCheckpointRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
     "GetRunWorkItem": {
       "bodies": {
         "result": {
@@ -12785,6 +12994,18 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetSessionUsage": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SessionUsage"
           }
         }
       },
@@ -12829,6 +13050,18 @@
       "selected_by": null
     },
     "IssueControlLease": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ControlLeaseIssued"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "IssueHostStartGrant": {
       "bodies": {
         "result": {
           "dynamic": null,
@@ -12907,6 +13140,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/CurrentPlanPublished"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PublishRunCheckpoint": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/RunCheckpointPublished"
           }
         }
       },

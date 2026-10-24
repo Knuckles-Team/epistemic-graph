@@ -72,6 +72,7 @@ pub(super) fn facts(entry: &PackEntry, digest: &Digest256) -> Result<AgentCompon
                 latency_observed_ref: None,
                 shell_proficiency: model.shell_proficiency.clone(),
                 stopping_behaviour: model.stopping_behaviour.clone(),
+                input_capabilities: model.input_capabilities.clone(),
             }
         }
         _ => AgentComponentFacts::Opaque,

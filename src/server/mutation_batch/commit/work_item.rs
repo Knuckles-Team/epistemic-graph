@@ -74,7 +74,6 @@ fn work_item_tenant_value(method: &Method) -> Result<String, String> {
         Method::SubmitWorkItem { request } => request.context.tenant_id.clone(),
         Method::SubmitWorkItems { request } => request.context.tenant_id.clone(),
         Method::ClaimWorkItem { request } => request.tenant_ref.clone(),
-        Method::PublishCurrentPlan { request } => request.tenant.clone(),
         Method::CasWorkItemMetadata { request } => request.tenant_ref.clone(),
         Method::RenewWorkItemLease { tenant, .. }
         | Method::CommitWorkItemResult { tenant, .. }
@@ -85,13 +84,22 @@ fn work_item_tenant_value(method: &Method) -> Result<String, String> {
         | Method::ReclaimWorkItemResources { request } => request.tenant_ref.clone(),
         Method::UpdateResourceHost { request } => request.tenant_ref.clone(),
         // graph-os EG-2 control-lease writes ride the same kernel.
-        other => return control_lease_tenant(other),
+        other => return publication_tenant(other),
     };
     Ok(tenant)
 }
 
+fn publication_tenant(method: &Method) -> Result<String, String> {
+    match method {
+        Method::PublishCurrentPlan { request } => Ok(request.tenant.clone()),
+        Method::PublishRunCheckpoint { request } => Ok(request.tenant.clone()),
+        other => control_lease_tenant(other),
+    }
+}
+
 fn control_lease_tenant(method: &Method) -> Result<String, String> {
     match method {
+        Method::IssueHostStartGrant { request } => Ok(request.tenant.clone()),
         Method::IssueControlLease { request } => Ok(request.tenant.clone()),
         Method::TransitionControlLease { request } => Ok(request.tenant.clone()),
         Method::RetireSealedRecord { request } => Ok(request.tenant.clone()),
@@ -173,12 +181,14 @@ struct WorkItemCommitOutcome<'a> {
     publishes_work_item_rows: bool,
     submit: bool,
     submit_batch: bool,
+    checkpoint: bool,
 }
 
 #[derive(Clone, Copy)]
 struct WorkItemOutputFlags {
     submit: bool,
     submit_batch: bool,
+    checkpoint: bool,
     publishes_work_item_rows: bool,
 }
 
@@ -188,6 +198,7 @@ fn work_item_output_flags(method: &Method) -> WorkItemOutputFlags {
     WorkItemOutputFlags {
         submit,
         submit_batch,
+        checkpoint: matches!(method, Method::PublishRunCheckpoint { .. }),
         publishes_work_item_rows: !matches!(method, Method::UpdateResourceHost { .. }),
     }
 }
@@ -284,6 +295,7 @@ async fn commit_work_item_plan(plan: WorkItemCommitPlan<'_>) -> Result<ResultPay
         publishes_work_item_rows: flags.publishes_work_item_rows,
         submit: flags.submit,
         submit_batch: flags.submit_batch,
+        checkpoint: flags.checkpoint,
     };
     publish_work_item_outcome(outcome).await
 }
@@ -299,6 +311,7 @@ async fn publish_work_item_outcome(
         publishes_work_item_rows,
         submit,
         submit_batch,
+        checkpoint,
     } = outcome;
     let result = publish_committed_work_item(
         persistence,
@@ -309,7 +322,9 @@ async fn publish_work_item_outcome(
     )
     .await;
     match result {
-        Ok(result) if committed.replayed && submit => mark_submit_replayed(result, submit_batch),
+        Ok(result) if committed.replayed => {
+            mark_work_item_replayed(result, submit, submit_batch, checkpoint)
+        }
         Ok(result) => Ok(result),
         Err(error) => {
             match reconcile_projection_from_authority(persistence, &graph_fname, core).await {
@@ -320,6 +335,26 @@ async fn publish_work_item_outcome(
             }
         }
     }
+}
+
+fn mark_work_item_replayed(
+    result: ResultPayload,
+    submit: bool,
+    submit_batch: bool,
+    checkpoint: bool,
+) -> Result<ResultPayload, String> {
+    if submit {
+        return mark_submit_replayed(result, submit_batch);
+    }
+    if checkpoint {
+        let mut body: eg_types::run_checkpoint::RunCheckpointPublished =
+            decode_submit_receipt(result)?;
+        body.replayed = true;
+        return ResultPayload::of::<eg_types::result_contract::coordination::PublishRunCheckpoint>(
+            body,
+        );
+    }
+    Ok(result)
 }
 
 /// Execute a WorkItem claim/renew/result transition inside the redb

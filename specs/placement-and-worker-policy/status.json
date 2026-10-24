@@ -99,21 +99,24 @@
         "EG-PLACEMENT-R001.13",
         "EG-PLACEMENT-R001.14",
         "EG-PLACEMENT-R001.15"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.1",
       "title": "Prerequisite (decision-engine): standalone topology Decide question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.2",
       "title": "Add the `Placement` question kind",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.3",
@@ -148,70 +151,80 @@
       "title": "Add the placement vocabulary and shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.6",
       "title": "Pure feasibility function",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.7",
       "title": "Wire the kind into Decide",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.8",
       "title": "Capacity premise reuse, no lease",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.9",
       "title": "Why-not for every non-chosen target",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.10",
       "title": "Typed abstention",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.11",
       "title": "Served contract test through the real dispatch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.12",
       "title": "Assembled step graph fixture",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.13",
       "title": "Assemble abstains rather than invents",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.14",
       "title": "Cross-repo (graph-os): correct R017 wording",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002",
@@ -236,7 +249,8 @@
         "EG-PLACEMENT-R002.14",
         "EG-PLACEMENT-R002.15",
         "EG-PLACEMENT-R002.600"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.1",
@@ -279,84 +293,96 @@
       "title": "Admission returns a grant",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.5",
       "title": "Routing is engine-side",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.6",
       "title": "Reword `EG-INGEST-WORKER-R001.2`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.7",
       "title": "Reword `EG-INGEST-WORKER-R001.3`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.8",
       "title": "Reword `EG-INGEST-WORKER-R001.6`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.9",
       "title": "Reword `EG-INGEST-WORKER-R001.10`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.10",
       "title": "Reword `EG-INGEST-WORKER-R001.11`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.11",
       "title": "Reword `EG-INGEST-WORKER-R001.14`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.12",
       "title": "Reword `EG-INGEST-WORKER-R001.15`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.13",
       "title": "Cross-repo (connector SDK repository): no policy constants in the worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.14",
       "title": "Fold the analytics pool knob into the same config",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.15",
       "title": "Parity check that no duplicate policy remains",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R003",
@@ -371,7 +397,8 @@
         "EG-PLACEMENT-R003.4",
         "EG-PLACEMENT-R003.5",
         "EG-PLACEMENT-R003.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R003.1",
@@ -423,7 +450,8 @@
       "title": "Plain labels are accepted and stored opaque",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R003.6",
@@ -450,56 +478,64 @@
         "EG-PLACEMENT-R004.4",
         "EG-PLACEMENT-R004.5",
         "EG-PLACEMENT-R004.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R004.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R004.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R004.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R004.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R004.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R004.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R001.15",
       "title": "Capacity adjustment feasibility and applied-state reconciliation boundary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R611",
@@ -514,56 +550,64 @@
         "EG-PLACEMENT-R611.4",
         "EG-PLACEMENT-R611.5",
         "EG-PLACEMENT-R611.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R611.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R611.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R611.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R611.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R611.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R611.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R002.600",
       "title": "The engine answers reserved-worker admission",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R750",
@@ -576,35 +620,40 @@
         "EG-PLACEMENT-R750.751",
         "EG-PLACEMENT-R750.752",
         "EG-PLACEMENT-R750.753"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R750.750",
       "title": "Model: Admission pacing, priority classes, cognitive scheduling and model capacity control",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R750.751",
       "title": "Behavior: Admission pacing, priority classes, cognitive scheduling and model capacity control",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R750.752",
       "title": "Refusal: Admission pacing, priority classes, cognitive scheduling and model capacity control",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R750.753",
       "title": "Hot-path proof: Admission pacing, priority classes, cognitive scheduling and model capacity control",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R751",
@@ -617,35 +666,40 @@
         "EG-PLACEMENT-R751.751",
         "EG-PLACEMENT-R751.752",
         "EG-PLACEMENT-R751.753"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R751.750",
       "title": "Model: Unified scheduling, leader election and cost-bounded resource allocation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R751.751",
       "title": "Behavior: Unified scheduling, leader election and cost-bounded resource allocation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R751.752",
       "title": "Refusal: Unified scheduling, leader election and cost-bounded resource allocation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R751.753",
       "title": "Hot-path proof: Unified scheduling, leader election and cost-bounded resource allocation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R700",
@@ -660,49 +714,166 @@
         "EG-PLACEMENT-R700.4",
         "EG-PLACEMENT-R700.5",
         "EG-PLACEMENT-R700.6"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R700.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R700.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R700.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R700.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R700.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-PLACEMENT-R700.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     }
+  ],
+  "frontier": [
+    "EG-PLACEMENT-R001.1",
+    "EG-PLACEMENT-R001.2",
+    "EG-PLACEMENT-R001.5",
+    "EG-PLACEMENT-R001.6",
+    "EG-PLACEMENT-R001.7",
+    "EG-PLACEMENT-R001.8",
+    "EG-PLACEMENT-R001.9",
+    "EG-PLACEMENT-R001.10",
+    "EG-PLACEMENT-R001.11",
+    "EG-PLACEMENT-R001.12",
+    "EG-PLACEMENT-R001.13",
+    "EG-PLACEMENT-R001.14",
+    "EG-PLACEMENT-R002.4",
+    "EG-PLACEMENT-R002.5",
+    "EG-PLACEMENT-R002.6",
+    "EG-PLACEMENT-R002.7",
+    "EG-PLACEMENT-R002.8",
+    "EG-PLACEMENT-R002.9",
+    "EG-PLACEMENT-R002.10",
+    "EG-PLACEMENT-R002.11",
+    "EG-PLACEMENT-R002.12",
+    "EG-PLACEMENT-R002.13",
+    "EG-PLACEMENT-R002.14",
+    "EG-PLACEMENT-R002.15",
+    "EG-PLACEMENT-R003.5",
+    "EG-PLACEMENT-R004.1",
+    "EG-PLACEMENT-R004.2",
+    "EG-PLACEMENT-R004.3",
+    "EG-PLACEMENT-R004.4",
+    "EG-PLACEMENT-R004.5",
+    "EG-PLACEMENT-R004.6",
+    "EG-PLACEMENT-R001.15",
+    "EG-PLACEMENT-R611.1",
+    "EG-PLACEMENT-R611.2",
+    "EG-PLACEMENT-R611.3",
+    "EG-PLACEMENT-R611.4",
+    "EG-PLACEMENT-R611.5",
+    "EG-PLACEMENT-R611.6",
+    "EG-PLACEMENT-R002.600",
+    "EG-PLACEMENT-R750.750",
+    "EG-PLACEMENT-R750.751",
+    "EG-PLACEMENT-R750.752",
+    "EG-PLACEMENT-R750.753",
+    "EG-PLACEMENT-R751.750",
+    "EG-PLACEMENT-R751.751",
+    "EG-PLACEMENT-R751.752",
+    "EG-PLACEMENT-R751.753",
+    "EG-PLACEMENT-R700.1",
+    "EG-PLACEMENT-R700.2",
+    "EG-PLACEMENT-R700.3",
+    "EG-PLACEMENT-R700.4",
+    "EG-PLACEMENT-R700.5",
+    "EG-PLACEMENT-R700.6"
+  ],
+  "unserved": [
+    "EG-PLACEMENT-R001.1",
+    "EG-PLACEMENT-R001.2",
+    "EG-PLACEMENT-R001.5",
+    "EG-PLACEMENT-R001.6",
+    "EG-PLACEMENT-R001.7",
+    "EG-PLACEMENT-R001.8",
+    "EG-PLACEMENT-R001.9",
+    "EG-PLACEMENT-R001.10",
+    "EG-PLACEMENT-R001.11",
+    "EG-PLACEMENT-R001.12",
+    "EG-PLACEMENT-R001.13",
+    "EG-PLACEMENT-R001.14",
+    "EG-PLACEMENT-R002.4",
+    "EG-PLACEMENT-R002.5",
+    "EG-PLACEMENT-R002.6",
+    "EG-PLACEMENT-R002.7",
+    "EG-PLACEMENT-R002.8",
+    "EG-PLACEMENT-R002.9",
+    "EG-PLACEMENT-R002.10",
+    "EG-PLACEMENT-R002.11",
+    "EG-PLACEMENT-R002.12",
+    "EG-PLACEMENT-R002.13",
+    "EG-PLACEMENT-R002.14",
+    "EG-PLACEMENT-R002.15",
+    "EG-PLACEMENT-R003.5",
+    "EG-PLACEMENT-R004.1",
+    "EG-PLACEMENT-R004.2",
+    "EG-PLACEMENT-R004.3",
+    "EG-PLACEMENT-R004.4",
+    "EG-PLACEMENT-R004.5",
+    "EG-PLACEMENT-R004.6",
+    "EG-PLACEMENT-R001.15",
+    "EG-PLACEMENT-R611.1",
+    "EG-PLACEMENT-R611.2",
+    "EG-PLACEMENT-R611.3",
+    "EG-PLACEMENT-R611.4",
+    "EG-PLACEMENT-R611.5",
+    "EG-PLACEMENT-R611.6",
+    "EG-PLACEMENT-R002.600",
+    "EG-PLACEMENT-R750.750",
+    "EG-PLACEMENT-R750.751",
+    "EG-PLACEMENT-R750.752",
+    "EG-PLACEMENT-R750.753",
+    "EG-PLACEMENT-R751.750",
+    "EG-PLACEMENT-R751.751",
+    "EG-PLACEMENT-R751.752",
+    "EG-PLACEMENT-R751.753",
+    "EG-PLACEMENT-R700.1",
+    "EG-PLACEMENT-R700.2",
+    "EG-PLACEMENT-R700.3",
+    "EG-PLACEMENT-R700.4",
+    "EG-PLACEMENT-R700.5",
+    "EG-PLACEMENT-R700.6"
   ]
 }

@@ -110,7 +110,8 @@
       "rollup_of": [
         "EG-CONTRACT-R001.1",
         "EG-CONTRACT-R001.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R002",
@@ -231,7 +232,8 @@
         "EG-CONTRACT-R006.1",
         "EG-CONTRACT-R006.2",
         "EG-CONTRACT-R006.3"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R006.1",
@@ -257,7 +259,8 @@
       "title": "Complete canonical WASM qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R007",
@@ -426,7 +429,7 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:478",
-        "crates/eg-capabilities/src/error_routing.rs:354",
+        "crates/eg-capabilities/src/error_routing.rs:356",
         "crates/eg-types/src/governed_change/tests.rs:183",
         "src/server/auth.rs:2053",
         "src/server/transport/tests.rs:145"
@@ -685,7 +688,8 @@
       "rollup_of": [
         "EG-CONTRACT-R031.1",
         "EG-CONTRACT-R031.2"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R031.1",
@@ -703,7 +707,8 @@
       "title": "Complete zero-backlog quality-gate acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R032",
@@ -930,7 +935,8 @@
       "title": "Generated client ingests OTLP logs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R051",
@@ -940,14 +946,16 @@
       "verified_by": [],
       "rollup_of": [
         "EG-CONTRACT-R051.1"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R051.1",
       "title": "Client ingest carries harness fields",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R052",
@@ -960,49 +968,56 @@
         "EG-CONTRACT-R052.2",
         "EG-CONTRACT-R052.3",
         "EG-CONTRACT-R052.4"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R052.1",
       "title": "Module ownership model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R052.2",
       "title": "Build, package, and deployment behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R052.3",
       "title": "Shared-contract wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R052.4",
       "title": "Runtime evidence and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R001.1",
       "title": "Generated types throughout the AU lifecycle",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R001.2",
       "title": "Canonical blueprint disk round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053",
@@ -1024,7 +1039,8 @@
         "EG-CONTRACT-R053.11",
         "EG-CONTRACT-R053.12",
         "EG-CONTRACT-R053.13"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.1",
@@ -1033,7 +1049,8 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_server_split.py:23"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.2",
@@ -1043,7 +1060,8 @@
       "verified_by": [
         "tests/test_build_backend.py:137",
         "tests/test_check_wheel_completeness.py:215"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.3",
@@ -1052,7 +1070,8 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_server_split.py:38"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.4",
@@ -1061,7 +1080,8 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_server_split.py:49"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.5",
@@ -1070,7 +1090,8 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_server_split.py:66"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.6",
@@ -1079,7 +1100,8 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_server_split.py:79"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.7",
@@ -1088,7 +1110,8 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_release_full_wheel_contract.py:750"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.8",
@@ -1127,7 +1150,8 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_server_package.py:107"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.11",
@@ -1136,7 +1160,8 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_server_package.py:117"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R053.12",
@@ -1146,7 +1171,8 @@
       "verified_by": [
         "tests/test_server_package.py:139",
         "tests/test_server_package.py:157"
-      ]
+      ],
+      "priority": 0
     },
     {
       "id": "EG-CONTRACT-R006.3",
@@ -1180,5 +1206,49 @@
         "tests/test_ci_change_scope.py:822"
       ]
     }
+  ],
+  "frontier": [
+    "EG-CONTRACT-R006.2",
+    "EG-CONTRACT-R031.2",
+    "EG-CONTRACT-R050",
+    "EG-CONTRACT-R051.1",
+    "EG-CONTRACT-R052.1",
+    "EG-CONTRACT-R052.2",
+    "EG-CONTRACT-R052.3",
+    "EG-CONTRACT-R052.4",
+    "EG-CONTRACT-R001.1",
+    "EG-CONTRACT-R001.2",
+    "EG-CONTRACT-R053.1",
+    "EG-CONTRACT-R053.2",
+    "EG-CONTRACT-R053.3",
+    "EG-CONTRACT-R053.4",
+    "EG-CONTRACT-R053.5",
+    "EG-CONTRACT-R053.6",
+    "EG-CONTRACT-R053.7",
+    "EG-CONTRACT-R053.10",
+    "EG-CONTRACT-R053.11",
+    "EG-CONTRACT-R053.12"
+  ],
+  "unserved": [
+    "EG-CONTRACT-R006.2",
+    "EG-CONTRACT-R031.2",
+    "EG-CONTRACT-R050",
+    "EG-CONTRACT-R051.1",
+    "EG-CONTRACT-R052.1",
+    "EG-CONTRACT-R052.2",
+    "EG-CONTRACT-R052.3",
+    "EG-CONTRACT-R052.4",
+    "EG-CONTRACT-R001.1",
+    "EG-CONTRACT-R001.2",
+    "EG-CONTRACT-R053.1",
+    "EG-CONTRACT-R053.2",
+    "EG-CONTRACT-R053.3",
+    "EG-CONTRACT-R053.4",
+    "EG-CONTRACT-R053.5",
+    "EG-CONTRACT-R053.6",
+    "EG-CONTRACT-R053.7",
+    "EG-CONTRACT-R053.10",
+    "EG-CONTRACT-R053.11",
+    "EG-CONTRACT-R053.12"
   ]
 }

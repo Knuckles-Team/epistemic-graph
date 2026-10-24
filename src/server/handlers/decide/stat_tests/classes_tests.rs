@@ -15,6 +15,7 @@ fn model_profile(h: &Harness, id: &str, supports_tools: bool) {
         supports_tools,
         supports_structured_output: false,
         supports_vision: false,
+        input_capabilities: None,
         modalities: Default::default(),
         cost: None,
         latency_declared: None,
