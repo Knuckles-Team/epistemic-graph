@@ -853,3 +853,34 @@ def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
         "gates-wheel",
     ):
         assert jobs[name]["runs-on"] == "ubuntu-24.04"
+
+
+# spec: EG-CONTRACT-R035
+def test_tts_piper_job_skips_apt_when_native_packages_are_present() -> None:
+    """The real-inference job must not spend its 10-minute PR budget on apt.
+
+    A slow mirror cancelled it before any test ran (#735, #738, #740). The
+    install step is guarded by dpkg and the PR timeout stays 10.
+    """
+    job = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"][
+        "tts-piper-inference"
+    ]
+    assert job["timeout-minutes"] == (
+        "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+    )
+    (install,) = [
+        s for s in job["steps"] if "bindgen native build" in s.get("name", "")
+    ]
+    run = install["run"]
+    packages = (
+        "build-essential cmake clang libclang-dev pkg-config curl ca-certificates"
+    )
+    guard = f"if dpkg -s {packages} >/dev/null 2>&1; then exit 0; fi"
+    assert guard in run
+    assert run.index(guard) < run.index("sudo apt-get -o")
+    opts = (
+        "-o Acquire::Retries=3 -o Acquire::http::Timeout=20 "
+        "-o Acquire::https::Timeout=20"
+    )
+    assert f"sudo apt-get {opts} update" in run
+    assert f"sudo apt-get {opts} install -y --no-install-recommends {packages}" in run
