@@ -170,7 +170,7 @@ mod run_trace {
     fn orchestration_shapes_are_loaded() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        let source = &sources.core["core:orchestration@1"];
+        let source = &sources.core["core:orchestration-shapes@1"];
         assert_eq!(source.shapes_ttl.as_deref(), Some(SHAPES));
         assert!(source.shapes_sha256.is_some());
     }
