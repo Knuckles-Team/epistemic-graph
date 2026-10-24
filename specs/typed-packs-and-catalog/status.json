@@ -3002,8 +3002,8 @@
       "title": "Schema drift classification, containment, repair proposal and activation: model and behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0e3e66b375f9",
         "4e402b2ec8bf",
-        "b5dc313b4403",
         "dc810128a66d"
       ],
       "verified_by": [
@@ -3020,8 +3020,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0305cbd4457e",
-        "912a39a98afe",
-        "b5dc313b4403"
+        "0e3e66b375f9",
+        "912a39a98afe"
       ],
       "verified_by": [
         "tests/packs/test_schema_drift_served.py:169"
