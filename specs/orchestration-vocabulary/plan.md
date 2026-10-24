@@ -467,3 +467,67 @@ The spec-folder indexer already classifies each file of a spec folder (R012.1 to
 adds one parse step for `requirements.md`. Each table row becomes a `:Requirement` node keyed by
 its row ID. EG-SDLC-R005 derives each row state from these nodes and the changeset log. The call
 site is the non-code branch of `IndexRepository` at `src/server/dispatch/router/source_ingest.rs:24`.
+
+## Amendments
+
+### 2026-10-24: bounded native run-trace producer proposal
+
+This is a local design for R009.1 through R009.17, not implementation evidence.
+It proposes the producer work needed to unblock Arbora's existing ARBORA-OPS-R021.4.5 requirement.
+Arbora draft #441 prepares only its served projection boundary.
+No requirement is split or marked complete by this proposal.
+
+The smallest coherent producer change keeps the existing graph writer and query path.
+It needs the five per-run properties and the existing counter/budget/completion shapes.
+It also needs validated ingestion/readback of the trace and its recorded decision edge.
+The completed-trace shape also requires the remaining existing R009 counters and model/task references.
+Therefore a five-property-only patch cannot claim R009.15 or R009.17 acceptance.
+Metrics aggregation under R010 is outside this producer batch.
+
+The proposed native producer stores the original admitted run ID in the existing `run_id` property.
+The graph node ID remains a separate opaque trace reference.
+The producer must not substitute a task ID or a hash of either identifier.
+The native validator must bind that association to the authenticated caller's original run admission.
+It must reject a mismatched owner, tenant, graph or run before any durable write.
+Duplicate or conflicting trace associations cannot select an arbitrary row at read time.
+Legacy trace rows without this association remain unavailable to the new consumer.
+This association is a proposal requiring owner review, not an existing published guarantee.
+
+Reuse the original-admission ownership semantics already served by `GetRunWorkItem`.
+Do not change its response shape or its store, and do not take authority from mutable metadata.
+Recheck caller scope and graph through the existing native request pipeline.
+Explicit local no-auth mode must retain its existing caller semantics.
+There is no service-authority fallback and no change to authentication settings.
+
+Read-side filtering must independently bind each returned trace to the authenticated caller's original admission.
+A successful writer check does not authorize later readers.
+GetRunWorkItem's owner filter belongs to that native read; generic graph queries do not inherit it.
+Use the existing native row-filtering path to enforce association before a public query returns the trace or decision.
+Same-tenant foreign-owner absence requires a served readback test, not only writer refusal tests.
+No Arbora integration may claim owner-safe readback before that test passes.
+
+Use the existing `AddNode` and `AddEdge` methods inside an existing `ApplyChangeEnvelopes` mutation batch.
+That batch records the RunTrace and `appliedHarnessConfig` edge at one commit point.
+Validate completed-trace constraints against the final staged graph before publishing the batch.
+A standalone terminal `AddNode` without the required decision edge must refuse.
+Checking the node before its edge rejects every valid completed batch.
+The shared validator must also protect standalone writes and later updates to trace fields or edges.
+No second writer, store, scheduler or run-summary wire method is proposed.
+
+The applied edge must resolve to the recorded committed HarnessConfig decision under the same caller authority.
+Never call `Decide` to substitute the current configuration.
+Preserve the decision's individual abstentions and its immutable reference.
+Reject an uncommitted, wrong-kind or inaccessible decision without exposing its contents.
+A missing measurement remains absent; zero remains a measured zero.
+Counter, finite-cost, termination and budget rules stay in R009.1 and R009.12 through R009.14.
+
+Current source attach points differ from the old line references above.
+`gateway_graph_routes.rs::try_handle_coalescable` dispatches standalone writes.
+`src/server/mutation/coalescer.rs` applies them; `ChangeEnvelope` embeds the existing `MutationBatch`.
+Implementation must place shared validation before the durable commit for both entry paths.
+The proposal does not select a second transaction mechanism.
+
+Avoid EG741's work-item/session-usage/checkpoint modules, native dispatch additions and generated artifacts.
+No change to those files is prepared in this lane.
+Before implementation, the owner must confirm a shared validation attach point outside those active files.
+If that requires an overlapping change, coordinate it instead of reproducing EG741.
