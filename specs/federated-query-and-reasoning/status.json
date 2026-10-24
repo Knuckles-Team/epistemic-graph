@@ -1305,7 +1305,7 @@
         "8710a3709c47"
       ],
       "verified_by": [
-        "crates/eg-plan/src/nl.rs:836"
+        "crates/eg-plan/src/nl.rs:846"
       ]
     },
     {
@@ -1361,9 +1361,9 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:196",
-        "src/server/handlers/query/nl.rs:202",
-        "src/server/handlers/query/nl.rs:225"
+        "src/server/handlers/query/nl.rs:205",
+        "src/server/handlers/query/nl.rs:211",
+        "src/server/handlers/query/nl.rs:234"
       ]
     },
     {
@@ -2984,13 +2984,16 @@
       "title": "Configurable NL planner request",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "36f886b81771"
+        "130e5d85ee60",
+        "77dd8c780e6d",
+        "937459cdf9cc"
       ],
       "verified_by": [
         "crates/eg-plan/src/nl_regressions.rs:281",
         "crates/eg-plan/src/nl_regressions.rs:293",
         "crates/eg-plan/src/nl_regressions.rs:322",
-        "src/server/nl.rs:415"
+        "src/server/handlers/query/nl.rs:253",
+        "src/server/nl.rs:450"
       ]
     },
     {
