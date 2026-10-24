@@ -1,0 +1,17 @@
+name: Org site
+
+# Ask the organization site to rebuild the architecture explorer on every push to main.
+# A no-op until the org-site GitHub App secrets exist.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    uses: Knuckles-Team/pipelines/.github/workflows/notify_org_site.yml@main
+    secrets:
+      org_site_app_id: ${{ secrets.ORG_SITE_APP_ID }}
+      org_site_app_private_key: ${{ secrets.ORG_SITE_APP_PRIVATE_KEY }}
