@@ -2984,9 +2984,9 @@
       "title": "Configurable NL planner request",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "130e5d85ee60",
-        "77dd8c780e6d",
-        "937459cdf9cc"
+        "545288fec504",
+        "8d0681dc8250",
+        "f555f9a29661"
       ],
       "verified_by": [
         "crates/eg-plan/src/nl_regressions.rs:278",
