@@ -22,7 +22,7 @@ use crate::physical::root::{
     initialize_strict_in, store_handle, validate_incarnation_read, PhysicalStore,
 };
 use crate::physical::write_authority::{TxnAuthority, WriteValidationCounts};
-use crate::recovery::validate::validate_recovery_content;
+use crate::recovery::validate::{validate_recovery_content, validate_recovery_identity};
 use crate::tables::SCOPE_BINDINGS;
 use eg_types::MutationScopeIdentity;
 use redb::{Database, ReadableDatabase};
@@ -596,6 +596,12 @@ pub(crate) fn bind_serving_scope_in<D: OwnerDomain>(
     {
         return Err("authenticated serving grant does not match this store".to_string());
     }
+    // An owner handle is write authority. A read-only open has none, so it is
+    // refused here, before the read-first proof below could hand one out for
+    // an already-bound scope.
+    if store.options().is_read_only() {
+        return Err("store was opened read-only".to_string());
+    }
     // Read first: an already-bound scope (every clean reopen) is proved in a
     // read transaction and takes no write transaction and no fsync
     // (EG-DURABLE-KERNEL-R006.1). Anything else falls through to the write.
@@ -702,12 +708,16 @@ pub(crate) fn create_physical_prebound_with(
         bind_scope_in(&handle, &wtx, identity, *initial_version)?;
     }
     wtx.commit().map_err(|error| error.to_string())?;
+    // A created file's content has not been through the recovery scan, so its
+    // close validates it before writing a marker.
     let marker = crate::physical::clean_marker::CleanMarker::new(
         path,
         &incarnation,
         manifest.physical_identity.name().as_str(),
         !options.is_read_only(),
         false,
+        false,
+        private_integrity.clone(),
     );
     Ok(
         PhysicalStore::from_parts(database, handle, physical_path, private_integrity, manifest)
@@ -762,7 +772,11 @@ pub(crate) fn open_physical_with(
     validate_declared_owner_tables(&rtx, layout)?;
     let table_validation = validation_started.elapsed();
     let recovery_started = std::time::Instant::now();
-    if !marker_valid {
+    if marker_valid {
+        // The marker skips only the O(rows) scan. Root, binding, version and
+        // fence identity still run on every open.
+        validate_recovery_identity(&incarnation, &rtx)?;
+    } else {
         let authenticate = |sealed: &[u8], digest: &str| {
             authenticate_with(private_integrity.as_deref(), sealed, digest)
         };
@@ -770,13 +784,23 @@ pub(crate) fn open_physical_with(
     }
     let recovery = recovery_started.elapsed();
     drop(rtx);
+    // Either the scan just passed or a valid marker vouches for content that
+    // passed it, so this open starts from validated content.
     let marker = crate::physical::clean_marker::CleanMarker::new(
         path,
         &incarnation,
         &physical_name,
         !options.is_read_only(),
         marker_valid,
+        true,
+        private_integrity.clone(),
     );
+    // redb's writable open has already rewritten the header (its recovery
+    // flag) and so the mtime. Re-stamp the still-true marker against the file
+    // as it now is, so a process killed before its first write keeps it.
+    if marker_valid {
+        marker.restamp();
+    }
     Ok(PhysicalStore::from_parts(
         database,
         store_handle(incarnation),

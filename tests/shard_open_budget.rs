@@ -16,10 +16,14 @@ use std::time::Duration;
 const SHARDS: usize = 8;
 const FSYNC_WRITERS: usize = 16;
 const CPU_BURNERS: usize = 32;
-/// Fresh K=8 open budget, wall clock, under the load above.
-const FRESH_BUDGET: Duration = Duration::from_secs(5);
-/// Reopen of a small K=8 store, wall clock, under the load above.
-const REOPEN_BUDGET: Duration = Duration::from_secs(2);
+// The budgets are set from R820 measurements with ten copies of this test
+// running in parallel (the R006.2 gate), so the host carries ten times the
+// load above: 160 fsync writers and 320 CPU burners. Measured worst cases and
+// the single-run numbers are in plans/eg-shard-open-latency-2026-10-23.md.
+/// Fresh K=8 open budget, wall clock, under that load.
+const FRESH_BUDGET: Duration = Duration::from_secs(60);
+/// Reopen of a small or populated K=8 store, wall clock, under that load.
+const REOPEN_BUDGET: Duration = Duration::from_secs(12);
 
 struct Load {
     stop: Arc<AtomicBool>,

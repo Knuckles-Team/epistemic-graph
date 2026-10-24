@@ -823,11 +823,78 @@ fn a_marker_copied_to_another_file_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("orig.redb");
     create_and_close(&path);
+    // A byte copy of the file is a different physical incarnation (device +
+    // inode), so it is refused outright, marker or not.
     let copy = dir.path().join("copy.redb");
     std::fs::copy(&path, &copy).unwrap();
     std::fs::copy(marker_for(&path), marker_for(&copy)).unwrap();
-    let store = reopen_store(&copy).unwrap();
+    let refused = reopen_store(&copy).err().expect("a byte copy must not open");
+    assert!(refused.contains("incarnation"), "{refused}");
+    // A marker copied onto another genuine store does not match that file, so
+    // its open runs the full scan.
+    let other = dir.path().join("other.redb");
+    create_and_close(&other);
+    std::fs::copy(marker_for(&path), marker_for(&other)).unwrap();
+    let store = reopen_store(&other).unwrap();
     assert!(!store.open_report().recovery_scan_skipped);
+}
+
+// spec: EG-DURABLE-KERNEL-R006.3
+#[test]
+fn a_skipped_scan_still_refuses_a_foreign_fence() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("fence.redb");
+    let identity = native_identity("tenant", "inc");
+    let foreign = native_identity("tenant", "other-generation");
+    {
+        let store = open_store(&path, &identity);
+        let write = store.begin_write().unwrap();
+        {
+            let mut fences = write.open_table(crate::tables::FENCES).unwrap();
+            let forged = crate::tables::ScopeFence {
+                identity: foreign,
+                placement_epoch: 0,
+                fencing_token: 0,
+            };
+            let bytes = encode_bounded(&forged, "mutation fence").unwrap();
+            let key = crate::physical::binding::ledger_scope_key(&identity);
+            fences.insert(key.as_str(), bytes.as_slice()).unwrap();
+        }
+        write.commit().unwrap();
+    }
+    assert!(
+        !marker_for(&path).exists(),
+        "a close whose content fails the scan writes no marker"
+    );
+    // Forge a marker that matches the file, as if the close had vouched for it:
+    // the skipped open must still run the identity, binding and fence checks.
+    let (incarnation, _) =
+        crate::physical::incarnation::StoreIncarnation::derive(&path).unwrap();
+    let name = PhysicalStoreIdentity::new(TEST_PHYSICAL)
+        .unwrap()
+        .name()
+        .as_str()
+        .to_string();
+    let forged = crate::physical::clean_marker::CleanMarker::new(
+        &path,
+        &incarnation,
+        &name,
+        true,
+        true,
+        true,
+        None,
+    );
+    forged.restamp();
+    drop(forged);
+    assert!(crate::physical::clean_marker::is_valid(
+        &path,
+        &incarnation,
+        &name
+    ));
+    let refused = reopen_store(&path)
+        .err()
+        .expect("a foreign fence must not reopen behind a valid marker");
+    assert!(refused.contains("fence"), "{refused}");
 }
 
 // spec: EG-DURABLE-KERNEL-R006.3
