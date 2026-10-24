@@ -706,3 +706,45 @@
     rdfs:subPropertyOf :usesTool ;
     rdfs:domain :Agent ;
     rdfs:range :Tool .
+
+# EG-ORCH-VOCAB-R009.1 through R009.8: measured harness run properties.
+
+:terminationReason a owl:DatatypeProperty ;
+    rdfs:label "terminationReason" ;
+    rdfs:domain :RunTrace ;
+    rdfs:range xsd:string .
+
+:peakContextTokens a owl:DatatypeProperty ;
+    rdfs:label "peakContextTokens" ;
+    rdfs:domain :RunTrace ;
+    rdfs:range xsd:integer .
+
+:contextBudgetTokens a owl:DatatypeProperty ;
+    rdfs:label "contextBudgetTokens" ;
+    rdfs:domain :RunTrace ;
+    rdfs:range xsd:integer .
+
+:elisionCount a owl:DatatypeProperty ;
+    rdfs:label "elisionCount" ;
+    rdfs:domain :RunTrace ;
+    rdfs:range xsd:integer .
+
+:summarizationCount a owl:DatatypeProperty ;
+    rdfs:label "summarizationCount" ;
+    rdfs:domain :RunTrace ;
+    rdfs:range xsd:integer .
+
+:turnCount a owl:DatatypeProperty ;
+    rdfs:label "turnCount" ;
+    rdfs:domain :RunTrace ;
+    rdfs:range xsd:integer .
+
+:toolCallCount a owl:DatatypeProperty ;
+    rdfs:label "toolCallCount" ;
+    rdfs:domain :RunTrace ;
+    rdfs:range xsd:integer .
+
+:costUsd a owl:DatatypeProperty ;
+    rdfs:label "costUsd" ;
+    rdfs:domain :RunTrace ;
+    rdfs:range xsd:decimal .
