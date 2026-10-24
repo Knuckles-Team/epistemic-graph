@@ -548,8 +548,10 @@
     {
       "id": "EG-ORCH-VOCAB-R008.1",
       "title": "Register `orchestration-v1.shapes.ttl` with the shape loader",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:168"
       ]
@@ -595,8 +597,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.1",
       "title": "Add property `:terminationReason`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:126",
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:178"
@@ -605,8 +609,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.2",
       "title": "Add property `:peakContextTokens`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:127"
       ]
@@ -614,8 +620,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.3",
       "title": "Add property `:contextBudgetTokens`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:128"
       ]
@@ -623,8 +631,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.4",
       "title": "Add property `:elisionCount`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:129"
       ]
@@ -632,8 +642,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.5",
       "title": "Add property `:summarizationCount`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:130"
       ]
@@ -641,8 +653,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.6",
       "title": "Add property `:turnCount`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:131"
       ]
@@ -650,8 +664,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.7",
       "title": "Add property `:toolCallCount`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:132"
       ]
@@ -659,8 +675,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.8",
       "title": "Add property `:costUsd`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:133"
       ]
@@ -689,8 +707,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.12",
       "title": "Add counter shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:194"
       ]
@@ -698,8 +718,10 @@
     {
       "id": "EG-ORCH-VOCAB-R009.13",
       "title": "Add context-budget shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4d433d4443ef"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_vocabulary.rs:226"
       ]

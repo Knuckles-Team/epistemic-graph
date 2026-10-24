@@ -1247,9 +1247,10 @@ mod tests {
                 "native_source_connector",
                 "aff5b66926ab41858fb8b549aae343f3286f317cf875534bb3e5e0cd89e9a35c",
             ),
+            // The orchestration module now carries SHACL shapes, so its pin is the shapes digest.
             (
                 "orchestration",
-                "5fb3be7944564fbc90cdadbe6bb42c279b8ea0b016e1e9d9d0c4491e335a819d",
+                "fd4e60fe31e5666576d0b0f817ab2fd0846e84e66e53a9634ff54600861a887c",
             ),
             (
                 "personal",
