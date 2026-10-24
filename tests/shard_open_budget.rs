@@ -64,6 +64,7 @@ impl Load {
     }
 }
 
+// spec: EG-DURABLE-KERNEL-R006.2
 #[test]
 fn shard_open_stays_within_budget_under_load() {
     let base = std::env::var("EG_BUDGET_DIR")
@@ -124,6 +125,7 @@ fn shard_open_stays_within_budget_under_load() {
 
 /// R006.1: the sidecar stores open with the shards, and a refused open leaves
 /// the persist dir without any sidecar file that attempt created.
+// spec: EG-DURABLE-KERNEL-R006.1
 #[test]
 fn sidecars_open_with_the_shards_and_a_refusal_leaves_none() {
     let scratch = tempfile::tempdir().unwrap();
@@ -150,6 +152,8 @@ fn sidecars_open_with_the_shards_and_a_refusal_leaves_none() {
 /// R006.3: reopening a populated store (~160 MB) takes the clean-shutdown
 /// marker fast path and stays inside the reopen budget under load; with the
 /// markers removed the full scan still runs and the store still opens.
+// spec: EG-DURABLE-KERNEL-R006.3
+// spec: EG-DURABLE-KERNEL-R006.2
 #[test]
 fn populated_reopen_hits_the_marker_fast_path() {
     let base = std::env::var("EG_BUDGET_DIR")

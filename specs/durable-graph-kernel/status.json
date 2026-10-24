@@ -498,14 +498,19 @@
     {
       "id": "EG-DURABLE-KERNEL-R006",
       "title": "Engine startup does not block on one store's lazy open",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "03670fc1f33c",
+        "296258d8ae40",
         "8dbb5bd9de53",
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/raft/harness/resource_acceptance_test.rs:2570"
+        "crates/eg-storage/src/physical/tests.rs:768",
+        "crates/eg-storage/src/physical/tests.rs:779",
+        "crates/eg-storage/src/physical/tests.rs:790",
+        "crates/eg-storage/src/physical/tests.rs:806",
+        "crates/eg-storage/src/physical/tests.rs:819"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R006.1",
@@ -516,23 +521,41 @@
     {
       "id": "EG-DURABLE-KERNEL-R006.1",
       "title": "A clean reopen writes nothing, and a fresh shard is ready in one commit",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "296258d8ae40"
+      ],
+      "verified_by": [
+        "crates/eg-storage/src/physical/tests.rs:890",
+        "tests/shard_open_budget.rs:128"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R006.2",
       "title": "Startup open has a time budget that holds under host load, and each open is diagnosable",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "296258d8ae40"
+      ],
+      "verified_by": [
+        "tests/shard_open_budget.rs:156",
+        "tests/shard_open_budget.rs:67"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R006.3",
       "title": "A clean-shutdown marker lets open skip the full recovery scan",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "296258d8ae40"
+      ],
+      "verified_by": [
+        "crates/eg-storage/src/physical/tests.rs:768",
+        "crates/eg-storage/src/physical/tests.rs:779",
+        "crates/eg-storage/src/physical/tests.rs:790",
+        "crates/eg-storage/src/physical/tests.rs:806",
+        "crates/eg-storage/src/physical/tests.rs:819"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R007",

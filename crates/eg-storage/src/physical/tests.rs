@@ -765,6 +765,7 @@ fn create_and_close(path: &Path) {
     drop(open_store(path, &identity));
 }
 
+// spec: EG-DURABLE-KERNEL-R006.3
 #[test]
 fn a_gracefully_closed_store_reopens_without_the_recovery_scan() {
     let dir = tempfile::tempdir().unwrap();
@@ -775,6 +776,7 @@ fn a_gracefully_closed_store_reopens_without_the_recovery_scan() {
     assert!(store.open_report().recovery_scan_skipped);
 }
 
+// spec: EG-DURABLE-KERNEL-R006.3
 #[test]
 fn a_store_with_no_marker_runs_the_full_scan() {
     let dir = tempfile::tempdir().unwrap();
@@ -785,6 +787,7 @@ fn a_store_with_no_marker_runs_the_full_scan() {
     assert!(!store.open_report().recovery_scan_skipped);
 }
 
+// spec: EG-DURABLE-KERNEL-R006.3
 #[test]
 fn the_first_write_after_open_removes_the_marker_before_committing() {
     let dir = tempfile::tempdir().unwrap();
@@ -800,6 +803,7 @@ fn the_first_write_after_open_removes_the_marker_before_committing() {
     assert!(reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
 }
 
+// spec: EG-DURABLE-KERNEL-R006.3
 #[test]
 fn a_marker_copied_to_another_file_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
@@ -812,6 +816,7 @@ fn a_marker_copied_to_another_file_is_rejected() {
     assert!(!store.open_report().recovery_scan_skipped);
 }
 
+// spec: EG-DURABLE-KERNEL-R006.3
 #[test]
 fn a_torn_or_stale_marker_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
@@ -822,6 +827,7 @@ fn a_torn_or_stale_marker_is_rejected() {
     assert!(!reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
 }
 
+// spec: EG-DURABLE-KERNEL-R006.3
 #[test]
 fn a_commit_made_outside_the_store_invalidates_the_marker() {
     let dir = tempfile::tempdir().unwrap();
@@ -860,6 +866,7 @@ fn run_crash_child(mode: &str, path: &Path) {
     assert!(!status.success(), "the child must die uncleanly");
 }
 
+// spec: EG-DURABLE-KERNEL-R006.3
 #[test]
 fn a_process_killed_after_a_write_leaves_no_valid_marker() {
     let dir = tempfile::tempdir().unwrap();
@@ -870,6 +877,7 @@ fn a_process_killed_after_a_write_leaves_no_valid_marker() {
     assert!(!reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
 }
 
+// spec: EG-DURABLE-KERNEL-R006.3
 #[test]
 fn a_process_killed_without_writing_keeps_the_still_true_marker() {
     let dir = tempfile::tempdir().unwrap();
@@ -879,6 +887,7 @@ fn a_process_killed_without_writing_keeps_the_still_true_marker() {
     assert!(reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
 }
 
+// spec: EG-DURABLE-KERNEL-R006.1
 #[test]
 fn reopening_a_bound_store_writes_nothing() {
     use crate::kernel::StorageKernel;
