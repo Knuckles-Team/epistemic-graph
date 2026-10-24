@@ -2387,8 +2387,10 @@
     {
       "id": "EG-TYPED-PACKS-R101.10",
       "title": "Mappings come from the connector's declaration",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b92f8b744a9"
+      ],
       "verified_by": [
         "crates/eg-rdf/src/pack/tests.rs:186",
         "crates/eg-types/src/connector_pack/index.rs:140",
@@ -2400,8 +2402,10 @@
     {
       "id": "EG-TYPED-PACKS-R101.11",
       "title": "Undeclared mappings are refused by type",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b92f8b744a9"
+      ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/scale.rs:153"
       ]
