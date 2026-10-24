@@ -3002,7 +3002,7 @@
       "title": "Schema drift classification, containment, repair proposal and activation: model and behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0e3e66b375f9",
+        "1ee338f509cd",
         "4e402b2ec8bf",
         "dc810128a66d"
       ],
@@ -3020,7 +3020,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0305cbd4457e",
-        "0e3e66b375f9",
+        "1ee338f509cd",
         "912a39a98afe"
       ],
       "verified_by": [
