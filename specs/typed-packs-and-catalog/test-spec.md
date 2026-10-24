@@ -468,7 +468,7 @@ requires an error response with no result. Canonical artifact freshness passes. 
 - `EG-TYPED-PACKS-R106`: See each child.
 - `EG-TYPED-PACKS-R106.1`: `crates/eg-core/tests/connector_pack_surfaces.rs::resource_field_and_owner_shapes_validate`.
 - `EG-TYPED-PACKS-R106.2`: `crates/eg-core/tests/connector_pack_surfaces.rs::every_asset_has_owner_term_lineage_and_class_link`.
-- `EG-TYPED-PACKS-R106.3`: `tests/typed_packs/test_connector_catalog_served.py::test_import_reaches_the_one_projection_and_catalog_search`.
+- `EG-TYPED-PACKS-R106.3`: `tests/typed_packs/test_connector_catalog_served.py::test_onboarding_batch_is_validated_and_found_by_catalog_search`.
 - `EG-TYPED-PACKS-R106.4`: `crates/eg-core/tests/connector_pack_surfaces.rs::unresolved_class_unowned_resource_and_missing_owner_are_reported`.
 - `EG-TYPED-PACKS-R106.5`: `tests/typed_packs/test_connector_catalog_served.py::test_asset_carries_digest_usage_freshness_and_class_counts`.
 - `EG-TYPED-PACKS-R106.6`: `tests/typed_packs/test_connector_catalog_served.py::test_catalog_search_finds_assets_with_owner_term_and_lineage`.
