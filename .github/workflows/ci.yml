@@ -366,6 +366,7 @@ jobs:
       - name: Fold the numeric kernel into the gates epistemic-graph wheel (EG-346)
         run: |
           python scripts/inject_numeric_kernel.py "$(ls dist-gates/epistemic_graph-*.whl)" "$(ls numdist-gates/*.whl)"
+          python scripts/inject_ontology.py "$(ls dist-gates/epistemic_graph-*.whl)"
       - name: Strip console executables from the gates wheel (executable-free wheel)
         run: python scripts/strip_wheel_executables.py dist-gates/*.whl
       - name: Normalize and audit the folded gates wheel

@@ -28,6 +28,7 @@
     "EG-CONTRACT-R014",
     "EG-CONTRACT-R014.1",
     "EG-CONTRACT-R015",
+    "EG-CONTRACT-R015.1",
     "EG-CONTRACT-R016",
     "EG-CONTRACT-R017",
     "EG-CONTRACT-R018",
@@ -452,7 +453,7 @@
     {
       "id": "EG-CONTRACT-R015",
       "title": "Wheel ships the method, error and scope contract with callability flags",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "26a77bc6a6c4",
         "37a29ee3fe0e",
@@ -460,6 +461,18 @@
       ],
       "verified_by": [
         "tests/test_wheel_contract_surface.py:475"
+      ],
+      "rollup_of": [
+        "EG-CONTRACT-R015.1"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R015.1",
+      "title": "Wheel ships the core ontology, shapes and catalog",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_ontology_package.py:14"
       ]
     },
     {

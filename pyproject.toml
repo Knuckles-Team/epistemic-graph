@@ -264,6 +264,7 @@ include = [
     # in-tree PEP 517 backend and the helper it imports (scripts/inject_numeric_kernel.py).
     { path = "build_backend.py", format = "sdist" },
     { path = "scripts/inject_numeric_kernel.py", format = "sdist" },
+    { path = "scripts/inject_ontology.py", format = "sdist" },
     { path = "scripts/strip_wheel_executables.py", format = "sdist" },
     { path = "rust-toolchain.toml", format = "sdist" },
     # PKG-INFO declares `License-File: LICENSE` (Metadata 2.4) and PyPI rejects an
