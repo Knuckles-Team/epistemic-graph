@@ -649,7 +649,7 @@ fn hint_fields(schema: &LabelSchema, tokens: &BTreeSet<String>) -> Vec<String> {
         .filter(|f| !mapped.contains(f))
         .collect();
     rest.sort_by_key(|f| (!mentions(tokens, f), (*f).clone()));
-    out.extend(rest.into_iter().map(String::clone));
+    out.extend(rest.into_iter().cloned());
     out.truncate(MAX_PROPERTIES_PER_LABEL);
     out
 }
