@@ -17,6 +17,9 @@ import sys
 import zipfile
 from pathlib import Path
 
+# Run as `python scripts/inject_ontology.py`, so the repo root is not on the path.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from scripts.inject_numeric_kernel import _record_bytes
 
 PACKAGE_DIR = "epistemic_graph/ontology"
