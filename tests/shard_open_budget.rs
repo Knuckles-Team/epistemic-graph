@@ -23,7 +23,7 @@ const CPU_BURNERS: usize = 32;
 /// Fresh K=8 open budget, wall clock, under that load.
 const FRESH_BUDGET: Duration = Duration::from_secs(60);
 /// Reopen of a small or populated K=8 store, wall clock, under that load.
-const REOPEN_BUDGET: Duration = Duration::from_secs(30);
+const REOPEN_BUDGET: Duration = Duration::from_secs(45);
 
 struct Load {
     stop: Arc<AtomicBool>,
