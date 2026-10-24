@@ -232,7 +232,7 @@ fn serve_once(delay: std::time::Duration) -> (String, std::sync::mpsc::Receiver<
         "http://{}/v1/chat/completions",
         server.local_addr().unwrap()
     );
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let (mut socket, _) = server.accept().unwrap();
         socket
@@ -240,10 +240,7 @@ fn serve_once(delay: std::time::Duration) -> (String, std::sync::mpsc::Receiver<
             .unwrap();
         let mut bytes = Vec::new();
         let mut chunk = [0; 1024];
-        loop {
-            let Ok(size) = socket.read(&mut chunk) else {
-                break;
-            };
+        while let Ok(size) = socket.read(&mut chunk) {
             if size == 0 {
                 break;
             }

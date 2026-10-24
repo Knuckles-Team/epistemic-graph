@@ -296,6 +296,10 @@ impl<'a> IndexValidator<'a> {
         if entry.kind != PackEntryKind::Resource || entry.uri != CONNECTOR_DECLARATION_URI {
             return;
         }
+        // An unreadable section is reported by the section checks, not here.
+        if section_bytes(self.archive, &entry.body).is_err() {
+            return;
+        }
         if decode_schema_mappings(body).is_err() {
             self.reject(
                 PackViolationCode::MalformedBody,
