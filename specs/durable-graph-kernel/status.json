@@ -495,14 +495,15 @@
         "03670fc1f33c",
         "296258d8ae40",
         "8dbb5bd9de53",
-        "a676823d2b54"
+        "a676823d2b54",
+        "eb01575bf75f"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:768",
-        "crates/eg-storage/src/physical/tests.rs:779",
-        "crates/eg-storage/src/physical/tests.rs:790",
-        "crates/eg-storage/src/physical/tests.rs:806",
-        "crates/eg-storage/src/physical/tests.rs:819"
+        "crates/eg-storage/src/physical/tests.rs:782",
+        "crates/eg-storage/src/physical/tests.rs:793",
+        "crates/eg-storage/src/physical/tests.rs:820",
+        "crates/eg-storage/src/physical/tests.rs:833"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R006.1",
@@ -515,11 +516,12 @@
       "title": "A clean reopen writes nothing, and a fresh shard is ready in one commit",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "296258d8ae40"
+        "296258d8ae40",
+        "eb01575bf75f"
       ],
       "verified_by": [
-        "crates/eg-storage/src/physical/tests.rs:890",
-        "tests/shard_open_budget.rs:128"
+        "crates/eg-storage/src/physical/tests.rs:927",
+        "tests/shard_open_budget.rs:136"
       ]
     },
     {
@@ -527,10 +529,11 @@
       "title": "Startup open has a time budget that holds under host load, and each open is diagnosable",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "296258d8ae40"
+        "296258d8ae40",
+        "eb01575bf75f"
       ],
       "verified_by": [
-        "tests/shard_open_budget.rs:156",
+        "tests/shard_open_budget.rs:171",
         "tests/shard_open_budget.rs:67"
       ]
     },
@@ -539,14 +542,15 @@
       "title": "A clean-shutdown marker lets open skip the full recovery scan",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "296258d8ae40"
+        "296258d8ae40",
+        "eb01575bf75f"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:768",
-        "crates/eg-storage/src/physical/tests.rs:779",
-        "crates/eg-storage/src/physical/tests.rs:790",
-        "crates/eg-storage/src/physical/tests.rs:806",
-        "crates/eg-storage/src/physical/tests.rs:819"
+        "crates/eg-storage/src/physical/tests.rs:782",
+        "crates/eg-storage/src/physical/tests.rs:793",
+        "crates/eg-storage/src/physical/tests.rs:820",
+        "crates/eg-storage/src/physical/tests.rs:833"
       ]
     },
     {

@@ -78,9 +78,8 @@ fn open_sidecars(persist_dir: &str, admin_path: &std::path::Path) -> Result<Side
     let node_info = Arc::new(super::super::node_info_store::NodeInfoStore::open(
         persist_dir,
     )?);
-    let hierarchy = Arc::new(super::super::cluster_hierarchy_store::ClusterHierarchyStore::open(
-        persist_dir,
-    )?);
+    let hierarchy =
+        Arc::new(super::super::cluster_hierarchy_store::ClusterHierarchyStore::open(persist_dir)?);
     tracing::info!("redb: sidecar stores open in {:?}", started.elapsed());
     Ok((admin, node_info, hierarchy))
 }

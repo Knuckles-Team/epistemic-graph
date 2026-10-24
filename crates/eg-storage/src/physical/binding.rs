@@ -81,7 +81,9 @@ pub(crate) fn scope_binding_is_current(
     if stored.as_ref() != Some(&proposed) {
         return Ok(false);
     }
-    let versions = rtx.open_table(VERSIONS).map_err(|error| error.to_string())?;
+    let versions = rtx
+        .open_table(VERSIONS)
+        .map_err(|error| error.to_string())?;
     let has_version = versions
         .get(key.as_str())
         .map_err(|error| error.to_string())?

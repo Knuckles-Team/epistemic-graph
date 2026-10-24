@@ -34,11 +34,7 @@ pub(crate) fn marker_path(database: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn binding(
-    database: &Path,
-    incarnation: &StoreIncarnation,
-    physical_name: &str,
-) -> Option<String> {
+fn binding(database: &Path, incarnation: &StoreIncarnation, physical_name: &str) -> Option<String> {
     let meta = fs::metadata(database).ok()?;
     let mut hasher = Sha256::new();
     hasher.update(DOMAIN);

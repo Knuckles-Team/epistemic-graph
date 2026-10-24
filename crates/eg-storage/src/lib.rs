@@ -95,8 +95,8 @@ pub use physical::incarnation::{
 };
 pub use physical::integrity::PrivatePayloadIntegrity;
 pub use physical::manifest::OwnerManifestDigest;
-pub use physical::root::OpenReport;
 pub use physical::read_only::{open_read_only, ReadOnlyStore};
+pub use physical::root::OpenReport;
 pub use physical::write_authority::WriteValidationCounts;
 pub use recovery::adopt::{
     adopt_recovery, adopt_staged_mutation_store, classify_recovery_store,

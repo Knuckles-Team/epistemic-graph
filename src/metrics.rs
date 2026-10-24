@@ -767,7 +767,9 @@ mod imp {
     /// Record one kernel-owned store open's phase split (R006.2).
     pub fn store_open(phases: &[(&str, f64)], outcome: &str) {
         for (phase, seconds) in phases {
-            STORE_OPEN_PHASE.with_label_values(&[phase]).observe(*seconds);
+            STORE_OPEN_PHASE
+                .with_label_values(&[phase])
+                .observe(*seconds);
         }
         STORE_OPEN_SCAN.with_label_values(&[outcome]).inc();
     }

@@ -118,9 +118,17 @@ fn shard_open_stays_within_budget_under_load() {
     drop(backend);
     load.stop();
 
-    println!("[BUDGET] fresh={fresh:?} (<= {FRESH_BUDGET:?}) reopen={reopen:?} (<= {REOPEN_BUDGET:?})");
-    assert!(fresh <= FRESH_BUDGET, "fresh K={SHARDS} open took {fresh:?}, budget {FRESH_BUDGET:?}");
-    assert!(reopen <= REOPEN_BUDGET, "reopen K={SHARDS} took {reopen:?}, budget {REOPEN_BUDGET:?}");
+    println!(
+        "[BUDGET] fresh={fresh:?} (<= {FRESH_BUDGET:?}) reopen={reopen:?} (<= {REOPEN_BUDGET:?})"
+    );
+    assert!(
+        fresh <= FRESH_BUDGET,
+        "fresh K={SHARDS} open took {fresh:?}, budget {FRESH_BUDGET:?}"
+    );
+    assert!(
+        reopen <= REOPEN_BUDGET,
+        "reopen K={SHARDS} took {reopen:?}, budget {REOPEN_BUDGET:?}"
+    );
 }
 
 /// R006.1: the sidecar stores open with the shards, and a refused open leaves
@@ -129,11 +137,15 @@ fn shard_open_stays_within_budget_under_load() {
 #[test]
 fn sidecars_open_with_the_shards_and_a_refusal_leaves_none() {
     let scratch = tempfile::tempdir().unwrap();
-    let sidecars = ["admin-mutations.redb", "node_info.redb", "cluster_hierarchy.redb"];
+    let sidecars = [
+        "admin-mutations.redb",
+        "node_info.redb",
+        "cluster_hierarchy.redb",
+    ];
 
     let good = scratch.path().join("good");
-    let backend = RedbBackend::open_with_shards(good.to_string_lossy().to_string(), 64, 2)
-        .expect("open");
+    let backend =
+        RedbBackend::open_with_shards(good.to_string_lossy().to_string(), 64, 2).expect("open");
     for name in sidecars {
         assert!(good.join(name).exists(), "{name} must exist after open");
     }
@@ -145,7 +157,10 @@ fn sidecars_open_with_the_shards_and_a_refusal_leaves_none() {
     std::fs::write(bad.join("graph-0.redb"), b"not a redb file").unwrap();
     assert!(RedbBackend::open_with_shards(bad.to_string_lossy().to_string(), 64, 1).is_err());
     for name in sidecars {
-        assert!(!bad.join(name).exists(), "refused open must not leave {name}");
+        assert!(
+            !bad.join(name).exists(),
+            "refused open must not leave {name}"
+        );
     }
 }
 
@@ -202,7 +217,10 @@ fn populated_reopen_hits_the_marker_fast_path() {
         .filter(|e| e.file_name().to_string_lossy().ends_with(".redb"))
         .map(|e| e.metadata().unwrap().len())
         .sum();
-    assert!(bytes > 100 * 1024 * 1024, "populated store is only {bytes} bytes");
+    assert!(
+        bytes > 100 * 1024 * 1024,
+        "populated store is only {bytes} bytes"
+    );
 
     let load = Load::start(scratch.path());
     let started = std::time::Instant::now();
@@ -225,5 +243,8 @@ fn populated_reopen_hits_the_marker_fast_path() {
     load.stop();
 
     println!("[BUDGET] populated bytes={bytes} marker_reopen={fast:?} (<= {REOPEN_BUDGET:?}) full_scan_reopen={full:?}");
-    assert!(fast <= REOPEN_BUDGET, "marker reopen took {fast:?}, budget {REOPEN_BUDGET:?}");
+    assert!(
+        fast <= REOPEN_BUDGET,
+        "marker reopen took {fast:?}, budget {REOPEN_BUDGET:?}"
+    );
 }
