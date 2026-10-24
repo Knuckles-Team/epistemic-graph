@@ -622,13 +622,6 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
         ("Test (every other workspace crate -- pull request fast subset)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked "
-                "--workspace --exclude epistemic-graph --exclude eg-types --exclude "
-                "eg-core --exclude eg-compute --exclude eg-storage --exclude "
-                "eg-tts-piper --exclude eg-numeric --exclude eg-pyengine "
-                "--all-features --no-fail-fast"
-            ),
-            (
-                "python3 scripts/cargo_test_rescue.py cargo test --locked "
                 '"${args[@]}" --all-features --no-fail-fast'
             ),
         ),
@@ -684,6 +677,8 @@ NATIVE_JOB_COMMANDS = {
 for native_job in ("gates-crates", "gates-storage", "gates-pyo3"):
     COMPILER_CACHE_COMMANDS[native_job] = NATIVE_JOB_COMMANDS
 
+PR_FAST_SUBSET_STEP = "Test (every other workspace crate -- pull request fast subset)"
+
 CACHE_STEP_CONDITIONS = {
     "Test (pyo3 crates, every feature except python)": "github.job == 'gates-pyo3'",
     ("Test (storage crate, isolated crash-process lifecycle)"): (
@@ -730,7 +725,8 @@ def test_compiler_cache_covers_only_explicit_step_local_commands(
         expected_env["SCOPE"] = "${{ steps.pr-test-scope.outputs.scope }}"
     assert build["env"] == expected_env
     assert _cargo_commands(build["run"]) == commands
-    if len(commands) == 1:
+    # The fast-subset step is a scope script around its one cargo command.
+    if len(commands) == 1 and step_name != PR_FAST_SUBSET_STEP:
         assert build["run"] == commands[0]
     _assert_cache_backend(workflow, job, build)
 
