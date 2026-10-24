@@ -579,8 +579,7 @@
         "EG-DURABLE-KERNEL-R011.3",
         "EG-DURABLE-KERNEL-R011.4",
         "EG-DURABLE-KERNEL-R011.5"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R011.1",
@@ -617,16 +616,14 @@
       "title": "Pre-merge runtime execution",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R011.4",
       "title": "Exact-head CI acceptance receipts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R011.5",
@@ -684,8 +681,7 @@
         "EG-DURABLE-KERNEL-R014.3",
         "EG-DURABLE-KERNEL-R014.4",
         "EG-DURABLE-KERNEL-R014.5"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R014.1",
@@ -725,8 +721,7 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R014.3.1",
         "EG-DURABLE-KERNEL-R014.3.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R014.3.1",
@@ -748,24 +743,21 @@
       "title": "Bounded diagnostic retry integration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R014.4",
       "title": "Loaded leader-rebalance acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R014.5",
       "title": "Loaded three-node placement acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R015",
@@ -1139,9 +1131,6 @@
       "verified_by": [
         "src/server/dispatch/governed/tests.rs:109",
         "src/server/dispatch/governed/tests.rs:59"
-      ],
-      "depends_on": [
-        "EG-DURABLE-KERNEL-R027.1"
       ]
     },
     {
@@ -1155,9 +1144,6 @@
       ],
       "verified_by": [
         "src/raft/command/native/tests.rs:280"
-      ],
-      "depends_on": [
-        "EG-DURABLE-KERNEL-R027.2"
       ]
     },
     {
@@ -1176,8 +1162,7 @@
         "EG-DURABLE-KERNEL-R028.4",
         "EG-DURABLE-KERNEL-R028.5",
         "EG-DURABLE-KERNEL-R028.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R029",
@@ -1200,8 +1185,7 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R030.1"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R031",
@@ -1367,8 +1351,7 @@
         "EG-DURABLE-KERNEL-R035.4",
         "EG-DURABLE-KERNEL-R035.5",
         "EG-DURABLE-KERNEL-R035.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R036",
@@ -1426,40 +1409,35 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R035.3",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R035.4",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R035.5",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R035.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R037",
@@ -1496,8 +1474,7 @@
         "EG-DURABLE-KERNEL-R038.1",
         "EG-DURABLE-KERNEL-R038.2",
         "EG-DURABLE-KERNEL-R038.100"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R038.1",
@@ -1573,8 +1550,7 @@
         "EG-DURABLE-KERNEL-R039.2",
         "EG-DURABLE-KERNEL-R039.3",
         "EG-DURABLE-KERNEL-R039.4"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R039.1",
@@ -1597,8 +1573,7 @@
       "landed_in": [],
       "verified_by": [
         "src/redb_store/work_item/control_lease/tests.rs:246"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R039.3",
@@ -1611,8 +1586,7 @@
         "src/redb_store/work_item/control_lease/tests.rs:424",
         "src/redb_store/work_item/control_lease/tests.rs:452",
         "src/redb_store/work_item/control_lease/tests.rs:477"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R039.4",
@@ -1632,8 +1606,7 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R039.4.1",
         "EG-DURABLE-KERNEL-R039.4.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R039.4.1",
@@ -1646,16 +1619,14 @@
         "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:154",
         "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:175",
         "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:229"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R039.4.2",
       "title": "Paired-consumption performance qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R040",
@@ -1759,8 +1730,7 @@
         "EG-DURABLE-KERNEL-R042.4",
         "EG-DURABLE-KERNEL-R042.5",
         "EG-DURABLE-KERNEL-R042.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R042.1",
@@ -1796,8 +1766,7 @@
         "EG-DURABLE-KERNEL-R043.7",
         "EG-DURABLE-KERNEL-R043.8",
         "EG-DURABLE-KERNEL-R043.100"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R044",
@@ -1981,16 +1950,14 @@
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R057.1"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R057.1",
       "title": "Order-snapshot lifecycle with immutable-history and derivation-link acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R058",
@@ -2061,8 +2028,7 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R063.1",
         "EG-DURABLE-KERNEL-R063.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R063.1",
@@ -2080,8 +2046,7 @@
       "title": "Remaining scope: lossless lift-on-read for version-2 control-state rows",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R064",
@@ -2221,24 +2186,21 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R071.600"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R072",
       "title": "Served task-queue RPC over the durable outbox",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R073",
       "title": "Generated client method for the task queue",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R074",
@@ -2249,8 +2211,7 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R074.1",
         "EG-DURABLE-KERNEL-R074.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R074.1",
@@ -2271,16 +2232,14 @@
       "title": "Served worker registry integration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R075",
       "title": "Reserved-worker admission decision",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R076",
@@ -2291,8 +2250,7 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R076.1",
         "EG-DURABLE-KERNEL-R076.2"
-      ],
-      "priority": 2
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R076.1",
@@ -2314,32 +2272,28 @@
       "title": "Serve and consume validated scheduler settings",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R077",
       "title": "Shard-writer width served by the scheduler surface",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R078",
       "title": "Bitemporal stamping served method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R079",
       "title": "Served as-of filtering",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R080",
@@ -2350,8 +2304,7 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R080.1",
         "EG-DURABLE-KERNEL-R080.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R080.1",
@@ -2369,16 +2322,14 @@
       "title": "Served supersession refuses an already-closed fact and proves the atomic history transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R081",
       "title": "Generated client methods for bitemporal operations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R082",
@@ -2398,16 +2349,14 @@
         "EG-DURABLE-KERNEL-R082.9",
         "EG-DURABLE-KERNEL-R082.10",
         "EG-DURABLE-KERNEL-R082.11"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.1",
       "title": "A submitted `MineAssociate` job is claimed and published by the colocated executor with no external worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.2",
@@ -2427,8 +2376,7 @@
       "title": "Distinct-item cap and opaque-reference rule are decided and enforced at submit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.4",
@@ -2446,8 +2394,7 @@
       "title": "The staged result has the 11-column knowledge-batch shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.6",
@@ -2467,43 +2414,35 @@
       "title": "A running mining job observes cancellation, deadline and CPU budget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.8",
       "title": "Failure codes and retry follow the durable retry policy",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.9",
       "title": "Colocated pool lease and poll interval are configurable",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-DURABLE-KERNEL-R076"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.10",
       "title": "Remote workers remain supported through the existing coordinator operations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.11",
       "title": "Cross-repo: graph-os hosts any remote worker process; agent-utilities does not",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083",
@@ -2520,40 +2459,35 @@
         "EG-DURABLE-KERNEL-R083.6",
         "EG-DURABLE-KERNEL-R083.7",
         "EG-DURABLE-KERNEL-R083.8"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.1",
       "title": "`KvBlockKey` typed model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.2",
       "title": "Version-mismatch refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.3",
       "title": "Budgeted eviction by importance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.4",
       "title": "Locate and wire the served KV operation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R084",
@@ -2570,56 +2504,49 @@
         "EG-DURABLE-KERNEL-R084.6",
         "EG-DURABLE-KERNEL-R084.7",
         "EG-DURABLE-KERNEL-R084.8"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085",
@@ -2638,72 +2565,63 @@
         "EG-DURABLE-KERNEL-R085.8",
         "EG-DURABLE-KERNEL-R085.9",
         "EG-DURABLE-KERNEL-R085.10"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.2",
       "title": "Versioned reads and listing",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.3",
       "title": "Sync decisions and compare-and-set",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.4",
       "title": "Production wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.5",
       "title": "Authority and refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.6",
       "title": "Provenance and synchronization evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.7",
       "title": "Retention",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.8",
       "title": "Real served acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R086",
@@ -2721,80 +2639,70 @@
         "EG-DURABLE-KERNEL-R086.7",
         "EG-DURABLE-KERNEL-R086.8",
         "EG-DURABLE-KERNEL-R086.9"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.2",
       "title": "Behavior: memory-only eviction",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.3",
       "title": "Behavior: cache-miss read",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.4",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.5",
       "title": "Scoped reads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.6",
       "title": "Refusal: unsafe eviction",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.7",
       "title": "Refusal: unavailable reads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.8",
       "title": "Restart",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.9",
       "title": "Evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R087",
@@ -2805,24 +2713,21 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R087.1",
         "EG-DURABLE-KERNEL-R087.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R087.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R087.2",
       "title": "Served integration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R088",
@@ -2833,24 +2738,21 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R088.1",
         "EG-DURABLE-KERNEL-R088.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R088.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R088.2",
       "title": "Served integration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R089",
@@ -2861,24 +2763,21 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R089.1",
         "EG-DURABLE-KERNEL-R089.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R089.1",
       "title": "Typed verdict",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R089.2",
       "title": "Consumer refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R090",
@@ -2890,32 +2789,28 @@
         "EG-DURABLE-KERNEL-R090.1",
         "EG-DURABLE-KERNEL-R090.2",
         "EG-DURABLE-KERNEL-R090.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R090.1",
       "title": "Import path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R090.2",
       "title": "Digest readback",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R090.3",
       "title": "Read-only projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R091",
@@ -2930,56 +2825,49 @@
         "EG-DURABLE-KERNEL-R091.4",
         "EG-DURABLE-KERNEL-R091.5",
         "EG-DURABLE-KERNEL-R091.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R091.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R091.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R091.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R091.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R091.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R091.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R092",
@@ -2994,56 +2882,49 @@
         "EG-DURABLE-KERNEL-R092.4",
         "EG-DURABLE-KERNEL-R092.5",
         "EG-DURABLE-KERNEL-R092.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R092.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R092.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R092.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R092.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R092.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R092.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R093",
@@ -3058,56 +2939,49 @@
         "EG-DURABLE-KERNEL-R093.4",
         "EG-DURABLE-KERNEL-R093.5",
         "EG-DURABLE-KERNEL-R093.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R093.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R093.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R093.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R093.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R093.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R093.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R094",
@@ -3124,56 +2998,49 @@
         "EG-DURABLE-KERNEL-R094.6",
         "EG-DURABLE-KERNEL-R094.700",
         "EG-DURABLE-KERNEL-R094.701"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095",
@@ -3194,104 +3061,91 @@
         "EG-DURABLE-KERNEL-R095.1003",
         "EG-DURABLE-KERNEL-R095.1004",
         "EG-DURABLE-KERNEL-R095.1005"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.1000",
       "title": "Model: served agent bus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.1001",
       "title": "Behavior: served agent bus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.1002",
       "title": "Wiring: served agent bus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.1003",
       "title": "Refusal: served agent bus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.1004",
       "title": "Evidence: served agent bus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.1005",
       "title": "Hot-path proof: served agent bus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R096",
@@ -3306,152 +3160,133 @@
         "EG-DURABLE-KERNEL-R096.4",
         "EG-DURABLE-KERNEL-R096.5",
         "EG-DURABLE-KERNEL-R096.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R096.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R096.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R096.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R096.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R096.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R096.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.1",
       "title": "Run checkpoint and memory binding. Owner decisions remain open",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.9",
       "title": "Versioned search state is retained as a complete R085 memory snapshot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.10",
       "title": "Prior-session notes use the existing authorized memory authority. Capture and reuse remain AU-owned",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.7",
       "title": "Definition hold: no cross-backend transaction contract is authorized",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.8",
       "title": "Deterministic tenant-scoped ordering across backends",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R038.100",
       "title": "Embedded and served deployment profiles preserve durability classes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R043.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R043.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R043.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R043.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R043.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R043.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R043.7",
@@ -3484,16 +3319,14 @@
       "title": "Committed graph changes publish an ordered, revocable cursor feed",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R042.100",
       "title": "Comparable full-input-token throughput and per-query cost measurements",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R097",
@@ -3508,56 +3341,49 @@
         "EG-DURABLE-KERNEL-R097.4",
         "EG-DURABLE-KERNEL-R097.5",
         "EG-DURABLE-KERNEL-R097.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R097.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R097.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R097.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R097.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R097.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R097.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R098",
@@ -3572,56 +3398,49 @@
         "EG-DURABLE-KERNEL-R098.4",
         "EG-DURABLE-KERNEL-R098.5",
         "EG-DURABLE-KERNEL-R098.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R098.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R098.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R098.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R098.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R098.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R098.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R099",
@@ -3636,56 +3455,49 @@
         "EG-DURABLE-KERNEL-R099.4",
         "EG-DURABLE-KERNEL-R099.5",
         "EG-DURABLE-KERNEL-R099.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R099.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R099.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R099.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R099.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R099.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R099.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R100",
@@ -3702,56 +3514,49 @@
         "EG-DURABLE-KERNEL-R100.6",
         "EG-DURABLE-KERNEL-R100.700",
         "EG-DURABLE-KERNEL-R100.701"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.2",
@@ -3775,8 +3580,7 @@
       "landed_in": [],
       "verified_by": [
         "src/redb_store/work_item/lease/tests.rs:31"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R101",
@@ -3791,56 +3595,49 @@
         "EG-DURABLE-KERNEL-R101.4",
         "EG-DURABLE-KERNEL-R101.5",
         "EG-DURABLE-KERNEL-R101.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R101.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R101.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R101.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R101.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R101.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R101.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R102",
@@ -3956,64 +3753,56 @@
         "EG-DURABLE-KERNEL-R609.4",
         "EG-DURABLE-KERNEL-R609.5",
         "EG-DURABLE-KERNEL-R609.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R609.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R609.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R609.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R609.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R609.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R609.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R071.600",
       "title": "Lane-aware claim on the durable task queue",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R750",
@@ -4026,40 +3815,35 @@
         "EG-DURABLE-KERNEL-R750.751",
         "EG-DURABLE-KERNEL-R750.752",
         "EG-DURABLE-KERNEL-R750.753"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R750.750",
       "title": "Model: Durable agent dispatch queue, turn claims and cooperative cancellation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R750.751",
       "title": "Behavior: Durable agent dispatch queue, turn claims and cooperative cancellation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R750.752",
       "title": "Refusal: Durable agent dispatch queue, turn claims and cooperative cancellation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R750.753",
       "title": "Hot-path proof: Durable agent dispatch queue, turn claims and cooperative cancellation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R751",
@@ -4072,40 +3856,35 @@
         "EG-DURABLE-KERNEL-R751.751",
         "EG-DURABLE-KERNEL-R751.752",
         "EG-DURABLE-KERNEL-R751.753"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R751.750",
       "title": "Model: Durable execution state, session and chat persistence, shared resource leases and reactive subscriptions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R751.751",
       "title": "Behavior: Durable execution state, session and chat persistence, shared resource leases and reactive subscriptions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R751.752",
       "title": "Refusal: Durable execution state, session and chat persistence, shared resource leases and reactive subscriptions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R751.753",
       "title": "Hot-path proof: Durable execution state, session and chat persistence, shared resource leases and reactive subscriptions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R752",
@@ -4118,40 +3897,35 @@
         "EG-DURABLE-KERNEL-R752.751",
         "EG-DURABLE-KERNEL-R752.752",
         "EG-DURABLE-KERNEL-R752.753"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R752.750",
       "title": "Model: Repository work items and operation payloads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R752.751",
       "title": "Behavior: Repository work items and operation payloads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R752.752",
       "title": "Refusal: Repository work items and operation payloads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R752.753",
       "title": "Hot-path proof: Repository work items and operation payloads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R820",
@@ -4166,56 +3940,49 @@
         "EG-DURABLE-KERNEL-R820.4",
         "EG-DURABLE-KERNEL-R820.5",
         "EG-DURABLE-KERNEL-R820.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R820.1",
       "title": "Model: Uncertain effects and effect receipts on work items",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R820.2",
       "title": "Behavior: Uncertain effects and effect receipts on work items",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R820.3",
       "title": "Wiring: Uncertain effects and effect receipts on work items",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R820.4",
       "title": "Refusal: Uncertain effects and effect receipts on work items",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R820.5",
       "title": "Evidence: Uncertain effects and effect receipts on work items",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R820.6",
       "title": "Hot-path proof: Uncertain effects and effect receipts on work items",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R700",
@@ -4230,104 +3997,91 @@
         "EG-DURABLE-KERNEL-R700.4",
         "EG-DURABLE-KERNEL-R700.5",
         "EG-DURABLE-KERNEL-R700.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R700.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R700.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R700.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R700.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R700.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R700.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R710",
       "title": "Backend-agnostic graph copy and persisted-index migration catalogue: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R711",
       "title": "Backend-agnostic graph copy and persisted-index migration catalogue: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.700",
       "title": "Mirror target naming and a lossless per-mirror outbox: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.701",
       "title": "Mirror target naming and a lossless per-mirror outbox: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.700",
       "title": "Unified identifier registry across stores: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.701",
       "title": "Unified identifier registry across stores: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R800",
@@ -4342,56 +4096,49 @@
         "EG-DURABLE-KERNEL-R800.4",
         "EG-DURABLE-KERNEL-R800.5",
         "EG-DURABLE-KERNEL-R800.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R850",
@@ -4406,56 +4153,49 @@
         "EG-DURABLE-KERNEL-R850.4",
         "EG-DURABLE-KERNEL-R850.5",
         "EG-DURABLE-KERNEL-R850.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R850.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R850.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R850.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R850.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R850.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R850.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R851",
@@ -4470,56 +4210,49 @@
         "EG-DURABLE-KERNEL-R851.4",
         "EG-DURABLE-KERNEL-R851.5",
         "EG-DURABLE-KERNEL-R851.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R851.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R851.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R851.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R851.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R851.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R851.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R852",
@@ -4534,56 +4267,49 @@
         "EG-DURABLE-KERNEL-R852.4",
         "EG-DURABLE-KERNEL-R852.5",
         "EG-DURABLE-KERNEL-R852.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.4",
@@ -4601,8 +4327,7 @@
         "EG-DURABLE-KERNEL-R028.4.2",
         "EG-DURABLE-KERNEL-R028.4.3",
         "EG-DURABLE-KERNEL-R028.4.4"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.4.1",
@@ -4626,8 +4351,7 @@
       "title": "Qualify recovery performance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.5",
@@ -4649,88 +4373,77 @@
         "EG-DURABLE-KERNEL-R028.5.2",
         "EG-DURABLE-KERNEL-R028.5.3",
         "EG-DURABLE-KERNEL-R028.5.4"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R030.1",
       "title": "Issuer-bound host-start record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.5",
       "title": "Tier ladder from accelerator memory to durable storage",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.6",
       "title": "Graph-guided paging policy",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.7",
       "title": "Long-context coherence across tiers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.8",
       "title": "Tier refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R042.2",
       "title": "Cross-modal query latency benchmark",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R042.3",
       "title": "KV-cache tiering benchmark",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R042.4",
       "title": "Ingest throughput benchmark",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R042.5",
       "title": "Wire protocol benchmark",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R042.6",
       "title": "Benchmark publication and regression gate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R860",
@@ -4745,56 +4458,49 @@
         "EG-DURABLE-KERNEL-R860.4",
         "EG-DURABLE-KERNEL-R860.5",
         "EG-DURABLE-KERNEL-R860.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R860.1",
       "title": "PostgreSQL wire listener",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R860.2",
       "title": "Bolt listener",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R860.3",
       "title": "RESP listener",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R860.4",
       "title": "S3-compatible object API",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R860.5",
       "title": "Listener refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R860.6",
       "title": "Hot-path proof: one store behind four protocols",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.5.1",
@@ -4804,8 +4510,7 @@
       "verified_by": [
         "crates/eg-types/src/current_plan/tests.rs:20",
         "crates/eg-types/src/current_plan/tests.rs:56"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.5.2",
@@ -4816,8 +4521,7 @@
         "src/redb_store/work_item/current_plan/tests/attachment.rs:13",
         "src/redb_store/work_item/current_plan/tests/attachment.rs:139",
         "src/redb_store/work_item/current_plan/tests/attachment.rs:61"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.5.3",
@@ -4829,16 +4533,14 @@
         "tests/adopt_workitem_authenticated_replay.rs:588",
         "tests/decide/test_task_plan_served.py:230",
         "tests/decide/test_task_plan_served.py:351"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.5.4",
       "title": "Attachment performance qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.6",
@@ -4912,32 +4614,28 @@
         "EG-DURABLE-KERNEL-R862.1",
         "EG-DURABLE-KERNEL-R862.2",
         "EG-DURABLE-KERNEL-R862.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R862.1",
       "title": "Restore reads bundle sources by content, not by physical identity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R862.2",
       "title": "Wiring: an explicit command re-binds a copied data directory",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R862.3",
       "title": "Hot-path proof: a copied bundle restores and serves",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.4.3",
@@ -4962,497 +4660,7 @@
       "title": "Replay a repeated run admission from its retained owner receipt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     }
-  ],
-  "frontier": [
-    "EG-DURABLE-KERNEL-R011.3",
-    "EG-DURABLE-KERNEL-R011.4",
-    "EG-DURABLE-KERNEL-R014.3.2",
-    "EG-DURABLE-KERNEL-R014.4",
-    "EG-DURABLE-KERNEL-R014.5",
-    "EG-DURABLE-KERNEL-R035.2",
-    "EG-DURABLE-KERNEL-R035.3",
-    "EG-DURABLE-KERNEL-R035.4",
-    "EG-DURABLE-KERNEL-R035.5",
-    "EG-DURABLE-KERNEL-R035.6",
-    "EG-DURABLE-KERNEL-R039.2",
-    "EG-DURABLE-KERNEL-R039.3",
-    "EG-DURABLE-KERNEL-R039.4.1",
-    "EG-DURABLE-KERNEL-R039.4.2",
-    "EG-DURABLE-KERNEL-R057.1",
-    "EG-DURABLE-KERNEL-R063.2",
-    "EG-DURABLE-KERNEL-R072",
-    "EG-DURABLE-KERNEL-R073",
-    "EG-DURABLE-KERNEL-R074.2",
-    "EG-DURABLE-KERNEL-R075",
-    "EG-DURABLE-KERNEL-R076.2",
-    "EG-DURABLE-KERNEL-R077",
-    "EG-DURABLE-KERNEL-R078",
-    "EG-DURABLE-KERNEL-R079",
-    "EG-DURABLE-KERNEL-R080.2",
-    "EG-DURABLE-KERNEL-R081",
-    "EG-DURABLE-KERNEL-R082.1",
-    "EG-DURABLE-KERNEL-R082.3",
-    "EG-DURABLE-KERNEL-R082.5",
-    "EG-DURABLE-KERNEL-R082.7",
-    "EG-DURABLE-KERNEL-R082.8",
-    "EG-DURABLE-KERNEL-R082.10",
-    "EG-DURABLE-KERNEL-R082.11",
-    "EG-DURABLE-KERNEL-R083.1",
-    "EG-DURABLE-KERNEL-R083.2",
-    "EG-DURABLE-KERNEL-R083.3",
-    "EG-DURABLE-KERNEL-R083.4",
-    "EG-DURABLE-KERNEL-R084.1",
-    "EG-DURABLE-KERNEL-R084.2",
-    "EG-DURABLE-KERNEL-R084.3",
-    "EG-DURABLE-KERNEL-R084.4",
-    "EG-DURABLE-KERNEL-R084.5",
-    "EG-DURABLE-KERNEL-R084.6",
-    "EG-DURABLE-KERNEL-R085.1",
-    "EG-DURABLE-KERNEL-R085.2",
-    "EG-DURABLE-KERNEL-R085.3",
-    "EG-DURABLE-KERNEL-R085.4",
-    "EG-DURABLE-KERNEL-R085.5",
-    "EG-DURABLE-KERNEL-R085.6",
-    "EG-DURABLE-KERNEL-R085.7",
-    "EG-DURABLE-KERNEL-R085.8",
-    "EG-DURABLE-KERNEL-R086.1",
-    "EG-DURABLE-KERNEL-R086.2",
-    "EG-DURABLE-KERNEL-R086.3",
-    "EG-DURABLE-KERNEL-R086.4",
-    "EG-DURABLE-KERNEL-R086.5",
-    "EG-DURABLE-KERNEL-R086.6",
-    "EG-DURABLE-KERNEL-R086.7",
-    "EG-DURABLE-KERNEL-R086.8",
-    "EG-DURABLE-KERNEL-R086.9",
-    "EG-DURABLE-KERNEL-R087.1",
-    "EG-DURABLE-KERNEL-R087.2",
-    "EG-DURABLE-KERNEL-R088.1",
-    "EG-DURABLE-KERNEL-R088.2",
-    "EG-DURABLE-KERNEL-R089.1",
-    "EG-DURABLE-KERNEL-R089.2",
-    "EG-DURABLE-KERNEL-R090.1",
-    "EG-DURABLE-KERNEL-R090.2",
-    "EG-DURABLE-KERNEL-R090.3",
-    "EG-DURABLE-KERNEL-R091.1",
-    "EG-DURABLE-KERNEL-R091.2",
-    "EG-DURABLE-KERNEL-R091.3",
-    "EG-DURABLE-KERNEL-R091.4",
-    "EG-DURABLE-KERNEL-R091.5",
-    "EG-DURABLE-KERNEL-R091.6",
-    "EG-DURABLE-KERNEL-R092.1",
-    "EG-DURABLE-KERNEL-R092.2",
-    "EG-DURABLE-KERNEL-R092.3",
-    "EG-DURABLE-KERNEL-R092.4",
-    "EG-DURABLE-KERNEL-R092.5",
-    "EG-DURABLE-KERNEL-R092.6",
-    "EG-DURABLE-KERNEL-R093.1",
-    "EG-DURABLE-KERNEL-R093.2",
-    "EG-DURABLE-KERNEL-R093.3",
-    "EG-DURABLE-KERNEL-R093.4",
-    "EG-DURABLE-KERNEL-R093.5",
-    "EG-DURABLE-KERNEL-R093.6",
-    "EG-DURABLE-KERNEL-R094.1",
-    "EG-DURABLE-KERNEL-R094.2",
-    "EG-DURABLE-KERNEL-R094.3",
-    "EG-DURABLE-KERNEL-R094.4",
-    "EG-DURABLE-KERNEL-R094.5",
-    "EG-DURABLE-KERNEL-R094.6",
-    "EG-DURABLE-KERNEL-R095.1",
-    "EG-DURABLE-KERNEL-R095.2",
-    "EG-DURABLE-KERNEL-R095.3",
-    "EG-DURABLE-KERNEL-R095.4",
-    "EG-DURABLE-KERNEL-R095.5",
-    "EG-DURABLE-KERNEL-R095.6",
-    "EG-DURABLE-KERNEL-R095.1000",
-    "EG-DURABLE-KERNEL-R095.1001",
-    "EG-DURABLE-KERNEL-R095.1002",
-    "EG-DURABLE-KERNEL-R095.1003",
-    "EG-DURABLE-KERNEL-R095.1004",
-    "EG-DURABLE-KERNEL-R095.1005",
-    "EG-DURABLE-KERNEL-R096.1",
-    "EG-DURABLE-KERNEL-R096.2",
-    "EG-DURABLE-KERNEL-R096.3",
-    "EG-DURABLE-KERNEL-R096.4",
-    "EG-DURABLE-KERNEL-R096.5",
-    "EG-DURABLE-KERNEL-R096.6",
-    "EG-DURABLE-KERNEL-R028.1",
-    "EG-DURABLE-KERNEL-R085.9",
-    "EG-DURABLE-KERNEL-R085.10",
-    "EG-DURABLE-KERNEL-R084.7",
-    "EG-DURABLE-KERNEL-R084.8",
-    "EG-DURABLE-KERNEL-R038.100",
-    "EG-DURABLE-KERNEL-R043.1",
-    "EG-DURABLE-KERNEL-R043.2",
-    "EG-DURABLE-KERNEL-R043.3",
-    "EG-DURABLE-KERNEL-R043.4",
-    "EG-DURABLE-KERNEL-R043.5",
-    "EG-DURABLE-KERNEL-R043.6",
-    "EG-DURABLE-KERNEL-R043.100",
-    "EG-DURABLE-KERNEL-R042.100",
-    "EG-DURABLE-KERNEL-R097.1",
-    "EG-DURABLE-KERNEL-R097.2",
-    "EG-DURABLE-KERNEL-R097.3",
-    "EG-DURABLE-KERNEL-R097.4",
-    "EG-DURABLE-KERNEL-R097.5",
-    "EG-DURABLE-KERNEL-R097.6",
-    "EG-DURABLE-KERNEL-R098.1",
-    "EG-DURABLE-KERNEL-R098.2",
-    "EG-DURABLE-KERNEL-R098.3",
-    "EG-DURABLE-KERNEL-R098.4",
-    "EG-DURABLE-KERNEL-R098.5",
-    "EG-DURABLE-KERNEL-R098.6",
-    "EG-DURABLE-KERNEL-R099.1",
-    "EG-DURABLE-KERNEL-R099.2",
-    "EG-DURABLE-KERNEL-R099.3",
-    "EG-DURABLE-KERNEL-R099.4",
-    "EG-DURABLE-KERNEL-R099.5",
-    "EG-DURABLE-KERNEL-R099.6",
-    "EG-DURABLE-KERNEL-R100.1",
-    "EG-DURABLE-KERNEL-R100.2",
-    "EG-DURABLE-KERNEL-R100.3",
-    "EG-DURABLE-KERNEL-R100.4",
-    "EG-DURABLE-KERNEL-R100.5",
-    "EG-DURABLE-KERNEL-R100.6",
-    "EG-DURABLE-KERNEL-R028.3",
-    "EG-DURABLE-KERNEL-R101.1",
-    "EG-DURABLE-KERNEL-R101.2",
-    "EG-DURABLE-KERNEL-R101.3",
-    "EG-DURABLE-KERNEL-R101.4",
-    "EG-DURABLE-KERNEL-R101.5",
-    "EG-DURABLE-KERNEL-R101.6",
-    "EG-DURABLE-KERNEL-R609.1",
-    "EG-DURABLE-KERNEL-R609.2",
-    "EG-DURABLE-KERNEL-R609.3",
-    "EG-DURABLE-KERNEL-R609.4",
-    "EG-DURABLE-KERNEL-R609.5",
-    "EG-DURABLE-KERNEL-R609.6",
-    "EG-DURABLE-KERNEL-R071.600",
-    "EG-DURABLE-KERNEL-R750.750",
-    "EG-DURABLE-KERNEL-R750.751",
-    "EG-DURABLE-KERNEL-R750.752",
-    "EG-DURABLE-KERNEL-R750.753",
-    "EG-DURABLE-KERNEL-R751.750",
-    "EG-DURABLE-KERNEL-R751.751",
-    "EG-DURABLE-KERNEL-R751.752",
-    "EG-DURABLE-KERNEL-R751.753",
-    "EG-DURABLE-KERNEL-R752.750",
-    "EG-DURABLE-KERNEL-R752.751",
-    "EG-DURABLE-KERNEL-R752.752",
-    "EG-DURABLE-KERNEL-R752.753",
-    "EG-DURABLE-KERNEL-R820.1",
-    "EG-DURABLE-KERNEL-R820.2",
-    "EG-DURABLE-KERNEL-R820.3",
-    "EG-DURABLE-KERNEL-R820.4",
-    "EG-DURABLE-KERNEL-R820.5",
-    "EG-DURABLE-KERNEL-R820.6",
-    "EG-DURABLE-KERNEL-R700.1",
-    "EG-DURABLE-KERNEL-R700.2",
-    "EG-DURABLE-KERNEL-R700.3",
-    "EG-DURABLE-KERNEL-R700.4",
-    "EG-DURABLE-KERNEL-R700.5",
-    "EG-DURABLE-KERNEL-R700.6",
-    "EG-DURABLE-KERNEL-R710",
-    "EG-DURABLE-KERNEL-R711",
-    "EG-DURABLE-KERNEL-R100.700",
-    "EG-DURABLE-KERNEL-R100.701",
-    "EG-DURABLE-KERNEL-R094.700",
-    "EG-DURABLE-KERNEL-R094.701",
-    "EG-DURABLE-KERNEL-R800.1",
-    "EG-DURABLE-KERNEL-R800.2",
-    "EG-DURABLE-KERNEL-R800.3",
-    "EG-DURABLE-KERNEL-R800.4",
-    "EG-DURABLE-KERNEL-R800.5",
-    "EG-DURABLE-KERNEL-R800.6",
-    "EG-DURABLE-KERNEL-R850.1",
-    "EG-DURABLE-KERNEL-R850.2",
-    "EG-DURABLE-KERNEL-R850.3",
-    "EG-DURABLE-KERNEL-R850.4",
-    "EG-DURABLE-KERNEL-R850.5",
-    "EG-DURABLE-KERNEL-R850.6",
-    "EG-DURABLE-KERNEL-R851.1",
-    "EG-DURABLE-KERNEL-R851.2",
-    "EG-DURABLE-KERNEL-R851.3",
-    "EG-DURABLE-KERNEL-R851.4",
-    "EG-DURABLE-KERNEL-R851.5",
-    "EG-DURABLE-KERNEL-R851.6",
-    "EG-DURABLE-KERNEL-R852.1",
-    "EG-DURABLE-KERNEL-R852.2",
-    "EG-DURABLE-KERNEL-R852.3",
-    "EG-DURABLE-KERNEL-R852.4",
-    "EG-DURABLE-KERNEL-R852.5",
-    "EG-DURABLE-KERNEL-R852.6",
-    "EG-DURABLE-KERNEL-R028.4.2",
-    "EG-DURABLE-KERNEL-R030.1",
-    "EG-DURABLE-KERNEL-R083.5",
-    "EG-DURABLE-KERNEL-R083.6",
-    "EG-DURABLE-KERNEL-R083.7",
-    "EG-DURABLE-KERNEL-R083.8",
-    "EG-DURABLE-KERNEL-R042.2",
-    "EG-DURABLE-KERNEL-R042.3",
-    "EG-DURABLE-KERNEL-R042.4",
-    "EG-DURABLE-KERNEL-R042.5",
-    "EG-DURABLE-KERNEL-R042.6",
-    "EG-DURABLE-KERNEL-R860.1",
-    "EG-DURABLE-KERNEL-R860.2",
-    "EG-DURABLE-KERNEL-R860.3",
-    "EG-DURABLE-KERNEL-R860.4",
-    "EG-DURABLE-KERNEL-R860.5",
-    "EG-DURABLE-KERNEL-R860.6",
-    "EG-DURABLE-KERNEL-R028.5.1",
-    "EG-DURABLE-KERNEL-R028.5.2",
-    "EG-DURABLE-KERNEL-R028.5.3",
-    "EG-DURABLE-KERNEL-R028.5.4",
-    "EG-DURABLE-KERNEL-R862.1",
-    "EG-DURABLE-KERNEL-R862.2",
-    "EG-DURABLE-KERNEL-R862.3",
-    "EG-DURABLE-KERNEL-R028.4.4"
-  ],
-  "unserved": [
-    "EG-DURABLE-KERNEL-R011.3",
-    "EG-DURABLE-KERNEL-R011.4",
-    "EG-DURABLE-KERNEL-R014.3.2",
-    "EG-DURABLE-KERNEL-R014.4",
-    "EG-DURABLE-KERNEL-R014.5",
-    "EG-DURABLE-KERNEL-R035.2",
-    "EG-DURABLE-KERNEL-R035.3",
-    "EG-DURABLE-KERNEL-R035.4",
-    "EG-DURABLE-KERNEL-R035.5",
-    "EG-DURABLE-KERNEL-R035.6",
-    "EG-DURABLE-KERNEL-R039.2",
-    "EG-DURABLE-KERNEL-R039.3",
-    "EG-DURABLE-KERNEL-R039.4.1",
-    "EG-DURABLE-KERNEL-R039.4.2",
-    "EG-DURABLE-KERNEL-R057.1",
-    "EG-DURABLE-KERNEL-R063.2",
-    "EG-DURABLE-KERNEL-R072",
-    "EG-DURABLE-KERNEL-R073",
-    "EG-DURABLE-KERNEL-R074.2",
-    "EG-DURABLE-KERNEL-R075",
-    "EG-DURABLE-KERNEL-R076.2",
-    "EG-DURABLE-KERNEL-R077",
-    "EG-DURABLE-KERNEL-R078",
-    "EG-DURABLE-KERNEL-R079",
-    "EG-DURABLE-KERNEL-R080.2",
-    "EG-DURABLE-KERNEL-R081",
-    "EG-DURABLE-KERNEL-R082.1",
-    "EG-DURABLE-KERNEL-R082.3",
-    "EG-DURABLE-KERNEL-R082.5",
-    "EG-DURABLE-KERNEL-R082.7",
-    "EG-DURABLE-KERNEL-R082.8",
-    "EG-DURABLE-KERNEL-R082.9",
-    "EG-DURABLE-KERNEL-R082.10",
-    "EG-DURABLE-KERNEL-R082.11",
-    "EG-DURABLE-KERNEL-R083.1",
-    "EG-DURABLE-KERNEL-R083.2",
-    "EG-DURABLE-KERNEL-R083.3",
-    "EG-DURABLE-KERNEL-R083.4",
-    "EG-DURABLE-KERNEL-R084.1",
-    "EG-DURABLE-KERNEL-R084.2",
-    "EG-DURABLE-KERNEL-R084.3",
-    "EG-DURABLE-KERNEL-R084.4",
-    "EG-DURABLE-KERNEL-R084.5",
-    "EG-DURABLE-KERNEL-R084.6",
-    "EG-DURABLE-KERNEL-R085.1",
-    "EG-DURABLE-KERNEL-R085.2",
-    "EG-DURABLE-KERNEL-R085.3",
-    "EG-DURABLE-KERNEL-R085.4",
-    "EG-DURABLE-KERNEL-R085.5",
-    "EG-DURABLE-KERNEL-R085.6",
-    "EG-DURABLE-KERNEL-R085.7",
-    "EG-DURABLE-KERNEL-R085.8",
-    "EG-DURABLE-KERNEL-R086.1",
-    "EG-DURABLE-KERNEL-R086.2",
-    "EG-DURABLE-KERNEL-R086.3",
-    "EG-DURABLE-KERNEL-R086.4",
-    "EG-DURABLE-KERNEL-R086.5",
-    "EG-DURABLE-KERNEL-R086.6",
-    "EG-DURABLE-KERNEL-R086.7",
-    "EG-DURABLE-KERNEL-R086.8",
-    "EG-DURABLE-KERNEL-R086.9",
-    "EG-DURABLE-KERNEL-R087.1",
-    "EG-DURABLE-KERNEL-R087.2",
-    "EG-DURABLE-KERNEL-R088.1",
-    "EG-DURABLE-KERNEL-R088.2",
-    "EG-DURABLE-KERNEL-R089.1",
-    "EG-DURABLE-KERNEL-R089.2",
-    "EG-DURABLE-KERNEL-R090.1",
-    "EG-DURABLE-KERNEL-R090.2",
-    "EG-DURABLE-KERNEL-R090.3",
-    "EG-DURABLE-KERNEL-R091.1",
-    "EG-DURABLE-KERNEL-R091.2",
-    "EG-DURABLE-KERNEL-R091.3",
-    "EG-DURABLE-KERNEL-R091.4",
-    "EG-DURABLE-KERNEL-R091.5",
-    "EG-DURABLE-KERNEL-R091.6",
-    "EG-DURABLE-KERNEL-R092.1",
-    "EG-DURABLE-KERNEL-R092.2",
-    "EG-DURABLE-KERNEL-R092.3",
-    "EG-DURABLE-KERNEL-R092.4",
-    "EG-DURABLE-KERNEL-R092.5",
-    "EG-DURABLE-KERNEL-R092.6",
-    "EG-DURABLE-KERNEL-R093.1",
-    "EG-DURABLE-KERNEL-R093.2",
-    "EG-DURABLE-KERNEL-R093.3",
-    "EG-DURABLE-KERNEL-R093.4",
-    "EG-DURABLE-KERNEL-R093.5",
-    "EG-DURABLE-KERNEL-R093.6",
-    "EG-DURABLE-KERNEL-R094.1",
-    "EG-DURABLE-KERNEL-R094.2",
-    "EG-DURABLE-KERNEL-R094.3",
-    "EG-DURABLE-KERNEL-R094.4",
-    "EG-DURABLE-KERNEL-R094.5",
-    "EG-DURABLE-KERNEL-R094.6",
-    "EG-DURABLE-KERNEL-R095.1",
-    "EG-DURABLE-KERNEL-R095.2",
-    "EG-DURABLE-KERNEL-R095.3",
-    "EG-DURABLE-KERNEL-R095.4",
-    "EG-DURABLE-KERNEL-R095.5",
-    "EG-DURABLE-KERNEL-R095.6",
-    "EG-DURABLE-KERNEL-R095.1000",
-    "EG-DURABLE-KERNEL-R095.1001",
-    "EG-DURABLE-KERNEL-R095.1002",
-    "EG-DURABLE-KERNEL-R095.1003",
-    "EG-DURABLE-KERNEL-R095.1004",
-    "EG-DURABLE-KERNEL-R095.1005",
-    "EG-DURABLE-KERNEL-R096.1",
-    "EG-DURABLE-KERNEL-R096.2",
-    "EG-DURABLE-KERNEL-R096.3",
-    "EG-DURABLE-KERNEL-R096.4",
-    "EG-DURABLE-KERNEL-R096.5",
-    "EG-DURABLE-KERNEL-R096.6",
-    "EG-DURABLE-KERNEL-R028.1",
-    "EG-DURABLE-KERNEL-R085.9",
-    "EG-DURABLE-KERNEL-R085.10",
-    "EG-DURABLE-KERNEL-R084.7",
-    "EG-DURABLE-KERNEL-R084.8",
-    "EG-DURABLE-KERNEL-R038.100",
-    "EG-DURABLE-KERNEL-R043.1",
-    "EG-DURABLE-KERNEL-R043.2",
-    "EG-DURABLE-KERNEL-R043.3",
-    "EG-DURABLE-KERNEL-R043.4",
-    "EG-DURABLE-KERNEL-R043.5",
-    "EG-DURABLE-KERNEL-R043.6",
-    "EG-DURABLE-KERNEL-R043.100",
-    "EG-DURABLE-KERNEL-R042.100",
-    "EG-DURABLE-KERNEL-R097.1",
-    "EG-DURABLE-KERNEL-R097.2",
-    "EG-DURABLE-KERNEL-R097.3",
-    "EG-DURABLE-KERNEL-R097.4",
-    "EG-DURABLE-KERNEL-R097.5",
-    "EG-DURABLE-KERNEL-R097.6",
-    "EG-DURABLE-KERNEL-R098.1",
-    "EG-DURABLE-KERNEL-R098.2",
-    "EG-DURABLE-KERNEL-R098.3",
-    "EG-DURABLE-KERNEL-R098.4",
-    "EG-DURABLE-KERNEL-R098.5",
-    "EG-DURABLE-KERNEL-R098.6",
-    "EG-DURABLE-KERNEL-R099.1",
-    "EG-DURABLE-KERNEL-R099.2",
-    "EG-DURABLE-KERNEL-R099.3",
-    "EG-DURABLE-KERNEL-R099.4",
-    "EG-DURABLE-KERNEL-R099.5",
-    "EG-DURABLE-KERNEL-R099.6",
-    "EG-DURABLE-KERNEL-R100.1",
-    "EG-DURABLE-KERNEL-R100.2",
-    "EG-DURABLE-KERNEL-R100.3",
-    "EG-DURABLE-KERNEL-R100.4",
-    "EG-DURABLE-KERNEL-R100.5",
-    "EG-DURABLE-KERNEL-R100.6",
-    "EG-DURABLE-KERNEL-R028.3",
-    "EG-DURABLE-KERNEL-R101.1",
-    "EG-DURABLE-KERNEL-R101.2",
-    "EG-DURABLE-KERNEL-R101.3",
-    "EG-DURABLE-KERNEL-R101.4",
-    "EG-DURABLE-KERNEL-R101.5",
-    "EG-DURABLE-KERNEL-R101.6",
-    "EG-DURABLE-KERNEL-R609.1",
-    "EG-DURABLE-KERNEL-R609.2",
-    "EG-DURABLE-KERNEL-R609.3",
-    "EG-DURABLE-KERNEL-R609.4",
-    "EG-DURABLE-KERNEL-R609.5",
-    "EG-DURABLE-KERNEL-R609.6",
-    "EG-DURABLE-KERNEL-R071.600",
-    "EG-DURABLE-KERNEL-R750.750",
-    "EG-DURABLE-KERNEL-R750.751",
-    "EG-DURABLE-KERNEL-R750.752",
-    "EG-DURABLE-KERNEL-R750.753",
-    "EG-DURABLE-KERNEL-R751.750",
-    "EG-DURABLE-KERNEL-R751.751",
-    "EG-DURABLE-KERNEL-R751.752",
-    "EG-DURABLE-KERNEL-R751.753",
-    "EG-DURABLE-KERNEL-R752.750",
-    "EG-DURABLE-KERNEL-R752.751",
-    "EG-DURABLE-KERNEL-R752.752",
-    "EG-DURABLE-KERNEL-R752.753",
-    "EG-DURABLE-KERNEL-R820.1",
-    "EG-DURABLE-KERNEL-R820.2",
-    "EG-DURABLE-KERNEL-R820.3",
-    "EG-DURABLE-KERNEL-R820.4",
-    "EG-DURABLE-KERNEL-R820.5",
-    "EG-DURABLE-KERNEL-R820.6",
-    "EG-DURABLE-KERNEL-R700.1",
-    "EG-DURABLE-KERNEL-R700.2",
-    "EG-DURABLE-KERNEL-R700.3",
-    "EG-DURABLE-KERNEL-R700.4",
-    "EG-DURABLE-KERNEL-R700.5",
-    "EG-DURABLE-KERNEL-R700.6",
-    "EG-DURABLE-KERNEL-R710",
-    "EG-DURABLE-KERNEL-R711",
-    "EG-DURABLE-KERNEL-R100.700",
-    "EG-DURABLE-KERNEL-R100.701",
-    "EG-DURABLE-KERNEL-R094.700",
-    "EG-DURABLE-KERNEL-R094.701",
-    "EG-DURABLE-KERNEL-R800.1",
-    "EG-DURABLE-KERNEL-R800.2",
-    "EG-DURABLE-KERNEL-R800.3",
-    "EG-DURABLE-KERNEL-R800.4",
-    "EG-DURABLE-KERNEL-R800.5",
-    "EG-DURABLE-KERNEL-R800.6",
-    "EG-DURABLE-KERNEL-R850.1",
-    "EG-DURABLE-KERNEL-R850.2",
-    "EG-DURABLE-KERNEL-R850.3",
-    "EG-DURABLE-KERNEL-R850.4",
-    "EG-DURABLE-KERNEL-R850.5",
-    "EG-DURABLE-KERNEL-R850.6",
-    "EG-DURABLE-KERNEL-R851.1",
-    "EG-DURABLE-KERNEL-R851.2",
-    "EG-DURABLE-KERNEL-R851.3",
-    "EG-DURABLE-KERNEL-R851.4",
-    "EG-DURABLE-KERNEL-R851.5",
-    "EG-DURABLE-KERNEL-R851.6",
-    "EG-DURABLE-KERNEL-R852.1",
-    "EG-DURABLE-KERNEL-R852.2",
-    "EG-DURABLE-KERNEL-R852.3",
-    "EG-DURABLE-KERNEL-R852.4",
-    "EG-DURABLE-KERNEL-R852.5",
-    "EG-DURABLE-KERNEL-R852.6",
-    "EG-DURABLE-KERNEL-R028.4.2",
-    "EG-DURABLE-KERNEL-R030.1",
-    "EG-DURABLE-KERNEL-R083.5",
-    "EG-DURABLE-KERNEL-R083.6",
-    "EG-DURABLE-KERNEL-R083.7",
-    "EG-DURABLE-KERNEL-R083.8",
-    "EG-DURABLE-KERNEL-R042.2",
-    "EG-DURABLE-KERNEL-R042.3",
-    "EG-DURABLE-KERNEL-R042.4",
-    "EG-DURABLE-KERNEL-R042.5",
-    "EG-DURABLE-KERNEL-R042.6",
-    "EG-DURABLE-KERNEL-R860.1",
-    "EG-DURABLE-KERNEL-R860.2",
-    "EG-DURABLE-KERNEL-R860.3",
-    "EG-DURABLE-KERNEL-R860.4",
-    "EG-DURABLE-KERNEL-R860.5",
-    "EG-DURABLE-KERNEL-R860.6",
-    "EG-DURABLE-KERNEL-R028.5.1",
-    "EG-DURABLE-KERNEL-R028.5.2",
-    "EG-DURABLE-KERNEL-R028.5.3",
-    "EG-DURABLE-KERNEL-R028.5.4",
-    "EG-DURABLE-KERNEL-R862.1",
-    "EG-DURABLE-KERNEL-R862.2",
-    "EG-DURABLE-KERNEL-R862.3",
-    "EG-DURABLE-KERNEL-R028.4.4"
   ]
 }

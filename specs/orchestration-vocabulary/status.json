@@ -169,8 +169,7 @@
         "EG-ORCH-VOCAB-R001.2",
         "EG-ORCH-VOCAB-R001.3",
         "EG-ORCH-VOCAB-R001.4"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R001.1",
@@ -190,24 +189,21 @@
       "title": "Add property `:hasStep`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R001.3",
       "title": "Add step-order acyclicity shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R001.4",
       "title": "Add Q1 fixture and query test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R002",
@@ -221,48 +217,42 @@
         "EG-ORCH-VOCAB-R002.3",
         "EG-ORCH-VOCAB-R002.4",
         "EG-ORCH-VOCAB-R002.5"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R002.1",
       "title": "Add class `:AgentKind` and seed members",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R002.2",
       "title": "Add property `:hasAgentKind`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R002.3",
       "title": "Add property `swarm:requiresAgentKind` and the import",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R002.4",
       "title": "Add slot-kind shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R002.5",
       "title": "Add Q2 query test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003",
@@ -279,64 +269,56 @@
         "EG-ORCH-VOCAB-R003.6",
         "EG-ORCH-VOCAB-R003.7",
         "EG-ORCH-VOCAB-R003.8"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R003.1",
       "title": "Add class `:AgentTemplate`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003.2",
       "title": "Add class `:AgentLibrary`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003.3",
       "title": "Add property `:memberOfLibrary`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003.4",
       "title": "Add property `:instanceOfTemplate`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003.5",
       "title": "Add library-member shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003.6",
       "title": "Wire the Agent Library projection to emit membership",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003.7",
       "title": "Add Q3 query test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004",
@@ -353,8 +335,7 @@
         "EG-ORCH-VOCAB-R004.6",
         "EG-ORCH-VOCAB-R004.700",
         "EG-ORCH-VOCAB-R004.701"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R004.1",
@@ -374,32 +355,28 @@
       "title": "Add property `:appliesToTaskClass`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004.3",
       "title": "Add rule-scope shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004.4",
       "title": "Project `GuardrailRule` components",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004.5",
       "title": "Add Q4 query test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R005",
@@ -415,56 +392,49 @@
         "EG-ORCH-VOCAB-R005.5",
         "EG-ORCH-VOCAB-R005.6",
         "EG-ORCH-VOCAB-R005.100"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R005.1",
       "title": "Add class `:ModelProfile`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R005.2",
       "title": "Add property `:needsSkill`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R005.3",
       "title": "Add property `:stepAssignedAgent`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R005.4",
       "title": "Add binding shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R005.5",
       "title": "Project `model_profile` components",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R005.6",
       "title": "Add Q5 query test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R006",
@@ -479,56 +449,49 @@
         "EG-ORCH-VOCAB-R006.4",
         "EG-ORCH-VOCAB-R006.5",
         "EG-ORCH-VOCAB-R006.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R006.1",
       "title": "Add property `:handsOffTo`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R006.2",
       "title": "Add property `swarm:feeds`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R006.3",
       "title": "Add property `swarm:loopsBackTo`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R006.4",
       "title": "Add DAG acyclicity shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R006.5",
       "title": "Project template topology facts to `swarm:feeds`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R006.6",
       "title": "Add Q6 and Q7 query tests",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R007",
@@ -541,40 +504,35 @@
         "EG-ORCH-VOCAB-R007.2",
         "EG-ORCH-VOCAB-R007.3",
         "EG-ORCH-VOCAB-R007.4"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R007.1",
       "title": "Expand a task's steps into assembly tasks",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R007.2",
       "title": "Project the assembled graph back",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R007.3",
       "title": "Add the composed read",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R007.4",
       "title": "Enforce slot agent-kind constraints before assembly selection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R008",
@@ -585,8 +543,7 @@
       "rollup_of": [
         "EG-ORCH-VOCAB-R008.1",
         "EG-ORCH-VOCAB-R008.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R008.1",
@@ -606,8 +563,7 @@
       "title": "Regenerate ontology artifacts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009",
@@ -638,8 +594,7 @@
         "EG-ORCH-VOCAB-R009.101",
         "EG-ORCH-VOCAB-R009.700",
         "EG-ORCH-VOCAB-R009.701"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R009.1",
@@ -735,24 +690,21 @@
       "title": "Add property `:appliedHarnessConfig`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.10",
       "title": "Add property `:runModel`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.11",
       "title": "Add property `:runTaskClass`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.12",
@@ -785,32 +737,28 @@
       "title": "Add completed-trace shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.15",
       "title": "Refuse a shape-invalid RunTrace write",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.16",
       "title": "Fixture trace for each termination reason",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.17",
       "title": "Prove the ingestion hot path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010",
@@ -827,56 +775,49 @@
         "EG-ORCH-VOCAB-R010.6",
         "EG-ORCH-VOCAB-R010.100",
         "EG-ORCH-VOCAB-R010.101"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R010.1",
       "title": "Query success rate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.2",
       "title": "Query cost per solved task",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.3",
       "title": "Query overflow rate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.4",
       "title": "Query peak-to-budget ratio",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.5",
       "title": "Query mechanism counts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.6",
       "title": "Query competency question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011",
@@ -896,96 +837,84 @@
         "EG-ORCH-VOCAB-R011.9",
         "EG-ORCH-VOCAB-R011.10",
         "EG-ORCH-VOCAB-R011.11"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R011.1",
       "title": "Add class `:EvaluationRun`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.2",
       "title": "Add class `:MeasuredModelFact`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.3",
       "title": "Add properties `:factOfModel` and `:measuredProperty`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.4",
       "title": "Add property `:evidencedByRun`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.5",
       "title": "Add property `:measuredSupersedes`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.6",
       "title": "Add measured-fact shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.7",
       "title": "Build the measured-fact envelope",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.8",
       "title": "Refuse a measured fact without evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.9",
       "title": "Replace a fact by a newer measurement",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.10",
       "title": "Apply the envelope through the governed path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.11",
       "title": "Prove the loop closes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012",
@@ -1003,56 +932,49 @@
         "EG-ORCH-VOCAB-R012.7",
         "EG-ORCH-VOCAB-R012.8",
         "EG-ORCH-VOCAB-R012.9"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R012.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013",
@@ -1068,152 +990,133 @@
         "EG-ORCH-VOCAB-R013.5",
         "EG-ORCH-VOCAB-R013.6",
         "EG-ORCH-VOCAB-R013.7"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R013.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.18",
       "title": "Use one run observation window for model and width adjustments",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.7",
       "title": "Source-pinned walkthrough artifact and graph-bound execution notes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003.8",
       "title": "Successful-team promotion, safe similarity reuse, and typed handlers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.7",
       "title": "Synthesize reviewed repository policy with invariant-guarded activation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004.6",
       "title": "Persist and query capability gaps and enhancements by task class",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.8",
       "title": "Bind active policy to reviewed normative files without graph writes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.9",
       "title": "Requirement rows become typed nodes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R005.100",
       "title": "Nested inputs use declared projection and shielding",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.100",
       "title": "Correlate trace records and export reads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.101",
       "title": "Index, browse, and search harness sessions by tenant and full manifest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.100",
       "title": "Join evolution proposals to measured source traces",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.101",
       "title": "Index project/agent token and cost totals with finite latency",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616",
@@ -1228,56 +1131,49 @@
         "EG-ORCH-VOCAB-R616.4",
         "EG-ORCH-VOCAB-R616.5",
         "EG-ORCH-VOCAB-R616.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R616.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R750",
@@ -1290,40 +1186,35 @@
         "EG-ORCH-VOCAB-R750.751",
         "EG-ORCH-VOCAB-R750.752",
         "EG-ORCH-VOCAB-R750.753"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R750.750",
       "title": "Model: Organization runtime, agent market, digital twin and lifecycle records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R750.751",
       "title": "Behavior: Organization runtime, agent market, digital twin and lifecycle records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R750.752",
       "title": "Refusal: Organization runtime, agent market, digital twin and lifecycle records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R750.753",
       "title": "Hot-path proof: Organization runtime, agent market, digital twin and lifecycle records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R751",
@@ -1336,40 +1227,35 @@
         "EG-ORCH-VOCAB-R751.751",
         "EG-ORCH-VOCAB-R751.752",
         "EG-ORCH-VOCAB-R751.753"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R751.750",
       "title": "Model: Team composition, evolution, specialization discovery and social systems",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R751.751",
       "title": "Behavior: Team composition, evolution, specialization discovery and social systems",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R751.752",
       "title": "Refusal: Team composition, evolution, specialization discovery and social systems",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R751.753",
       "title": "Hot-path proof: Team composition, evolution, specialization discovery and social systems",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800",
@@ -1384,88 +1270,77 @@
         "EG-ORCH-VOCAB-R800.4",
         "EG-ORCH-VOCAB-R800.5",
         "EG-ORCH-VOCAB-R800.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R800.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004.700",
       "title": "Policy and rule documents ingest as guardrail scope: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004.701",
       "title": "Policy and rule documents ingest as guardrail scope: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.700",
       "title": "Durable execution units mirror into the run-trace vocabulary: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.701",
       "title": "Durable execution units mirror into the run-trace vocabulary: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R801",
@@ -1480,56 +1355,49 @@
         "EG-ORCH-VOCAB-R801.4",
         "EG-ORCH-VOCAB-R801.5",
         "EG-ORCH-VOCAB-R801.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R801.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R801.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R801.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R801.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R801.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R802",
@@ -1544,300 +1412,49 @@
         "EG-ORCH-VOCAB-R802.4",
         "EG-ORCH-VOCAB-R802.5",
         "EG-ORCH-VOCAB-R802.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R802.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R802.3",
       "title": "Query",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R802.4",
       "title": "Supersession",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R802.5",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R802.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     }
-  ],
-  "frontier": [
-    "EG-ORCH-VOCAB-R001.2",
-    "EG-ORCH-VOCAB-R001.3",
-    "EG-ORCH-VOCAB-R001.4",
-    "EG-ORCH-VOCAB-R002.1",
-    "EG-ORCH-VOCAB-R002.2",
-    "EG-ORCH-VOCAB-R002.3",
-    "EG-ORCH-VOCAB-R002.4",
-    "EG-ORCH-VOCAB-R002.5",
-    "EG-ORCH-VOCAB-R003.1",
-    "EG-ORCH-VOCAB-R003.2",
-    "EG-ORCH-VOCAB-R003.3",
-    "EG-ORCH-VOCAB-R003.4",
-    "EG-ORCH-VOCAB-R003.5",
-    "EG-ORCH-VOCAB-R003.6",
-    "EG-ORCH-VOCAB-R003.7",
-    "EG-ORCH-VOCAB-R004.2",
-    "EG-ORCH-VOCAB-R004.3",
-    "EG-ORCH-VOCAB-R004.4",
-    "EG-ORCH-VOCAB-R004.5",
-    "EG-ORCH-VOCAB-R005.1",
-    "EG-ORCH-VOCAB-R005.2",
-    "EG-ORCH-VOCAB-R005.3",
-    "EG-ORCH-VOCAB-R005.4",
-    "EG-ORCH-VOCAB-R005.5",
-    "EG-ORCH-VOCAB-R005.6",
-    "EG-ORCH-VOCAB-R006.1",
-    "EG-ORCH-VOCAB-R006.2",
-    "EG-ORCH-VOCAB-R006.3",
-    "EG-ORCH-VOCAB-R006.4",
-    "EG-ORCH-VOCAB-R006.5",
-    "EG-ORCH-VOCAB-R006.6",
-    "EG-ORCH-VOCAB-R007.1",
-    "EG-ORCH-VOCAB-R007.2",
-    "EG-ORCH-VOCAB-R007.3",
-    "EG-ORCH-VOCAB-R007.4",
-    "EG-ORCH-VOCAB-R008.2",
-    "EG-ORCH-VOCAB-R009.9",
-    "EG-ORCH-VOCAB-R009.10",
-    "EG-ORCH-VOCAB-R009.11",
-    "EG-ORCH-VOCAB-R009.14",
-    "EG-ORCH-VOCAB-R009.15",
-    "EG-ORCH-VOCAB-R009.16",
-    "EG-ORCH-VOCAB-R009.17",
-    "EG-ORCH-VOCAB-R010.1",
-    "EG-ORCH-VOCAB-R010.2",
-    "EG-ORCH-VOCAB-R010.3",
-    "EG-ORCH-VOCAB-R010.4",
-    "EG-ORCH-VOCAB-R010.5",
-    "EG-ORCH-VOCAB-R010.6",
-    "EG-ORCH-VOCAB-R011.1",
-    "EG-ORCH-VOCAB-R011.2",
-    "EG-ORCH-VOCAB-R011.3",
-    "EG-ORCH-VOCAB-R011.4",
-    "EG-ORCH-VOCAB-R011.5",
-    "EG-ORCH-VOCAB-R011.6",
-    "EG-ORCH-VOCAB-R011.7",
-    "EG-ORCH-VOCAB-R011.8",
-    "EG-ORCH-VOCAB-R011.9",
-    "EG-ORCH-VOCAB-R011.10",
-    "EG-ORCH-VOCAB-R011.11",
-    "EG-ORCH-VOCAB-R012.1",
-    "EG-ORCH-VOCAB-R012.2",
-    "EG-ORCH-VOCAB-R012.3",
-    "EG-ORCH-VOCAB-R012.4",
-    "EG-ORCH-VOCAB-R012.5",
-    "EG-ORCH-VOCAB-R012.6",
-    "EG-ORCH-VOCAB-R013.1",
-    "EG-ORCH-VOCAB-R013.2",
-    "EG-ORCH-VOCAB-R013.3",
-    "EG-ORCH-VOCAB-R013.4",
-    "EG-ORCH-VOCAB-R013.5",
-    "EG-ORCH-VOCAB-R013.6",
-    "EG-ORCH-VOCAB-R009.18",
-    "EG-ORCH-VOCAB-R013.7",
-    "EG-ORCH-VOCAB-R003.8",
-    "EG-ORCH-VOCAB-R012.7",
-    "EG-ORCH-VOCAB-R004.6",
-    "EG-ORCH-VOCAB-R012.8",
-    "EG-ORCH-VOCAB-R012.9",
-    "EG-ORCH-VOCAB-R005.100",
-    "EG-ORCH-VOCAB-R009.100",
-    "EG-ORCH-VOCAB-R009.101",
-    "EG-ORCH-VOCAB-R010.100",
-    "EG-ORCH-VOCAB-R010.101",
-    "EG-ORCH-VOCAB-R616.1",
-    "EG-ORCH-VOCAB-R616.2",
-    "EG-ORCH-VOCAB-R616.3",
-    "EG-ORCH-VOCAB-R616.4",
-    "EG-ORCH-VOCAB-R616.5",
-    "EG-ORCH-VOCAB-R616.6",
-    "EG-ORCH-VOCAB-R750.750",
-    "EG-ORCH-VOCAB-R750.751",
-    "EG-ORCH-VOCAB-R750.752",
-    "EG-ORCH-VOCAB-R750.753",
-    "EG-ORCH-VOCAB-R751.750",
-    "EG-ORCH-VOCAB-R751.751",
-    "EG-ORCH-VOCAB-R751.752",
-    "EG-ORCH-VOCAB-R751.753",
-    "EG-ORCH-VOCAB-R800.1",
-    "EG-ORCH-VOCAB-R800.2",
-    "EG-ORCH-VOCAB-R800.3",
-    "EG-ORCH-VOCAB-R800.4",
-    "EG-ORCH-VOCAB-R800.5",
-    "EG-ORCH-VOCAB-R800.6",
-    "EG-ORCH-VOCAB-R004.700",
-    "EG-ORCH-VOCAB-R004.701",
-    "EG-ORCH-VOCAB-R009.700",
-    "EG-ORCH-VOCAB-R009.701",
-    "EG-ORCH-VOCAB-R801.1",
-    "EG-ORCH-VOCAB-R801.2",
-    "EG-ORCH-VOCAB-R801.3",
-    "EG-ORCH-VOCAB-R801.4",
-    "EG-ORCH-VOCAB-R801.5",
-    "EG-ORCH-VOCAB-R801.6",
-    "EG-ORCH-VOCAB-R802.1",
-    "EG-ORCH-VOCAB-R802.2",
-    "EG-ORCH-VOCAB-R802.3",
-    "EG-ORCH-VOCAB-R802.4",
-    "EG-ORCH-VOCAB-R802.5",
-    "EG-ORCH-VOCAB-R802.6"
-  ],
-  "unserved": [
-    "EG-ORCH-VOCAB-R001.2",
-    "EG-ORCH-VOCAB-R001.3",
-    "EG-ORCH-VOCAB-R001.4",
-    "EG-ORCH-VOCAB-R002.1",
-    "EG-ORCH-VOCAB-R002.2",
-    "EG-ORCH-VOCAB-R002.3",
-    "EG-ORCH-VOCAB-R002.4",
-    "EG-ORCH-VOCAB-R002.5",
-    "EG-ORCH-VOCAB-R003.1",
-    "EG-ORCH-VOCAB-R003.2",
-    "EG-ORCH-VOCAB-R003.3",
-    "EG-ORCH-VOCAB-R003.4",
-    "EG-ORCH-VOCAB-R003.5",
-    "EG-ORCH-VOCAB-R003.6",
-    "EG-ORCH-VOCAB-R003.7",
-    "EG-ORCH-VOCAB-R004.2",
-    "EG-ORCH-VOCAB-R004.3",
-    "EG-ORCH-VOCAB-R004.4",
-    "EG-ORCH-VOCAB-R004.5",
-    "EG-ORCH-VOCAB-R005.1",
-    "EG-ORCH-VOCAB-R005.2",
-    "EG-ORCH-VOCAB-R005.3",
-    "EG-ORCH-VOCAB-R005.4",
-    "EG-ORCH-VOCAB-R005.5",
-    "EG-ORCH-VOCAB-R005.6",
-    "EG-ORCH-VOCAB-R006.1",
-    "EG-ORCH-VOCAB-R006.2",
-    "EG-ORCH-VOCAB-R006.3",
-    "EG-ORCH-VOCAB-R006.4",
-    "EG-ORCH-VOCAB-R006.5",
-    "EG-ORCH-VOCAB-R006.6",
-    "EG-ORCH-VOCAB-R007.1",
-    "EG-ORCH-VOCAB-R007.2",
-    "EG-ORCH-VOCAB-R007.3",
-    "EG-ORCH-VOCAB-R007.4",
-    "EG-ORCH-VOCAB-R008.2",
-    "EG-ORCH-VOCAB-R009.9",
-    "EG-ORCH-VOCAB-R009.10",
-    "EG-ORCH-VOCAB-R009.11",
-    "EG-ORCH-VOCAB-R009.14",
-    "EG-ORCH-VOCAB-R009.15",
-    "EG-ORCH-VOCAB-R009.16",
-    "EG-ORCH-VOCAB-R009.17",
-    "EG-ORCH-VOCAB-R010.1",
-    "EG-ORCH-VOCAB-R010.2",
-    "EG-ORCH-VOCAB-R010.3",
-    "EG-ORCH-VOCAB-R010.4",
-    "EG-ORCH-VOCAB-R010.5",
-    "EG-ORCH-VOCAB-R010.6",
-    "EG-ORCH-VOCAB-R011.1",
-    "EG-ORCH-VOCAB-R011.2",
-    "EG-ORCH-VOCAB-R011.3",
-    "EG-ORCH-VOCAB-R011.4",
-    "EG-ORCH-VOCAB-R011.5",
-    "EG-ORCH-VOCAB-R011.6",
-    "EG-ORCH-VOCAB-R011.7",
-    "EG-ORCH-VOCAB-R011.8",
-    "EG-ORCH-VOCAB-R011.9",
-    "EG-ORCH-VOCAB-R011.10",
-    "EG-ORCH-VOCAB-R011.11",
-    "EG-ORCH-VOCAB-R012.1",
-    "EG-ORCH-VOCAB-R012.2",
-    "EG-ORCH-VOCAB-R012.3",
-    "EG-ORCH-VOCAB-R012.4",
-    "EG-ORCH-VOCAB-R012.5",
-    "EG-ORCH-VOCAB-R012.6",
-    "EG-ORCH-VOCAB-R013.1",
-    "EG-ORCH-VOCAB-R013.2",
-    "EG-ORCH-VOCAB-R013.3",
-    "EG-ORCH-VOCAB-R013.4",
-    "EG-ORCH-VOCAB-R013.5",
-    "EG-ORCH-VOCAB-R013.6",
-    "EG-ORCH-VOCAB-R009.18",
-    "EG-ORCH-VOCAB-R013.7",
-    "EG-ORCH-VOCAB-R003.8",
-    "EG-ORCH-VOCAB-R012.7",
-    "EG-ORCH-VOCAB-R004.6",
-    "EG-ORCH-VOCAB-R012.8",
-    "EG-ORCH-VOCAB-R012.9",
-    "EG-ORCH-VOCAB-R005.100",
-    "EG-ORCH-VOCAB-R009.100",
-    "EG-ORCH-VOCAB-R009.101",
-    "EG-ORCH-VOCAB-R010.100",
-    "EG-ORCH-VOCAB-R010.101",
-    "EG-ORCH-VOCAB-R616.1",
-    "EG-ORCH-VOCAB-R616.2",
-    "EG-ORCH-VOCAB-R616.3",
-    "EG-ORCH-VOCAB-R616.4",
-    "EG-ORCH-VOCAB-R616.5",
-    "EG-ORCH-VOCAB-R616.6",
-    "EG-ORCH-VOCAB-R750.750",
-    "EG-ORCH-VOCAB-R750.751",
-    "EG-ORCH-VOCAB-R750.752",
-    "EG-ORCH-VOCAB-R750.753",
-    "EG-ORCH-VOCAB-R751.750",
-    "EG-ORCH-VOCAB-R751.751",
-    "EG-ORCH-VOCAB-R751.752",
-    "EG-ORCH-VOCAB-R751.753",
-    "EG-ORCH-VOCAB-R800.1",
-    "EG-ORCH-VOCAB-R800.2",
-    "EG-ORCH-VOCAB-R800.3",
-    "EG-ORCH-VOCAB-R800.4",
-    "EG-ORCH-VOCAB-R800.5",
-    "EG-ORCH-VOCAB-R800.6",
-    "EG-ORCH-VOCAB-R004.700",
-    "EG-ORCH-VOCAB-R004.701",
-    "EG-ORCH-VOCAB-R009.700",
-    "EG-ORCH-VOCAB-R009.701",
-    "EG-ORCH-VOCAB-R801.1",
-    "EG-ORCH-VOCAB-R801.2",
-    "EG-ORCH-VOCAB-R801.3",
-    "EG-ORCH-VOCAB-R801.4",
-    "EG-ORCH-VOCAB-R801.5",
-    "EG-ORCH-VOCAB-R801.6",
-    "EG-ORCH-VOCAB-R802.1",
-    "EG-ORCH-VOCAB-R802.2",
-    "EG-ORCH-VOCAB-R802.3",
-    "EG-ORCH-VOCAB-R802.4",
-    "EG-ORCH-VOCAB-R802.5",
-    "EG-ORCH-VOCAB-R802.6"
   ]
 }
