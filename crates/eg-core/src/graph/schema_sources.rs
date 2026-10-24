@@ -694,8 +694,16 @@ fn core_specs() -> &'static [CoreSpec] {
         CoreSpec {
             module: "orchestration",
             version: 1,
-            shapes: Some(include_str!("../../ontology/orchestration-v1.shapes.ttl")),
+            shapes: None,
             ontology: Some(include_str!("../../ontology/orchestration-v1.ttl")),
+        },
+        // The orchestration SHACL shapes are their own core source, the same
+        // pattern as swarm-topology-shapes and finance-shapes.
+        CoreSpec {
+            module: "orchestration-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/orchestration-v1.shapes.ttl")),
+            ontology: None,
         },
         CoreSpec {
             module: "personal",
@@ -1247,9 +1255,12 @@ mod tests {
                 "native_source_connector",
                 "aff5b66926ab41858fb8b549aae343f3286f317cf875534bb3e5e0cd89e9a35c",
             ),
-            // The orchestration module now carries SHACL shapes, so its pin is the shapes digest.
             (
                 "orchestration",
+                "0bc001c5098354a6f9b6e0fbfd974c0714c00b086536530dd212da694cb07469",
+            ),
+            (
+                "orchestration-shapes",
                 "fd4e60fe31e5666576d0b0f817ab2fd0846e84e66e53a9634ff54600861a887c",
             ),
             (
