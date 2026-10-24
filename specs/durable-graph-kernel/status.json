@@ -387,6 +387,7 @@
     "EG-DURABLE-KERNEL-R028.4.1",
     "EG-DURABLE-KERNEL-R028.4.2",
     "EG-DURABLE-KERNEL-R028.5",
+    "EG-DURABLE-KERNEL-R030.1",
     "EG-DURABLE-KERNEL-R083.5",
     "EG-DURABLE-KERNEL-R083.6",
     "EG-DURABLE-KERNEL-R083.7",
@@ -415,7 +416,8 @@
     "EG-DURABLE-KERNEL-R862.1",
     "EG-DURABLE-KERNEL-R862.2",
     "EG-DURABLE-KERNEL-R862.3",
-    "EG-DURABLE-KERNEL-R028.4.3"
+    "EG-DURABLE-KERNEL-R028.4.3",
+    "EG-DURABLE-KERNEL-R028.4.4"
   ],
   "requirements": [
     {
@@ -1175,12 +1177,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R030",
       "title": "Reserved RBAC elevation lease kind cannot be issued generically",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "3157bcbb4ac2",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R030.1"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R031",
@@ -1282,7 +1287,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R033.1",
-      "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed, and winner selection refuses rather than silently defaulting",
+      "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed. Winner selection refuses rather than silently defaulting",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "19da6ec1bc9b",
@@ -4320,7 +4325,8 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.4.1",
         "EG-DURABLE-KERNEL-R028.4.2",
-        "EG-DURABLE-KERNEL-R028.4.3"
+        "EG-DURABLE-KERNEL-R028.4.3",
+        "EG-DURABLE-KERNEL-R028.4.4"
       ]
     },
     {
@@ -4368,6 +4374,13 @@
         "EG-DURABLE-KERNEL-R028.5.3",
         "EG-DURABLE-KERNEL-R028.5.4"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1",
+      "title": "Issuer-bound host-start record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.5",
@@ -4641,6 +4654,13 @@
         "src/redb_store/work_item/conversation/tests.rs:215",
         "src/redb_store/work_item/conversation/tests.rs:235"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.4",
+      "title": "Replay a repeated run admission from its retained owner receipt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

@@ -255,6 +255,10 @@ This batch defines the slices; it runs none of their runtime tests.
 
 - [ ] **EG-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.
 
+- [ ] **EG-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
+  records through canonical contract generation, typed and signed native tests,
+  and normal publication gates. Keep execution reservation, current session policy,
+  restart and benchmark acceptance pending; no live grant or host deployment.
 ## Agent-memory substrate claims (2026-10-22)
 
   - [ ] **EG-DURABLE-KERNEL-R083.5:** Tier ladder from accelerator memory to durable storage.
@@ -290,3 +294,4 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.6:** Publish ordinary terminal completion types and atomic durable storage. Qualify exact usage, unknown usage, owner and fence refusal, immutable replay and reopen on this source revision. Keep served acceptance separate.
 
 - [ ] **EG-DURABLE-KERNEL-R028.4.3:** Qualify typed conversation head reservation in the existing native admission transaction. Complete native store tests, actual MutationBatch replay and changed-body refusal, graph-incarnation isolation and generated contract checks. Keep R028.1 and R751.750/R751.751 open for checkpoint-backed history, public transcript paging and served continuation.
+- [ ] **EG-DURABLE-KERNEL-R028.4.4:** Replay a repeated run admission from its retained owner receipt. Add the refreshed-context, restart, changed-input and missing-evidence replay tests and the pre-change store upgrade test.

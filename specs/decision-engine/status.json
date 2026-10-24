@@ -856,6 +856,7 @@
     "EG-DECISION-ENGINE-R801.5",
     "EG-DECISION-ENGINE-R801.6",
     "EG-DECISION-ENGINE-R801.7",
+    "EG-DECISION-ENGINE-R801.8",
     "EG-DECISION-ENGINE-R802",
     "EG-DECISION-ENGINE-R802.1",
     "EG-DECISION-ENGINE-R802.2",
@@ -899,6 +900,10 @@
     "EG-DECISION-ENGINE-R813.5",
     "EG-DECISION-ENGINE-R813.6",
     "EG-DECISION-ENGINE-R036.102",
+    "EG-DECISION-ENGINE-R036.103",
+    "EG-DECISION-ENGINE-R036.104",
+    "EG-DECISION-ENGINE-R036.105",
+    "EG-DECISION-ENGINE-R036.106",
     "EG-DECISION-ENGINE-R804",
     "EG-DECISION-ENGINE-R804.1",
     "EG-DECISION-ENGINE-R804.2",
@@ -1600,7 +1605,11 @@
       "rollup_of": [
         "EG-DECISION-ENGINE-R036.100",
         "EG-DECISION-ENGINE-R036.101",
-        "EG-DECISION-ENGINE-R036.102"
+        "EG-DECISION-ENGINE-R036.102",
+        "EG-DECISION-ENGINE-R036.103",
+        "EG-DECISION-ENGINE-R036.104",
+        "EG-DECISION-ENGINE-R036.105",
+        "EG-DECISION-ENGINE-R036.106"
       ]
     },
     {
@@ -8964,7 +8973,8 @@
         "EG-DECISION-ENGINE-R801.4",
         "EG-DECISION-ENGINE-R801.5",
         "EG-DECISION-ENGINE-R801.6",
-        "EG-DECISION-ENGINE-R801.7"
+        "EG-DECISION-ENGINE-R801.7",
+        "EG-DECISION-ENGINE-R801.8"
       ]
     },
     {
@@ -9017,6 +9027,13 @@
     {
       "id": "EG-DECISION-ENGINE-R801.7",
       "title": "Served tenant-scoped usage read",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R801.8",
+      "title": "Fenced committed-run usage and caller-context aggregation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -9417,6 +9434,34 @@
         "src/raft/cross_shard_txn/prepare_record.rs:133",
         "src/raft/cross_shard_txn/prepare_record.rs:150"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.103",
+      "title": "Durable RBAC read reservation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.104",
+      "title": "Agent Library durable admission participant",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.105",
+      "title": "Persist a request-bound coordinator decision certificate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.106",
+      "title": "Durable profile-use grant records",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R804",
