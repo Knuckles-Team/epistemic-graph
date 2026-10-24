@@ -828,7 +828,9 @@ fn a_marker_copied_to_another_file_is_rejected() {
     let copy = dir.path().join("copy.redb");
     std::fs::copy(&path, &copy).unwrap();
     std::fs::copy(marker_for(&path), marker_for(&copy)).unwrap();
-    let refused = reopen_store(&copy).err().expect("a byte copy must not open");
+    let refused = reopen_store(&copy)
+        .err()
+        .expect("a byte copy must not open");
     assert!(refused.contains("incarnation"), "{refused}");
     // A marker copied onto another genuine store does not match that file, so
     // its open runs the full scan.
@@ -868,8 +870,7 @@ fn a_skipped_scan_still_refuses_a_foreign_fence() {
     );
     // Forge a marker that matches the file, as if the close had vouched for it:
     // the skipped open must still run the identity, binding and fence checks.
-    let (incarnation, _) =
-        crate::physical::incarnation::StoreIncarnation::derive(&path).unwrap();
+    let (incarnation, _) = crate::physical::incarnation::StoreIncarnation::derive(&path).unwrap();
     let name = PhysicalStoreIdentity::new(TEST_PHYSICAL)
         .unwrap()
         .name()

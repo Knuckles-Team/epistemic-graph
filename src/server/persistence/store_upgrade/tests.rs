@@ -167,6 +167,9 @@ fn inspect_finds_nothing_to_do_on_current_stores_and_writes_nothing() {
         .unwrap(),
     );
     let before = (file_digest(&library), file_digest(&shard));
+    // The setup's graceful closes leave clean-shutdown markers beside each
+    // store (EG-DURABLE-KERNEL-R006.3); inspect must add or remove nothing.
+    let entries_before = entry_names(dir.path());
 
     let report = inspect(dir.path());
 
@@ -180,11 +183,22 @@ fn inspect_finds_nothing_to_do_on_current_stores_and_writes_nothing() {
         ]
     );
     assert_eq!(before, (file_digest(&library), file_digest(&shard)));
-    let entries = std::fs::read_dir(dir.path()).unwrap().count();
     assert_eq!(
-        entries, 2,
+        entry_names(dir.path()),
+        entries_before,
         "inspect created something in the data directory"
     );
+}
+
+/// Every entry name in `dir`, sorted, so a test can prove an operation added
+/// or removed nothing.
+fn entry_names(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
 }
 
 #[test]
@@ -360,13 +374,14 @@ fn apply_without_confirmation_opens_nothing() {
     let dir = data_dir();
     let library = old_agent_library(dir.path());
     let before = file_digest(&library);
+    let entries_before = entry_names(dir.path());
 
     let report = apply(dir.path(), &ApplyOptions::default());
 
     assert_eq!(report.exit_code, EXIT_FAILED);
     assert!(report.error.as_deref().unwrap().contains("--confirm"));
     assert_eq!(file_digest(&library), before);
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    assert_eq!(entry_names(dir.path()), entries_before);
 }
 
 #[test]

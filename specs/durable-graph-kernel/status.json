@@ -501,17 +501,17 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "03670fc1f33c",
-        "1e8058ac9122",
-        "296258d8ae40",
-        "8dbb5bd9de53",
-        "a676823d2b54"
+        "0ed1c7ff900b",
+        "754b6f51aa6d",
+        "87dcb507fa48",
+        "8dbb5bd9de53"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:768",
         "crates/eg-storage/src/physical/tests.rs:782",
         "crates/eg-storage/src/physical/tests.rs:793",
         "crates/eg-storage/src/physical/tests.rs:820",
-        "crates/eg-storage/src/physical/tests.rs:842"
+        "crates/eg-storage/src/physical/tests.rs:844"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R006.1",
@@ -524,12 +524,13 @@
       "title": "A clean reopen writes nothing, and a fresh shard is ready in one commit",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1e8058ac9122",
-        "296258d8ae40",
-        "eb01575bf75f"
+        "0ed1c7ff900b",
+        "754b6f51aa6d",
+        "87dcb507fa48",
+        "a5f042565aa9"
       ],
       "verified_by": [
-        "crates/eg-storage/src/physical/tests.rs:994",
+        "crates/eg-storage/src/physical/tests.rs:995",
         "tests/shard_open_budget.rs:140"
       ]
     },
@@ -538,9 +539,10 @@
       "title": "Startup open has a time budget that holds under host load, and each open is diagnosable",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1e8058ac9122",
-        "296258d8ae40",
-        "eb01575bf75f"
+        "0ed1c7ff900b",
+        "754b6f51aa6d",
+        "87dcb507fa48",
+        "a5f042565aa9"
       ],
       "verified_by": [
         "tests/shard_open_budget.rs:175",
@@ -552,16 +554,17 @@
       "title": "A clean-shutdown marker lets open skip the full recovery scan",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1e8058ac9122",
-        "296258d8ae40",
-        "eb01575bf75f"
+        "0ed1c7ff900b",
+        "754b6f51aa6d",
+        "87dcb507fa48",
+        "a5f042565aa9"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:768",
         "crates/eg-storage/src/physical/tests.rs:782",
         "crates/eg-storage/src/physical/tests.rs:793",
         "crates/eg-storage/src/physical/tests.rs:820",
-        "crates/eg-storage/src/physical/tests.rs:842"
+        "crates/eg-storage/src/physical/tests.rs:844"
       ]
     },
     {
