@@ -1004,10 +1004,12 @@
       "title": "Mass-withdrawal guard requires an explicit admin override",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "84de3661ec20",
         "ac5638477288",
         "d116b7dbfd27"
       ],
       "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:174",
         "tests/test_connector_pack_planted.py:234"
       ]
     },
