@@ -35,6 +35,7 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 import maturin
 
 from scripts.inject_numeric_kernel import inject as inject_numeric
+from scripts.inject_ontology import inject as inject_ontology
 from scripts.strip_wheel_executables import strip_executables
 
 ROOT = Path(__file__).resolve().parent
@@ -77,6 +78,7 @@ _NATIVE_FILES = {
     "build_backend.py",
     "pyproject.toml",
     "scripts/inject_numeric_kernel.py",
+    "scripts/inject_ontology.py",
     "scripts/normalize_wheel_build_paths.py",
 }
 
@@ -648,6 +650,7 @@ def _compose(
             inject_numeric(
                 wheel, _build_component(Path(temporary), NUMERIC_MANIFEST, "python")
             )
+        inject_ontology(wheel)
         strip_executables(wheel)
         return filename
 
