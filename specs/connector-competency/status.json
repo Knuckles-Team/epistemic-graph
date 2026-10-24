@@ -446,36 +446,28 @@
         "EG-CQ-CONN-R001.1",
         "EG-CQ-CONN-R001.2",
         "EG-CQ-CONN-R001.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R001.1",
       "title": "ansible-tower single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R001.2",
       "title": "ansible-tower cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R001.3",
       "title": "ansible-tower acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R001.1",
-        "EG-CQ-CONN-R001.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R002",
@@ -487,36 +479,28 @@
         "EG-CQ-CONN-R002.1",
         "EG-CQ-CONN-R002.2",
         "EG-CQ-CONN-R002.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R002.1",
       "title": "archimate single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R002.2",
       "title": "archimate cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R002.3",
       "title": "archimate acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R002.1",
-        "EG-CQ-CONN-R002.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R003",
@@ -528,36 +512,28 @@
         "EG-CQ-CONN-R003.1",
         "EG-CQ-CONN-R003.2",
         "EG-CQ-CONN-R003.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R003.1",
       "title": "archivebox single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R003.2",
       "title": "archivebox cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R003.3",
       "title": "archivebox acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R003.1",
-        "EG-CQ-CONN-R003.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R004",
@@ -569,36 +545,28 @@
         "EG-CQ-CONN-R004.1",
         "EG-CQ-CONN-R004.2",
         "EG-CQ-CONN-R004.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R004.1",
       "title": "aris single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R004.2",
       "title": "aris cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R004.3",
       "title": "aris acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R004.1",
-        "EG-CQ-CONN-R004.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R005",
@@ -610,36 +578,28 @@
         "EG-CQ-CONN-R005.1",
         "EG-CQ-CONN-R005.2",
         "EG-CQ-CONN-R005.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R005.1",
       "title": "arr single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R005.2",
       "title": "arr cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R005.3",
       "title": "arr acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R005.1",
-        "EG-CQ-CONN-R005.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R006",
@@ -651,36 +611,28 @@
         "EG-CQ-CONN-R006.1",
         "EG-CQ-CONN-R006.2",
         "EG-CQ-CONN-R006.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R006.1",
       "title": "atlassian single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R006.2",
       "title": "atlassian cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R006.3",
       "title": "atlassian acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R006.1",
-        "EG-CQ-CONN-R006.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R007",
@@ -692,36 +644,28 @@
         "EG-CQ-CONN-R007.1",
         "EG-CQ-CONN-R007.2",
         "EG-CQ-CONN-R007.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R007.1",
       "title": "audiobookshelf single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R007.2",
       "title": "audiobookshelf cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R007.3",
       "title": "audiobookshelf acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R007.1",
-        "EG-CQ-CONN-R007.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R008",
@@ -733,36 +677,28 @@
         "EG-CQ-CONN-R008.1",
         "EG-CQ-CONN-R008.2",
         "EG-CQ-CONN-R008.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R008.1",
       "title": "audio-transcriber single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R008.2",
       "title": "audio-transcriber cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R008.3",
       "title": "audio-transcriber acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R008.1",
-        "EG-CQ-CONN-R008.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R009",
@@ -774,36 +710,28 @@
         "EG-CQ-CONN-R009.1",
         "EG-CQ-CONN-R009.2",
         "EG-CQ-CONN-R009.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R009.1",
       "title": "caddy single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R009.2",
       "title": "caddy cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R009.3",
       "title": "caddy acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R009.1",
-        "EG-CQ-CONN-R009.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R010",
@@ -815,36 +743,28 @@
         "EG-CQ-CONN-R010.1",
         "EG-CQ-CONN-R010.2",
         "EG-CQ-CONN-R010.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R010.1",
       "title": "camunda single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R010.2",
       "title": "camunda cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R010.3",
       "title": "camunda acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R010.1",
-        "EG-CQ-CONN-R010.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R011",
@@ -856,40 +776,28 @@
         "EG-CQ-CONN-R011.1",
         "EG-CQ-CONN-R011.2",
         "EG-CQ-CONN-R011.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R011.1",
       "title": "ciso-assistant single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R011.2",
       "title": "ciso-assistant cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R011.3",
       "title": "ciso-assistant acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R011.1",
-        "EG-CQ-CONN-R011.2",
-        "EG-CQ-CONN-R073.2",
-        "EG-CQ-CONN-R073.3",
-        "EG-CQ-CONN-R073.4",
-        "EG-CQ-CONN-R073.5"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R012",
@@ -901,36 +809,28 @@
         "EG-CQ-CONN-R012.1",
         "EG-CQ-CONN-R012.2",
         "EG-CQ-CONN-R012.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R012.1",
       "title": "clarity single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R012.2",
       "title": "clarity cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R012.3",
       "title": "clarity acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R012.1",
-        "EG-CQ-CONN-R012.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R013",
@@ -942,36 +842,28 @@
         "EG-CQ-CONN-R013.1",
         "EG-CQ-CONN-R013.2",
         "EG-CQ-CONN-R013.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R013.1",
       "title": "container-manager single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R013.2",
       "title": "container-manager cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R013.3",
       "title": "container-manager acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R013.1",
-        "EG-CQ-CONN-R013.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R014",
@@ -983,36 +875,28 @@
         "EG-CQ-CONN-R014.1",
         "EG-CQ-CONN-R014.2",
         "EG-CQ-CONN-R014.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R014.1",
       "title": "data-science single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R014.2",
       "title": "data-science cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R014.3",
       "title": "data-science acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R014.1",
-        "EG-CQ-CONN-R014.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R015",
@@ -1024,39 +908,28 @@
         "EG-CQ-CONN-R015.1",
         "EG-CQ-CONN-R015.2",
         "EG-CQ-CONN-R015.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R015.1",
       "title": "dockerhub single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R015.2",
       "title": "dockerhub cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R015.3",
       "title": "dockerhub acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R015.1",
-        "EG-CQ-CONN-R015.2",
-        "EG-CQ-CONN-R068.13",
-        "EG-CQ-CONN-R068.14",
-        "EG-CQ-CONN-R069.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R016",
@@ -1068,36 +941,28 @@
         "EG-CQ-CONN-R016.1",
         "EG-CQ-CONN-R016.2",
         "EG-CQ-CONN-R016.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R016.1",
       "title": "documentdb single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R016.2",
       "title": "documentdb cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R016.3",
       "title": "documentdb acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R016.1",
-        "EG-CQ-CONN-R016.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R017",
@@ -1109,38 +974,28 @@
         "EG-CQ-CONN-R017.1",
         "EG-CQ-CONN-R017.2",
         "EG-CQ-CONN-R017.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R017.1",
       "title": "egeria single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R017.2",
       "title": "egeria cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R017.3",
       "title": "egeria acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R017.1",
-        "EG-CQ-CONN-R017.2",
-        "EG-CQ-CONN-R074.2",
-        "EG-CQ-CONN-R074.3"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R018",
@@ -1152,36 +1007,28 @@
         "EG-CQ-CONN-R018.1",
         "EG-CQ-CONN-R018.2",
         "EG-CQ-CONN-R018.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R018.1",
       "title": "emerald-exchange single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R018.2",
       "title": "emerald-exchange cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R018.3",
       "title": "emerald-exchange acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R018.1",
-        "EG-CQ-CONN-R018.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R019",
@@ -1193,36 +1040,28 @@
         "EG-CQ-CONN-R019.1",
         "EG-CQ-CONN-R019.2",
         "EG-CQ-CONN-R019.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R019.1",
       "title": "erpnext single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R019.2",
       "title": "erpnext cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R019.3",
       "title": "erpnext acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R019.1",
-        "EG-CQ-CONN-R019.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R020",
@@ -1234,36 +1073,28 @@
         "EG-CQ-CONN-R020.1",
         "EG-CQ-CONN-R020.2",
         "EG-CQ-CONN-R020.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R020.1",
       "title": "fan-manager single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R020.2",
       "title": "fan-manager cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R020.3",
       "title": "fan-manager acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R020.1",
-        "EG-CQ-CONN-R020.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R021",
@@ -1275,36 +1106,28 @@
         "EG-CQ-CONN-R021.1",
         "EG-CQ-CONN-R021.2",
         "EG-CQ-CONN-R021.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R021.1",
       "title": "firefly-iii single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R021.2",
       "title": "firefly-iii cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R021.3",
       "title": "firefly-iii acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R021.1",
-        "EG-CQ-CONN-R021.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R022",
@@ -1316,36 +1139,28 @@
         "EG-CQ-CONN-R022.1",
         "EG-CQ-CONN-R022.2",
         "EG-CQ-CONN-R022.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R022.1",
       "title": "freshrss single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R022.2",
       "title": "freshrss cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R022.3",
       "title": "freshrss acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R022.1",
-        "EG-CQ-CONN-R022.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R023",
@@ -1357,40 +1172,28 @@
         "EG-CQ-CONN-R023.1",
         "EG-CQ-CONN-R023.2",
         "EG-CQ-CONN-R023.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R023.1",
       "title": "github single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R023.2",
       "title": "github cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R023.3",
       "title": "github acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R023.1",
-        "EG-CQ-CONN-R023.2",
-        "EG-CQ-CONN-R069.12",
-        "EG-CQ-CONN-R069.10",
-        "EG-CQ-CONN-R069.11",
-        "EG-CQ-CONN-R069.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R024",
@@ -1402,42 +1205,28 @@
         "EG-CQ-CONN-R024.1",
         "EG-CQ-CONN-R024.2",
         "EG-CQ-CONN-R024.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R024.1",
       "title": "gitlab single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R024.2",
       "title": "gitlab cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R024.3",
       "title": "gitlab acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R024.1",
-        "EG-CQ-CONN-R024.2",
-        "EG-CQ-CONN-R069.13",
-        "EG-CQ-CONN-R069.14",
-        "EG-CQ-CONN-R069.3",
-        "EG-CQ-CONN-R069.4",
-        "EG-CQ-CONN-R069.5",
-        "EG-CQ-CONN-R069.6"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R025",
@@ -1449,38 +1238,28 @@
         "EG-CQ-CONN-R025.1",
         "EG-CQ-CONN-R025.2",
         "EG-CQ-CONN-R025.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R025.1",
       "title": "gramps single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R025.2",
       "title": "gramps cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R025.3",
       "title": "gramps acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R025.1",
-        "EG-CQ-CONN-R025.2",
-        "EG-CQ-CONN-R076.1",
-        "EG-CQ-CONN-R076.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R026",
@@ -1492,38 +1271,28 @@
         "EG-CQ-CONN-R026.1",
         "EG-CQ-CONN-R026.2",
         "EG-CQ-CONN-R026.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R026.1",
       "title": "home-assistant single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R026.2",
       "title": "home-assistant cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R026.3",
       "title": "home-assistant acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R026.1",
-        "EG-CQ-CONN-R026.2",
-        "EG-CQ-CONN-R068.15",
-        "EG-CQ-CONN-R068.16"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R027",
@@ -1535,36 +1304,28 @@
         "EG-CQ-CONN-R027.1",
         "EG-CQ-CONN-R027.2",
         "EG-CQ-CONN-R027.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R027.1",
       "title": "jellyfin single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R027.2",
       "title": "jellyfin cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R027.3",
       "title": "jellyfin acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R027.1",
-        "EG-CQ-CONN-R027.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R028",
@@ -1576,36 +1337,28 @@
         "EG-CQ-CONN-R028.1",
         "EG-CQ-CONN-R028.2",
         "EG-CQ-CONN-R028.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R028.1",
       "title": "jena single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R028.2",
       "title": "jena cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R028.3",
       "title": "jena acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R028.1",
-        "EG-CQ-CONN-R028.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R029",
@@ -1617,36 +1370,28 @@
         "EG-CQ-CONN-R029.1",
         "EG-CQ-CONN-R029.2",
         "EG-CQ-CONN-R029.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R029.1",
       "title": "kafka single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R029.2",
       "title": "kafka cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R029.3",
       "title": "kafka acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R029.1",
-        "EG-CQ-CONN-R029.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R030",
@@ -1658,36 +1403,28 @@
         "EG-CQ-CONN-R030.1",
         "EG-CQ-CONN-R030.2",
         "EG-CQ-CONN-R030.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R030.1",
       "title": "keycloak single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R030.2",
       "title": "keycloak cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R030.3",
       "title": "keycloak acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R030.1",
-        "EG-CQ-CONN-R030.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R031",
@@ -1699,40 +1436,28 @@
         "EG-CQ-CONN-R031.1",
         "EG-CQ-CONN-R031.2",
         "EG-CQ-CONN-R031.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R031.1",
       "title": "langfuse single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R031.2",
       "title": "langfuse cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R031.3",
       "title": "langfuse acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R031.1",
-        "EG-CQ-CONN-R031.2",
-        "EG-CQ-CONN-R079.2",
-        "EG-CQ-CONN-R079.3",
-        "EG-CQ-CONN-R079.4",
-        "EG-CQ-CONN-R079.5"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R032",
@@ -1744,36 +1469,28 @@
         "EG-CQ-CONN-R032.1",
         "EG-CQ-CONN-R032.2",
         "EG-CQ-CONN-R032.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R032.1",
       "title": "leanix single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R032.2",
       "title": "leanix cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R032.3",
       "title": "leanix acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R032.1",
-        "EG-CQ-CONN-R032.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R033",
@@ -1785,39 +1502,28 @@
         "EG-CQ-CONN-R033.1",
         "EG-CQ-CONN-R033.2",
         "EG-CQ-CONN-R033.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R033.1",
       "title": "legal-peripherals single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R033.2",
       "title": "legal-peripherals cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R033.3",
       "title": "legal-peripherals acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R033.1",
-        "EG-CQ-CONN-R033.2",
-        "EG-CQ-CONN-R074.4",
-        "EG-CQ-CONN-R074.5",
-        "EG-CQ-CONN-R074.6"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R034",
@@ -1829,36 +1535,28 @@
         "EG-CQ-CONN-R034.1",
         "EG-CQ-CONN-R034.2",
         "EG-CQ-CONN-R034.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R034.1",
       "title": "lgtm single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R034.2",
       "title": "lgtm cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R034.3",
       "title": "lgtm acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R034.1",
-        "EG-CQ-CONN-R034.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R035",
@@ -1870,36 +1568,28 @@
         "EG-CQ-CONN-R035.1",
         "EG-CQ-CONN-R035.2",
         "EG-CQ-CONN-R035.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R035.1",
       "title": "listmonk single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R035.2",
       "title": "listmonk cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R035.3",
       "title": "listmonk acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R035.1",
-        "EG-CQ-CONN-R035.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R036",
@@ -1911,36 +1601,28 @@
         "EG-CQ-CONN-R036.1",
         "EG-CQ-CONN-R036.2",
         "EG-CQ-CONN-R036.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R036.1",
       "title": "mattermost single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R036.2",
       "title": "mattermost cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R036.3",
       "title": "mattermost acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R036.1",
-        "EG-CQ-CONN-R036.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R037",
@@ -1952,36 +1634,28 @@
         "EG-CQ-CONN-R037.1",
         "EG-CQ-CONN-R037.2",
         "EG-CQ-CONN-R037.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R037.1",
       "title": "mealie single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R037.2",
       "title": "mealie cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R037.3",
       "title": "mealie acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R037.1",
-        "EG-CQ-CONN-R037.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R038",
@@ -1993,36 +1667,28 @@
         "EG-CQ-CONN-R038.1",
         "EG-CQ-CONN-R038.2",
         "EG-CQ-CONN-R038.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R038.1",
       "title": "media-downloader single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R038.2",
       "title": "media-downloader cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R038.3",
       "title": "media-downloader acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R038.1",
-        "EG-CQ-CONN-R038.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R039",
@@ -2034,36 +1700,28 @@
         "EG-CQ-CONN-R039.1",
         "EG-CQ-CONN-R039.2",
         "EG-CQ-CONN-R039.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R039.1",
       "title": "microsoft single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R039.2",
       "title": "microsoft cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R039.3",
       "title": "microsoft acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R039.1",
-        "EG-CQ-CONN-R039.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R040",
@@ -2075,40 +1733,28 @@
         "EG-CQ-CONN-R040.1",
         "EG-CQ-CONN-R040.2",
         "EG-CQ-CONN-R040.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R040.1",
       "title": "nextcloud single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R040.2",
       "title": "nextcloud cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R040.3",
       "title": "nextcloud acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R040.1",
-        "EG-CQ-CONN-R040.2",
-        "EG-CQ-CONN-R076.6",
-        "EG-CQ-CONN-R076.7",
-        "EG-CQ-CONN-R076.8",
-        "EG-CQ-CONN-R076.9"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R041",
@@ -2120,36 +1766,28 @@
         "EG-CQ-CONN-R041.1",
         "EG-CQ-CONN-R041.2",
         "EG-CQ-CONN-R041.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R041.1",
       "title": "objectstore single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R041.2",
       "title": "objectstore cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R041.3",
       "title": "objectstore acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R041.1",
-        "EG-CQ-CONN-R041.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R042",
@@ -2161,36 +1799,28 @@
         "EG-CQ-CONN-R042.1",
         "EG-CQ-CONN-R042.2",
         "EG-CQ-CONN-R042.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R042.1",
       "title": "okta single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R042.2",
       "title": "okta cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R042.3",
       "title": "okta acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R042.1",
-        "EG-CQ-CONN-R042.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R043",
@@ -2202,42 +1832,28 @@
         "EG-CQ-CONN-R043.1",
         "EG-CQ-CONN-R043.2",
         "EG-CQ-CONN-R043.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R043.1",
       "title": "onetrust single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R043.2",
       "title": "onetrust cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R043.3",
       "title": "onetrust acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R043.1",
-        "EG-CQ-CONN-R043.2",
-        "EG-CQ-CONN-R073.6",
-        "EG-CQ-CONN-R073.7",
-        "EG-CQ-CONN-R073.8",
-        "EG-CQ-CONN-R073.9",
-        "EG-CQ-CONN-R073.10",
-        "EG-CQ-CONN-R073.11"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R044",
@@ -2249,36 +1865,28 @@
         "EG-CQ-CONN-R044.1",
         "EG-CQ-CONN-R044.2",
         "EG-CQ-CONN-R044.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R044.1",
       "title": "openbao single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R044.2",
       "title": "openbao cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R044.3",
       "title": "openbao acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R044.1",
-        "EG-CQ-CONN-R044.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R045",
@@ -2290,36 +1898,28 @@
         "EG-CQ-CONN-R045.1",
         "EG-CQ-CONN-R045.2",
         "EG-CQ-CONN-R045.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R045.1",
       "title": "owncast single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R045.2",
       "title": "owncast cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R045.3",
       "title": "owncast acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R045.1",
-        "EG-CQ-CONN-R045.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R046",
@@ -2331,39 +1931,28 @@
         "EG-CQ-CONN-R046.1",
         "EG-CQ-CONN-R046.2",
         "EG-CQ-CONN-R046.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R046.1",
       "title": "paperless-ngx single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R046.2",
       "title": "paperless-ngx cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R046.3",
       "title": "paperless-ngx acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R046.1",
-        "EG-CQ-CONN-R046.2",
-        "EG-CQ-CONN-R076.3",
-        "EG-CQ-CONN-R076.4",
-        "EG-CQ-CONN-R076.5"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R047",
@@ -2375,36 +1964,28 @@
         "EG-CQ-CONN-R047.1",
         "EG-CQ-CONN-R047.2",
         "EG-CQ-CONN-R047.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R047.1",
       "title": "plane single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R047.2",
       "title": "plane cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R047.3",
       "title": "plane acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R047.1",
-        "EG-CQ-CONN-R047.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R048",
@@ -2416,36 +1997,28 @@
         "EG-CQ-CONN-R048.1",
         "EG-CQ-CONN-R048.2",
         "EG-CQ-CONN-R048.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R048.1",
       "title": "portainer single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R048.2",
       "title": "portainer cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R048.3",
       "title": "portainer acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R048.1",
-        "EG-CQ-CONN-R048.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R049",
@@ -2457,36 +2030,28 @@
         "EG-CQ-CONN-R049.1",
         "EG-CQ-CONN-R049.2",
         "EG-CQ-CONN-R049.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R049.1",
       "title": "postiz single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R049.2",
       "title": "postiz cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R049.3",
       "title": "postiz acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R049.1",
-        "EG-CQ-CONN-R049.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R050",
@@ -2498,36 +2063,28 @@
         "EG-CQ-CONN-R050.1",
         "EG-CQ-CONN-R050.2",
         "EG-CQ-CONN-R050.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R050.1",
       "title": "pulselink single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R050.2",
       "title": "pulselink cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R050.3",
       "title": "pulselink acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R050.1",
-        "EG-CQ-CONN-R050.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R051",
@@ -2539,36 +2096,28 @@
         "EG-CQ-CONN-R051.1",
         "EG-CQ-CONN-R051.2",
         "EG-CQ-CONN-R051.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R051.1",
       "title": "qbittorrent single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R051.2",
       "title": "qbittorrent cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R051.3",
       "title": "qbittorrent acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R051.1",
-        "EG-CQ-CONN-R051.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R052",
@@ -2580,43 +2129,28 @@
         "EG-CQ-CONN-R052.1",
         "EG-CQ-CONN-R052.2",
         "EG-CQ-CONN-R052.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R052.1",
       "title": "repository-manager single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R052.2",
       "title": "repository-manager cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R052.3",
       "title": "repository-manager acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R052.1",
-        "EG-CQ-CONN-R052.2",
-        "EG-CQ-CONN-R069.20",
-        "EG-CQ-CONN-R069.21",
-        "EG-CQ-CONN-R069.22",
-        "EG-CQ-CONN-R069.23",
-        "EG-CQ-CONN-R069.2",
-        "EG-CQ-CONN-R069.3",
-        "EG-CQ-CONN-R069.11"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R053",
@@ -2628,36 +2162,28 @@
         "EG-CQ-CONN-R053.1",
         "EG-CQ-CONN-R053.2",
         "EG-CQ-CONN-R053.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R053.1",
       "title": "rom-manager single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R053.2",
       "title": "rom-manager cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R053.3",
       "title": "rom-manager acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R053.1",
-        "EG-CQ-CONN-R053.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R054",
@@ -2669,36 +2195,28 @@
         "EG-CQ-CONN-R054.1",
         "EG-CQ-CONN-R054.2",
         "EG-CQ-CONN-R054.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R054.1",
       "title": "salesforce single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R054.2",
       "title": "salesforce cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R054.3",
       "title": "salesforce acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R054.1",
-        "EG-CQ-CONN-R054.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R055",
@@ -2710,36 +2228,28 @@
         "EG-CQ-CONN-R055.1",
         "EG-CQ-CONN-R055.2",
         "EG-CQ-CONN-R055.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R055.1",
       "title": "scholarx single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R055.2",
       "title": "scholarx cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R055.3",
       "title": "scholarx acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R055.1",
-        "EG-CQ-CONN-R055.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R056",
@@ -2751,36 +2261,28 @@
         "EG-CQ-CONN-R056.1",
         "EG-CQ-CONN-R056.2",
         "EG-CQ-CONN-R056.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R056.1",
       "title": "searxng single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R056.2",
       "title": "searxng cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R056.3",
       "title": "searxng acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R056.1",
-        "EG-CQ-CONN-R056.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R057",
@@ -2792,40 +2294,28 @@
         "EG-CQ-CONN-R057.1",
         "EG-CQ-CONN-R057.2",
         "EG-CQ-CONN-R057.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R057.1",
       "title": "servicenow single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R057.2",
       "title": "servicenow cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R057.3",
       "title": "servicenow acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R057.1",
-        "EG-CQ-CONN-R057.2",
-        "EG-CQ-CONN-R070.5",
-        "EG-CQ-CONN-R070.6",
-        "EG-CQ-CONN-R070.7",
-        "EG-CQ-CONN-R070.8"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R058",
@@ -2837,36 +2327,28 @@
         "EG-CQ-CONN-R058.1",
         "EG-CQ-CONN-R058.2",
         "EG-CQ-CONN-R058.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R058.1",
       "title": "sql single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R058.2",
       "title": "sql cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R058.3",
       "title": "sql acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R058.1",
-        "EG-CQ-CONN-R058.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R059",
@@ -2878,37 +2360,28 @@
         "EG-CQ-CONN-R059.1",
         "EG-CQ-CONN-R059.2",
         "EG-CQ-CONN-R059.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R059.1",
       "title": "stirlingpdf single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R059.2",
       "title": "stirlingpdf cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R059.3",
       "title": "stirlingpdf acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R059.1",
-        "EG-CQ-CONN-R059.2",
-        "EG-CQ-CONN-R082.1"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R060",
@@ -2920,36 +2393,28 @@
         "EG-CQ-CONN-R060.1",
         "EG-CQ-CONN-R060.2",
         "EG-CQ-CONN-R060.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R060.1",
       "title": "systems-manager single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R060.2",
       "title": "systems-manager cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R060.3",
       "title": "systems-manager acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R060.1",
-        "EG-CQ-CONN-R060.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R061",
@@ -2961,36 +2426,28 @@
         "EG-CQ-CONN-R061.1",
         "EG-CQ-CONN-R061.2",
         "EG-CQ-CONN-R061.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R061.1",
       "title": "technitium-dns single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R061.2",
       "title": "technitium-dns cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R061.3",
       "title": "technitium-dns acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R061.1",
-        "EG-CQ-CONN-R061.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R062",
@@ -3002,36 +2459,28 @@
         "EG-CQ-CONN-R062.1",
         "EG-CQ-CONN-R062.2",
         "EG-CQ-CONN-R062.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R062.1",
       "title": "tunnel-manager single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R062.2",
       "title": "tunnel-manager cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R062.3",
       "title": "tunnel-manager acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R062.1",
-        "EG-CQ-CONN-R062.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R063",
@@ -3043,36 +2492,28 @@
         "EG-CQ-CONN-R063.1",
         "EG-CQ-CONN-R063.2",
         "EG-CQ-CONN-R063.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R063.1",
       "title": "twenty single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R063.2",
       "title": "twenty cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R063.3",
       "title": "twenty acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R063.1",
-        "EG-CQ-CONN-R063.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R064",
@@ -3084,36 +2525,28 @@
         "EG-CQ-CONN-R064.1",
         "EG-CQ-CONN-R064.2",
         "EG-CQ-CONN-R064.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R064.1",
       "title": "uptime single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R064.2",
       "title": "uptime cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R064.3",
       "title": "uptime acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R064.1",
-        "EG-CQ-CONN-R064.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R065",
@@ -3125,36 +2558,28 @@
         "EG-CQ-CONN-R065.1",
         "EG-CQ-CONN-R065.2",
         "EG-CQ-CONN-R065.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R065.1",
       "title": "vector single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R065.2",
       "title": "vector cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R065.3",
       "title": "vector acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R065.1",
-        "EG-CQ-CONN-R065.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R066",
@@ -3166,36 +2591,28 @@
         "EG-CQ-CONN-R066.1",
         "EG-CQ-CONN-R066.2",
         "EG-CQ-CONN-R066.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R066.1",
       "title": "wger single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R066.2",
       "title": "wger cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R066.3",
       "title": "wger acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R066.1",
-        "EG-CQ-CONN-R066.2"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R067",
@@ -3210,56 +2627,49 @@
         "EG-CQ-CONN-R067.4",
         "EG-CQ-CONN-R067.5",
         "EG-CQ-CONN-R067.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R067.1",
       "title": "MCP contract answers at query time",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R067.2",
       "title": "A2A contract answers at query time",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R067.3",
       "title": "API (REST) contract answers at query time",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R067.4",
       "title": "GraphQL contract answers at query time",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R067.5",
       "title": "virtual graph over a relational or document store contract answers at query time",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R067.6",
       "title": "Materialisation is declared, never implicit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068",
@@ -3294,216 +2704,189 @@
         "EG-CQ-CONN-R068.24",
         "EG-CQ-CONN-R068.25",
         "EG-CQ-CONN-R068.26"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R068.1",
       "title": "shapes companion for infrastructure-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.2",
       "title": "AutomationJob",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.3",
       "title": "AutomationJobTemplate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.4",
       "title": "jobStatus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.5",
       "title": "ranAgainstHost",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.6",
       "title": "routeHostname",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.7",
       "title": "upstreamAddress",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.8",
       "title": "Alert",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.9",
       "title": "alertSeverity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.10",
       "title": "alertState",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.11",
       "title": "firingSince",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.12",
       "title": "alertsOn",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.13",
       "title": "lastPushedAt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.14",
       "title": "pullCount",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.15",
       "title": "entityState",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.16",
       "title": "unavailableSince",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.17",
       "title": "desiredReplicas",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.18",
       "title": "runningReplicas",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.19",
       "title": "stackSourceRepository",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.20",
       "title": "ManagementEnvironment",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.21",
       "title": "pendingUpdateCount",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.22",
       "title": "uptimeSeconds",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.23",
       "title": "recordType",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.24",
       "title": "recordValue",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.25",
       "title": "lastConnectionStatus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R068.26",
       "title": "lastConnectionError",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069",
@@ -3535,192 +2918,168 @@
         "EG-CQ-CONN-R069.21",
         "EG-CQ-CONN-R069.22",
         "EG-CQ-CONN-R069.23"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.1",
       "title": "shapes companion for sdlc_lifecycle-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.2",
       "title": "Repository",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 36
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.3",
       "title": "Branch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 24
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.4",
       "title": "branchOf",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.5",
       "title": "headCommit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.6",
       "title": "isDefaultBranch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.7",
       "title": "blockedBy",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.8",
       "title": "assignedTo",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.9",
       "title": "ticketStatus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.10",
       "title": "closesTicket",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.11",
       "title": "proposalState",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 24
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.12",
       "title": "requestedReviewer",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.13",
       "title": "PipelineJob",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.14",
       "title": "pipelineJobOf",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.15",
       "title": "IterationCycle",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.16",
       "title": "inCycle",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.17",
       "title": "WorkModule",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.18",
       "title": "inModule",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.19",
       "title": "ticketDueDate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.20",
       "title": "Worktree",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.21",
       "title": "worktreeState",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.22",
       "title": "tracksBranch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R069.23",
       "title": "proposalBranch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R070",
@@ -3737,72 +3096,63 @@
         "EG-CQ-CONN-R070.6",
         "EG-CQ-CONN-R070.7",
         "EG-CQ-CONN-R070.8"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R070.1",
       "title": "shapes companion for archimate-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R070.2",
       "title": "ApplicationComponent",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R070.3",
       "title": "ArchimateRelationship",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R070.4",
       "title": "relationshipType",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R070.5",
       "title": "ConfigurationItem",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R070.6",
       "title": "affectsConfigurationItem",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R070.7",
       "title": "incidentState",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R070.8",
       "title": "incidentAssignee",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R071",
@@ -3817,56 +3167,49 @@
         "EG-CQ-CONN-R071.4",
         "EG-CQ-CONN-R071.5",
         "EG-CQ-CONN-R071.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R071.1",
       "title": "shapes companion for documentation-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R071.2",
       "title": "WebSnapshot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R071.3",
       "title": "ArchiveResult",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R071.4",
       "title": "hasArchiveResult",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R071.5",
       "title": "extractorName",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R071.6",
       "title": "resultStatus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R072",
@@ -3882,64 +3225,56 @@
         "EG-CQ-CONN-R072.5",
         "EG-CQ-CONN-R072.6",
         "EG-CQ-CONN-R072.7"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R072.1",
       "title": "EpcFunction",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R072.2",
       "title": "EpcRuleOperator",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R072.3",
       "title": "flowsTo",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R072.4",
       "title": "ProcessInstance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R072.5",
       "title": "instanceOfProcessModel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R072.6",
       "title": "stoppedAtActivity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R072.7",
       "title": "raisedIncident",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073",
@@ -3959,96 +3294,84 @@
         "EG-CQ-CONN-R073.9",
         "EG-CQ-CONN-R073.10",
         "EG-CQ-CONN-R073.11"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.1",
       "title": "shapes companion for government-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.2",
       "title": "RiskScenario",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.3",
       "title": "mitigatesRisk",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.4",
       "title": "inFramework",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.5",
       "title": "riskAffectsService",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.6",
       "title": "PrivacyAssessment",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.7",
       "title": "ProcessingActivity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.8",
       "title": "assessmentCovers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.9",
       "title": "assessmentDueDate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.10",
       "title": "assessedVendor",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R073.11",
       "title": "assessmentStatus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R074",
@@ -4063,56 +3386,49 @@
         "EG-CQ-CONN-R074.4",
         "EG-CQ-CONN-R074.5",
         "EG-CQ-CONN-R074.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R074.1",
       "title": "shapes companion for core-foundation-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R074.2",
       "title": "GlossaryTerm",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R074.3",
       "title": "termAssignedTo",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R074.4",
       "title": "counterparty",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R074.5",
       "title": "agreementExpiresAt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R074.6",
       "title": "hasRenewalAction",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R075",
@@ -4128,64 +3444,56 @@
         "EG-CQ-CONN-R075.5",
         "EG-CQ-CONN-R075.6",
         "EG-CQ-CONN-R075.7"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R075.1",
       "title": "shapes companion for finance-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R075.2",
       "title": "orderQty",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R075.3",
       "title": "Budget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R075.4",
       "title": "budgetLimit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R075.5",
       "title": "LedgerTransaction",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R075.6",
       "title": "chargedToBudget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R075.7",
       "title": "transactionAmount",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R076",
@@ -4203,80 +3511,70 @@
         "EG-CQ-CONN-R076.7",
         "EG-CQ-CONN-R076.8",
         "EG-CQ-CONN-R076.9"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R076.1",
       "title": "birthPlace",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R076.2",
       "title": "birthYear",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R076.3",
       "title": "documentType",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R076.4",
       "title": "dueDate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R076.5",
       "title": "totalAmount",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R076.6",
       "title": "FileShare",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R076.7",
       "title": "sharesFile",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R076.8",
       "title": "isPublicLink",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R076.9",
       "title": "shareExpiresAt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R077",
@@ -4288,32 +3586,28 @@
         "EG-CQ-CONN-R077.1",
         "EG-CQ-CONN-R077.2",
         "EG-CQ-CONN-R077.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R077.1",
       "title": "NamedGraph",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R077.2",
       "title": "tripleCount",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R077.3",
       "title": "lastModifiedAt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R078",
@@ -4327,48 +3621,42 @@
         "EG-CQ-CONN-R078.3",
         "EG-CQ-CONN-R078.4",
         "EG-CQ-CONN-R078.5"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R078.1",
       "title": "shapes companion for identity-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R078.2",
       "title": "Application",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R078.3",
       "title": "OidcClient",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R078.4",
       "title": "roleGrantsAccessTo",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R078.5",
       "title": "accountStatus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R079",
@@ -4382,48 +3670,42 @@
         "EG-CQ-CONN-R079.3",
         "EG-CQ-CONN-R079.4",
         "EG-CQ-CONN-R079.5"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R079.1",
       "title": "shapes companion for orchestration-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R079.2",
       "title": "promptVersion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R079.3",
       "title": "tokenCost",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R079.4",
       "title": "tracePrompt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R079.5",
       "title": "evaluationScore",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R080",
@@ -4436,40 +3718,35 @@
         "EG-CQ-CONN-R080.2",
         "EG-CQ-CONN-R080.3",
         "EG-CQ-CONN-R080.4"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R080.1",
       "title": "shapes companion for enterprise-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R080.2",
       "title": "factSheetType",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R080.3",
       "title": "lifecyclePhase",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R080.4",
       "title": "activeUserCount",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R081",
@@ -4486,72 +3763,63 @@
         "EG-CQ-CONN-R081.6",
         "EG-CQ-CONN-R081.7",
         "EG-CQ-CONN-R081.8"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R081.1",
       "title": "Recipe",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R081.2",
       "title": "usesIngredient",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R081.3",
       "title": "ShoppingListItem",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R081.4",
       "title": "MealPlanEntry",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R081.5",
       "title": "WorkoutRoutine",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R081.6",
       "title": "Exercise",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R081.7",
       "title": "includesExercise",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R081.8",
       "title": "WorkoutSession",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R082",
@@ -4561,28 +3829,21 @@
       "verified_by": [],
       "rollup_of": [
         "EG-CQ-CONN-R082.1"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R082.1",
       "title": "failureReason",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 12
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R083",
       "title": "erpnext, salesforce and twenty vocabulary (rollup, single row)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-SUPPLY-VOCAB-R003.13",
-        "EG-SUPPLY-VOCAB-R003.17"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R084",
@@ -4597,70 +3858,49 @@
         "EG-CQ-CONN-R084.4",
         "EG-CQ-CONN-R084.5",
         "EG-CQ-CONN-R084.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R084.1",
       "title": "Which finance algorithms apply to analysis type X for instrument or position type Y, and which connector tool performs each?",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R084.5",
-        "EG-TYPED-PACKS-R102.1"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R084.2",
       "title": "What are my trades and positions, and which risk analyses apply to them?",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-CQ-CONN-R084.5",
-        "EG-TYPED-PACKS-R101.1"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R084.3",
       "title": "Which connector features, tools, prompts and skills can satisfy capability C, and under which ingest contract?",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-TYPED-PACKS-R102.1"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R084.4",
       "title": "Which connector ingest contracts govern record R, with their mappings, access policy and provenance requirements?",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "depends_on": [
-        "EG-TYPED-PACKS-R101.1"
-      ],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R084.5",
       "title": "Finance method vocabulary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 24
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R084.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085",
@@ -4675,334 +3915,49 @@
         "EG-CQ-CONN-R085.4",
         "EG-CQ-CONN-R085.5",
         "EG-CQ-CONN-R085.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-CQ-CONN-R085.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     }
-  ],
-  "frontier": [
-    "EG-CQ-CONN-R001.1",
-    "EG-CQ-CONN-R001.2",
-    "EG-CQ-CONN-R002.1",
-    "EG-CQ-CONN-R002.2",
-    "EG-CQ-CONN-R003.1",
-    "EG-CQ-CONN-R003.2",
-    "EG-CQ-CONN-R004.1",
-    "EG-CQ-CONN-R004.2",
-    "EG-CQ-CONN-R005.1",
-    "EG-CQ-CONN-R005.2",
-    "EG-CQ-CONN-R006.1",
-    "EG-CQ-CONN-R006.2",
-    "EG-CQ-CONN-R007.1",
-    "EG-CQ-CONN-R007.2",
-    "EG-CQ-CONN-R008.1",
-    "EG-CQ-CONN-R008.2",
-    "EG-CQ-CONN-R009.1",
-    "EG-CQ-CONN-R009.2",
-    "EG-CQ-CONN-R010.1",
-    "EG-CQ-CONN-R010.2",
-    "EG-CQ-CONN-R011.1",
-    "EG-CQ-CONN-R011.2",
-    "EG-CQ-CONN-R012.1",
-    "EG-CQ-CONN-R012.2",
-    "EG-CQ-CONN-R013.1",
-    "EG-CQ-CONN-R013.2",
-    "EG-CQ-CONN-R014.1",
-    "EG-CQ-CONN-R014.2",
-    "EG-CQ-CONN-R015.1",
-    "EG-CQ-CONN-R015.2",
-    "EG-CQ-CONN-R016.1",
-    "EG-CQ-CONN-R016.2",
-    "EG-CQ-CONN-R017.1",
-    "EG-CQ-CONN-R017.2",
-    "EG-CQ-CONN-R018.1",
-    "EG-CQ-CONN-R018.2",
-    "EG-CQ-CONN-R019.1",
-    "EG-CQ-CONN-R019.2",
-    "EG-CQ-CONN-R020.1",
-    "EG-CQ-CONN-R020.2",
-    "EG-CQ-CONN-R021.1",
-    "EG-CQ-CONN-R021.2",
-    "EG-CQ-CONN-R022.1",
-    "EG-CQ-CONN-R022.2",
-    "EG-CQ-CONN-R023.1",
-    "EG-CQ-CONN-R023.2",
-    "EG-CQ-CONN-R024.1",
-    "EG-CQ-CONN-R024.2",
-    "EG-CQ-CONN-R025.1",
-    "EG-CQ-CONN-R025.2",
-    "EG-CQ-CONN-R026.1",
-    "EG-CQ-CONN-R026.2",
-    "EG-CQ-CONN-R027.1",
-    "EG-CQ-CONN-R027.2",
-    "EG-CQ-CONN-R028.1",
-    "EG-CQ-CONN-R028.2",
-    "EG-CQ-CONN-R029.1",
-    "EG-CQ-CONN-R029.2",
-    "EG-CQ-CONN-R030.1",
-    "EG-CQ-CONN-R030.2",
-    "EG-CQ-CONN-R031.1",
-    "EG-CQ-CONN-R031.2",
-    "EG-CQ-CONN-R032.1",
-    "EG-CQ-CONN-R032.2",
-    "EG-CQ-CONN-R033.1",
-    "EG-CQ-CONN-R033.2",
-    "EG-CQ-CONN-R034.1",
-    "EG-CQ-CONN-R034.2",
-    "EG-CQ-CONN-R035.1",
-    "EG-CQ-CONN-R035.2",
-    "EG-CQ-CONN-R036.1",
-    "EG-CQ-CONN-R036.2",
-    "EG-CQ-CONN-R037.1",
-    "EG-CQ-CONN-R037.2",
-    "EG-CQ-CONN-R038.1",
-    "EG-CQ-CONN-R038.2",
-    "EG-CQ-CONN-R039.1",
-    "EG-CQ-CONN-R039.2",
-    "EG-CQ-CONN-R040.1",
-    "EG-CQ-CONN-R040.2",
-    "EG-CQ-CONN-R041.1",
-    "EG-CQ-CONN-R041.2",
-    "EG-CQ-CONN-R042.1",
-    "EG-CQ-CONN-R042.2",
-    "EG-CQ-CONN-R043.1",
-    "EG-CQ-CONN-R043.2",
-    "EG-CQ-CONN-R044.1",
-    "EG-CQ-CONN-R044.2",
-    "EG-CQ-CONN-R045.1",
-    "EG-CQ-CONN-R045.2",
-    "EG-CQ-CONN-R046.1",
-    "EG-CQ-CONN-R046.2",
-    "EG-CQ-CONN-R047.1",
-    "EG-CQ-CONN-R047.2",
-    "EG-CQ-CONN-R048.1",
-    "EG-CQ-CONN-R048.2",
-    "EG-CQ-CONN-R049.1",
-    "EG-CQ-CONN-R049.2",
-    "EG-CQ-CONN-R050.1",
-    "EG-CQ-CONN-R050.2",
-    "EG-CQ-CONN-R051.1",
-    "EG-CQ-CONN-R051.2",
-    "EG-CQ-CONN-R052.1",
-    "EG-CQ-CONN-R052.2",
-    "EG-CQ-CONN-R053.1",
-    "EG-CQ-CONN-R053.2",
-    "EG-CQ-CONN-R054.1",
-    "EG-CQ-CONN-R054.2",
-    "EG-CQ-CONN-R055.1",
-    "EG-CQ-CONN-R055.2",
-    "EG-CQ-CONN-R056.1",
-    "EG-CQ-CONN-R056.2",
-    "EG-CQ-CONN-R057.1",
-    "EG-CQ-CONN-R057.2",
-    "EG-CQ-CONN-R058.1",
-    "EG-CQ-CONN-R058.2",
-    "EG-CQ-CONN-R059.1",
-    "EG-CQ-CONN-R059.2",
-    "EG-CQ-CONN-R060.1",
-    "EG-CQ-CONN-R060.2",
-    "EG-CQ-CONN-R061.1",
-    "EG-CQ-CONN-R061.2",
-    "EG-CQ-CONN-R062.1",
-    "EG-CQ-CONN-R062.2",
-    "EG-CQ-CONN-R063.1",
-    "EG-CQ-CONN-R063.2",
-    "EG-CQ-CONN-R064.1",
-    "EG-CQ-CONN-R064.2",
-    "EG-CQ-CONN-R065.1",
-    "EG-CQ-CONN-R065.2",
-    "EG-CQ-CONN-R066.1",
-    "EG-CQ-CONN-R066.2",
-    "EG-CQ-CONN-R067.1",
-    "EG-CQ-CONN-R067.2",
-    "EG-CQ-CONN-R067.3",
-    "EG-CQ-CONN-R067.4",
-    "EG-CQ-CONN-R067.5",
-    "EG-CQ-CONN-R067.6",
-    "EG-CQ-CONN-R068.1",
-    "EG-CQ-CONN-R068.2",
-    "EG-CQ-CONN-R068.3",
-    "EG-CQ-CONN-R068.4",
-    "EG-CQ-CONN-R068.5",
-    "EG-CQ-CONN-R068.6",
-    "EG-CQ-CONN-R068.7",
-    "EG-CQ-CONN-R068.8",
-    "EG-CQ-CONN-R068.9",
-    "EG-CQ-CONN-R068.10",
-    "EG-CQ-CONN-R068.11",
-    "EG-CQ-CONN-R068.12",
-    "EG-CQ-CONN-R068.13",
-    "EG-CQ-CONN-R068.14",
-    "EG-CQ-CONN-R068.15",
-    "EG-CQ-CONN-R068.16",
-    "EG-CQ-CONN-R068.17",
-    "EG-CQ-CONN-R068.18",
-    "EG-CQ-CONN-R068.19",
-    "EG-CQ-CONN-R068.20",
-    "EG-CQ-CONN-R068.21",
-    "EG-CQ-CONN-R068.22",
-    "EG-CQ-CONN-R068.23",
-    "EG-CQ-CONN-R068.24",
-    "EG-CQ-CONN-R068.25",
-    "EG-CQ-CONN-R068.26",
-    "EG-CQ-CONN-R069.1",
-    "EG-CQ-CONN-R069.2",
-    "EG-CQ-CONN-R069.3",
-    "EG-CQ-CONN-R069.4",
-    "EG-CQ-CONN-R069.5",
-    "EG-CQ-CONN-R069.6",
-    "EG-CQ-CONN-R069.7",
-    "EG-CQ-CONN-R069.8",
-    "EG-CQ-CONN-R069.9",
-    "EG-CQ-CONN-R069.10",
-    "EG-CQ-CONN-R069.11",
-    "EG-CQ-CONN-R069.12",
-    "EG-CQ-CONN-R069.13",
-    "EG-CQ-CONN-R069.14",
-    "EG-CQ-CONN-R069.15",
-    "EG-CQ-CONN-R069.16",
-    "EG-CQ-CONN-R069.17",
-    "EG-CQ-CONN-R069.18",
-    "EG-CQ-CONN-R069.19",
-    "EG-CQ-CONN-R069.20",
-    "EG-CQ-CONN-R069.21",
-    "EG-CQ-CONN-R069.22",
-    "EG-CQ-CONN-R069.23",
-    "EG-CQ-CONN-R070.1",
-    "EG-CQ-CONN-R070.2",
-    "EG-CQ-CONN-R070.3",
-    "EG-CQ-CONN-R070.4",
-    "EG-CQ-CONN-R070.5",
-    "EG-CQ-CONN-R070.6",
-    "EG-CQ-CONN-R070.7",
-    "EG-CQ-CONN-R070.8",
-    "EG-CQ-CONN-R071.1",
-    "EG-CQ-CONN-R071.2",
-    "EG-CQ-CONN-R071.3",
-    "EG-CQ-CONN-R071.4",
-    "EG-CQ-CONN-R071.5",
-    "EG-CQ-CONN-R071.6",
-    "EG-CQ-CONN-R072.1",
-    "EG-CQ-CONN-R072.2",
-    "EG-CQ-CONN-R072.3",
-    "EG-CQ-CONN-R072.4",
-    "EG-CQ-CONN-R072.5",
-    "EG-CQ-CONN-R072.6",
-    "EG-CQ-CONN-R072.7",
-    "EG-CQ-CONN-R073.1",
-    "EG-CQ-CONN-R073.2",
-    "EG-CQ-CONN-R073.3",
-    "EG-CQ-CONN-R073.4",
-    "EG-CQ-CONN-R073.5",
-    "EG-CQ-CONN-R073.6",
-    "EG-CQ-CONN-R073.7",
-    "EG-CQ-CONN-R073.8",
-    "EG-CQ-CONN-R073.9",
-    "EG-CQ-CONN-R073.10",
-    "EG-CQ-CONN-R073.11",
-    "EG-CQ-CONN-R074.1",
-    "EG-CQ-CONN-R074.2",
-    "EG-CQ-CONN-R074.3",
-    "EG-CQ-CONN-R074.4",
-    "EG-CQ-CONN-R074.5",
-    "EG-CQ-CONN-R074.6",
-    "EG-CQ-CONN-R075.1",
-    "EG-CQ-CONN-R075.2",
-    "EG-CQ-CONN-R075.3",
-    "EG-CQ-CONN-R075.4",
-    "EG-CQ-CONN-R075.5",
-    "EG-CQ-CONN-R075.6",
-    "EG-CQ-CONN-R075.7",
-    "EG-CQ-CONN-R076.1",
-    "EG-CQ-CONN-R076.2",
-    "EG-CQ-CONN-R076.3",
-    "EG-CQ-CONN-R076.4",
-    "EG-CQ-CONN-R076.5",
-    "EG-CQ-CONN-R076.6",
-    "EG-CQ-CONN-R076.7",
-    "EG-CQ-CONN-R076.8",
-    "EG-CQ-CONN-R076.9",
-    "EG-CQ-CONN-R077.1",
-    "EG-CQ-CONN-R077.2",
-    "EG-CQ-CONN-R077.3",
-    "EG-CQ-CONN-R078.1",
-    "EG-CQ-CONN-R078.2",
-    "EG-CQ-CONN-R078.3",
-    "EG-CQ-CONN-R078.4",
-    "EG-CQ-CONN-R078.5",
-    "EG-CQ-CONN-R079.1",
-    "EG-CQ-CONN-R079.2",
-    "EG-CQ-CONN-R079.3",
-    "EG-CQ-CONN-R079.4",
-    "EG-CQ-CONN-R079.5",
-    "EG-CQ-CONN-R080.1",
-    "EG-CQ-CONN-R080.2",
-    "EG-CQ-CONN-R080.3",
-    "EG-CQ-CONN-R080.4",
-    "EG-CQ-CONN-R081.1",
-    "EG-CQ-CONN-R081.2",
-    "EG-CQ-CONN-R081.3",
-    "EG-CQ-CONN-R081.4",
-    "EG-CQ-CONN-R081.5",
-    "EG-CQ-CONN-R081.6",
-    "EG-CQ-CONN-R081.7",
-    "EG-CQ-CONN-R081.8",
-    "EG-CQ-CONN-R082.1",
-    "EG-CQ-CONN-R084.5",
-    "EG-CQ-CONN-R084.6",
-    "EG-CQ-CONN-R085.1",
-    "EG-CQ-CONN-R085.2",
-    "EG-CQ-CONN-R085.3",
-    "EG-CQ-CONN-R085.4",
-    "EG-CQ-CONN-R085.5",
-    "EG-CQ-CONN-R085.6"
-  ],
-  "unserved": []
+  ]
 }
