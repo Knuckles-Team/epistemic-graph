@@ -540,7 +540,7 @@ def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
     [
         (
             "gates-wheel",
-            "fb183be132512966d0c14feb1139851019b5f1e96518485c2c0b6dbe0452aba9",
+            "72ab1402e460e5298e3e0451f01fd0352cee1a594e93784006876b5b3321585a",
         ),
         (
             "gates-whisper",

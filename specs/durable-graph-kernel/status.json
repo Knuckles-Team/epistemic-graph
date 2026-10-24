@@ -2128,7 +2128,8 @@
         "8dbb5bd9de53",
         "9746845654d0",
         "9a4c2376e181",
-        "a36f2c2035e4"
+        "a36f2c2035e4",
+        "bd22fd1a4be8"
       ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
@@ -2148,7 +2149,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "9746845654d0",
-        "a36f2c2035e4"
+        "a36f2c2035e4",
+        "bd22fd1a4be8"
       ],
       "verified_by": [
         "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
