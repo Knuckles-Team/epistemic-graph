@@ -557,7 +557,8 @@
         "0ed1c7ff900b",
         "754b6f51aa6d",
         "87dcb507fa48",
-        "a5f042565aa9"
+        "a5f042565aa9",
+        "c081cda9d197"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:768",
@@ -1981,7 +1982,7 @@
         "c143146d7855"
       ],
       "verified_by": [
-        "src/server/persistence/durable_stores.rs:627"
+        "src/server/persistence/durable_stores.rs:667"
       ]
     },
     {
