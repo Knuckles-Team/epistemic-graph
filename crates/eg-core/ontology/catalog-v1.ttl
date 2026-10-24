@@ -26,6 +26,7 @@
         <http://knuckles.team/kg/infrastructure>,
         <http://knuckles.team/kg/life>,
         <http://knuckles.team/kg/medical>,
+        <http://knuckles.team/kg/metadata_catalog>,
         <http://knuckles.team/kg/native_source_connector>,
         <http://knuckles.team/kg/nutrition>,
         <http://knuckles.team/kg/orchestration>,

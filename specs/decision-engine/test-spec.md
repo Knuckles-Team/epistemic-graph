@@ -919,7 +919,7 @@ These checks do not authenticate a caller-supplied receipt or authorize executio
 The `bounded_task_plan` performance receipt for R134.111.6 remains pending.
 
 - `EG-DECISION-ENGINE-R814`: See each child.
-- `EG-DECISION-ENGINE-R814.1`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role`.
+- `EG-DECISION-ENGINE-R814.1`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role`, `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_classes_roll_up_to_eg_core_and_align_to_w3c`.
 - `EG-DECISION-ENGINE-R814.2`: `crates/eg-core/tests/prompt_candidate.rs::assemble_selects_covering_candidate_and_abstains_without_one`.
 - `EG-DECISION-ENGINE-R814.3`: `tests/decision/test_prompt_candidates_served.py::test_assemble_reads_candidates_from_imported_pack`.
 - `EG-DECISION-ENGINE-R814.4`: `crates/eg-core/tests/prompt_candidate.rs::unbound_prompt_refuses_and_rejected_connector_is_excluded`.

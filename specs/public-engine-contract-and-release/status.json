@@ -455,10 +455,10 @@
       "title": "Wheel ships the method, error and scope contract with callability flags",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "075eee118c76",
         "26a77bc6a6c4",
         "37a29ee3fe0e",
-        "5738b6093ea7"
+        "5738b6093ea7",
+        "5b9a62ad05e9"
       ],
       "verified_by": [
         "tests/test_ontology_package.py:14",
@@ -473,7 +473,7 @@
       "title": "Wheel ships the core ontology, shapes and catalog",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "075eee118c76"
+        "5b9a62ad05e9"
       ],
       "verified_by": [
         "tests/test_ontology_package.py:14"
@@ -1095,7 +1095,7 @@
       "title": "The public wheel compiles only the extension modules; each platform publishes independently",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "860c022030d3"
+        "d969ffcfaaad"
       ],
       "verified_by": [
         "tests/test_wheel_extensions_only.py:23",
@@ -1110,7 +1110,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "baf9a680a4c4",
-        "e0a2c0898920"
+        "dede203bdd50"
       ],
       "verified_by": [
         "tests/test_server_package.py:190",

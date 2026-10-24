@@ -730,7 +730,9 @@ ex:parent a owl:AsymmetricProperty .
         // union (EG-TYPED-PACKS-R105.4).
         // +32 (EG-ORCH-VOCAB-R009.12, R009.13): the RunTrace termination and
         // budget properties.
-        assert_eq!(composed.ontology.len(), 14_086);
+        // +205: the metadata-catalog module (204, EG-TYPED-PACKS-R106.1) and its
+        // catalog import (1).
+        assert_eq!(composed.ontology.len(), 14_291);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -763,11 +765,13 @@ ex:parent a owl:AsymmetricProperty .
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:Ontology` header subject (its shapes pack's prefix-declaration
         // subject is not itself one).
-        assert_eq!(ontology_subjects.len(), 37);
+        // +1 (EG-TYPED-PACKS-R106.1): the metadata-catalog module header.
+        assert_eq!(ontology_subjects.len(), 38);
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:imports <.../core>`; +6: the service-operations module's five
-        // imports and its catalog entry.
-        assert_eq!(imports, 78);
+        // imports and its catalog entry; +5: the metadata-catalog module's four
+        // imports and its catalog entry (EG-TYPED-PACKS-R106.1).
+        assert_eq!(imports, 83);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -783,7 +787,8 @@ ex:parent a owl:AsymmetricProperty .
         // +129: the 19 connector parent classes (EG-TYPED-PACKS-R105.3).
         // +152: the service-operations module (EG-TYPED-PACKS-R105.4).
         // +32: the RunTrace termination and budget properties (EG-ORCH-VOCAB-R009.12).
-        assert_eq!(semantic_axioms, 13_890);
+        // +196: the metadata-catalog module (EG-TYPED-PACKS-R106.1).
+        assert_eq!(semantic_axioms, 14_086);
 
         let count_type = |object: &str| {
             composed
@@ -812,7 +817,8 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
-            35
+            // +1: cat:lineageTo, the inverse of :derivedFrom (EG-TYPED-PACKS-R106.1).
+            36
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#propertyChainAxiom"),
@@ -839,7 +845,9 @@ ex:parent a owl:AsymmetricProperty .
             // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
             // +18: the connector parent classes (EG-TYPED-PACKS-R105.3).
             // +18: the service-operations classes and alignments (EG-TYPED-PACKS-R105.4).
-            500
+            // +31: the metadata-catalog classes and their EG core and W3C parents
+            // (EG-TYPED-PACKS-R106.1).
+            531
         );
     }
 

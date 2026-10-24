@@ -3430,7 +3430,12 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:148",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:199",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:220",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:39"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R106.2",
