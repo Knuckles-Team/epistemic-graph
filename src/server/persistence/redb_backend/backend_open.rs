@@ -66,6 +66,24 @@ fn prepare_shards(specs: Vec<ShardSpec>, k: usize) -> Vec<Result<(PreparedShard,
     })
 }
 
+type Sidecars = (
+    AdminMutationStore,
+    Arc<super::super::node_info_store::NodeInfoStore>,
+    Arc<super::super::cluster_hierarchy_store::ClusterHierarchyStore>,
+);
+
+fn open_sidecars(persist_dir: &str, admin_path: &std::path::Path) -> Result<Sidecars, String> {
+    let started = std::time::Instant::now();
+    let admin = open_admin_mutations(admin_path)?;
+    let node_info = Arc::new(super::super::node_info_store::NodeInfoStore::open(
+        persist_dir,
+    )?);
+    let hierarchy =
+        Arc::new(super::super::cluster_hierarchy_store::ClusterHierarchyStore::open(persist_dir)?);
+    tracing::info!("redb: sidecar stores open in {:?}", started.elapsed());
+    Ok((admin, node_info, hierarchy))
+}
+
 fn spawn_shards(
     prepared: Vec<(PreparedShard, String)>,
     capacity: usize,
@@ -195,16 +213,51 @@ impl RedbBackend {
             );
         }
         let shard_open_start = std::time::Instant::now();
-        let opened = prepare_shards(shard_specs(&persist_dir, k), k);
+        // The three sidecar stores open on their own thread WHILE the shards
+        // open (EG-DURABLE-KERNEL-R006.1): their fsyncs overlap the shards'
+        // instead of trailing them serially.
+        let admin_path = std::path::Path::new(&persist_dir).join("admin-mutations.redb");
+        let sidecar_files: Vec<std::path::PathBuf> = [
+            admin_path.clone(),
+            std::path::Path::new(&persist_dir).join("node_info.redb"),
+            std::path::Path::new(&persist_dir).join("cluster_hierarchy.redb"),
+        ]
+        .into_iter()
+        .filter(|path| !path.exists())
+        .collect();
+        let (opened, sidecars) = std::thread::scope(|scope| {
+            let sidecar_handle = scope.spawn(|| open_sidecars(&persist_dir, &admin_path));
+            let opened = prepare_shards(shard_specs(&persist_dir, k), k);
+            let sidecars = sidecar_handle
+                .join()
+                .unwrap_or_else(|_| Err("redb sidecar-open thread panicked".to_string()));
+            (opened, sidecars)
+        });
         // PHASE 1 of the open is now complete and NOTHING has been written. A
         // refusal from ANY shard aborts here, leaving the persist dir
         // byte-identical -- which is what makes the refusals above (and their
         // advice to unset the key and carry on) actually true for a K > 1 store.
         // See `CanaryPlan`'s doc.
         let mut prepared = Vec::with_capacity(k);
+        let mut refusal = None;
         for shard in opened {
-            prepared.push(shard?);
+            match shard {
+                Ok(ready) => prepared.push(ready),
+                Err(error) => {
+                    refusal.get_or_insert(error);
+                }
+            }
         }
+        if let Some(error) = refusal {
+            // A refused open leaves the persist dir as it found it: drop any
+            // sidecar file this attempt created while the shards were opening.
+            drop(sidecars);
+            for path in &sidecar_files {
+                let _ = std::fs::remove_file(path);
+            }
+            return Err(error);
+        }
+        let (admin_mutations, node_info, cluster_hierarchy) = sidecars?;
         // PHASE 2: every shard agreed, so commit each decided plan and start each
         // writer thread.
         let shards = spawn_shards(prepared, capacity, flush_threshold, &group_commit)?;
@@ -214,14 +267,6 @@ impl RedbBackend {
                 shard_open_start.elapsed()
             );
         }
-        let admin_path = std::path::Path::new(&persist_dir).join("admin-mutations.redb");
-        let admin_mutations = open_admin_mutations(&admin_path)?;
-        let node_info = Arc::new(super::super::node_info_store::NodeInfoStore::open(
-            &persist_dir,
-        )?);
-        let cluster_hierarchy = Arc::new(
-            super::super::cluster_hierarchy_store::ClusterHierarchyStore::open(&persist_dir)?,
-        );
         Ok(Self {
             shards,
             catalog: None,
