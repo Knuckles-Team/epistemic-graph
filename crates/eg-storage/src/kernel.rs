@@ -750,7 +750,8 @@ pub(crate) fn open_physical_with(
     // is repaired, i.e. rewritten, by the open itself).
     let (pre_incarnation, _) = StoreIncarnation::derive(path)?;
     let physical_name = physical_identity.name().as_str().to_string();
-    let marker_valid = crate::physical::clean_marker::is_valid(path, &pre_incarnation, &physical_name);
+    let marker_valid =
+        crate::physical::clean_marker::is_valid(path, &pre_incarnation, &physical_name);
     let database = options.open_database(path)?;
     let file_open = started.elapsed();
     let (incarnation, physical_path) = StoreIncarnation::derive(path)?;

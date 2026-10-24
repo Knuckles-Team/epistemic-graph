@@ -771,7 +771,10 @@ fn a_gracefully_closed_store_reopens_without_the_recovery_scan() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("clean.redb");
     create_and_close(&path);
-    assert!(marker_for(&path).exists(), "graceful close writes the marker");
+    assert!(
+        marker_for(&path).exists(),
+        "graceful close writes the marker"
+    );
     let store = reopen_store(&path).unwrap();
     assert!(store.open_report().recovery_scan_skipped);
 }
@@ -794,13 +797,24 @@ fn the_first_write_after_open_removes_the_marker_before_committing() {
     let path = dir.path().join("cleared.redb");
     create_and_close(&path);
     let store = reopen_store(&path).unwrap();
-    assert!(marker_for(&path).exists(), "an unwritten open keeps the marker");
+    assert!(
+        marker_for(&path).exists(),
+        "an unwritten open keeps the marker"
+    );
     let write = store.begin_write().unwrap();
-    assert!(!marker_for(&path).exists(), "removed before the write begins");
+    assert!(
+        !marker_for(&path).exists(),
+        "removed before the write begins"
+    );
     write.commit().unwrap();
     drop(store);
     assert!(marker_for(&path).exists(), "close after writes re-marks it");
-    assert!(reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+    assert!(
+        reopen_store(&path)
+            .unwrap()
+            .open_report()
+            .recovery_scan_skipped
+    );
 }
 
 // spec: EG-DURABLE-KERNEL-R006.3
@@ -824,7 +838,12 @@ fn a_torn_or_stale_marker_is_rejected() {
     create_and_close(&path);
     let text = std::fs::read_to_string(marker_for(&path)).unwrap();
     std::fs::write(marker_for(&path), &text[..text.len() / 2]).unwrap();
-    assert!(!reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+    assert!(
+        !reopen_store(&path)
+            .unwrap()
+            .open_report()
+            .recovery_scan_skipped
+    );
 }
 
 // spec: EG-DURABLE-KERNEL-R006.3
@@ -837,7 +856,12 @@ fn a_commit_made_outside_the_store_invalidates_the_marker() {
     let write = database.begin_write().unwrap();
     write.commit().unwrap();
     drop(database);
-    assert!(!reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+    assert!(
+        !reopen_store(&path)
+            .unwrap()
+            .open_report()
+            .recovery_scan_skipped
+    );
 }
 
 const CRASH_ENV: &str = "EG_CLEAN_MARKER_CRASH_CHILD";
@@ -873,8 +897,16 @@ fn a_process_killed_after_a_write_leaves_no_valid_marker() {
     let path = dir.path().join("killed.redb");
     create_and_close(&path);
     run_crash_child("write", &path);
-    assert!(!marker_for(&path).exists(), "no marker survives a write then a kill");
-    assert!(!reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+    assert!(
+        !marker_for(&path).exists(),
+        "no marker survives a write then a kill"
+    );
+    assert!(
+        !reopen_store(&path)
+            .unwrap()
+            .open_report()
+            .recovery_scan_skipped
+    );
 }
 
 // spec: EG-DURABLE-KERNEL-R006.3
@@ -884,7 +916,12 @@ fn a_process_killed_without_writing_keeps_the_still_true_marker() {
     let path = dir.path().join("killed-ro.redb");
     create_and_close(&path);
     run_crash_child("read", &path);
-    assert!(reopen_store(&path).unwrap().open_report().recovery_scan_skipped);
+    assert!(
+        reopen_store(&path)
+            .unwrap()
+            .open_report()
+            .recovery_scan_skipped
+    );
 }
 
 // spec: EG-DURABLE-KERNEL-R006.1
@@ -903,7 +940,10 @@ fn reopening_a_bound_store_writes_nothing() {
         &[(identity.clone(), 0)],
     )
     .unwrap();
-    assert!(kernel.scope_binding_exists(&identity).unwrap(), "bound in the create commit");
+    assert!(
+        kernel.scope_binding_exists(&identity).unwrap(),
+        "bound in the create commit"
+    );
     drop(kernel);
     let kernel = StorageKernel::open_owner::<LedgerOnlyOwner>(&path, physical, None).unwrap();
     let header = |p: &Path| std::fs::read(p).unwrap();
@@ -917,5 +957,9 @@ fn reopening_a_bound_store_writes_nothing() {
         .authenticate_scope::<LedgerOnlyOwner>(&verifier, identity, "p".to_string(), b"verified")
         .unwrap();
     kernel.bind_serving_scope(grant, 0).unwrap();
-    assert_eq!(before, header(&path), "re-binding a bound scope must not touch the file");
+    assert_eq!(
+        before,
+        header(&path),
+        "re-binding a bound scope must not touch the file"
+    );
 }

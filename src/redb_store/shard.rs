@@ -1211,12 +1211,7 @@ pub(crate) fn open_kernel_owned_store<D: OwnerDomain>(
     let kernel = if existed {
         StorageKernel::open_owner::<D>(path, physical, None)
     } else {
-        StorageKernel::create_owner_bound::<D>(
-            path,
-            physical,
-            None,
-            &[(scope_identity.clone(), 0)],
-        )
+        StorageKernel::create_owner_bound::<D>(path, physical, None, &[(scope_identity.clone(), 0)])
     }?;
     let kernel_elapsed = started.elapsed();
     let report = kernel.open_report();

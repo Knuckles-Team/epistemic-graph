@@ -1,10 +1,10 @@
 use crate::codec::encode_bounded;
 use crate::kernel::StoreOpenOptions;
 use crate::owner::{validate_declared_tables_write, validate_manifest_write};
+use crate::physical::clean_marker::CleanMarker;
 use crate::physical::incarnation::{
     persisted_root, require_persisted_root, StoreIncarnation, STORE_ROOT_KEY,
 };
-use crate::physical::clean_marker::CleanMarker;
 use crate::physical::integrity::{authenticate_with, PrivatePayloadIntegrity};
 use crate::physical::manifest::OwnerManifest;
 use crate::physical::write_authority::WriteValidationCounters;
