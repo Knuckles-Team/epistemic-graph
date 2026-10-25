@@ -265,6 +265,8 @@
     "EG-FEDERATED-QUERY-R058.4.4",
     "EG-FEDERATED-QUERY-R058.4.5",
     "EG-FEDERATED-QUERY-R058.4.6",
+    "EG-FEDERATED-QUERY-R058.4.7",
+    "EG-FEDERATED-QUERY-R058.4.8",
     "EG-FEDERATED-QUERY-R058.5",
     "EG-FEDERATED-QUERY-R088",
     "EG-FEDERATED-QUERY-R088.1",
@@ -1305,7 +1307,7 @@
         "8710a3709c47"
       ],
       "verified_by": [
-        "crates/eg-plan/src/nl.rs:846"
+        "crates/eg-plan/src/nl.rs:863"
       ]
     },
     {
@@ -1361,9 +1363,9 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:205",
-        "src/server/handlers/query/nl.rs:211",
-        "src/server/handlers/query/nl.rs:234"
+        "src/server/handlers/query/nl.rs:235",
+        "src/server/handlers/query/nl.rs:241",
+        "src/server/handlers/query/nl.rs:264"
       ]
     },
     {
@@ -2934,7 +2936,9 @@
         "EG-FEDERATED-QUERY-R058.4.3",
         "EG-FEDERATED-QUERY-R058.4.4",
         "EG-FEDERATED-QUERY-R058.4.5",
-        "EG-FEDERATED-QUERY-R058.4.6"
+        "EG-FEDERATED-QUERY-R058.4.6",
+        "EG-FEDERATED-QUERY-R058.4.7",
+        "EG-FEDERATED-QUERY-R058.4.8"
       ]
     },
     {
@@ -2980,6 +2984,29 @@
       "verified_by": []
     },
     {
+      "id": "EG-FEDERATED-QUERY-R058.4.7",
+      "title": "The engine grounds planner output on the graph schema before it runs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-plan/src/nl/context_tests.rs:433",
+        "crates/eg-plan/src/nl/context_tests.rs:478",
+        "crates/eg-plan/src/nl/context_tests.rs:503",
+        "crates/eg-plan/src/nl/context_tests.rs:541",
+        "crates/eg-plan/src/nl/context_tests.rs:614"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.8",
+      "title": "The hint offers mapped connector properties under their ontology names",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-plan/src/nl/context_tests.rs:445",
+        "crates/eg-plan/src/nl/context_tests.rs:588"
+      ]
+    },
+    {
       "id": "EG-FEDERATED-QUERY-R058.5",
       "title": "Configurable NL planner request",
       "delivery_state": "VERIFIED",
@@ -2992,7 +3019,7 @@
         "crates/eg-plan/src/nl_regressions.rs:278",
         "crates/eg-plan/src/nl_regressions.rs:290",
         "crates/eg-plan/src/nl_regressions.rs:319",
-        "src/server/handlers/query/nl.rs:253",
+        "src/server/handlers/query/nl.rs:283",
         "src/server/nl.rs:450"
       ]
     },
