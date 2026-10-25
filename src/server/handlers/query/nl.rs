@@ -49,7 +49,7 @@ pub(crate) fn nl_config_refusal(e: &eg_plan::NlConfigError) -> String {
 /// The NL → executable-UQL-plan resolution of [`handle_nl_query`]: resolve the
 /// configured/injected `NlPlanner`, ground it on the caller's snapshot (labels,
 /// stored property keys, relationships and the composed GraphSchema's ontology
-/// names, EG-FEDERATED-QUERY-R058.4.7/.4.8), and run the bounded correction loop:
+/// names, EG-FEDERATED-QUERY-R058.4.7.1/.4.8), and run the bounded correction loop:
 /// every candidate is budget-checked, parsed with the caller grammar and
 /// validated against that schema before anything executes. NO LLM in the engine
 /// core and NO new execution path — the grounded plan rides the deterministic
@@ -59,6 +59,7 @@ pub(crate) fn handle_nl_query_plan(
     text: &str,
     view: &crate::graph::GraphView,
     req_id: u64,
+    foreign_sources: Option<&std::collections::BTreeSet<String>>,
 ) -> Result<(String, eg_plan::Plan), Response> {
     let planner = crate::server::nl::resolve_planner()
         .map_err(|e| Response::err(req_id, nl_config_refusal(&e)))?
@@ -72,7 +73,7 @@ pub(crate) fn handle_nl_query_plan(
                     .to_string(),
             )
         })?;
-    let context = nl_schema_context(view);
+    let context = nl_schema_context(view, foreign_sources);
     // EG-FEDERATED-QUERY-R058.2.1: the SAME typed budget refuses an over-budget
     // answer before it reaches the parser, inside every correction step.
     let candidate = eg_plan::nl::context::plan_grounded(
@@ -91,13 +92,34 @@ pub(crate) fn handle_nl_query_plan(
 #[cfg(feature = "nl-query")]
 pub(crate) fn nl_schema_context(
     view: &crate::graph::GraphView,
+    foreign_sources: Option<&std::collections::BTreeSet<String>>,
 ) -> eg_plan::nl::context::SchemaContext {
     let mut context = eg_plan::nl::context::SchemaContext::from_view(view);
     #[cfg(all(feature = "rdf", feature = "shacl"))]
     context.link_ontology(&crate::server::handlers::rdf::composed_ontology_properties(
         &view.schema_sources,
     ));
+    if let Some(sources) = foreign_sources {
+        context.declare_foreign_sources(sources.clone());
+    }
     context
+}
+
+/// Names visible to NL grounding come from the same verified owner-scoped
+/// catalog used later by execution. A missing carrier leaves the context
+/// unbound, so a foreign stage receives the typed grounding refusal before
+/// any served leg or remote source can execute.
+#[cfg(all(feature = "nl-query", feature = "federation"))]
+async fn nl_foreign_sources(
+    state: &Arc<RwLock<ServerState>>,
+    read_authority: Option<&GraphReadAuthority>,
+) -> Option<std::collections::BTreeSet<String>> {
+    let carrier = read_authority.and_then(GraphReadAuthority::carrier)?;
+    let state = state.read().await;
+    let registry = state
+        .foreign_sources
+        .registry_for(carrier, &state.isolation);
+    Some(registry.registry().names().into_iter().collect())
 }
 
 /// The served refusal for a planner answer that was never executed.
@@ -191,7 +213,11 @@ async fn run_nl_query(
     let mut snap = core.analysis_snapshot();
     #[cfg(feature = "security")]
     ctx.rls.filter_view(ctx.caller, &mut snap);
-    let (uql, plan) = handle_nl_query_plan(&text, &snap, req_id)?;
+    #[cfg(feature = "federation")]
+    let foreign_sources = nl_foreign_sources(ctx.state, ctx.read_authority).await;
+    #[cfg(not(feature = "federation"))]
+    let foreign_sources = None;
+    let (uql, plan) = handle_nl_query_plan(&text, &snap, req_id, foreign_sources.as_ref())?;
     // Verified-carrier legs: the committed tsdb scope for `Op::TsScan` fusion
     // (CONCEPT:EG-KG.query.native-time-series) and the CALLER'S owner-scoped foreign
     // registry (EH-373), so an NL-planned `FOREIGN "<name>"` / `Named` `ForeignScan`

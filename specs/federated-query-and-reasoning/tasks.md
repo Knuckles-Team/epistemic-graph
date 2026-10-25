@@ -307,8 +307,11 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] **EG-FEDERATED-QUERY-R058.4.4 (Refusal):** Declare and return the two refusals.
 - [ ] **EG-FEDERATED-QUERY-R058.4.5 (Evidence):** Emit the step trace in the result.
 - [ ] **EG-FEDERATED-QUERY-R058.4.6 (Hot-path proof):** Add the served correction test and the overhead measurement.
-- [x] **EG-FEDERATED-QUERY-R058.4.7 (Grounding):** Validate every planner candidate against the snapshot schema; repair spelling variants; refuse unknown names with typed reasons.
+- [ ] **EG-FEDERATED-QUERY-R058.4.7 (Grounding rollup):** Complete snapshot and source-native identifier grounding.
+- [x] **EG-FEDERATED-QUERY-R058.4.7.1 (Snapshot grounding):** Ground graph labels, stored fields, relationships and owner-authorized foreign source names.
+- [ ] **EG-FEDERATED-QUERY-R058.4.7.2 (Source-native grounding):** Reuse source schemas for decision records, series/channels, CEP attributes, UDF names and embedded RDF/SPARQL identifiers.
 - [x] **EG-FEDERATED-QUERY-R058.4.8 (Ontology names):** Link the composed GraphSchema ontology properties onto stored keys and offer them in the hint.
+- [ ] **EG-FEDERATED-QUERY-R058.4.9 (Inline adapters):** Bind inline foreign adapters to owner authority and a declared source schema before NL grounding accepts them.
 - [ ] **EG-FEDERATED-QUERY-R088 (rollup):** UQL text rows carry governance and an epistemic summary.
 - [ ] **EG-FEDERATED-QUERY-R088.1 (Model):** Add the flag and the row summary.
 - [ ] **EG-FEDERATED-QUERY-R088.2 (Behavior):** Apply visibility and resolve summaries in batch.

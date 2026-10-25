@@ -1,5 +1,5 @@
 //! Schema-grounded NL planning over ingested ServiceNow data
-//! (EG-FEDERATED-QUERY-R058.4.7, R058.4.8).
+//! (EG-FEDERATED-QUERY-R058.4.7.1, R058.4.8).
 //!
 //! The fixture is shaped the way the connector source runner stores ServiceNow
 //! records: `node_type` is the declared record type and the properties keep the
@@ -430,7 +430,7 @@ fn run_case(case: &Case, view: &GraphView, context: &SchemaContext) {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn evidence_questions_are_grounded_or_refused_over_servicenow_data() {
     let view = servicenow_view();
@@ -475,7 +475,7 @@ fn mapped_servicenow_properties_are_offered_under_their_ontology_names() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn a_refused_step_goes_back_to_the_planner_with_its_typed_reason() {
     let view = servicenow_view();
@@ -500,7 +500,7 @@ fn a_refused_step_goes_back_to_the_planner_with_its_typed_reason() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn unknown_names_are_typed_violations_and_never_execute() {
     let view = servicenow_view();
@@ -538,16 +538,20 @@ fn unknown_names_are_typed_violations_and_never_execute() {
     ));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[test]
-fn rows_from_outside_the_local_graph_are_not_checked_against_it() {
+fn foreign_row_properties_are_checked_against_the_local_snapshot() {
     let view = servicenow_view();
     let mut context = SchemaContext::from_view(&view);
-    // An undeclared source set leaves FOREIGN to the served source registry.
-    let grounded = context
-        .ground(&crate::uql::parse("FOREIGN 'remote' |> WHERE anything = 1").unwrap())
-        .expect("external rows are not local-schema checked");
-    assert!(grounded.repairs.is_empty());
+    context.declare_foreign_sources(BTreeSet::from(["remote".to_string()]));
+    // RowSet carries ids and scores only: WHERE rematerializes local properties.
+    assert!(matches!(
+        context.ground(&crate::uql::parse("FOREIGN 'remote' |> WHERE anything = 1").unwrap()),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
+    assert!(context
+        .ground(&crate::uql::parse("FOREIGN 'remote' |> WHERE priority = '1'").unwrap())
+        .is_ok());
     // A later foreign source cannot exempt an earlier local label scan.
     assert!(matches!(
         context.ground(
@@ -611,7 +615,7 @@ fn ontology_links_respect_domains_and_ambiguity() {
     assert!(context.label("ChangeRequest").unwrap().ontology.is_empty());
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn an_empty_graph_refuses_every_labelled_match() {
     let context = SchemaContext::from_view(&GraphCore::new().analysis_snapshot());
@@ -625,7 +629,7 @@ fn an_empty_graph_refuses_every_labelled_match() {
     assert!(matches!(err, NlQueryError::Ungrounded { ref steps } if steps.len() == 2));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn an_over_budget_answer_is_refused_at_once() {
     let view = servicenow_view();
@@ -637,11 +641,12 @@ fn an_over_budget_answer_is_refused_at_once() {
     assert_eq!(planner.hints().len(), 1);
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[cfg(feature = "text")]
 #[test]
 fn fused_branches_ground_local_names_and_repair_properties() {
-    let context = SchemaContext::from_view(&servicenow_view());
+    let mut context = SchemaContext::from_view(&servicenow_view());
+    context.declare_foreign_sources(BTreeSet::from(["remote".to_string()]));
     let plan = |label: &str, prop: &str| {
         Plan::new(vec![
             Op::Scan {
@@ -704,10 +709,13 @@ fn fused_branches_ground_local_names_and_repair_properties() {
             }],
         },
     ]);
-    assert!(context.ground(&external).is_ok());
+    assert!(matches!(
+        context.ground(&external),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn stored_label_fields_and_unlabelled_node_fields_remain_queryable() {
     let core = GraphCore::new();
@@ -734,7 +742,7 @@ fn stored_label_fields_and_unlabelled_node_fields_remain_queryable() {
     assert!(context.hint("description").contains("description"));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn edge_predicates_are_grounded_against_edges_instead_of_nodes() {
     use eg_types::wire::{EdgeDir, PropagateModel};
@@ -800,7 +808,7 @@ fn edge_predicates_are_grounded_against_edges_instead_of_nodes() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn jsonpath_root_keys_are_checked_without_guessing_nested_document_shapes() {
     let context = SchemaContext::from_view(&servicenow_view());
@@ -841,4 +849,346 @@ fn jsonpath_root_keys_are_checked_without_guessing_nested_document_shapes() {
         ]);
         assert!(context.ground(&plan).is_ok());
     }
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[test]
+fn snapshot_schema_is_complete_past_the_former_scan_cap() {
+    const FORMER_SCAN_CAP: usize = 4096;
+    let core = GraphCore::new();
+    for n in 0..FORMER_SCAN_CAP + 17 {
+        core.add_node(
+            format!("node{n}"),
+            blob(json!({"node_type": format!("Label{n}"), "amount": n})),
+        );
+    }
+    let view = core.analysis_snapshot();
+    let late = eg_types::msgpack::decode_property_value(
+        view.node_properties.values().nth(FORMER_SCAN_CAP).unwrap(),
+    )
+    .unwrap();
+    let label = late["node_type"].as_str().unwrap();
+    let context = SchemaContext::from_view(&view);
+    assert_eq!(context.labels.len(), FORMER_SCAN_CAP + 17);
+    assert!(context
+        .ground(&Plan::new(vec![
+            Op::Scan {
+                label: label.into()
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "amount".into(),
+                    n: -1.0
+                }]
+            }
+        ]))
+        .is_ok());
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[test]
+fn attribution_properties_and_owen_groups_are_grounded_and_repaired() {
+    use eg_types::wire::{AttributionInput, AttributionMethod, AttributionValue};
+    let context = SchemaContext::from_view(&servicenow_view());
+    let plan = |name: &str, by: &str| {
+        Plan::new(vec![
+            Op::Scan {
+                label: "Incident".into(),
+            },
+            Op::Attribute {
+                input: AttributionInput::Property { name: name.into() },
+                value: AttributionValue::Sum,
+                method: AttributionMethod::Owen { by: by.into() },
+            },
+        ])
+    };
+    for plan in [
+        plan("invented", "assignment_group"),
+        plan("priority", "invented"),
+    ] {
+        assert!(matches!(
+            context.ground(&plan),
+            Err(SchemaViolation::UnknownProperty { .. })
+        ));
+    }
+    let plan = context
+        .ground(&plan("Priority", "Assignment_Group"))
+        .unwrap();
+    assert_eq!(plan.repairs.len(), 2);
+    let text = plan.plan.to_uql().unwrap();
+    assert!(text.contains("OF priority"), "{text}");
+    assert!(text.contains("BY assignment_group"), "{text}");
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[cfg(feature = "federation")]
+#[test]
+fn named_foreign_scans_require_authority_and_joins_preserve_local_scope() {
+    use eg_types::wire::ForeignSourceSpec;
+    let mut context = SchemaContext::from_view(&servicenow_view());
+    let scan = |name: &str, join| Op::ForeignScan {
+        source: Box::new(ForeignSourceSpec::Named { name: name.into() }),
+        join,
+    };
+    let local = |op| {
+        Plan::new(vec![
+            Op::Scan {
+                label: "Incident".into(),
+            },
+            op,
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "invented".into(),
+                    value: "x".into(),
+                }],
+            },
+        ])
+    };
+    assert!(matches!(
+        context.ground(&local(scan("remote", true))),
+        Err(SchemaViolation::UnboundForeignSource)
+    ));
+    context.declare_foreign_sources(BTreeSet::from(["remote".to_string()]));
+    assert!(matches!(
+        context.ground(&local(scan("other-owner", false))),
+        Err(SchemaViolation::UnknownSource { .. })
+    ));
+    assert!(matches!(
+        context.ground(&local(scan("remote", true))),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
+    assert!(matches!(
+        context.ground(&local(scan("remote", false))),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[cfg(feature = "text")]
+#[test]
+fn mixed_fusion_cannot_erase_local_property_checks() {
+    let mut context = SchemaContext::from_view(&servicenow_view());
+    context.declare_foreign_sources(BTreeSet::from(["remote".to_string()]));
+    let make = |property: &str| {
+        Plan::new(vec![
+            Op::FuseRrf {
+                branches: vec![
+                    vec![Op::Scan {
+                        label: "Incident".into(),
+                    }],
+                    vec![Op::Foreign {
+                        name: "remote".into(),
+                    }],
+                ],
+                k: 60.0,
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: property.into(),
+                    value: "1".into(),
+                }],
+            },
+        ])
+    };
+    assert!(matches!(
+        context.ground(&make("invented")),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
+    assert!(context.ground(&make("priority")).is_ok());
+    // Nested mixed branches retain the same local constituent.
+    let mut nested = make("invented");
+    let stage = nested.ops.remove(0);
+    nested.ops.insert(
+        0,
+        Op::FuseRrf {
+            branches: vec![
+                vec![stage],
+                vec![Op::Foreign {
+                    name: "remote".into(),
+                }],
+            ],
+            k: 60.0,
+        },
+    );
+    assert!(matches!(
+        context.ground(&nested),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[cfg(feature = "federation")]
+#[test]
+fn inline_foreign_adapter_cannot_bypass_the_declared_source_catalog() {
+    use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
+    let mut context = SchemaContext::from_view(&servicenow_view());
+    context.declare_foreign_sources(BTreeSet::from(["remote".to_string()]));
+    let plan = Plan::new(vec![Op::ForeignScan {
+        source: Box::new(ForeignSourceSpec::HttpJson {
+            url: "https://example.invalid/data".into(),
+            json_path: String::new(),
+            field_map: HttpFieldMap {
+                id: "id".into(),
+                score: None,
+                columns: Default::default(),
+            },
+        }),
+        join: false,
+    }]);
+    assert!(matches!(
+        context.ground(&plan),
+        Err(SchemaViolation::UnboundForeignSource)
+    ));
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[cfg(any(feature = "owl", feature = "geo", feature = "tensor"))]
+#[test]
+fn modal_source_stages_replace_incoming_node_scope_and_validate_layers() {
+    let context = SchemaContext::from_view(&servicenow_view());
+    let mut sources = Vec::new();
+    #[cfg(feature = "owl")]
+    {
+        sources.push(Op::SparqlBgp {
+            query: "SELECT ?s WHERE { ?s ?p ?o }".into(),
+            var: "s".into(),
+        });
+        sources.push(Op::Reason {
+            target_class: "InferredClass".into(),
+            ontology: String::new(),
+        });
+    }
+    #[cfg(feature = "geo")]
+    sources.push(Op::SpatialScan {
+        layer: "ConfigurationItem".into(),
+        bbox: [-180.0, -90.0, 180.0, 90.0],
+    });
+    #[cfg(feature = "tensor")]
+    sources.push(Op::TensorScan {
+        layer: "ConfigurationItem".into(),
+    });
+    for source in sources {
+        for (property, accepted) in [("owned_by", true), ("invented", false)] {
+            let plan = Plan::new(vec![
+                Op::Scan {
+                    label: "Incident".into(),
+                },
+                source.clone(),
+                Op::Filter {
+                    preds: vec![Pred::Eq {
+                        prop: property.into(),
+                        value: "alice".into(),
+                    }],
+                },
+            ]);
+            assert_eq!(
+                context.ground(&plan).is_ok(),
+                accepted,
+                "{source:?} / {property}"
+            );
+        }
+    }
+    let mut missing_layers = Vec::new();
+    #[cfg(feature = "geo")]
+    missing_layers.push(Op::SpatialScan {
+        layer: "InventedLayer".into(),
+        bbox: [0.0; 4],
+    });
+    #[cfg(feature = "tensor")]
+    missing_layers.push(Op::TensorScan {
+        layer: "InventedLayer".into(),
+    });
+    for source in missing_layers {
+        assert!(matches!(
+            context.ground(&Plan::new(vec![source])),
+            Err(SchemaViolation::UnknownLabel { .. })
+        ));
+    }
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[cfg(feature = "federation")]
+#[test]
+fn foreign_id_filters_rematerialize_local_properties_before_execution() {
+    let view = servicenow_view();
+    let mut context = SchemaContext::from_view(&view);
+    context.declare_foreign_sources(BTreeSet::from(["remote".into()]));
+    let mut registry = crate::federation::ForeignSourceRegistry::new();
+    registry.register_table(
+        "remote",
+        vec![("inc_a".into(), None), ("foreign-only".into(), None)],
+    );
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic).with_foreign(&registry);
+    let plan = context
+        .ground(&crate::uql::parse("FOREIGN 'remote' |> WHERE priority = '1'").unwrap())
+        .unwrap();
+    assert_eq!(
+        execute(&plan.plan, &ctx).unwrap().ids(),
+        vec!["inc_a".to_string()]
+    );
+    assert!(matches!(
+        context.ground(&crate::uql::parse("FOREIGN 'remote' |> WHERE remote_only = 1").unwrap()),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[cfg(feature = "numeric")]
+#[test]
+fn grounded_attribution_runs_numeric_input_and_owen_group_properties() {
+    let core = GraphCore::new();
+    core.add_node(
+        "a".into(),
+        blob(json!({"type": "Player", "amount": 2.0, "team": "red"})),
+    );
+    core.add_node(
+        "b".into(),
+        blob(json!({"type": "Player", "amount": 3.0, "team": "blue"})),
+    );
+    let view = core.analysis_snapshot();
+    let context = SchemaContext::from_view(&view);
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic);
+    for method in ["SHAPLEY", "OWEN BY Team"] {
+        let text = format!("MATCH (:Player) |> ATTRIBUTE SUM OF Amount {method}");
+        let grounded = context.ground(&crate::uql::parse(&text).unwrap()).unwrap();
+        let rows = execute(&grounded.plan, &ctx).unwrap();
+        assert_eq!(rows.id_set(), std::collections::HashSet::from(["a", "b"]));
+        assert!(
+            (rows
+                .rows()
+                .iter()
+                .map(|r| r.score.unwrap() as f64)
+                .sum::<f64>()
+                - 5.0)
+                .abs()
+                < 1e-5
+        );
+    }
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[test]
+fn a_native_record_source_cannot_retain_the_previous_graph_label_scope() {
+    let context = SchemaContext::from_view(&servicenow_view());
+    let plan = |property: &str| {
+        Plan::new(vec![
+            Op::Scan {
+                label: "Incident".into(),
+            },
+            Op::DecisionScan { preds: vec![] },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: property.into(),
+                    value: "alice".into(),
+                }],
+            },
+        ])
+    };
+    assert!(context.ground(&plan("owned_by")).is_ok());
+    assert!(matches!(
+        context.ground(&plan("invented")),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
 }

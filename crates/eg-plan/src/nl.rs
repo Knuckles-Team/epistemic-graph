@@ -123,7 +123,7 @@ pub enum NlQueryError {
         message: String,
     },
     /// Every planner step named something the parser or the graph schema refused
-    /// (EG-FEDERATED-QUERY-R058.4.7). `steps` holds each step's text and typed
+    /// (EG-FEDERATED-QUERY-R058.4.7.1). `steps` holds each step's text and typed
     /// outcome; nothing was executed.
     Ungrounded {
         /// Every refused step, in order.
