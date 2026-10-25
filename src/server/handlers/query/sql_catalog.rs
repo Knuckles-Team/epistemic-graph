@@ -418,6 +418,48 @@ pub(crate) fn alter_table_txn_op(
     }
 }
 
+/// Produce the off-lock `GraphView` the query planner consumes, with per-agent
+/// Row-Level Security applied IN the read/plan path (CONCEPT:EG-KG.sharding.row-level-security). Under the
+/// `security` feature the owned snapshot is filtered down to the rows `caller` may
+/// see BEFORE it reaches any query surface (SQL/Cypher/unified), so no surface can
+/// exfiltrate a forbidden row. Without the feature this is exactly
+/// `core.analysis_snapshot()` (zero overhead, behavior unchanged). Used on the
+/// `not(result-cache)` path; with the result cache the same `filter_view` is applied
+/// inline on the versioned snapshot so the version pairs atomically with the filter.
+/// CONCEPT:EG-KG.query.fence-stripper — build the `schema_hint` fed to the NL planner: the distinct node
+/// LABELS present in the target graph (capped so a huge graph stays cheap), so the model
+/// targets real labels. Scans up to a bound of the snapshot's node blobs for their
+/// `type`/`node_type`/`label` field (mirroring `get_nodes_by_label`). Best-effort — an
+/// empty hint (no labels found) is fine; the planner's system prompt carries the grammar.
+#[cfg(feature = "nl-query")]
+pub(crate) fn nl_schema_hint(core: &Arc<GraphCore>) -> String {
+    use std::collections::BTreeSet;
+    const SCAN_CAP: usize = 512;
+    let snap = core.analysis_snapshot();
+    let mut labels: BTreeSet<String> = BTreeSet::new();
+    for blob in snap.node_properties.values().take(SCAN_CAP) {
+        if let Ok(v) = eg_types::msgpack::decode_property_value(blob) {
+            for key in ["type", "node_type", "label"] {
+                if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
+                    labels.insert(s.to_string());
+                    break;
+                }
+            }
+        }
+        if labels.len() >= 64 {
+            break;
+        }
+    }
+    if labels.is_empty() {
+        "Available node labels: (none discovered)".to_string()
+    } else {
+        format!(
+            "Available node labels: {}",
+            labels.into_iter().collect::<Vec<_>>().join(", ")
+        )
+    }
+}
+
 /// The per-(actor,version) `FilteredViewCache` probe-then-build used by every
 /// `result-cache` MISS across the Sql/UnifiedQuery/Uql/GraphQl/
 /// CypherQuery arms (mirrors `rls_snapshot` below, which is the SAME idiom for a
@@ -454,14 +496,6 @@ pub(crate) fn versioned_rls_snapshot(
     }
 }
 
-/// Produce the off-lock `GraphView` the query planner consumes, with per-agent
-/// Row-Level Security applied IN the read/plan path (CONCEPT:EG-KG.sharding.row-level-security). Under the
-/// `security` feature the owned snapshot is filtered down to the rows `caller` may
-/// see BEFORE it reaches any query surface (SQL/Cypher/unified), so no surface can
-/// exfiltrate a forbidden row. Without the feature this is exactly
-/// `core.analysis_snapshot()` (zero overhead, behavior unchanged). Used on the
-/// `not(result-cache)` path; with the result cache the same `filter_view` is applied
-/// inline on the versioned snapshot so the version pairs atomically with the filter.
 #[cfg(all(
     any(feature = "query", feature = "cypher", feature = "graphql"),
     not(feature = "result-cache")
