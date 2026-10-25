@@ -646,6 +646,39 @@ ex:parent a owl:AsymmetricProperty .
         assert!(error.contains("AsymmetricProperty"));
     }
 
+    // spec: EG-SUPPLY-VOCAB-R001.1.2
+    #[test]
+    fn default_catalog_composes_supply_chain_vocabulary() {
+        const SUPPLY_ONTOLOGY: &str = "http://knuckles.team/kg/supply_chain";
+        const SUPPLIER: &str = "http://knuckles.team/kg#Supplier";
+        const USES_COMPONENT: &str = "http://knuckles.team/kg#usesComponent";
+        const OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
+        const OWL_OBJECT_PROPERTY: &str = "http://www.w3.org/2002/07/owl#ObjectProperty";
+        const OWL_PROPERTY_CHAIN: &str = "http://www.w3.org/2002/07/owl#propertyChainAxiom";
+        const CATALOG: &str = "http://knuckles.team/kg";
+
+        let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
+        let has_type = |subject: &str, object: &str| {
+            composed.ontology.iter().any(|triple| {
+                triple.predicate.as_str() == RDF_TYPE
+                    && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == subject)
+                    && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == object)
+            })
+        };
+
+        assert!(has_type(SUPPLIER, OWL_CLASS));
+        assert!(has_type(USES_COMPONENT, OWL_OBJECT_PROPERTY));
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == OWL_IMPORTS
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == CATALOG)
+                && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == SUPPLY_ONTOLOGY)
+        }));
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == OWL_PROPERTY_CHAIN
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == USES_COMPONENT)
+        }));
+    }
+
     #[test]
     fn capability_fixture_retains_the_required_mixed_profile_axioms() {
         let capability = include_str!("../../../crates/eg-core/ontology/capability-v1.ttl");

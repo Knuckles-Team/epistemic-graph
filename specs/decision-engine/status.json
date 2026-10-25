@@ -9798,7 +9798,9 @@
       "id": "EG-DECISION-ENGINE-R814.1",
       "title": "Model (rollup)",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "1274d990f940"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/metadata_catalog_classes.rs:41"
       ],
@@ -9810,8 +9812,10 @@
     {
       "id": "EG-DECISION-ENGINE-R814.1.1",
       "title": "Vocabulary",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b0d8adcaa41f"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/metadata_catalog_classes.rs:228",
         "crates/eg-rdf/tests/metadata_catalog_classes.rs:249",

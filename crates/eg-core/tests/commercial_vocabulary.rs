@@ -222,3 +222,60 @@ fn commercial_close_date_declared() {
         &format!("{KG}Opportunity")
     ));
 }
+
+// spec: EG-SUPPLY-VOCAB-R001.1.2
+#[test]
+fn supply_chain_module_loads_through_default_catalog() {
+    let sources = GraphSchemaSources::default();
+    sources
+        .validate()
+        .expect("the default core catalog validates");
+    let source = sources
+        .core
+        .get("core:supply_chain@1")
+        .expect("the supply-chain vocabulary is registered exactly once");
+    let ontology = source
+        .ontology_ttl
+        .as_deref()
+        .expect("the supply-chain module carries an ontology document");
+    let triples = parse_turtle(ontology).expect("the supply-chain ontology parses");
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg/supply_chain",
+        RDF_TYPE,
+        &format!("{OWL}Ontology")
+    ));
+    for class in [
+        "Supplier",
+        "SoftwareComponent",
+        "ComponentVersion",
+        "Vulnerability",
+    ] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{KG}{class}"),
+                RDF_TYPE,
+                &format!("{OWL}Class")
+            ),
+            "{class} is exposed by the registered default catalog"
+        );
+    }
+    for property in ["usesComponent", "publishedBy", "containsComponent"] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{KG}{property}"),
+                RDF_TYPE,
+                &format!("{OWL}ObjectProperty")
+            ),
+            "{property} is exposed by the registered default catalog"
+        );
+    }
+    let catalog = sources
+        .core
+        .get("core:catalog@1")
+        .and_then(|source| source.ontology_ttl.as_deref())
+        .expect("the aggregate catalog carries an ontology document");
+    assert!(catalog.contains("<http://knuckles.team/kg/supply_chain>"));
+}

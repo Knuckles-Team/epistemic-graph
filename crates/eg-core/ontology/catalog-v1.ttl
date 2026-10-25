@@ -41,6 +41,7 @@
         <http://knuckles.team/kg/sdlc_lifecycle>,
         <http://knuckles.team/kg/service_operations>,
         <http://knuckles.team/kg/software>,
+        <http://knuckles.team/kg/supply_chain>,
         <http://knuckles.team/kg/swarm>,
         <http://knuckles.team/kg/system>,
         <http://knuckles.team/kg/trm>,

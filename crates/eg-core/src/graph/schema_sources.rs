@@ -23,8 +23,9 @@ use super::LegacyIntegrityPolicy;
 /// the service-operations module (43, EG-TYPED-PACKS-R105.4), and the
 /// metadata-catalog vocabulary and shapes (46, EG-TYPED-PACKS-R106.1), and the
 /// data-platform, IT4IT-delivery, media and retrieval domain modules (50,
-/// EG-TYPED-PACKS-R105.6 to R105.9), and the commercial module with its shapes
-/// companion (51, EG-SUPPLY-VOCAB-R003.13).
+/// EG-TYPED-PACKS-R105.6 to R105.9), the commercial module with its shapes
+/// companion (51, EG-SUPPLY-VOCAB-R003.13), and the supply-chain vocabulary
+/// (52, EG-SUPPLY-VOCAB-R001.1.2).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -885,6 +886,12 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: Some(include_str!("../../ontology/commercial-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/commercial-v1.ttl")),
         },
+        CoreSpec {
+            module: "supply_chain",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/supply_chain-v1.ttl")),
+        },
     ];
     SPECS
 }
@@ -959,7 +966,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 51);
+        assert_eq!(sources.core.len(), 52);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1420,6 +1427,10 @@ mod tests {
             (
                 "commercial",
                 "2faf2564a0a8715030cd64f4ca342312db5f71a4f654cd05b5761eb3d18ac53d",
+            ),
+            (
+                "supply_chain",
+                "888557a0358a4c70f3be6c6db04e16ccf57d63ac9e62276d27a7dcb796554100",
             ),
         ];
         let catalog = current_core_catalog();
