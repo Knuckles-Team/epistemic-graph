@@ -179,7 +179,8 @@
       "title": "Add `:SoftwareComponent`, `:ComponentVersion`, shared `:versionOf`, constrained `:supplyChainVersionOf` and `:versionString`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "09e3e6be7df9"
+        "09e3e6be7df9",
+        "a87da41458a1"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:197",

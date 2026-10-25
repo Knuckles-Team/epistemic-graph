@@ -2706,7 +2706,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "29c97bd07041",
-        "5a81d61e7937"
+        "5a81d61e7937",
+        "a87da41458a1"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/domain_modules_classes.rs:667",
