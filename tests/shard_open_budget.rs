@@ -17,6 +17,10 @@
 //! real-disk path (tmpfs fsyncs are free and would hide the cost under test).
 #![cfg(feature = "redb")]
 
+#[path = "../src/test_rendezvous.rs"]
+#[allow(dead_code)]
+mod test_rendezvous;
+
 use epistemic_graph::protocol::Method;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
@@ -95,7 +99,7 @@ impl Load {
     fn stop(self) {
         self.stop.store(true, Ordering::Relaxed);
         for thread in self.threads {
-            thread.join().expect("load thread");
+            test_rendezvous::join_bounded(thread, "shard open budget load thread");
         }
     }
 }
@@ -378,11 +382,32 @@ fn sidecars_open_with_the_shards_and_a_refusal_leaves_none() {
     std::fs::write(bad.join("graph-0.redb"), b"not a redb file").unwrap();
     assert!(RedbBackend::open_with_shards(bad.to_string_lossy().to_string(), 64, 1).is_err());
     for name in sidecars {
-        assert!(
-            !bad.join(name).exists(),
-            "refused open must not leave {name}"
-        );
+        for artifact in [name.to_string(), format!("{name}.clean")] {
+            assert!(
+                !bad.join(&artifact).exists(),
+                "refused open must not leave {artifact}"
+            );
+        }
     }
+}
+
+/// A sidecar failure after the admin store opened must clean that store and
+/// its close marker, while preserving every pre-existing sidecar artifact.
+// spec: EG-DURABLE-KERNEL-R006.1
+#[test]
+fn sidecar_failure_cleans_new_artifacts_and_preserves_existing_markers() {
+    let scratch = tempfile::tempdir().unwrap();
+    let bad = scratch.path();
+    let existing_marker = bad.join("admin-mutations.redb.clean");
+    std::fs::write(&existing_marker, b"pre-existing marker").unwrap();
+    let invalid = bad.join("node_info.redb");
+    std::fs::write(&invalid, b"not a redb file").unwrap();
+    assert!(RedbBackend::open_with_shards(bad.to_string_lossy().to_string(), 64, 1).is_err());
+    assert!(!bad.join("admin-mutations.redb").exists());
+    assert!(existing_marker.is_file());
+    assert_eq!(std::fs::read(invalid).unwrap(), b"not a redb file");
+    assert!(!bad.join("cluster_hierarchy.redb").exists());
+    assert!(!bad.join("cluster_hierarchy.redb.clean").exists());
 }
 
 /// Child half of the stress check: runs only when the parent sets
