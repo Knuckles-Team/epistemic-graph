@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-OBJECT-STORAGE-BACKEND",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-OBJECT-STORAGE-BACKEND-R001",
