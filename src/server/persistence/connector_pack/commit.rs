@@ -79,10 +79,9 @@ impl AgentLibraryStore {
 fn validate_plan(store: &AgentLibraryStore, plan: &ConnectorPackCommitPlan) -> Result<(), String> {
     validate_context(store, &plan.context)?;
     let expected_binding_revision = match &plan.expected_head {
-        Some(head) => head
-            .binding_revision
-            .checked_add(1)
-            .ok_or_else(|| "connector pack binding revision overflow".to_string())?,
+        Some(head) => head.binding_revision.checked_add(1).ok_or_else(|| {
+            "CORRUPT_CONNECTOR_PACK: connector pack binding revision overflow".to_string()
+        })?,
         None => 1,
     };
     if plan.context.tenant_id != plan.record.tenant_id
@@ -90,12 +89,18 @@ fn validate_plan(store: &AgentLibraryStore, plan: &ConnectorPackCommitPlan) -> R
         || plan.record.previous_pack_digest
             != plan.expected_head.as_ref().map(|head| head.pack_digest)
     {
-        return Err("connector pack commit plan identity is inconsistent".to_string());
+        return Err(
+            "CORRUPT_CONNECTOR_PACK: connector pack commit plan identity is inconsistent"
+                .to_string(),
+        );
     }
     for component in &plan.components {
         component.entry.validate()?;
         if component.entry.tenant_id != plan.context.tenant_id {
-            return Err("connector pack component tenant differs from its import".to_string());
+            return Err(
+                "CORRUPT_CONNECTOR_PACK: connector pack component tenant differs from its import"
+                    .to_string(),
+            );
         }
     }
     if plan.record.committed_at_ms != plan.context.created_at_ms
@@ -104,7 +109,10 @@ fn validate_plan(store: &AgentLibraryStore, plan: &ConnectorPackCommitPlan) -> R
             .iter()
             .any(|member| member.last_record_id != plan.record.record_id)
     {
-        return Err("connector pack commit plan provenance is inconsistent".to_string());
+        return Err(
+            "CORRUPT_CONNECTOR_PACK: connector pack commit plan provenance is inconsistent"
+                .to_string(),
+        );
     }
     let member_uris: std::collections::BTreeSet<&str> = plan
         .members
@@ -112,7 +120,10 @@ fn validate_plan(store: &AgentLibraryStore, plan: &ConnectorPackCommitPlan) -> R
         .map(|member| member.uri.as_str())
         .collect();
     if member_uris.len() != plan.members.len() {
-        return Err("connector pack commit plan contains duplicate member URIs".to_string());
+        return Err(
+            "CORRUPT_CONNECTOR_PACK: connector pack commit plan contains duplicate member URIs"
+                .to_string(),
+        );
     }
     for component in &plan.components {
         let body = component
@@ -120,7 +131,10 @@ fn validate_plan(store: &AgentLibraryStore, plan: &ConnectorPackCommitPlan) -> R
             .content_ref
             .as_deref()
             .and_then(|reference| reference.strip_prefix("eg-body:sha256:"))
-            .ok_or_else(|| "connector pack component has no engine body reference".to_string())?;
+            .ok_or_else(|| {
+                "CORRUPT_CONNECTOR_PACK: connector pack component has no engine body reference"
+                    .to_string()
+            })?;
         let matching_holders = plan
             .holders
             .iter()
@@ -134,7 +148,7 @@ fn validate_plan(store: &AgentLibraryStore, plan: &ConnectorPackCommitPlan) -> R
             .count();
         if matching_holders != 1 {
             return Err(
-                "connector pack component must have exactly one matching body holder".to_string(),
+                "CORRUPT_CONNECTOR_PACK: connector pack component must have exactly one matching body holder".to_string(),
             );
         }
     }
