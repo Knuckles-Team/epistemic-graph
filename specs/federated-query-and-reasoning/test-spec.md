@@ -348,6 +348,14 @@ No test in this section has run.
 | Evidence | `EG-FEDERATED-QUERY-R058.4.5` | A test reads the step list and the digest. |
 | Hot-path proof | `EG-FEDERATED-QUERY-R058.4.6` | The served test passes, and the measured overhead meets the budget. |
 
+Snapshot grounding acceptance for `EG-FEDERATED-QUERY-R058.4.7.1` uses the `eg-plan` NL context suite. It covers full-snapshot discovery beyond 4096 nodes, attribution property repairs, named-source authority, JOIN scope and mixed fusion scope. Feature-enabled tests check source scope replacement and spatial/tensor layers. Served tests must show that each caller sees only names from its owner-authorized registry.
+
+`EG-FEDERATED-QUERY-R058.4.7.2` remains open. Acceptance must cover the native identifier schemas named in that row. The parent `EG-FEDERATED-QUERY-R058.4.7` remains open until both children complete.
+
+Ontology-name acceptance for `EG-FEDERATED-QUERY-R058.4.8` uses the mapped-property and ambiguity tests in the same suite.
+
+`EG-FEDERATED-QUERY-R058.4.9` remains open. Its current negative test refuses an inline HTTP adapter before any source can run. Completing it requires positive tests for a schema-bound adapter and cross-owner refusal.
+
 Hot-path proof for `EG-FEDERATED-QUERY-R058.4`: `tests/nl_query_bounded_steps.rs::second_step_corrects_parse_error`.
 
 ## EG-FEDERATED-QUERY-R088 acceptance
