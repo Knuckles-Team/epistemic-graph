@@ -1,4 +1,4 @@
-//! Schema-grounded natural-language planning (EG-FEDERATED-QUERY-R058.4.7, R058.4.8).
+//! Schema-grounded natural-language planning (EG-FEDERATED-QUERY-R058.4.7.1, R058.4.8).
 //!
 //! The planner may only target names the queried graph actually has. A
 //! [`SchemaContext`] is read off ONE snapshot: every node label with the
@@ -23,8 +23,6 @@ use eg_types::wire::{Op, Plan, Pred};
 
 use super::{enforce_budget, NlPlanner, NlQueryBudget, NlQueryError};
 
-/// Node blobs read per snapshot when collecting labels and property keys.
-pub const SCAN_CAP: usize = 4096;
 /// Labels kept in the schema hint (EG-FEDERATED-QUERY-R058.4.2).
 pub const MAX_LABELS: usize = 60;
 /// Properties listed per label in the schema hint (EG-FEDERATED-QUERY-R058.4.2).
@@ -48,7 +46,7 @@ pub struct OntologyProperty {
 /// What the graph stores under one label.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LabelSchema {
-    /// Nodes seen with this label (bounded by [`SCAN_CAP`]).
+    /// Nodes seen with this label in the snapshot.
     pub nodes: usize,
     /// Property keys stored on those nodes.
     pub fields: BTreeSet<String>,
@@ -64,8 +62,8 @@ pub struct SchemaContext {
     unlabelled: LabelSchema,
     edge_schemas: BTreeMap<String, LabelSchema>,
     untyped_edges: LabelSchema,
-    /// Federation sources the caller may name; `None` leaves `FOREIGN` names
-    /// to the served source registry, which refuses an unknown one.
+    /// Federation sources the owner-scoped served registry authorizes. An
+    /// absent catalog refuses foreign stages rather than inventing authority.
     foreign_sources: Option<BTreeSet<String>>,
 }
 
@@ -87,6 +85,8 @@ pub enum SchemaViolation {
     },
     /// `FOREIGN` names a source the caller has not registered.
     UnknownSource { source: String, known: Vec<String> },
+    /// An inline foreign adapter has no owner-scoped registry identity to ground.
+    UnboundForeignSource,
 }
 
 impl SchemaViolation {
@@ -97,6 +97,7 @@ impl SchemaViolation {
             Self::UnknownProperty { .. } => "NL_SCHEMA_UNKNOWN_PROPERTY",
             Self::UnknownRelationship { .. } => "NL_SCHEMA_UNKNOWN_RELATIONSHIP",
             Self::UnknownSource { .. } => "NL_SCHEMA_UNKNOWN_SOURCE",
+            Self::UnboundForeignSource => "NL_SCHEMA_UNBOUND_FOREIGN_SOURCE",
         }
     }
 }
@@ -128,6 +129,8 @@ impl std::fmt::Display for SchemaViolation {
                 "{code}: relationship `{relationship}` is not in the graph (relationships: {})",
                 list(known)
             ),
+            Self::UnboundForeignSource => write!(f,
+                "{code}: foreign stage has no owner-scoped schema identity; bind the source registry and name a registered source"),
             Self::UnknownSource { source, known } => write!(
                 f,
                 "{code}: foreign source `{source}` is not registered (sources: {})",
@@ -195,18 +198,15 @@ enum Scope {
     Labels(BTreeSet<String>),
     /// Rows can be any local node.
     AnyLocal,
-    /// Rows come from outside the local graph; their keys are not checked.
-    External,
     /// Stored edge properties, restricted to a relationship when present.
     Edges(Option<String>),
 }
 
-/// Fusion returns the union of the branches' row scopes. An external branch
-/// prevents asserting that an unknown property is absent from every output row.
+/// Fusion returns the union of its branches' local node scopes. Foreign rows
+/// carry ids and scores only; property filters rematerialize the local snapshot.
 #[cfg(feature = "text")]
 fn union_scope(left: Scope, right: Scope) -> Scope {
     match (left, right) {
-        (Scope::External, _) | (_, Scope::External) => Scope::External,
         (Scope::Labels(mut left), Scope::Labels(right)) => {
             left.extend(right);
             Scope::Labels(left)
@@ -219,7 +219,7 @@ impl SchemaContext {
     /// Collect labels, property keys and relationships from `view`.
     pub fn from_view(view: &GraphView) -> Self {
         let mut context = Self::default();
-        for blob in view.node_properties.values().take(SCAN_CAP) {
+        for blob in view.node_properties.values() {
             if let Ok(serde_json::Value::Object(props)) =
                 eg_types::msgpack::decode_property_value(blob.as_slice())
             {
@@ -366,7 +366,7 @@ impl SchemaContext {
     }
 
     /// Validate `plan` against the snapshot and rewrite ontology names and
-    /// spelling variants to the stored names (EG-FEDERATED-QUERY-R058.4.7).
+    /// spelling variants to the stored names (EG-FEDERATED-QUERY-R058.4.7.1).
     pub fn ground(&self, plan: &Plan) -> Result<Grounded, SchemaViolation> {
         let mut repairs = Vec::new();
         let (ops, _) = self.ground_ops(&plan.ops, Scope::AnyLocal, &mut repairs)?;
@@ -434,10 +434,73 @@ impl SchemaContext {
             }
             Op::Foreign { name } => {
                 self.check_foreign_source(name)?;
-                Ok((op.clone(), Scope::External))
+                Ok((op.clone(), Scope::AnyLocal))
             }
             #[cfg(feature = "federation")]
-            Op::ForeignScan { .. } => Ok((op.clone(), Scope::External)),
+            Op::ForeignScan { source, .. } => {
+                match source.as_ref() {
+                    eg_types::wire::ForeignSourceSpec::Named { name } => {
+                        self.check_foreign_source(name)?
+                    }
+                    _ => return Err(SchemaViolation::UnboundForeignSource),
+                }
+                // JOIN intersects incoming ids when nonempty, but reseeds from
+                // the foreign source when empty. Both paths later rematerialize
+                // properties from this same local snapshot.
+                Ok((op.clone(), Scope::AnyLocal))
+            }
+            Op::Attribute {
+                input,
+                value,
+                method,
+            } => {
+                use eg_types::wire::{AttributionInput, AttributionMethod};
+                let mut input = input.clone();
+                let mut method = method.clone();
+                if let AttributionInput::Property { name } = &mut input {
+                    *name = self.resolve_property(name, &scope, repairs)?;
+                }
+                if let AttributionMethod::Owen { by } = &mut method {
+                    *by = self.resolve_property(by, &scope, repairs)?;
+                }
+                Ok((
+                    Op::Attribute {
+                        input,
+                        value: *value,
+                        method,
+                    },
+                    scope,
+                ))
+            }
+            #[cfg(feature = "owl")]
+            Op::SparqlBgp { .. } | Op::Reason { .. } => Ok((op.clone(), Scope::AnyLocal)),
+            #[cfg(feature = "geo")]
+            Op::SpatialScan { layer, bbox } => {
+                let layer = self.resolve_label(layer, repairs)?;
+                Ok((Op::SpatialScan { layer, bbox: *bbox }, Scope::AnyLocal))
+            }
+            #[cfg(feature = "tensor")]
+            Op::TensorScan { layer } => {
+                let layer = self.resolve_label(layer, repairs)?;
+                Ok((Op::TensorScan { layer }, Scope::AnyLocal))
+            }
+            Op::DecisionScan { .. } => Ok((op.clone(), Scope::AnyLocal)),
+            #[cfg(feature = "timeseries")]
+            Op::Window { .. }
+            | Op::WindowAgg { .. }
+            | Op::TsScan { .. }
+            | Op::SensorFuse { .. }
+            | Op::SensorAlign { .. }
+            | Op::Events { .. } => Ok((op.clone(), Scope::AnyLocal)),
+            #[cfg(feature = "wasm-udf")]
+            Op::Udf { .. } => Ok((op.clone(), Scope::AnyLocal)),
+            #[cfg(feature = "stream")]
+            Op::Cep { .. } => Ok((op.clone(), Scope::AnyLocal)),
+            #[cfg(feature = "epistemic")]
+            Op::EvidenceFor { .. }
+            | Op::Contradicts { .. }
+            | Op::SupportedBy { .. }
+            | Op::ExplainBelief { .. } => Ok((op.clone(), Scope::AnyLocal)),
             _ => Ok((op.clone(), scope)),
         }
     }
@@ -448,6 +511,7 @@ impl SchemaContext {
                 source: name.to_string(),
                 known: sources.iter().cloned().collect(),
             }),
+            None => Err(SchemaViolation::UnboundForeignSource),
             _ => Ok(()),
         }
     }
@@ -518,12 +582,11 @@ impl SchemaContext {
                         .as_deref()
                         .and_then(|p| p.first())
                 {
-                    if let Some(schemas) = self.scope_schemas(scope) {
-                        let fields: BTreeSet<&String> =
-                            schemas.iter().flat_map(|s| s.fields.iter()).collect();
-                        if !fields.iter().any(|field| field.as_str() == key) {
-                            return Err(self.unknown_property(key, scope, &fields));
-                        }
+                    let schemas = self.scope_schemas(scope);
+                    let fields: BTreeSet<&String> =
+                        schemas.iter().flat_map(|s| s.fields.iter()).collect();
+                    if !fields.iter().any(|field| field.as_str() == key) {
+                        return Err(self.unknown_property(key, scope, &fields));
                     }
                 }
             }
@@ -576,10 +639,7 @@ impl SchemaContext {
         scope: &Scope,
         repairs: &mut Vec<Repair>,
     ) -> Result<String, SchemaViolation> {
-        let schemas = match self.scope_schemas(scope) {
-            Some(schemas) => schemas,
-            None => return Ok(prop.to_string()),
-        };
+        let schemas = self.scope_schemas(scope);
         if (prop == "id" && !matches!(scope, Scope::Edges(_)))
             || schemas.iter().any(|s| s.fields.contains(prop))
         {
@@ -595,29 +655,24 @@ impl SchemaContext {
         }
     }
 
-    /// The label schemas rows in `scope` can come from; `None` when unchecked.
-    fn scope_schemas(&self, scope: &Scope) -> Option<Vec<&LabelSchema>> {
+    /// The stored schemas against which this operation reads properties.
+    fn scope_schemas(&self, scope: &Scope) -> Vec<&LabelSchema> {
         match scope {
-            Scope::External => None,
-            Scope::AnyLocal => Some(
-                self.labels
-                    .values()
-                    .chain(std::iter::once(&self.unlabelled))
-                    .collect(),
-            ),
-            Scope::Edges(Some(rel)) => Some(self.edge_schemas.get(rel).into_iter().collect()),
-            Scope::Edges(None) => Some(
-                self.edge_schemas
-                    .values()
-                    .chain(std::iter::once(&self.untyped_edges))
-                    .collect(),
-            ),
-            Scope::Labels(labels) => Some(
-                labels
-                    .iter()
-                    .filter_map(|label| self.labels.get(label))
-                    .collect(),
-            ),
+            Scope::AnyLocal => self
+                .labels
+                .values()
+                .chain(std::iter::once(&self.unlabelled))
+                .collect(),
+            Scope::Edges(Some(rel)) => self.edge_schemas.get(rel).into_iter().collect(),
+            Scope::Edges(None) => self
+                .edge_schemas
+                .values()
+                .chain(std::iter::once(&self.untyped_edges))
+                .collect(),
+            Scope::Labels(labels) => labels
+                .iter()
+                .filter_map(|label| self.labels.get(label))
+                .collect(),
         }
     }
 

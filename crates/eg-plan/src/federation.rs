@@ -1613,6 +1613,17 @@ impl ForeignSourceRegistry {
         self.sources.len()
     }
 
+    /// The registered source names in stable order.
+    ///
+    /// Served schema grounding uses this view to disclose only the names in
+    /// the already owner-scoped registry. It intentionally exposes names, not
+    /// source credentials or specs.
+    pub fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.sources.keys().cloned().collect();
+        names.sort_unstable();
+        names
+    }
+
     /// Whether NO sources are registered.
     pub fn is_empty(&self) -> bool {
         self.sources.is_empty()

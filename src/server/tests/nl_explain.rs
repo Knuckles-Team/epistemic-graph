@@ -105,7 +105,7 @@ async fn nl_query_explain_refuses_exactly_like_nl_query() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[tokio::test]
 async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -132,4 +132,54 @@ async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
     assert!(detail.contains("NL_SCHEMA_UNKNOWN_PROPERTY"), "{detail}");
     assert!(detail.contains("step 2"), "{detail}");
     assert_eq!(explained.error_detail, plain.error_detail);
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[cfg(feature = "federation")]
+#[tokio::test]
+async fn nl_query_grounds_foreign_names_from_the_verified_owner_registry() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let state = {
+        crate::server::set_nl_planner(Arc::new(EchoPlanner));
+        let state = multi_tenant_state().await;
+        build_unified_fixture(&state).await;
+        state
+    };
+
+    // Register under another principal. The query below defaults to `system`,
+    // whose owner-scoped catalog must not disclose this source.
+    let registered = dispatch_as(
+        &state,
+        963,
+        "worker1",
+        Method::RegisterForeignSource {
+            name: "known".into(),
+            source: eg_types::wire::ForeignSourceSpec::HttpJson {
+                url: "http://example.invalid/worker1-secret".into(),
+                json_path: "data".into(),
+                field_map: eg_types::wire::HttpFieldMap {
+                    id: "id".into(),
+                    score: None,
+                    columns: Default::default(),
+                },
+            },
+        },
+    )
+    .await;
+    assert_ok(&registered);
+
+    // `known` never reaches the executor or the remote endpoint: grounding
+    // rejects it as absent from system's registry and does not disclose the
+    // other principal's source name, owner or endpoint.
+    let response = send(&state, 964, nl("MATCH (:Doc) |> FOREIGN \"known\"")).await;
+    assert!(response.result.is_none());
+    assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
+    let detail = response.error_detail.unwrap_or_default();
+    assert!(detail.contains("NL_SCHEMA_UNKNOWN_SOURCE"), "{detail}");
+    assert!(detail.contains("sources: none"), "{detail}");
+    assert!(!detail.contains("worker1"), "{detail}");
+    assert!(
+        !detail.contains("example.invalid/worker1-secret"),
+        "{detail}"
+    );
 }
