@@ -22,10 +22,11 @@ use super::LegacyIntegrityPolicy;
 /// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037), and
 /// the service-operations module (43, EG-TYPED-PACKS-R105.4), and the
 /// metadata-catalog vocabulary and shapes (46, EG-TYPED-PACKS-R106.1), and the
-/// data-platform, IT4IT-delivery, media and retrieval domain modules (50,
+/// data-platform vocabulary plus the data-platform, IT4IT-delivery, media and
+/// retrieval domain modules (51, EG-DATAPLAT-VOCAB-R001.1 and
 /// EG-TYPED-PACKS-R105.6 to R105.9), the commercial module with its shapes
-/// companion (51, EG-SUPPLY-VOCAB-R003.13), and the supply-chain vocabulary
-/// (52, EG-SUPPLY-VOCAB-R001.1.2).
+/// companion (52, EG-SUPPLY-VOCAB-R003.13), and the supply-chain vocabulary
+/// (53, EG-SUPPLY-VOCAB-R001.1.2).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -871,6 +872,14 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/virtual_graph-v1.ttl")),
         },
+        // EG-DATAPLAT-VOCAB-R001.4: shared data-platform terms are one immutable
+        // core source and import the virtual-graph attachment vocabulary.
+        CoreSpec {
+            module: "data-platform",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/data_platform-v1.ttl")),
+        },
         CoreSpec {
             module: "virtual-graph-shapes",
             version: 1,
@@ -966,7 +975,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 52);
+        assert_eq!(sources.core.len(), 53);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1253,7 +1262,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "a93cc9f66213be6506e2c5d740fb7b2f902a0030c22ee6e3c9a0d57f2d0660d6",
+                "10305673e8685d7880c4e8ed40921eeadb3e3380b2094f66a7038cbf8fe28546",
             ),
             (
                 "company",
@@ -1344,6 +1353,10 @@ mod tests {
                 "85467e7f305a29c68a0de04d345cf98954bf0864ff830a75d29055cb9f195135",
             ),
             (
+                "data-platform",
+                "8d76ccb12efc61c9724f9c6ff0368ea95bb7a97b16cd423a01de919bc0ee2007",
+            ),
+            (
                 "it4it_delivery",
                 "54f25a4583b59f73256eefc7bec9781c6bbc7f0a6ff1fbd4b4735fbc2807b080",
             ),
@@ -1421,6 +1434,14 @@ mod tests {
             (
                 "temporal-shapes",
                 "9bb13dd655059b6757b33621446f960bd6992bcb5aea31d5a85f4483c86bba59",
+            ),
+            (
+                "virtual-graph",
+                "16d5934a22a256fc6eaa86ff33b47bd7d815e2f81bea7b1d1022327cf92b8a2b",
+            ),
+            (
+                "virtual-graph-shapes",
+                "313fdb8ea2d27847dc860a9a36ff18dee7b97ba0eb4d132dc161b8f88decc956",
             ),
             // EG-SUPPLY-VOCAB-R003.13: the commercial module (ontology plus its
             // shapes companion) joins the catalog; the pin follows the ontology.

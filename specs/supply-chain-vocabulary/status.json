@@ -91,9 +91,18 @@
     {
       "id": "EG-SUPPLY-VOCAB-R001.1",
       "title": "Shared supplier and item vocabulary (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "43bbb7464e07",
+        "ee2a3497659c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/commercial_vocabulary.rs:226",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:112",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:62",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:94",
+        "src/server/graph_schema/compose.rs:649"
+      ],
       "rollup_of": [
         "EG-SUPPLY-VOCAB-R001.1.1",
         "EG-SUPPLY-VOCAB-R001.1.2"
@@ -115,8 +124,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R001.1.2",
       "title": "Install shared terms in the core catalog and prove native entailment",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "43bbb7464e07"
+      ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:226",
         "src/server/graph_schema/compose.rs:649"

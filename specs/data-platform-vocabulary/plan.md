@@ -161,6 +161,7 @@ Rows stay in the source; only catalog metadata is held (R038).
 ## Wiring
 
 - `crates/eg-core/ontology/` is the directory the core schema sources load from; add `data_platform-v1.ttl` and `.shapes.ttl` beside `virtual_graph-v1.*`, registered as `core:data-platform@1` exactly as `core:virtual-graph@1` is (EG-UNIFIED-DATA-PLANE-R037).
+- R001.3's native SHACL acceptance fixture belongs to `eg-shacl` (`crates/eg-shacl/tests/data_platform_vocab.rs`) because that crate owns `validate_turtle`; it loads the canonical `eg-core` virtual-graph shape directly. The `eg-core` vocabulary test remains parser/catalog-only, so this proof does not add an upward development dependency cycle.
 - Mappings are `vg:VirtualMapping` instances (subclass `dp:StoreMapping`); approval gating is `crates/eg-plan/src/virtual_graph_mapping.rs` (R005.1: only `Approved` mappings serve reads). No new approval path.
 - Discovery output (`vg:MetadataContract`, R038.2) is the input the `dp:` classes type; no discovery code is added here.
 - Scopes: only the engine contract's existing read scopes; no new scope.

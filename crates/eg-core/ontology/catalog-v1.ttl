@@ -15,6 +15,7 @@
         <http://knuckles.team/kg/company>,
         <http://knuckles.team/kg/company_infra>,
         <http://knuckles.team/kg/concepts>,
+        <http://knuckles.team/kg/data-platform>,
         <http://knuckles.team/kg/dataplatform>,
         <http://knuckles.team/kg/documentation>,
         <http://knuckles.team/kg/energy_geopolitics>,
