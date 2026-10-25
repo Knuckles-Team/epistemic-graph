@@ -1,6 +1,6 @@
 //! The metadata-catalog core vocabulary: catalogued assets, owners and stewards,
 //! lineage, the glossary and system-prompt candidates, aligned to W3C DCAT,
-//! PROV-O, ORG and SKOS (EG-TYPED-PACKS-R106.1, EG-DECISION-ENGINE-R814.1).
+//! PROV-O, ORG and SKOS (EG-TYPED-PACKS-R106.1, EG-DECISION-ENGINE-R814.1.1).
 #![cfg(feature = "owl")]
 
 mod common;
@@ -13,6 +13,7 @@ const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const OWL: &str = "http://www.w3.org/2002/07/owl#";
 const CAT: &str = "http://knuckles.team/kg/catalog#";
 const CP: &str = "http://knuckles.team/kg/connector-pack#";
+const METADATA_CATALOG: &str = "http://knuckles.team/kg/metadata_catalog";
 const DCAT: &str = "http://www.w3.org/ns/dcat#";
 const PROV: &str = "http://www.w3.org/ns/prov#";
 const ORG: &str = "http://www.w3.org/ns/org#";
@@ -34,6 +35,32 @@ fn documents() -> Vec<Triple> {
         include_str!("../../eg-core/ontology/service_operations-v1.ttl"),
         include_str!("../../eg-core/ontology/metadata_catalog-v1.ttl"),
     ])
+}
+
+// spec: EG-TYPED-PACKS-R106.1
+// spec: EG-DECISION-ENGINE-R814.1.1
+#[test]
+fn catalog_ontology_declares_root_and_cross_domain_imports() {
+    let triples = documents();
+    assert!(has_iri(
+        &triples,
+        METADATA_CATALOG,
+        &format!("{RDF}type"),
+        &format!("{OWL}Ontology")
+    ));
+    for imported in [
+        "http://knuckles.team/kg/core",
+        "http://knuckles.team/kg/capability",
+        "http://knuckles.team/kg/orchestration",
+        "http://knuckles.team/kg/service_operations",
+    ] {
+        assert!(has_iri(
+            &triples,
+            METADATA_CATALOG,
+            &format!("{OWL}imports"),
+            imported
+        ));
+    }
 }
 
 // spec: EG-TYPED-PACKS-R106.1
