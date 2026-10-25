@@ -186,65 +186,11 @@ toml = [
 ]
 
 [[package]]
-name = "epistemic-graph"
-source = { editable = "." }
-dependencies = [
-    { name = "httpx" },
-    { name = "msgpack" },
-    { name = "pydantic" },
-    { name = "pyoxigraph" },
-]
-
-[package.optional-dependencies]
-lmcache = [
-    { name = "httpx" },
-]
-owl = [
-    { name = "pyoxigraph" },
-]
-server = [
-    { name = "epistemic-graph-server" },
-]
-test = [
-    { name = "maturin" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "epistemic-graph-server", marker = "extra == 'server'", directory = "packaging/epistemic-graph-server" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.28.1" },
-    { name = "maturin", marker = "extra == 'test'", specifier = ">=1.15.0,<2.0" },
-    { name = "msgpack", specifier = ">=1.2.3" },
-    { name = "pydantic", specifier = ">=2.14.1,<3" },
-    { name = "pyoxigraph", specifier = ">=0.5.11" },
-    { name = "pyoxigraph", marker = "extra == 'owl'", specifier = ">=0.5.11" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=9.1.1" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.4.0" },
-    { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=7.1.0" },
-    { name = "pytest-timeout", marker = "extra == 'test'", specifier = ">=2.4.0" },
-    { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.8.0" },
-    { name = "pyyaml", marker = "extra == 'test'", specifier = ">=6.0.3" },
-]
-provides-extras = ["all", "ast", "datascience", "finance", "full", "lake-parity", "lmcache", "numeric", "owl", "quant", "reasoning", "server", "test"]
-
-[[package]]
-name = "epistemic-graph-server"
-version = "2.27.7"
-source = { directory = "packaging/epistemic-graph-server" }
-
-[[package]]
 name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -338,6 +284,60 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/40/dc/4e90da594986ba78dd3bc8a5921ecdcdb11085b22b02a412caab3b225601/maturin-1.15.0-py3-none-win_amd64.whl", hash = "sha256:552c2be4afd43fe8d5c9f3ec8d4c4756d973b8dcbe94c14084390301f50243e1", size = 10335085, upload-time = "2026-08-24T12:11:18.326Z" },
     { url = "https://files.pythonhosted.org/packages/8b/10/15d4314edf130955edf2dc237aa393a8a7c10f2b9b57b89fa2f61f915659/maturin-1.15.0-py3-none-win_arm64.whl", hash = "sha256:c7dc0c66c78d3debdd9c5aa807e861fbcbf07f3505d34b125df74c03986b0f48", size = 9713795, upload-time = "2026-08-24T12:11:20.83Z" },
 ]
+
+[[package]]
+name = "medulla"
+source = { editable = "." }
+dependencies = [
+    { name = "httpx" },
+    { name = "msgpack" },
+    { name = "pydantic" },
+    { name = "pyoxigraph" },
+]
+
+[package.optional-dependencies]
+lmcache = [
+    { name = "httpx" },
+]
+owl = [
+    { name = "pyoxigraph" },
+]
+server = [
+    { name = "medulla-stem" },
+]
+test = [
+    { name = "maturin" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.28.1" },
+    { name = "maturin", marker = "extra == 'test'", specifier = ">=1.15.0,<2.0" },
+    { name = "medulla-stem", marker = "extra == 'server'", directory = "packaging/epistemic-graph-server" },
+    { name = "msgpack", specifier = ">=1.2.3" },
+    { name = "pydantic", specifier = ">=2.14.1,<3" },
+    { name = "pyoxigraph", specifier = ">=0.5.11" },
+    { name = "pyoxigraph", marker = "extra == 'owl'", specifier = ">=0.5.11" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.4.0" },
+    { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=7.1.0" },
+    { name = "pytest-timeout", marker = "extra == 'test'", specifier = ">=2.4.0" },
+    { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.8.0" },
+    { name = "pyyaml", marker = "extra == 'test'", specifier = ">=6.0.3" },
+]
+provides-extras = ["all", "ast", "datascience", "finance", "full", "lake-parity", "lmcache", "numeric", "owl", "quant", "reasoning", "server", "test"]
+
+[[package]]
+name = "medulla-stem"
+version = "2.27.8"
+source = { directory = "packaging/epistemic-graph-server" }
 
 [[package]]
 name = "msgpack"

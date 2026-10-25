@@ -11,7 +11,7 @@ registered identity with no grants, or an unregistered principal, sees neither.
 
 The writer is this build, and also the previous patch's published engine when
 `EPISTEMIC_GRAPH_PREVIOUS_PATCH_BINARY` names it (`pip install
-epistemic-graph-server==<previous>`). A store binds to its files' device and inode, so a
+medulla-stem==<previous>`). A store binds to its files' device and inode, so a
 copied store cannot be committed as a fixture; the writer creates it in place. Between
 writer and reader the test runs `store-upgrade apply`, the documented offline step. That
 upgrade refuses a store under `/tmp`, so run the previous-patch leg with `--basetemp`

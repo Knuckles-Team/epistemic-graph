@@ -1,6 +1,6 @@
 # EG-CQ-ORCH — Plan
 
-See [design.md](plan.md) for per-question blocks and the layer model. Reuse: `specs/decision-engine` (R036, R044, R046, R111, R126, R127), `specs/federated-query-and-reasoning`, `specs/unified-data-plane`, `specs/typed-packs-and-catalog`. Order: ontology gaps, shapes, authority mappings, fixtures, acceptance tests, composed envelope, then graph-os probes.
+See [design.md](plan.md) for per-question blocks and the layer model. Reuse: `specs/decision-engine` (R036, R044, R046, R111, R126, R127), `specs/federated-query-and-reasoning`, `specs/unified-data-plane`, `specs/typed-packs-and-catalog`. Order: ontology gaps, shapes, authority mappings, fixtures, acceptance tests, composed envelope, then Arbora probes.
 
 ## Design
 
@@ -135,14 +135,14 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
 
 ### Q9. Probe questions through the intent surface
 
-- **Layers read:** the graph-os intent tools front L0-L5. Each probe lands on the rollup above it (node counts: L0; Agent Library: L2; tool discovery: L1; delegate: L3-L5).
-- **Mechanism:** graph-os registry serves the intent tools; EG supplies the answer and provenance. Owner: graph-os (cross-repo).
+- **Layers read:** the Arbora intent tools front L0-L5. Each probe lands on the rollup above it (node counts: L0; Agent Library: L2; tool discovery: L1; delegate: L3-L5).
+- **Mechanism:** Arbora registry serves the intent tools; Medulla supplies the answer and provenance. Owner: Arbora (cross-repo).
 - **Answer shape:** non-empty answer, provenance field present, correct against a fixture; typed abstention only when the source is genuinely absent.
 - **Probes and previously observed results:**
   - "How many nodes does the graph hold, by label?": previously correct SQL, empty answer.
   - "How can I deploy a container with container-manager?": previously 1-step plan.
   - "Which agents are in the Agent Library?": previously routed.
-  - "Why does graph-os use the intent surface?": previously pending.
+  - "Why does Arbora use the intent surface?": previously pending.
   - "Find a tool that lists Docker containers.": previously pending.
   - "Delegate: list running containers.": previously pending.
 
@@ -167,11 +167,11 @@ Cross-repository rows: the `AU-WEBUI` row that draws the view depends on the con
 
 ### `EG-CQ-ORCH-R010.7` — GRAPHOS:20
 
-- Existing EG rollup: `EG-CQ-ORCH-R010.1`; append-only residual ID: `EG-CQ-ORCH-R010.7`.
+- Existing Medulla rollup: `EG-CQ-ORCH-R010.1`; append-only residual ID: `EG-CQ-ORCH-R010.7`.
 - Original objective: Before planning, query graph architecture and wiring. Report design differences. Each feature names its hot-path attach point. Refuse plans with unwired features.
-- Specified EG obligation: `EG-CQ-ORCH-R010.7` defines `PlanAdmissionV1`. It checks each feature's attach point and wiring edge. It returns typed refusal before TaskPlan emission. AU-HARNESS-R019.5-.7 must return the same study-gap proposal id/revision and repository revision. Admission refuses if those fields are absent.
-- Producer/consumer route: The served impact architecture view, capability query, and AU study-gap receipt feed `PlanAdmissionV1`. Admission runs before the existing plan-producing Decide handler. AU identity/revision confirmation and served receipts remain pending. Do not re-derive architecture or claim AU producer closure.
-- Minimum closure action: Keep R010.7 as the EG definition. Resolve AU receipt field mapping. Record independent served producer/consumer results. No second EG admission contract is needed.
+- Specified Medulla obligation: `EG-CQ-ORCH-R010.7` defines `PlanAdmissionV1`. It checks each feature's attach point and wiring edge. It returns typed refusal before TaskPlan emission. AU-HARNESS-R019.5-.7 must return the same study-gap proposal id/revision and repository revision. Admission refuses if those fields are absent.
+- Producer/consumer route: The served impact architecture view, capability query, and Meristem study-gap receipt feed `PlanAdmissionV1`. Admission runs before the existing plan-producing Decide handler. Meristem identity/revision confirmation and served receipts remain pending. Do not re-derive architecture or claim Meristem producer closure.
+- Minimum closure action: Keep R010.7 as the Medulla definition. Resolve Meristem receipt field mapping. Record independent served producer/consumer results. No second Medulla admission contract is needed.
 - Preserve covered clauses: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
 - Source review: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`; evidence: spec-audit/reconciliation/fresh-validation-20261012/semantic-reviews/incoming-24-owner-supplements.json.
 - Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
@@ -189,4 +189,4 @@ These questions are the acceptance set for the connect-time contract, the downti
 | Q4 how and when to use connector X | `EG-DECISION-ENGINE-R177` |
 | Q5 seed facts and changed parts of connector X | `EG-TYPED-PACKS-R104` |
 
-Call path: graph-os `find` -> served `Decide` or SPARQL -> the mechanism row -> answer with provenance.
+Call path: Arbora `find` -> served `Decide` or SPARQL -> the mechanism row -> answer with provenance.

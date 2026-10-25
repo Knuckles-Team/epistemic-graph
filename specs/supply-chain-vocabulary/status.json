@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-SUPPLY-VOCAB",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-SUPPLY-VOCAB-R001",
@@ -314,6 +314,7 @@
       "title": "Record the amendments to `EG-CQ-XSRC-R002.1` and `EG-CQ-XSRC-R008.3.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "8fd835eb199a",
         "cf97853f7c39"
       ],
       "verified_by": [

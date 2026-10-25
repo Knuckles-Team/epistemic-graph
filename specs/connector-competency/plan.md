@@ -1,6 +1,6 @@
 # EG-CQ-CONN — Design and implementation plan
 
-Owner: epistemic-graph. The governing behavior and requirement
+Owner: Medulla. The governing behavior and requirement
 IDs are in [spec.md](spec.md) and [requirements.md](requirements.md). The complete
 question and vocabulary inventory remains in [design.md](plan.md).
 
@@ -20,11 +20,12 @@ acceptance for each contract kind and declared materialisation.
 
 ## Ownership and interfaces
 
-EG owns the ontology vocabulary, query behavior, provenance, typed abstentions,
+Medulla owns the ontology vocabulary, query behavior, provenance, typed abstentions,
 and engine-side verification. Connector transports and mappings belong to the
-[connector SDK and package owners](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs).
-The [graph-os serving owner](https://github.com/Knuckles-Team/graph-os/tree/main/specs)
-provides the integrated query surface. Cross-repository prerequisites remain
+[connector Scion SDK and package owners](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs).
+
+The [Arbora serving owner](https://github.com/Knuckles-Team/graph-os/tree/main/specs) provides
+the integrated query surface. Cross-repository prerequisites remain
 explicit dependencies, not engine implementations or evidence of delivery.
 
 Each connector rollup has a single-source question, a cross-source question,
@@ -222,7 +223,7 @@ competency question -> vocabulary file (the coverage table) -> classes/propertie
    -> fetch at query time -> provenance-carrying answer or typed abstention
 ```
 
-Owners: ontology files and `schema_sources.rs` registration are epistemic-graph (`crates/eg-core`); connector-side mappings stay with the connector package (cross-repo, not in this spec).
+Owners: ontology files and `schema_sources.rs` registration are Medulla (`crates/eg-core`); connector-side mappings stay with the connector package (cross-repo, not in this spec).
 
 #### Vocabulary
 

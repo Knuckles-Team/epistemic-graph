@@ -15,9 +15,9 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R004.1:** Typed, bounded `ColumnSamplingBudget` with zero/over-ceiling refusal; part of EG-UNIFIED-DATA-PLANE-R004 (parent rollup).
 - [x] **EG-UNIFIED-DATA-PLANE-R005:** Approve and version R2RML named virtual graphs; depends on EG-UNIFIED-DATA-PLANE-R004 and EG-DECISION-ENGINE-R033.
 - [x] **EG-UNIFIED-DATA-PLANE-R005.1:** Typed `MappingApprovalState`/`VirtualGraphMapping` refusing an unapproved query; part of EG-UNIFIED-DATA-PLANE-R005 (parent rollup).
-- [x] **EG-UNIFIED-DATA-PLANE-R029:** Expose `schema_context` through Graph OS; depends on EG-UNIFIED-DATA-PLANE-R004.
+- [x] **EG-UNIFIED-DATA-PLANE-R029:** Expose `schema_context` through Arbora; depends on EG-UNIFIED-DATA-PLANE-R004.
 - [x] **EG-UNIFIED-DATA-PLANE-R029.1:** `SchemaContextCatalog`/`SchemaContextAnswer` typed model plus unknown-table refusal (`crates/eg-types/src/schema_context.rs`).
-- [ ] **EG-UNIFIED-DATA-PLANE-R029.2:** Wire the real `schema_context` query entry point through Graph OS, following the `code_context` pattern.
+- [ ] **EG-UNIFIED-DATA-PLANE-R029.2:** Wire the real `schema_context` query entry point through Arbora, following the `code_context` pattern.
 - [x] **EG-UNIFIED-DATA-PLANE-R030:** Add cross-app entity proposals, approval and evidence; depends on EG-UNIFIED-DATA-PLANE-R005.
 - [x] **EG-UNIFIED-DATA-PLANE-R030.1:** `EntityLinkProposal` typed model plus unapproved/non-Match assertion refusal (`crates/eg-types/src/entity_link_proposal.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R030.2:** Blocking and field-similarity candidate generation across Gramps/Immich/Twenty/Firefly.
@@ -40,7 +40,7 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R010.1:** Typed per-table `AccelerationPolicy` model and validation; part of EG-UNIFIED-DATA-PLANE-R010 (parent rollup).
 - [x] **EG-UNIFIED-DATA-PLANE-R011:** Freshness-aware native/live/accelerated router and EXPLAIN; depends on EG-UNIFIED-DATA-PLANE-R007.
 - [x] **EG-UNIFIED-DATA-PLANE-R011.1:** Typed `FreshnessRoute`/`ReadYourWritesWait` refusing an unbounded wait; part of EG-UNIFIED-DATA-PLANE-R011 (parent rollup).
-- [x] **EG-UNIFIED-DATA-PLANE-R012:** Governed idempotent write-back through SDK/app API and EG-DURABLE-KERNEL-R031 audit; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [x] **EG-UNIFIED-DATA-PLANE-R012:** Governed idempotent write-back through Scion SDK/app API and EG-DURABLE-KERNEL-R031 audit; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R012.1:** Typed `AttachedSourceWriteRequest`/`validate` model in `eg-types::attached_source_governance` with refusal tests for missing approval, audit reservation, idempotency key and business-logic-bypassing direct writes. Depends on EG-UNIFIED-DATA-PLANE-R012.
 
 ## Dialects and conformance
@@ -86,9 +86,9 @@
 - [ ] **EG-UNIFIED-DATA-PLANE-R019.2 (rollup):** Native MongoDB/DocumentDB driver connection and change-stream capture into `ChangeEnvelope`.
   - [ ] **EG-UNIFIED-DATA-PLANE-R019.2.1:** `DocumentDriverConfig` typed driver config plus connect/refusal path (`crates/eg-plan/src/document_connection.rs`).
   - [ ] **EG-UNIFIED-DATA-PLANE-R019.2.2:** Live native driver connection and change-stream capture into `ChangeEnvelope`.
-- [ ] **EG-UNIFIED-DATA-PLANE-R019.3:** Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB.
+- [ ] **EG-UNIFIED-DATA-PLANE-R019.3:** Conformance entry comparing Medulla query results and captured change stream against native MongoDB/DocumentDB.
 - [ ] **EG-UNIFIED-DATA-PLANE-R019.2:** Native MongoDB/DocumentDB driver connection and change-stream capture into `ChangeEnvelope`.
-- [ ] **EG-UNIFIED-DATA-PLANE-R019.3 (rollup):** Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB.
+- [ ] **EG-UNIFIED-DATA-PLANE-R019.3 (rollup):** Conformance entry comparing Medulla query results and captured change stream against native MongoDB/DocumentDB.
   - [x] **EG-UNIFIED-DATA-PLANE-R019.3.1:** `build_document_conformance_entry` typed per-adapter conformance-entry constructor (`crates/eg-types/src/document_conformance.rs`).
   - [ ] **EG-UNIFIED-DATA-PLANE-R019.3.2:** Live comparison against native MongoDB/DocumentDB.
 - [x] **EG-UNIFIED-DATA-PLANE-R020:** Snowflake, BigQuery, DuckDB and Iceberg federation; depends on EG-UNIFIED-DATA-PLANE-R007.
@@ -136,7 +136,7 @@ Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-D
 - [ ] **EG-UNIFIED-DATA-PLANE-R025.3 (rollup):** Review the spike's results and recorded decision; produce the approved ADR. LANDED only once every child is.
   - [x] **EG-UNIFIED-DATA-PLANE-R025.3.1:** Review skeleton — `PgrxSpikeReviewRequest`/`ApprovedPgrxAdr` typed mapping plus the invalid-decision/empty-reviewer/empty-title refusal path (`crates/eg-types/src/pgrx_spike_review.rs`). Test: `crates/eg-types/src/pgrx_spike_review.rs::tests`.
   - [ ] **EG-UNIFIED-DATA-PLANE-R025.3.2:** Filing the approved ADR document against the live spike's actual results.
-- [x] **EG-UNIFIED-DATA-PLANE-R026 / Gramps P0–P5:** Baseline, real-Postgres control, unmodified EG replay, pilot fixes, restores and OBDA understanding; depends on EG-DURABLE-KERNEL-R036. Implement P0–P5 and their exit artifacts as defined in [spec.md](spec.md) and [test-spec.md](test-spec.md).
+- [x] **EG-UNIFIED-DATA-PLANE-R026 / Gramps P0–P5:** Baseline, real-Postgres control, unmodified Medulla replay, pilot fixes, restores and OBDA understanding; depends on EG-DURABLE-KERNEL-R036. Implement P0–P5 and their exit artifacts as defined in [spec.md](spec.md) and [test-spec.md](test-spec.md).
 - [x] **EG-UNIFIED-DATA-PLANE-R026.1:** `GrampsPilotProgress`/`PhaseExitArtifact` typed P0-P5 gate plus wrong/unreviewed/out-of-order refusal (`crates/eg-types/src/gramps_pilot_phase.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R026.2 (rollup):** Run P0-P2 (baseline digest, Postgres control, unmodified corpus replay). LANDED only once every child is.
   - [x] **EG-UNIFIED-DATA-PLANE-R026.2.1:** P0 adapter skeleton — `GrampsBaselineDigest` typed mapping to the P0 phase exit plus the zero-count/empty-digest/unreviewed refusal path (`crates/eg-types/src/gramps_baseline_digest.rs`). Test: `crates/eg-types/src/gramps_baseline_digest.rs::tests`.
@@ -152,7 +152,7 @@ Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-D
   - [x] **EG-UNIFIED-DATA-PLANE-R027.3.1:** `apply_proven_fix` runner applying a feature's fix only once proven, against a fake fix closure (`crates/eg-types/src/pg_compat_feature.rs`); no live Postgres-compatible target needed.
 - [x] **EG-UNIFIED-DATA-PLANE-R028:** Differential Postgres regression, generated and captured-traffic corpora with reviewed deviations and no ratchet; depends on EG-UNIFIED-DATA-PLANE-R022.
 - [x] **EG-UNIFIED-DATA-PLANE-R028.1:** `DeviationBaseline`/`PostgresDeviation` typed model plus no-silent-drop refusal (`crates/eg-types/src/pg_diff_baseline.rs`).
-- [ ] **EG-UNIFIED-DATA-PLANE-R028.2:** Run the Postgres regression suite and generated metamorphic query corpora against EG.
+- [ ] **EG-UNIFIED-DATA-PLANE-R028.2:** Run the Postgres regression suite and generated metamorphic query corpora against Medulla.
   - [x] **EG-UNIFIED-DATA-PLANE-R028.2.1:** `run_differential_harness`/`DifferentialCaseEvaluator` runner assembling a baseline from fake evaluators (`crates/eg-types/src/pg_diff_baseline.rs`); no live Postgres instance needed.
 - [ ] **EG-UNIFIED-DATA-PLANE-R028.3:** Run the captured-application-traffic corpus and publish the harness report.
 - [x] **EG-UNIFIED-DATA-PLANE-R033 (rollup) / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback. Depends on EG-UNIFIED-DATA-PLANE-R026 and every P0–P5 acceptance artifact.

@@ -148,7 +148,7 @@ def _verified_x86_workflow() -> dict:
     """Bind the local structural proof to the reviewed immutable workflow."""
     caller = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     expected = (
-        "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@"
+        "Knuckles-Team/medulla/.github/workflows/eg-release-x86.yml@"
         "35fe8e492acedce6c31c399e98a8c62c26ee2cd3"
     )
     assert caller["jobs"]["build-x86"]["uses"] == expected
@@ -220,7 +220,7 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     assert "pass: primary" in build_job_raw
     assert "pass: reproduction" in build_job_raw
     assert build_job_raw.count("github.event_name == 'workflow_dispatch'") >= 3
-    assert "cp dist-primary/epistemic_graph-*.whl dist/" in build_job_raw
+    assert "cp dist-primary/medulla-*.whl dist/" in build_job_raw
     assert 'CARGO_INCREMENTAL: "0"' in raw
     assert "max-parallel: 1" in raw
     assert "SOURCE_DATE_EPOCH=" in raw
@@ -492,10 +492,10 @@ def test_ci_concurrency_supersedes_older_runs_per_pr_and_per_ref() -> None:
 def _source_archive(
     tmp_path, *, omitted="", version="2.27.1", unsafe=False, extra_members=()
 ):
-    path = tmp_path / "epistemic_graph-2.27.1.tar.gz"
+    path = tmp_path / "medulla-2.27.1.tar.gz"
     entries = {
         "Cargo.toml": '[package]\nversion = "2.27.1"\n',
-        "PKG-INFO": f"Name: epistemic-graph\nVersion: {version}\n",
+        "PKG-INFO": f"Name: medulla\nVersion: {version}\n",
         "crates/leaf/src/lib.rs": "pub fn leaf() {}",
         "build.rs": "fn main() {}",
         "crates/leaf/assets/viz_interactive_client.html": "<main>client</main>",
@@ -507,11 +507,11 @@ def _source_archive(
             if name == omitted:
                 continue
             data = text.encode()
-            item = tarfile.TarInfo(f"epistemic_graph-2.27.1/{name}")
+            item = tarfile.TarInfo(f"medulla-2.27.1/{name}")
             item.size = len(data)
             output.addfile(item, io.BytesIO(data))
         for name, text, kind in extra_members:
-            item = tarfile.TarInfo(f"epistemic_graph-2.27.1/{name}")
+            item = tarfile.TarInfo(f"medulla-2.27.1/{name}")
             item.type = kind
             data = text.encode()
             item.size = len(data) if item.isfile() else 0
@@ -545,16 +545,16 @@ def test_rejects_incomplete_or_misidentified_sources(tmp_path, kwargs, match):
 @pytest.mark.parametrize("shipped", [False, True])
 def test_sdist_declared_license_file_must_ship(tmp_path, shipped):
     # PyPI answers 400 to an sdist whose PKG-INFO `License-File` is absent.
-    path = tmp_path / "epistemic_graph-2.27.1.tar.gz"
+    path = tmp_path / "medulla-2.27.1.tar.gz"
     entries = {
         "Cargo.toml": '[package]\nversion = "2.27.1"\n',
-        "PKG-INFO": "Name: epistemic-graph\nVersion: 2.27.1\nLicense-File: LICENSE\n",
+        "PKG-INFO": "Name: medulla\nVersion: 2.27.1\nLicense-File: LICENSE\n",
     }
     if shipped:
         entries["LICENSE"] = "MIT"
     with tarfile.open(path, "w:gz") as output:
         for name, text in entries.items():
-            item = tarfile.TarInfo(f"epistemic_graph-2.27.1/{name}")
+            item = tarfile.TarInfo(f"medulla-2.27.1/{name}")
             item.size = len(text.encode())
             output.addfile(item, io.BytesIO(text.encode()))
     if shipped:

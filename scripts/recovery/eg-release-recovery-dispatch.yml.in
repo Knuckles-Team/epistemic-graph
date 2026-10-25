@@ -6,4 +6,4 @@ permissions:
   contents: read
 jobs:
   recovery:
-    uses: Knuckles-Team/epistemic-graph/.github/workflows/eg-release-recovery.yml@REVIEWED_REUSABLE_SHA
+    uses: Knuckles-Team/medulla/.github/workflows/eg-release-recovery.yml@REVIEWED_REUSABLE_SHA

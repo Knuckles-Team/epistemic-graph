@@ -80,7 +80,7 @@ say "engine runs on node=$NODE_LABEL ip=$NODE_IP  bind-path=$BIND_SRC"
 
 # ── 1b. preflight — fail FAST on the traps that cause crash-loops on restart ────────
 # (a) the compiled eg-numeric kernel must be importable — /au hard-requires it and it
-#     ships as a .so in the epistemic-graph[numeric] wheel, NOT the /eg source tree, so a
+#     ships as a .so in the medulla[numeric] wheel, NOT the /eg source tree, so a
 #     source-mounted deploy crash-loops the host-daemon on restart without it; (b) the
 #     engine must be reachable; (c) warn if the node config.json shadows a local engine.
 preflight() {
@@ -90,7 +90,7 @@ preflight() {
     say "preflight: eg-numeric kernel importable ✓"
   else
     echo "!! preflight: eg-numeric kernel NOT importable ($REPO/epistemic_graph/numeric.abi3.so missing)." >&2
-    echo "   fix: pip download --no-deps epistemic-graph==<ver>; unzip epistemic_graph/numeric.abi3.so into $REPO/epistemic_graph/" >&2
+    echo "   fix: pip download --no-deps medulla==<ver>; unzip epistemic_graph/numeric.abi3.so into $REPO/epistemic_graph/" >&2
     fail=1
   fi
   # (c) client-node config.json shadowing check (best-effort)

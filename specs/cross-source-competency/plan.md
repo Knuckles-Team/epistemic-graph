@@ -55,7 +55,7 @@ Report: `SupplyChainImpactReport { service_impacts[{service, items[{supplier, co
 
 ## Live integration path
 
-Question, then graph-os intent tool (graph-os repo), then EG `select_sources` reading authority rows, then the federated planner over approved virtual mappings and operation-bound connectors, then report assembly. The decision engine is not duplicated: capability coverage (`EG-DECISION-ENGINE-R126`) answers which components can serve a task; this spec answers which data source is authoritative for a concept.
+Question, then Arbora intent tool (Arbora repo), then Medulla `select_sources` reading authority rows, then the federated planner over approved virtual mappings and operation-bound connectors, then report assembly. The decision engine is not duplicated: capability coverage (`EG-DECISION-ENGINE-R126`) answers which components can serve a task; this spec answers which data source is authoritative for a concept.
 
 ## Quality and release gates
 

@@ -1,4 +1,4 @@
-"""Public Python client package for epistemic-graph."""
+"""Public Python client package for medulla."""
 
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
@@ -92,9 +92,7 @@ def _add_editable_native_overlay() -> None:
 
     source = Path(__file__).resolve().parent
     try:
-        overlay = Path(
-            str(distribution("epistemic-graph").locate_file("epistemic_graph"))
-        )
+        overlay = Path(str(distribution("medulla").locate_file("epistemic_graph")))
     except PackageNotFoundError:
         return
     if overlay != source and overlay.is_dir():

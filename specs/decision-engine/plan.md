@@ -56,7 +56,7 @@ Authenticated request + tenant scope
 
 The request carries a question kind, typed constraints, candidate source, policy reference and work budget. Candidate facts pin component ID, kind, definition digest, lifecycle, capability and model facts, provenance and evidence class. The input digest covers every value read by the decision function. These include the quantized feature matrix, freshness time, embedder/head/schema/policy digests, shortlist mode and applicable exploration propensity. A live graph recomputation is a new decision, not replay of the old one. `verify-replay` runs the pure function over stored inputs and compares canonical bytes across supported targets. Integer `i128` arithmetic is checked; statistical math uses pinned deterministic implementations and quantizes once before digesting. `DecisionRecord` v1 is integer assembly, v2 statistical and v3 topology; decoder compatibility and golden vectors are versioned.
 
-Policy order is monotone: a request may reduce risk, spending and latency budgets, increase minimum support, add denials and tighten the accepted optimality gap; a relaxation returns a typed error. Hard constraints cannot be bypassed by the scorer. The legal set comes from EG-held policy and facts rather than a caller-supplied arbitrary option list. A zero-cost unknown is prohibited; policy may exclude it, require a ceiling, or abstain. Visible constraints and derivations are returned; invisible candidates never appear in counts, digests, why-not or errors.
+Policy order is monotone: a request may reduce risk, spending and latency budgets, increase minimum support, add denials and tighten the accepted optimality gap; a relaxation returns a typed error. Hard constraints cannot be bypassed by the scorer. The legal set comes from Medulla-held policy and facts rather than a caller-supplied arbitrary option list. A zero-cost unknown is prohibited; policy may exclude it, require a ceiling, or abstain. Visible constraints and derivations are returned; invisible candidates never appear in counts, digests, why-not or errors.
 
 ### 3. Exact solve and certificate
 
@@ -66,7 +66,7 @@ The independent certificate verifier checks the input digest, sorted variable ma
 
 ### 4. Statistical decision and evidence
 
-Feature extraction is over the RLS-filtered candidate set. Candidate-local BM25 and visible-only vector scoring avoid corpus statistics and overfetch effects from invisible rows. The feature schema is versioned, records missingness and provenance, and includes only policy-approved facts: similarity, entailed coverage, evidence quality, belief/confidence, cost and latency. The resident option-marker scorer can encode state once and score each structured option in process. It must retain deterministic fixed-point output and CPU portability. Statistical heads are bounded, fitted components, not generative models; text generation and LLM weights stay outside EG.
+Feature extraction is over the RLS-filtered candidate set. Candidate-local BM25 and visible-only vector scoring avoid corpus statistics and overfetch effects from invisible rows. The feature schema is versioned, records missingness and provenance, and includes only policy-approved facts: similarity, entailed coverage, evidence quality, belief/confidence, cost and latency. The resident option-marker scorer can encode state once and score each structured option in process. It must retain deterministic fixed-point output and CPU portability. Statistical heads are bounded, fitted components, not generative models; text generation and LLM weights stay outside Medulla.
 
 Gold-labelled data and executed-option-only bandit data are different datasets. The latter requires exact action propensities and support diagnostics. It also requires inverse propensity or doubly robust estimators, effective sample size and censoring. Self-reported run outcomes cannot promote a head. Independent evaluations with sufficient trace fidelity and approved principal are joined to records. Hierarchical pooling requires minimum support and coarse output to avoid individual-run inference. Conformal and selective-risk calibration use held-out or walk-forward folds. They account for drift and explicitly abstain when their stated bound lacks support. `DecisionEval` receipts pin head, dataset window, policy, feature schema, metrics and thresholds. A policy change or head digest change invalidates the receipt for promotion.
 
@@ -82,7 +82,7 @@ Typed question adapters translate these requests into the same legal-set/evidenc
 
 ### 7. Operational and quality rules
 
-Expose metrics for resolution kind, evidence class, abstention reason, solver nodes and gap, stale catalog refusals, record replay failures, calibration coverage, drift, ESS and latency. Do not put raw tenant facts in metric labels. Contract generation, CCCC, KISS, Dupehound and zero-new-pair jscpd are repository quality checks; Rust formatting, Clippy and focused unit/served tests validate behavior. Hosted CI should create its own local tenant, seed fixtures and, when needed, start an ephemeral EG server. A pre-existing deployment, identity provider or secret is not a baseline PR prerequisite.
+Expose metrics for resolution kind, evidence class, abstention reason, solver nodes and gap, stale catalog refusals, record replay failures, calibration coverage, drift, ESS and latency. Do not put raw tenant facts in metric labels. Contract generation, CCCC, KISS, Dupehound and zero-new-pair jscpd are repository quality checks; Rust formatting, Clippy and focused unit/served tests validate behavior. Hosted CI should create its own local tenant, seed fixtures and, when needed, start an ephemeral Medulla server. A pre-existing deployment, identity provider or secret is not a baseline PR prerequisite.
 ## EG-DECISION-ENGINE-R118 and EG-DECISION-ENGINE-R119 implementation seam
 
 Reuse `crates/eg-numeric/src/risk/reputation.rs` for posterior estimation, `crates/eg-epistemic/src/ranking.rs` for evidence-aware ranking, and `crates/eg-plan/src/exec/reliability.rs` for UQL consumption. The server materialization joins approved, independently labeled decision outcomes under tenant/RLS scope before these pure kernels run. It stores the input revision and calibration policy with the view. Replace request-only reliability authority rather than adding a parallel score table.
@@ -109,7 +109,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R012 | T2 | LANDED | NOT_RUN | Multi-question shared state (assembly-level slate crediting; outcome aggregate keyed across questions) |
 | EG-DECISION-ENGINE-R013 | T2 | LANDED | NOT_RUN | Tenant/RLS-safe decisions — visibility filtered per candidate source before features are computed, no leak via reports or aggregates |
 | EG-DECISION-ENGINE-R014 | T1 | LANDED | NOT_RUN | Composition as constraint optimisation (bounded 0-1 IP over covering/implication/exactly-one/knapsack/feature-compat/cardinality) rather than a single LLM choice |
-| EG-DECISION-ENGINE-R015 | — | CLOSED | NOT_RUN | Invariant: no LLM weights or text generation inside EG; only small fitted statistical heads |
+| EG-DECISION-ENGINE-R015 | — | CLOSED | NOT_RUN | Invariant: no LLM weights or text generation inside Medulla; only small fitted statistical heads |
 | EG-DECISION-ENGINE-R016 | T2 | LANDED | NOT_RUN | Invariant: training uses only independently evaluated outcomes (exact propensities, approved commit principals; self-reported/LLM-resolved outcomes excluded) |
 | EG-DECISION-ENGINE-R017 | — | CLOSED | NOT_RUN | Invariant: one write authority per kind of durable decision state (Agent Library kernel / graph MutationBatch / component-publish+receipt) |
 | EG-DECISION-ENGINE-R018 | — | CLOSED | NOT_RUN | Invariant: unknown facts are never treated as zero in the solver objective |
@@ -129,7 +129,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R032 | T3 | LANDED | NOT_RUN | Entity resolution / owl:sameAs candidates (Noul) with gold-set conformal guarantees |
 | EG-DECISION-ENGINE-R033 | T3 | LANDED | NOT_RUN | Source schema mapping for SQL ingestion and packs (columns → ontology properties) |
 | EG-DECISION-ENGINE-R034 | T4 | BUILT | NOT_RUN | TMS contradiction-handling suggestions (proposal-only, never automatic retraction) |
-| EG-DECISION-ENGINE-R035 | T4 | BUILT | NOT_RUN | AU model/prompt/skill/tool/harness/account-mode/sandbox routing via graph.decide() |
+| EG-DECISION-ENGINE-R035 | T4 | BUILT | NOT_RUN | Meristem model/prompt/skill/tool/harness/account-mode/sandbox routing via graph.decide() |
 | EG-DECISION-ENGINE-R036 | T4 | BUILT | NOT_RUN | graph.assemble() replaces LLM agent composition (architecture decision record §5 amendment) |
 | EG-DECISION-ENGINE-R037 | T4 | BUILT | NOT_RUN | Abstention escalation to LLM/human re-enters as a claim |
 | EG-DECISION-ENGINE-R038 | T4 | BUILT | NOT_RUN | Advisory pre-tool risk scoring |
@@ -173,9 +173,9 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R076 | T4 | BUILT | NOT_RUN | Opt-in nested Pydantic models for decision-type result markers only (2.27.x-scoped subset, precedes the full migration) |
 | EG-DECISION-ENGINE-R077 | T3 | LANDED | NOT_RUN | Shared component schema bump 2→3 (Decide owns numbering; pack adds Withdrawn + new kinds) — one co-landing step |
 | EG-DECISION-ENGINE-R078 | T4 | CLOSED | NOT_RUN | Contract freeze re-issued with the decide feature |
-| EG-DECISION-ENGINE-R079 | AU-batch | BUILT | NOT_RUN | **Embedding admission classifier.** Ingest-time embedding is applied to essentially everything crossing the ChangeEnvelope boundary by explicit design (envelope_ingest.py:2753 — the chokepoint exists "so no future connector can bypass it"). The only gates are four cheap predicates: upsert+typed-payload, text-unchanged short-circuit, empty-derived-text, and a global KG_INGEST_AUTO_EMBED flag defaulting ON. No content-type policy, no per-column decision, no cost budget |
-| EG-DECISION-ENGINE-R080 | AU-batch | BUILT | NOT_RUN | **Ingestion cost ladder with provenance** mirrors the approved Decide ladder. Rung 0 uses AST and records EXTRACTED. Rung 1 uses symbol/type resolution and records INFERRED. Rung 2 uses statistical/community derivation and records DERIVED. Rung 3 uses classical ML/NER and records MODELED. Rung 4 uses embeddings and records EMBEDDED. Rung 5 uses an LLM and records ASSERTED. Run a higher rung only when every lower rung abstains. Never overwrite a deterministic fact with a higher rung. This preserves Decide’s monotone-safety rule |
-| EG-DECISION-ENGINE-R081 | AU-batch | BUILT | NOT_RUN | **Weight community-detection edges by the resolver confidence we ALREADY compute, and stop letting similar_to vote.** The kernel consumes undirected_weighted_adjacency(), which supports weights. Ingestion supplies none, discarding the exact signal that makes communities trustworthy. A scoped call (0.95) should bind a community harder than a unique guess (0.60) — see resolve.rs:663-672. Separately, MinHash similar_to is a RESEMBLANCE edge, not a structural one. Including it conflates "looks alike" with "works together". Two similarly-shaped utility files are not a module. Type-weight edges — calls/imports/inherits structural, similar_to excluded or heavily discounted |
+| EG-DECISION-ENGINE-R079 | Meristem-batch | BUILT | NOT_RUN | **Embedding admission classifier.** Ingest-time embedding is applied to essentially everything crossing the ChangeEnvelope boundary by explicit design (envelope_ingest.py:2753 — the chokepoint exists "so no future connector can bypass it"). The only gates are four cheap predicates: upsert+typed-payload, text-unchanged short-circuit, empty-derived-text, and a global KG_INGEST_AUTO_EMBED flag defaulting ON. No content-type policy, no per-column decision, no cost budget |
+| EG-DECISION-ENGINE-R080 | Meristem-batch | BUILT | NOT_RUN | **Ingestion cost ladder with provenance** mirrors the approved Decide ladder. Rung 0 uses AST and records EXTRACTED. Rung 1 uses symbol/type resolution and records INFERRED. Rung 2 uses statistical/community derivation and records DERIVED. Rung 3 uses classical ML/NER and records MODELED. Rung 4 uses embeddings and records EMBEDDED. Rung 5 uses an LLM and records ASSERTED. Run a higher rung only when every lower rung abstains. Never overwrite a deterministic fact with a higher rung. This preserves Decide’s monotone-safety rule |
+| EG-DECISION-ENGINE-R081 | Meristem-batch | BUILT | NOT_RUN | **Weight community-detection edges by the resolver confidence we ALREADY compute, and stop letting similar_to vote.** The kernel consumes undirected_weighted_adjacency(), which supports weights. Ingestion supplies none, discarding the exact signal that makes communities trustworthy. A scoped call (0.95) should bind a community harder than a unique guess (0.60) — see resolve.rs:663-672. Separately, MinHash similar_to is a RESEMBLANCE edge, not a structural one. Including it conflates "looks alike" with "works together". Two similarly-shaped utility files are not a module. Type-weight edges — calls/imports/inherits structural, similar_to excluded or heavily discounted |
 | EG-DECISION-ENGINE-R082 | T4 | BUILT | NOT_RUN | **Option-marker head geometry for eg-decision** — encode state once, score each option at its own marker, softmax in-process, one forward pass serving several questions; no decoder loop. Adopted from the Laya encoder design |
 | EG-DECISION-ENGINE-R083 | T4 | BUILT | NOT_RUN | **Structured option encoding instead of textual — surpasses the external design by construction.** Laya scores 0.425 on Banking77 (vs 0.870 for the closed baseline) purely because 77 label strings exhaust head_max_len; that is a TOKENISATION limit, not a decision limit. Our options are IRIs carrying SHACL shapes, declared capabilities and cost/latency facts, so an option is encoded from its STRUCTURED features and cardinality bounds on feature-vector width rather than token budget. The failure mode that caps their usable option sets does not exist in ours |
 | EG-DECISION-ENGINE-R084 | T4 | BUILT | NOT_RUN | Conformal coverage and abstention are the primary calibration rung across changing option-set sizes. Temperature scaling is a fallback when exchangeability fails. Report both expected calibration error and empirical coverage. |
@@ -185,33 +185,33 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R088 | T4 | BUILT | NOT_RUN | **Trajectory-prefix belief (the one durable idea from SalesRLAgent).** Turn-by-turn P over conversation PREFIXES is a special case of BELIEF AS OF t over temporal slices. We already have this bitemporal capability; neither external system does. Expose it as a Decide primitive rather than a bespoke sales model |
 | EG-DECISION-ENGINE-R089 | T4 | BUILT | NOT_RUN | **External validation of the decision ladder, to be cited in the design rationale.** Laya base scores 0.362 on typed decisions against 0.318 random and 0.461 majority-class — near chance, and BELOW majority. That is strong empirical evidence that a learned rung cannot be the primary decision mechanism without task labels, which is exactly the approved ladder's rule (Constrained -> Entailed -> Solved -> Scored -> Abstained, learned rungs may only narrow or abstain). Best external corroboration of monotone safety we have |
 | EG-DECISION-ENGINE-R090 | T4 | BUILT | NOT_RUN | **Resident native decision scorer in eg-decision — re-implement, do not vendor.** cua-ai/cua-s1-forms (MIT, open weights) proves the option-attention head geometry works at **706,048 params / 2.8 MB / 7-9 ms on CPU**: byte embedding (vocab 257) -> 2-layer transformer encoder (width 128, 4 heads) -> option-attention head, trained by plain cross-entropy on 10k synthetic episodes in ~30 minutes. That is small enough to be RESIDENT — compiled into the engine, no Python runtime, no sidecar, no IPC hop, no GPU scheduling. This reverses the Laya ruling (421M, do not adopt) on size grounds, not principle |
-| EG-DECISION-ENGINE-R091 | T4 | BUILT | NOT_RUN | **Bit-reproducible decisions via fixed-point arithmetic — the strongest reason to build rather than borrow.** EG records decisions as DecisionRecord graph objects. A nondeterministic scorer makes records unreproducible. That defeats the purpose of recording them. Jev is hosted and irreproducible. Laya uses 421M floats; cua-s1 uses PyTorch floats. Neither offers this at any size. eg-numeric’s detkernel enforces a no-f64-transcendental discipline for this reason. A 2-layer encoder with an attention head using FIXED-POINT INTEGER arithmetic produces bit-identical results across machines and time |
+| EG-DECISION-ENGINE-R091 | T4 | BUILT | NOT_RUN | **Bit-reproducible decisions via fixed-point arithmetic — the strongest reason to build rather than borrow.** Medulla records decisions as DecisionRecord graph objects. A nondeterministic scorer makes records unreproducible. That defeats the purpose of recording them. Jev is hosted and irreproducible. Laya uses 421M floats; cua-s1 uses PyTorch floats. Neither offers this at any size. eg-numeric’s detkernel enforces a no-f64-transcendental discipline for this reason. A 2-layer encoder with an attention head using FIXED-POINT INTEGER arithmetic produces bit-identical results across machines and time |
 | EG-DECISION-ENGINE-R092 | T4 | BUILT | NOT_RUN | **Their limitations, correctly reframed.** (a) "Cannot invent a fill value — only chooses among extractor output" is not a weakness but **monotone safety stated in domain terms**: the scorer SELECTS from a set derived by the deterministic rungs and can never introduce an option — the same rule as EG-DECISION-ENGINE-R085, now independently corroborated. (b) "English-centric bytes, 224-byte context" is a consequence of encoding TEXT; encoding structured IRI/SHACL/capability features directly removes both the language dependence and the byte budget — the same conclusion as EG-DECISION-ENGINE-R083, now confirmed by a second system hitting the same wall |
 | EG-DECISION-ENGINE-R093 | T4 | BUILT | NOT_RUN | **Train the resident scorer from the FX-SYNTH corpus.** cua-s1 trained on 10k synthetic episodes in ~30 minutes. Our synthetic e2e generator (landed, 105 tests) already produces seeded, ground-truth-bearing episodes through the REAL served path, which is a better training source than hand-built synthetic forms — the labels come from the same engine the scorer will run inside. Split: `.1` below is net-new and built; `.2` (wiring `export_gold_corpus` through a served client) remains unbuilt |
 | EG-DECISION-ENGINE-R093.1 | T4 | BUILT | NOT_RUN | Typed `SOURCE_SERVED`/`SOURCE_IN_PROCESS` provenance on gold-corpus items plus `verify_ground_truth`, which refuses a `SOURCE_SERVED` item with an empty or candidate-leaking acceptable set |
 | EG-DECISION-ENGINE-R094 | T4 | BUILT | NOT_RUN | **Operational consequence: a CPU-resident decision plane deploys everywhere the engine does.** A scorer needing a GPU sidecar cannot run in every k8s pod; one compiled into the binary can. 706k params at 2.8 MB needs no GPU, no vLLM, no model server, and retraining a specialist is a ~30-minute job rather than a cluster activity. This is a deployment-topology argument, not a modelling one, and it is why resident beats sidecar even at equal accuracy |
 | EG-DECISION-ENGINE-R095 | T3 | LANDED | NOT_RUN | **The solver's committed replay contract is BROKEN on main, and no publication gate runs the test that proves it.** crates/eg-compute/tests/solve/determinism.rs::the_certificate_digest_matches_the_committed_golden_vector fails on clean main @ be0f1acb0: computed 1bc99ac3ed5d12211a9074b23cafde1f35f7ed90d70608f7e47c4a0429f4ea88 vs committed GOLDEN_DIGEST = 71a64f581943d7cadfaecbcba26644c7d2fd2176ff714a9c1b840dc6659d8f4e. The other two tests in the file PASS, including repeated_solves_are_byte_identical (4 solves compared), so the solver is stable **within** a run — what moved is the value relative to the committed constant. Bit-reproducible certificates are the whole reason decisions are recorded as graph objects (cf. EG-DECISION-ENGINE-R091), and FX-SOLVER shipped in 2.27.x. **Discovered incidentally** by an unrelated grammar change's batched cargo test -p eg-compute; ruled out as that change's own regression by an authoritative Cargo.lock package-set diff (5 added, 0 removed, **0 version-changed**) and confirmed by running the test on clean main. cargo check --locked passes on base |
-| EG-DECISION-ENGINE-R096 | T2 | LANDED | NOT_RUN | **The dominant community-detection wire method cannot carry edge weights or a quality function, so EG-REPO-INGEST-R011 and related rows (see `repository-index-and-ingestion/requirements.md`) are unreachable in production as built.** CommunityDetectEphemeral (crates/eg-types/src/protocol/method/method_02.rs:115-119) is { node_ids: Vec<String>, edges: Vec<(String, String)>, resolution: f64 } — the edge tuple has **no weight/properties slot** and there is **no quality-function selector**, only a modularity resolution. This is the stateless path tried FIRST and taken almost always in production. Consequence: EG-DECISION-ENGINE-R081's confidence weighting and EG-FEDERATED-QUERY-R060's CPM both land correctly in the kernel but are reachable only through the rarer tenant-load fallback branch. **This corrects EG-DECISION-ENGINE-R081's own premise** — the register says "the kernel change is zero, only the weight supply changes", and the weight supply turns out to require a wire change as well as the AU-side change. The AU half is done and correct: confidence was already extracted into EnrichmentEdge.props by enrichment/extractors/code_test.py:274-279 and was being discarded by enrichment/features.py's cluster_features(); the fix now carries it as (source, target, confidence) and never fabricates a value for the Python name-only fallback resolver, which has no tiered confidence model. similar_to is confirmed MOOT on this path — cluster_features/resolve_call_edges only ever build CALLS edges |
+| EG-DECISION-ENGINE-R096 | T2 | LANDED | NOT_RUN | **The dominant community-detection wire method cannot carry edge weights or a quality function, so EG-REPO-INGEST-R011 and related rows (see `repository-index-and-ingestion/requirements.md`) are unreachable in production as built.** CommunityDetectEphemeral (crates/eg-types/src/protocol/method/method_02.rs:115-119) is { node_ids: Vec<String>, edges: Vec<(String, String)>, resolution: f64 } — the edge tuple has **no weight/properties slot** and there is **no quality-function selector**, only a modularity resolution. This is the stateless path tried FIRST and taken almost always in production. Consequence: EG-DECISION-ENGINE-R081's confidence weighting and EG-FEDERATED-QUERY-R060's CPM both land correctly in the kernel but are reachable only through the rarer tenant-load fallback branch. **This corrects EG-DECISION-ENGINE-R081's own premise** — the register says "the kernel change is zero, only the weight supply changes", and the weight supply turns out to require a wire change as well as the Meristem-side change. The Meristem half is done and correct: confidence was already extracted into EnrichmentEdge.props by enrichment/extractors/code_test.py:274-279 and was being discarded by enrichment/features.py's cluster_features(); the fix now carries it as (source, target, confidence) and never fabricates a value for the Python name-only fallback resolver, which has no tiered confidence model. similar_to is confirmed MOOT on this path — cluster_features/resolve_call_edges only ever build CALLS edges |
 | EG-DECISION-ENGINE-R097 | T1 | LANDED | NOT_RUN | **CORRECTED: these are DETERMINISTIC stale-test-assumption defects, NOT load-sensitive races.** Filed originally as EG-DURABLE-KERNEL-R014's family because they surfaced in the constrained gate; A6 root-caused both statically and an independent main-verify run on be0f1acb0 reproduced them unconstrained (1936 passed, 3 failed). **(a)** every_declared_surface_reaches_its_stub — the test's signed() helper hardcoded ONE literal nonce ("05".repeat(32)) for every request while looping over contract_wave_samples(); the transport replay record is a single global OnceLock in test builds and correctly rejects the second non-mutating request presenting that nonce. AgentAssemble records it first, Decide collides. 100% deterministic, present since the test's introduction in a4804f87c. **(b)** roundtrip_dedup_bounded_memory_and_gc — the X2 blob-GC hardening commit 62a2471e1 introduced a default **24-hour GC grace period** and never updated this dispatch-level test, which uses the real wall clock and asserts immediate reclaim after BlobUnref; grace cannot elapse inside a millisecond test, so blobs_reclaimed is always 0. Neither shares any mechanism with EG-DURABLE-KERNEL-R014. Original text follows. ~~Two --lib tests fail under 2-core constrained execution, shape-consistent with EG-DURABLE-KERNEL-R014's load-sensitive family.~~ (a) server::contract_wave::dispatch_reachability_tests::every_declared_surface_reaches_its_stub panics "Decide must reach its contract-wave stub, got nonce already used (replay rejected)" (src/server/contract_wave.rs:184); (b) server::dispatch::graph_pipeline::blob_dispatch_tests::roundtrip_dedup_bounded_memory_and_gc fails "unreferenced blob reclaimed, left: 0, right: 1" (graph_pipeline.rs:2028). Both are exactly what the GOC-70 constrained-parallelism gate exists to catch. **Neither was diagnosed** — the review that found them correctly flagged rather than guessed |
-| EG-DECISION-ENGINE-R098 | — | DEFERRED | NOT_RUN | Defer a Rust microgpt, in-engine autograd, generative UQL model and KLPO loss in EG. Each needs a separate canonical Gap and frozen held-out evidence. Reuse the approved typed Decide ladder for legal-option derivation, calibrated probabilities, cost-sensitive optimal choice, provenance, abstention, NlTemplate and constrained DecideText/UQL; the bounded resident scorer is non-generative and does not authorize a GPT |
+| EG-DECISION-ENGINE-R098 | — | DEFERRED | NOT_RUN | Defer a Rust microgpt, in-engine autograd, generative UQL model and KLPO loss in Medulla. Each needs a separate canonical Gap and frozen held-out evidence. Reuse the approved typed Decide ladder for legal-option derivation, calibrated probabilities, cost-sensitive optimal choice, provenance, abstention, NlTemplate and constrained DecideText/UQL; the bounded resident scorer is non-generative and does not authorize a GPT |
 | EG-DECISION-ENGINE-R099 | T3 | LANDED | NOT_RUN | Wikidata alignment connector (wikidataId, skos:exactMatch) feeding EG-DECISION-ENGINE-R032 entity resolution keys for Region/Country/Taxon/Food/Nutrient. EG-DECISION-ENGINE-R033 proposes connector schema_mappings against world_model-v1 properties with the world-model SHACL shapes as acceptance |
 | EG-DECISION-ENGINE-R100 | T6 | BUILT | NOT_RUN | Retrieval outcome join (cited evidence + independent evaluation) on retrieval DecisionRecords; durable hard negatives |
 | EG-DECISION-ENGINE-R101 | T6 | BUILT | NOT_RUN | Query-side low-rank embedding adapter head, post-RLS in ANN probe, promoted by DecisionEval receipt |
 | EG-DECISION-ENGINE-R102 | T6 | BUILT | NOT_RUN | Schema repair: Decide mapping -> candidate GraphSchema/pack -> ABox check -> shadow branch ingest -> approved activation |
 | EG-DECISION-ENGINE-R103 | T6 | BUILT | NOT_RUN | Calibrated flip confidence per horizon with conformal abstention |
 | EG-DECISION-ENGINE-R104 | T4 | BUILT | NOT_RUN | DecideText joins the UQL lexer/grammar family ($param, quote-aware candidate block, structured errors, grammar table) |
-| EG-DECISION-ENGINE-R105 | T6 | BUILT | NOT_RUN | **ST-1** — swarm-topology TBox + shapes. Publisher through GraphSchema.attach. SHACL positive/negative fixtures — AU agent_utilities/knowledge_graph/ontology/swarm_topology/{topology.ttl,shapes.ttl}, decide/topology/schema_source.py |
-| EG-DECISION-ENGINE-R106 | T6 | BUILT | NOT_RUN | **ST-2** — Reference templates (single, pipeline, fan-out/join, supervisor→workers, critique loop, council) as AgentGraph templates with TopologyFacts — AU decide/topology/templates.py |
-| EG-DECISION-ENGINE-R107 | T6 | BUILT | NOT_RUN | **ST-3** — Contract: topology.rs types (≤12), AssemblyRequirements.topology, TopologyFacts on template facts, record version increment + v1 goldens, generated Python, one pin move — EG crates/eg-types/src/decision/topology.rs (new), decision/request.rs, decision/record/outcome.rs, agent_component.rs; eg-capabilities pins |
-| EG-DECISION-ENGINE-R108 | T6 | BUILT | NOT_RUN | **ST-4** — Publish-time TemplateTopologyShape validation, programmatic and fail-closed — EG src/server/handlers/admin/agent.rs hook + src/server/handlers/decide/topology_shape.rs (new) |
-| EG-DECISION-ENGINE-R109 | T6 | BUILT | NOT_RUN | **ST-5** — Admissibility entailment stage: composed-schema digest in inputs, OWL derivation, TopologyAdmissible derivation, elimination — EG crates/eg-compute/src/assemble/topology/admissible.rs (new) |
-| EG-DECISION-ENGINE-R110 | T6 | BUILT | NOT_RUN | **ST-6** — Model rows: one-hot width/rounds, lease/deadline/demand/verify/cap rows, precomputed tables, brute-force oracle ≤20 vars — EG crates/eg-compute/src/assemble/topology/{model.rs,tables.rs} (new), assemble/template.rs (call site) |
-| EG-DECISION-ENGINE-R111 | T6 | BUILT | NOT_RUN | **ST-7** — AU convergence: topology.py asks the topology question; delete TopologyEngine.record_outcome/EMA and KGTeamComposer success-rate reuse; build ElasticTopologyAdmission from the plan; source gate bans Cypher TopologyTemplate writes — AU decide/consumers/topology.py, graph/{subagent_patterns,topology_engine,team_composer}.py, scripts/ gate |
-| EG-DECISION-ENGINE-R112 | T6 | BUILT | NOT_RUN | **ST-8** — Capacity premise: CapacityStatus → headroom observations at the request priority. Infeasible{lease:*} naming — EG src/server/handlers/decide/capacity_premise.rs (new) |
-| EG-DECISION-ENGINE-R113 | T6 | BUILT | NOT_RUN | **ST-9** — graph-os orchestration: evaluate → commit → publish with synthesis_evidence → all-or-nothing AcquireCapacity → KgDelegate. One re-decide on denial. Release on stop — graph-os graph_os/a2a/{routing,composition}.py, control_plane/runs/admission.py |
-| EG-DECISION-ENGINE-R114 | T6 | BUILT | NOT_RUN | **ST-10** — Harness allowance: RunSpec.subagents: SubagentAllowance, a negotiation rule, adapter enforcement flags — AU agent_utilities/layers/{contracts,negotiation}.py, adapters/* descriptors |
-| EG-DECISION-ENGINE-R115 | T6 | BUILT | NOT_RUN | **ST-11** — Continuation/stop: au.swarm.continue evaluate-only point, narrow-only options, StopRule evaluator over L5, ReleaseCapacity on narrow — AU decide/consumers/continuation.py (new), decide/points.py |
-| EG-DECISION-ENGINE-R116 | T5 | QUEUED | NOT_RUN | Replace the engine facade with the EG client. Delete kg/core/{engine,engine_tasks (7,715),engine_ingestion,engine_memory,engine_task_query,engine_resolver,engine_transport,engine_lock,engine_breaker}.py, kg/facade.py, kg/orchestration/engine_*.py (4,887 LOC). |
+| EG-DECISION-ENGINE-R105 | T6 | BUILT | NOT_RUN | **ST-1** — swarm-topology TBox + shapes. Publisher through GraphSchema.attach. SHACL positive/negative fixtures — Meristem agent_utilities/knowledge_graph/ontology/swarm_topology/{topology.ttl,shapes.ttl}, decide/topology/schema_source.py |
+| EG-DECISION-ENGINE-R106 | T6 | BUILT | NOT_RUN | **ST-2** — Reference templates (single, pipeline, fan-out/join, supervisor→workers, critique loop, council) as AgentGraph templates with TopologyFacts — Meristem decide/topology/templates.py |
+| EG-DECISION-ENGINE-R107 | T6 | BUILT | NOT_RUN | **ST-3** — Contract: topology.rs types (≤12), AssemblyRequirements.topology, TopologyFacts on template facts, record version increment + v1 goldens, generated Python, one pin move — Medulla crates/eg-types/src/decision/topology.rs (new), decision/request.rs, decision/record/outcome.rs, agent_component.rs; eg-capabilities pins |
+| EG-DECISION-ENGINE-R108 | T6 | BUILT | NOT_RUN | **ST-4** — Publish-time TemplateTopologyShape validation, programmatic and fail-closed — Medulla src/server/handlers/admin/agent.rs hook + src/server/handlers/decide/topology_shape.rs (new) |
+| EG-DECISION-ENGINE-R109 | T6 | BUILT | NOT_RUN | **ST-5** — Admissibility entailment stage: composed-schema digest in inputs, OWL derivation, TopologyAdmissible derivation, elimination — Medulla crates/eg-compute/src/assemble/topology/admissible.rs (new) |
+| EG-DECISION-ENGINE-R110 | T6 | BUILT | NOT_RUN | **ST-6** — Model rows: one-hot width/rounds, lease/deadline/demand/verify/cap rows, precomputed tables, brute-force oracle ≤20 vars — Medulla crates/eg-compute/src/assemble/topology/{model.rs,tables.rs} (new), assemble/template.rs (call site) |
+| EG-DECISION-ENGINE-R111 | T6 | BUILT | NOT_RUN | **ST-7** — Meristem convergence: topology.py asks the topology question; delete TopologyEngine.record_outcome/EMA and KGTeamComposer success-rate reuse; build ElasticTopologyAdmission from the plan; source gate bans Cypher TopologyTemplate writes — Meristem decide/consumers/topology.py, graph/{subagent_patterns,topology_engine,team_composer}.py, scripts/ gate |
+| EG-DECISION-ENGINE-R112 | T6 | BUILT | NOT_RUN | **ST-8** — Capacity premise: CapacityStatus → headroom observations at the request priority. Infeasible{lease:*} naming — Medulla src/server/handlers/decide/capacity_premise.rs (new) |
+| EG-DECISION-ENGINE-R113 | T6 | BUILT | NOT_RUN | **ST-9** — Arbora orchestration: evaluate → commit → publish with synthesis_evidence → all-or-nothing AcquireCapacity → KgDelegate. One re-decide on denial. Release on stop — Arbora graph_os/a2a/{routing,composition}.py, control_plane/runs/admission.py |
+| EG-DECISION-ENGINE-R114 | T6 | BUILT | NOT_RUN | **ST-10** — Harness allowance: RunSpec.subagents: SubagentAllowance, a negotiation rule, adapter enforcement flags — Meristem agent_utilities/layers/{contracts,negotiation}.py, adapters/* descriptors |
+| EG-DECISION-ENGINE-R115 | T6 | BUILT | NOT_RUN | **ST-11** — Continuation/stop: au.swarm.continue evaluate-only point, narrow-only options, StopRule evaluator over L5, ReleaseCapacity on narrow — Meristem decide/consumers/continuation.py (new), decide/points.py |
+| EG-DECISION-ENGINE-R116 | T5 | QUEUED | NOT_RUN | Replace the engine facade with the Medulla client. Delete kg/core/{engine,engine_tasks (7,715),engine_ingestion,engine_memory,engine_task_query,engine_resolver,engine_transport,engine_lock,engine_breaker}.py, kg/facade.py, kg/orchestration/engine_*.py (4,887 LOC). |
 | EG-DECISION-ENGINE-R117 | T6 | QUEUED | NOT_RUN | Series-expression operators DERIVE (lag/diff/ret/logret/rolling mean·std·sum·min·max·rank·corr/ewma/zscore/ratio/weighted sums) as checkpointed incremental kernels in eg-tsdb/src/derive; one kernel behind UQL DERIVE, SQL window UDFs and matching PromQL functions; feature predictive power (rolling rank IC, IC decay, IR with effective-N, bootstrap CI) as a DecisionEval FeatureSkill report; dedupe rolling_zscore/ewma (D2); Python reference goldens |
 | EG-DECISION-ENGINE-R120 | T4 | BUILT | NOT_RUN | tests/test_pinned_reference_resolution.py::test_each_layer_is_anchored_on_its_own_admission_step red on main since d6baf6dfc: the gate counts two non-writing helpers (a read and a replay) as COMPONENT admission points. Decide the rule (admission = persisted write path only?) and fix gate or code; prove both ways |
 | EG-DECISION-ENGINE-R126 | T6 | SPECIFIED | NOT_RUN | Capability coverage query: per task, the capability closure and the visible Agent Library templates and A2A agent cards covering each capability, with premises |
@@ -632,7 +632,7 @@ Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/
 
 Types: `RunTraceRecord`, `RuntimeQuota`, `QuotaDefaults`, `QuestionKind::RuntimeQuota`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the match arm. Failure behavior: resolve each effective default D and hard tenant ceiling C with D <= C. `decide_runtime_quota(task_class, policy, request)` first refuses any requested R > C, then returns min(D, R), or D on omission. Increases above D through C are ignored; lower requests tighten. A missing task class abstains to effective defaults under C only after the ceiling check.
 
-Existing code: `crates/eg-types/src/outcome_bundle.rs:56`, `crates/eg-durable/src/project.rs:68`, `crates/eg-core/ontology/orchestration-v1.ttl:250`, `crates/eg-types/src/decision/topology.rs:75`. Reachable today: the fenced terminal outcome extension and receipt writes already exist. RuntimeQuota dispatch, RunTraceRecord adaptation, and produced-link materialization are new work. The end-to-end fixture queries Decide first, commits the summary through CommitWorkItemResult second, then queries the persisted produced link; it also proves invalid fences write neither trace nor link. Search terms used with no match: `quota`, `wall_time`, `process_limit`, `memory_limit`, `RuntimeQuota`. Moves from agent-utilities: none named.
+Existing code: `crates/eg-types/src/outcome_bundle.rs:56`, `crates/eg-durable/src/project.rs:68`, `crates/eg-core/ontology/orchestration-v1.ttl:250`, `crates/eg-types/src/decision/topology.rs:75`. Reachable today: the fenced terminal outcome extension and receipt writes already exist. RuntimeQuota dispatch, RunTraceRecord adaptation, and produced-link materialization are new work. The end-to-end fixture queries Decide first, commits the summary through CommitWorkItemResult second, then queries the persisted produced link; it also proves invalid fences write neither trace nor link. Search terms used with no match: `quota`, `wall_time`, `process_limit`, `memory_limit`, `RuntimeQuota`. Moves from Meristem: none named.
 
 Decision: the engine fixes the numbers and the harness enforces them, so a tenant policy changes limits without a harness release. Rejected alternative: constants in the harness, because they cannot differ per tenant or task class.
 
@@ -649,7 +649,7 @@ Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/
 
 Types: `Subtask`, `AggregationOp`, `SkillStep`, `TaskPlan`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arms. Failure behavior: an uncovered subtask or empty catalog abstains; a cycle refuses.
 
-Moves from agent-utilities: `agent_utilities/capabilities/fleet_tool_search.py:54`, `agent_utilities/graph/planning/__init__.py:165`, `agent_utilities/decide/consumers/task_planner.py:211`.
+Moves from Meristem: `agent_utilities/capabilities/fleet_tool_search.py:54`, `agent_utilities/graph/planning/__init__.py:165`, `agent_utilities/decide/consumers/task_planner.py:211`.
 
 Existing code: `crates/eg-types/src/decision/statistical/tool_subset.rs:58`, `crates/eg-types/src/decision/topology.rs:110`, `crates/eg-compute/src/assemble/topology.rs:54`, `crates/eg-compute/src/assemble/conclude.rs:99`, `src/server/handlers/decide/stat_tool_subset.rs:33`. Reachable today: yes for the covering subset (`tool_subset_outcome` is matched at `stat_decide.rs:134`) and for topology `pose`; no for relevance search, decomposition with an independence flag and the skill plan. Search terms used with no match: `skill_plan`, `SkillPlan`, `plan_skills`, `decompose`, `aggregation`. The existing `EG-DECISION-ENGINE-R045` owns the covering subset and is reused unchanged. `rank_tools_by_relevance(query, catalog, required_capabilities, context_budget_tokens, policy)` first applies relevance_floor, descending relevance with tool-id ties, and top_k. It passes the retained candidates and explicit capability/budget inputs to R045, which selects by uncovered-capability gain per token, then lower token cost and tool id. It preserves coverage/budget refusals; it does not optimize relevance. Acceptance includes a retained lower-relevance coverage winner and loss of required coverage after filtering.
 
@@ -665,7 +665,7 @@ Data flow: harness run end -> `compile_program` (`crates/eg-types/src/decision/p
 
 Types: `CompiledProgram`, `ProgramStep`, `MAX_PROGRAM_STEPS`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arm. Failure behavior: an unsuccessful run or an overlong trace refuses; a missing program abstains.
 
-Moves from agent-utilities: `agent_utilities/observability/replay_engine.py:48`.
+Moves from Meristem: `agent_utilities/observability/replay_engine.py:48`.
 
 Existing code: `src/server/handlers/decide/candidates.rs:415`, `src/server/handlers/decide/stat_tool_subset.rs:33`. Reachable today: no. `crates/eg-tsdb/src/derive/mod.rs:152` defines a `Program` for derived series, which is a different type. Search terms used with no match: `task_signature`, `TaskSignature`, `compiled_program`, `store_program`, `lookup_program`, `MAX_PROGRAM_STEPS`.
 
@@ -681,7 +681,7 @@ Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/
 
 Types: `PredictionDeclaration`, `RoundVerdict`, `EvolutionDefaults`, `StageAllocation`, `RunBudget`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arms. Failure behavior: an empty prediction abstains; an unaffordable budget refuses. Evaluate declared-direction and opposite-direction thresholds independently. Only the declared threshold met gives `verified`; only the opposite threshold met gives `falsified`; both or neither gives `unverified`. At flip_fraction 0.5 a five/five split is `unverified`, with an explicit simultaneous-threshold test.
 
-Moves from agent-utilities: `agent_utilities/decide/consumers/routing.py:58` (allocation). The verdict has no code to move.
+Moves from Meristem: `agent_utilities/decide/consumers/routing.py:58` (allocation). The verdict has no code to move.
 
 Existing code: `src/server/handlers/decide/stat_tool_subset.rs:33`, `src/server/handlers/decide/candidates.rs:415`. Reachable today: no. `EG-DECISION-ENGINE-R035` owns routing among models, but it chooses one option per request and has no budget across stages, so this rollup is separate. Search terms used with no match: `falsified`, `flip_fraction`, `PredictionVerdict`, `stage_budget`, `ModelAllocation`, `model_per_stage`.
 
@@ -697,7 +697,7 @@ Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/
 
 Types: `ParallelMapLimits`, `WindowBudget`, `OverWindowPlan`; `ContextPolicy` is reused. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arm. Failure behavior: an exhausted budget or an item count over the limit refuses; a missing window abstains to the default.
 
-Moves from agent-utilities: `agent_utilities/rlm/config.py:60`, `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:422`.
+Moves from Meristem: `agent_utilities/rlm/config.py:60`, `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:422`.
 
 Existing code: `crates/eg-types/src/decision/statistical/harness_config.rs:81`, `crates/eg-compute/src/assemble/eliminate.rs:97`, `crates/eg-compute/src/assemble/eliminate.rs:138`, `src/server/handlers/decide/candidates.rs:415`. Window elimination in `eliminate.rs:97` is reachable today and discards candidates with insufficient windows. The over-window plan and limits are not reachable. `EG-DECISION-ENGINE-R128` owns the context policy and thresholds. This rollup reuses them and adds the recursive plan and remaining limits. Search terms used with no match: `over_window`, `window_fraction`, `max_items`, `OverWindow`.
 
@@ -707,7 +707,7 @@ Cross-repository: `AU-CONTEXT-R004` assembles context from the plan; `AU-HARNESS
 
 ### R137.13–R137.16: Consumer binding and cross-package constraints
 
-R137.13 binds the AU-CONTEXT-R004 consumer: AU applies exact selected package ids/resolutions without reranking or substitution. R137.14 extends tool-output and recursive-mode signals to package-selection dispatch. R137.16 integrates task-complexity pressure and remaining-budget derivation with harness_config dependency. All three preserve R137.7–.12 package semantics and whole-prompt-fit/recursive-decomposition distinctions.
+R137.13 binds the AU-CONTEXT-R004 consumer: Meristem applies exact selected package ids/resolutions without reranking or substitution. R137.14 extends tool-output and recursive-mode signals to package-selection dispatch. R137.16 integrates task-complexity pressure and remaining-budget derivation with harness_config dependency. All three preserve R137.7–.12 package semantics and whole-prompt-fit/recursive-decomposition distinctions.
 
 ## Red-team records and probe verdict (R138)
 
@@ -717,7 +717,7 @@ Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/
 
 Types: `RedTeamAttack`, `RedTeamTransform`, `RedTeamScorer`, `ProbeVerdict`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arm. Failure behavior: a category with no scorer abstains; a missing score is inconclusive.
 
-Moves from agent-utilities: `agent_utilities/harness/reliability_scorers.py:1`.
+Moves from Meristem: `agent_utilities/harness/reliability_scorers.py:1`.
 
 Existing code: `src/server/handlers/decide/candidates.rs:415`, `src/server/handlers/decide/stat_tool_subset.rs:33`. Reachable today: no. Search terms used with no match: `red_team`, `redteam`, `RedTeam`, `jailbreak`, `prompt_injection`, `attack`, `score_probe`.
 
@@ -758,25 +758,25 @@ R128.8–R128.13 and R128.15 remain pending.
 
 This extends the existing R137 owner. The first six children retain their acceptance. R137.7–.12 specify the certified package producer required by [AU-CONTEXT-R004](https://github.com/Knuckles-Team/agent-utilities/blob/50c313ab01871ff7e10aee2a9d0254fa55d71f07/specs/agent-context-and-finance/requirements.md#L8). Acceptance covers exact-token multi-resolution selection within window, cost and latency limits. It also requires preserved cited ranges/source ids and abstention when no admissible package fits. Existing R128 policy rows are dependencies and are not changed. R045 tool set-cover and EG-INGEST-WORKER-R003.2 relevance selection do not own this optimization.
 
-Source inventory (EG `fe6982b29d0b60ad2a10092c959c238eeb74e919`, AU `50c313ab01871ff7e10aee2a9d0254fa55d71f07`):
+Source inventory (Medulla `fe6982b29d0b60ad2a10092c959c238eeb74e919`, Meristem `50c313ab01871ff7e10aee2a9d0254fa55d71f07`):
 
-- AU [Capacity.tokens, context_knapsack.py:98](https://github.com/Knuckles-Team/agent-utilities/blob/50c313ab01871ff7e10aee2a9d0254fa55d71f07/agent_utilities/knowledge_graph/retrieval/context_knapsack.py#L98) computes window minus reserved output, money/price, latency times throughput and caller ceiling. Its current truthiness checks omit unknown/zero rates. The certified contract explicitly distinguishes known zero from unknown under R018. Capacity rounding must stay within the original physical ceilings. Source `_whole` uses a float tolerance. That tolerance cannot permit exceeding a ceiling.
-- AU [knapsack_model:161](https://github.com/Knuckles-Team/agent-utilities/blob/50c313ab01871ff7e10aee2a9d0254fa55d71f07/agent_utilities/knowledge_graph/retrieval/context_knapsack.py#L161) emits at-most-one resolution groups, token capacity and lexicographic net-value/token objectives. `_net_value:157` uses scale 1,000,000 and ties-to-even integer rounding. [fit_to_budget:422](https://github.com/Knuckles-Team/agent-utilities/blob/50c313ab01871ff7e10aee2a9d0254fa55d71f07/agent_utilities/knowledge_graph/retrieval/context_knapsack.py#L422), called at `context_compiler.py:1128`, builds full/summary slices and applies their selected resolutions. `select_slices:272` can currently use an explicitly uncertified greedy fallback; that path is not proof of the new producer contract.
-- EG [stat_decide.rs:134](https://github.com/Knuckles-Team/epistemic-graph/blob/fe6982b29d0b60ad2a10092c959c238eeb74e919/src/server/handlers/decide/stat_decide.rs#L134) dispatches `tool_subset_outcome`; it has no `ContextBudget` arm. `QuestionKind` at `crates/eg-types/src/decision/statistical.rs:58` also lacks that variant. The planned records extend the already specified `context_budget.rs`, not a second selector/store.
-- EG [solve/mod.rs:1](https://github.com/Knuckles-Team/epistemic-graph/blob/fe6982b29d0b60ad2a10092c959c238eeb74e919/crates/eg-compute/src/solve/mod.rs#L1) exposes integer model/constraint primitives, `solve` and independent `verify`. R014's existing assembly lowering at `crates/eg-compute/src/assemble/model.rs:96` is assembly-specific: reuse its constraint model/primitives, not an assumed generic package call. R004/R049 verification is `crates/eg-compute/src/solve/verify/mod.rs:23`; R011 bounds deterministic work, and R018 prevents false confidence from unknown facts. None of these reuse dependencies proves package wiring.
+- Meristem [Capacity.tokens, context_knapsack.py:98](https://github.com/Knuckles-Team/agent-utilities/blob/50c313ab01871ff7e10aee2a9d0254fa55d71f07/agent_utilities/knowledge_graph/retrieval/context_knapsack.py#L98) computes window minus reserved output, money/price, latency times throughput and caller ceiling. Its current truthiness checks omit unknown/zero rates. The certified contract explicitly distinguishes known zero from unknown under R018. Capacity rounding must stay within the original physical ceilings. Source `_whole` uses a float tolerance. That tolerance cannot permit exceeding a ceiling.
+- Meristem [knapsack_model:161](https://github.com/Knuckles-Team/agent-utilities/blob/50c313ab01871ff7e10aee2a9d0254fa55d71f07/agent_utilities/knowledge_graph/retrieval/context_knapsack.py#L161) emits at-most-one resolution groups, token capacity and lexicographic net-value/token objectives. `_net_value:157` uses scale 1,000,000 and ties-to-even integer rounding. [fit_to_budget:422](https://github.com/Knuckles-Team/agent-utilities/blob/50c313ab01871ff7e10aee2a9d0254fa55d71f07/agent_utilities/knowledge_graph/retrieval/context_knapsack.py#L422), called at `context_compiler.py:1128`, builds full/summary slices and applies their selected resolutions. `select_slices:272` can currently use an explicitly uncertified greedy fallback; that path is not proof of the new producer contract.
+- Medulla [stat_decide.rs:134](https://github.com/Knuckles-Team/epistemic-graph/blob/fe6982b29d0b60ad2a10092c959c238eeb74e919/src/server/handlers/decide/stat_decide.rs#L134) dispatches `tool_subset_outcome`; it has no `ContextBudget` arm. `QuestionKind` at `crates/eg-types/src/decision/statistical.rs:58` also lacks that variant. The planned records extend the already specified `context_budget.rs`, not a second selector/store.
+- Medulla [solve/mod.rs:1](https://github.com/Knuckles-Team/epistemic-graph/blob/fe6982b29d0b60ad2a10092c959c238eeb74e919/crates/eg-compute/src/solve/mod.rs#L1) exposes integer model/constraint primitives, `solve` and independent `verify`. R014's existing assembly lowering at `crates/eg-compute/src/assemble/model.rs:96` is assembly-specific: reuse its constraint model/primitives, not an assumed generic package call. R004/R049 verification is `crates/eg-compute/src/solve/verify/mod.rs:23`; R011 bounds deterministic work, and R018 prevents false confidence from unknown facts. None of these reuse dependencies proves package wiring.
 
-The planned flow starts at authorized served `Decide(ContextBudget, package)` with existing tenant/policy/candidate checks. Package lowering produces EG's bounded 0-1 model. `solve` and independent `verify` produce a sealed package result. AU-CONTEXT-R004 applies the result with citations intact. Keep package token totals distinct from the whole serialized prompt. Package certification cannot assert full-prompt fit, a latency service guarantee, or completion of recursive decomposition. Monetary/latency totals mean input-token cost and processing estimates under the bound rates. They do not silently absorb other charges or runtime overhead. Optional absent ceilings do not invent limits; active ceilings require their rate facts. A known zero price imposes no monetary token restriction. Known zero throughput with an active latency ceiling allows zero tokens. Reservations above the window clamp capacity to zero.
+The planned flow starts at authorized served `Decide(ContextBudget, package)` with existing tenant/policy/candidate checks. Package lowering produces Medulla's bounded 0-1 model. `solve` and independent `verify` produce a sealed package result. AU-CONTEXT-R004 applies the result with citations intact. Keep package token totals distinct from the whole serialized prompt. Package certification cannot assert full-prompt fit, a latency service guarantee, or completion of recursive decomposition. Monetary/latency totals mean input-token cost and processing estimates under the bound rates. They do not silently absorb other charges or runtime overhead. Optional absent ceilings do not invent limits; active ceilings require their rate facts. A known zero price imposes no monetary token restriction. Known zero throughput with an active latency ceiling allows zero tokens. Reservations above the window clamp capacity to zero.
 
 Certification requires an independently verified optimal, zero-gap result. R011 may still return unresolved or gap evidence. That evidence cannot become this package's certified optimum. Bind the complete input universe and revisions. A solver certificate over an integer model cannot certify different evidence. Candidate weights are exact for their declared serialized slices/tokenizer. The separate whole-prompt consumer checks delimiters, fixed prompt content and aggregate serialization. No implementation or test receipt is added by these definitions.
 
 <!-- spec-definition-patch:comparative-analysis-r139 -->
 ## Comparative analysis plan producer (R139)
 
-The EG producer consumes only caller-supplied, revision-pinned `UnifiedQuery` results and vectors. It filters to caller-visible candidates, caps the universe at 64, and emits stable order. Versioned default importance thresholds are 0.50 for selective synthesis and 0.80 for deep extraction. Stage budgets are exactly 0 discovery, 1 or 2 synthesis calls, and 0–64 extraction calls; the explicit total must cover their sum. No stage retries outside budget. The plan contains no model-generated text.
+The Medulla producer consumes only caller-supplied, revision-pinned `UnifiedQuery` results and vectors. It filters to caller-visible candidates, caps the universe at 64, and emits stable order. Versioned default importance thresholds are 0.50 for selective synthesis and 0.80 for deep extraction. Stage budgets are exactly 0 discovery, 1 or 2 synthesis calls, and 0–64 extraction calls; the explicit total must cover their sum. No stage retries outside budget. The plan contains no model-generated text.
 
-The real EG path is public `Method::Decide` through `src/server/handlers/decide/statistical.rs::handle_decide` and `src/server/handlers/decide/stat_decide.rs::handle_decide`; add the `ComparativeAnalysisPlan` arm and make zero model calls. The AU consumer may invoke only after receiving the plan, through `agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py::compiled_chat_completion`; AU binds actual calls, run ID and request/result digests to a separate receipt. `AU-HARNESS-R024.3` is trace-digest support only. The AU consumer contract and served receipt remain an explicit external dependency, not covered by EG changes.
+The real Medulla path is public `Method::Decide` through `src/server/handlers/decide/statistical.rs::handle_decide` and `src/server/handlers/decide/stat_decide.rs::handle_decide`; add the `ComparativeAnalysisPlan` arm and make zero model calls. The Meristem consumer may invoke only after receiving the plan, through `agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py::compiled_chat_completion`; Meristem binds actual calls, run ID and request/result digests to a separate receipt. `AU-HARNESS-R024.3` is trace-digest support only. The Meristem consumer contract and served receipt remain an explicit external dependency, not covered by Medulla changes.
 
-Dependency order: typed request/plan/refusal/evidence round trip; deterministic threshold and budget behavior; real Decide wiring; served stale-input and budget refusals; then independent AU served consumer and receipt. Keep R080.1, R136.3, R137, R138 and existing producer obligations intact.
+Dependency order: typed request/plan/refusal/evidence round trip; deterministic threshold and budget behavior; real Decide wiring; served stale-input and budget refusals; then independent Meristem served consumer and receipt. Keep R080.1, R136.3, R137, R138 and existing producer obligations intact.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:owner-batch-20261012-decision-engine -->
@@ -785,161 +785,161 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 ### `EG-DECISION-ENGINE-R135.7` — AU:18
 
 - Existing rollup: `EG-DECISION-ENGINE-R135`. Preserve `.2`, `.3`, `.5` and adjacent `AU-HARNESS-R022.2`.
-- EG contract: accept the closed `PrePlanTestReceiptV1` fields named in requirements. Bind one receipt to planning and verification. Score `tests_ran` and `artifacts_exist` separately. Promote only after zero exit and readable artifacts.
+- Medulla contract: accept the closed `PrePlanTestReceiptV1` fields named in requirements. Bind one receipt to planning and verification. Score `tests_ran` and `artifacts_exist` separately. Promote only after zero exit and readable artifacts.
 - Production attach point: existing `compile_program` / `AgentLibraryStore` / `handle_decide` `ProgramLookup`. Retain `CompiledProgram` and current store, with no second reuse model.
-- Pending owner contract. exact AU pre-plan test producer and verifier receipt ID/schema. `AU-HARNESS-R022.2` is not enough evidence for those fields.
+- Pending owner contract. exact Meristem pre-plan test producer and verifier receipt ID/schema. `AU-HARNESS-R022.2` is not enough evidence for those fields.
 - Planned positive/negative served acceptance. valid receipt is read back from plan, verifier and promoted pattern. Missing, late, stale, changed-revision/command, failed test or unreadable artifact evidence blocks promotion.
 ### `EG-DECISION-ENGINE-R106.1` — AU:19
 
 - Existing rollup: `EG-DECISION-ENGINE-R106`. Preserve topology shape and `EG-ORCH-VOCAB-R006.3` loop-back semantics.
-- EG contract: `CouncilCoordinationV1` accepts a complete, non-duplicated set of revision-bound `CouncilPositionV1` records and a pinned quorum/conflict policy. Output retains all participants, accepted/rejected positions, outcome, abstention reason and digests.
+- Medulla contract: `CouncilCoordinationV1` accepts a complete, non-duplicated set of revision-bound `CouncilPositionV1` records and a pinned quorum/conflict policy. Output retains all participants, accepted/rejected positions, outcome, abstention reason and digests.
 - Production attach point: typed `Method::Decide` / `handle_decide` result sealing. Validate the referenced council shape through `AgentGraphDraft.topology` and `topology_shape.rs`.
-- Pending owner contract. AU persona-position producer ID/schema; `AU-CONTROL-R010` is topology input only.
+- Pending owner contract. Meristem persona-position producer ID/schema; `AU-CONTROL-R010` is topology input only.
 - Planned served acceptance. coherent quorum, policy-resolved conflict, explicit abstention, missing/duplicate/stale/unauthorized position and topology mismatch cases. Independently read the sealed decision and all position refs.
 ### `EG-DECISION-ENGINE-R137.13` — AU:25
 
 - Existing rollup: `EG-DECISION-ENGINE-R137`. Preserve `.1-.3` and keep package selection `.7-.12` separate.
-- EG contract: `ContextBudgetSignalsV1` binds tool-output bytes/digest and graph-node count/snapshot to a run and observation time. `ContextBudgetPolicyV1` versions thresholds and ladder mapping. The result binds both observations and returns mode, rung and reason codes.
-- Production attach point: add the `QuestionKind::ContextBudget` branch in `Method::Decide`, beside `tool_subset_outcome` in `stat_decide.rs::handle_decide`; AU `run_full_rlm` consumes the sealed `DecisionBatch` before execution.
-- Pending owner contract. exact AU producer for both observations and its decision consumer binding; `AU-HARNESS-R026.3/.4` does not define these fields.
+- Medulla contract: `ContextBudgetSignalsV1` binds tool-output bytes/digest and graph-node count/snapshot to a run and observation time. `ContextBudgetPolicyV1` versions thresholds and ladder mapping. The result binds both observations and returns mode, rung and reason codes.
+- Production attach point: add the `QuestionKind::ContextBudget` branch in `Method::Decide`, beside `tool_subset_outcome` in `stat_decide.rs::handle_decide`; Meristem `run_full_rlm` consumes the sealed `DecisionBatch` before execution.
+- Pending owner contract. exact Meristem producer for both observations and its decision consumer binding; `AU-HARNESS-R026.3/.4` does not define these fields.
 - Planned served acceptance. vary each signal independently and together around boundaries. Missing, stale, altered-digest, invalid and cross-tenant signals refuse before execution.
 ### `EG-DECISION-ENGINE-R134.9` — AU:34
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.9`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.9`.
 - Original objective. Select multiple relevant skills from a tree for each task. Tune selection from run outcomes, so exploration can use more than one skill.
-- Missing EG obligation. An explicit skill tree and outcome-tuned EG exploration over that tree are absent. AU-HARNESS-R022.3 says retrieval ranks locally, while AU-CONTEXT-R001 assigns ranking/feedback to EG. Resolve this authority conflict.
-- Producer/consumer route. EG plan_over_skills -> AgentLibraryStore -> served TaskPlan; AU experience feedback lacks a named EG selection-policy update consumer.
-- Proposed definition. Define TaskPlanSkillNodeV1. Bind task_plan_id/revision/digest, skill_id and nullable parent_skill_id. Bind context_match_policy_revision and evidence refs. Bind prior_outcome_refs with source revisions/digests. Record score, rank and ranking_policy_revision. EG emits relevant skills in a deterministic tree. A versioned score/rank policy binds the comparison operator and tie rule. Missing or unpinned policy refuses. Outcome feedback changes later breadth only through R140.102 and its pinned policy/outcome set.
-- Planned acceptance and owner hold. Case R134.9-ranked-plan. Served Decide(TaskPlan) returns multiple skill nodes. Each has stable parent links, cited context matches, pinned outcome refs, score/rank and plan digest. Equal scores use the declared tie-break. Refuse missing/stale context or outcome evidence and malformed/cyclic parent links. AU application of this rank is not asserted. Attach the proposed result at plan_over_skills -> AgentLibraryStore -> served TaskPlan. AU-HARNESS-R022.3 local ranking and AU-CONTEXT-R001 feedback authority remain existing adjacent obligations. The AU consumer that applies EG rank and the feedback-to-R140.102 receipt contract are not yet specified. Keep SPECIFIED pending those owner definitions and served evidence. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Missing Medulla obligation. An explicit skill tree and outcome-tuned Medulla exploration over that tree are absent. AU-HARNESS-R022.3 says retrieval ranks locally, while AU-CONTEXT-R001 assigns ranking/feedback to Medulla. Resolve this authority conflict.
+- Producer/consumer route. Medulla plan_over_skills -> AgentLibraryStore -> served TaskPlan; Meristem experience feedback lacks a named Medulla selection-policy update consumer.
+- Proposed definition. Define TaskPlanSkillNodeV1. Bind task_plan_id/revision/digest, skill_id and nullable parent_skill_id. Bind context_match_policy_revision and evidence refs. Bind prior_outcome_refs with source revisions/digests. Record score, rank and ranking_policy_revision. Medulla emits relevant skills in a deterministic tree. A versioned score/rank policy binds the comparison operator and tie rule. Missing or unpinned policy refuses. Outcome feedback changes later breadth only through R140.102 and its pinned policy/outcome set.
+- Planned acceptance and owner hold. Case R134.9-ranked-plan. Served Decide(TaskPlan) returns multiple skill nodes. Each has stable parent links, cited context matches, pinned outcome refs, score/rank and plan digest. Equal scores use the declared tie-break. Refuse missing/stale context or outcome evidence and malformed/cyclic parent links. Meristem application of this rank is not asserted. Attach the proposed result at plan_over_skills -> AgentLibraryStore -> served TaskPlan. AU-HARNESS-R022.3 local ranking and AU-CONTEXT-R001 feedback authority remain existing adjacent obligations. The Meristem consumer that applies Medulla rank and the feedback-to-R140.102 receipt contract are not yet specified. Keep SPECIFIED pending those owner definitions and served evidence. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `EG-DECISION-ENGINE-R134.4`, `EG-DECISION-ENGINE-R134.5`, `AU-HARNESS-R022.3`, `AU-CONTEXT-R001`.
 - Source review. `ced4d0bb75fa260e4291aea5f71c28b407a95fc3e06047666e1278b043a3cdbd`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:283. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:284. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:112. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-context-and-finance/requirements.md:5.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R137.14` — AU:37
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R137`. Append-only residual ID: `EG-DECISION-ENGINE-R137.14`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R137`. Append-only residual ID: `EG-DECISION-ENGINE-R137.14`.
 - Original objective. Compress long run context into updatable memory only when held-out answer quality stays within declared tolerance. Otherwise retain the full context.
-- Missing EG obligation. The judge checks retained values, methods and validation steps. It does not compare held-out answers with full-context answers under a declared tolerance.
-- Producer/consumer route. AU ContextManager.before_model_request -> run_agent replaces context only after its summary gate. No held-out paired-answer verdict is a named prerequisite.
+- Missing Medulla obligation. The judge checks retained values, methods and validation steps. It does not compare held-out answers with full-context answers under a declared tolerance.
+- Producer/consumer route. Meristem ContextManager.before_model_request -> run_agent replaces context only after its summary gate. No held-out paired-answer verdict is a named prerequisite.
 - Proposed definition. Define PairedContextEvaluationV1. Bind the held_out_query_set id/revision/digest, raw_context revision/digest and candidate_context revision/digest. Bind evaluator/model revision and each query's raw/candidate answer digests. Record the quality metric, aggregation rule, tolerance and policy revision. Require a complete per-query verdict set. Replace raw context only when all queries are present and the aggregate satisfies the declared tolerance. Any failed or incomplete evaluation retains the raw revision.
-- Planned acceptance and owner hold. Case R137.14-paired-context. a complete held-out set within the declared tolerance permits the replacement verdict. A beyond-tolerance result, missing query or stale context/evaluator digest refuses. Undefined metric, aggregation or tolerance also refuses. An incomplete verdict set leaves the active raw-context revision unchanged. AU ContextManager.before_model_request -> run_agent is the existing replacement point. The AU held-out evaluator and receipt schema are absent. The consumer that atomically applies EG acceptance is also undefined. R013.5/.10/.12/.13 remain adjacent coverage, not evidence of this gate. No implementation, served test or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R137.14-paired-context. a complete held-out set within the declared tolerance permits the replacement verdict. A beyond-tolerance result, missing query or stale context/evaluator digest refuses. Undefined metric, aggregation or tolerance also refuses. An incomplete verdict set leaves the active raw-context revision unchanged. Meristem ContextManager.before_model_request -> run_agent is the existing replacement point. The Meristem held-out evaluator and receipt schema are absent. The consumer that atomically applies Medulla acceptance is also undefined. R013.5/.10/.12/.13 remain adjacent coverage, not evidence of this gate. No implementation, served test or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `AU-HARNESS-R013.5`, `AU-HARNESS-R013.10`, `AU-HARNESS-R013.12`, `AU-HARNESS-R013.13`.
 - Source review. `7e1405981aa8b697a73eb7e8c3c3170be8edefc674c23beef740884450fc1add`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:28. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:33. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:35. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:36.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R134.10` — AU:39
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.10`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.10`.
 - Original objective. A main run delegates subtasks to sub-runs. Each child returns only contract-bounded summaries. The main run conserves context budget and records delegation decisions as trajectories.
-- Missing EG obligation. There is no summary-only sub-run return schema, parent-remaining-context bound or explicit rejection of raw/oversized returns. Generic spans do not bind delegation decision, child run and accepted summary as one trajectory.
-- Producer/consumer route. AU _fork_fanout -> FanoutResult and parallel workspace synthesis; EG decides plans. The bounded child-summary producer/parent consumer boundary is absent.
+- Missing Medulla obligation. There is no summary-only sub-run return schema, parent-remaining-context bound or explicit rejection of raw/oversized returns. Generic spans do not bind delegation decision, child run and accepted summary as one trajectory.
+- Producer/consumer route. Meristem _fork_fanout -> FanoutResult and parallel workspace synthesis; Medulla decides plans. The bounded child-summary producer/parent consumer boundary is absent.
 - Proposed definition. Define ChildSummaryV1. Bind plan/decision id and digest, parent run id and child run id. Record the expected child-id set and summary artifact kind/schema/version/digest. Bind the exact tokenizer revision, summary token count and source/result evidence refs. A parent budget record binds remaining context tokens at dispatch and the maximum aggregate child-summary tokens. Child output exposed to the parent contains only the declared summary artifact, never raw transcript. The accepted fan-out receipt accounts for every child as one summary or named failure gap.
-- Planned acceptance and owner hold. Case R134.10-bounded-child-summary. Link each valid summary-only child to decision, child and summary digests. Its checked token total must fit the parent's remaining budget. Refuse raw or oversized output and missing, duplicate or unknown children. Refuse tokenizer/budget revision mismatch or totals above the bound before parent synthesis. AU _fork_fanout -> FanoutResult and parallel workspace synthesis are the observed attachment points. EG owns TaskPlan authority. AU summary producer, parent budget field and consumer validation/readback receipt are missing. AU-CONTROL-R043.2/.5, AU-HARNESS-R020.4 and AU-HARNESS-R024.1 remain adjacent. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R134.10-bounded-child-summary. Link each valid summary-only child to decision, child and summary digests. Its checked token total must fit the parent's remaining budget. Refuse raw or oversized output and missing, duplicate or unknown children. Refuse tokenizer/budget revision mismatch or totals above the bound before parent synthesis. Meristem _fork_fanout -> FanoutResult and parallel workspace synthesis are the observed attachment points. Medulla owns TaskPlan authority. Meristem summary producer, parent budget field and consumer validation/readback receipt are missing. AU-CONTROL-R043.2/.5, AU-HARNESS-R020.4 and AU-HARNESS-R024.1 remain adjacent. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `AU-CONTROL-R043.2`, `AU-CONTROL-R043.5`, `AU-HARNESS-R020.4`, `AU-HARNESS-R024.1`.
 - Source review. `742906721351687d032991b4e9c0255baf7a6c480e21ac7a616975d40e38ce84`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:100. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:103. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:95. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:126.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R137.15` — AU:40
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R137`. Append-only residual ID: `EG-DECISION-ENGINE-R137.15`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R137`. Append-only residual ID: `EG-DECISION-ENGINE-R137.15`.
 - Original objective. A recursive runtime lets a model call sub-models through typed signatures and tools. The run trace records interpretable trajectories.
-- Missing EG obligation. A primitive handle and span digests omit recursive sub-model input/output signatures, tool bindings and boundary validation. The trace also lacks signature/model/tool linkage.
-- Producer/consumer route. AU run_full_rlm -> RLMEnvironment.run_parallel_sub_calls executes EG limits. Span instrumentation records calls. No recursive-call signature producer/validator is named.
+- Missing Medulla obligation. A primitive handle and span digests omit recursive sub-model input/output signatures, tool bindings and boundary validation. The trace also lacks signature/model/tool linkage.
+- Producer/consumer route. Meristem run_full_rlm -> RLMEnvironment.run_parallel_sub_calls executes Medulla limits. Span instrumentation records calls. No recursive-call signature producer/validator is named.
 - Proposed definition. Define RecursiveCallV1 request/result records. Bind parent run/span, call id and signature id/revision/digest. Record typed input schema/digest, admitted tool id/revision set and selected model id/revision. Bind typed output schema/digest and terminal status. Validate input and tool membership before dispatch and output against the same signature before recording success. Bind all revisions/digests in the recursive trace.
-- Planned acceptance and owner hold. Case R137.15-signature-boundary. an admitted typed call records matching signature/model/tool/input/output digests. Refuse unknown or changed signatures and unadmitted tools. Refuse malformed input/output, missing parent span or revision mismatch before accepting a result. AU run_full_rlm -> RLMEnvironment.run_parallel_sub_calls is the observed execution point. EG resource limits and span instrumentation are adjacent only. No AU recursive signature producer/validator receipt or exact EG-to-AU call contract is named. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R137.15-signature-boundary. an admitted typed call records matching signature/model/tool/input/output digests. Refuse unknown or changed signatures and unadmitted tools. Refuse malformed input/output, missing parent span or revision mismatch before accepting a result. Meristem run_full_rlm -> RLMEnvironment.run_parallel_sub_calls is the observed execution point. Medulla resource limits and span instrumentation are adjacent only. No Meristem recursive signature producer/validator receipt or exact Medulla-to-AU call contract is named. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `AU-HARNESS-R026.1`, `AU-HARNESS-R026.4`, `AU-HARNESS-R024.1`, `AU-HARNESS-R024.3`, `EG-ORCH-VOCAB-R005`.
 - Source review. `4edb15328650ebf084f0ab1d073b092e5b684aafad9b7b1ca7f412859390b923`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:142. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:145. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:126. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:128.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R134.11` — AU:45
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.11`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.11`.
 - Original objective. Long tasks decompose into sub-horizons under a declared per-step budget with checkpointed credit. A plan whose step count exceeds the configured horizon is split before execution, not attempted whole.
-- Missing EG obligation. Depth/item bounds do not define an execution horizon or per-step budget. They do not split excess steps before execution or checkpoint credit across sub-horizons.
-- Producer/consumer route. EG decompose_task/TaskPlan -> AU bounded map primitives. The horizon partition and durable credit receipt are not a named producer/consumer interface.
+- Missing Medulla obligation. Depth/item bounds do not define an execution horizon or per-step budget. They do not split excess steps before execution or checkpoint credit across sub-horizons.
+- Producer/consumer route. Medulla decompose_task/TaskPlan -> Meristem bounded map primitives. The horizon partition and durable credit receipt are not a named producer/consumer interface.
 - Proposed definition. Define HorizonPartitionV1 for one committed TaskPlan revision. Bind ordered step ids and dependency edges. Set positive max_steps_per_horizon, per-step budget policy id/revision/unit and a credit ceiling. Partition only at dependency-safe boundaries before launch. Each completed horizon returns a durable credit checkpoint with plan/horizon ids, consumed/reserved/remaining amounts, budget revision and digest. Require a versioned accounting rule for debits.
-- Planned acceptance and owner hold. Case R134.11-horizon-credit. a plan within the limit remains one horizon. A longer valid plan is split at dependency-safe boundaries and its checkpoint balances reconcile exactly. Refuse an unsplittable dependency component or absent/invalid budget rule. Refuse an over-credit horizon, missing checkpoint or stale plan revision before next launch. EG decompose_task/TaskPlan feeds AU bounded map primitives, but no named partition/credit receipt interface exists. AU durable checkpoint/debit semantics and the consumer that blocks launch on a missing receipt remain unspecified. Do not substitute Finance forecast horizons or solver budgets. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R134.11-horizon-credit. a plan within the limit remains one horizon. A longer valid plan is split at dependency-safe boundaries and its checkpoint balances reconcile exactly. Refuse an unsplittable dependency component or absent/invalid budget rule. Refuse an over-credit horizon, missing checkpoint or stale plan revision before next launch. Medulla decompose_task/TaskPlan feeds Meristem bounded map primitives, but no named partition/credit receipt interface exists. Meristem durable checkpoint/debit semantics and the consumer that blocks launch on a missing receipt remain unspecified. Do not substitute Finance forecast horizons or solver budgets. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `AU-HARNESS-R026.1`, `AU-HARNESS-R026.2`, `EG-DECISION-ENGINE-R134.3`, `EG-DECISION-ENGINE-R134.4`.
 - Source review. `c1bfd61241a0fd02ada2816f173a3b9568da5b48e490e76058fd740b356886da`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:142. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:143. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:282. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:283.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R059.1` — AU:57
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R059`. Append-only residual ID: `EG-DECISION-ENGINE-R059.1`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R059`. Append-only residual ID: `EG-DECISION-ENGINE-R059.1`.
 - Original objective. Merge skill candidates from multiple models into one tree. Aggregate independent evaluations into a robust estimate of effectiveness and transferability across backbones.
-- Missing EG obligation. No merged skill tree binds candidates across model backbones to independent per-skill evaluations. It also lacks a robustness/transferability estimate across those backbones.
-- Producer/consumer route. AU experience/skill candidates -> EG admission-linked outcome aggregate. The shared tree and backbone-bound per-skill evaluation join remain unnamed.
+- Missing Medulla obligation. No merged skill tree binds candidates across model backbones to independent per-skill evaluations. It also lacks a robustness/transferability estimate across those backbones.
+- Producer/consumer route. Meristem experience/skill candidates -> Medulla admission-linked outcome aggregate. The shared tree and backbone-bound per-skill evaluation join remain unnamed.
 - Proposed definition. Define BackboneSkillEvaluationV1 rows. Key each by candidate id and canonical skill identity. Bind source model/backbone id/revision and task-distribution id/revision. Bind evaluation dataset id/revision/digest, metric id/revision, sample count and result digest. An aggregate may be emitted only with complete independent rows for every declared backbone and a versioned transferability policy. Publish the full per-backbone evidence with the aggregate, not a bare score.
-- Planned acceptance and owner hold. Case R059.1-backbone-evidence. complete independent evaluations for the same canonical skill identity produce a result that lists every backbone and policy revision. Refuse missing/duplicate backbone rows, candidate identity mismatch, reused non-independent evidence, incomplete dataset coverage or absent metric/transferability aggregation policy. AU supplies experience/skill candidates; EG R059 is the existing independent-outcome admission path. No shared canonical skill merge key, robust aggregation/threshold decision, or AU multi-backbone evaluation producer is specified. These decisions are explicit holds. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R059.1-backbone-evidence. complete independent evaluations for the same canonical skill identity produce a result that lists every backbone and policy revision. Refuse missing/duplicate backbone rows, candidate identity mismatch, reused non-independent evidence, incomplete dataset coverage or absent metric/transferability aggregation policy. Meristem supplies experience/skill candidates; Medulla R059 is the existing independent-outcome admission path. No shared canonical skill merge key, robust aggregation/threshold decision, or Meristem multi-backbone evaluation producer is specified. These decisions are explicit holds. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `AU-HARNESS-R022.1`, `AU-HARNESS-R022.2`, `EG-DECISION-ENGINE-R059`.
 - Source review. `0c7c2eed61e3cfe6fe6c863c75fb66092f3a8bea97e3942b635c7b69f715d3a9`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:110. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:111. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:90.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R134.12` — AU:85
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.12`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.12`.
 - Original objective. Hard tasks run in two stages: parallel reasoning over multiple trajectories, then a summarization step aggregating them. Width and depth are chosen by the decision ladder and re-measured against a single-trajectory baseline.
-- Missing EG obligation. Hard-task alternative trajectories and deliberative summary aggregation. Explicit width/depth decision ladder and remeasurement against a single-trajectory baseline.
+- Missing Medulla obligation. Hard-task alternative trajectories and deliberative summary aggregation. Explicit width/depth decision ladder and remeasurement against a single-trajectory baseline.
 - Producer/consumer route. R134 plan explicitly connects Decide TaskPlan to AU-CONTROL-R042/R043; R137 plan connects ContextBudget to AU-CONTEXT-R004/AU-HARNESS-R026. AU-HARNESS-R018 has run_agent paired arms. These dependencies lack the alternative-trajectory/summarization/baseline binding.
 - Proposed definition. Define TrajectoryDecisionV1. Bind one task/plan digest and policy revision. Record chosen width/depth and ordered trajectory ids. Bind the identical input snapshot digest per arm, single-trajectory baseline id, per-arm outcome/evaluation refs and paired comparison receipt. The decision names the selection and evaluation policies. It does not prescribe an unsupported scoring formula. A pass requires complete paired arms over the same task/input and an explicit R018 comparison verdict.
-- Planned acceptance and owner hold. Case R134.12-paired-trajectories. selected width/depth and all trajectory/baseline ids bind to the same plan and input snapshot. Each arm has an outcome and the paired R018 verdict is readable. Refuse missing/mismatched arm, baseline, policy revision or result, and refuse any claim of improvement without the declared paired verdict. Existing points are Decide(TaskPlan), AU-CONTROL-R042/R043, AU-HARNESS-R020.4, and paired arms in AU-HARNESS-R018.1/.2/.5. AU trajectory generation, summary aggregation and EG selection-policy consumer receipt are absent. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R134.12-paired-trajectories. selected width/depth and all trajectory/baseline ids bind to the same plan and input snapshot. Each arm has an outcome and the paired R018 verdict is readable. Refuse missing/mismatched arm, baseline, policy revision or result, and refuse any claim of improvement without the declared paired verdict. Existing points are Decide(TaskPlan), AU-CONTROL-R042/R043, AU-HARNESS-R020.4, and paired arms in AU-HARNESS-R018.1/.2/.5. Meristem trajectory generation, summary aggregation and Medulla selection-policy consumer receipt are absent. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `AU-HARNESS-R020.4`, `EG-DECISION-ENGINE-R134.1`, `EG-DECISION-ENGINE-R134.3`, `AU-CONTROL-R007`, `EG-DECISION-ENGINE-R137.1`, `EG-DECISION-ENGINE-R137.3`, `AU-HARNESS-R018.1`, `AU-HARNESS-R018.2`, `AU-HARNESS-R018.5`.
 - Source review. `a28929a50cbfcb691664403ce456fbf9dc38d6bd64b34424932e4fa22f9cbda1`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:12. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:71. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:72. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:75.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R134.13` — AU:91
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.13`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.13`.
 - Original objective. Parallel analyst roles produce structured, cited findings for one decision role. That role abstains when findings conflict or lack citations.
-- Missing EG obligation. Distinct analyst roles provide cited findings to one decision role. Required abstention on unresolved conflict or missing citations.
-- Producer/consumer route. EG R134.5 plans TaskPlan through served Decide; AU R020.5 create worker slots through _dispatch_parallel_batch. The selected aggregation consumer lacks a cited-finding/conflict abstention contract.
+- Missing Medulla obligation. Distinct analyst roles provide cited findings to one decision role. Required abstention on unresolved conflict or missing citations.
+- Producer/consumer route. Medulla R134.5 plans TaskPlan through served Decide; Meristem R020.5 create worker slots through _dispatch_parallel_batch. The selected aggregation consumer lacks a cited-finding/conflict abstention contract.
 - Proposed definition. Define AnalystFindingV1. Bind task/plan digest, expected analyst id/role and finding id. Record claim text/digest, cited evidence ids/revisions/digests and source spans. Define SynthesisResultV1. Include the complete expected analyst-id set and all finding ids. Record each analyst outcome, cited evidence, conflicts and final decision-role id. Return a supported conclusion or typed abstention reason. Never drop a failed or absent analyst from accounting.
-- Planned acceptance and owner hold. Case R134.13-cited-synthesis. cited compatible findings produce a result that accounts for every expected analyst. Refuse missing/duplicate analysts and unsupported findings. Refuse unresolved conflict, invalid citation, plan mismatch or absent decision role. Abstain without recommendation. EG R134.5 served Decide(TaskPlan) is the planning point; AU R020.5 _dispatch_parallel_batch create worker slots. The exact AU finding producer/collector and aggregation consumer contract is missing. Existing fan-out clauses do not prove it. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R134.13-cited-synthesis. cited compatible findings produce a result that accounts for every expected analyst. Refuse missing/duplicate analysts and unsupported findings. Refuse unresolved conflict, invalid citation, plan mismatch or absent decision role. Abstain without recommendation. Medulla R134.5 served Decide(TaskPlan) is the planning point; Meristem R020.5 _dispatch_parallel_batch create worker slots. The exact Meristem finding producer/collector and aggregation consumer contract is missing. Existing fan-out clauses do not prove it. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `EG-DECISION-ENGINE-R134.3`, `AU-HARNESS-R020.1`, `AU-HARNESS-R020.4`, `AU-HARNESS-R020.2`, `EG-DECISION-ENGINE-R134.6`.
 - Source review. `f5ddb0ac9b0329ac031c01c56c49ee03c922a991dbf2d0e29c111515424d3455`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:92. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:93. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:95. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:282.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R029.1` — AU:93
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R029`. Append-only residual ID: `EG-DECISION-ENGINE-R029.1`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R029`. Append-only residual ID: `EG-DECISION-ENGINE-R029.1`.
 - Original objective. Search grounding is a replaceable provider selected through the committed routing decision, independent of the reasoning model. An unavailable provider is refused, not silently substituted.
-- Missing EG obligation. Replaceable search-grounding provider independently selected from reasoning model and bound to a committed route. Unavailable committed provider must refuse rather than substitute.
-- Producer/consumer route. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must produce the committed provider binding and the SDK/GraphOS consumer must execute that exact provider. That edge is missing.
+- Missing Medulla obligation. Replaceable search-grounding provider independently selected from reasoning model and bound to a committed route. Unavailable committed provider must refuse rather than substitute.
+- Producer/consumer route. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. Medulla must produce the committed provider binding and the Scion SDK/Arbora consumer must execute that exact provider. That edge is missing.
 - Proposed definition. Define RetrievalProviderBindingV1 in the committed retrieval plan. Bind provider id/revision/config digest, query/request digest and tenant scope. Identify reasoning model id/revision separately. The binding has an explicit no-substitution policy. Execution evidence records the exact provider, binding digest, request/result digests and provider revision.
-- Planned acceptance and owner hold. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must commit the provider binding. The SDK/GraphOS consumer contract that executes and receipts that exact binding is not defined. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. Medulla must commit the provider binding. The Scion SDK/Arbora consumer contract that executes and receipts that exact binding is not defined. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `EG-DECISION-ENGINE-R029`, `ARBORA-OPS-R021.2.1`.
 - Source review. `c9552392eb813763a83fc96fb48ad1bd18fd805ef608736f1dae5d48ab12c984`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:41. Graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:42.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R134.14` — AU:105
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.14`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.14`.
 - Original objective. A search-based planner explores solution branches using experience memory. It fuses branch results and records each outcome for later retrieval.
-- Missing EG obligation. Search planner explores candidate solution branches using experience memory, fuses branch solutions and records every branch outcome for later retrieval.
+- Missing Medulla obligation. Search planner explores candidate solution branches using experience memory, fuses branch solutions and records every branch outcome for later retrieval.
 - Producer/consumer route. Use the same missing branch-experience producer and committed planning consumer identified for AU:84. Existing attachment points are R134.5 Decide, R020.5 worker execution and R022.4 run outcome distillation.
 - Proposed definition. Define BranchOutcomeV1. Bind branch id, parent task/plan digest and branch input digest. Record experience snapshot revision and ordered fusion position. Include terminal outcome or named failure gap and immutable result digest. The fusion receipt lists every planned branch in deterministic order. It binds the versioned fusion-policy id/revision, all outcome refs and fused result digest. A later branch retrieval records the exact outcome refs and revisions it consumed.
-- Planned acceptance and owner hold. Case R134.14-branch-readback. a complete branch set produces an ordered fusion receipt and independent readback for every outcome. A later branch cites the exact pinned prior outcome. Refuse missing/duplicate branch, changed parent/input/snapshot, omitted failure gap, absent fusion policy, or stale readback. Existing points are Decide R134.5, AU R020.5 worker execution and AU R022.4 outcome distillation. The AU branch-experience producer, committed-plan consumer and durable per-outcome receipt schema remain missing. Do not substitute R140.102 breadth adaptation. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R134.14-branch-readback. a complete branch set produces an ordered fusion receipt and independent readback for every outcome. A later branch cites the exact pinned prior outcome. Refuse missing/duplicate branch, changed parent/input/snapshot, omitted failure gap, absent fusion policy, or stale readback. Existing points are Decide R134.5, Meristem R020.5 worker execution and Meristem R022.4 outcome distillation. The Meristem branch-experience producer, committed-plan consumer and durable per-outcome receipt schema remain missing. Do not substitute R140.102 breadth adaptation. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `EG-DECISION-ENGINE-R134.3`, `AU-HARNESS-R022.3`, `AU-HARNESS-R020.4`, `AU-HARNESS-R022.1`, `AU-HARNESS-R022.6`.
 - Source review. `4fd31dd504f158f43bcf77d81a39c2419303a538b32553a77a39f6b5a575e9d2`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:95. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:110. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:112. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:115.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R020.1` — AU:110
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R020`. Append-only residual ID: `EG-DECISION-ENGINE-R020.1`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R020`. Append-only residual ID: `EG-DECISION-ENGINE-R020.1`.
 - Original objective. Each agent keeps past trajectories in an exploitation pool and generated candidates in an exploration pool. Use exploration only when no trajectory matches the context.
-- Missing EG obligation. Separate per-agent exploitation trajectory pool and generated exploration pool. Explore only when context has no matching past trajectory.
-- Producer/consumer route. EG owns candidate selection and orchestration evidence; AU R022 supplies run experience. No per-agent two-pool producer or context-miss-only selection contract exists.
+- Missing Medulla obligation. Separate per-agent exploitation trajectory pool and generated exploration pool. Explore only when context has no matching past trajectory.
+- Producer/consumer route. Medulla owns candidate selection and orchestration evidence; Meristem R022 supplies run experience. No per-agent two-pool producer or context-miss-only selection contract exists.
 - Proposed definition. Define CandidatePoolV1 with tenant/agent id, task/context feature digest, policy revision, candidate ids and per-candidate source revisions. The selection receipt partitions candidates into exploitation (matched prior trajectories) and exploration (eligible only when no match exists). It records context-match policy revision, evidence refs and deterministic tie-break. Cross-agent history is never eligible.
-- Planned acceptance and owner hold. Case R020.1-agent-isolated-pools. a same-agent matching trajectory selects from the exploitation pool and excludes exploration. A declared no-match case may select from exploration. Refuse missing match policy/evidence and cross-tenant or cross-agent history. Bind result to the candidate snapshot. EG owns candidate selection and AU-HARNESS-R022.1/.3 provide adjacent experience inputs. No AU per-agent pool producer or context-match evidence contract exists. Exact match dimensions/threshold must be supplied by that owner policy before implementation. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R020.1-agent-isolated-pools. a same-agent matching trajectory selects from the exploitation pool and excludes exploration. A declared no-match case may select from exploration. Refuse missing match policy/evidence and cross-tenant or cross-agent history. Bind result to the candidate snapshot. Medulla owns candidate selection and AU-HARNESS-R022.1/.3 provide adjacent experience inputs. No Meristem per-agent pool producer or context-match evidence contract exists. Exact match dimensions/threshold must be supplied by that owner policy before implementation. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `AU-HARNESS-R022.1`, `EG-DECISION-ENGINE-R020`, `AU-HARNESS-R022.3`.
 - Source review. `dafa8396b5a7c2a168253c7be219718c78186266610e5a91e7dc318d35fc552b`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:110. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:112. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:31.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R133.7` — EG:13
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R133.1`. Append-only residual ID: `EG-DECISION-ENGINE-R133.7`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R133.1`. Append-only residual ID: `EG-DECISION-ENGINE-R133.7`.
 - Original objective. Store each recursive-reasoning trajectory as typed graph nodes. Include code runs, sub-calls and intermediates for verifier and improvement critique.
-- Missing EG obligation. Define recursive code/subcall/intermediate node/edge identity and verifier/improvement read-and-critique contracts.
+- Missing Medulla obligation. Define recursive code/subcall/intermediate node/edge identity and verifier/improvement read-and-critique contracts.
 - Producer/consumer route. Terminal CommitWorkItemResult adapts traces after fenced CAS; AddNode validates traces. Graph queries read them. Recursive hierarchy production and critique consumption are absent.
 - Proposed definition. Define RecursiveTraceNodeV1. Bind run id/revision, step id/revision and parent node id. Record ordered child ids and input/output/evidence refs/digests. Include source revision and trace snapshot id. Define TraceCritiqueQueryV1 with root node, authorized projection, snapshot revision, filters and opaque cursor. The response includes the complete selected ancestry and source refs. Parent/child links must be complete and acyclic within the selected snapshot.
 - Planned acceptance and owner hold. Case R133.7-trace-critique. ingest and independently read back a nested trace, then critique it at the same authorized snapshot with complete ancestry. Refuse incomplete ancestry, cycle, stale cursor/snapshot, missing digest or unauthorized projection without returning protected fields. Terminal CommitWorkItemResult adapts traces, AddNode validates records and graph queries read them. The recursive node producer and named authorized critique-query operation/consumer are absent. Existing fencing/projection rules remain binding. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
@@ -949,33 +949,33 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 ### `EG-DECISION-ENGINE-R100.1` — EG:16
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R100`. Append-only residual ID: `EG-DECISION-ENGINE-R100.1`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R100`. Append-only residual ID: `EG-DECISION-ENGINE-R100.1`.
 - Original objective. A promoted adapter adjusts embeddings from feedback signals. Signals include agent errors and human corrections, closing a feedback loop into vector space. Unpromoted adjustments never alter served results.
-- Missing EG obligation. Define attributed agent-error/human-correction ingestion and lineage from examples to fitted adapters before existing promotion.
+- Missing Medulla obligation. Define attributed agent-error/human-correction ingestion and lineage from examples to fitted adapters before existing promotion.
 - Producer/consumer route. R100 persists examples, R101 applies promoted post-RLS/pre-ANN query adapters, R040 gates publish. Signal production and example-to-fit linkage are absent.
 - Proposed definition. Define FeedbackEventV1. Bind stable event id and decision id/revision/digest. Record option/action id, actor id and outcome/evidence refs/digests. Include event time and source revision. A versioned mapping policy converts only a complete joined event into a fit example. Deduplication is by event id plus source revision. Bind example-set digest to R100 fitting, resulting adapter id/revision to R101, and publish admission to R040.
-- Planned acceptance and owner hold. Case R100.1-feedback-join. an authorized complete event is read back as exactly one fit example bound to the expected R100 dataset digest. Replaying the same event is idempotent. Refuse duplicate identities with changed content or missing decision/option/outcome joins. Refuse invalid mapping policy, stale source revision or evidence mismatch before fitting. R100 persists examples, R101 applies a promoted adapter post-RLS/pre-ANN and R040 gates publish. The AU signal producer and outcome-to-label mapping policy are not specified. Do not treat an independent outcome record as the producer contract. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R100.1-feedback-join. an authorized complete event is read back as exactly one fit example bound to the expected R100 dataset digest. Replaying the same event is idempotent. Refuse duplicate identities with changed content or missing decision/option/outcome joins. Refuse invalid mapping policy, stale source revision or evidence mismatch before fitting. R100 persists examples, R101 applies a promoted adapter post-RLS/pre-ANN and R040 gates publish. The Meristem signal producer and outcome-to-label mapping policy are not specified. Do not treat an independent outcome record as the producer contract. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `EG-DECISION-ENGINE-R100`, `EG-DECISION-ENGINE-R101`, `EG-DECISION-ENGINE-R040`.
 - Source review. `eca485ffdff9cea5394130b53e12a0edc235e342ab01accc36ad9d06f496daa8`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:168. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:169. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:59.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R088.2` — EG:17
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R088`. Append-only residual ID: `EG-DECISION-ENGINE-R088.2`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R088`. Append-only residual ID: `EG-DECISION-ENGINE-R088.2`.
 - Original objective. Evaluation replays real-world events chronologically over a simulated period. The agent forecasts outcomes and adapts as information arrives. No future event is visible before its turn.
-- Missing EG obligation. Define event cursor/period, forecasts, adaptation and no-future-event visibility at the simulator/harness boundary.
-- Producer/consumer route. DecisionEval owns AS OF and fold replay. A real-world event simulator feeding an AU adaptive harness is undefined. Policy-dependent environments must respect R119 off-policy routing.
+- Missing Medulla obligation. Define event cursor/period, forecasts, adaptation and no-future-event visibility at the simulator/harness boundary.
+- Producer/consumer route. DecisionEval owns AS OF and fold replay. A real-world event simulator feeding a Meristem adaptive harness is undefined. Policy-dependent environments must respect R119 off-policy routing.
 - Proposed definition. Define ReplayEventV1. Bind event id, strictly ordered sequence number and event time. Record state snapshot id/revision/digest, observed action id, outcome/evidence refs and source revision. Replay uses an AS OF snapshot and opaque deterministic cursor. The sealed ReplayReceipt binds ordered event digests, cursor, policy id/revision and result digest. Identical duplicate delivery is idempotent. A conflicting duplicate or sequence gap refuses. When the environment is policy-dependent, route to R119 off-policy evaluation.
-- Planned acceptance and owner hold. Case R088.2-ordered-replay. replay a fixed event sequence and resume from its receipt/cursor to the same event order and sealed digest. Refuse gaps, out-of-order events, conflicting duplicate ids, changed snapshots or policy-dependent on-policy claims without R119 routing. DecisionEval provides AS OF and fold replay. The real-world event simulator and AU adaptive-harness producer/consumer are undefined. This row specifies EG replay envelope and refusal only, not an external event source. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R088.2-ordered-replay. replay a fixed event sequence and resume from its receipt/cursor to the same event order and sealed digest. Refuse gaps, out-of-order events, conflicting duplicate ids, changed snapshots or policy-dependent on-policy claims without R119 routing. DecisionEval provides AS OF and fold replay. The real-world event simulator and Meristem adaptive-harness producer/consumer are undefined. This row specifies Medulla replay envelope and refusal only, not an external event source. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `EG-DECISION-ENGINE-R088`, `EG-DECISION-ENGINE-R119`, `EG-DECISION-ENGINE-R088.1`.
 - Source review. `d01db99df0c6c22b37f82cd815e129956fa151e7da2b670b73348ca5058e629e`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:146. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:208. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:147.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R137.16` — EG:26
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R137.1`. Append-only residual ID: `EG-DECISION-ENGINE-R137.16`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R137.1`. Append-only residual ID: `EG-DECISION-ENGINE-R137.16`.
 - Original objective. Adapt retrieval payload size per request to task complexity, remaining token budget and model cost. Never exceed the remaining budget.
-- Missing EG obligation. The historical statement that only window/chunking budgets exist is stale: R137.7-.12 now cover exact-token package sizing and monetary/model-price bounds. The remaining gap is an explicit task-complexity input and selection policy. Bind the caller ceiling to current remaining tokens, including consumed and reserved tokens. R128 task-class pressure does not itself prove that joint payload-sizing linkage.
+- Missing Medulla obligation. The historical statement that only window/chunking budgets exist is stale: R137.7-.12 now cover exact-token package sizing and monetary/model-price bounds. The remaining gap is an explicit task-complexity input and selection policy. Bind the caller ceiling to current remaining tokens, including consumed and reserved tokens. R128 task-class pressure does not itself prove that joint payload-sizing linkage.
 - Producer/consumer route. Planned served Decide(ContextBudget) -> existing solver -> independent certificate verifier -> sealed ContextPackageSelection -> AU-CONTEXT-R004 context-compile consumer. R137.11/.12 explicitly name the consumer. Current dispatch absence is stated in R137.9.
 - Proposed definition. Extend ContextBudgetSignalsV1 with task-complexity feature set/digest and complexity-policy id/revision. At a pinned snapshot, derive remaining tokens as the total ceiling minus committed and reserved consumption. Use the same tokenizer revision. Return both operands and the checked result. Bind complexity and remaining budget to sealed ContextPackageSelection and R137.7-.12 solver certificate. Keep R128.5 task-class pressure separate.
 - Planned acceptance and owner hold. Case R137.16-complexity-and-remaining-budget. vary complexity while holding model cost and remaining tokens fixed, then vary remaining tokens while holding complexity fixed. Verify the declared policy and certified package bind both decisions. Refuse missing/invalid policy, tokenizer or snapshot mismatch, negative/overflowing remainder, or package cost above remaining tokens. Planned Decide(ContextBudget) -> existing solver -> independent certificate verifier -> sealed ContextPackageSelection -> AU-CONTEXT-R004. R137.11/.12 name the consumer. The dispatch and receipt binding remain pending as recorded in R137.9. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
@@ -985,21 +985,21 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 ### `EG-DECISION-ENGINE-R029.2` — EG:30
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R029`. Append-only residual ID: `EG-DECISION-ENGINE-R029.2`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R029`. Append-only residual ID: `EG-DECISION-ENGINE-R029.2`.
 - Original objective. An agent loads task-relevant context from available sources within a stated budget. It does not load the full persistent memory. Omitted sources are reported.
-- Missing EG obligation. The complete candidate universe is not necessarily the complete available-source universe. No exhaustive, explicit omitted-source report with relevance/budget reasons is required. Displaced authority-conflict sources cover only one omission cause.
+- Missing Medulla obligation. The complete candidate universe is not necessarily the complete available-source universe. No exhaustive, explicit omitted-source report with relevance/budget reasons is required. Displaced authority-conflict sources cover only one omission cause.
 - Producer/consumer route. Served Decide(ContextBudget) -> certified package -> AU-CONTEXT-R004 context compile. Ontology source selection R072 and source-authority conflict handling supply distinct inputs.
 - Proposed definition. Define AvailableContextSourceV1 with authorized source id/revision/digest, relevance evidence, authority class, token/cost estimate and enumeration snapshot. ContextSourceSelectionV1 returns complete selected and omitted partitions with reason enum IRRELEVANT, OVER_BUDGET, AUTHORITY_DISPLACED, or UNAUTHORIZED, plus deterministic policy revision and source snapshot digest. Every enumerated source appears exactly once. Protected source identifiers are omitted from unauthorized caller-visible details.
-- Planned acceptance and owner hold. Case R029.2-complete-source-partition. the same served compile journey includes relevant selected sources and omitted examples for irrelevance, over-budget and authority displacement. Every authorized source is accounted for once. Refuse incomplete enumeration, duplicate source, unknown reason, stale budget/authority snapshot or unauthorized disclosure. Served Decide(ContextBudget) -> certified package -> AU-CONTEXT-R004 context compile; R072 ontology selection and EG-SRC-AUTH-R010.6 provide distinct source inputs. The AU consumer receipt for the exhaustive partition is not named. Preserve the parent retrieval/authorization obligations. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Planned acceptance and owner hold. Case R029.2-complete-source-partition. the same served compile journey includes relevant selected sources and omitted examples for irrelevance, over-budget and authority displacement. Every authorized source is accounted for once. Refuse incomplete enumeration, duplicate source, unknown reason, stale budget/authority snapshot or unauthorized disclosure. Served Decide(ContextBudget) -> certified package -> AU-CONTEXT-R004 context compile; R072 ontology selection and EG-SRC-AUTH-R010.6 provide distinct source inputs. The Meristem consumer receipt for the exhaustive partition is not named. Preserve the parent retrieval/authorization obligations. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `EG-DECISION-ENGINE-R029`, `EG-DECISION-ENGINE-R137.7`, `EG-DECISION-ENGINE-R137.8`, `EG-DECISION-ENGINE-R137.11`, `EG-DECISION-ENGINE-R137.12`, `EG-FEDERATED-QUERY-R072`, `EG-SRC-AUTH-R010.6`.
 - Source review. `05fcbe47e588141000ec329927406270abd30b590d2624f22e9239079f829d38`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:41. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:310. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:311. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:314.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
 ### `EG-DECISION-ENGINE-R134.15` — EG:36
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R134.4`. Append-only residual ID: `EG-DECISION-ENGINE-R134.15`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R134.4`. Append-only residual ID: `EG-DECISION-ENGINE-R134.15`.
 - Original objective. Task scheduling computes critical paths over plan graphs using topological order and longest path, and reports the critical chain. Cyclic plans are rejected.
-- Missing EG obligation. No duration/weight-based longest-path calculation or critical-chain output is required. A DAG and dependency order alone do not define critical-path scheduling.
+- Missing Medulla obligation. No duration/weight-based longest-path calculation or critical-chain output is required. A DAG and dependency order alone do not define critical-path scheduling.
 - Producer/consumer route. Served Decide(TaskPlan) -> plan_over_skills -> typed TaskPlan -> execution consumer. Critical-chain fields and computation remain to be defined.
 - Proposed definition. For each TaskPlan DAG step, require positive duration_ms and nonnegative integer priority_weight. Bind source evidence, weight-policy id/revision and input digest. Compute checked integer path totals from duration_ms multiplied by priority_weight using the declared weight scale. Return ordered critical_chain_step_ids, total_weighted_duration_ms, policy revision, plan revision and input digest. Ties choose the lexicographically smallest step-id sequence.
 - Planned acceptance and owner hold. Case R134.15-weighted-critical-chain. a branched DAG returns the independently calculated longest weighted path and total, source-duration/weight provenance, and deterministic tie result. Refuse cycles and missing/invalid duration or weight. Refuse absent scale policy, stale source evidence or checked multiplication/sum overflow before emitting TaskPlan. Attach the proposed fields to served Decide(TaskPlan) -> plan_over_skills -> typed TaskPlan. The execution consumer schema for critical-chain fields is not defined. The decision producer and consumer remain SPECIFIED pending that schema. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
@@ -1009,9 +1009,9 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 ### `EG-DECISION-ENGINE-R135.8` — EG:52
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R135`. Append-only residual ID: `EG-DECISION-ENGINE-R135.8`.
+- Existing Medulla rollup: `EG-DECISION-ENGINE-R135`. Append-only residual ID: `EG-DECISION-ENGINE-R135.8`.
 - Original objective. Workflows written in natural language or stored in the knowledge graph compile on demand to typed graph flows. Compiled steps and agent configurations are saved for fast routing on reuse, and a compile failure names the missing step.
-- Missing EG obligation. Successful-trace compilation is not on-demand compilation from natural-language or graph-stored workflow definitions. Persisted ProgramStep lacks a reusable agent-configuration contract. Compile failure reports run failure/size instead of the missing workflow step.
+- Missing Medulla obligation. Successful-trace compilation is not on-demand compilation from natural-language or graph-stored workflow definitions. Persisted ProgramStep lacks a reusable agent-configuration contract. Compile failure reports run failure/size instead of the missing workflow step.
 - Producer/consumer route. Served Decide(TaskPlan) and ProgramLookup -> AgentLibraryStore/handle_decision_commit -> harness; SourceIngest is the workflow ingestion authority. A definition-to-program compiler between those surfaces remains unspecified.
 - Proposed definition. Define WorkflowCompileRequestV1. Bind source kind (NL or graph), exact source revision/digest and workflow identifier. Record compiler id/revision and referenced step/agent-config ids. The deduplicated CompiledWorkflowV1 binds the canonical typed step graph digest and each agent configuration id/revision/digest. Define `semantic_reuse_key_v1` as `{canonical_typed_step_graph_digest, compiler_id, compiler_revision, sorted_agent_config_refs}`, with config refs `{id, revision, digest}` sorted lexicographically by id. Exclude source kind, source revision/digest and source-to-step mapping from the key. Retain them in WorkflowCompileReceiptV1, bound to source provenance, key and program id. Reuse requires equality of every key component. Text similarity alone is insufficient. A missing referenced step returns MISSING_WORKFLOW_STEP with its exact id/source location and publishes no partial program.
 - Planned acceptance and owner hold. Case R135.8-workflow-compile. NL/graph inputs with the same canonical graph digest, compiler id/revision and sorted config refs reuse one program/key. Keep a distinct source-bound receipt for each. A new source revision reuses the program and adds provenance. A changed graph, compiler or config ref changes the key. Refuse missing steps with exact location, stale revisions or partial publication. Proposed attach points are served Decide(TaskPlan), ProgramLookup and AgentLibraryStore/handle_decision_commit. SourceIngest remains the workflow ingestion authority. The compiler interface and stored configuration/receipt schema remain unspecified. No implementation, served test or receipt is claimed by this SPECIFIED definition.
@@ -1026,138 +1026,138 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 ### `EG-DECISION-ENGINE-R042.100` / AU:28
 
 - Extend existing parent `R042` without removing its existing behavior.
-- Specify: Model `ToolPathHistory` with tenant, connector, capability and stable path id/version. Bind the observation window, sample/success/failure counts, as-of time and source invocation ids. Behavior ranks only already-admitted equivalent paths by observed success rate. Skip a path only when the versioned decision policy declares a minimum sample and failure threshold and both are met. Missing, stale or undersampled history is `unknown` and cannot suppress a path. Wiring adds the evidence to the existing R042 Decide advisory and consumes current attempt outcomes from SDK `ordered_equivalent_fallback`. It must not replace the SDK declared fallback order or execute writes. Evidence binds policy, candidate paths and observation window.
-- Producer/consumer boundary. EG R042 remains evaluate-only connector tool-choice advisory; SDK owns ordered transport fallback and current attempt outcomes.
+- Specify: Model `ToolPathHistory` with tenant, connector, capability and stable path id/version. Bind the observation window, sample/success/failure counts, as-of time and source invocation ids. Behavior ranks only already-admitted equivalent paths by observed success rate. Skip a path only when the versioned decision policy declares a minimum sample and failure threshold and both are met. Missing, stale or undersampled history is `unknown` and cannot suppress a path. Wiring adds the evidence to the existing R042 Decide advisory and consumes current attempt outcomes from Scion SDK `ordered_equivalent_fallback`. It must not replace the Scion SDK declared fallback order or execute writes. Evidence binds policy, candidate paths and observation window.
+- Producer/consumer boundary. Medulla R042 remains evaluate-only connector tool-choice advisory; Scion SDK owns ordered transport fallback and current attempt outcomes.
 - Source record SHA-256: `9dac8e5f41f6948885215836733ce3116b8246ca5c9c4725a12a62bdb11cb400`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R042.101` / AU:86
 
 - Extend existing parent `R042` without removing its existing behavior.
-- Specify: Define `ToolNecessityMeasurement`. Bind model id/revision, tool/capability id and task-cohort digest. Record paired enabled/disabled trial identities, outcome metric, sample counts, policy threshold, measurement time and digest. A measurement is `necessary`, `not_necessary` or `unknown` only under the declared minimum-sample and outcome-delta policy. No data, stale model revision or insufficient pairs yields `unknown`. Compare each AU tool-call decision to the current model/tool measurement. Emit a mismatch trace event with run, step, decision and model revision. Bind measurement digest and mismatch kind (`unnecessary_call` or `omitted_necessary_tool`). The EG R042 decision remains authoritative; AU consumes at the existing per-tool span path.
-- Producer/consumer boundary. R134.2 relevance is only a candidate prefilter. AU-HARNESS-R018.5 generic profile metrics do not measure tool necessity. AU run_agent per-tool spans are the consumer boundary.
+- Specify: Define `ToolNecessityMeasurement`. Bind model id/revision, tool/capability id and task-cohort digest. Record paired enabled/disabled trial identities, outcome metric, sample counts, policy threshold, measurement time and digest. A measurement is `necessary`, `not_necessary` or `unknown` only under the declared minimum-sample and outcome-delta policy. No data, stale model revision or insufficient pairs yields `unknown`. Compare each Meristem tool-call decision to the current model/tool measurement. Emit a mismatch trace event with run, step, decision and model revision. Bind measurement digest and mismatch kind (`unnecessary_call` or `omitted_necessary_tool`). The Medulla R042 decision remains authoritative; Meristem consumes at the existing per-tool span path.
+- Producer/consumer boundary. R134.2 relevance is only a candidate prefilter. AU-HARNESS-R018.5 generic profile metrics do not measure tool necessity. Meristem run_agent per-tool spans are the consumer boundary.
 - Source record SHA-256: `38315c5f9a088c33c4b81b88b813ed851f97f454d788c9fb07185c88c752f979`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R129.100` / AU:38
 
 - Extend existing parent `R129` without removing its existing behavior.
-- Specify: Bind a correction to tenant, run, original output id/digest and correction author/time. A proposal carries rule id, proposed version, scope, source output, predecessor version and lifecycle state. It remains inactive until explicit approval and the existing R129 invariant gate both pass. Invariant compliance is necessary but never substitutes for approval. apply supersedes the declared prior version atomically. Revocation names the active version and prevents future use while retaining audit history. AU future invocations consume only the approved current version and return its id/version in the run trace.
-- Producer/consumer boundary. Extend R129 promotion authority and AU future-invocation application; R034 contradiction-retraction remains separate.
+- Specify: Bind a correction to tenant, run, original output id/digest and correction author/time. A proposal carries rule id, proposed version, scope, source output, predecessor version and lifecycle state. It remains inactive until explicit approval and the existing R129 invariant gate both pass. Invariant compliance is necessary but never substitutes for approval. apply supersedes the declared prior version atomically. Revocation names the active version and prevents future use while retaining audit history. Meristem future invocations consume only the approved current version and return its id/version in the run trace.
+- Producer/consumer boundary. Extend R129 promotion authority and Meristem future-invocation application; R034 contradiction-retraction remains separate.
 - Source record SHA-256: `1d54abebd7cbc92bd3d6c397f334b42d602b4c3b9f77e0091f1c683774701d72`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R134.100` / AU:30
 
 - Extend existing parent `R134` without removing its existing behavior.
-- Specify: Define generated `AggregateFanout/v1` request. Bind the selected `AggregationOp`, TaskPlan digest and AU `FanoutResult` identity. Include expected subtask ids and GraphOS durable instance-receipt ids/digests. Define the result with operation/version, ordered input receipts, one typed aggregate artifact/schema version, result digest and graph revision. EG applies the already-selected operator to the complete receipt set. It adds no fan-out width, concurrency policy or second aggregation authority. A served independent readback resolves the returned artifact by tenant/id/revision and compares the digest before success.
-- Producer/consumer boundary. AU owns FanoutResult production; GraphOS `agents.run` owns durable instance receipts and capacity/refusal. EG owns selected operator and public application/readback contract only. Preserve existing R134.1/.3 and ARBORA-FLEET-R024.5-.9.
+- Specify: Define generated `AggregateFanout/v1` request. Bind the selected `AggregationOp`, TaskPlan digest and Meristem `FanoutResult` identity. Include expected subtask ids and Arbora durable instance-receipt ids/digests. Define the result with operation/version, ordered input receipts, one typed aggregate artifact/schema version, result digest and graph revision. Medulla applies the already-selected operator to the complete receipt set. It adds no fan-out width, concurrency policy or second aggregation authority. A served independent readback resolves the returned artifact by tenant/id/revision and compares the digest before success.
+- Producer/consumer boundary. Meristem owns FanoutResult production; Arbora `agents.run` owns durable instance receipts and capacity/refusal. Medulla owns selected operator and public application/readback contract only. Preserve existing R134.1/.3 and ARBORA-FLEET-R024.5-.9.
 - Source record SHA-256: `8f2ff3030a71d67b20cd19301f0ed8cef75e975403595cec4060abf9fa8952c1`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R134.101` / AU:94
 
 - Extend existing parent `R134` without removing its existing behavior.
-- Specify: Extend the existing task plan with one designated `coordinator_id` and a typed final-artifact declaration (schema id/version and artifact kind). The coordinator receives the complete FanoutResult and produces exactly one artifact. Bind each expected subtask id to its result or named failure gap. No result may disappear in synthesis. The artifact and delivery receipt bind plan digest, coordinator, child receipt ids, schema version, artifact digest and final readback identity. Reuse R134 aggregation and AU fan-out. Do not add a second orchestrator.
-- Producer/consumer boundary. EG-selected TaskPlan/AggregationOp -> AU `_fork_fanout` FanoutResult -> named coordinator -> one final artifact. Retains AU-CONTROL-R043.2/.4 named gaps.
+- Specify: Extend the existing task plan with one designated `coordinator_id` and a typed final-artifact declaration (schema id/version and artifact kind). The coordinator receives the complete FanoutResult and produces exactly one artifact. Bind each expected subtask id to its result or named failure gap. No result may disappear in synthesis. The artifact and delivery receipt bind plan digest, coordinator, child receipt ids, schema version, artifact digest and final readback identity. Reuse R134 aggregation and Meristem fan-out. Do not add a second orchestrator.
+- Producer/consumer boundary. Medulla-selected TaskPlan/AggregationOp -> Meristem `_fork_fanout` FanoutResult -> named coordinator -> one final artifact. Retains AU-CONTROL-R043.2/.4 named gaps.
 - Source record SHA-256: `19331af6d24dacefccebddcae637919b39cb111b800e3bd239a68b42b8ad10c7`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R137.100` / AU:59
 
 - Extend existing parent `R137` without removing its existing behavior.
-- Specify: Define an EG disclosure decision/event bound to instruction-set id, immutable version/digest, relevance trigger, decision id and scope. Initial rules are a distinct phase delivered before the first agent action. Runtime refinements are disclosed only when their declared relevance trigger occurs. Each event records phase, trigger, instruction version/digest, run and sequence, plus applied/refused outcome. EG owns relevance selection; AU run loop applies the exact selected version and records the event. No duplicate local context selector is introduced.
-- Producer/consumer boundary. Existing EG context/decision authority -> AU run loop. General context selection, reminder and trace counters do not cover disclosure. AU sole writer owns runtime application.
+- Specify: Define a Medulla disclosure decision/event bound to instruction-set id, immutable version/digest, relevance trigger, decision id and scope. Initial rules are a distinct phase delivered before the first agent action. Runtime refinements are disclosed only when their declared relevance trigger occurs. Each event records phase, trigger, instruction version/digest, run and sequence, plus applied/refused outcome. Medulla owns relevance selection; Meristem run loop applies the exact selected version and records the event. No duplicate local context selector is introduced.
+- Producer/consumer boundary. Existing Medulla context/decision authority -> Meristem run loop. General context selection, reminder and trace counters do not cover disclosure. Meristem sole writer owns runtime application.
 - Source record SHA-256: `0b55041f0517baa9de449e3d712356a0e252cd194365e09ae559e9067cc8eb1f`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R134.102` / AU:24
 
 - Extend existing parent `R134` without removing its existing behavior.
-- Specify: Define an EG delegation-admission verdict. Bind task class, quality metric, declared threshold and observation-window start/end. Record sample count, outcome-set digest and policy revision. Admit delegation only when the measured quality over the complete stable window meets the declared threshold. Insufficient samples, gaps, mixed revisions or stale evidence return typed not-ready/refusal. AU executes delegation only against the committed verdict. Do not substitute retrieval saturation, generic test coverage or a free-floating data-plane window.
-- Producer/consumer boundary. EG owns authoritative TaskPlan/delegation admission; AU executes the admitted plan. Existing retrieval quality-saturation logic is adjacent only.
+- Specify: Define a Medulla delegation-admission verdict. Bind task class, quality metric, declared threshold and observation-window start/end. Record sample count, outcome-set digest and policy revision. Admit delegation only when the measured quality over the complete stable window meets the declared threshold. Insufficient samples, gaps, mixed revisions or stale evidence return typed not-ready/refusal. Meristem executes delegation only against the committed verdict. Do not substitute retrieval saturation, generic test coverage or a free-floating data-plane window.
+- Producer/consumer boundary. Medulla owns authoritative TaskPlan/delegation admission; Meristem executes the admitted plan. Existing retrieval quality-saturation logic is adjacent only.
 - Source record SHA-256: `7cbecf865c6185e23ec202d541c5f8d33388338af413ac06209709c619fbe200`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R136.100` / AU:32
 
 - Extend existing parent `R136` without removing its existing behavior.
 - Specify: Define a correction proposal bound to failed-run trace digest, proposed fix revision, exact regression-test identity and test environment. Require a before receipt showing the test fails at the declared pre-fix revision. Require an after receipt showing it passes at the declared post-fix revision. Both receipts bind test digest, source revision and run identity. Mismatch, missing receipt or reversed outcome refuses. Reuse existing correction/admission authority and preserve propose-only flow.
-- Producer/consumer boundary. AU CorrectionProposal/study_admit supplies trace and benchmark; EG decides admission. Generic benchmark lift does not replace paired proof.
+- Producer/consumer boundary. Meristem CorrectionProposal/study_admit supplies trace and benchmark; Medulla decides admission. Generic benchmark lift does not replace paired proof.
 - Source record SHA-256: `1d12449ecff9c30c5999933324f1f705fd826539eba6182f3e6d2773c263fec3`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R031.100` / AU:41
 
 - Extend existing parent `R031` without removing its existing behavior.
-- Specify: Define an EG per-paper admission request/decision. Bind paper locator/content digest, summary digest and platform-goal/graph-snapshot revisions. Record relevance dimensions/scores, declared threshold and selected claim ids. Select a paper for ingestion only when it meets the relevance rule against platform goals and current graph content. The verdict names the scored evidence and selected claims. Excluded papers produce no graph write. This definition covers scoring/admission only, not scheduled retrieve.
-- Producer/consumer boundary. GraphOS owns six-hour durable scheduler; SDK owns paper retrieve/provider receipts; EG owns relevance scoring/admission and selected-claim contract.
+- Specify: Define a Medulla per-paper admission request/decision. Bind paper locator/content digest, summary digest and platform-goal/graph-snapshot revisions. Record relevance dimensions/scores, declared threshold and selected claim ids. Select a paper for ingestion only when it meets the relevance rule against platform goals and current graph content. The verdict names the scored evidence and selected claims. Excluded papers produce no graph write. This definition covers scoring/admission only, not scheduled retrieve.
+- Producer/consumer boundary. Arbora owns six-hour durable scheduler; Scion SDK owns paper retrieve/provider receipts; Medulla owns relevance scoring/admission and selected-claim contract.
 - Source record SHA-256: `8c69b66d62c833b4da482e38a51efa624c3e3fc924d6fd6d3e2ef114378a8527`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R036.100` / AU:46
 
 - Extend existing parent `R036` without removing its existing behavior.
 - Specify: Extend graph.assemble primitives to a closed typed union covering prompt, tool, memory and control-flow components. Each primitive exposes identity/version, input/output schema digest, capability/effect declaration and substitution compatibility contract. A candidate harness graph is accepted only when every edge type-checks and replacement preserves declared capabilities/effects. Recorded run traces can create improvement proposals for each primitive kind, but proposals never mutate active composition.
-- Producer/consumer boundary. EG graph.assemble is composition authority; AU HarnessPort executes selected composition. Existing prompt-only optimization proposal path remains and typed HarnessPort is preserved.
+- Producer/consumer boundary. Medulla graph.assemble is composition authority; Meristem HarnessPort executes selected composition. Existing prompt-only optimization proposal path remains and typed HarnessPort is preserved.
 - Source record SHA-256: `04556089bf2790a52c59ede225b6212ccd90c0f7ca1dfad07b869ac9de6a19a1`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R136.101` / AU:47
 
 - Extend existing parent `R136` without removing its existing behavior.
-- Specify: Bind each report revision to a stable rubric digest and criterion ids. Record prior satisfaction states, new evidence/outcome ids and independent grader revision. For every previously satisfied criterion, the new revision must preserve satisfaction. A regression blocks promotion and records the failing criterion. Self-reflection text is not a measured outcome. Use AU ContinuousEvaluationEngine reports as inputs and preserve EG R136 round verdict authority.
-- Producer/consumer boundary. AU ContinuousEvaluationEngine produces per-criterion evidence/report revisions; EG evaluates the bound round verdict. Aggregate divergence and self-reflection are not criterion-level nonregression.
+- Specify: Bind each report revision to a stable rubric digest and criterion ids. Record prior satisfaction states, new evidence/outcome ids and independent grader revision. For every previously satisfied criterion, the new revision must preserve satisfaction. A regression blocks promotion and records the failing criterion. Self-reflection text is not a measured outcome. Use Meristem ContinuousEvaluationEngine reports as inputs and preserve Medulla R136 round verdict authority.
+- Producer/consumer boundary. Meristem ContinuousEvaluationEngine produces per-criterion evidence/report revisions; Medulla evaluates the bound round verdict. Aggregate divergence and self-reflection are not criterion-level nonregression.
 - Source record SHA-256: `9f72c0e6cb8d476050ffde54043ba0e37a063bfda05eb3e27020312cd9eeb69b`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R121.100` / AU:54
 
 - Extend existing parent `R121` without removing its existing behavior.
 - Specify: Define a `StepVerification`. Bind run/step id, input/output digests and evidence ids. Record verifier/policy revision, uncertainty interval and proof/trace digest. Each reasoning step receives a typed verdict (`verified`, `failed`, `uncertain`). Only `verified` steps may feed dependent conclusions. A failed or uncertain step and all derived dependents are withheld/refused with the dependency chain named. Reuse typed Claim/Evidence provenance. A Claim class alone does not imply step verification.
-- Producer/consumer boundary. EG owns proof/evidence/verdict; AU run execution gates continuation on the returned verdict. Existing Claim/Evidence and ordered trace digest semantics remain intact.
+- Producer/consumer boundary. Medulla owns proof/evidence/verdict; Meristem run execution gates continuation on the returned verdict. Existing Claim/Evidence and ordered trace digest semantics remain intact.
 - Source record SHA-256: `78c1b58ee2c97f19ad4834981d1b75adeb89c82881710aed055a0cc6f5c36760`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R138.100` / AU:55
 
 - Extend existing parent `R138` without removing its existing behavior.
 - Specify: Define a changeset-bound adversarial verifier request over generated artifact digest, declared tests, threat/attack policy revision and verifier revision. Its receipt enumerates attempted break cases and edge-case ids with fixed/retested state. Require a complete verifier receipt for generated-code admission. Fix each surfaced edge case against a new artifact digest, then recheck it. Unresolved, missing, stale or mismatched cases block acceptance. Keep materialization under existing governed write authority.
-- Producer/consumer boundary. AU generates/proposes code and verifier evidence; EG admission consumes it. Existing governed write path retains materialization authority. ProbeVerdict R138.1-.6 is a separate red-team probe capability.
+- Producer/consumer boundary. Meristem generates/proposes code and verifier evidence; Medulla admission consumes it. Existing governed write path retains materialization authority. ProbeVerdict R138.1-.6 is a separate red-team probe capability.
 - Source record SHA-256: `3d07d9e40d19b8d4502fcbf3fc2e682f67bcdeaa0730d5d698f7af32767bb785`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R136.102` / AU:56
 
 - Extend existing parent `R136` without removing its existing behavior.
 - Specify: Require proposal evidence to bind a declared outcome and immutable rubric id/version/digest. Bind the exact graded artifact id/digest and grader revision. Include one grade record per criterion with score/verdict and evidence reference. Every required criterion must be graded. Missing, ungraded, mismatched or stale artifacts return a typed refusal before any proposal is admitted. Aggregate score cannot hide a missing criterion.
-- Producer/consumer boundary. AU study_admit/ContinuousEvaluationEngine supplies the report; EG decision verdict controls admission. Preserve R019/R021 evidence and per-criterion R136.101 behavior.
+- Producer/consumer boundary. Meristem study_admit/ContinuousEvaluationEngine supplies the report; Medulla decision verdict controls admission. Preserve R019/R021 evidence and per-criterion R136.101 behavior.
 - Source record SHA-256: `712793000145f8e6b1c3ac1de647e91256312eb601def299653a9671de2757ba`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R138.101` / AU:83
 
 - Extend existing parent `R138` without removing its existing behavior.
 - Specify: Define a review request bound to base/head revisions and changed-file digest. The semantic review evaluates injection, authentication bypass, data exposure, cryptographic flaws and business-logic flaws. Each finding carries class, affected path/range, exploit/impact evidence, severity, confidence and trace to reviewed artifact. A versioned impact policy filters low-impact false positives with a retained disposition. No high-impact or unreviewed class may be silently dropped. This is distinct from R138 probe scorer selection.
-- Producer/consumer boundary. EG owns review verdict/schema. Named GraphOS authenticated changeset-review producer/consumer must be served and linked separately. Existing R138.3 probe endpoint is not that consumer.
+- Producer/consumer boundary. Medulla owns review verdict/schema. Named Arbora authenticated changeset-review producer/consumer must be served and linked separately. Existing R138.3 probe endpoint is not that consumer.
 - Source record SHA-256: `0c5f2631be262ba69472eb94841b7acfbcfd6d0cb379382c528ccd0efb4d22e7`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R036.101` / AU:107
 
 - Extend existing parent `R036` without removing its existing behavior.
-- Specify: Extend graph.assemble with verified coding-agent facts: identity, capability, path-discovery receipt and revision. Include ordered skill transformation ids/versions and input/output schema digests. EG chooses only from supplied verified facts and emits a deterministic composition plan binding agent, skills and artifact contract. It never scans PATH or renders a UI. AU owns executable discovery; WebUI owns sandboxed frame rendering.
-- Producer/consumer boundary. EG composition authority -> AU PATH discovery and skill execution -> WebUI isolated generated-artifact frame. Existing DESIGN guidance does not provide these producer/consumer receipts.
+- Specify: Extend graph.assemble with verified coding-agent facts: identity, capability, path-discovery receipt and revision. Include ordered skill transformation ids/versions and input/output schema digests. Medulla chooses only from supplied verified facts and emits a deterministic composition plan binding agent, skills and artifact contract. It never scans PATH or renders a UI. Meristem owns executable discovery; Overstory owns sandboxed frame rendering.
+- Producer/consumer boundary. Medulla composition authority -> Meristem PATH discovery and skill execution -> Overstory isolated generated-artifact frame. Existing DESIGN guidance does not provide these producer/consumer receipts.
 - Source record SHA-256: `d179fc0eb33039df3a87efe8a59ce2a635f0e39f360c58f925011448d0401cdc`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R014.100` / AU:108
 
 - Extend existing parent `R014` without removing its existing behavior.
 - Specify: Extend the bounded composition objective with candidate source-size facts: exact artifact bytes and line count. Bind measured per-run cost, adequacy verdict and legal/policy constraints to candidate/revision. First exclude candidates failing required behavior, tests, policy or legal constraints. Among adequate candidates apply the declared size/cost objective and emit each measured fact and tie-break. Unknown size/cost or adequacy evidence cannot be treated as zero. This child does not settle the shortcut-comment policy, which remains held for coordinator resolution.
-- Producer/consumer boundary. Reuse R014 exact bounded solver/graph.assemble authority. AU records execution cost. Code-size measurement and candidate adequacy feed EG. Preserve legal/policy constraints and hold comment-style conflict.
+- Producer/consumer boundary. Reuse R014 exact bounded solver/graph.assemble authority. Meristem records execution cost. Code-size measurement and candidate adequacy feed Medulla. Preserve legal/policy constraints and hold comment-style conflict.
 - Source record SHA-256: `2dfb2ab7469f19faf03d91782fa276ed2c613dec2e1d1fce2c629e5b8974b476`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->
@@ -1166,7 +1166,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 ### `EG-DECISION-ENGINE-R140` — Trajectory refinement and ranking family
 
 - Add the root row and link every child in generated status.
-- Preserve existing parent contracts and owner boundaries. Groups complexity-gated K-trajectory deliberation, provenance-preserving experience reinsertion, outcome-driven branch breadth and verifier-free pairwise ranking. Preserve calibrated-ranking requirements in R130 and AU generation/execution ownership.
+- Preserve existing parent contracts and owner boundaries. Groups complexity-gated K-trajectory deliberation, provenance-preserving experience reinsertion, outcome-driven branch breadth and verifier-free pairwise ranking. Preserve calibrated-ranking requirements in R130 and Meristem generation/execution ownership.
 
 ### `EG-DECISION-ENGINE-R141` — Memory-change evaluation and rewrite admission
 
@@ -1176,13 +1176,13 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 ### `EG-DECISION-ENGINE-R142` — Atomic-before-workflow local-model certification
 
 - Add the root row and link every child in generated status.
-- Preserve existing parent contracts and owner boundaries. Defines the EG attestation producer, AU local-model evaluation consumer and GraphOS validation gate. Existing GraphOS R034 identity bindings and host policy remain authoritative.
+- Preserve existing parent contracts and owner boundaries. Defines the Medulla attestation producer, Meristem local-model evaluation consumer and Arbora validation gate. Existing Arbora R034 identity bindings and host policy remain authoritative.
 
 ### `EG-DECISION-ENGINE-R139.100` / AU:58
 
 - Preserve parent `EG-DECISION-ENGINE-R139` and its existing clauses.
-- Define. Extend comparative `StudySource` admission with a `graph_ref` containing tenant, graph, node, revision and content digest. Resolve the exact revision through the authorized graph read/query path. Compare papers and codebases from graph refs alongside existing filesystem sources without copying source bodies. Record ordered source kind, locator/reference, exact revision, digest and comparison membership in the comparative result. Missing, stale, invisible or digest-mismatched graph references refuse before comparison. Preserve filesystem intake and AU study/feature ownership.
-- Producer/consumer: EG owns authorized graph resolution and returns pinned source evidence. AU owns StudySource intake, comparison execution and proposal generation. Preserve AU-HARNESS-R019.2/.3/.5/.6 and do not treat capability lookup as graph-source intake.
+- Define. Extend comparative `StudySource` admission with a `graph_ref` containing tenant, graph, node, revision and content digest. Resolve the exact revision through the authorized graph read/query path. Compare papers and codebases from graph refs alongside existing filesystem sources without copying source bodies. Record ordered source kind, locator/reference, exact revision, digest and comparison membership in the comparative result. Missing, stale, invisible or digest-mismatched graph references refuse before comparison. Preserve filesystem intake and Meristem study/feature ownership.
+- Producer/consumer: Medulla owns authorized graph resolution and returns pinned source evidence. Meristem owns StudySource intake, comparison execution and proposal generation. Preserve AU-HARNESS-R019.2/.3/.5/.6 and do not treat capability lookup as graph-source intake.
 - Source record SHA-256: `f13717cacb9e87ff76591467e17b5f9d76d44577f62d71b57d57c42bc89d37ba`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
@@ -1190,72 +1190,72 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 - Preserve parent `EG-DECISION-ENGINE-R019` and its existing clauses.
 - Define. Bind each decision record to its id/revision. Record the simulation, inspection and process-knowledge stream ids/revisions/digests used. Expose an authorized reviewer-readable provenance read. Before any recommendation commit, require an approval receipt bound to decision revision and recommendation digest. Include reviewer principal, approval time and approval-record revision. Missing, stale or mismatched approval refuses before commit. Retain existing R019 re-derivation/CAS and R047 reference semantics. Do not duplicate governed-effect audit rows.
-- Producer/consumer: EG produces decision/provenance and approval-binding inputs. GraphOS owns shared invoke/A2A approval admission. SDK owns governed source effects and receipts. R047 remains the related producer reference.
+- Producer/consumer: Medulla produces decision/provenance and approval-binding inputs. Arbora owns shared invoke/A2A approval admission. Scion SDK owns governed source effects and receipts. R047 remains the related producer reference.
 - Source record SHA-256: `0e4858352b73b18661ed21ef503cc4c4f36e72045c3ffeff8d2094d9f8f8e50a`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R029.100` / PIPE:22
 
 - Preserve parent `EG-DECISION-ENGINE-R029` and its existing clauses.
-- Define. Define a versioned typed command-config document per retrieval command. Bind command id/schema version, typed parameters and referenced inference-mode id/version/digest. EG Decide binds the selected retrieval plan and inference-mode digest. AU loads the immutable command file and validates its schema. Require its mode digest to match the EG decision before applying it. AU run evidence binds command/config digest, mode digest, input digest, selected-plan revision and result digest. Missing, malformed, stale or mismatched configuration refuses before execution. File loading remains AU-owned.
-- Producer/consumer: EG owns the typed plan/mode decision and digest; AU owns command-file loading and execution. Do not conflate plan selection with file loading or add a pipeline runtime orchestrator.
+- Define. Define a versioned typed command-config document per retrieval command. Bind command id/schema version, typed parameters and referenced inference-mode id/version/digest. Medulla Decide binds the selected retrieval plan and inference-mode digest. Meristem loads the immutable command file and validates its schema. Require its mode digest to match the Medulla decision before applying it. Meristem run evidence binds command/config digest, mode digest, input digest, selected-plan revision and result digest. Missing, malformed, stale or mismatched configuration refuses before execution. File loading remains Meristem-owned.
+- Producer/consumer: Medulla owns the typed plan/mode decision and digest; Meristem owns command-file loading and execution. Do not conflate plan selection with file loading or add a pipeline runtime orchestrator.
 - Source record SHA-256: `0d3964cba3359a3b454f2fd7b61f2b893b3aec0d58613062b859c2201344980c`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R140.100` / AU:44
 
 - Preserve parent `EG-DECISION-ENGINE-R140` and its existing clauses.
-- Define. For each task, emit a versioned complexity decision. Bind task digest, scored features, score and threshold/policy revision. Return branch (`simple` or `complex`) and permitted K. Below the policy threshold, choose the single-trajectory path and make no deliberation call. At or above the threshold, return only permitted K and decision digest in the plan. AU alone generates K alternatives and executes deliberation. Bind its receipt to that digest. Missing/stale score or policy, invalid K, or a complex decision with K below two refuses before AU execution. The threshold and K limits are explicit versioned policy inputs, not silently selected constants.
-- Producer/consumer: EG owns score/policy/branch decision; AU owns trajectory generation and deliberation execution. AU-CONTROL-R043 independent-subtask fan-out remains distinct.
+- Define. For each task, emit a versioned complexity decision. Bind task digest, scored features, score and threshold/policy revision. Return branch (`simple` or `complex`) and permitted K. Below the policy threshold, choose the single-trajectory path and make no deliberation call. At or above the threshold, return only permitted K and decision digest in the plan. Meristem alone generates K alternatives and executes deliberation. Bind its receipt to that digest. Missing/stale score or policy, invalid K, or a complex decision with K below two refuses before Meristem execution. The threshold and K limits are explicit versioned policy inputs, not silently selected constants.
+- Producer/consumer: Medulla owns score/policy/branch decision; Meristem owns trajectory generation and deliberation execution. AU-CONTROL-R043 independent-subtask fan-out remains distinct.
 - Source record SHA-256: `74416937af9a4934ae1f5d1a02e30336deb1535189a07f53fb81fb352f81779f`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
 
-- **Operational wiring / exact hold:** Wire the complexity score/policy input and decision into the existing R134.5 TaskPlan/Decide route. Assert EG returns a plan only. Record AU’s exact decision-digest/K consumer contract as a prerequisite, not inferred from R043.
+- **Operational wiring / exact hold:** Wire the complexity score/policy input and decision into the existing R134.5 TaskPlan/Decide route. Assert Medulla returns a plan only. Record Meristem’s exact decision-digest/K consumer contract as a prerequisite, not inferred from R043.
 ### `EG-DECISION-ENGINE-R140.101` / AU:51
 
 - Preserve parent `EG-DECISION-ENGINE-R140` and its existing clauses.
 - Define. Represent each source trajectory with run/candidate ids, source revision and trace digest. The experience projection records redaction-policy revision and removed reasoning-token spans. It retains task/result/evidence spans and records a deterministic shuffle seed and ordered projected ids. Deliberation output is a new candidate whose parent list names every consumed experience id and digest. Append it as one extra refinement trajectory without replacing source records. Missing provenance, invalid redaction policy or an output not linked to the consumed inputs refuses reinsertion.
-- Producer/consumer: AU record_outcome/SkillGraphPipeline owns experience production and deliberation; EG owns the refinement decision/result binding. Preserve AU-HARNESS-R022 experience identities and source trace provenance.
+- Producer/consumer: Meristem record_outcome/SkillGraphPipeline owns experience production and deliberation; Medulla owns the refinement decision/result binding. Preserve AU-HARNESS-R022 experience identities and source trace provenance.
 - Source record SHA-256: `be286cbd079c08493be1dcc0512aa562b6e2f2fec8d3566437837d91b5f36ba0`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R140.102` / AU:84
 
 - Preserve parent `EG-DECISION-ENGINE-R140` and its existing clauses.
-- Define. Before each branch, retrieve authorized prior attempts for the same search id. Bind their branch ids and outcome revisions/digests into the request. EG emits a versioned breadth decision with retrieved outcome ids, prior breadth, selected breadth and policy revision. AU executes only that breadth and links returned outcomes to the decision. A later branch must support breadth changes in later branches from earlier outcomes under the declared policy. Missing, stale or cross-tenant experience is not treated as a zero outcome and cannot drive adaptation.
-- Producer/consumer: EG TaskPlan/Decide owns committed breadth decisions; AU owns branch execution and attempt outcomes. Preserve AU-HARNESS-R020 worker slots and R022 outcome storage. This child covers long-horizon candidate branches only.
+- Define. Before each branch, retrieve authorized prior attempts for the same search id. Bind their branch ids and outcome revisions/digests into the request. Medulla emits a versioned breadth decision with retrieved outcome ids, prior breadth, selected breadth and policy revision. Meristem executes only that breadth and links returned outcomes to the decision. A later branch must support breadth changes in later branches from earlier outcomes under the declared policy. Missing, stale or cross-tenant experience is not treated as a zero outcome and cannot drive adaptation.
+- Producer/consumer: Medulla TaskPlan/Decide owns committed breadth decisions; Meristem owns branch execution and attempt outcomes. Preserve AU-HARNESS-R020 worker slots and R022 outcome storage. This child covers long-horizon candidate branches only.
 - Source record SHA-256: `b56fbf074624786b4a8c2b499f985ecc2d14d1e8349d08781cf28aba07c3abef`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
 
-- **Operational wiring / exact hold:** Wire branch-start through the existing TaskPlan/Decide handler. Specify AU R020.5/R022.4 decision-id/outcome fields. Test sequential adaptation. Worker slots and generic run outcomes are not this receipt.
+- **Operational wiring / exact hold:** Wire branch-start through the existing TaskPlan/Decide handler. Specify Meristem R020.5/R022.4 decision-id/outcome fields. Test sequential adaptation. Worker slots and generic run outcomes are not this receipt.
 ### `EG-DECISION-ENGINE-R140.103` / AU:87
 
 - Preserve parent `EG-DECISION-ENGINE-R140` and its existing clauses.
-- Define. When no verifier is available, bind an ordered candidate set and candidate digests to pairwise comparison records. Each pair record carries both ids, judge/model revision, verdict and evidence digest. Do not aggregate into a global ranking until an owner-approved versioned policy defines cycle, incomplete-pair and tie behavior. The source does not select Bradley–Terry. Until owner approval, refuse global ranking, retained partition and revision requests. The policy must define complete-pair behavior, cycle/tie resolution and bounded keep-count/revision limits. AU receipts are also required. No positive ranking behavior is specified by this source record. An available verifier routes through its existing verifier contract instead of this fallback.
-- Producer/consumer: EG owns pairwise evidence aggregation, ranking and retention decision; AU owns comparison execution and revisions. Preserve calibrated-ranking constraints in R130 and AU generation ownership.
+- Define. When no verifier is available, bind an ordered candidate set and candidate digests to pairwise comparison records. Each pair record carries both ids, judge/model revision, verdict and evidence digest. Do not aggregate into a global ranking until an owner-approved versioned policy defines cycle, incomplete-pair and tie behavior. The source does not select Bradley–Terry. Until owner approval, refuse global ranking, retained partition and revision requests. The policy must define complete-pair behavior, cycle/tie resolution and bounded keep-count/revision limits. Meristem receipts are also required. No positive ranking behavior is specified by this source record. An available verifier routes through its existing verifier contract instead of this fallback.
+- Producer/consumer: Medulla owns pairwise evidence aggregation, ranking and retention decision; Meristem owns comparison execution and revisions. Preserve calibrated-ranking constraints in R130 and Meristem generation ownership.
 - Source record SHA-256: `6f67238075c0bf262188d97a1813b18bfb0c71e13c6689a583c788d956287612`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
 ### `EG-DECISION-ENGINE-R140.104` — Wiring row
 
 - Production call sites: src/server/dispatch/router/decision_plane.rs:107 -> src/server/handlers/decide/stat_decide.rs:48.
-- Bind every R140 decision digest and policy/source revision into the existing TaskPlan result. Do not move AU model or trajectory execution into EG.
-- Owner hold. AU's exact decision-digest/K, projection, breadth and pairwise execution receipt fields remain pending; R140.103 policy selection remains pending.
+- Bind every R140 decision digest and policy/source revision into the existing TaskPlan result. Do not move Meristem model or trajectory execution into Medulla.
+- Owner hold. Meristem's exact decision-digest/K, projection, breadth and pairwise execution receipt fields remain pending; R140.103 policy selection remains pending.
 - Planned proving test. tests/decide/test_trajectory_refinement_served.py::test_real_decide_route_emits_pinned_refinement_decisions.
 
 ### `EG-DECISION-ENGINE-R140.105` — Hot-path proof row
 
 - Planned proving integration test. tests/decide/test_trajectory_refinement_served.py::test_taskplan_decisions_reach_au_and_receipts_read_back.
-- It enters Method::Decide, observes the TaskPlan binding through AU generation/refinement and independently reads back every receipt. Refusal is required for a missing/mismatched digest.
-- Explicit AU holds: consumer contracts for R140.100/.101/.102 and pairwise aggregation/receipt for R140.103. No successful proof is claimed until these are reviewed and served.
+- It enters Method::Decide, observes the TaskPlan binding through Meristem generation/refinement and independently reads back every receipt. Refusal is required for a missing/mismatched digest.
+- Explicit Meristem holds: consumer contracts for R140.100/.101/.102 and pairwise aggregation/receipt for R140.103. No successful proof is claimed until these are reviewed and served.
 
 ### `EG-DECISION-ENGINE-R141.100` / EG:23
 
 - Preserve parent `EG-DECISION-ENGINE-R141` and its existing clauses.
 - Define. A rewrite proposal binds tenant and memory id plus active-source and candidate revisions/digests. Record fidelity metric/policy revision, metric-spec digest and measured fidelity. Include signal/token counts, signal-per-token value and degradation-history window. Admit only when the declared fidelity threshold passes and the policy’s signal-efficiency/degradation checks pass. On any failed gate, discard the candidate and retain the original active revision unchanged. Do not infer rewrite admission from R059 aggregate outcome fidelity or R128 elide/summarize selection.
-- Producer/consumer: EG owns the rewrite evaluation decision; AU may generate candidate rewrites. The source does not identify the fidelity formula or normalization. Require an immutable reviewed metric specification before an Admit verdict. The authoritative active-memory store/write/CAS path is also not identified and remains a prerequisite to an apply claim. Retain the original as the rollback source.
+- Producer/consumer: Medulla owns the rewrite evaluation decision; Meristem may generate candidate rewrites. The source does not identify the fidelity formula or normalization. Require an immutable reviewed metric specification before an Admit verdict. The authoritative active-memory store/write/CAS path is also not identified and remains a prerequisite to an apply claim. Retain the original as the rollback source.
 - Source record SHA-256: `ac1b5df0212beaade03e78502a494148692e1a0007c3fa68ee37a2bb6dbe8cce`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
@@ -1265,7 +1265,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 - Preserve parent `EG-DECISION-ENGINE-R141` and its existing clauses.
 - Define. Before memory mutation, bind baseline/candidate snapshot digests to a versioned reference dataset. Include query ids, expected evidence ids and reference answers. Report recall@k and answer accuracy with numerator, positive denominator, metric specification revision and dataset digest. The referenced metric specifications must define exact scoring, query aggregation and rounding. The source does not supply those formulas, so missing/unreviewed semantics refuse before positive admission. Compare both only under a reviewed policy. Admission requires both thresholds to pass on the same dataset and snapshot pair. Missing dataset rows, metric inputs, denominator or policy revision refuse before apply. This gate covers add/edit/delete/rewrite/consolidation changes; R060 fitted-head promotion remains a separate model-promotion gate.
-- Producer/consumer: AU executes the repeatable benchmark and returns its receipt; EG validates the receipt against the candidate and baseline. Universal apply refusal remains pending the authoritative mutation/write path. Reuse existing evaluation/apply mechanisms without substituting R060.
+- Producer/consumer: Meristem executes the repeatable benchmark and returns its receipt; Medulla validates the receipt against the candidate and baseline. Universal apply refusal remains pending the authoritative mutation/write path. Reuse existing evaluation/apply mechanisms without substituting R060.
 - Source record SHA-256: `27a6a74820b2b646163d8f7bd58b94167b9f0a3e423b8bf5210fe6e758deb440`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
@@ -1285,7 +1285,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 ### `EG-DECISION-ENGINE-R142.100` / GRAPHOS:8
 
 - Preserve parent `EG-DECISION-ENGINE-R142` and its existing clauses.
-- Define. For each skill revision, bind its atomic/workflow classification and local model id/revision. Record evaluation-set digest, criteria/policy revision and result/attestation digest. EG emits the certification attestation only after AU executes the declared local-model evaluation. GraphOS validates the attestation before normal (non-certification) `orchestrate` or `agents.run`. A separately authorized evaluation run may produce a new attestation. Atomic skills are evaluated first. A workflow skill is certifiable only when every referenced atomic dependency has a valid current attestation. Missing, stale, failed or mismatched dependencies refuse certification/invocation before effects. EG attests evaluation outcome; AU executes; GraphOS owns invocation gate and host policy.
+- Define. For each skill revision, bind its atomic/workflow classification and local model id/revision. Record evaluation-set digest, criteria/policy revision and result/attestation digest. Medulla emits the certification attestation only after Meristem executes the declared local-model evaluation. Arbora validates the attestation before normal (non-certification) `orchestrate` or `agents.run`. A separately authorized evaluation run may produce a new attestation. Atomic skills are evaluated first. A workflow skill is certifiable only when every referenced atomic dependency has a valid current attestation. Missing, stale, failed or mismatched dependencies refuse certification/invocation before effects. Medulla attests evaluation outcome; Meristem executes; Arbora owns invocation gate and host policy.
 - Producer/consumer: Extend existing ARBORA-FLEET-R034.7-.12 identity bindings. Do not add host scoring authority or infer certification from host prerequisites alone.
 - Source record SHA-256: `5df3f5a45d486aeba5765a31b6c6283637adf2bd8ce63a87938eddd28b90f082`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
@@ -1294,31 +1294,31 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 <!-- spec-definition-patch:owner-dispatch-20261012-plan -->
 
-- **Operational wiring / exact hold:** Bind AU’s local-model evaluation receipt to EG DecisionEval, then bind the resulting attestation to GraphOS R034.7-.12. Keep AU producer and GraphOS consumer evidence pending. Do not claim that the existing identity checks consume an EG attestation.
+- **Operational wiring / exact hold:** Bind Meristem’s local-model evaluation receipt to Medulla DecisionEval, then bind the resulting attestation to Arbora R034.7-.12. Keep Meristem producer and Arbora consumer evidence pending. Do not claim that the existing identity checks consume a Medulla attestation.
 ### `EG-DECISION-ENGINE-R142.101` — Wiring row
 
 - Production call sites: src/server/dispatch/router/decision_plane.rs:119 -> src/server/handlers/decide/jobs.rs:30.
-- The EG attestation must bind the AU evaluation receipt and exact skill/model/dataset/criteria revisions; GraphOS consumption is at ARBORA-FLEET-R034.7-.12.
-- Explicit owner holds: AU has not defined its per-criterion evaluation receipt. GraphOS has not defined its attestation-consumer operation. R034 identity checks do not close this dependency.
+- The Medulla attestation must bind the Meristem evaluation receipt and exact skill/model/dataset/criteria revisions; Arbora consumption is at ARBORA-FLEET-R034.7-.12.
+- Explicit owner holds: Meristem has not defined its per-criterion evaluation receipt. Arbora has not defined its attestation-consumer operation. R034 identity checks do not close this dependency.
 - Planned proving test. tests/decide/test_local_skill_certification_served.py::test_decision_eval_attestation_binds_au_receipt.
 
 ### `EG-DECISION-ENGINE-R142.102` — Hot-path proof row
 
 - Planned proving integration test. tests/decide/test_local_skill_certification_served.py::test_current_attestation_is_checked_before_graphos_workflow_run.
 - Enter the real evaluation/normal-invocation path. Refuse missing or stale attestations before effects. Accept only the exact current attestation.
-- Explicit owner holds: AU must serve the receipt; GraphOS must serve the R034 invocation check. No end-to-end evidence is claimed.
+- Explicit owner holds: Meristem must serve the receipt; Arbora must serve the R034 invocation check. No end-to-end evidence is claimed.
 
 ## Instruction-set disclosure policy (R143)
 
-EG context authority emits disclosure events. AU harness applies disclosed instructions without substitution. Define initial disclosure, runtime-refinement triggers, per-event versioning and trace evidence. Preserve decision authority and harness application precedence. Cross-owner: AU must bind received disclosure version to applied instruction-set hash.
+Medulla context authority emits disclosure events. Meristem harness applies disclosed instructions without substitution. Define initial disclosure, runtime-refinement triggers, per-event versioning and trace evidence. Preserve decision authority and harness application precedence. Cross-owner: Meristem must bind received disclosure version to applied instruction-set hash.
 
 ## Indexless retrieval and cost budgeting (R144)
 
-GraphOS retrieval serves GovernedRetriever. EG federated-query returns row-visit budget and cost reports. Define: indexless raw-file-read and corpus-scan primitives, per-query cost reporting and budget refusal. Extend existing EG retrieval/source-access contracts. Cross-owner: AU exploration consumer obeys budget.
+Arbora retrieval serves GovernedRetriever. Medulla federated-query returns row-visit budget and cost reports. Define: indexless raw-file-read and corpus-scan primitives, per-query cost reporting and budget refusal. Extend existing Medulla retrieval/source-access contracts. Cross-owner: Meristem exploration consumer obeys budget.
 
 ## Fidelity-gated memory rewrite decision (R145)
 
-EG evaluates memory-rewrite candidates by fidelity metric, signal-per-token ratio and degradation history. Define: original preservation, failed-candidate discard, verified-optimal admission. Store/harness consumers bind rewrite-admission receipts. Separate from R128 context elision and R059 outcome aggregates. Explicit hold: authoritative memory store and atomic write/CAS gate are not identified. Do not claim the evaluation handler universally gates writes.
+Medulla evaluates memory-rewrite candidates by fidelity metric, signal-per-token ratio and degradation history. Define: original preservation, failed-candidate discard, verified-optimal admission. Store/harness consumers bind rewrite-admission receipts. Separate from R128 context elision and R059 outcome aggregates. Explicit hold: authoritative memory store and atomic write/CAS gate are not identified. Do not claim the evaluation handler universally gates writes.
 
 ## Temporal context queries and confusion detection (R146)
 
@@ -1326,7 +1326,7 @@ Retrieval must distinguish storage date, event date and narrative time. Define: 
 
 ## Cross-owner retrieval evaluation plan — 2026-10-12
 
-- **`EG-DECISION-ENGINE-R100.100` / WEBUI:6:** Extend the existing served `DecisionEval` job with `RetrievalRankingV1` input/result identity and `RetrievalContextSearchV1` bounded exact-span reads. Bind corpus, binary labels, query set, k, algorithms/settings, evaluator, result digests and numerator/denominator. Compare only identical inputs. Refuse missing labels or incompatible revisions. Preserve R100 hard-negative learning from independently evaluated outcomes. Consumer: WebUI R001.1 side-by-side comparison. Source SHA-256 `3dc3c464a10a5178a413463f2b43baeb015732f5b8df508f6dbab9c37cc1165d`.
+- **`EG-DECISION-ENGINE-R100.100` / WEBUI:6:** Extend the existing served `DecisionEval` job with `RetrievalRankingV1` input/result identity and `RetrievalContextSearchV1` bounded exact-span reads. Bind corpus, binary labels, query set, k, algorithms/settings, evaluator, result digests and numerator/denominator. Compare only identical inputs. Refuse missing labels or incompatible revisions. Preserve R100 hard-negative learning from independently evaluated outcomes. Consumer: Overstory R001.1 side-by-side comparison. Source SHA-256 `3dc3c464a10a5178a413463f2b43baeb015732f5b8df508f6dbab9c37cc1165d`.
 - Use `Method::UnifiedQuery` as retrieval producer, `Method::DecisionEval` as sealed metric receipt path and the authenticated query/read handler for n-gram spans. Do not add a second ranking or truth source.
 - Keep SPECIFIED until fixed-corpus served positive/negative cases and independent receipt/context readback pass.
 <!-- /spec-definition-patch -->
@@ -1337,7 +1337,7 @@ Retrieval must distinguish storage date, event date and narrative time. Define: 
 
 ## EG-DECISION-ENGINE-R152
 
-EG-DECISION-ENGINE-R152.1 through R152.6: AU context compiler accepts retrieved KG facts and renders them as natural-language prose.
+EG-DECISION-ENGINE-R152.1 through R152.6: Meristem context compiler accepts retrieved KG facts and renders them as natural-language prose.
 
 ## EG-DECISION-ENGINE-R153
 
@@ -1353,19 +1353,19 @@ EG-DECISION-ENGINE-R155.1 through R155.6: Sessions produce episodes with tempora
 
 ## EG-DECISION-ENGINE-R156
 
-EG-DECISION-ENGINE-R156.1 through R156.6: Skill documents compile procedurally to AU executable plans.
+EG-DECISION-ENGINE-R156.1 through R156.6: Skill documents compile procedurally to Meristem executable plans.
 
 ## EG-DECISION-ENGINE-R157
 
-EG-DECISION-ENGINE-R157.1 through R157.6: EG defines measured output quality, delegation threshold and observation window. AU executes only admitted delegation. Quality gate refuses delegation below threshold.
+EG-DECISION-ENGINE-R157.1 through R157.6: Medulla defines measured output quality, delegation threshold and observation window. Meristem executes only admitted delegation. Quality gate refuses delegation below threshold.
 
 ## EG-DECISION-ENGINE-R158
 
-EG-DECISION-ENGINE-R158.1 through R158.6: Per-run error frequency drives joint model and width adjustment. AU continuation consumes adjustment receipt. Host ceiling and narrow-only enforced.
+EG-DECISION-ENGINE-R158.1 through R158.6: Per-run error frequency drives joint model and width adjustment. Meristem continuation consumes adjustment receipt. Host ceiling and narrow-only enforced.
 
 ## EG-DECISION-ENGINE-R159
 
-EG-DECISION-ENGINE-R159.1 through R159.6: EG routing applies historical tool-path success-rate preference. Connector and harness observations feed path-success tracking. SDK ordered fallback remains transport contract.
+EG-DECISION-ENGINE-R159.1 through R159.6: Medulla routing applies historical tool-path success-rate preference. Connector and harness observations feed path-success tracking. Scion SDK ordered fallback remains transport contract.
 
 ## EG-DECISION-ENGINE-R160
 
@@ -1385,7 +1385,7 @@ EG-DECISION-ENGINE-R163.1 through R163.6: Graph-ingested papers and codebases in
 
 ## EG-DECISION-ENGINE-R164
 
-EG-DECISION-ENGINE-R164.1 through R164.6: Long-horizon branches retrieve prior outcomes and adapt breadth. Earlier branch success increases later breadth. Outcome evidence recorded per branch. AU-HARNESS-R022 outcome feedback drives EG breadth decision.
+EG-DECISION-ENGINE-R164.1 through R164.6: Long-horizon branches retrieve prior outcomes and adapt breadth. Earlier branch success increases later breadth. Outcome evidence recorded per branch. AU-HARNESS-R022 outcome feedback drives Medulla breadth decision.
 
 ## EG-DECISION-ENGINE-R165
 
@@ -1426,13 +1426,13 @@ EG-DECISION-ENGINE-R171.1 through EG-DECISION-ENGINE-R171.6: planning admission 
 
 ## EG-DECISION-ENGINE-R172
 
-EG-DECISION-ENGINE-R172.1 through EG-DECISION-ENGINE-R172.11: capability designation moves from agent-utilities into a native Rust index in `eg-compute`. `Decide` and `DecisionLog` serve it. Deliver `.1`, then `.2` to `.6`, then `.7` to `.9`, then `.10` and `.11`.
+EG-DECISION-ENGINE-R172.1 through EG-DECISION-ENGINE-R172.11: capability designation moves from Meristem into a native Rust index in `eg-compute`. `Decide` and `DecisionLog` serve it. Deliver `.1`, then `.2` to `.6`, then `.7` to `.9`, then `.10` and `.11`.
 
 ## EG-DECISION-ENGINE-R175 — implicit-reasoning recommendation
 
 Replaces: `agent_utilities/knowledge_graph/retrieval/generative_recommender.py`, `agent_utilities/knowledge_graph/retrieval/temporal_semantic_id.py` and `bench_pauserec` in `agent_utilities/harness/assimilation_benchmark.py`.
 
-AU acceptance case: `tests/unit/harness/test_assimilation_benchmark.py::test_bench_reproduces_claim[bench_pauserec-NDCG]`.
+Meristem acceptance case: `tests/unit/harness/test_assimilation_benchmark.py::test_bench_reproduces_claim[bench_pauserec-NDCG]`.
 
 Call path: served `Decide` -> `handle_decide` -> `stat_decide.rs:137` -> `recommend_outcome` -> `eg_numeric::recommend` -> sealed answer.
 
@@ -1452,7 +1452,7 @@ Budget: p50 under 5 ms and p99 under 20 ms for 100,000 items at `top_k = 10`.
 
 Replaces: `agent_utilities/harness/harness_gate.py` (`_link_coupling_windows` and the gate), `HarnessConcentrationShape` in `agent_utilities/knowledge_graph/shapes/harness.shapes.ttl` and `_bench_concentration` in `agent_utilities/harness/harness_foundry_benchmark.py`.
 
-AU acceptance cases: `tests/unit/harness/test_harness_gate.py::test_concentration_blocks_the_tau3_failure`, `tests/unit/harness/test_harness_gate.py::test_below_threshold_passes`, `tests/unit/harness/test_aegis_loop.py::test_loop_blocks_concentration_across_rounds` and the foundry `concentration_tau3` case.
+Meristem acceptance cases: `tests/unit/harness/test_harness_gate.py::test_concentration_blocks_the_tau3_failure`, `tests/unit/harness/test_harness_gate.py::test_below_threshold_passes`, `tests/unit/harness/test_aegis_loop.py::test_loop_blocks_concentration_across_rounds` and the foundry `concentration_tau3` case.
 
 Call path: served `Decide` -> `handle_decide` -> `stat_decide.rs:137` -> `concentration_verdict` -> sealed answer. The harness applies the received `keep` or `revert`.
 
@@ -1472,7 +1472,7 @@ Budget: p99 under 2 ms for 10,000 edit facts.
 
 Replaces: `agent_utilities/tools/dynamic_tool_orchestrator.py` (`assign_tools_for_task`, `resolve_mcp_tools`) and `agent_utilities/capabilities/fleet_tool_search.py` (`fleet_relevance_search`).
 
-AU acceptance cases: `tests/unit/capabilities/test_fleet_tool_search.py` and `tests/unit/mcp/test_dynamic_tool_selection.py`.
+Meristem acceptance cases: `tests/unit/capabilities/test_fleet_tool_search.py` and `tests/unit/mcp/test_dynamic_tool_selection.py`.
 
 Call path: served `Decide` -> `handle_decide` -> `stat_decide.rs:137` -> `tool_relevance_outcome` -> `eg_text::tool_relevance` -> `rank_tools_by_relevance` -> `smallest_covering_subset` (`tool_subset.rs:59`).
 
@@ -1497,7 +1497,7 @@ References
 
 Replaces: `agent_utilities/decide/learning/` outcome recording and `agent_utilities/orchestration/agent_runner.py:_write_step_credit`.
 
-AU acceptance cases: `tests/unit/test_orchestrate_mermaid_surfacing.py` and `tests/unit/test_step_credit_readback.py`.
+Meristem acceptance cases: `tests/unit/test_orchestrate_mermaid_surfacing.py` and `tests/unit/test_step_credit_readback.py`.
 
 Call path: served `DecisionLog` -> `DecisionLogOp::Learn` (`log.rs:398`) -> `stat_run_credit.rs` (new) -> hard-negative store from `EG-DECISION-ENGINE-R100` -> capability baseline update.
 
@@ -1520,7 +1520,7 @@ References
 
 Replaces: `agent_utilities/decide/learning/generation_cycle.py` (`run_generation_cycle`, `CorpusReembedder`) and the loop stage that called it.
 
-AU acceptance case: `tests/unit/decide/test_generation_cycle.py`.
+Meristem acceptance case: `tests/unit/decide/test_generation_cycle.py`.
 
 Call path: served `DecisionLog` -> `DecisionLogOp::Learn` -> `stat_generation_cycle.rs` (new) -> `eg-jobs` job -> embedding endpoint -> shadow graph writes -> `stat_generation.rs` evaluation -> pointer compare-and-set.
 
@@ -1577,9 +1577,9 @@ Capability designation reads the surface triples that `EG-TYPED-PACKS-R102` proj
 
 ## EG-DECISION-ENGINE-R176 and R177 — job-scoped load set and usage guidance
 
-A harness asks graph-os what a job needs. graph-os asks the engine. The engine answers from the overlay of every imported connector pack. graph-os loads only the answered tools (`ARBORA-FLEET-R037`). graph-os holds no ranking policy.
+A harness asks Arbora what a job needs. Arbora asks the engine. The engine answers from the overlay of every imported connector pack. Arbora loads only the answered tools (`ARBORA-FLEET-R037`). Arbora holds no ranking policy.
 
-Call path: graph-os `find` with a job -> served `Decide` -> `handle_decide` (`statistical.rs:11`) -> capability designation (`EG-DECISION-ENGINE-R172`) per capability -> union and bound -> premises -> answer.
+Call path: Arbora `find` with a job -> served `Decide` -> `handle_decide` (`statistical.rs:11`) -> capability designation (`EG-DECISION-ENGINE-R172`) per capability -> union and bound -> premises -> answer.
 
 Crates: `eg-types` for the question and answer, `eg-compute` for the designation index, the root server package for the handler.
 
@@ -1618,7 +1618,7 @@ acceptance. R047 owns the existing DecisionRecord types and methods; R051 owns
 their served handlers and audit behavior. Arbora PR 349 adopted explicit engine-owned profile-use permission
 for `ARBORA-A2A-R016.6`. Catalog visibility and a sealed assembly record do not
 grant that permission. Existing default execution remains unchanged.
-Arbora retains served admission and authentication. EG supplies durable
+Arbora retains served admission and authentication. Medulla supplies durable
 transaction validation and persistence under verified authority.
 
 Reuse `Method::DecisionCommit`, its handler in
@@ -1698,7 +1698,7 @@ exact new approver-class permission `profile:approve-grant`; registration alone
 grants nobody that permission. Existing elevation permission does not imply it.
 Reject self-approval, delegated approval, API-key approval and cross-tenant
 approval. Never derive permission from tenant membership, catalog visibility,
-provider settings or wildcard scopes. EG validates and persists the resulting
+provider settings or wildcard scopes. Medulla validates and persists the resulting
 authorization facts; Arbora keeps no parallel grant store.
 
 A grant binds one tenant, beneficiary principal, graph, profile reference and
@@ -1721,7 +1721,7 @@ Require one atomic, serializable admission outcome across authoritative owners.
 Preserve multi-tenant and multi-shard support; one physical file is not required.
 Reuse native mutation ownership and replay machinery through an owner-supported
 coordinator protocol. That heterogeneous-owner protocol is not implemented yet.
-Arbora authenticates and requests admission. EG checks durable authority and
+Arbora authenticates and requests admission. Medulla checks durable authority and
 records the outcome. The coordinated transaction must cover:
 
 - Current grant content, policy and revocation revisions, and issuer authority
@@ -1880,7 +1880,7 @@ A revocation serialized before admission makes admission refuse. If admission
 wins, its decision precedes the acknowledged revocation. This ordering includes
 all owner paths; an external precheck cannot establish it. Human approval and
 served authorization remain Arbora responsibilities under the unchanged #661
-policy. EG records and transaction checks do not create a new approval issuer.
+policy. Medulla records and transaction checks do not create a new approval issuer.
 
 Choose the decision timestamp through the existing trusted engine clock owner.
 All participants must supply comparable expiry bounds or refuse participation.
@@ -1989,7 +1989,7 @@ identity and Admin grants from one current durable authority snapshot. Missing
 or unreadable authority denies the decision, including a cached System identity.
 Preserve the existing System role behavior, explicit deny precedence, and
 non-security registered-System rule. Elevations grant no administrative power.
-This repairs an existing decision over EG records; it adds no issuer, served
+This repairs an existing decision over Medulla records; it adds no issuer, served
 operation, profile permission, or Arbora admission policy.
 
 Test stale-clone grant removal, System demotion, identity deletion, explicit
@@ -2073,13 +2073,13 @@ DAG for one already-bound agent, not a replacement AgentGraph Library record.
 Data flow: `Method::Decide` -> `stat_decide` -> `stat_task_plan` ->
 `decision::task_plan::plan_explicit_tasks` -> sealed `StatisticalDecisionRecord.task_plan`.
 Arbora requests the plan, checks the receipt and applies its own admission limits.
-AU executes ready tasks and refills slots. No model chooses policy or grants access.
+Meristem executes ready tasks and refills slots. No model chooses policy or grants access.
 
 The engine rule `bounded-explicit-dag-v1` permits 64 tasks and eight concurrent tasks.
 It permits 16 KiB per prompt and 64 KiB of prompt text in total.
 It uses lexical ready-task ties and sorts dependency ids. It permits no retry or cycle expansion.
 Every task must reach one output sink. Caller limits may tighten these ceilings, not raise them. Each task
-executes at most once. Model request and token budgets remain separate AU limits.
+executes at most once. Model request and token budgets remain separate Meristem limits.
 
 The request uses one `TypedValue::TaskPlan` parameter named `task_plan`. Its declared
 candidate ids equal the task ids, without candidate facts. It carries a published

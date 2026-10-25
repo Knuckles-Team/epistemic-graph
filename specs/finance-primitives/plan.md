@@ -44,7 +44,7 @@ These individual passes do not make the failed overall facade job successful.
 
 ## Integration contracts
 
-External connectors submit source events and revisions through the typed import boundary. The serving layer schedules recurring DCA intentions and consumes outbox facts. It cannot change EG calculations. The browser reads positions, comparisons, risk and snapshots with provenance and renders partial/abstain states. The execution system receives proposals only through its separate governed approval path. These interfaces are complete at the behavioral level here. Companion repositories may add their own implementation details without changing EG's authority.
+External connectors submit source events and revisions through the typed import boundary. The serving layer schedules recurring DCA intentions and consumes outbox facts. It cannot change Medulla calculations. The browser reads positions, comparisons, risk and snapshots with provenance and renders partial/abstain states. The execution system receives proposals only through its separate governed approval path. These interfaces are complete at the behavioral level here. Companion repositories may add their own implementation details without changing Medulla's authority.
 
 ## Rollout
 
@@ -60,7 +60,7 @@ Deliver R013.2.2 (corporate actions), R013.2.3 (DST/session boundaries), R013.2.
 
 ### Ownership and reuse
 
-EG owns the `finance-v1` OWL/SHACL model, deterministic Rust calculations, typed protocol, sealed evidence, graph persistence and finance outbox. The existing market implementation is the seam:
+Medulla owns the `finance-v1` OWL/SHACL model, deterministic Rust calculations, typed protocol, sealed evidence, graph persistence and finance outbox. The existing market implementation is the seam:
 
 | Existing component | Reuse for this extension |
 |---|---|
@@ -69,7 +69,7 @@ EG owns the `finance-v1` OWL/SHACL model, deterministic Rust calculations, typed
 | `crates/eg-compute/src/finance/` | Add fixed-point `accounting`, `strategy`, `risk` modules behind the existing compute crate. Reuse existing quantitative validation kernels. |
 | `crates/eg-types/src/compute_result/market/` | Extend versioned request/result contracts; regenerate language clients from canonical Rust contracts. |
 | `src/server/handlers/finance/` | Dispatch new FinanceMarket suboperations or a cohesive typed finance operation family; keep public method authorization and result mapping centralized. |
-| EG graph store, sealed-record guard and outbox | Persist immutable source facts and sealed results through the owner transaction. Prohibit generic-node overwrites of sealed evidence. |
+| Medulla graph store, sealed-record guard and outbox | Persist immutable source facts and sealed results through the owner transaction. Prohibit generic-node overwrites of sealed evidence. |
 
 `FinancialInstrument` and `Listing` remain the shared keys. Avoid a second "portfolio database" or a copy of historical bars. A read model may cache a `Position` by `(tenant, account, as_of, input_digest, accounting_policy_version)`; it is discardable and recomputed after a revised activity, price or action. The account activity journal is authoritative for holdings. All keys include tenant and authorization scope; a cache cannot broaden visibility.
 
@@ -92,7 +92,7 @@ StrategySpec --(point-in-time inputs)--> StrategyRun --> ProposedAction
 LeverageTerms -----------------------> RiskScenario --/
 ```
 
-Persist an activity as an append-only, versioned source record. Its effective time answers *when the economic event happened*; `known_at` answers *when EG could have known it*. A corrected record supersedes a prior version while replay at an earlier `known_at` sees the prior version. Use a canonical payload digest with domain separation. A source file digest alone is insufficient to distinguish rows: include source row ID and revision. Validate SHACL and the typed request before write; commit record, projection invalidation and outbox in one owner transaction.
+Persist an activity as an append-only, versioned source record. Its effective time answers *when the economic event happened*; `known_at` answers *when Medulla could have known it*. A corrected record supersedes a prior version while replay at an earlier `known_at` sees the prior version. Use a canonical payload digest with domain separation. A source file digest alone is insufficient to distinguish rows: include source row ID and revision. Validate SHACL and the typed request before write; commit record, projection invalidation and outbox in one owner transaction.
 
 Use a `DecimalValue { mantissa: i128, scale: u8 }` style boundary or existing fixed-point primitive if it provides the same checked semantics. Specify each formula's intermediate scale, rounding and overflow behavior in code contracts and golden vectors. Never use `f32`/`f64` for monetary persistence or equality. Statistical metrics may use controlled numeric kernels, but the monetary inputs and outputs remain fixed-point.
 
@@ -120,7 +120,7 @@ Names are design targets, not a claim that they exist today. Keep wire variants 
 
 ### Trust and execution boundary
 
-The finance compute path is deterministic and side-effect free except explicitly governed storage/outbox writes. A recommendation and `ProposedAction` are data. The execution adapter must separately obtain authorization, risk approval and a policy-valid lease. The EG protocol contains no generic `execute` conversion for proposed actions. Broker credentials are never accepted by these methods. External-source adapters use registry-scoped read capability and convert into canonical activities. They never receive EG store write credentials through a finance read response.
+The finance compute path is deterministic and side-effect free except explicitly governed storage/outbox writes. A recommendation and `ProposedAction` are data. The execution adapter must separately obtain authorization, risk approval and a policy-valid lease. The Medulla protocol contains no generic `execute` conversion for proposed actions. Broker credentials are never accepted by these methods. External-source adapters use registry-scoped read capability and convert into canonical activities. They never receive Medulla store write credentials through a finance read response.
 
 ### Migration and compatibility
 
@@ -265,7 +265,7 @@ Do not claim new models already exist because scalar method names exist.
 The held textual query grammar remains outside this definition change.
 R002.2 remains incomplete until every original kernel has its required UQL exposure through its owning implementation lane.
 R002.9 must use the existing structured-plan route for new typed profiles without silently extending textual grammar.
-Adapters and harnesses consume EG results and decisions. They must not retune parameters or duplicate filter authority.
+Adapters and harnesses consume Medulla results and decisions. They must not retune parameters or duplicate filter authority.
 
 ### Model and numerical behavior
 
@@ -375,8 +375,8 @@ These scenarios have no new execution receipts. Existing parent receipts remain 
 
 - **Snapshot:** Define typed `FinanceOrderProposal.StageV1` and `PromoteV1` methods. `OrderProposalSnapshotV1` binds tenant/proposal/revision, predecessor and decision digests, payload schema, canonical payload hash, policy, and evidence refs. Hash stored bytes as-is. Refuse bytes that are noncanonical for the declared schema/version. `StageV1` accepts the snapshot and expected head revision/digest. It creates a sealed, create-only, content-addressed snapshot and returns its identity, digest, and state. Revision 1 has no predecessor. Each later revision names the exact prior digest and uses expected-head CAS. Exact retry is idempotent; conflicting bytes refuse.
 - **Admission:** `PromoteV1` binds the expected promoted head, candidate digest, required-gate manifest digest, and gate receipts. Recheck the staged payload hash and digest. Recheck R019 verification/approval and applicable R010 risk/sizing checks. Include per-instrument policy and designated approvers when applicable. Atomically write the promoted revision, append-only `derivedFrom` history, and `OrderAdmissionReceiptV1`. The receipt binds proposal/revision/snapshot/decision/policy/gate digests and transaction revision. A stale head, evidence mismatch, failed or unavailable gate, incomplete receipt set, or hook veto refuses. Refusal leaves pointer/history/receipt unchanged. Admission permits host review only; it sends no order. Keep `AnalysisSnapshot` informational-only. Preserve R019, DK R057, and Finance R015.
-- **Exact cross-owner hold:** Reviewed evidence lacks the SDK writeback payload schema and version. It lacks the gate-manifest owner, complete gate-id set, and required hook contracts. It also lacks GraphOS authenticated-confirmation operation and receipt fields. Refuse promotion for host review until those owners define their contracts. The SDK effect remains downstream and unauthorized by this row.
-- **Planned acceptance:** `StageV1` creates and independently reads back revision 1. Stage revision 2 with its correct predecessor. Prove exact retries are idempotent. Test same-revision byte changes, payload/hash mismatch, stale head, and missing evidence. Also test incomplete gate receipts and every failed or unavailable gate. Each refusal leaves the promoted pointer, history, and receipt absent and unchanged. Keep promotion refused until SDK payload, gate registry, and GraphOS confirmation definitions are served. Then test one atomic promotion receipt. No live-order behavior is claimed.
+- **Exact cross-owner hold:** Reviewed evidence lacks the Scion SDK writeback payload schema and version. It lacks the gate-manifest owner, complete gate-id set, and required hook contracts. It also lacks Arbora authenticated-confirmation operation and receipt fields. Refuse promotion for host review until those owners define their contracts. The Scion SDK effect remains downstream and unauthorized by this row.
+- **Planned acceptance:** `StageV1` creates and independently reads back revision 1. Stage revision 2 with its correct predecessor. Prove exact retries are idempotent. Test same-revision byte changes, payload/hash mismatch, stale head, and missing evidence. Also test incomplete gate receipts and every failed or unavailable gate. Each refusal leaves the promoted pointer, history, and receipt absent and unchanged. Keep promotion refused until Scion SDK payload, gate registry, and Arbora confirmation definitions are served. Then test one atomic promotion receipt. No live-order behavior is claimed.
 - **Source:** `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`; no implementation or consumer receipt is claimed.
 
 ### `EG-FINANCE-PRIMITIVES-R002.11` — EG:67

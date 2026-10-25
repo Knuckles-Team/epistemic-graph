@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-TYPED-PACKS",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-TYPED-PACKS-R001",
@@ -781,7 +781,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R020",
-      "title": "A tenant-profile administrative capability defect is out of EG scope",
+      "title": "A tenant-profile administrative capability defect is out of Medulla scope",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "08a2b1958cc3"
@@ -1114,7 +1114,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R044",
-      "title": "EG-computed tool schema digests",
+      "title": "Medulla-computed tool schema digests",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "7be444b032de"
@@ -1310,7 +1310,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R049",
-      "title": "contract_pin is carried as an opaque SDK claim",
+      "title": "contract_pin is carried as an opaque Scion SDK claim",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0b9445099b24",
@@ -1474,7 +1474,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R065",
-      "title": "EG does not recompute the SDK's contract-pin normalization",
+      "title": "Medulla does not recompute the Scion SDK's contract-pin normalization",
       "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
@@ -1638,7 +1638,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R072",
-      "title": "EG/SDK typed fleet-catalog authority, not SQL tables",
+      "title": "Medulla/Scion SDK typed fleet-catalog authority, not SQL tables",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",
@@ -1737,7 +1737,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R081",
-      "title": "Ontology object model migrated into EG's kg/ontology package",
+      "title": "Ontology object model migrated into Medulla's kg/ontology package",
       "delivery_state": "LANDED",
       "landed_in": [
         "64b30a5187f3",
@@ -1747,7 +1747,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R082",
-      "title": "EG-generated types replace hand-written graph-schema DTOs",
+      "title": "Medulla-generated types replace hand-written graph-schema DTOs",
       "delivery_state": "LANDED",
       "landed_in": [
         "08a2b1958cc3",
@@ -1757,7 +1757,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R083",
-      "title": "Schema-drift SHACL rendering and contract store move into EG",
+      "title": "Schema-drift SHACL rendering and contract store move into Medulla",
       "delivery_state": "LANDED",
       "landed_in": [
         "90f5578ae2f4",

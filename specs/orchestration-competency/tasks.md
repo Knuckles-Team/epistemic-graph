@@ -2,7 +2,7 @@
 
 Governing spec: [spec.md](spec.md). Design: [design.md](plan.md).
 
-Producer first: ontology gaps, shapes and authority mappings before fixtures and acceptance tests. R009 children are owned by graph-os.
+Producer first: ontology gaps, shapes and authority mappings before fixtures and acceptance tests. R009 children are owned by Arbora.
 
 - [ ] EG-CQ-ORCH-R001.1 Q1 Ontology gap: ordered step
 - [ ] EG-CQ-ORCH-R001.2 Q1 SHACL shape
@@ -44,12 +44,12 @@ Producer first: ontology gaps, shapes and authority mappings before fixtures and
 - [ ] EG-CQ-ORCH-R008.3 Composed Typed abstention per part
 - [ ] EG-CQ-ORCH-R008.4 Composed Query fixture
 - [ ] EG-CQ-ORCH-R008.5 Composed Acceptance test
-- [ ] EG-CQ-ORCH-R009.1 Probe (graph-os): How many nodes does the graph hold, by label?
-- [ ] EG-CQ-ORCH-R009.2 Probe (graph-os): How can I deploy a container with container-manager?
-- [ ] EG-CQ-ORCH-R009.3 Probe (graph-os): Which agents are in the Agent Library?
-- [ ] EG-CQ-ORCH-R009.4 Probe (graph-os): Why does graph-os use the intent surface?
-- [ ] EG-CQ-ORCH-R009.5 Probe (graph-os): Find a tool that lists Docker containers.
-- [ ] EG-CQ-ORCH-R009.6 Probe (graph-os): Delegate: list running containers.
+- [ ] EG-CQ-ORCH-R009.1 Probe (Arbora): How many nodes does the graph hold, by label?
+- [ ] EG-CQ-ORCH-R009.2 Probe (Arbora): How can I deploy a container with container-manager?
+- [ ] EG-CQ-ORCH-R009.3 Probe (Arbora): Which agents are in the Agent Library?
+- [ ] EG-CQ-ORCH-R009.4 Probe (Arbora): Why does Arbora use the intent surface?
+- [ ] EG-CQ-ORCH-R009.5 Probe (Arbora): Find a tool that lists Docker containers.
+- [ ] EG-CQ-ORCH-R009.6 Probe (Arbora): Delegate: list running containers.
 - [ ] EG-CQ-ORCH-R010.1 Add the architecture view types
 - [ ] EG-CQ-ORCH-R010.2 Derive containers from code and diagrams
 - [ ] EG-CQ-ORCH-R010.3 Serve the view through the query path
@@ -60,8 +60,8 @@ Producer first: ontology gaps, shapes and authority mappings before fixtures and
 <!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
 ## Reviewed residual definition tasks — owner batch 2026-10-12
 
-- [ ] **EG-CQ-ORCH-R010.7:** Gate plan-producing Decide responses on a revision-matched architecture view and AU study-gap record. Require each feature's attach point and wiring edge. Reject missing or stale inputs before returning a plan.
-- [ ] **EG-CQ-ORCH-R010.7 acceptance:** Run `unwired_feature_refuses_before_task_plan`, `stale_architecture_or_study_gap_refuses`, and `test_plan_requires_pinned_architecture_and_attach_points`. Assert named refusals and no plan. Confirm AU proposal id/revision before cross-owner closure. Status remains SPECIFIED.
+- [ ] **EG-CQ-ORCH-R010.7:** Gate plan-producing Decide responses on a revision-matched architecture view and Meristem study-gap record. Require each feature's attach point and wiring edge. Reject missing or stale inputs before returning a plan.
+- [ ] **EG-CQ-ORCH-R010.7 acceptance:** Run `unwired_feature_refuses_before_task_plan`, `stale_architecture_or_study_gap_refuses`, and `test_plan_requires_pinned_architecture_and_attach_points`. Assert named refusals and no plan. Confirm Meristem proposal id/revision before cross-owner closure. Status remains SPECIFIED.
 <!-- /spec-definition-patch -->
 
 - [ ] **EG-CQ-ORCH-R011 (rollup):** Job, downtime and plan competency questions (rollup).

@@ -1,6 +1,6 @@
 # EG-BRANCH-MERGE tasks
 
-Ordered one-bite lanes. Compile slot: EG only, one cargo lane host-wide at a time.
+Ordered one-bite lanes. Compile slot: Medulla only, one cargo lane host-wide at a time.
 
 - [ ] EG-BRANCH-MERGE-R001 — typed branch model and create (`crates/eg-types` branch module + request boundary + owner-store lineage registry).
 - [ ] EG-BRANCH-MERGE-R002 — branch-scoped mutations (mutation path branch targeting; branch idempotency; commit-chain append).

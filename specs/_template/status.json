@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "REPLACE_WITH_STABLE_ID",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "RETIRED",
   "requirement_ids": [],
   "requirements": []

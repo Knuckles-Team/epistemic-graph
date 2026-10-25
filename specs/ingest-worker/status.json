@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-INGEST-WORKER",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-INGEST-WORKER-R001",
@@ -144,7 +144,7 @@
   "requirements": [
     {
       "id": "EG-INGEST-WORKER-R001",
-      "title": "Ingest worker capability is served by the engine queue and run by the SDK runner (rollup)",
+      "title": "Ingest worker capability is served by the engine queue and run by the Scion SDK runner (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -267,21 +267,21 @@
     },
     {
       "id": "EG-INGEST-WORKER-R001.14",
-      "title": "Cross-repo (connector SDK repository): ingest worker runner",
+      "title": "Cross-repo (connector Scion SDK repository): ingest worker runner",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-INGEST-WORKER-R001.15",
-      "title": "Cross-repo (connector SDK repository): CLI entry point and autosize",
+      "title": "Cross-repo (connector Scion SDK repository): CLI entry point and autosize",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-INGEST-WORKER-R001.16",
-      "title": "Cross-repo (graph-os): host and supervise the worker",
+      "title": "Cross-repo (Arbora): host and supervise the worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

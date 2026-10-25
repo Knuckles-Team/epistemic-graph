@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-CQ-ORCH",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-CQ-ORCH-R001",
@@ -491,7 +491,7 @@
     },
     {
       "id": "EG-CQ-ORCH-R009",
-      "title": "Probe questions through the intent surface (rollup, owned by graph-os, cross-repo)",
+      "title": "Probe questions through the intent surface (rollup, owned by Arbora, cross-repo)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -527,7 +527,7 @@
     },
     {
       "id": "EG-CQ-ORCH-R009.4",
-      "title": "Probe: \"Why does graph-os use the intent surface?\"",
+      "title": "Probe: \"Why does Arbora use the intent surface?\"",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

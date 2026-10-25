@@ -14,7 +14,7 @@ Governing spec: [spec.md](spec.md).
 
 ## Architecture
 
-Owner of every term: `epistemic-graph`, `crates/eg-core/ontology/`. Sources keep their data. Each source's ontology and access contract are attached and a `vg:VirtualMapping` (`virtual_graph-v1.ttl:107`, `vg:mapsOntologyClass` line 72, `vg:approved` line 94) maps its native entity to these classes. Source choice comes from `vg:SourceAuthority` rows (`EG-CQ-XSRC-R001`), planning from `EG-FEDERATED-QUERY-R072/R073`.
+Owner of every term: `Medulla`, `crates/eg-core/ontology/`. Sources keep their data. Each source's ontology and access contract are attached and a `vg:VirtualMapping` (`virtual_graph-v1.ttl:107`, `vg:mapsOntologyClass` line 72, `vg:approved` line 94) maps its native entity to these classes. Source choice comes from `vg:SourceAuthority` rows (`EG-CQ-XSRC-R001`), planning from `EG-FEDERATED-QUERY-R072/R073`.
 
 ```
 question "how does the supply chain affect our services?"

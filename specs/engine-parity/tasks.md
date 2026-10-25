@@ -2,7 +2,7 @@
 
 Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requirements.md](requirements.md).
 
-Demand gate (R020): a rollup enters the work queue only with a named consumer. The consumer of each rollup is listed in plan.md "Consumers". Compile slot: EG only, one cargo lane host-wide at a time.
+Demand gate (R020): a rollup enters the work queue only with a named consumer. The consumer of each rollup is listed in plan.md "Consumers". Compile slot: Medulla only, one cargo lane host-wide at a time.
 
 - [ ] `EG-ENGINE-PARITY-R001` — Single committer with group commit and batched fsync (rollup).
 - [ ] `EG-ENGINE-PARITY-R001.1` — Model and behavior.

@@ -26,10 +26,10 @@ question -> ontology class (dp:Table, dp:ConsumerGroup, dp:SecretPath ...)
 
 | Piece | Owner | Module |
 |---|---|---|
-| `core:data-platform@1` classes and properties | epistemic-graph | `crates/eg-core/ontology/data_platform-v1.ttl` |
-| SHACL shapes (closed vocabularies, secret-metadata refusal) | epistemic-graph | `crates/eg-core/ontology/data_platform-v1.shapes.ttl` |
-| `dp:StoreMapping` rows for each connector operation | epistemic-graph | mapping fixtures under `crates/eg-core/ontology/fixtures/data_platform/` |
-| Discovery, R2RML compile, pushdown, acceleration | epistemic-graph | existing unified-data-plane rows, cited below, not re-specified |
+| `core:data-platform@1` classes and properties | Medulla | `crates/eg-core/ontology/data_platform-v1.ttl` |
+| SHACL shapes (closed vocabularies, secret-metadata refusal) | Medulla | `crates/eg-core/ontology/data_platform-v1.shapes.ttl` |
+| `dp:StoreMapping` rows for each connector operation | Medulla | mapping fixtures under `crates/eg-core/ontology/fixtures/data_platform/` |
+| Discovery, R2RML compile, pushdown, acceleration | Medulla | existing unified-data-plane rows, cited below, not re-specified |
 | Missing connector operations | each connector package | see Decisions (cross-repo rows) |
 
 Dependency direction: `data_platform-v1` imports `virtual_graph-v1`; nothing in `virtual_graph-v1` imports it. Package-local ontologies stay as the connector's emitted shape; each term gets an `rdfs:subClassOf` / `owl:equivalentProperty` alignment row from the package term to the `dp:` term (task rows R008.x) so the two cannot drift silently.

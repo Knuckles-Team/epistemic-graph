@@ -151,7 +151,7 @@ Failure: missing authority/version binding, unsupported format features and inco
 
 Decision: engine-owned serialization of committed graph state writes the projection artifacts. A client cannot bypass graph authority by submitting an Iceberg commit. This replaces the earlier contradictory REST schema-write scenario while retaining the schema-evolution obligation.
 
-Cross-repository: `EG-UNIFIED-DATA-PLANE-R039` owns catalog authentication, tenant isolation and partition metadata. `EG-UNIFIED-DATA-PLANE-R012` and `SDK-GOVERNED-WRITEBACK-R002` through `R004` govern effects on externally owned sources: credentials, approval, idempotency, audit reservation and adapter execution remain SDK responsibilities. This requirement creates no direct external-source write or unmanaged export path. Engine artifact publication is not source writeback.
+Cross-repository: `EG-UNIFIED-DATA-PLANE-R039` owns catalog authentication, tenant isolation and partition metadata. `EG-UNIFIED-DATA-PLANE-R012` and `SDK-GOVERNED-WRITEBACK-R002` through `R004` govern effects on externally owned sources: credentials, approval, idempotency, audit reservation and adapter execution remain Scion SDK responsibilities. This requirement creates no direct external-source write or unmanaged export path. Engine artifact publication is not source writeback.
 
 References
 - Existing engine catalog, manifest writer and governed-writeback contracts are the implementation anchors. Candidate EG:2 has no paper citation.
@@ -165,7 +165,7 @@ Failure: a projected write returns `PROJECTION_READ_ONLY` and the graph is uncha
 Existing code: `crates/eg-lake/src/catalog.rs:27`; `crates/eg-core/src/projection_catalog.rs:75`; `crates/eg-plan/src/federation.rs:933`; `src/server/lake/rest/catalog.rs:318`, `:349`. Reachable today: SQL write refusal yes; projection write refusal no.
 Reuses the shared read-only SQL check pattern. New: the typed access value and the route refusal.
 Decision: one refusal at the listener. Rejected: per-route checks, which a new route may skip.
-Cross-repository: R079 may write engine-owned manifest artifacts from committed graph state. External source effects retain the SDK-governed boundary described above.
+Cross-repository: R079 may write engine-owned manifest artifacts from committed graph state. External source effects retain the Scion SDK-governed boundary described above.
 
 References
 - No paper is cited.
@@ -173,15 +173,15 @@ References
 ## EG-FEDERATED-QUERY-R081 Retrieval sufficiency verdict with repair step, fallback policy and round limit
 
 Data flow: served cross-modal query -> `eg_plan::execute` (`crates/eg-plan/src/exec.rs:536`) -> `fuse_rrf` (`crates/eg-plan/src/exec.rs:848`) -> `judge_sufficiency` -> `SufficiencyVerdict` with repair and fallback -> harness applies the next round.
-Types: `SufficiencyVerdict`, `SufficiencyRule`, `RepairStep`, `FallbackPolicy`. The call carries `round` and `round_limit`; the harness owns the loop counter and EG owns the limit it is given.
+Types: `SufficiencyVerdict`, `SufficiencyRule`, `RepairStep`, `FallbackPolicy`. The call carries `round` and `round_limit`; the harness owns the loop counter and Medulla owns the limit it is given.
 Attach point: `execute` at `crates/eg-plan/src/exec.rs:536`. Production caller: `crates/eg-graphql/src/crossmodal.rs:429`.
 Failure: A missing round limit returns `RETRIEVAL_ROUND_LIMIT_REQUIRED`. A strict insufficient verdict abstains.
 Consumers: AU-RETRIEVAL (R004)
-Moves from agent-utilities: executable_rag.py:87 (sufficiency rule), executable_rag.py:198 (repair choice), hybrid_retriever.py:1957 (fallback policy)
+Moves from Meristem: executable_rag.py:87 (sufficiency rule), executable_rag.py:198 (repair choice), hybrid_retriever.py:1957 (fallback policy)
 Existing code: `crates/eg-plan/src/exec.rs:536`; `crates/eg-plan/src/exec.rs:848`; `crates/eg-plan/src/exec.rs:1436` (diversified ranking); `crates/eg-plan/src/runtime.rs:61`; `crates/eg-compute/src/assemble/conclude.rs:69` (typed abstention pattern). Reachable today: no.
 Existing-code search: no sufficiency check and no fallback policy exist in the engine. Search terms: `sufficien`, `fallback_policy`, `FallbackPolicy`, `extractive`, `round_limit`, `max_rounds`.
 Reuses: the ranked `RowSet` from `fuse_rrf` and the typed abstention pattern. New: the verdict type, the rule, the repair order.
-Decision: EG decides sufficiency, repair and fallback per call and hands them to the harness. Rejected alternative: keep the rule in the harness, because each harness must otherwise carry its own threshold.
+Decision: Medulla decides sufficiency, repair and fallback per call and hands them to the harness. Rejected alternative: keep the rule in the harness, because each harness must otherwise carry its own threshold.
 Cross-repository: `AU-RETRIEVAL-R004` consumes the verdict and applies the repair. `EG-DECISION-ENGINE-R100` receives the premise. The decision engine spec is edited by another lane; this rollup adds no row there.
 
 References
@@ -194,7 +194,7 @@ Types: `CalibrationTable`, `RoundCalibration`, `StopContext`, `StopVerdict`, `St
 Attach point: `execute` at `crates/eg-plan/src/exec.rs:536`, beside the sufficiency judgement. Production caller: `crates/eg-graphql/src/crossmodal.rs:429`.
 Failure: A round outside the table retains `ROUND_NOT_CALIBRATED`. It may continue only while progress and all limits permit. Exhaustion and validated progress termination take precedence without claiming calibrated confidence or enough evidence.
 Consumers: AU-RETRIEVAL (R005)
-Moves from agent-utilities: adaptive_stopping.py:151 (stop rule), adaptive_stopping.py:80 (calibration table)
+Moves from Meristem: adaptive_stopping.py:151 (stop rule), adaptive_stopping.py:80 (calibration table)
 Existing code: `crates/eg-plan/src/exec.rs:536`; `crates/eg-compute/src/finance/market/confidence.rs:113` (calibrated confidence with abstention, a separate finance rule). Reachable today: no.
 Existing-code search: no stop rule exists in the engine. Search terms: `calibrat`, `confidence_margin`, `stop_reason`, `StopReason`, `round_limit`. The only `stop_reason` hit is the job lease cycle in `src/server/handlers/jobs/executor_claim.rs:82`, which is unrelated.
 Reuses: the round history sent by the caller. New: the table, the rule, the verdict.
@@ -204,11 +204,11 @@ Cross-repository: `AU-RETRIEVAL-R005` consumes the verdict and ends the loop. `E
 ## EG-FEDERATED-QUERY-R083 Arbitration between model prior and evidence
 
 Data flow: harness prior probe -> served cross-modal query carrying the prior `Candidate` -> `eg_plan::execute` (`crates/eg-plan/src/exec.rs:536`) -> `arbitrate` -> `ArbitrationVerdict` -> harness answers or reports the abstention.
-Types: `Candidate`, `EvidenceClass`, `ArbitrationVerdict`, `ArbitrationChoice`. The harness runs the probe; EG decides.
+Types: `Candidate`, `EvidenceClass`, `ArbitrationVerdict`, `ArbitrationChoice`. The harness runs the probe; Medulla decides.
 Attach point: `execute` at `crates/eg-plan/src/exec.rs:536`. Production caller: `crates/eg-graphql/src/crossmodal.rs:429`.
 Failure: A gap below the margin returns `ARBITRATION_ABSTAIN` with both candidates. A candidate without a class returns `CANDIDATE_CLASS_REQUIRED`.
 Consumers: AU-RETRIEVAL (R006)
-Moves from agent-utilities: shortcut_risks.py:42, agent_control_contracts.py:73 (prior probe and evidence classes)
+Moves from Meristem: shortcut_risks.py:42, agent_control_contracts.py:73 (prior probe and evidence classes)
 Existing code: `crates/eg-plan/src/exec.rs:536`; `crates/eg-compute/src/assemble/conclude.rs:69` (typed abstention pattern). Reachable today: no.
 Existing-code search: no arbitration exists in the engine. Search terms: `arbitrat`, `abstain`, `margin`, `parametric`, `prior_probe`.
 Reuses: the typed abstention pattern and the ranked evidence side. New: the candidate type, the margin rule, the verdict.
@@ -217,17 +217,17 @@ Cross-repository: `AU-RETRIEVAL-R006` runs the prior probe and applies the verdi
 
 ## R081.7 through R081.9: retrieval synthesis
 
-The existing R081 verdict owns these extensions. EG keeps score selection, query reformulation, feedback classification and hierarchy decisions. Applications execute bounded engine decisions and read evidence. They do not gain a parallel planner or reranker. Existing R078 tenant predicates, R081 fallback and R082 stopping rules remain binding.
+The existing R081 verdict owns these extensions. Medulla keeps score selection, query reformulation, feedback classification and hierarchy decisions. Applications execute bounded engine decisions and read evidence. They do not gain a parallel planner or reranker. Existing R078 tenant predicates, R081 fallback and R082 stopping rules remain binding.
 
 Current production path: `crates/eg-graphql/src/crossmodal.rs:429` invokes `eg_plan::execute` in `crates/eg-plan/src/exec.rs:536`. `fuse_rrf` at line 848 combines ranks. It does not carry paired cross-encoder scores, iterative expansion feedback or hierarchy-stage receipts. Add the missing operators and typed `PlanCtx` scoring/summary bindings at these owners. The served acceptance tests must exercise these bindings, not inject a finished result after execution.
 
 Selection policy is versioned and benchmark-gated. Normalize scores with declared finite-domain rules; constant-score inputs require an explicit policy rather than division by zero. Define `f = w*s + (1-w)*r`, calibrated thresholds and stable ID ties. Dual-high passes; dual-low fails. The low-embedding/high-relevance region is eligible for rescue before the maximum-count cap. The remaining region uses its declared fusion threshold. Rank eligible chunks by fused score and cap the result without padding. Selection adds no inference; existing candidate scoring is measured separately. A failed activation receipt leaves the prior approved policy active or refuses the requested policy.
 
-Feedback starts from the original information need. EG generates diverse perspectives, measures returned relevance and updates bounded term weights. R082 validates feedback first and checks the round limit and other budgets next. It then checks no new evidence, declared saturation and calibrated confidence, in that order. Policy revisions declare exact saturation thresholds. Natural-language critique is recorded advice; it cannot overwrite scores, tenant predicates or stop limits. Generation and assessment calls consume explicit budgets even though pure cardinality selection adds none.
+Feedback starts from the original information need. Medulla generates diverse perspectives, measures returned relevance and updates bounded term weights. R082 validates feedback first and checks the round limit and other budgets next. It then checks no new evidence, declared saturation and calibrated confidence, in that order. Policy revisions declare exact saturation thresholds. Natural-language critique is recorded advice; it cannot overwrite scores, tenant predicates or stop limits. Generation and assessment calls consume explicit budgets even though pure cardinality selection adds none.
 
 Hierarchical retrieval has three explicit stages: community-summary filtering, community refinement and entity search. Each stage records scoring, pruning, visited IDs and cost. Descent uses pinned summaries and graph revisions. Reject invalid hierarchy links and stop before spending beyond the declared bounds. No flat-search substitution counts as completion of the hierarchy contract.
 
-Activation acceptance pins corpus, labels, model artifacts, policy and baseline. The proposed dynamic-count policy stays inactive until its benchmark passes declared quality/cost thresholds. Instrument actual model invocations and compare the same scored candidates. Do not copy a paper's reported quality or timing into EG evidence.
+Activation acceptance pins corpus, labels, model artifacts, policy and baseline. The proposed dynamic-count policy stays inactive until its benchmark passes declared quality/cost thresholds. Instrument actual model invocations and compare the same scored candidates. Do not copy a paper's reported quality or timing into Medulla evidence.
 
 ### Source-to-requirement mapping
 
@@ -238,7 +238,7 @@ Activation acceptance pins corpus, labels, model artifacts, policy and baseline.
 | AU:76 | R081.9 | Community-to-entity descent, stage reranking and breadth/cost control. |
 | AU:127 | R081.8 | Traceable natural-language critique can guide another retrieval step without replacing measured relevance. |
 
-EG-specific policies and acceptance remain requirements, not measured results.
+Medulla-specific policies and acceptance remain requirements, not measured results.
 
 ### R081.8 and R082 termination precedence
 
@@ -251,8 +251,8 @@ A missing calibration row always remains visible as `ROUND_NOT_CALIBRATED`, incl
 ## Retrieval policy extensions: R039, R040, R077 and R081.9
 
 These definitions extend existing retrieval owners. The acceptance scenarios in this amendment have not been executed.
-EG owns context, constraints, retrieval choices, encoding policy, scoring and evidence.
-The SDK owns ingestion execution and provider transport.
+Medulla owns context, constraints, retrieval choices, encoding policy, scoring and evidence.
+The Scion SDK owns ingestion execution and provider transport.
 The harness executes bounded engine decisions and acceptance journeys.
 The host composes authenticated service access.
 No consumer gains a second planner.
@@ -376,7 +376,7 @@ Tokenize once; preserve token IDs and include the final partial window exactly o
 Absolute positions retain original token offsets; local positions start at zero for each window.
 Unsupported absolute offsets must refuse, never reset silently.
 
-The SDK ingestion worker must execute the EG-approved recipe through its existing provider binding.
+The Scion SDK ingestion worker must execute the Medulla-approved recipe through its existing provider binding.
 Each chunk must use a fresh encoder context.
 The initial aggregate must be the arithmetic mean of raw chunk vectors, accumulated in ordinal order.
 Normalize only the final aggregate when the pinned space requires normalization.
@@ -554,7 +554,7 @@ R084.8 requires the real entry point and the observations in test-spec.md.
 
 ## Approved source query interface (R085)
 
-R085 defines the missing EG producer for [SDK-SOURCE-INGEST-R004.1–.6](https://github.com/Knuckles-Team/agent-connector-sdk/blob/518402ee1a096a1d1dda26b8c604e704d2163cb5/specs/SDK-SOURCE-INGEST/requirements.md#L76). SDK executes transport and native driver calls. EG decides query meaning and authorization. Existing R015/R043/R069 are reuse dependencies, not proof of this interface. All records and operations below are planned.
+R085 defines the missing Medulla producer for [SDK-SOURCE-INGEST-R004.1–.6](https://github.com/Knuckles-Team/agent-connector-sdk/blob/518402ee1a096a1d1dda26b8c604e704d2163cb5/specs/SDK-SOURCE-INGEST/requirements.md#L76). Scion SDK executes transport and native driver calls. Medulla decides query meaning and authorization. Existing R015/R043/R069 are reuse dependencies, not proof of this interface. All records and operations below are planned.
 
 ### Exact producer interface
 
@@ -575,11 +575,11 @@ Each method uses the ordinary authenticated request envelope and request graph. 
 
 Use the existing control-lease store with reserved kind `source.query.approval`. Its immutable grant contains query identity and all binding digests, not raw SQL, parameter values or credentials. The descriptor carries the exact approved SQL and parameters. The native issuer validates the descriptor before committing the grant. Generic `IssueControlLease` must reject this reserved kind, even for callers holding `lease:write`. Existing reserved-producer validation patterns separate generic wire issuance from validated native issuance.
 
-Verification reads the actual lease in the verified tenant and request graph, then recomputes every descriptor binding. It requires matching owner/actor or verified delegation and current source authorization. Policy or identity changes invalidate the stored approval. Expiry uses engine time and both immutable expiry bounds. Existing `TransitionControlLease` CAS rules govern authorized revocation; no renewal or reactivation is introduced. Only active approval leases validate. SDK must use its authenticated EG client for verification; a JSON descriptor or copied lease view grants no authority. No new credentials or signing secrets are distributed. `PolicyDecisionLease` remains nonserializable engine authority, not an exported credential.
+Verification reads the actual lease in the verified tenant and request graph, then recomputes every descriptor binding. It requires matching owner/actor or verified delegation and current source authorization. Policy or identity changes invalidate the stored approval. Expiry uses engine time and both immutable expiry bounds. Existing `TransitionControlLease` CAS rules govern authorized revocation; no renewal or reactivation is introduced. Only active approval leases validate. Scion SDK must use its authenticated Medulla client for verification; a JSON descriptor or copied lease view grants no authority. No new credentials or signing secrets are distributed. `PolicyDecisionLease` remains nonserializable engine authority, not an exported credential.
 
 ### Concrete reuse and current limits
 
-Source inspected at EG `560b391592cd405f999fbc72ba8ee8ff64782bd4`:
+Source inspected at Medulla `560b391592cd405f999fbc72ba8ee8ff64782bd4`:
 
 - [Foreign-query handler](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/src/server/handlers/federation.rs#L21) uses `OwnerScopedCall`. Its `query_columns:66` validates read authority and resolves the owner-scoped catalog. The new methods attach beside it.
 - [Dispatch attachment](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/src/server/dispatch/graph_pipeline/pipeline.rs#L333) reaches that handler under the existing federation feature.
@@ -588,13 +588,13 @@ Source inspected at EG `560b391592cd405f999fbc72ba8ee8ff64782bd4`:
 - [Column rendering](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation_opt/columns.rs#L215) reuses `sql_text` helpers. Current literal rendering does not establish native parameter binding.
 - [Existing result fetch](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation.rs#L1255) returns a vector. `handlers/federation.rs:112` collects output. `handlers/knowledge_stream/families.rs:93` also adapts a materialized SQL result. Bounded output batches do not prove flat producer memory.
 
-### SDK handoff and evidence
+### Scion SDK handoff and evidence
 
-SDK-SOURCE-INGEST-R004.1 must accept the generated `ApprovedSourceQuery` without changing its semantics or authorization. Its receiving method must call `VerifySourceQueryApproval` at the specified execution boundaries. SDK owns that method's name and implementation. Match its definition to these exact EG records before declaring the cross-owner definition complete. Existing `SourceAdapter` at `agent_connector_sdk/ports/source_adapter.py:21` has only describe/discover/extract/reconcile; native SQL execution remains absent.
+SDK-SOURCE-INGEST-R004.1 must accept the generated `ApprovedSourceQuery` without changing its semantics or authorization. Its receiving method must call `VerifySourceQueryApproval` at the specified execution boundaries. Scion SDK owns that method's name and implementation. Match its definition to these exact Medulla records before declaring the cross-owner definition complete. Existing `SourceAdapter` at `agent_connector_sdk/ports/source_adapter.py:21` has only describe/discover/extract/reconcile; native SQL execution remains absent.
 
 Only an explicit terminal event completes a query. Failure, cancellation, expiry, revocation or lost verification after emitted chunks leaves an incomplete execution. Keep existing durable SourceCheckpoint receipts for previously accepted pages; never checkpoint a failed chunk as accepted. Redact SQL literals, parameters and credentials from operational evidence. Record source revisions, descriptor digests, chunk sequence, totals, queue high-water marks and measured resident memory.
 
-Use the real EG approval/verifier dispatch and SDK's registered connector against an actual database. Inject failure after three chunks, revoke between chunks, alter each binding and attempt forbidden SQL effects. Compare fixed-limit fresh-process memory runs across a hundredfold cardinality increase. Set the memory envelope from declared buffers and a documented fixed runtime allowance before measuring. An observed peak that scales with total rows fails the contract. No execution receipt exists for this definition change.
+Use the real Medulla approval/verifier dispatch and Scion SDK's registered connector against an actual database. Inject failure after three chunks, revoke between chunks, alter each binding and attempt forbidden SQL effects. Compare fixed-limit fresh-process memory runs across a hundredfold cardinality increase. Set the memory envelope from declared buffers and a documented fixed runtime allowance before measuring. An observed peak that scales with total rows fails the contract. No execution receipt exists for this definition change.
 
 Verification RPC latency and count belong in the execution evidence. Each verification must finish within the remaining execution deadline. Timeout or unavailable verification closes the driver and produces terminal failure. A prior validity result cannot authorize later chunks after verification fails. These are planned acceptance requirements, not measured overhead claims.
 
@@ -605,9 +605,9 @@ The source-backed contracts and precise holds for the mapped FQR rows are in the
 
 ### `EG-FEDERATED-QUERY-R083.7` — EG:22
 
-- Existing EG rollup: `EG-FEDERATED-QUERY-R083.1`. Append-only residual ID: `EG-FEDERATED-QUERY-R083.7`.
+- Existing Medulla rollup: `EG-FEDERATED-QUERY-R083.1`. Append-only residual ID: `EG-FEDERATED-QUERY-R083.7`.
 - Original objective: Compare direct parametric answers with evidence-conditioned answers. Reward evidence support and penalize passage-prior-only answers. Unsupported answers lose arbitration.
-- Missing EG obligation: Confidence difference alone does not define an evidence-support reward or passage-prior-only penalty. A highly confident unsupported candidate can win the specified R083.2 rule. No support-aware losing invariant is specified.
+- Missing Medulla obligation: Confidence difference alone does not define an evidence-support reward or passage-prior-only penalty. A highly confident unsupported candidate can win the specified R083.2 rule. No support-aware losing invariant is specified.
 - Producer/consumer route: Planned AU-RETRIEVAL-R006 prior probe -> served cross-modal query -> eg_plan::execute -> arbitrate -> ArbitrationVerdict -> harness. R083.3/.6 identify the producer path. This audit does not claim it is implemented.
 - Minimum closure action: Extend existing R083 behavior/model/refusal acceptance with the support-margin inputs and invariant that unsupported candidates lose. Add a served counterexample with a higher-confidence unsupported candidate and an evidence-supported lower-confidence candidate. Retain current two-candidate, class, abstention and evidence obligations.
 - Preserve covered clauses: `EG-FEDERATED-QUERY-R083.1`, `EG-FEDERATED-QUERY-R083.2`, `EG-FEDERATED-QUERY-R083.3`, `EG-FEDERATED-QUERY-R083.4`, `EG-FEDERATED-QUERY-R083.6`.
@@ -625,7 +625,7 @@ The source-backed contracts and precise holds for the mapped FQR rows are in the
 - Specify: Extend existing retrieval feedback with retriever id/version, strategy id/digest, corpus/model revisions, evaluation-set digest and transfer-validation receipt. A strategy is reusable without validation only for the same target retriever id/version. Corpus, model and policy revisions must be byte-identical. Any target or bound-revision change requires a target-bound validation receipt. It binds target retriever id/version, strategy id/digest and evaluation-set digest. It also binds metric id, measured value, acceptance threshold, pass/fail outcome, corpus revision, model revision and policy revision. Activate only when measured value meets or exceeds the declared threshold. A valid receipt below threshold refuses activation and retains the prior strategy. A different retriever never receives a copied strategy by default. Reuse R081.8 feedback and R082 budgets.
 - Producer/consumer boundary: Authenticated crossmodal -> `eg-plan::exec` R081.8 feedback -> selected retriever. Preserve existing R081.8.1-.6 tiering, feedback and refusal behavior.
 - Source record SHA-256: `213700ec5b9e8648657ec47d0c587483a978db10f4661475b467be451d3bb2e1`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-FEDERATED-QUERY-R053.100` / EG:37
 
@@ -633,15 +633,15 @@ The source-backed contracts and precise holds for the mapped FQR rows are in the
 - Specify: Extend the existing Cypher federation renderer so every generated property key is emitted as a backtick-quoted identifier. Embedded backticks use the Cypher grammar escape representation, and values remain parameters rather than interpolated identifiers. The renderer is shared by every Cypher generation path. The build gate validates generated query fixtures and fails on any property key that is unquoted or malformed. It must not add a second renderer or rely on SQL identifier quoting.
 - Producer/consumer boundary: `ForeignSourceSpec::Cypher` federation renderer -> generated Cypher -> configured build gate. Preserve R053 typed source registration. Cypher Manual naming rules define backtick quoting and doubled backtick representation.
 - Source record SHA-256: `803f4e4ffbcd939af750e23451469835555beaa37e14ce555ffd0a59c0a3ac48`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-FEDERATED-QUERY-R032.100` / AU:43
 
 - Extend existing parent `R032` without removing its existing behavior.
 - Specify: Extend the existing authenticated R032 `PROPAGATE` result with a separate historical-risk dimension. Bind target node/revision, direction and bounded HOPS. Bind ordered layer taxonomy/weights and authorized failure-dataset id/revision/window/digest. Include observation counts, policy revision and request digest. For each node with observations compute `failure_rate = failures / observations` and `layer_contribution = layer_weight * failure_rate`, with weights and rates in [0,1]. For a path, compute `path_risk = 1 - product(1 - layer_contribution)` over its unique nodes. Aggregate duplicate paths to a node by maximum path risk. list upstream and downstream path sets separately. Suppress repeated-node cycles within a path and order ties by hop count, node id and path-edge ids. Return per-node path, layer contribution, counts, coverage state and risk. Missing per-node history yields `unknown` and a partial result with `aggregate_risk = null`. An unavailable or unauthorized dataset refuses. The new score is an additional dimension and cannot replace or alter R032 Noisy-OR or Independent-Cascade results.
-- Producer/consumer boundary: EG owns graph impact query/risk decision; AU requests or displays the result. Existing numeric risk helpers are not this two-direction historical impact contract.
+- Producer/consumer boundary: Medulla owns graph impact query/risk decision; Meristem requests or displays the result. Existing numeric risk helpers are not this two-direction historical impact contract.
 - Source record SHA-256: `327ced0e0605f34366c662017d82ac892a481c5ca5f40bba2f3693ba6a5f7649`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->
@@ -650,14 +650,14 @@ The source-backed contracts and precise holds for the mapped FQR rows are in the
 ### `EG-FEDERATED-QUERY-R086` — ordered n-ary hypothesis-only link prediction
 
 - The generated status already links its sole required child `EG-FEDERATED-QUERY-R086.100`. Parent and child stay SPECIFIED.
-- `EG-FEDERATED-QUERY-R086.100` is explicitly held: current `GraphLearnPredict` is binary and can write `PredictedEdge`. Do not reuse it. Resolve n-ary model/training artifact, unseen-entity semantics, evidence-class schema, read-only auth action and AU proposal receipt before defining a producer. The eventual separate method belongs in the existing graphlearn family. Attach it through the graph-op gateway and graphlearn handler, not the binary method.
+- `EG-FEDERATED-QUERY-R086.100` is explicitly held: current `GraphLearnPredict` is binary and can write `PredictedEdge`. Do not reuse it. Resolve n-ary model/training artifact, unseen-entity semantics, evidence-class schema, read-only auth action and Meristem proposal receipt before defining a producer. The eventual separate method belongs in the existing graphlearn family. Attach it through the graph-op gateway and graphlearn handler, not the binary method.
 - Preserve the binary query and write authority. Source record EG:14 SHA-256 `7223250e7f899a187aad0b152e597c6174b772c49779ca2bdd12d3ba68f4f5ef`. No runtime producer is claimed.
 
 ### `EG-FEDERATED-QUERY-R081.101` / AU:126
 
 - Preserve parent `EG-FEDERATED-QUERY-R081` and its existing clauses.
 - Define: Build a document-only state keyed by document id/content digest, encoder revision and compression-policy revision. Store ordered segment boundaries, compressed token representations and the key/value projections required by the scorer. The state must not depend on candidate order or query context. At query time, score queries against stored projections without decoding or generation. Return document digest, state revision, segment policy, score and scorer revision. Measure interaction cost against the declared full-token baseline using the same document/query set and report denominator and result digest.
-- Producer/consumer: EG retrieval owns document-state construction and PlanCtx reranking. Query embeddings/context remain query inputs and do not alter the reusable state. Preserve existing FQR R081 tiering and selection bounds.
+- Producer/consumer: Medulla retrieval owns document-state construction and PlanCtx reranking. Query embeddings/context remain query inputs and do not alter the reusable state. Preserve existing FQR R081 tiering and selection bounds.
 - Source record SHA-256: `deca151180a749cb3784d9946da0de17205eca89c92e5eb4f275859e1d4be165`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
@@ -665,7 +665,7 @@ The source-backed contracts and precise holds for the mapped FQR rows are in the
 
 - Preserve parent `EG-FEDERATED-QUERY-R081` and its existing clauses.
 - Define: Persist an index-time distilled scorer bound to corpus/index revision, teacher model revision and teacher-judgment dataset digest. Bind scorer artifact digest and quality metric/threshold policy. The scorer is query-eligible only when measured quality reaches the declared held-out target-set threshold. Query-time retrieval applies the stored scorer without any model-service call. It never distills or repairs the scorer on demand. A below-threshold, stale or unbound artifact refuses activation and leaves the prior scorer active.
-- Producer/consumer: EG owns retrieval learning/ranking and the stored scorer. AU may execute evaluation. GraphOS catalog ranking does not replace document retrieval. Use the existing authenticated UnifiedQuery -> run_unified_with planning route. Do not invent a public operation name.
+- Producer/consumer: Medulla owns retrieval learning/ranking and the stored scorer. Meristem may execute evaluation. Arbora catalog ranking does not replace document retrieval. Use the existing authenticated UnifiedQuery -> run_unified_with planning route. Do not invent a public operation name.
 - Source record SHA-256: `baac22c9fb42470957b5b91499c6e42e1bb2410d24446d15f6f364638c88138e`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
@@ -677,7 +677,7 @@ The source-backed contracts and precise holds for the mapped FQR rows are in the
 
 - Preserve existing parent `R081` and its previous children.
 - Specify: For query vector q and candidate matrix V, use revision-pinned document embeddings from one declared embedding space. Select a joint coefficient vector x by minimizing `||q - Vᵀx||₂² + λ||x||₁`. Require xᵢ >= 0 and the existing result-count/tenant bounds. λ, solver version, convergence tolerance, embedding-space revision and input digest are bound to the request. Return selected document ids, nonnegative coefficients, reconstruction residual, solver status and policy revision in deterministic coefficient-descending then document-id order. Do not substitute independent dense/lexical dual-score ranking. Preserve the distinct R081.7 mechanism. Refuse mismatched embedding revisions, invalid λ, solver non-convergence or a result set that exceeds existing bounds.
-- Producer/consumer: EG retrieval selection owns the joint objective and set result. The existing served UnifiedQuery/retrieval path consumes it. Preserve R081.1-.9 selection and tenant bounds. No new caller-controlled score authority.
+- Producer/consumer: Medulla retrieval selection owns the joint objective and set result. The existing served UnifiedQuery/retrieval path consumes it. Preserve R081.1-.9 selection and tenant bounds. No new caller-controlled score authority.
 - Source record SHA-256: `bceeed106b5db2933cf5161d58b4203fc7afe9d714503a31d68323992906c23b`.
 - Keep SPECIFIED until served retrieval and independent result readback pass.
 <!-- /spec-definition-patch -->
@@ -686,7 +686,7 @@ The source-backed contracts and precise holds for the mapped FQR rows are in the
 <!-- spec-definition-patch:owner-dispatch-20261012-plan -->
 ## Cross-owner viewport query plan — 2026-10-12
 
-- **`EG-FEDERATED-QUERY-R081.103` / WEBUI:7:** Extend `UnifiedQuery` with the closed `ViewportQueryV1` scatter/line plan variant and typed `ResolveViewportSelectionV1` tokens. Bind source revision/cardinality, axes, filter, viewport pixels and policy. Enforce `min(W×H,262144)` scatter bins, `min(4W,65536)` line bins and a formula payload cap `min(16MiB,65536+96×max_bin_count)`. Effective response ceiling is `min(requested_byte_ceiling, formula_cap)`. Reject an absent/invalid request or one too small for the mandatory envelope before scanning. Never silently truncate. Preserve line gaps and exact-versus-aggregate selection. Consumer: GraphOS adapter and WebUI R001.2. Source SHA-256 `483b80b268ba6924ced162740792071fb43f482b1cddf16d9fbd424727d4ed89`.
+- **`EG-FEDERATED-QUERY-R081.103` / WEBUI:7:** Extend `UnifiedQuery` with the closed `ViewportQueryV1` scatter/line plan variant and typed `ResolveViewportSelectionV1` tokens. Bind source revision/cardinality, axes, filter, viewport pixels and policy. Enforce `min(W×H,262144)` scatter bins, `min(4W,65536)` line bins and a formula payload cap `min(16MiB,65536+96×max_bin_count)`. Effective response ceiling is `min(requested_byte_ceiling, formula_cap)`. Reject an absent/invalid request or one too small for the mandatory envelope before scanning. Never silently truncate. Preserve line gaps and exact-versus-aggregate selection. Consumer: Arbora adapter and Overstory R001.2. Source SHA-256 `483b80b268ba6924ced162740792071fb43f482b1cddf16d9fbd424727d4ed89`.
 - Require real served acceptance at ≥1,000,000,000 indexed points for pan/zoom/selection and all stale/denied/cap-refusal paths. Transfer no full source. Keep SPECIFIED pending owner receipts.
 <!-- /spec-definition-patch -->
 
@@ -697,7 +697,7 @@ The following rows either state a closed contract at an existing owner path or n
 
 ### `EG-FEDERATED-QUERY-R070.1`
 
-**Definition hold — governed raw-corpus producer is not defined.** R070.1 requires exact lexical search, file reads, context verification, per-query cost and abstention before budget overrun. While R070 only bounds indexed UQL rows/visits and GraphOS retrieval returns a top-K boundary. Do not route this requirement through the indexed retriever or claim that its budget is a raw-source cost. The missing owner contract must identify the authorized raw-source provider and immutable source/snapshot identity. Exact search/read/verification operations and byte/line coordinate system. Finite scan/read/verification cost units and ceilings. The typed over-budget refusal. And the producer-to-EG request/response fields consumed by GovernedRetriever/AU. Until those decisions exist, this row defines no callable producer and remains held.
+**Definition hold — governed raw-corpus producer is not defined.** R070.1 requires exact lexical search, file reads, context verification, per-query cost and abstention before budget overrun. While R070 only bounds indexed UQL rows/visits and Arbora retrieval returns a top-K boundary. Do not route this requirement through the indexed retriever or claim that its budget is a raw-source cost. The missing owner contract must identify the authorized raw-source provider and immutable source/snapshot identity. Exact search/read/verification operations and byte/line coordinate system. Finite scan/read/verification cost units and ceilings. The typed over-budget refusal. And the producer-to-Medulla request/response fields consumed by GovernedRetriever/Meristem. Until those decisions exist, this row defines no callable producer and remains held.
 
 Preserve `EG-FEDERATED-QUERY-R070; ARBORA-OPS-R053.2, ARBORA-OPS-R053.3, ARBORA-OPS-R053.5`. Source record `AU:71` SHA-256 `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
@@ -715,7 +715,7 @@ Preserve `EG-FEDERATED-QUERY-R007, EG-FEDERATED-QUERY-R040, EG-FEDERATED-QUERY-R
 
 ### `EG-FEDERATED-QUERY-R040.6`
 
-**Definition hold — episode/layer producer and consumer policy are absent.** Existing SourceIngest validates/projects transcript records and UnifiedQuery supports filtered search. Neither defines semantic/procedural/episodic layer identity or builds graph episodes across sessions. The owner must decide session/episode identity and boundaries and participant/turn ordering. Define utterance assignment among semantic, procedural and episodic memory. The owner must define cross-session merge/duplicate rules and temporal validation/conflict behavior. Name the AU operation that consumes/retrieves episodes. Keep the existing transcript and search contracts intact. Do not infer episode construction from transcript projection or introduce an unapproved AU consumer.
+**Definition hold — episode/layer producer and consumer policy are absent.** Existing SourceIngest validates/projects transcript records and UnifiedQuery supports filtered search. Neither defines semantic/procedural/episodic layer identity or builds graph episodes across sessions. The owner must decide session/episode identity and boundaries and participant/turn ordering. Define utterance assignment among semantic, procedural and episodic memory. The owner must define cross-session merge/duplicate rules and temporal validation/conflict behavior. Name the Meristem operation that consumes/retrieves episodes. Keep the existing transcript and search contracts intact. Do not infer episode construction from transcript projection or introduce an unapproved Meristem consumer.
 
 Preserve `EG-INGEST-WORKER-R003.13, R003.14, R003.17, EG-FEDERATED-QUERY-R040, EG-INGEST-WORKER-R003.18, R003.16, EG-FEDERATED-QUERY-R016`. Source record `EG:21` SHA-256 `c321db3aa79c29d891456f2bee98f545611b8d1be7c93d299b939c3d73a40279`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
@@ -751,19 +751,19 @@ Preserve `EG-FEDERATED-QUERY-R081.9.7.1-.6`. Source record `GRAPHOS:24` SHA-256 
 
 ### `EG-FEDERATED-QUERY-R081.9.7.8`
 
-**Definition hold — offline TOC producer and finite span-read policy are unbound.** Preserve existing space/section mappings. Do not recreate interaction spaces. The requested producer is an offline line-numbered TOC derived from an immutable document revision. Each entry binds section id, title/path and inclusive line range to the source digest. EG needs a bounded line-span read from the pinned document. Return the exact lines with source digest and line range, never the whole document. The SDK source-ingest -> EG document/section records -> GraphOS retrieval.space -> AU path does not define who builds or refreshes the TOC. It also lacks source byte/line encoding and finite line-span/response-byte limits. Those owner decisions and their producer/consumer schema are required before this can be executable. Existing directory mappings do not fill the gap.
+**Definition hold — offline TOC producer and finite span-read policy are unbound.** Preserve existing space/section mappings. Do not recreate interaction spaces. The requested producer is an offline line-numbered TOC derived from an immutable document revision. Each entry binds section id, title/path and inclusive line range to the source digest. Medulla needs a bounded line-span read from the pinned document. Return the exact lines with source digest and line range, never the whole document. The Scion SDK source-ingest -> Medulla document/section records -> Arbora retrieval.space -> Meristem path does not define who builds or refreshes the TOC. It also lacks source byte/line encoding and finite line-span/response-byte limits. Those owner decisions and their producer/consumer schema are required before this can be executable. Existing directory mappings do not fill the gap.
 
 Preserve `ARBORA-OPS-R053.1-.3, R053.6; EG-FEDERATED-QUERY-R081.9.7.1, R081.9.7.5`. Source record `GRAPHOS:25` SHA-256 `6797cff839c16c3b9c3877d6bbf48bf8953eae8696087abc99f2b57147daed93`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
 ### `EG-FEDERATED-QUERY-R040.2.7`
 
-**Revision-bound per-document topic responsibilities.** Extend the existing `TopicBackend` result and `weighted_topic_dense` score in `run_unified_with` before final truncation. For each eligible document candidate, the backend supplies a `DocumentTopicAssignment`. Bind it to document id/content revision, corpus generation, backend identity/revision and the retriever’s `EmbeddingSpaceRef`. Each assignment identifies topic id and that document’s responsibility. Compute the topic component from each candidate’s revision-matched responsibilities and existing centroid similarity formula. Feed it into the existing weighted dense/topic fusion. Preserve hard constraints, fusion weight, deterministic ties, tenant scope and all R040.2 refusals. Missing, duplicate, stale or cross-space assignments refuse the requested topic contribution. The planner must not silently fall back to dense-only ranking. GraphOS projects reads and does not rank; ARBORA-FLEET-R014 is unrelated.
+**Revision-bound per-document topic responsibilities.** Extend the existing `TopicBackend` result and `weighted_topic_dense` score in `run_unified_with` before final truncation. For each eligible document candidate, the backend supplies a `DocumentTopicAssignment`. Bind it to document id/content revision, corpus generation, backend identity/revision and the retriever’s `EmbeddingSpaceRef`. Each assignment identifies topic id and that document’s responsibility. Compute the topic component from each candidate’s revision-matched responsibilities and existing centroid similarity formula. Feed it into the existing weighted dense/topic fusion. Preserve hard constraints, fusion weight, deterministic ties, tenant scope and all R040.2 refusals. Missing, duplicate, stale or cross-space assignments refuse the requested topic contribution. The planner must not silently fall back to dense-only ranking. Arbora projects reads and does not rank; ARBORA-FLEET-R014 is unrelated.
 
 Preserve `EG-FEDERATED-QUERY-R040.2.1-.3, R040.2.6`. Source record `GRAPHOS:28` SHA-256 `f7654cd07d4d95f32f09fec742c4172b35c689749b3228aef9424830b1f7cc1b`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
 ### `EG-FEDERATED-QUERY-R086.100`
 
-**Definition hold — current graph learner is binary and has a write path.** The source requires ordered n-ary hyperedge prediction and generalization to entities unseen at fit time. Hypotheses carry an evidence class and are never asserted facts. Current `Method::GraphLearnPredict`/`src/server/handlers/graphlearn.rs` scores binary `(src,dst)` pairs over a resident graph and optionally writes `PredictedEdge`. It cannot satisfy ordered n-ary tuples, unseen-entity induction, or hypothesis-only guarantees. Preserve it unchanged. Before defining a public producer, the owner must choose the n-ary model/training artifact and inference semantics. Define ordered tuple positions and unseen-entity behavior. Define the evidence-class vocabulary and source binding. Choose the read-only capability/auth action. And name the AU proposal consumer receipt. Only then can a separate method be attached in the existing graphlearn method family and routed through `src/server/handlers/graph_ops/gateway_mining_ml.rs`/`src/server/handlers/graphlearn.rs`. Do not route this through the binary `GraphLearnPredict` write-capable method. No model, endpoint, or authority is invented here.
+**Definition hold — current graph learner is binary and has a write path.** The source requires ordered n-ary hyperedge prediction and generalization to entities unseen at fit time. Hypotheses carry an evidence class and are never asserted facts. Current `Method::GraphLearnPredict`/`src/server/handlers/graphlearn.rs` scores binary `(src,dst)` pairs over a resident graph and optionally writes `PredictedEdge`. It cannot satisfy ordered n-ary tuples, unseen-entity induction, or hypothesis-only guarantees. Preserve it unchanged. Before defining a public producer, the owner must choose the n-ary model/training artifact and inference semantics. Define ordered tuple positions and unseen-entity behavior. Define the evidence-class vocabulary and source binding. Choose the read-only capability/auth action. And name the Meristem proposal consumer receipt. Only then can a separate method be attached in the existing graphlearn method family and routed through `src/server/handlers/graph_ops/gateway_mining_ml.rs`/`src/server/handlers/graphlearn.rs`. Do not route this through the binary `GraphLearnPredict` write-capable method. No model, endpoint, or authority is invented here.
 
 Preserve `EG-FEDERATED-QUERY-R086; existing binary `GraphLearnPredict` and graph-write authorities`. Source record `EG:14` SHA-256 `7223250e7f899a187aad0b152e597c6174b772c49779ca2bdd12d3ba68f4f5ef`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
@@ -777,7 +777,7 @@ Extend this spec with native visualization static export. The engine already imp
 
 Replaces: `agent_utilities/knowledge_graph/core/nl_planner.py`, `agent_utilities/knowledge_graph/core/nl_query.py` and `agent_utilities/knowledge_graph/orchestration/data_analyst.py`. The harness calls the served `NlQuery` method.
 
-AU acceptance cases: `tests/unit/knowledge_graph/core/test_nl_planner.py`, `tests/unit/knowledge_graph/core/test_nl_query.py` and `tests/unit/knowledge_graph/orchestration/test_data_analyst.py`.
+Meristem acceptance cases: `tests/unit/knowledge_graph/core/test_nl_planner.py`, `tests/unit/knowledge_graph/core/test_nl_query.py` and `tests/unit/knowledge_graph/orchestration/test_data_analyst.py`.
 
 Call path: served `NlQuery` -> `handle_nl_query_plan` (`src/server/handlers/query/nl.rs:48`) -> `eg_plan::nl::context` -> `NlPlanner` port -> UQL, SQL, SPARQL or Cypher read pipeline.
 
@@ -810,7 +810,7 @@ Use the existing owner-authorized foreign-source registry before planning. Forei
 
 Replaces: `QueryMixin.uql` in `agent_utilities/knowledge_graph/orchestration/engine_query.py`. The harness calls the served `Uql` method through the generated client.
 
-AU acceptance cases: `tests/unit/mcp/test_graph_query_uql.py`, `tests/unit/test_engine_tools_uql_embed.py` and `tests/unit/knowledge_graph/orchestration/test_engine_query_surface_rls_fail_closed.py`.
+Meristem acceptance cases: `tests/unit/mcp/test_graph_query_uql.py`, `tests/unit/test_engine_tools_uql_embed.py` and `tests/unit/knowledge_graph/orchestration/test_engine_query_surface_rls_fail_closed.py`.
 
 Call path: served `Uql` -> `handle_uql` (`src/server/handlers/query/uql_statement.rs:17`) -> `eg_plan::uql` -> fused executor -> `row_visibility` (`crates/eg-core/src/isolation.rs:157`) -> summary resolver.
 
@@ -833,7 +833,7 @@ References
 
 Replaces: the quality gate in `agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py` and its use of `retrieval_quality.py`.
 
-AU acceptance cases: `tests/retrieval/test_acl_context_compiler_crowd_out.py` and `tests/unit/knowledge_graph/test_hybrid_retriever_acl_before_internal_trim.py`.
+Meristem acceptance cases: `tests/retrieval/test_acl_context_compiler_crowd_out.py` and `tests/unit/knowledge_graph/test_hybrid_retriever_acl_before_internal_trim.py`.
 
 Call path: served `Discover` -> `try_handle_semantic_compute` -> `discover` (`src/server/handlers/graph_ops/semantic.rs:88`) -> verdict -> response.
 
@@ -856,7 +856,7 @@ References
 
 Replaces: `agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py` (`_resolve_hyde_plan`, `_recency_boost`, `_assemble_multi_hop_subgraph`, `retrieve_decomposed`), `agent_utilities/knowledge_graph/retrieval/hyde_planner.py` and `agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py`.
 
-AU acceptance case: `tests/integration/knowledge_graph/test_engine_helpers.py`.
+Meristem acceptance case: `tests/integration/knowledge_graph/test_engine_helpers.py`.
 
 Call path: served `Discover` -> `discover` (`src/server/handlers/graph_ops/semantic.rs:88`) -> planner port -> embedding endpoint -> HNSW arms -> fusion -> recency decay -> batched hop expansion.
 
@@ -874,9 +874,9 @@ Budget: p99 under 15 ms in `standard` mode at 1,000,000 vectors, and engine over
 
 ## EG-FEDERATED-QUERY-R073.2 — connection-protocol pushdown matrix
 
-The source-category matrix is `EG-UNIFIED-DATA-PLANE-R022.4`. This matrix is the second axis: the connection protocol. The engine owns planning and pushdown per protocol. The SDK owns the transport per protocol (`SDK-CONNECTOR-CONTROL-R069`). graph-os owns serving and the multiplexer client (`ARBORA-FLEET-R038`).
+The source-category matrix is `EG-UNIFIED-DATA-PLANE-R022.4`. This matrix is the second axis: the connection protocol. The engine owns planning and pushdown per protocol. The Scion SDK owns the transport per protocol (`SDK-CONNECTOR-CONTROL-R069`). Arbora owns serving and the multiplexer client (`ARBORA-FLEET-R038`).
 
-MCP and A2A each have two roles. In this matrix the engine plans only the consuming role: an external MCP server or an external agent as a source. The serving roles belong to graph-os.
+MCP and A2A each have two roles. In this matrix the engine plans only the consuming role: an external MCP server or an external agent as a source. The serving roles belong to Arbora.
 
 | Protocol | Paging or streaming | Pushdown the planner may use | Contract term in the pack |
 |---|---|---|---|
@@ -900,7 +900,7 @@ MCP and A2A each have two roles. In this matrix the engine plans only the consum
 | IMAP and SMTP | message sequence ranges | IMAP search filter, header projection, time range | mail access contract |
 | CalDAV and CardDAV | sync tokens | time-range filter, property projection | calendar or contact access contract |
 
-Call path: served query -> planner -> `foreign_scan` (`run.rs:26`) -> the protocol capability row -> the SDK transport -> local residual.
+Call path: served query -> planner -> `foreign_scan` (`run.rs:26`) -> the protocol capability row -> the Scion SDK transport -> local residual.
 
 ## EG-FEDERATED-QUERY-R091 — self-optimizing virtual-query plans
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-PLACEMENT",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-PLACEMENT-R001",
@@ -208,7 +208,7 @@
     },
     {
       "id": "EG-PLACEMENT-R001.14",
-      "title": "Cross-repo (graph-os): correct R017 wording",
+      "title": "Cross-repo (Arbora): correct R017 wording",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -339,7 +339,7 @@
     },
     {
       "id": "EG-PLACEMENT-R002.13",
-      "title": "Cross-repo (connector SDK repository): no policy constants in the worker",
+      "title": "Cross-repo (connector Scion SDK repository): no policy constants in the worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

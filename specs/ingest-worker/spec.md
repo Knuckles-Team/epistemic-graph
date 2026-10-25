@@ -1,7 +1,7 @@
 # EG-INGEST-WORKER — Durable ingest worker
 
-Owner: epistemic-graph (queue, policy, metrics); runner owned by the connector SDK repository; host by graph-os. Cross-repo IDs: EG-DURABLE-KERNEL-R071 to R077, EG-REPO-INGEST-R002, R006.
-Public provenance: replaces the agent-utilities `kg-ingest-worker` console script (module ingest_worker.py, 427 lines), deleted by commit b02e39950, which claimed an engine-served durable-job path replaces it. This spec makes that claim true.
+Owner: Medulla (queue, policy, metrics); runner owned by the connector Scion SDK repository; host by Arbora. Cross-repo IDs: EG-DURABLE-KERNEL-R071 to R077, EG-REPO-INGEST-R002, R006.
+Public provenance: replaces the Meristem `kg-ingest-worker` console script (module ingest_worker.py, 427 lines), deleted by commit b02e39950, which claimed an engine-served durable-job path replaces it. This spec makes that claim true.
 
 ## Purpose and user stories
 
@@ -17,7 +17,7 @@ An operator runs one or many ingest worker processes that drain queued ingestion
 
 ## Scope and interfaces
 
-Owned here: job model, lanes, partition key, enqueue, retry and dead-letter policy, depth read, metrics. Not owned: durable queue primitives (EG-DURABLE-KERNEL-R071 to R077), source effects and the process (SDK), hosting (graph-os). Out of scope: the in-process Python worker pool, Kafka (the engine queue replaces it), the analytics worker.
+Owned here: job model, lanes, partition key, enqueue, retry and dead-letter policy, depth read, metrics. Not owned: durable queue primitives (EG-DURABLE-KERNEL-R071 to R077), source effects and the process (Scion SDK), hosting (Arbora). Out of scope: the in-process Python worker pool, Kafka (the engine queue replaces it), the analytics worker.
 
 ## Traceability
 
@@ -30,4 +30,4 @@ Owned here: job model, lanes, partition key, enqueue, retry and dead-letter poli
 
 ## Open questions
 
-- The exact name of the connector SDK repository package that hosts the runner was not verified from this repository.
+- The exact name of the connector Scion SDK repository package that hosts the runner was not verified from this repository.

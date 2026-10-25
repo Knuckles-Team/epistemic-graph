@@ -73,7 +73,7 @@ jobs:
         working-directory: .frozen-source
         run: >-
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py preflight
-          --directory ../dist --package epistemic-graph --version 2.27.0
+          --directory ../dist --package medulla --version 2.27.0
           --manifest "$RUNNER_TEMP/publication.json"
       - name: Require operator-verified quota approval before upload
         if: inputs.publish
@@ -97,7 +97,7 @@ jobs:
           TWINE_NON_INTERACTIVE: '1'
         run: |
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py missing \
-            --directory ../dist --package epistemic-graph --version 2.27.0 \
+            --directory ../dist --package medulla --version 2.27.0 \
             --manifest "$RUNNER_TEMP/publication.json" > "$RUNNER_TEMP/missing.json"
           python - <<'PYTHON'
           import json, os, pathlib, subprocess, sys
@@ -110,7 +110,7 @@ jobs:
         if: inputs.publish
         run: >-
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py postverify
-          --directory ../dist --package epistemic-graph --version 2.27.0
+          --directory ../dist --package medulla --version 2.27.0
           --manifest "$RUNNER_TEMP/publication.json"
       - name: Retain continuation provenance
         if: ${{ !cancelled() }}

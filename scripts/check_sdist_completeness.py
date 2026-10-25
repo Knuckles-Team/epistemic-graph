@@ -162,7 +162,7 @@ def _check_metadata(
     if metadata is None:
         raise ValueError("missing package metadata")
     message = BytesParser().parse(metadata)
-    if message["Name"] != "epistemic-graph" or message["Version"] != version:
+    if message["Name"] != "medulla" or message["Version"] != version:
         raise ValueError("sdist metadata identity differs")
     manifest = archive.extractfile(files[prefix + "Cargo.toml"])
     if manifest is None:
@@ -184,8 +184,8 @@ def _check_metadata(
 
 def validate(path: Path, required: set[str], version: str) -> None:
     """Validate canonical archive identities, source inventory and package version."""
-    prefix = f"epistemic_graph-{version}/"
-    if path.name != f"epistemic_graph-{version}.tar.gz":
+    prefix = f"medulla-{version}/"
+    if path.name != f"medulla-{version}.tar.gz":
         raise ValueError("sdist filename/version differs")
     with tarfile.open(path, "r:gz") as archive:
         files, _members = _index_members(archive, prefix)

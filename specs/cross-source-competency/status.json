@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-CQ-XSRC",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-CQ-XSRC-R001",
@@ -374,7 +374,7 @@
     },
     {
       "id": "EG-CQ-XSRC-R006.5",
-      "title": "Serve the report through graph-os",
+      "title": "Serve the report through Arbora",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -520,7 +520,8 @@
       "title": "Add `:CustomerContract` and `:coversService`; reuse canonical `kg:Change`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "09e3e6be7df9"
+        "09e3e6be7df9",
+        "8fd835eb199a"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/commercial_declarations.rs:88"
