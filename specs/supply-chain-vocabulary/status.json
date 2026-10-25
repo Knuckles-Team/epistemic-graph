@@ -124,7 +124,7 @@
       "title": "Add `:realizedByAsset` and `:assetHost`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:164"
@@ -165,7 +165,7 @@
       "title": "Add `:SoftwareComponent`, `:ComponentVersion`, `:versionOf` and `:versionString`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:194"
@@ -183,7 +183,7 @@
       "title": "Add `:containsComponent` and `:publishedBy`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:255"
@@ -194,7 +194,7 @@
       "title": "Add `:usesImage` and `:deployedAs`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:285"
@@ -205,7 +205,7 @@
       "title": "Add `:usesComponent` with the runtime chain axiom",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:330",
@@ -217,7 +217,7 @@
       "title": "Add `:Vulnerability` with `:cveId`, `:severity`, `:fixedInVersion`, `:affectsComponent` and `:hasVulnerability`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:364"
@@ -261,7 +261,7 @@
       "title": "Add `:Customer`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/commercial_declarations.rs:23"
@@ -328,7 +328,7 @@
       "title": "Add `:Opportunity`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/commercial_declarations.rs:49"
@@ -353,7 +353,7 @@
       "title": "Register the commercial module",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:45"
@@ -364,7 +364,7 @@
       "title": "Register the commercial shapes companion",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:90"
@@ -375,7 +375,7 @@
       "title": "Preserve canonical commercial namespaces",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:131"
@@ -386,7 +386,7 @@
       "title": "Declare the Opportunity date property",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:192"
@@ -416,7 +416,7 @@
       "title": "Add `infra:HostLimit`, `:limitOf`, `:limitKind`, `:readingValue`, `:limitValue`, `:limitUnit`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dfc6fa530bc1"
+        "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/infrastructure_host_limits.rs:40"

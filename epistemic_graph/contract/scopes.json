@@ -465,6 +465,12 @@
       "scope": "governance:approve-schema-repair"
     },
     {
+      "approver_group": "source-authority-approvers",
+      "class": "approver",
+      "owner": "engine",
+      "scope": "governance:approve-source-authority"
+    },
+    {
       "approver_group": null,
       "class": "domain",
       "owner": "engine",

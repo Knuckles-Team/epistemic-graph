@@ -70,6 +70,22 @@ fn the_rot_check_catches_an_unregistered_scope() {
     assert_eq!(ScopeRegistry.class_of("kg:read"), Some(ScopeClass::User));
 }
 
+// spec: EG-SRC-AUTH-R003.1
+#[test]
+fn source_authority_approver_is_registered_with_its_builtin_group() {
+    let entry = scope_entry("governance:approve-source-authority")
+        .expect("the source-authority approver scope is registered");
+    assert_eq!(entry.class, ScopeClass::Approver);
+    assert_eq!(entry.owner, "engine");
+    assert_eq!(
+        ScopeRegistry.approver_group_of("governance:approve-source-authority"),
+        Some(eg_types::identity::SOURCE_AUTHORITY_APPROVERS_GROUP)
+    );
+    // Approver-class scopes are never reachable by a service principal.
+    use eg_types::identity::UserKind;
+    assert!(!entry.class.allows_kind(UserKind::Service));
+}
+
 // spec: EG-DECISION-ENGINE-R801.3
 #[test]
 fn usage_domain_registers_read_and_service_only_write_scopes() {
@@ -116,6 +132,7 @@ fn every_approver_scope_has_exactly_its_built_in_group() {
         eg_types::identity::ELEVATION_APPROVERS_GROUP,
         eg_types::identity::LIVE_ORDER_APPROVERS_GROUP,
         eg_types::identity::SCHEMA_APPROVERS_GROUP,
+        eg_types::identity::SOURCE_AUTHORITY_APPROVERS_GROUP,
         "action-approvers",
     ];
     for (_, group) in APPROVER_GROUPS {

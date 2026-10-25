@@ -74,6 +74,51 @@ fn proposing_needs_the_proposer_scope_and_a_registered_kind() {
     );
 }
 
+// spec: EG-SRC-AUTH-R003.1
+#[test]
+fn source_authority_kind_has_exact_scopes() {
+    assert!(SOURCE_AUTHORITY_KIND.starts_with(GOVERNED_KIND_PREFIX));
+    assert_eq!(
+        kind_scopes(SOURCE_AUTHORITY_KIND),
+        Some(("governance:propose", "governance:approve-source-authority"))
+    );
+    assert_eq!(
+        kind_scopes(SCHEMA_REPAIR_KIND),
+        Some(("governance:propose", "governance:approve-schema-repair")),
+        "the schema-repair kind keeps its own exact scopes"
+    );
+
+    // The kind drives the ledger end to end with its exact scopes: a proposal
+    // needs the proposer scope, and only a second direct person holding the
+    // exact approver scope can approve it.
+    let mut ledger = GovernedLedger::default();
+    let mut proposal = proposal();
+    proposal.kind = SOURCE_AUTHORITY_KIND.to_string();
+    assert_eq!(
+        ledger.propose(&actor("svc:connector", &[], false), &proposal, NOW),
+        Err(GovernedRefusal::NotAuthorized),
+        "a connector without the propose scope cannot propose authority"
+    );
+    let approved = ledger
+        .propose(&actor("svc:connector", &[PROPOSE], false), &proposal, NOW)
+        .unwrap();
+    assert_eq!(approved.kind, SOURCE_AUTHORITY_KIND);
+    let wrong_scope = actor("usr:carol", &["governance:approve-schema-repair"], false);
+    assert_eq!(
+        ledger.approve(&wrong_scope, &approval("d1"), NOW),
+        Err(GovernedRefusal::NotAuthorized),
+        "a schema-repair approver cannot approve source authority"
+    );
+    let approved = ledger
+        .approve(
+            &actor("usr:carol", &["governance:approve-source-authority"], false),
+            &approval("d1"),
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(approved.status, GovernedStatus::Approved);
+}
+
 // spec: EG-DURABLE-KERNEL-R027.1
 #[test]
 fn the_approver_must_be_a_second_direct_person_with_the_exact_scope() {

@@ -45,6 +45,9 @@ pub mod scheduler_config;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
+// EG-SRC-AUTH-R007.1 — the authority audit trail: sources used and why,
+// built from the selection's verdicts and premises only.
+pub mod authority_audit;
 pub mod change_envelope;
 // EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and

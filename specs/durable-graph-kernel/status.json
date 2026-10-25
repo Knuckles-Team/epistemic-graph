@@ -1089,10 +1089,10 @@
       ],
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:174",
-        "crates/eg-types/src/governed_change/tests.rs:110",
-        "crates/eg-types/src/governed_change/tests.rs:148",
-        "crates/eg-types/src/governed_change/tests.rs:54",
-        "crates/eg-types/src/governed_change/tests.rs:77"
+        "crates/eg-types/src/governed_change/tests.rs:122",
+        "crates/eg-types/src/governed_change/tests.rs:155",
+        "crates/eg-types/src/governed_change/tests.rs:193",
+        "crates/eg-types/src/governed_change/tests.rs:54"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R027.1",
@@ -1112,10 +1112,10 @@
       ],
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:174",
-        "crates/eg-types/src/governed_change/tests.rs:110",
-        "crates/eg-types/src/governed_change/tests.rs:148",
-        "crates/eg-types/src/governed_change/tests.rs:54",
-        "crates/eg-types/src/governed_change/tests.rs:77"
+        "crates/eg-types/src/governed_change/tests.rs:122",
+        "crates/eg-types/src/governed_change/tests.rs:155",
+        "crates/eg-types/src/governed_change/tests.rs:193",
+        "crates/eg-types/src/governed_change/tests.rs:54"
       ]
     },
     {
