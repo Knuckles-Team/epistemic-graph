@@ -38,6 +38,7 @@ fn documents() -> Vec<Triple> {
 }
 
 // spec: EG-TYPED-PACKS-R106.1
+// spec: EG-DECISION-ENGINE-R814.1
 // spec: EG-DECISION-ENGINE-R814.1.1
 #[test]
 fn catalog_ontology_declares_root_and_cross_domain_imports() {
