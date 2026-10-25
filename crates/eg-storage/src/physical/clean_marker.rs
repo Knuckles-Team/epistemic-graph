@@ -40,10 +40,10 @@ use crate::physical::incarnation::StoreIncarnation;
 use crate::physical::integrity::{authenticate_with, PrivatePayloadIntegrity};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::UNIX_EPOCH;
 
 const DOMAIN: &[u8] = b"eg/clean-shutdown-marker/v1\0";
 
@@ -61,8 +61,10 @@ fn binding(database: &Path, incarnation: &StoreIncarnation, physical_name: &str)
     hasher.update((physical_name.len() as u64).to_be_bytes());
     hasher.update(physical_name.as_bytes());
     hasher.update(meta.len().to_be_bytes());
-    hasher.update(meta.mtime().to_be_bytes());
-    hasher.update(meta.mtime_nsec().to_be_bytes());
+    let modified = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    let seconds = i64::try_from(modified.as_secs()).ok()?;
+    hasher.update(seconds.to_be_bytes());
+    hasher.update(i64::from(modified.subsec_nanos()).to_be_bytes());
     // The redb header page carries the two commit slots (transaction id and
     // root checksums), so this binds the marker to the LAST COMMIT itself and
     // not only to file metadata that a coarse clock could leave unchanged.
