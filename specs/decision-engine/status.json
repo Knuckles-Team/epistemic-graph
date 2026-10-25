@@ -9801,7 +9801,9 @@
       "landed_in": [
         "1274d990f940"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:41"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R814.1.1",
         "EG-DECISION-ENGINE-R814.1.2"
@@ -9815,10 +9817,10 @@
         "b0d8adcaa41f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:227",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:248",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:41",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:67"
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:228",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:249",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:42",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:68"
       ]
     },
     {

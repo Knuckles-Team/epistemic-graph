@@ -3457,11 +3457,11 @@
         "b0d8adcaa41f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:175",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:226",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:247",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:176",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:227",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:248",
         "crates/eg-rdf/tests/metadata_catalog_classes.rs:40",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:66"
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:67"
       ]
     },
     {
