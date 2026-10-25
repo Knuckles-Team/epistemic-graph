@@ -9141,8 +9141,8 @@
       "title": "Contrastive harness composition decision (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "42eb2823d564",
-        "f75f77f057a6"
+        "7cb7f367c849",
+        "f52d12235269"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:578",
@@ -9165,7 +9165,7 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "42eb2823d564"
+        "7cb7f367c849"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:578"
@@ -9176,7 +9176,7 @@
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "42eb2823d564"
+        "7cb7f367c849"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:630"
@@ -9187,8 +9187,8 @@
       "title": "Wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "42eb2823d564",
-        "f75f77f057a6"
+        "7cb7f367c849",
+        "f52d12235269"
       ],
       "verified_by": [
         "tests/decide/test_harness_contrast_served.py:257",
@@ -9200,7 +9200,7 @@
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "42eb2823d564"
+        "7cb7f367c849"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:723"
@@ -9211,7 +9211,7 @@
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "42eb2823d564"
+        "7cb7f367c849"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:945"
@@ -9222,8 +9222,8 @@
       "title": "Hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "42eb2823d564",
-        "f75f77f057a6"
+        "7cb7f367c849",
+        "f52d12235269"
       ],
       "verified_by": [
         "tests/decide/test_harness_contrast_served.py:379",

@@ -1347,7 +1347,7 @@
       "title": "Versioned harness components as graph facts (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "6a42d18ba611"
+        "70de3b70bbdc"
       ],
       "verified_by": [
         "crates/eg-types/src/orchestration/mod.rs:487",
@@ -1370,7 +1370,7 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "6a42d18ba611"
+        "70de3b70bbdc"
       ],
       "verified_by": [
         "crates/eg-types/src/orchestration/mod.rs:487",
@@ -1382,7 +1382,7 @@
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "6a42d18ba611"
+        "70de3b70bbdc"
       ],
       "verified_by": [
         "crates/eg-types/tests/harness_components.rs:70"
@@ -1393,7 +1393,7 @@
       "title": "Wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "6a42d18ba611"
+        "70de3b70bbdc"
       ],
       "verified_by": [
         "src/server/harness_admission/tests.rs:58"
@@ -1404,7 +1404,7 @@
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "6a42d18ba611"
+        "70de3b70bbdc"
       ],
       "verified_by": [
         "crates/eg-types/tests/harness_components.rs:141"
@@ -1415,7 +1415,7 @@
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "6a42d18ba611"
+        "70de3b70bbdc"
       ],
       "verified_by": [
         "crates/eg-types/tests/harness_components.rs:209"
@@ -1426,7 +1426,7 @@
       "title": "Hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "6a42d18ba611"
+        "70de3b70bbdc"
       ],
       "verified_by": [
         "tests/orchestration/test_harness_components_served.py:63"
@@ -1437,7 +1437,7 @@
       "title": "Improvement library: adopted harnesses, contrasts and lessons (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e2d70aa9bd32"
+        "a45d1b095bda"
       ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:176",
@@ -1460,7 +1460,7 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e2d70aa9bd32"
+        "a45d1b095bda"
       ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:76"
@@ -1471,7 +1471,7 @@
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e2d70aa9bd32"
+        "a45d1b095bda"
       ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:176"
@@ -1482,7 +1482,7 @@
       "title": "Query",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e2d70aa9bd32"
+        "a45d1b095bda"
       ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:253"
@@ -1493,7 +1493,7 @@
       "title": "Supersession",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e2d70aa9bd32"
+        "a45d1b095bda"
       ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:408"
@@ -1504,7 +1504,7 @@
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e2d70aa9bd32"
+        "a45d1b095bda"
       ],
       "verified_by": [
         "crates/eg-types/tests/harness_lessons.rs:568"
@@ -1515,7 +1515,7 @@
       "title": "Hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e2d70aa9bd32"
+        "a45d1b095bda"
       ],
       "verified_by": [
         "tests/orchestration/test_harness_lessons_served.py:154"
