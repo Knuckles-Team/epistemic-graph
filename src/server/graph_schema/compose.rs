@@ -771,7 +771,9 @@ ex:parent a owl:AsymmetricProperty .
         // and final catalog integration amendments.
         // +50: the shared data-platform vocabulary (EG-DATAPLAT-VOCAB-R001.1-.4),
         // plus one catalog import for its registered source.
-        assert_eq!(composed.ontology.len(), 15_630);
+        // +7: the shared versionOf relation's two module-local constrained
+        // sub-properties (the shared predicate itself remains unconstrained).
+        assert_eq!(composed.ontology.len(), 15_637);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -837,7 +839,9 @@ ex:parent a owl:AsymmetricProperty .
         // +1017: the data-platform, IT4IT-delivery, media and retrieval modules;
         // +45: semantic axioms from the shared data-platform vocabulary.
         // +224: semantic axioms from the final commercial/supply-chain catalog.
-        assert_eq!(semantic_axioms, 15_372);
+        // +7: the shared versionOf relation's two module-local constrained
+        // sub-properties (the shared predicate itself remains unconstrained).
+        assert_eq!(semantic_axioms, 15_379);
 
         let count_type = |object: &str| {
             composed

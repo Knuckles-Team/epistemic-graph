@@ -234,7 +234,7 @@ fn record(backend: &RedbBackend, graphs: usize, nodes: usize, payload: &str) {
 fn small_scenario(limits: &Limits) -> Vec<String> {
     let _scenario = SCENARIO_LOCK
         .lock()
-        .unwrap_or_else(|error| error.into_inner());
+        .expect("shard open scenario lock poisoned");
     let phase_log = PhaseLog::get();
     let scratch = scratch("shard-open-budget-");
     let dir = scratch.path().join("store").to_string_lossy().to_string();
@@ -292,7 +292,7 @@ fn small_scenario(limits: &Limits) -> Vec<String> {
 fn populated_scenario(limits: &Limits) -> Vec<String> {
     let _scenario = SCENARIO_LOCK
         .lock()
-        .unwrap_or_else(|error| error.into_inner());
+        .expect("shard open scenario lock poisoned");
     let phase_log = PhaseLog::get();
     let scratch = scratch("shard-open-populated-");
     let dir = scratch.path().join("store");

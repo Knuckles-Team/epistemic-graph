@@ -176,13 +176,14 @@
     },
     {
       "id": "EG-SUPPLY-VOCAB-R002.1",
-      "title": "Add `:SoftwareComponent`, `:ComponentVersion`, `:versionOf` and `:versionString`",
+      "title": "Add `:SoftwareComponent`, `:ComponentVersion`, shared `:versionOf`, constrained `:supplyChainVersionOf` and `:versionString`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:197"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:197",
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:61"
       ]
     },
     {
@@ -200,7 +201,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:268"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:274"
       ]
     },
     {
@@ -211,7 +212,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:298"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:304"
       ]
     },
     {
@@ -222,7 +223,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:346",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:352",
         "crates/eg-rdf/tests/supply_chain_reasoning.rs:36"
       ]
     },
@@ -234,7 +235,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:380"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:386"
       ]
     },
     {

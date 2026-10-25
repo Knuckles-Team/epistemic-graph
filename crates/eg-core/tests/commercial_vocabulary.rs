@@ -115,12 +115,12 @@ fn commercial_shapes_load() {
             set_digest: current_core_set_digest(),
         },
         Some(Arc::from("# overwritten shapes\n")),
-        Some(Arc::from(
+        Some(
             overwritten.core["core:commercial@1"]
                 .ontology_ttl
                 .clone()
                 .unwrap(),
-        )),
+        ),
         0,
     )
     .expect("a document pair always constructs");

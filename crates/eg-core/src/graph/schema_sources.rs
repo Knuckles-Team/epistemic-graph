@@ -1350,7 +1350,7 @@ mod tests {
             ),
             (
                 "dataplatform",
-                "85467e7f305a29c68a0de04d345cf98954bf0864ff830a75d29055cb9f195135",
+                "3efdde3316dd8e72b876f47e67d9d510f5af466852d951f7b1006d9355bf4c62",
             ),
             (
                 "data-platform",
@@ -1451,7 +1451,7 @@ mod tests {
             ),
             (
                 "supply_chain",
-                "888557a0358a4c70f3be6c6db04e16ccf57d63ac9e62276d27a7dcb796554100",
+                "ebaf904bfd886ad16cba6023027c4e6fa2f290cffc6375a7ae7c1d4b47b1fcb4",
             ),
         ];
         let catalog = current_core_catalog();

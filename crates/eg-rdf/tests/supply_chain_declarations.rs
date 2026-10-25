@@ -229,19 +229,25 @@ fn software_component_terms_declared() {
     let range = format!("{RDFS}range");
     assert!(has_iri(
         &triples,
-        &format!("{KG}versionOf"),
+        &format!("{KG}supplyChainVersionOf"),
         RDF_TYPE,
         &format!("{OWL}ObjectProperty")
     ));
     assert!(has_iri(
         &triples,
-        &format!("{KG}versionOf"),
+        &format!("{KG}supplyChainVersionOf"),
+        &format!("{RDFS}subPropertyOf"),
+        &format!("{KG}versionOf")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}supplyChainVersionOf"),
         &domain,
         &format!("{KG}ComponentVersion")
     ));
     assert!(has_iri(
         &triples,
-        &format!("{KG}versionOf"),
+        &format!("{KG}supplyChainVersionOf"),
         &range,
         &format!("{KG}SoftwareComponent")
     ));

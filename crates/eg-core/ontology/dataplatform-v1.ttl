@@ -237,7 +237,12 @@
 
 :versionOf a owl:ObjectProperty ;
     rdfs:label "version of" ;
-    rdfs:comment "Links a dataset, schema or model version to the thing it versions." ;
+    rdfs:comment "Shared version relation; module-specific sub-properties carry their domain and range." .
+
+:dataplatformVersionOf a owl:ObjectProperty ;
+    rdfs:label "versionOf (data platform)" ;
+    rdfs:comment "The data-platform meaning of the shared kg:versionOf: links a dataset, schema or model version to the thing it versions." ;
+    rdfs:subPropertyOf :versionOf ;
     rdfs:domain [ a owl:Class ; owl:unionOf ( :DatasetVersion :SchemaVersion :ModelVersion ) ] ;
     rdfs:range [ a owl:Class ; owl:unionOf ( :Dataset :Schema :Model ) ] .
 

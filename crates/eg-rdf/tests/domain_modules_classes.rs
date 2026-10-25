@@ -171,10 +171,10 @@ const DATAPLATFORM_EDGES: &[EdgeRow] = &[
     ("hasSchema", &["Table"], &["Schema"], None),
     ("hasColumn", &["Schema"], &["Column"], Some("hasPart")),
     (
-        "versionOf",
+        "dataplatformVersionOf",
         &["DatasetVersion", "SchemaVersion", "ModelVersion"],
         &["Dataset", "Schema", "Model"],
-        None,
+        Some("versionOf"),
     ),
     ("snapshotOf", &["Snapshot"], &["Table", "Dataset"], None),
     (

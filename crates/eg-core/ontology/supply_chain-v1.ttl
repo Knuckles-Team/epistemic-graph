@@ -51,7 +51,12 @@
 
 :versionOf a owl:ObjectProperty ;
     rdfs:label "version of" ;
-    rdfs:comment "Links a ComponentVersion to the SoftwareComponent it is a version of." ;
+    rdfs:comment "Shared version relation; module-specific sub-properties carry their domain and range." .
+
+:supplyChainVersionOf a owl:ObjectProperty ;
+    rdfs:label "versionOf (supply chain)" ;
+    rdfs:comment "The supply-chain meaning of the shared kg:versionOf: links a ComponentVersion to the SoftwareComponent it is a version of." ;
+    rdfs:subPropertyOf :versionOf ;
     rdfs:domain :ComponentVersion ;
     rdfs:range :SoftwareComponent .
 
