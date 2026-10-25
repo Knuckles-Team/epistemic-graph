@@ -86,6 +86,7 @@ fn opportunity_terms_listed_with_domain_and_range() {
 }
 
 // spec: EG-CQ-XSRC-R008.3.1
+// spec: EG-SUPPLY-VOCAB-R003.6
 #[test]
 fn customer_contract_and_covers_service_declared() {
     let triples = documents();
