@@ -1353,7 +1353,7 @@ mod tests {
             ),
             (
                 "metadata_catalog",
-                "a1c95129c61140235431749e9339d84bea9dcbc749996462f32571221b844163",
+                "21df7a425790fd7d2682888a02c627dd0027344a21817c5bea4137dfb288af4f",
             ),
             (
                 "metadata_catalog-shapes",
