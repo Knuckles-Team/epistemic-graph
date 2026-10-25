@@ -232,7 +232,7 @@ fn catalog_shapes_accept_a_complete_catalog() {
         "<urn:c:sn> a cp:Connector . \
          <urn:a:incidents> a cat:DataResource ; cp:ofConnector <urn:c:sn> ; cp:servesClass :Incident ; \
              cat:hasField <urn:a:incidents#group> . \
-         <urn:a:incidents#group> a cat:Field ; cp:servesProperty cat:hasSteward . \
+         <urn:a:incidents#group> a cat:Field ; cp:ofConnector <urn:c:sn> ; cp:servesProperty cat:hasSteward . \
          <urn:a:get_incidents> a cat:ToolAsset ; cp:ofConnector <urn:c:sn> ; cp:digest \"{DIGEST}\" . \
          <urn:a:responder> a :PromptCandidate, cat:PromptAsset ; cp:ofConnector <urn:c:sn> ; \
              :systemPromptFor <urn:task:incident-triage> . \
@@ -253,6 +253,14 @@ fn catalog_shapes_refuse_incomplete_or_open_vocabulary_records() {
     assert!(!conforms("<urn:a:t> a cat:ToolAsset ."));
     assert!(!conforms(
         "<urn:a:t> a cat:ToolAsset ; cp:ofConnector <urn:c:a>, <urn:c:b> ."
+    ));
+    // A field also belongs to exactly one connector-backed catalog.
+    assert!(!conforms(
+        "<urn:a:f> a cat:Field ; cp:servesProperty cat:hasSteward ."
+    ));
+    assert!(!conforms(
+        "<urn:a:f> a cat:Field ; cp:ofConnector <urn:c:a>, <urn:c:b> ; \
+         cp:servesProperty cat:hasSteward ."
     ));
     // A data resource that serves no class.
     assert!(!conforms(

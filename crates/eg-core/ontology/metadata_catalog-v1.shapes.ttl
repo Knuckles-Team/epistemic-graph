@@ -5,9 +5,11 @@
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-# A catalogued connector asset names exactly one connector (EG-TYPED-PACKS-R106.1).
+# Connector-backed catalog assets name exactly one connector (EG-TYPED-PACKS-R106.1).
+# AgentAsset is an Agent Library asset governed by R108 and is intentionally
+# outside this connector requirement.
 cat:ConnectorAssetShape a sh:NodeShape ;
-    sh:targetClass cat:ToolAsset, cat:PromptAsset, cat:SkillAsset, cat:DataResource ;
+    sh:targetClass cat:ToolAsset, cat:PromptAsset, cat:SkillAsset, cat:DataResource, cat:Field ;
     sh:property [ sh:path cp:ofConnector ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ],
     [ sh:path cp:digest ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:pattern "^[0-9a-f]{64}$" ] .
 

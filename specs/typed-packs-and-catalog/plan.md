@@ -128,7 +128,7 @@ The per-tenant lock serializes pack mutations but does not replace in-write head
 The core `metadata_catalog-v1` vocabulary and shapes are owned by EG and are
 verified by the native RDF/OWL and SHACL fixtures in
 `crates/eg-rdf/tests/metadata_catalog_classes.rs` (`R106.1`). Arbora onboarding
-is the sole producer of catalog nodes in the tenant graph; EG validates the
+is the sole producer of catalog nodes in the tenant graph. EG validates the
 batch and serves graph queries. R106.2 through R106.7 retain the current-main
 behavior, wiring and competency-query rows, including the explicit Arbora
 boundary. No EG-side catalog projection is claimed by this candidate.

@@ -1357,7 +1357,7 @@ mod tests {
             ),
             (
                 "metadata_catalog-shapes",
-                "87de64872564e5b31503e95e90252294c66e2528c643e762c1f2b0de017d0973",
+                "f6eec758f38a7f1fb24755fd973034569949cf625eab3891df5a504f340d6677",
             ),
             (
                 "temporal-shapes",
