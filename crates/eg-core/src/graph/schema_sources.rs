@@ -1253,7 +1253,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "a93cc9f66213be6506e2c5d740fb7b2f902a0030c22ee6e3c9a0d57f2d0660d6",
+                "2b8685ce39a358b887ac819952511e7f7fabbdb3c03e0a51c2e2adfd8eff093a",
             ),
             (
                 "company",
@@ -1345,7 +1345,7 @@ mod tests {
             ),
             (
                 "it4it_delivery",
-                "54f25a4583b59f73256eefc7bec9781c6bbc7f0a6ff1fbd4b4735fbc2807b080",
+                "0ce2b6adf9c9994f62f8d3422e21aa574fe8487f395bb4615f62602bce449eff",
             ),
             (
                 "media",
@@ -1432,8 +1432,27 @@ mod tests {
                 "supply_chain",
                 "888557a0358a4c70f3be6c6db04e16ccf57d63ac9e62276d27a7dcb796554100",
             ),
+            (
+                "virtual-graph",
+                "769f39fb4e63651eceda18f0e60da4e09649585231ac5db758bdb6d52c34b7f4",
+            ),
+            (
+                "virtual-graph-shapes",
+                "06d708d2391816befba311d95af840bbeb0d09e4e03f1a37d7f5b59d296b508e",
+            ),
         ];
         let catalog = current_core_catalog();
+        let pinned_modules: BTreeSet<_> = expected.iter().map(|(module, _)| *module).collect();
+        assert_eq!(
+            pinned_modules.len(),
+            expected.len(),
+            "duplicate core artifact pin"
+        );
+        assert_eq!(
+            expected.len(),
+            catalog.len(),
+            "every core source needs a byte pin"
+        );
         for (module, digest) in expected {
             let source = &catalog[&format!("core:{module}@1")];
             // A module can carry both documents (commercial: ontology plus its
