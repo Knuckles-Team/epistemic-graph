@@ -355,7 +355,7 @@ fn promote_checked_candidate(
             return Err("semantic promotion source bytes changed after candidate copy".to_string());
         }
     }
-    require_regular_file(candidate)?;
+    require_regular_file(candidate, "semantic promotion candidate")?;
     let identity = tenant_physical_identity(&current.destination)?;
     let candidate_proof = prove_semantic_owner_union_read_only(&sources, candidate, &identity)?;
     if candidate_proof.target != *target_evidence

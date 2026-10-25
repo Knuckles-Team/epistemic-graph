@@ -520,12 +520,12 @@ fn source_files_with_identities(
         .collect()
 }
 
-fn require_regular_file(path: &Path) -> Result<(), String> {
+fn require_regular_file(path: &Path, context: &str) -> Result<(), String> {
     let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
     if metadata.file_type().is_file() {
         Ok(())
     } else {
-        Err("semantic promotion candidate is not an ordinary file".to_string())
+        Err(format!("{context} is not an ordinary file"))
     }
 }
 
@@ -786,7 +786,7 @@ fn remove_clean_marker_from_census(
 ) -> Result<(), String> {
     let marker = owner.with_extension("redb.clean");
     if actual.contains(&marker) {
-        require_regular_file(&marker)?;
+        require_regular_file(&marker, "semantic upgrade source")?;
         actual.remove(&marker);
     }
     Ok(())
@@ -847,18 +847,9 @@ fn require_single_regular_file(directory: &Path, expected: &Path) -> Result<(), 
         if entry != expected && entry != marker {
             return Err("semantic upgrade source has an unexpected file".to_string());
         }
-        require_regular_file(&entry)?;
+        require_regular_file(&entry, "semantic upgrade source")?;
     }
-    require_regular_file(expected)
-}
-
-fn require_regular_file(path: &Path) -> Result<(), String> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_file() {
-        Ok(())
-    } else {
-        Err("semantic upgrade source is not an ordinary file".to_string())
-    }
+    require_regular_file(expected, "semantic upgrade source")
 }
 
 fn legacy_store_file_name(tenant: &str, binding: &str) -> String {
