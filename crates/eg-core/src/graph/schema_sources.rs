@@ -822,7 +822,7 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: None,
         },
         // The metadata catalog: assets, owners and stewards, lineage, glossary and
-        // the Agent Library (EG-TYPED-PACKS-R106.1, EG-DECISION-ENGINE-R814.1).
+        // the Agent Library (EG-TYPED-PACKS-R106.1, EG-DECISION-ENGINE-R814.1.1).
         CoreSpec {
             module: "metadata_catalog",
             version: 1,
