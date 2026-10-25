@@ -48,6 +48,10 @@ pub(super) struct Executed {
     pub(super) ladder: LadderResult,
     pub(super) reading: Option<Evaluated>,
     pub(super) seed: [u8; 32],
+    /// The contrast decision a `HarnessContrast` question sealed
+    /// (EG-DECISION-ENGINE-R803); `None` for every other kind.
+    pub(super) harness_contrast:
+        Option<eg_types::decision::harness_contrast::HarnessContrastDecision>,
 }
 
 /// Read and validate the feature schema and head a decision pins.
@@ -174,6 +178,7 @@ pub(super) fn run_on_matrix(
                 ladder: abstained(reason),
                 reading: None,
                 seed,
+                harness_contrast: None,
             });
         }
         Some(Ok(evaluated)) => Some(evaluated),
@@ -194,6 +199,7 @@ pub(super) fn run_on_matrix(
         ladder,
         reading,
         seed,
+        harness_contrast: None,
     })
 }
 
@@ -224,6 +230,7 @@ pub(super) fn execute(
                 }),
                 reading: None,
                 seed: [0u8; 32],
+                harness_contrast: None,
             });
         }
     };

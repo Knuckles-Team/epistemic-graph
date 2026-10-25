@@ -99,6 +99,13 @@ pub enum QuestionKind {
     HarnessConfig,
     /// Bounded explicit dependency planning; admission belongs to the host.
     TaskPlan,
+    /// The contrastive harness composition decision (EG-DECISION-ENGINE-R803):
+    /// two to eight candidate component versions probed against the same
+    /// baseline under identical conditions; the engine adopts a candidate only
+    /// when its measured `eval_score_delta` is positive and unbeaten, with
+    /// cost as the tie-break, and abstains keeping the current harness when no
+    /// candidate improves. See `decision::harness_contrast`.
+    HarnessContrast,
 }
 
 /// What is at stake. Exploration is permitted only for
@@ -259,6 +266,10 @@ pub struct StatisticalInputs {
     /// Optional exact harness evidence; omission preserves existing record bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_evaluation: Option<harness_config::HarnessConfigEvaluationEvidence>,
+    /// The contrastive harness composition decision, present exactly when the
+    /// question kind is `HarnessContrast` (EG-DECISION-ENGINE-R803).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_contrast: Option<super::harness_contrast::HarnessContrastDecision>,
     pub feature_schema: ComponentDependency,
     #[serde(default)]
     pub head: Option<ComponentDependency>,

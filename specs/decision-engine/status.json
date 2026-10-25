@@ -1518,7 +1518,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:370"
+        "crates/eg-types/src/decision/statistical.rs:381"
       ]
     },
     {
@@ -1551,7 +1551,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:377"
+        "crates/eg-types/src/decision/statistical.rs:388"
       ]
     },
     {
@@ -2380,7 +2380,7 @@
         "a0743ba9b542"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:345",
+        "crates/eg-capabilities/src/error_routing.rs:367",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:29",
@@ -2452,7 +2452,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:345",
+        "crates/eg-capabilities/src/error_routing.rs:367",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:45"
@@ -3909,7 +3909,7 @@
         "c7da75413a3c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:358",
+        "crates/eg-types/src/decision/statistical.rs:369",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:57",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:98"
       ]
@@ -9139,9 +9139,18 @@
     {
       "id": "EG-DECISION-ENGINE-R803",
       "title": "Contrastive harness composition decision (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7cb7f367c849",
+        "f52d12235269"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:578",
+        "crates/eg-types/src/decision/harness_contrast.rs:630",
+        "crates/eg-types/src/decision/harness_contrast.rs:723",
+        "crates/eg-types/src/decision/harness_contrast.rs:945",
+        "tests/decide/test_harness_contrast_served.py:257"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R803.1",
         "EG-DECISION-ENGINE-R803.2",
@@ -9154,44 +9163,72 @@
     {
       "id": "EG-DECISION-ENGINE-R803.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7cb7f367c849"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:578"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7cb7f367c849"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:630"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7cb7f367c849",
+        "f52d12235269"
+      ],
+      "verified_by": [
+        "tests/decide/test_harness_contrast_served.py:257",
+        "tests/decide/test_harness_contrast_served.py:258"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7cb7f367c849"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:723"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7cb7f367c849"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:945"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7cb7f367c849",
+        "f52d12235269"
+      ],
+      "verified_by": [
+        "tests/decide/test_harness_contrast_served.py:379",
+        "tests/decide/test_harness_contrast_served.py:380"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R810",

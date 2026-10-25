@@ -634,6 +634,49 @@ fn validate_op_add_node(
 ) -> Result<(), String> {
     validate_safe_text(node_id)?;
     validate_msgpack_material(properties_msgpack, rule)?;
+    validate_harness_component_write(node_id, properties_msgpack)?;
+    Ok(())
+}
+
+/// EG-ORCH-VOCAB-R801.4 — the evidence refusals of a versioned
+/// harness-component write carried by this envelope: the version record
+/// decodes strictly (closed kind set, typed evidence and interval checks)
+/// and carries its bitemporal transaction stamp (the generated client stamps
+/// it — EG-DURABLE-KERNEL-R078/R081). Non-harness AddNode ops pass through.
+fn validate_harness_component_write(
+    node_id: &str,
+    properties_msgpack: &[u8],
+) -> Result<(), String> {
+    let props = crate::msgpack::decode_property_object(properties_msgpack).unwrap_or_default();
+    if !crate::orchestration::is_harness_component_write(&props) {
+        return Ok(());
+    }
+    let refuse = |refusal: crate::orchestration::HarnessComponentRefusal, detail: String| {
+        format!("{}: {}", refusal.code(), detail)
+    };
+    let record = crate::orchestration::decode_component_write(&props)
+        .map_err(|refusal| refuse(refusal, "harness component version record".to_string()))?;
+    if record.node_id() != node_id {
+        return Err(refuse(
+            crate::orchestration::HarnessComponentRefusal::ContentDigestMismatch,
+            format!(
+                "node id '{node_id}' does not match the record's content address '{}'",
+                record.node_id()
+            ),
+        ));
+    }
+    record
+        .validate()
+        .map_err(|refusal| refuse(refusal, format!("component '{}'", record.component_id)))?;
+    if crate::orchestration::component_tx_stamp(&props).is_none() {
+        return Err(refuse(
+            crate::orchestration::HarnessComponentRefusal::WithoutStamp,
+            format!(
+                "harness component version '{}' must carry its transaction-time stamp `tx_from`",
+                record.node_id()
+            ),
+        ));
+    }
     Ok(())
 }
 
