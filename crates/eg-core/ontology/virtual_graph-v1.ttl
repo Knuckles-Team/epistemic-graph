@@ -96,6 +96,19 @@ vg:approved a owl:DatatypeProperty ;
     rdfs:domain vg:VirtualMapping ;
     rdfs:range xsd:boolean .
 
+vg:authoritativeSource a owl:ObjectProperty ;
+    rdfs:comment "The connected source one SourceAuthority declares authoritative for its class." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range vg:SourceConnection .
+vg:authorityFor a owl:ObjectProperty ;
+    rdfs:comment "The one ontology class a SourceAuthority is declared for. A declaration on a superclass serves its subclasses unless the subclass declares its own (EG-CQ-XSRC-R001)." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range owl:Class .
+vg:authorityRank a owl:DatatypeProperty ;
+    rdfs:comment "The rank of one SourceAuthority for its class: an integer, lower wins. The planner serves the class from its lowest-ranked effective authority." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:integer .
+
 # --- Classes -------------------------------------------------------------------
 
 vg:SourceConnection a owl:Class ;
@@ -108,3 +121,5 @@ vg:VirtualMapping a owl:Class ;
     rdfs:comment "One approved binding of a core ontology class to a discovered entity, keyed and projected field by field." .
 vg:PredicateFieldPair a owl:Class ;
     rdfs:comment "One ontology-predicate-to-discovered-field binding inside a VirtualMapping." .
+vg:SourceAuthority a owl:Class ;
+    rdfs:comment "One declared statement that a connected source is authoritative for one ontology class: its source (vg:authoritativeSource), its class (vg:authorityFor) and its rank (vg:authorityRank, lower wins). Source choice is data in the graph, not query text (EG-CQ-XSRC-R001)." .

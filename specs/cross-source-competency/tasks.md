@@ -8,7 +8,7 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first;
   - [ ] Authority applies through subclass entailment. **EG-CQ-XSRC-R001.3**
   - [ ] Authority records the approval of its mapping. **EG-CQ-XSRC-R001.4**
 - [ ] Supply-chain concepts and the sources that are authoritative for them (rollup). **EG-CQ-XSRC-R002**
-  - [ ] Add `:Supplier` as a subclass of `:Vendor`, and `:SupplyChainItem` with `:suppliedBy`. **EG-CQ-XSRC-R002.1**
+  - [ ] Add `:Supplier` as a subclass of `:Vendor`, and `:SupplyChainItem` with `:suppliesItem`; preserve source-owned `:suppliedBy` declarations. **EG-CQ-XSRC-R002.1**
   - [ ] Add `:SoftwareComponent`, `:ComponentVersion` and `:publishedBy`. **EG-CQ-XSRC-R002.2**
   - [ ] Add `:Vulnerability` and `:affectsComponent`. **EG-CQ-XSRC-R002.3**
   - [ ] SHACL shape for supplier and component. **EG-CQ-XSRC-R002.4**
