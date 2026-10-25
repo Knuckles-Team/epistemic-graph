@@ -37,7 +37,7 @@ fn documents() -> Vec<Triple> {
 }
 
 // spec: EG-TYPED-PACKS-R106.1
-// spec: EG-DECISION-ENGINE-R814.1
+// spec: EG-DECISION-ENGINE-R814.1.1
 #[test]
 fn catalog_classes_roll_up_to_eg_core_and_align_to_w3c() {
     let triples = documents();
@@ -197,7 +197,7 @@ fn conforms(data: &str) -> bool {
 const DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 // spec: EG-TYPED-PACKS-R106.1
-// spec: EG-DECISION-ENGINE-R814.1
+// spec: EG-DECISION-ENGINE-R814.1.1
 #[test]
 fn catalog_shapes_accept_a_complete_catalog() {
     let data = format!(
@@ -218,7 +218,7 @@ fn catalog_shapes_accept_a_complete_catalog() {
 }
 
 // spec: EG-TYPED-PACKS-R106.1
-// spec: EG-DECISION-ENGINE-R814.4
+// spec: EG-DECISION-ENGINE-R814.1.1
 #[test]
 fn catalog_shapes_refuse_incomplete_or_open_vocabulary_records() {
     // An asset with no connector, or two.

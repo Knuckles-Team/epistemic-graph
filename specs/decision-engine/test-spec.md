@@ -313,12 +313,8 @@ These acceptance tests require the consumer prerequisites described in the plan.
 - `EG-DECISION-ENGINE-R128.11`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::premises_and_why_not_cover_each_part`.
 - `EG-DECISION-ENGINE-R128.12`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::all_parts_abstained_seals_abstention`.
 - `EG-DECISION-ENGINE-R128.13`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_record_commits`.
-- `EG-DECISION-ENGINE-R128.13.1`: roll up the functional evidence/refusal tests and pending resource qualification below. This does not establish successful HarnessConfig replay.
-- `EG-DECISION-ENGINE-R128.13.1.1`: run `absent_harness_evidence_preserves_legacy_bytes_and_digest` and `harness_evidence_roundtrips_and_changes_input_digest` in the producer module. Run `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_replay_refuses_a_relabelled_generic_record` through native dispatch. Require a valid route control commit, rehashed injected-evidence refusal and absence of the mutated record. Both groups must execute on the exact source; the native dispatch result remains pending.
-- `EG-DECISION-ENGINE-R128.13.1.2`: planned benchmarks are `crates/eg-types/benches/harness_evaluation_evidence.rs::evidence_codec_and_digest_budget` and `benches/harness_config_replay.rs::refuses_attached_evidence_budget`. These benchmarks are unimplemented. Define workload byte/cardinality ceilings and latency/memory limits, then retain exact-source optimized-build measurements. Existing token and vector bounds do not prove these limits.
-- `EG-DECISION-ENGINE-R128.13.2`: roll up successful shared replay/readback and its pending resource qualification. No implementation or execution result is claimed.
-- `EG-DECISION-ENGINE-R128.13.2.1`: planned `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_record_commits` must prove full answer re-derivation and independent stored-record readback. Include changed-premise and forged-answer refusal cases. All remain pending.
-- `EG-DECISION-ENGINE-R128.13.2.2`: planned, unimplemented `benches/harness_config_replay.rs::commits_rederived_harness_config_budget` measures complete replay, persistence and readback. Define workload and resource limits before acceptance; retain exact-source optimized-build measurements. No limits or measurements are invented here.
+- `EG-DECISION-ENGINE-R128.13.1`: run `absent_harness_evidence_preserves_legacy_bytes_and_digest` and `harness_evidence_roundtrips_and_changes_input_digest` in the producer module. Run `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_replay_refuses_a_relabelled_generic_record` through native dispatch. These tests do not establish successful HarnessConfig replay.
+- `EG-DECISION-ENGINE-R128.13.2`: planned `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_record_commits` must prove full answer re-derivation and independent stored-record readback. Include changed-premise and forged-answer refusal cases.
 - `EG-DECISION-ENGINE-R128.14`: `crates/eg-capabilities/tests/contract_generated.rs::question_kind_lists_harness_config`.
 - `EG-DECISION-ENGINE-R128.15`: `tests/decide/test_harness_config_served.py::test_harness_config_end_to_end`.
 
@@ -918,10 +914,23 @@ These checks do not authenticate a caller-supplied receipt or authorize executio
 
 The `bounded_task_plan` performance receipt for R134.111.6 remains pending.
 
+Typed tool steps (R134.111.8 to R134.111.13) are covered in `crates/eg-types/src/decision/task_plan/tests.rs` and `src/server/handlers/decide/stat_tests/task_plan_tests.rs`.
+The bindings are static: no test claims that a path exists in a run-time output.
+
+- `EG-DECISION-ENGINE-R134.111.8`: `task_plan_round_trips` keeps a tool step, its literals and its bindings. It accepts a mixed plan. It rejects an unknown call field and a `$ref` object with extra keys.
+- `EG-DECISION-ENGINE-R134.111.9`: `binding_canonicalization_is_order_independent` yields one plan digest for reordered argument keys. `binding_bounds` accepts each ceiling and refuses one value past it.
+- `EG-DECISION-ENGINE-R134.111.10`: `refuses_each_binding_defect` returns the reason, task id and argument pointer for all six reasons. A binding to a non-dependency refuses with `binding_not_dependency` and returns no plan.
+- `EG-DECISION-ENGINE-R134.111.11`: `digest_covers_calls_and_bindings` changes the digest for a changed tool, literal, reference or server. `premises_name_calls_and_bindings` lists the premises. The receipt check refuses a receipt whose call differs from the proposal.
+- `EG-DECISION-ENGINE-R134.111.12`: `decide_routes_task_plan_with_calls` enters `handle_decide` and returns the typed plan with calls. The Python test checks that the exported digest equals the new body's digest.
+- `EG-DECISION-ENGINE-R134.111.13`: `tests/decide/test_task_plan_served.py::test_tool_step_bindings_end_to_end`.
+
 - `EG-DECISION-ENGINE-R814`: See each child.
-- `EG-DECISION-ENGINE-R814.1`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role`, `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_classes_roll_up_to_eg_core_and_align_to_w3c`.
+- `EG-DECISION-ENGINE-R814.1`: See each child.
+- `EG-DECISION-ENGINE-R814.1.1`: `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_classes_roll_up_to_eg_core_and_align_to_w3c`, `::owner_steward_and_lineage_properties_specialise_prov`, `::catalog_shapes_accept_a_complete_catalog` and `::catalog_shapes_refuse_incomplete_or_open_vocabulary_records`.
+- `EG-DECISION-ENGINE-R814.1.2`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role` (planned; typed record is absent from this candidate).
 - `EG-DECISION-ENGINE-R814.2`: `crates/eg-core/tests/prompt_candidate.rs::assemble_selects_covering_candidate_and_abstains_without_one`.
 - `EG-DECISION-ENGINE-R814.3`: `tests/decision/test_prompt_candidates_served.py::test_assemble_reads_candidates_from_imported_pack`.
 - `EG-DECISION-ENGINE-R814.4`: `crates/eg-core/tests/prompt_candidate.rs::unbound_prompt_refuses_and_rejected_connector_is_excluded`.
 - `EG-DECISION-ENGINE-R814.5`: `tests/decision/test_prompt_candidates_served.py::test_record_names_prompt_connector_digest_and_capability`.
 - `EG-DECISION-ENGINE-R814.6`: `tests/decision/test_prompt_candidates_served.py::test_dynamic_agent_gets_the_matching_connector_system_prompt`.
+- `EG-DECISION-ENGINE-R814.7`: `tests/decision/test_prompt_candidates_served.py::test_system_prompt_query_lists_candidates_for_a_task`. Vector: `SELECT ?prompt ?connector ?digest WHERE { ?prompt a :PromptCandidate ; :systemPromptFor ?t ; cp:ofConnector ?connector ; cp:digest ?digest . ?t :requiresCapability ?need . <Y> :requiresCapability ?need }`. `:systemPromptFor` ranges over `:Task`, so the join goes through the task. The query returns the prompt of the connector that serves task Y and not the other connector's prompt.

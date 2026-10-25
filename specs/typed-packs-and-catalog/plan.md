@@ -123,6 +123,16 @@ The per-tenant lock serializes pack mutations but does not replace in-write head
 
 ## Amendments
 
+### 2026-10-25: metadata-catalog vocabulary and onboarding ownership (R106)
+
+The core `metadata_catalog-v1` vocabulary and shapes are owned by EG and are
+verified by the native RDF/OWL and SHACL fixtures in
+`crates/eg-rdf/tests/metadata_catalog_classes.rs` (`R106.1`). Arbora onboarding
+is the sole producer of catalog nodes in the tenant graph; EG validates the
+batch and serves graph queries. R106.2 through R106.7 retain the current-main
+behavior, wiring and competency-query rows, including the explicit Arbora
+boundary. No EG-side catalog projection is claimed by this candidate.
+
 ### 2026-10-11: served admin regression fixtures
 
 R002, R003 and R007 retain their runtime contracts. The import fixture must use
@@ -752,3 +762,9 @@ The three conflicting generated receipt and catalog files retain the exact main 
 These files are stale for the identity union, not a qualified combined contract.
 Fresh hosted native generation and final-source parity must replace this draft baseline before merge.
 The earlier identity exports remain preserved with their original source receipts.
+## Schema drift wiring (R710, R712)
+`EG-TYPED-PACKS-R710` stays VERIFIED by the unit tests in `crates/eg-types/src/graph_schema/drift.rs`. Its acceptance is unit tests of the typed model and the bound.
+`EG-TYPED-PACKS-R712` stays VERIFIED by the benchmark `benches/schema_drift_classify.rs` and the approval-lease served test.
+Superseded evidence: `tests/packs/test_schema_drift_served.py` drives attach, validate and approval-lease operations only. It never classifies drift.
+No engine code outside `benches/` calls the classifier today.
+`EG-TYPED-PACKS-R714` owns the delivery-path wiring. `EG-TYPED-PACKS-R715` owns the served quarantine proof.

@@ -189,12 +189,8 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R128.11:** Premises and why-not explain every part. The handler must emit one premise per rule input and per default used. It must emit one why-not entry for each rejected option of each part. A part answered by a conservative default must emit a `Claim`-class premise naming the missing fact. Test: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::premises_and_why_not_cover_each_part`.
 - [ ] **EG-DECISION-ENGINE-R128.12:** The outcome encodes decided and abstained parts. The handler must seal a `StatisticalOutcome::Advisory` (`outcome.rs:101`) with one `ScoredOption` per decided part, using the option id `<part>:<value>`. When every part abstains, it must seal `StatisticalOutcome::Abstained` (`outcome.rs:107`). The record must read `ResolutionKind::Statistical` or `Abstention` accordingly. Test: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::all_parts_abstained_seals_abstention`.
 - [ ] **EG-DECISION-ENGINE-R128.13:** The committed answer is accepted by the commit path. `handle_decision_commit` must accept and re-derive a sealed `harness_config` record without a kind-specific branch. A test must commit the record and read it back with identical premises. Test: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_record_commits`.
-- [ ] **EG-DECISION-ENGINE-R128.13.1:** Qualify evidence codec/refusal behavior and its separate resource requirements. Both children must complete.
-- [ ] **EG-DECISION-ENGINE-R128.13.1.1:** Run both typed digest/roundtrip tests and the native injected-evidence commit-refusal test on the exact source. Native dispatch remains pending.
-- [ ] **EG-DECISION-ENGINE-R128.13.1.2:** Define owner-approved workload and byte ceilings, latency and memory limits. Implement the planned evidence-codec and refusal benchmarks and retain measured receipts.
-- [ ] **EG-DECISION-ENGINE-R128.13.2:** Qualify successful shared replay, persistence and independent readback, including separate resource acceptance. The behavior remains unimplemented.
-- [ ] **EG-DECISION-ENGINE-R128.13.2.1:** Implement and run complete answer re-derivation, changed-premise and forged-answer refusals, and independent committed-record readback.
-- [ ] **EG-DECISION-ENGINE-R128.13.2.2:** Define persisted-replay workloads and resource limits. Implement the planned replay/readback benchmark and retain exact-source measurements.
+- [ ] **EG-DECISION-ENGINE-R128.13.1:** Run both typed digest/roundtrip tests and the native injected-evidence commit-refusal test on the exact source.
+- [ ] **EG-DECISION-ENGINE-R128.13.2:** Implement and run complete answer re-derivation, changed-premise and forged-answer refusals, and independent committed-record readback.
 - [ ] **EG-DECISION-ENGINE-R128.14:** The generated contract and clients carry the kind. `gen_contract` must be rerun so `contract/schemas/method.request.json` and the `result.*.json` schemas list `harness_config` beside `tool_subset`. The Python DTO in `crates/eg-capabilities/src/contract/python/dto.rs` and the JS and Go codecs under `clients/` must regenerate. The `gen_contract --check` step at `.github/workflows/release.yml:210` must pass. Test: `crates/eg-capabilities/tests/contract_schema.rs::question_kind_lists_harness_config`.
 - [ ] **EG-DECISION-ENGINE-R128.15:** End-to-end proof uses the served path. A served test must publish a model profile with measured facts, submit `Method::Decide` for `harness_config` over the wire, and assert the answer, premises and the unchanged tool-subset result. A second case must submit a profile without `shellProficiency` and assert the `tool_set` abstention. Test: `tests/decide/test_harness_config_served.py::test_harness_config_end_to_end`.
 
@@ -779,6 +775,10 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 
 - [ ] **EG-DECISION-ENGINE-R036.102:** Bind the existing graph prepare writer and recovery readers to versioned transaction/participant identity; qualify refusal and legacy recovery.
 
+- [ ] `EG-DECISION-ENGINE-R036.103` Implement durable RBAC prepare, writer interlock and coordinator resolution; qualify reopen, conflicting writes, replay and offline layout upgrade. No profile-admission completion claim.
+- [ ] **EG-DECISION-ENGINE-R036.105:** Qualify atomic certificate persistence, strict expiry, immutable recovery and exact cross-owner binding.
+- [ ] **EG-DECISION-ENGINE-R036.104:** Implement and qualify AgentLibraryOwner durable prepare, all-writer fencing and decision-record materialization/recovery against the native coordinator certificate.
+- [ ] **EG-DECISION-ENGINE-R801.8:** Co-commit caller-bound observed run usage and aggregate unique committed runs with explicit coverage.
 - [ ] **EG-DECISION-ENGINE-R804:** Evaluation sets and the program optimizer loop (rollup).
 - [ ] **EG-DECISION-ENGINE-R804.1:** Model.
 - [ ] **EG-DECISION-ENGINE-R804.2:** Behavior.
@@ -836,10 +836,23 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 
 - [ ] **EG-DECISION-ENGINE-R134.111.6:** Qualify the named maximum-input benchmark; record the profile, hardware and latency/memory results before claiming the performance budget.
 
+- [ ] **EG-DECISION-ENGINE-R134.111.8:** Model the typed tool step and its bindings.
+- [ ] **EG-DECISION-ENGINE-R134.111.9:** Canonicalize and statically check calls and bindings.
+- [ ] **EG-DECISION-ENGINE-R134.111.10:** Refuse bad references, binding cycles and call bounds with typed reasons.
+- [ ] **EG-DECISION-ENGINE-R134.111.11:** Bind calls and bindings into the plan digest and evidence.
+- [ ] **EG-DECISION-ENGINE-R134.111.12:** Wire calls through the served Decide path and the feature schema.
+- [ ] **EG-DECISION-ENGINE-R134.111.13:** Prove typed tool steps through the served Decide method.
+
 - [ ] **EG-DECISION-ENGINE-R814:** Connector prompts are system-prompt candidates that agent assembly selects (rollup).
-- [ ] **EG-DECISION-ENGINE-R814.1:** Model.
+- [ ] **EG-DECISION-ENGINE-R814.1:** Model (rollup).
+- [x] **EG-DECISION-ENGINE-R814.1.1:** Vocabulary: metadata-catalog prompt-candidate class, relation and shapes.
+- [ ] **EG-DECISION-ENGINE-R814.1.2:** Typed `PromptCandidate` record and round-trip contract.
 - [ ] **EG-DECISION-ENGINE-R814.2:** Behavior.
 - [ ] **EG-DECISION-ENGINE-R814.3:** Wiring.
 - [ ] **EG-DECISION-ENGINE-R814.4:** Refusal.
 - [ ] **EG-DECISION-ENGINE-R814.5:** Evidence.
 - [ ] **EG-DECISION-ENGINE-R814.6:** Hot-path proof.
+- [ ] **EG-DECISION-ENGINE-R814.7:** Competency query.
+## Usage ledger (R801)
+- [ ] **EG-DECISION-ENGINE-R801.7:** Serve `UsageRead` over the durable ledger; take the tenant from the verified context; add the served test.
+- [ ] **EG-DECISION-ENGINE-R036.106:** Wire profile-use grant records and the offline RBAC layout upgrade. Qualify grant issuance and composed model admission.

@@ -272,6 +272,8 @@
     "EG-TYPED-PACKS-R712",
     "EG-TYPED-PACKS-R711",
     "EG-TYPED-PACKS-R713",
+    "EG-TYPED-PACKS-R714",
+    "EG-TYPED-PACKS-R715",
     "EG-TYPED-PACKS-R800",
     "EG-TYPED-PACKS-R800.1",
     "EG-TYPED-PACKS-R800.2",
@@ -325,6 +327,7 @@
     "EG-TYPED-PACKS-R106.4",
     "EG-TYPED-PACKS-R106.5",
     "EG-TYPED-PACKS-R106.6",
+    "EG-TYPED-PACKS-R106.7",
     "EG-TYPED-PACKS-R107",
     "EG-TYPED-PACKS-R107.1",
     "EG-TYPED-PACKS-R107.2",
@@ -1005,9 +1008,12 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "ac5638477288",
+        "b9e2f8389e6f",
+        "c09b874a403e",
         "d116b7dbfd27"
       ],
       "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:174",
         "tests/test_connector_pack_planted.py:234"
       ]
     },
@@ -3000,6 +3006,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "4e402b2ec8bf",
+        "cfe7d38376a4",
         "dc810128a66d"
       ],
       "verified_by": [
@@ -3016,7 +3023,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0305cbd4457e",
-        "912a39a98afe"
+        "912a39a98afe",
+        "cfe7d38376a4"
       ],
       "verified_by": [
         "tests/packs/test_schema_drift_served.py:169"
@@ -3032,6 +3040,20 @@
     {
       "id": "EG-TYPED-PACKS-R713",
       "title": "Process, lifecycle, temporal and harness shape artifacts are generated: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R714",
+      "title": "Delivery-path wiring of drift classification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R715",
+      "title": "Served quarantine of a drifted delivery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3422,7 +3444,8 @@
         "EG-TYPED-PACKS-R106.3",
         "EG-TYPED-PACKS-R106.4",
         "EG-TYPED-PACKS-R106.5",
-        "EG-TYPED-PACKS-R106.6"
+        "EG-TYPED-PACKS-R106.6",
+        "EG-TYPED-PACKS-R106.7"
       ]
     },
     {
@@ -3470,6 +3493,13 @@
     {
       "id": "EG-TYPED-PACKS-R106.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.7",
+      "title": "Competency queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3663,7 +3693,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R108.16",
-      "title": "One ranked index across all asset families",
+      "title": "One ranked index across all asset families, callable from queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

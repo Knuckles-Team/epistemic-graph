@@ -5,15 +5,17 @@ use std::collections::BTreeMap;
 
 use eg_types::connector_pack::result::PackWriteErrorCode;
 use eg_types::contract::{EngineErrorCode, ServerErrorCode, UqlCode};
+use eg_types::decision::harness_contrast::HarnessContrastErrorCode;
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::DecisionErrorCode;
 use eg_types::graph_schema::GraphSchemaErrorCode;
+use eg_types::orchestration::HarnessVocabularyErrorCode;
 use eg_types::solve::SolveErrorCode;
 
 pub(super) use crate::error_routing::method_error_set;
 use crate::error_routing::typed_codes;
 
-fn families() -> [(&'static str, Vec<&'static str>); 8] {
+fn families() -> [(&'static str, Vec<&'static str>); 10] {
     [
         (
             "engine",
@@ -21,12 +23,26 @@ fn families() -> [(&'static str, Vec<&'static str>); 8] {
         ),
         ("engine", typed_codes(UqlCode::ALL, UqlCode::as_str)),
         (
+            "engine",
+            typed_codes(
+                HarnessVocabularyErrorCode::ALL,
+                HarnessVocabularyErrorCode::as_str,
+            ),
+        ),
+        (
             "decision",
             typed_codes(DecisionErrorCode::ALL, DecisionErrorCode::as_str),
         ),
         (
             "decision",
             typed_codes(StatisticalErrorCode::ALL, StatisticalErrorCode::as_str),
+        ),
+        (
+            "decision",
+            typed_codes(
+                HarnessContrastErrorCode::ALL,
+                HarnessContrastErrorCode::as_str,
+            ),
         ),
         (
             "schema",

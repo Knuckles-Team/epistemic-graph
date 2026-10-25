@@ -95,7 +95,7 @@ redb = "~4.1"
 
 [package]
 name = "epistemic-graph"
-version = "2.27.6"
+version = "2.27.7"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Rust-native durable multimodal and epistemic database for governed SI systems"
@@ -1985,6 +1985,26 @@ required-features = ["security"]
 [[bench]]
 name = "pyo3_inprocess_vs_uds_bench"
 path = "benches/pyo3_inprocess_vs_uds_bench.rs"
+harness = false
+required-features = ["server"]
+
+# EG-ORCH-VOCAB-R801.6 hot-path receipt: the engine's per-write path for the
+# versioned harness components — pre-commit admission (strict decode,
+# evidence checks, immutability + head-relative supersession checks, the
+# bitemporal stamp and the supersession link) plus the RAM projection — over
+# a growing 1,000-version chain; prints p50/p99 against the spec budget (p99
+# under 5 ms) and exits nonzero on a regression. Needs the server module the
+# admission lives in; a default `cargo check --benches` skips it. DEV-only;
+# never linked into the engine binary.
+[[bench]]
+name = "harness_components"
+path = "benches/harness_components.rs"
+harness = false
+required-features = ["server"]
+
+[[bench]]
+name = "harness_lessons"
+path = "benches/harness_lessons.rs"
 harness = false
 required-features = ["server"]
 

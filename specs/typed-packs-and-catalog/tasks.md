@@ -263,12 +263,13 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R085.3:** Add the served session-liveness check by opaque session reference. It returns `live`, `revoked`, `expired` or `not_session_bound`. It never takes the raw token. It never touches the session.
 
 - [ ] **EG-TYPED-PACKS-R106:** Onboarding a connector populates the metadata catalog with its assets, owners, terms and lineage (rollup).
-- [ ] **EG-TYPED-PACKS-R106.1:** Model.
+- [x] **EG-TYPED-PACKS-R106.1:** Model: metadata-catalog vocabulary and shapes.
 - [ ] **EG-TYPED-PACKS-R106.2:** Behavior.
 - [ ] **EG-TYPED-PACKS-R106.3:** Wiring.
 - [ ] **EG-TYPED-PACKS-R106.4:** Refusal.
 - [ ] **EG-TYPED-PACKS-R106.5:** Evidence.
 - [ ] **EG-TYPED-PACKS-R106.6:** Hot-path proof.
+- [ ] **EG-TYPED-PACKS-R106.7:** Competency queries.
 - [ ] **EG-TYPED-PACKS-R107:** Each connector pack is a versioned contract and a re-import detects breaking changes (rollup).
 - [ ] **EG-TYPED-PACKS-R107.1:** Model.
 - [ ] **EG-TYPED-PACKS-R107.2:** Behavior.
@@ -326,3 +327,7 @@ R085.4–R085.7 preserve their parent obligations as rollups. Their .1 children 
 - [ ] **EG-TYPED-PACKS-R105.3:** Parent catalog declares the recurring connector concepts.
 - [ ] **EG-TYPED-PACKS-R105.4:** Parent catalog declares an IT4IT-aligned service-operations core.
 - [ ] **EG-TYPED-PACKS-R105.5:** Competency-question paths are complete on the engine side.
+
+## Schema drift wiring (R710, R712)
+- [ ] **EG-TYPED-PACKS-R714:** Call `drift::classify` from the record delivery path and return the `DriftReport`.
+- [ ] **EG-TYPED-PACKS-R715:** Quarantine a breaking delivery and prove it with a served test.

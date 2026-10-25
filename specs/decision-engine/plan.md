@@ -233,6 +233,17 @@ claims that every served parent path or the complete Release workflow passed.
 
 ## Amendments
 
+### 2026-10-25: split prompt-candidate vocabulary from the typed record (R814.1)
+
+The metadata-catalog ontology is the EG vocabulary authority for prompt
+candidates. `R814.1.1` is verified by the native RDF/OWL and SHACL fixtures in
+`crates/eg-rdf/tests/metadata_catalog_classes.rs`. The typed
+`PromptCandidate{component_id, connector, role, serves, digest}` record remains
+`R814.1.2` and is still open: no `crates/eg-types` record or round-trip receipt
+exists in this candidate. R814.1 therefore remains a rollup and does not inherit
+the vocabulary test as typed-record evidence. Arbora onboarding remains the
+sole producer of candidate nodes under R814.2/R814.3.
+
 ### 2026-10-12: context pressure without treating estimates as bounds (R128.5)
 
 Compute pressure from the caller's trajectory estimate and the profile window
@@ -1595,11 +1606,9 @@ and its refusal tests do not establish successful HarnessConfig replay.
 The status generator uses commit trailers and test bindings, not test results.
 Record native execution evidence separately before claiming acceptance.
 
-R128.13.1.1 owns the unchanged evidence codec and native refusal tests.
-R128.13.1.2 retains the undefined workload and performance acceptance.
-R128.13.2.1 retains successful replay and readback; R128.13.2.2 retains their resource qualification.
-The benchmark paths named in those rows are planned and unimplemented.
-Vector cardinalities and context-token bounds do not establish byte, latency or memory budgets.
+R128.13.1 owns the evidence codec and native refusal tests.
+R128.13.2 owns successful replay and readback.
+Neither row states a resource budget. A budget row must state a measured numeric target.
 Generate status only from the canonical tool; record execution and measurement gaps separately.
 
 ## Amendment 2026-10-18: R036 profile-use admission ownership
@@ -2084,3 +2093,21 @@ must use the direct response from the configured engine, not a caller receipt.
 Validation uses deterministic local fixtures only. The served fixture publishes
 its own feature schema through the authenticated mutation path.
 An authorized isolated fixture may instead use explicit no-auth mode. It never changes live auth.
+
+### 2026-10-23 amendment: typed tool steps (R134.111.8 to R134.111.13)
+
+A task-plan task may be a tool step. Today every task is a free-text prompt that a model runs. A value moves between steps because the harness appends the prerequisite output to the prompt. A tool step is a deterministic call. Its arguments are literals or references to a prerequisite's output.
+
+Data flow: `Method::Decide`, `stat_decide`, `stat_task_plan`, then `decision::task_plan::plan_explicit_tasks`. That function validates and canonicalizes calls and bindings. The result is sealed in `StatisticalDecisionRecord.task_plan`.
+
+Arbora asks for the plan and serves it (`ARBORA-RELEASE-R003.4.6`). The harness resolves bindings from completed outputs. It calls an injected caller (`AU-BOUNDARY-R043.6.2`, `AU-BOUNDARY-R043.6.3`). The engine invokes nothing and grants no authority. Arbora's governed caller applies authority, idempotency and audit (`ARBORA-RELEASE-R003.4.7`).
+
+The engine checks only static rules. A reference must name a direct dependency. The path must obey the grammar. Counts and bytes stay in bounds. A run-time output is unknown to the engine. A missing path is therefore a typed step failure in the harness.
+
+A reference adds no edge. The existing `plan_cycle` check still decides cycles over `depends_on`. The `binding_cycle` reason covers a binding edge that closes a cycle. A task that references itself is one such case.
+## Usage ledger wiring (R801.3)
+`EG-DECISION-ENGINE-R801.3` stays VERIFIED by the scope registration test in `crates/eg-capabilities/src/scopes/tests.rs`.
+That test proves the `usage:read` user scope and the service-only `usage:write` scope.
+Superseded evidence: the in-memory `UsageLedger` in `crates/eg-core/src/usage_ledger.rs` had no caller.
+Its tests did not prove a served tenant-scoped read. The module and its tests were removed.
+`EG-DECISION-ENGINE-R801.7` owns the served tenant-scoped read. It depends on the durable ledger of `EG-DECISION-ENGINE-R801.2`.
