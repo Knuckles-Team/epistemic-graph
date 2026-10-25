@@ -17,6 +17,10 @@
 //! real-disk path (tmpfs fsyncs are free and would hide the cost under test).
 #![cfg(feature = "redb")]
 
+#[path = "../src/test_rendezvous.rs"]
+#[allow(dead_code)]
+mod test_rendezvous;
+
 use epistemic_graph::protocol::Method;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
@@ -29,6 +33,9 @@ const FSYNC_WRITERS: usize = 16;
 const CPU_BURNERS: usize = 32;
 const STRESS_COPIES: usize = 10;
 const STRESS_CHILD: &str = "EG_SHARD_OPEN_STRESS_CHILD";
+
+// Each scenario owns the process-wide tracing buffer and its background load.
+static SCENARIO_LOCK: Mutex<()> = Mutex::new(());
 
 /// Wall-clock limits for one run of the scenario.
 struct Limits {
@@ -92,11 +99,18 @@ impl Load {
         Self { stop, threads }
     }
 
-    fn stop(self) {
+    fn stop(mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        for thread in self.threads {
-            thread.join().expect("load thread");
+        for thread in self.threads.drain(..) {
+            test_rendezvous::join_bounded(thread, "shard open budget load thread");
         }
+    }
+}
+
+impl Drop for Load {
+    fn drop(&mut self) {
+        // An open or assertion can panic before stop; end the load on that path.
+        self.stop.store(true, Ordering::Relaxed);
     }
 }
 
@@ -218,6 +232,9 @@ fn record(backend: &RedbBackend, graphs: usize, nodes: usize, payload: &str) {
 
 /// Fresh K=8 open, then a reopen of the small store, both under load.
 fn small_scenario(limits: &Limits) -> Vec<String> {
+    let _scenario = SCENARIO_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let phase_log = PhaseLog::get();
     let scratch = scratch("shard-open-budget-");
     let dir = scratch.path().join("store").to_string_lossy().to_string();
@@ -273,6 +290,9 @@ fn small_scenario(limits: &Limits) -> Vec<String> {
 /// clean-shutdown markers, then with the markers removed (full scan, no limit:
 /// it proves the fallback still opens the store).
 fn populated_scenario(limits: &Limits) -> Vec<String> {
+    let _scenario = SCENARIO_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let phase_log = PhaseLog::get();
     let scratch = scratch("shard-open-populated-");
     let dir = scratch.path().join("store");
@@ -378,11 +398,67 @@ fn sidecars_open_with_the_shards_and_a_refusal_leaves_none() {
     std::fs::write(bad.join("graph-0.redb"), b"not a redb file").unwrap();
     assert!(RedbBackend::open_with_shards(bad.to_string_lossy().to_string(), 64, 1).is_err());
     for name in sidecars {
-        assert!(
-            !bad.join(name).exists(),
-            "refused open must not leave {name}"
-        );
+        for artifact in [name.to_string(), format!("{name}.clean")] {
+            assert!(
+                !bad.join(&artifact).exists(),
+                "refused open must not leave {artifact}"
+            );
+        }
     }
+}
+
+/// A sidecar failure after the admin store opened must clean that store and
+/// its close marker, while preserving every pre-existing sidecar artifact.
+// spec: EG-DURABLE-KERNEL-R006.1
+#[test]
+fn sidecar_failure_cleans_new_artifacts_and_preserves_existing_markers() {
+    let scratch = tempfile::tempdir().unwrap();
+    let bad = scratch.path();
+    let existing_marker = bad.join("admin-mutations.redb.clean");
+    std::fs::write(&existing_marker, b"pre-existing marker").unwrap();
+    let invalid = bad.join("node_info.redb");
+    std::fs::write(&invalid, b"not a redb file").unwrap();
+    assert!(RedbBackend::open_with_shards(bad.to_string_lossy().to_string(), 64, 1).is_err());
+    assert!(!bad.join("admin-mutations.redb").exists());
+    assert!(existing_marker.is_file());
+    assert_eq!(std::fs::read(invalid).unwrap(), b"not a redb file");
+    assert!(!bad.join("cluster_hierarchy.redb").exists());
+    assert!(!bad.join("cluster_hierarchy.redb.clean").exists());
+}
+
+/// A competing backend startup must refuse before its cleanup snapshot can
+/// mistake another opener's newly created sidecar for its own.
+// spec: EG-DURABLE-KERNEL-R006.1
+#[test]
+fn competing_backend_startup_preserves_the_other_openers_files() {
+    let scratch = tempfile::tempdir().unwrap();
+    let startup_lock = std::fs::File::open(scratch.path()).unwrap();
+    startup_lock.try_lock().unwrap();
+    let other_sidecar = scratch.path().join("admin-mutations.redb");
+    std::fs::write(&other_sidecar, b"another opener owns this").unwrap();
+    let refused =
+        RedbBackend::open_with_shards(scratch.path().to_string_lossy().to_string(), 64, 1);
+    assert!(refused
+        .err()
+        .unwrap()
+        .contains("startup directory is locked"));
+    assert_eq!(
+        std::fs::read(&other_sidecar).unwrap(),
+        b"another opener owns this"
+    );
+    assert_eq!(std::fs::read_dir(scratch.path()).unwrap().count(), 1);
+}
+
+// spec: EG-DURABLE-KERNEL-R006.1
+#[test]
+fn backend_startup_coexists_with_the_engine_lifetime_lock() {
+    let scratch = tempfile::tempdir().unwrap();
+    let directory = scratch.path().to_string_lossy().to_string();
+    let lifetime_lock = eg_core::persist_lock::acquire(&directory).unwrap();
+    let backend = RedbBackend::open_with_shards(directory, 64, 1).unwrap();
+    backend.shutdown();
+    drop(backend);
+    drop(lifetime_lock);
 }
 
 /// Child half of the stress check: runs only when the parent sets

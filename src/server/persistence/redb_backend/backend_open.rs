@@ -72,6 +72,35 @@ type Sidecars = (
     Arc<super::super::cluster_hierarchy_store::ClusterHierarchyStore>,
 );
 
+/// Remove only sidecar paths absent before this attempt, after all handles
+/// have closed. Kernel close may create a clean marker even on a refused open.
+struct SidecarOpenCleanup(Vec<std::path::PathBuf>);
+
+impl SidecarOpenCleanup {
+    fn new(paths: &[std::path::PathBuf]) -> Self {
+        let mut created = Vec::new();
+        for path in paths {
+            let mut marker = path.as_os_str().to_os_string();
+            marker.push(".clean");
+            for candidate in [path.clone(), std::path::PathBuf::from(marker)] {
+                if matches!(std::fs::symlink_metadata(&candidate), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+                {
+                    created.push(candidate);
+                }
+            }
+        }
+        Self(created)
+    }
+}
+
+impl Drop for SidecarOpenCleanup {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 fn open_sidecars(persist_dir: &str, admin_path: &std::path::Path) -> Result<Sidecars, String> {
     let started = std::time::Instant::now();
     let admin = open_admin_mutations(admin_path)?;
@@ -194,6 +223,14 @@ impl RedbBackend {
         group_commit: RedbGroupCommitConfig,
     ) -> Result<Self, String> {
         std::fs::create_dir_all(&persist_dir).map_err(|e| e.to_string())?;
+        // Serialise startup and refused-open cleanup against competing backend
+        // opens. Lock the existing directory inode, avoiding both a new sidecar
+        // and recursive acquisition of the engine lifetime's engine.lock.
+        // Standalone owner APIs still require their caller's lifetime guard.
+        let startup_lock = std::fs::File::open(&persist_dir).map_err(|error| error.to_string())?;
+        startup_lock
+            .try_lock()
+            .map_err(|error| format!("redb backend startup directory is locked: {error}"))?;
         let requested_k = crate::redb_layout::validate_shard_count(requested_k)?;
         let k = crate::redb_layout::reconcile_shard_layout(
             std::path::Path::new(&persist_dir),
@@ -217,14 +254,11 @@ impl RedbBackend {
         // open (EG-DURABLE-KERNEL-R006.1): their fsyncs overlap the shards'
         // instead of trailing them serially.
         let admin_path = std::path::Path::new(&persist_dir).join("admin-mutations.redb");
-        let sidecar_files: Vec<std::path::PathBuf> = [
+        let mut cleanup = SidecarOpenCleanup::new(&[
             admin_path.clone(),
             std::path::Path::new(&persist_dir).join("node_info.redb"),
             std::path::Path::new(&persist_dir).join("cluster_hierarchy.redb"),
-        ]
-        .into_iter()
-        .filter(|path| !path.exists())
-        .collect();
+        ]);
         let (opened, sidecars) = std::thread::scope(|scope| {
             let sidecar_handle = scope.spawn(|| open_sidecars(&persist_dir, &admin_path));
             let opened = prepare_shards(shard_specs(&persist_dir, k), k);
@@ -233,11 +267,10 @@ impl RedbBackend {
                 .unwrap_or_else(|_| Err("redb sidecar-open thread panicked".to_string()));
             (opened, sidecars)
         });
-        // PHASE 1 of the open is now complete and NOTHING has been written. A
-        // refusal from ANY shard aborts here, leaving the persist dir
-        // byte-identical -- which is what makes the refusals above (and their
-        // advice to unset the key and carry on) actually true for a K > 1 store.
-        // See `CanaryPlan`'s doc.
+        // Shard preparation is complete and no shard has been written. A
+        // refusal from any shard aborts here; cleanup removes newly created
+        // sidecar artifacts after all their handles close. Existing stores may
+        // refresh their nonauthoritative clean markers. See `CanaryPlan`.
         let mut prepared = Vec::with_capacity(k);
         let mut refusal = None;
         for shard in opened {
@@ -249,12 +282,8 @@ impl RedbBackend {
             }
         }
         if let Some(error) = refusal {
-            // A refused open leaves the persist dir as it found it: drop any
-            // sidecar file this attempt created while the shards were opening.
+            // Close sidecars before cleanup removes this attempt's artifacts.
             drop(sidecars);
-            for path in &sidecar_files {
-                let _ = std::fs::remove_file(path);
-            }
             return Err(error);
         }
         let (admin_mutations, node_info, cluster_hierarchy) = sidecars?;
@@ -267,6 +296,7 @@ impl RedbBackend {
                 shard_open_start.elapsed()
             );
         }
+        cleanup.0.clear();
         Ok(Self {
             shards,
             catalog: None,
