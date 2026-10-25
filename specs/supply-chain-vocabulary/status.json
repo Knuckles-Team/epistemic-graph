@@ -122,8 +122,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R001.2",
       "title": "Add `:realizedByAsset` and `:assetHost`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:164"
       ]
@@ -161,8 +163,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R002.1",
       "title": "Add `:SoftwareComponent`, `:ComponentVersion`, `:versionOf` and `:versionString`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:194"
       ]
@@ -177,8 +181,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R002.3",
       "title": "Add `:containsComponent` and `:publishedBy`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:255"
       ]
@@ -186,8 +192,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R002.4",
       "title": "Add `:usesImage` and `:deployedAs`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:285"
       ]
@@ -195,8 +203,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R002.5",
       "title": "Add `:usesComponent` with the runtime chain axiom",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:330",
         "crates/eg-rdf/tests/supply_chain_reasoning.rs:34"
@@ -205,8 +215,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R002.6",
       "title": "Add `:Vulnerability` with `:cveId`, `:severity`, `:fixedInVersion`, `:affectsComponent` and `:hasVulnerability`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:364"
       ]
@@ -247,8 +259,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.1",
       "title": "Add `:Customer`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/commercial_declarations.rs:23"
       ]
@@ -312,8 +326,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.10",
       "title": "Add `:Opportunity`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/commercial_declarations.rs:49"
       ]
@@ -335,8 +351,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.13",
       "title": "Register the commercial module",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:45"
       ]
@@ -344,8 +362,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.14",
       "title": "Register the commercial shapes companion",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:90"
       ]
@@ -353,8 +373,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.15",
       "title": "Preserve canonical commercial namespaces",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:131"
       ]
@@ -362,8 +384,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.16",
       "title": "Declare the Opportunity date property",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:192"
       ]
@@ -390,8 +414,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R004.1",
       "title": "Add `infra:HostLimit`, `:limitOf`, `:limitKind`, `:readingValue`, `:limitValue`, `:limitUnit`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dfc6fa530bc1"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/infrastructure_host_limits.rs:40"
       ]
