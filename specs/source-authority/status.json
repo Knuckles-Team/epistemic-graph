@@ -210,8 +210,10 @@
     {
       "id": "EG-SRC-AUTH-R003.1",
       "title": "Declare kind `governed.source-authority` with approver scope `governance:approve-source-authority` in `GOVERNED_KINDS`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1961ada8391b"
+      ],
       "verified_by": [
         "crates/eg-capabilities/src/scopes/tests.rs:73",
         "crates/eg-capabilities/tests/contract_generated.rs:187",
