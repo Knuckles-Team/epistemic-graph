@@ -410,6 +410,41 @@ fn sidecar_failure_cleans_new_artifacts_and_preserves_existing_markers() {
     assert!(!bad.join("cluster_hierarchy.redb.clean").exists());
 }
 
+/// A competing backend startup must refuse before its cleanup snapshot can
+/// mistake another opener's newly created sidecar for its own.
+// spec: EG-DURABLE-KERNEL-R006.1
+#[test]
+fn competing_backend_startup_preserves_the_other_openers_files() {
+    let scratch = tempfile::tempdir().unwrap();
+    let startup_lock = std::fs::File::open(scratch.path()).unwrap();
+    startup_lock.try_lock().unwrap();
+    let other_sidecar = scratch.path().join("admin-mutations.redb");
+    std::fs::write(&other_sidecar, b"another opener owns this").unwrap();
+    let refused =
+        RedbBackend::open_with_shards(scratch.path().to_string_lossy().to_string(), 64, 1);
+    assert!(refused
+        .err()
+        .unwrap()
+        .contains("startup directory is locked"));
+    assert_eq!(
+        std::fs::read(&other_sidecar).unwrap(),
+        b"another opener owns this"
+    );
+    assert_eq!(std::fs::read_dir(scratch.path()).unwrap().count(), 1);
+}
+
+// spec: EG-DURABLE-KERNEL-R006.1
+#[test]
+fn backend_startup_coexists_with_the_engine_lifetime_lock() {
+    let scratch = tempfile::tempdir().unwrap();
+    let directory = scratch.path().to_string_lossy().to_string();
+    let lifetime_lock = eg_core::persist_lock::acquire(&directory).unwrap();
+    let backend = RedbBackend::open_with_shards(directory, 64, 1).unwrap();
+    backend.shutdown();
+    drop(backend);
+    drop(lifetime_lock);
+}
+
 /// Child half of the stress check: runs only when the parent sets
 /// `EG_SHARD_OPEN_STRESS_CHILD`, so the default run treats it as a no-op.
 #[test]

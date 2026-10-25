@@ -223,6 +223,14 @@ impl RedbBackend {
         group_commit: RedbGroupCommitConfig,
     ) -> Result<Self, String> {
         std::fs::create_dir_all(&persist_dir).map_err(|e| e.to_string())?;
+        // Serialise startup and refused-open cleanup against competing backend
+        // opens. Lock the existing directory inode, avoiding both a new sidecar
+        // and recursive acquisition of the engine lifetime's engine.lock.
+        // Standalone owner APIs still require their caller's lifetime guard.
+        let startup_lock = std::fs::File::open(&persist_dir).map_err(|error| error.to_string())?;
+        startup_lock
+            .try_lock()
+            .map_err(|error| format!("redb backend startup directory is locked: {error}"))?;
         let requested_k = crate::redb_layout::validate_shard_count(requested_k)?;
         let k = crate::redb_layout::reconcile_shard_layout(
             std::path::Path::new(&persist_dir),

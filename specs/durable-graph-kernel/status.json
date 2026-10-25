@@ -524,7 +524,9 @@
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:1023",
         "tests/shard_open_budget.rs:361",
-        "tests/shard_open_budget.rs:396"
+        "tests/shard_open_budget.rs:396",
+        "tests/shard_open_budget.rs:415",
+        "tests/shard_open_budget.rs:436"
       ]
     },
     {
@@ -541,7 +543,7 @@
       "verified_by": [
         "tests/shard_open_budget.rs:343",
         "tests/shard_open_budget.rs:353",
-        "tests/shard_open_budget.rs:428"
+        "tests/shard_open_budget.rs:463"
       ]
     },
     {
