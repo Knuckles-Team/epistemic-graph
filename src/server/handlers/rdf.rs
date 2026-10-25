@@ -32,8 +32,6 @@ mod validation;
 // parse or build RDF text.
 #[cfg(feature = "shacl")]
 mod inspect;
-#[cfg(all(feature = "shacl", feature = "nl-query"))]
-pub(crate) use inspect::composed_ontology_properties;
 #[cfg(feature = "shacl")]
 mod typed_triples;
 

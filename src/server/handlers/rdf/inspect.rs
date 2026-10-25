@@ -74,38 +74,6 @@ fn inspect(
     Ok(inspection_of(inspected))
 }
 
-/// The composed GraphSchema's ontology properties, reduced to what NL grounding
-/// links onto stored keys (EG-FEDERATED-QUERY-R058.4.8). The same composed
-/// documents and vocabulary view `OntologyInspect` serves; an unreadable
-/// composition links nothing.
-#[cfg(feature = "nl-query")]
-pub(crate) fn composed_ontology_properties(
-    sources: &GraphSchemaSources,
-) -> Vec<eg_plan::nl::context::OntologyProperty> {
-    let Ok(inspected) = composed_documents(sources, &[]) else {
-        return Vec::new();
-    };
-    let view = inspection_of(inspected);
-    view.object_properties
-        .into_iter()
-        .chain(view.datatype_properties)
-        .map(|property| eg_plan::nl::context::OntologyProperty {
-            name: iri_local_name(&property.iri).to_string(),
-            label: property.label,
-            domains: property
-                .domains
-                .iter()
-                .map(|domain| iri_local_name(domain).to_string())
-                .collect(),
-        })
-        .collect()
-}
-
-#[cfg(feature = "nl-query")]
-fn iri_local_name(iri: &str) -> &str {
-    iri.rsplit(['#', '/']).next().unwrap_or(iri)
-}
-
 fn inline_documents(documents: &[String]) -> Result<Inspected, String> {
     if documents.len() > MAX_INSPECT_DOCUMENTS {
         return Err(format!(
