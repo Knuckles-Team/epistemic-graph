@@ -20,7 +20,11 @@ use super::LegacyIntegrityPolicy;
 /// vocabulary and shapes (37, ST-1), the finance module and its shapes (39,
 /// EH-411), the temporal bi-temporal-fact shapes (40, AU-SEMANTIC-R004), and
 /// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037), and
-/// the service-operations module (43, EG-TYPED-PACKS-R105.4).
+/// the service-operations module (43, EG-TYPED-PACKS-R105.4), and the
+/// metadata-catalog vocabulary and shapes (46, EG-TYPED-PACKS-R106.1), and the
+/// data-platform, IT4IT-delivery, media and retrieval domain modules (50,
+/// EG-TYPED-PACKS-R105.6 to R105.9), and the commercial module with its shapes
+/// companion (51, EG-SUPPLY-VOCAB-R003.13).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -636,6 +640,12 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/concepts-v1.ttl")),
         },
         CoreSpec {
+            module: "dataplatform",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/dataplatform-v1.ttl")),
+        },
+        CoreSpec {
             module: "documentation",
             version: 1,
             shapes: None,
@@ -678,10 +688,22 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/infrastructure-v1.ttl")),
         },
         CoreSpec {
+            module: "it4it_delivery",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/it4it_delivery-v1.ttl")),
+        },
+        CoreSpec {
             module: "medical",
             version: 1,
             shapes: None,
             ontology: Some(include_str!("../../ontology/medical-v1.ttl")),
+        },
+        CoreSpec {
+            module: "media",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/media-v1.ttl")),
         },
         CoreSpec {
             module: "native_source_connector",
@@ -716,6 +738,12 @@ fn core_specs() -> &'static [CoreSpec] {
             version: 1,
             shapes: None,
             ontology: Some(include_str!("../../ontology/process_intelligence-v1.ttl")),
+        },
+        CoreSpec {
+            module: "retrieval",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/retrieval-v1.ttl")),
         },
         CoreSpec {
             module: "sdd",
@@ -820,6 +848,22 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: Some(include_str!("../../ontology/temporal-v1.shapes.ttl")),
             ontology: None,
         },
+        // The metadata catalog: assets, owners and stewards, lineage, glossary and
+        // the Agent Library (EG-TYPED-PACKS-R106.1, EG-DECISION-ENGINE-R814.1.1).
+        CoreSpec {
+            module: "metadata_catalog",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/metadata_catalog-v1.ttl")),
+        },
+        CoreSpec {
+            module: "metadata_catalog-shapes",
+            version: 1,
+            shapes: Some(include_str!(
+                "../../ontology/metadata_catalog-v1.shapes.ttl"
+            )),
+            ontology: None,
+        },
         CoreSpec {
             module: "virtual-graph",
             version: 1,
@@ -831,6 +875,15 @@ fn core_specs() -> &'static [CoreSpec] {
             version: 1,
             shapes: Some(include_str!("../../ontology/virtual_graph-v1.shapes.ttl")),
             ontology: None,
+        },
+        // EG-SUPPLY-VOCAB-R003.13: the commercial module, registered once, with
+        // its shapes companion wired into the same CoreSpec shapes field
+        // (R003.14) instead of a separate core source.
+        CoreSpec {
+            module: "commercial",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/commercial-v1.shapes.ttl")),
+            ontology: Some(include_str!("../../ontology/commercial-v1.ttl")),
         },
     ];
     SPECS
@@ -906,7 +959,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 44);
+        assert_eq!(sources.core.len(), 51);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1193,7 +1246,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "be8508591e04952e855ee79e9fc7b1751d1554db4d72ee9c14317e7529fdfdb2",
+                "a93cc9f66213be6506e2c5d740fb7b2f902a0030c22ee6e3c9a0d57f2d0660d6",
             ),
             (
                 "company",
@@ -1245,7 +1298,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "3a97753afe8acd19d5c9718dc4bb19ef05baf65e779278b56d3f57e456e27a9c",
+                "dc52bcab4b5722eb71c903ca13948966a15097aad0c906ddc82e6b2a51ff4f79",
             ),
             (
                 "medical",
@@ -1278,6 +1331,22 @@ mod tests {
             (
                 "service_operations",
                 "12498d7bb52e26cca7a40f3bb1dff60a06290cb70a6b319659697c6986184295",
+            ),
+            (
+                "dataplatform",
+                "85467e7f305a29c68a0de04d345cf98954bf0864ff830a75d29055cb9f195135",
+            ),
+            (
+                "it4it_delivery",
+                "54f25a4583b59f73256eefc7bec9781c6bbc7f0a6ff1fbd4b4735fbc2807b080",
+            ),
+            (
+                "media",
+                "9ec45d345d8995429c75603cdd4ea9b726e72d5b467c68c5d45706cd1e9e0a5a",
+            ),
+            (
+                "retrieval",
+                "a4aded0ccadcf3bf5fae62d5071dc330e4e73e56daf7b2dfb8e288d865a0346f",
             ),
             (
                 "sdlc_lifecycle",
@@ -1335,19 +1404,36 @@ mod tests {
                 "1c42096ed2fdbd70d2f65b1f7b0a40bba7f7c83f4929a8cc5f16090ba1903fb1",
             ),
             (
+                "metadata_catalog",
+                "21df7a425790fd7d2682888a02c627dd0027344a21817c5bea4137dfb288af4f",
+            ),
+            (
+                "metadata_catalog-shapes",
+                "f6eec758f38a7f1fb24755fd973034569949cf625eab3891df5a504f340d6677",
+            ),
+            (
                 "temporal-shapes",
                 "9bb13dd655059b6757b33621446f960bd6992bcb5aea31d5a85f4483c86bba59",
+            ),
+            // EG-SUPPLY-VOCAB-R003.13: the commercial module (ontology plus its
+            // shapes companion) joins the catalog; the pin follows the ontology.
+            (
+                "commercial",
+                "2faf2564a0a8715030cd64f4ca342312db5f71a4f654cd05b5761eb3d18ac53d",
             ),
         ];
         let catalog = current_core_catalog();
         for (module, digest) in expected {
             let source = &catalog[&format!("core:{module}@1")];
-            let actual = source.shapes_sha256.or(source.ontology_sha256).unwrap();
+            // A module can carry both documents (commercial: ontology plus its
+            // shapes companion); the pin follows the ontology, the module's
+            // primary artifact, with the shapes-only modules unchanged.
+            let actual = source.ontology_sha256.or(source.shapes_sha256).unwrap();
             assert_eq!(actual.to_hex(), digest, "artifact drift for {module}");
             let document = source
-                .shapes_ttl
+                .ontology_ttl
                 .as_deref()
-                .or(source.ontology_ttl.as_deref())
+                .or(source.shapes_ttl.as_deref())
                 .unwrap();
             assert!(document.contains("http://knuckles.team/kg"));
             assert!(!document.contains("@prefix eg:"));

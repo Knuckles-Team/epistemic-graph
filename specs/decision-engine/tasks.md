@@ -844,7 +844,9 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R134.111.13:** Prove typed tool steps through the served Decide method.
 
 - [ ] **EG-DECISION-ENGINE-R814:** Connector prompts are system-prompt candidates that agent assembly selects (rollup).
-- [ ] **EG-DECISION-ENGINE-R814.1:** Model.
+- [ ] **EG-DECISION-ENGINE-R814.1:** Model (rollup).
+- [x] **EG-DECISION-ENGINE-R814.1.1:** Vocabulary: metadata-catalog prompt-candidate class, relation and shapes.
+- [ ] **EG-DECISION-ENGINE-R814.1.2:** Typed `PromptCandidate` record and round-trip contract.
 - [ ] **EG-DECISION-ENGINE-R814.2:** Behavior.
 - [ ] **EG-DECISION-ENGINE-R814.3:** Wiring.
 - [ ] **EG-DECISION-ENGINE-R814.4:** Refusal.

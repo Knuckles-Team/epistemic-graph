@@ -2834,6 +2834,7 @@ dependencies = [
  "dashmap",
  "eg-ann",
  "eg-modality",
+ "eg-rdf",
  "eg-storage",
  "eg-transaction",
  "eg-types",

@@ -233,6 +233,17 @@ claims that every served parent path or the complete Release workflow passed.
 
 ## Amendments
 
+### 2026-10-25: split prompt-candidate vocabulary from the typed record (R814.1)
+
+The metadata-catalog ontology is the EG vocabulary authority for prompt
+candidates. `R814.1.1` is verified by the native RDF/OWL and SHACL fixtures in
+`crates/eg-rdf/tests/metadata_catalog_classes.rs`. The typed
+`PromptCandidate{component_id, connector, role, serves, digest}` record remains
+`R814.1.2` and is still open: no `crates/eg-types` record or round-trip receipt
+exists in this candidate. R814.1 therefore remains a rollup and does not inherit
+the vocabulary test as typed-record evidence. Arbora onboarding remains the
+sole producer of candidate nodes under R814.2/R814.3.
+
 ### 2026-10-12: context pressure without treating estimates as bounds (R128.5)
 
 Compute pressure from the caller's trajectory estimate and the profile window

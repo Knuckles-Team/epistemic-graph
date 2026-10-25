@@ -937,6 +937,8 @@
     "EG-DECISION-ENGINE-R134.111.13",
     "EG-DECISION-ENGINE-R814",
     "EG-DECISION-ENGINE-R814.1",
+    "EG-DECISION-ENGINE-R814.1.1",
+    "EG-DECISION-ENGINE-R814.1.2",
     "EG-DECISION-ENGINE-R814.2",
     "EG-DECISION-ENGINE-R814.3",
     "EG-DECISION-ENGINE-R814.4",
@@ -9794,7 +9796,32 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R814.1",
-      "title": "Model",
+      "title": "Model (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:41"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R814.1.1",
+        "EG-DECISION-ENGINE-R814.1.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R814.1.1",
+      "title": "Vocabulary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:228",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:249",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:42",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:68"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R814.1.2",
+      "title": "Typed record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

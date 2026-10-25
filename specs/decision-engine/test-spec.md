@@ -925,7 +925,9 @@ The bindings are static: no test claims that a path exists in a run-time output.
 - `EG-DECISION-ENGINE-R134.111.13`: `tests/decide/test_task_plan_served.py::test_tool_step_bindings_end_to_end`.
 
 - `EG-DECISION-ENGINE-R814`: See each child.
-- `EG-DECISION-ENGINE-R814.1`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role`.
+- `EG-DECISION-ENGINE-R814.1`: See each child.
+- `EG-DECISION-ENGINE-R814.1.1`: `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_classes_roll_up_to_eg_core_and_align_to_w3c`, `::owner_steward_and_lineage_properties_specialise_prov`, `::catalog_shapes_accept_a_complete_catalog` and `::catalog_shapes_refuse_incomplete_or_open_vocabulary_records`.
+- `EG-DECISION-ENGINE-R814.1.2`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role` (planned; typed record is absent from this candidate).
 - `EG-DECISION-ENGINE-R814.2`: `crates/eg-core/tests/prompt_candidate.rs::assemble_selects_covering_candidate_and_abstains_without_one`.
 - `EG-DECISION-ENGINE-R814.3`: `tests/decision/test_prompt_candidates_served.py::test_assemble_reads_candidates_from_imported_pack`.
 - `EG-DECISION-ENGINE-R814.4`: `crates/eg-core/tests/prompt_candidate.rs::unbound_prompt_refuses_and_rejected_connector_is_excluded`.

@@ -38,7 +38,7 @@ These are seed rows, not engine behavior; an operator changes them as ontology d
 
 New vocabulary in `virtual_graph-v1.ttl` (authority), new `supply_chain-v1.ttl` and shapes (supply chain, `R002` to `R004`), additions to `infrastructure-v1.ttl` (host limits), a commercial file for contracts, and `crates/eg-types/src/supply_chain_report.rs`. Fresh-data decision: no migration; new terms only. Versioning follows the existing `-v1` ontology files.
 
-Linking: `:usesComponent` (service to component version), `:publishedBy`, and `:suppliesService` as the chain supplier to service. Entity resolution reuses `EG-UNIFIED-DATA-PLANE-R030`: proposals are inactive until approved, and a join never crosses an unapproved link.
+Linking: `:suppliesItem` (supplier to procurement item), `:usesComponent` (service to component version), `:publishedBy`, and `:suppliesService` as the chain supplier to service. Entity resolution reuses `EG-UNIFIED-DATA-PLANE-R030`: proposals are inactive until approved, and a join never crosses an unapproved link.
 
 Federated query sketch (classes only; MISSING terms marked):
 
@@ -67,6 +67,9 @@ Question, then graph-os intent tool (graph-os repo), then EG `select_sources` re
 - Risk: connector operation contracts for erpnext, uptime and container-manager may not exist yet (cross-repo, `R002.7`, `R003.4`, `R003.5`).
 - Alternative rejected: naming connectors in the query. It fails the exit gate (`R007.4`).
 - Entity resolution quality for vendor names is unproven; approval gating bounds the risk.
+
+**D5. Shared supplier/item relation: DECIDED `:suppliesItem`, no `:suppliedBy` redeclaration.**
+`kg:suppliesItem` is the canonical EG relation. It links `kg:Supplier` to `kg:SupplyChainItem`. Existing `kg:suppliedBy` declarations remain source-owned, including the ERPNext purchase-order relation. This competency does not narrow or redeclare them. This amends `EG-CQ-XSRC-R002.1`; `EG-SUPPLY-VOCAB-R003.6` records the cross-spec amendment.
 
 ## Agent memory acceptance question (R009)
 
