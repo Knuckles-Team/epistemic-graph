@@ -70,7 +70,7 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **CQ-066 · EG-CQ-CONN-R066:** wger rollup (EG-CQ-CONN-R066.1 single-source, .2 cross-source, .3 acceptance).
 - [ ] **CQ-067 · EG-CQ-CONN-R067:** contract kinds rollup (EG-CQ-CONN-R067.1 MCP, .2 A2A, .3 API, .4 GraphQL, .5 virtual graph, .6 declared materialisation).
 - [ ] **CQ-068 · EG-CQ-CONN-R068:** infrastructure-v1.ttl additions rollup (26 children).
-- [ ] **CQ-069 · EG-CQ-CONN-R069:** sdlc_lifecycle-v1.ttl additions rollup (23 children).
+- [ ] **CQ-069 · EG-CQ-CONN-R069:** sdlc_lifecycle-v1.ttl additions plus software-v1 canonical Repository/Branch reuse (23 children).
 - [ ] **CQ-070 · EG-CQ-CONN-R070:** archimate-v1.ttl additions rollup (8 children).
 - [ ] **CQ-071 · EG-CQ-CONN-R071:** documentation-v1.ttl additions rollup (6 children).
 - [ ] **CQ-072 · EG-CQ-CONN-R072:** process_intelligence-v1.ttl additions rollup (7 children).

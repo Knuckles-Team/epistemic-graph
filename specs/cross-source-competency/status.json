@@ -517,7 +517,7 @@
     },
     {
       "id": "EG-CQ-XSRC-R008.3.1",
-      "title": "Add `:CustomerContract`, `:ChangeRequest` and `:coversService`",
+      "title": "Add `:CustomerContract` and `:coversService`; reuse canonical `kg:Change`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"

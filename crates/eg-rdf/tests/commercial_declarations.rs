@@ -115,14 +115,16 @@ fn customer_contract_and_covers_service_declared() {
         &format!("{INFRA}Service")
     ));
     // The EG-SUPPLY-VOCAB amendment (plan.md D3, recorded by R003.6 after both
-    // PRs) replaces the planned `:ChangeRequest` with the existing `kg:Change`;
-    // no ChangeRequest class is declared.
+    // PRs) replaces the commercial `:ChangeRequest` plan with the existing
+    // `kg:Change`. This fixture is intentionally scoped to the commercial
+    // documents below; service_operations-v1.ttl retains its distinct
+    // `kg:ChangeRequest` for IT4IT `:touches` semantics.
     let change_request = NamedNode::new(format!("{KG}ChangeRequest")).unwrap();
     assert!(
         !triples
             .iter()
             .any(|triple| triple.subject == change_request.clone().into()),
-        "no ChangeRequest class exists"
+        "commercial vocabulary does not redeclare kg:ChangeRequest"
     );
     let change = NamedNode::new(format!("{KG}Change")).unwrap();
     let owl_class = format!("{OWL}Class");
@@ -133,5 +135,14 @@ fn customer_contract_and_covers_service_declared() {
                 && matches!(&triple.object, Term::NamedNode(n) if n.as_str() == owl_class)
         }),
         "kg:Change (the ServiceNow change request) is the reused change class"
+    );
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}Change"),
+            &format!("{RDFS}subClassOf"),
+            &format!("{KG}BusinessProcess")
+        ),
+        "the reused kg:Change retains its canonical BusinessProcess hierarchy"
     );
 }
