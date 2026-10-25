@@ -25,7 +25,12 @@ fn documents() -> Vec<Triple> {
 fn customer_entails_organization_and_business_actor() {
     let triples = documents();
     let customer = format!("{KG}Customer");
-    assert!(has_iri(&triples, &customer, RDF_TYPE, &format!("{OWL}Class")));
+    assert!(has_iri(
+        &triples,
+        &customer,
+        RDF_TYPE,
+        &format!("{OWL}Class")
+    ));
     assert!(has_iri(
         &triples,
         &customer,
@@ -39,11 +44,13 @@ fn customer_entails_organization_and_business_actor() {
         &format!("{KG}BusinessActor")
     ));
     let classification = Reasoner::from_triples(&triples).classify();
-    assert!(classification.consistent, "the commercial vocabulary classifies consistently");
-    assert!(classification.entails_subclass(
-        &format!("<{customer}>"),
-        &format!("<{KG}Organization>")
-    ));
+    assert!(
+        classification.consistent,
+        "the commercial vocabulary classifies consistently"
+    );
+    assert!(
+        classification.entails_subclass(&format!("<{customer}>"), &format!("<{KG}Organization>"))
+    );
 }
 
 // spec: EG-SUPPLY-VOCAB-R003.10

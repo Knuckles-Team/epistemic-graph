@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-use eg_core::graph::{current_core_set_digest, GraphSchemaSource, GraphSchemaSources, SchemaSourceOrigin};
+use eg_core::graph::{
+    current_core_set_digest, GraphSchemaSource, GraphSchemaSources, SchemaSourceOrigin,
+};
 use eg_rdf::mapping::parse_turtle;
 use eg_rdf::oxrdf::NamedNode;
 
@@ -29,7 +31,9 @@ fn has_iri(
 
 fn commercial_source() -> (GraphSchemaSources, Arc<str>, Arc<str>) {
     let sources = GraphSchemaSources::default();
-    sources.validate().expect("the default core catalog validates");
+    sources
+        .validate()
+        .expect("the default core catalog validates");
     let source = &sources.core["core:commercial@1"];
     let ontology = source
         .ontology_ttl
@@ -79,12 +83,10 @@ fn commercial_module_loads() {
     // A missing registration is refused.
     let mut missing = sources.clone();
     missing.core.remove("core:commercial@1");
-    assert!(
-        missing
-            .validate()
-            .unwrap_err()
-            .contains("immutable catalog")
-    );
+    assert!(missing
+        .validate()
+        .unwrap_err()
+        .contains("immutable catalog"));
 }
 
 // spec: EG-SUPPLY-VOCAB-R003.14
@@ -95,7 +97,12 @@ fn commercial_shapes_load() {
     let triples = parse_turtle(&shapes).expect("the commercial shapes parse");
     for shape in ["CustomerContractShape", "SupportsCapabilityShape"] {
         assert!(
-            has_iri(&triples, &format!("{KG}{shape}"), RDF_TYPE, &format!("{SHACL}NodeShape")),
+            has_iri(
+                &triples,
+                &format!("{KG}{shape}"),
+                RDF_TYPE,
+                &format!("{SHACL}NodeShape")
+            ),
             "{shape} is a registered node shape"
         );
     }
@@ -120,12 +127,10 @@ fn commercial_shapes_load() {
     overwritten
         .core
         .insert("core:commercial@1".to_string(), replaced);
-    assert!(
-        overwritten
-            .validate()
-            .unwrap_err()
-            .contains("immutable catalog")
-    );
+    assert!(overwritten
+        .validate()
+        .unwrap_err()
+        .contains("immutable catalog"));
 }
 
 // spec: EG-SUPPLY-VOCAB-R003.15
@@ -136,7 +141,12 @@ fn commercial_shared_namespace() {
     // Exact canonical IRIs in the shared kg namespace.
     for class in ["Customer", "CustomerContract", "Opportunity"] {
         assert!(
-            has_iri(&triples, &format!("{KG}{class}"), RDF_TYPE, &format!("{OWL}Class")),
+            has_iri(
+                &triples,
+                &format!("{KG}{class}"),
+                RDF_TYPE,
+                &format!("{OWL}Class")
+            ),
             "{class}"
         );
     }
@@ -171,10 +181,8 @@ fn commercial_shared_namespace() {
         );
     }
     // The existing supplier and customer fixtures remain valid in the shared namespace.
-    let fixture = parse_turtle(include_str!(
-        "fixtures/commercial_shared.ttl"
-    ))
-    .expect("the shared fixture parses");
+    let fixture = parse_turtle(include_str!("fixtures/commercial_shared.ttl"))
+        .expect("the shared fixture parses");
     assert!(has_iri(
         &fixture,
         "http://knuckles.team/test/commercial#acmeSupplier",

@@ -19,7 +19,11 @@ const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
 #[test]
 fn host_limit_breach_terms_listed_with_host_domain() {
     let triples = parse_turtle(DOCUMENT).unwrap();
-    for name in ["temperatureCelsius", "temperatureLimitCelsius", "capacityUtilization"] {
+    for name in [
+        "temperatureCelsius",
+        "temperatureLimitCelsius",
+        "capacityUtilization",
+    ] {
         let subject = format!("{INFRA}{name}");
         assert!(has_iri(
             &triples,
@@ -27,7 +31,12 @@ fn host_limit_breach_terms_listed_with_host_domain() {
             RDF_TYPE,
             &format!("{OWL}DatatypeProperty")
         ));
-        assert!(has_iri(&triples, &subject, &format!("{RDFS}domain"), &format!("{INFRA}Host")));
+        assert!(has_iri(
+            &triples,
+            &subject,
+            &format!("{RDFS}domain"),
+            &format!("{INFRA}Host")
+        ));
         assert!(has_iri(
             &triples,
             &subject,
@@ -61,8 +70,18 @@ fn host_limit_entity_terms_listed_and_no_overlimit_class() {
         RDF_TYPE,
         &format!("{OWL}ObjectProperty")
     ));
-    assert!(has_iri(&triples, &format!("{INFRA}limitOf"), &domain, &format!("{INFRA}HostLimit")));
-    assert!(has_iri(&triples, &format!("{INFRA}limitOf"), &range, &format!("{INFRA}Host")));
+    assert!(has_iri(
+        &triples,
+        &format!("{INFRA}limitOf"),
+        &domain,
+        &format!("{INFRA}HostLimit")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{INFRA}limitOf"),
+        &range,
+        &format!("{INFRA}Host")
+    ));
     for (name, value_range) in [
         ("limitKind", format!("{XSD}string")),
         ("readingValue", format!("{XSD}decimal")),
@@ -76,7 +95,12 @@ fn host_limit_entity_terms_listed_and_no_overlimit_class() {
             RDF_TYPE,
             &format!("{OWL}DatatypeProperty")
         ));
-        assert!(has_iri(&triples, &subject, &domain, &format!("{INFRA}HostLimit")));
+        assert!(has_iri(
+            &triples,
+            &subject,
+            &domain,
+            &format!("{INFRA}HostLimit")
+        ));
         assert!(has_iri(&triples, &subject, &range, &value_range));
     }
     // 'Over limit' is the query condition reading > limit; no breach class is stored.

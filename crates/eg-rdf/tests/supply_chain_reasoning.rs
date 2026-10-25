@@ -26,9 +26,11 @@ fn documents() -> Vec<Triple> {
 fn supplier_entails_vendor_under_the_native_reasoner() {
     let triples = documents();
     let classification = Reasoner::from_triples(&triples).classify();
-    assert!(classification.consistent, "the shared vocabulary classifies consistently");
-    assert!(classification
-        .entails_subclass(&format!("<{KG}Supplier>"), &format!("<{KG}Vendor>")));
+    assert!(
+        classification.consistent,
+        "the shared vocabulary classifies consistently"
+    );
+    assert!(classification.entails_subclass(&format!("<{KG}Supplier>"), &format!("<{KG}Vendor>")));
 }
 
 // spec: EG-SUPPLY-VOCAB-R002.5

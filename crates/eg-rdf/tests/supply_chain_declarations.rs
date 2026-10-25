@@ -16,16 +16,11 @@ const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 
 /// The named classes a `subject predicate` value stands for: the named objects
 /// themselves, plus every member of an `owl:unionOf` list.
-fn union_members(
-    triples: &[eg_rdf::oxrdf::Triple],
-    subject: &str,
-    predicate: &str,
-) -> Vec<String> {
+fn union_members(triples: &[eg_rdf::oxrdf::Triple], subject: &str, predicate: &str) -> Vec<String> {
     let mut found = Vec::new();
-    for triple in triples
-        .iter()
-        .filter(|t| t.subject == NamedNode::new(subject).unwrap().into() && t.predicate.as_str() == predicate)
-    {
+    for triple in triples.iter().filter(|t| {
+        t.subject == NamedNode::new(subject).unwrap().into() && t.predicate.as_str() == predicate
+    }) {
         match &triple.object {
             Term::NamedNode(node) => found.push(node.as_str().to_string()),
             Term::BlankNode(node) => {
@@ -130,7 +125,10 @@ fn supplier_and_item_terms_are_listed() {
     let triples = parse_turtle(DOCUMENT).unwrap();
     for (class, parent) in [
         ("Supplier", format!("{KG}Vendor")),
-        ("SupplyChainItem", "http://purl.obolibrary.org/obo/BFO_0000031".into()),
+        (
+            "SupplyChainItem",
+            "http://purl.obolibrary.org/obo/BFO_0000031".into(),
+        ),
     ] {
         let subject = format!("{KG}{class}");
         assert!(has_iri(
@@ -139,7 +137,12 @@ fn supplier_and_item_terms_are_listed() {
             RDF_TYPE,
             &format!("{OWL}Class")
         ));
-        assert!(has_iri(&triples, &subject, &format!("{RDFS}subClassOf"), &parent));
+        assert!(has_iri(
+            &triples,
+            &subject,
+            &format!("{RDFS}subClassOf"),
+            &parent
+        ));
     }
     assert!(has_iri(
         &triples,
@@ -209,8 +212,18 @@ fn software_component_terms_declared() {
         ),
     ] {
         let subject = format!("{KG}{class}");
-        assert!(has_iri(&triples, &subject, RDF_TYPE, &format!("{OWL}Class")));
-        assert!(has_iri(&triples, &subject, &format!("{RDFS}subClassOf"), parent));
+        assert!(has_iri(
+            &triples,
+            &subject,
+            RDF_TYPE,
+            &format!("{OWL}Class")
+        ));
+        assert!(has_iri(
+            &triples,
+            &subject,
+            &format!("{RDFS}subClassOf"),
+            parent
+        ));
     }
     let domain = format!("{RDFS}domain");
     let range = format!("{RDFS}range");
@@ -288,7 +301,10 @@ fn uses_image_shares_the_container_manager_iri_and_deployed_as_declared() {
     let triples = parse_turtle(DOCUMENT).unwrap();
     // The IRI is the one the container-manager ontology declares (container.ttl),
     // in the shared kg namespace, not a per-module redefinition.
-    assert_eq!(format!("{KG}usesImage"), format!("http://knuckles.team/kg#usesImage"));
+    assert_eq!(
+        format!("{KG}usesImage"),
+        format!("http://knuckles.team/kg#usesImage")
+    );
     let subject = format!("{KG}usesImage");
     assert!(has_iri(
         &triples,
@@ -390,7 +406,12 @@ fn vulnerability_terms_declared_and_trm_count_untouched() {
             RDF_TYPE,
             &format!("{OWL}DatatypeProperty")
         ));
-        assert!(has_iri(&triples, &subject, &domain, &format!("{KG}Vulnerability")));
+        assert!(has_iri(
+            &triples,
+            &subject,
+            &domain,
+            &format!("{KG}Vulnerability")
+        ));
         assert!(has_iri(&triples, &subject, &range, &format!("{XSD}string")));
     }
     for (property, domain_iri, range_iri) in [
