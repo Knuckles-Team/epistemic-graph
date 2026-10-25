@@ -1,6 +1,6 @@
 # EG-OBJECT-STORAGE-BACKEND tasks
 
-Ordered one-bite lanes. Compile slot: EG only, one cargo lane host-wide at a time.
+Ordered one-bite lanes. Compile slot: Medulla only, one cargo lane host-wide at a time.
 
 - [ ] EG-OBJECT-STORAGE-BACKEND-R001 — typed backend spec (`crates/eg-types` wire type; `crates/eg-storage` binding dispatch; lineage registry admission).
 - [ ] EG-OBJECT-STORAGE-BACKEND-R002 — object-store read path (segment fetch by manifest; `GraphView` integration; digest verification).

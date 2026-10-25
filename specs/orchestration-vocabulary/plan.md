@@ -2,13 +2,13 @@
 
 ## Dependencies and unresolved owner contracts
 
-- `EG-REPO-INGEST-R009` defines repository/source relationships; `AU-HARNESS-R024` supplies connected execution spans. Neither row currently defines the AU walkthrough producer input/output binding or the WebUI interactive artifact consumer. Those exact owner requirement IDs and served receipts remain pending coordinator assignment; `EG-ORCH-VOCAB-R013.7` is SPECIFIED and cannot be treated as end-to-end closed.
-- `AU-HARNESS-R019.5-.7` are the existing study-gap producer/consumer prerequisites for `EG-CQ-ORCH-R010.7`; they must carry the same repository and revision as `EG-CQ-ORCH-R010.1-.6`. If the AU rows lack a stable proposal id/revision, that missing producer field remains a hold.
-- `WEBUI-APPS-R004.7` and `.8` are the R010.100/.101 consumers. AU progress and SDK manifest/sync producer IDs remain unestablished. GraphOS served-adapter IDs also remain unestablished. These are explicit holds.
+- `EG-REPO-INGEST-R009` defines repository/source relationships; `AU-HARNESS-R024` supplies connected execution spans. Neither row currently defines the Meristem walkthrough producer input/output binding or the Overstory interactive artifact consumer. Those exact owner requirement IDs and served receipts remain pending coordinator assignment; `EG-ORCH-VOCAB-R013.7` is SPECIFIED and cannot be treated as end-to-end closed.
+- `AU-HARNESS-R019.5-.7` are the existing study-gap producer/consumer prerequisites for `EG-CQ-ORCH-R010.7`; they must carry the same repository and revision as `EG-CQ-ORCH-R010.1-.6`. If the Meristem rows lack a stable proposal id/revision, that missing producer field remains a hold.
+- `WEBUI-APPS-R004.7` and `.8` are the R010.100/.101 consumers. Meristem progress and Scion SDK manifest/sync producer IDs remain unestablished. Arbora served-adapter IDs also remain unestablished. These are explicit holds.
 - Existing `EG-DECISION-ENGINE-R036`, `R135.2`, `R135.4`, and `EG-TYPED-PACKS-R006` are prerequisites for `EG-ORCH-VOCAB-R003.8`; they define the assembly authority, program store, and Agent Library projection.
 
-The architecture and vocabulary decisions are specified in [design.md](plan.md). EG reuses the existing orchestration competency,
-decision-engine and typed-pack contracts. EG introduces no second planner
+The architecture and vocabulary decisions are specified in [design.md](plan.md). Medulla reuses the existing orchestration competency,
+decision-engine and typed-pack contracts. Medulla introduces no second planner
 and no execution runtime.
 
 ## Implementation sequence
@@ -191,7 +191,7 @@ Questions and answers:
 
 ### Out of scope
 
-Solver or certificate changes. New wire methods or scopes. A task-decomposition engine (steps come from sources or authoring). Conditional hand-off modelling beyond `AgentGraphEdge.condition`. Generated-client work (`gen_contract` needs the build host). Graph-os tool code.
+Solver or certificate changes. New wire methods or scopes. A task-decomposition engine (steps come from sources or authoring). Conditional hand-off modelling beyond `AgentGraphEdge.condition`. Generated-client work (`gen_contract` needs the build host). Arbora tool code.
 
 ## Foundational class implementation and validation
 
@@ -214,7 +214,7 @@ This spec owns the run-trace vocabulary. `:RunTrace` is declared in `orchestrati
 
 ### Data flow
 
-Ingestion: agent-utilities run end → generated client RunTrace method (`EG-CONTRACT-R051.1`) → `Method::AddNode` (`crates/eg-types/src/protocol/method/method_00.rs:6`) → `AddNode` arm (`src/server/handlers/graph_ops/gateway_graph.rs:62`) → shape check (R009.15) → graph store → Cypher read (`crates/eg-query/src/cypher/exec.rs:4574` already reads `RunTrace` nodes by id).
+Ingestion: Meristem run end → generated client RunTrace method (`EG-CONTRACT-R051.1`) → `Method::AddNode` (`crates/eg-types/src/protocol/method/method_00.rs:6`) → `AddNode` arm (`src/server/handlers/graph_ops/gateway_graph.rs:62`) → shape check (R009.15) → graph store → Cypher read (`crates/eg-query/src/cypher/exec.rs:4574` already reads `RunTrace` nodes by id).
 
 Measured fact: evaluation run → `measured_fact_envelope` (R011.7) → `ApplyChangeEnvelopes` → `dispatch_change_envelopes` (`src/server/dispatch/change_envelope.rs:36`) → `ChangeEnvelope::validate` (`crates/eg-types/src/change_envelope.rs:248`, evidence refusal R011.8) → `:MeasuredModelFact` node → `Decide` for `HarnessConfig`.
 
@@ -270,7 +270,7 @@ Types: `StepRecord`, `StepKind`, the `ModelRequest` receipt kind, `step_digest`.
 Attach point: The `AddNode` arm at `src/server/handlers/graph_ops/gateway_graph.rs:62`, after the shape check of `EG-ORCH-VOCAB-R009`. The comparison loop stays in the harness.
 Failure: A bad digest returns `STEP_DIGEST_INVALID`. A gap in the index returns `STEP_ORDER_INVALID`.
 Consumers: AU-HARNESS (R024)
-Moves from agent-utilities: agent_utilities/observability/replay_engine.py:81 (span digest recipe)
+Moves from Meristem: agent_utilities/observability/replay_engine.py:81 (span digest recipe)
 Existing code: `crates/eg-types/src/outcome_bundle.rs:130`; `crates/eg-types/src/outcome_bundle.rs:668`; `crates/eg-types/src/authority/replay.rs:191` (a different record). Reachable today: no.
 Existing-code search: the engine stores run trace nodes and one `RunEvent` digest. It holds no per-step digests and no replay compare. Search terms: `ModelRequest`, `request_digest`, `args_digest`, `result_digest`, `RunTrace`.
 Reuses: `ReceiptNodeKind` and the `AddNode` path. New: the step record and the digest recipe.
@@ -285,12 +285,12 @@ References
 
 ### `EG-ORCH-VOCAB-R009.18` — AU:26
 
-- Existing EG parent/rollup: `EG-ORCH-VOCAB-R009`; preserve its existing obligations.
+- Existing Medulla parent/rollup: `EG-ORCH-VOCAB-R009`; preserve its existing obligations.
 - Original objective: Platform monitors latency, token cost, and error frequency per run. It adjusts model selection and parallelism within declared budgets. It records each adjustment on the trace.
 - Original intake source record: AU:26. Its exact source array and SHA-256 remain in the canonical R009.18 requirement.
 - Contract definition: R009.18 in `requirements.md` specifies the complete revisioned observation window, fields, validation, joint decision, trace, and capacity behavior. This plan preserves that contract without restating its long field list.
-- Production wiring and owner boundary: Feed the proposed AU RunAdjustmentObservation from the existing routing and continuation paths to Method::Decide. Reuse R136 model adequacy/stage allocation and the existing RunTrace ingestion/readback under R009.17. Persist both adjustments and abstentions before application; GraphOS remains capacity authority.
-- Planned acceptance: `run_observations_change_model_and_width_with_trace` exercises AU routing/continuation and served EG Decide. It compares controlled latency, cost, and error windows under identical budgets. Full positive, refusal, trace, and capacity cases remain in `requirements.md` and `test-spec.md`.
+- Production wiring and owner boundary: Feed the proposed Meristem RunAdjustmentObservation from the existing routing and continuation paths to Method::Decide. Reuse R136 model adequacy/stage allocation and the existing RunTrace ingestion/readback under R009.17. Persist both adjustments and abstentions before application; Arbora remains capacity authority.
+- Planned acceptance: `run_observations_change_model_and_width_with_trace` exercises Meristem routing/continuation and served Medulla Decide. It compares controlled latency, cost, and error windows under identical budgets. Full positive, refusal, trace, and capacity cases remain in `requirements.md` and `test-spec.md`.
 - Preserve existing coverage: `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `ARBORA-CAPACITY-R001.1`.
 - Source record: AU:26 SHA-256 and exact owner references are retained in `requirements.md`.
 - Explicit owner holds: AU-CONTROL-R006.30 is unmerged. Policy thresholds, predictive cost inputs, and tie breaks remain open until the owner publishes a versioned policy. No tuning defaults or implementation claims are supplied.
@@ -300,23 +300,23 @@ References
 
 ### `EG-ORCH-VOCAB-R013.7` — AU:115
 
-- Existing EG operations: `Method::UnifiedQuery` reads revision-pinned repository relationships. `Method::AddNode` stores ordered `RunTrace` records. UQL and the content-addressed artifact read path independently confirm stored refs. No new graph writer or EG model executor is introduced.
-- EG output schema `CodeWalkthroughV1`: bind run, repository, revision, graph snapshot, query digest, and ordered section manifest. Source refs include node/revision/digest/path/line range. The schema also includes interaction edges, artifact ref/digest, and ordered trace-step/span note refs. AddNode refuses stale/cross-tenant refs, uncited sections, invalid artifact refs, invalid span/run links, or non-contiguous notes before storage.
-- EG test targets: `crates/eg-types/src/outcome_bundle.rs::tests::code_walkthrough_manifest_round_trips`; `src/server/handlers/graph_ops/gateway_graph.rs::tests::add_run_trace_rejects_stale_walkthrough_source_or_artifact`; served `tests/orchestration/test_code_walkthrough_served.py::test_walkthrough_trace_and_artifact_read_back`.
-- Depends on `EG-REPO-INGEST-R009` and `AU-HARNESS-R024`. AU still needs an exact producer schema/receipt row; WebUI still needs an exact artifact-consumer/interaction row. No matching owner IDs were found; coordinator assignment and served receipts remain a closure hold.
+- Existing Medulla operations: `Method::UnifiedQuery` reads revision-pinned repository relationships. `Method::AddNode` stores ordered `RunTrace` records. UQL and the content-addressed artifact read path independently confirm stored refs. No new graph writer or Medulla model executor is introduced.
+- Medulla output schema `CodeWalkthroughV1`: bind run, repository, revision, graph snapshot, query digest, and ordered section manifest. Source refs include node/revision/digest/path/line range. The schema also includes interaction edges, artifact ref/digest, and ordered trace-step/span note refs. AddNode refuses stale/cross-tenant refs, uncited sections, invalid artifact refs, invalid span/run links, or non-contiguous notes before storage.
+- Medulla test targets: `crates/eg-types/src/outcome_bundle.rs::tests::code_walkthrough_manifest_round_trips`; `src/server/handlers/graph_ops/gateway_graph.rs::tests::add_run_trace_rejects_stale_walkthrough_source_or_artifact`; served `tests/orchestration/test_code_walkthrough_served.py::test_walkthrough_trace_and_artifact_read_back`.
+- Depends on `EG-REPO-INGEST-R009` and `AU-HARNESS-R024`. Meristem still needs an exact producer schema/receipt row; Overstory still needs an exact artifact-consumer/interaction row. No matching owner IDs were found; coordinator assignment and served receipts remain a closure hold.
 - Original source AU:115 SHA-256 `445704f78ae07d1c4b62f42dd23797823d91bc470f04a9dc779e3f6777fffbf0`. Status remains SPECIFIED.
 
 ### `EG-ORCH-VOCAB-R003.8` — EG:12
 
 - Reuse R135 `CompiledProgram`/`lookup_program`, `AgentLibraryStore`, R003.6 outbox projection and `graph.assemble()`; successful terminal trace is required for promotion.
 - Canonical signature binds task class, sorted capability IRIs, input/output schema digests, and topology digest. Similarity uses a caller-pinned policy with explicit weights and minimum score. Capability overlap uses Jaccard. Other features name deterministic score functions and source revisions. Candidates need compatible signatures, schemas, and topology before scoring. Missing/stale inputs exclude candidates. Stable program IRI breaks ties.
-- Project typed handler metadata with ID/version, input/output schema digests, and effect set. `graph.assemble()` uses it as compatibility/effect constraints. The R036 solver still runs. EG does not invoke handlers.
+- Project typed handler metadata with ID/version, input/output schema digests, and effect set. `graph.assemble()` uses it as compatibility/effect constraints. The R036 solver still runs. Medulla does not invoke handlers.
 - Wire through `program_store.rs`, `stat_decide.rs`, `candidates.rs`, `assemble.rs`, `persistence/agent_library.rs`, and R003.6 projection. Test type round trip and stale/incompatible-handler refusal. Test served promotion and similar-task reuse at the exact requirement names.
 - Depends on `EG-DECISION-ENGINE-R135.2`, `.4`, `R036`, `EG-TYPED-PACKS-R006`, and `EG-ORCH-VOCAB-R003.5/.6`. Original EG:12 SHA-256 `517823a931bb93e173b301a9a31fbe6bd75c14687233c72278a59ced1940673a`. Status remains SPECIFIED.
 
 ### `EG-ORCH-VOCAB-R012.7` — EG:46
 
-- Existing EG parent/rollup: `EG-ORCH-VOCAB-R012`; preserve its existing obligations.
+- Existing Medulla parent/rollup: `EG-ORCH-VOCAB-R012`; preserve its existing obligations.
 - Original objective: Repository constitution and policy files become graph policy nodes for reasoning. A policy that contradicts a stored invariant is refused.
 - Contract definition: `requirements.md` R012.7 defines source bindings and typed GuardrailRule candidates. It also defines versioned grammar, inactive ambiguity, review/invariant checks, atomic activation, and reasoning evidence.
 - Production wiring: Extend the existing source_ingest router and SourceIngest path after `classify_spec_file`. Reuse GuardrailRule storage and `check_rule_against_invariants`. Link activation to the R012.7 decision-policy path under EG-IDENTITY-R008.4. R129.5 alone does not establish repository-policy guarding.
@@ -330,7 +330,7 @@ References
 
 ### `EG-ORCH-VOCAB-R004.6` — EG:51
 
-- Existing EG parent/rollup: `EG-ORCH-VOCAB-R004`; preserve its existing obligations.
+- Existing Medulla parent/rollup: `EG-ORCH-VOCAB-R004`; preserve its existing obligations.
 - Original objective: The capability registry models functional gaps and desired enhancements as typed domain-taxonomy nodes. Queries filter them by task class.
 - Contract definition: `requirements.md` R004.6 defines distinct CapabilityGap and DesiredEnhancement records. It binds tenant, revision, capability, task class, domain, source evidence, owner, and disposition. A request-local abstention alone does not persist a gap; a separately admitted gap may cite it.
 - Production wiring and owner boundary: Extend the existing orchestration ontology/shapes and governed AddNode/ChangeEnvelope path. Reuse the existing task-class/domain taxonomy and Method::UnifiedQuery rather than introducing a second capability registry. Keep the EG:7 owner-export manifest question separate from these persisted domain nodes.
@@ -344,16 +344,16 @@ References
 
 ### `EG-ORCH-VOCAB-R012.8` — EG:61
 
-- Existing EG parent/rollup: `EG-ORCH-VOCAB-R012`; preserve its existing obligations.
+- Existing Medulla parent/rollup: `EG-ORCH-VOCAB-R012`; preserve its existing obligations.
 - Original objective: Epistemic state and active policy live in the graph. Normative rules and constitutions live in versioned files. Graph writes never overwrite those files. Normative changes require review.
 - Contract definition: `requirements.md` R012.8 defines the normative-source binding, review digest, generation/revision checks, governed writeback, reread, and activation conditions.
-- Production wiring and owner boundary: Link the R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review/approval evidence to ARBORA-OPS-R050.2/.4 and the concrete SDK governed source effect. EG has no normative filesystem writer.
+- Production wiring and owner boundary: Link the R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review/approval evidence to ARBORA-OPS-R050.2/.4 and the concrete Scion SDK governed source effect. Medulla has no normative filesystem writer.
 - Planned acceptance: `reviewed_normative_source_activates_without_graph_overwrite` exercises served ingestion, owner review, activation, and decision use. It confirms unchanged source bytes after graph operations and refusal without reviewed governed writeback. Full mismatch, stale, and race cases remain in `requirements.md` and `test-spec.md`.
 - Preserve existing coverage: `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `ARBORA-OPS-R050.2`, `ARBORA-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
 - Source record: EG:61 SHA-256 `c5f1dfe7867267169ebc8c75abba87a1d9ed47568a65cbfe1bf6d183b8026e59`. Owner reference IDs and paths are in the canonical R012.8 requirement.
 - Explicit owner holds: The concrete producer of the review receipt and normative-file source-effect binding must be owner-confirmed. R050 references establish review/ops boundaries, not proof that the proposed full carrier already exists.
 - Unmerged consumer dependencies: none.
-- Proposed owner-review choice, not source-established fact: Reviewed files remain normative source. EG owns active policy, not file-only runtime authority.
+- Proposed owner-review choice, not source-established fact: Reviewed files remain normative source. Medulla owns active policy, not file-only runtime authority.
 - Keep status SPECIFIED with empty `landed_in`/`verified_by` until separately reviewed implementation and served evidence exist; no receipt is inferred.
 
 <!-- /spec-definition-patch -->
@@ -364,34 +364,34 @@ References
 ### `EG-ORCH-VOCAB-R005.100` / AU:33
 
 - Extend existing parent `R005` without removing its existing behavior.
-- Specify: R005.100 extends the orchestration step contract. It binds nested input schema, source-slot/path mappings, declared projection, shield policy, and payload digest before AU dispatch. The AU consumer applies projection before tool dispatch. DTO extra-field rejection is not projection.
-- Producer/consumer boundary: EG declares typed step projection/shield policy; AU `_dispatch_parallel_batch`/processor applies projection before tool dispatch. DTO extra-field rejection is not data projection.
+- Specify: R005.100 extends the orchestration step contract. It binds nested input schema, source-slot/path mappings, declared projection, shield policy, and payload digest before Meristem dispatch. The Meristem consumer applies projection before tool dispatch. DTO extra-field rejection is not projection.
+- Producer/consumer boundary: Medulla declares typed step projection/shield policy; Meristem `_dispatch_parallel_batch`/processor applies projection before tool dispatch. DTO extra-field rejection is not data projection.
 - Source record SHA-256: `1a32741b0a97f0c31cd1a3df4ea31d6eee0069c62c3487c0d8057b1ced4b6cf4`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
 ### `EG-ORCH-VOCAB-R009.100` / AU:60
 
 - Extend existing parent `R009` without removing its existing behavior.
-- Specify: R009.100 defines trace/run, span/child-agent, and tool-call IDs. It binds time range, source revision, and redaction profile. Child spans correlate to the parent run. Consumers receive complete paginated snapshots, completeness metadata, and stable digest. AU exports spans. GraphOS owns MCP transport. EG exposes correlated readback only.
-- Producer/consumer boundary: AU default_runtime_capabilities/run_agent exports. GraphOS MCP transports the export. EG offers correlated readback. Preserve R008/R024 trace ownership.
+- Specify: R009.100 defines trace/run, span/child-agent, and tool-call IDs. It binds time range, source revision, and redaction profile. Child spans correlate to the parent run. Consumers receive complete paginated snapshots, completeness metadata, and stable digest. Meristem exports spans. Arbora owns MCP transport. Medulla exposes correlated readback only.
+- Producer/consumer boundary: Meristem default_runtime_capabilities/run_agent exports. Arbora MCP transports the export. Medulla offers correlated readback. Preserve R008/R024 trace ownership.
 - Source record SHA-256: `5d53cbdda932456b27c6649360c3051d4ab09f2db42018550b4ee81c785748b4`.
-- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+- Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
 
 
 <!-- spec-definition-patch:owner-dispatch-20261012-plan -->
 ## Cross-owner producer definition plan — 2026-10-12
 
-- **`EG-ORCH-VOCAB-R009.101` / WEBUI:3:** Add `IndexHarnessSessionBatchV1` and `SearchHarnessSessionsV1` over durable RunTrace/AddNode records and existing UQL, spanning every adapter in the pinned supported-harness manifest. Bind tenant, manifest, SDK sync receipt, session and indexed/source revisions; return source coverage, watermark and snapshot cursor. Optional cost summaries reuse R010.101 accounting profile/unit/unknown semantics. Replay is idempotent; conflicting content, stale cursor and cross-tenant reads refuse. SDK source sync and the GraphOS query-adapter requirement ID remain pending owner dependencies. Source SHA-256 `38936b5f2136263c40c29fe639c984243fed8be6dbb9a6d836f40d7b7672116e`.
-- **`EG-ORCH-VOCAB-R010.100` / AU:103:** Add `EvolutionTraceMetricsV1` with revisioned proposal/prompt/progress records, ordered RunTrace refs, revisioned metrics, observation window and explicit coverage. Missing known traces are partial/unknown, never zero. Existing ChangeEnvelope/AddNode writes traces; UQL independently reads them; GraphOS `runs.get`/`runs.metrics` serves the view, with exact adapter ID pending. AU progress producer ID/schema remains pending. Source SHA-256 `68bae14976bd3581bc33ee65b153b5ad60f807fb894af09577b9debd19be7557`.
-- **`EG-ORCH-VOCAB-R010.101` / WEBUI:4:** Extend RunTrace with project/agent IDs and four disjoint token counters. `RunTraceUsageQueryV1` returns grouped totals/costs with accounting, price, currency revisions, watermark, and unknown semantics. Aggregate exact rational rates. Round once per output group/category using pinned currency exponent and half-even. Preserve p95 ≤500 ms for the 1,000,000-row/32-reader dataset through GraphOS `handle_runs_metrics`. Preserve cost-per-solved-task semantics.
-- Keep all three requirements SPECIFIED until EG operations, GraphOS adapters, and WebUI consumers pass contract checks. Require independent readbacks for each owner.
+- **`EG-ORCH-VOCAB-R009.101` / WEBUI:3:** Add `IndexHarnessSessionBatchV1` and `SearchHarnessSessionsV1` over durable RunTrace/AddNode records and existing UQL, spanning every adapter in the pinned supported-harness manifest. Bind tenant, manifest, Scion SDK sync receipt, session and indexed/source revisions; return source coverage, watermark and snapshot cursor. Optional cost summaries reuse R010.101 accounting profile/unit/unknown semantics. Replay is idempotent; conflicting content, stale cursor and cross-tenant reads refuse. Scion SDK source sync and the Arbora query-adapter requirement ID remain pending owner dependencies. Source SHA-256 `38936b5f2136263c40c29fe639c984243fed8be6dbb9a6d836f40d7b7672116e`.
+- **`EG-ORCH-VOCAB-R010.100` / AU:103:** Add `EvolutionTraceMetricsV1` with revisioned proposal/prompt/progress records, ordered RunTrace refs, revisioned metrics, observation window and explicit coverage. Missing known traces are partial/unknown, never zero. Existing ChangeEnvelope/AddNode writes traces; UQL independently reads them; Arbora `runs.get`/`runs.metrics` serves the view, with exact adapter ID pending. Meristem progress producer ID/schema remains pending. Source SHA-256 `68bae14976bd3581bc33ee65b153b5ad60f807fb894af09577b9debd19be7557`.
+- **`EG-ORCH-VOCAB-R010.101` / WEBUI:4:** Extend RunTrace with project/agent IDs and four disjoint token counters. `RunTraceUsageQueryV1` returns grouped totals/costs with accounting, price, currency revisions, watermark, and unknown semantics. Aggregate exact rational rates. Round once per output group/category using pinned currency exponent and half-even. Preserve p95 ≤500 ms for the 1,000,000-row/32-reader dataset through Arbora `handle_runs_metrics`. Preserve cost-per-solved-task semantics.
+- Keep all three requirements SPECIFIED until Medulla operations, Arbora adapters, and Overstory consumers pass contract checks. Require independent readbacks for each owner.
 <!-- /spec-definition-patch -->
 
 
 ### Proposed authority and admission binding for R004.6
 
-These types are proposed EG contracts, not implemented APIs. They extend R004.6
+These types are proposed Medulla contracts, not implemented APIs. They extend R004.6
 and EG-DECISION-ENGINE-R010/R127.2.1. All fields are required unless stated.
 Text IDs are nonempty UTF-8; revisions are unsigned 64-bit integers; digests
 are lowercase `sha256:<64 hex>`. Tenant comes from authenticated request authority.
@@ -436,7 +436,7 @@ fields, edges and receipt revision after restart. No capability status changes.
 Data flow, in call order:
 
 ```text
-AU harness cycle (AU-HARNESS-CYCLE-R001)
+Meristem harness cycle (AU-HARNESS-CYCLE-R001)
   -> ApplyChangeEnvelopes (component version, contrast, adopted harness, lesson)
   -> ChangeEnvelope::validate (evidence refusal R801.4, R802.5)
   -> durable write with bitemporal stamps (EG-DURABLE-KERNEL-R078/R081)
@@ -482,7 +482,7 @@ No generated contract artifact is edited by this batch.
 
 R009.9 through R009.11 and R009.14 through R009.17 remain open.
 No served producer, owner binding, configuration linkage or restart acceptance is claimed.
-The decision-reference proposal remains separate in EG PR 756.
+The decision-reference proposal remains separate in Medulla PR 756.
 It must resolve the existing authoritative DecisionLog record, not trust a graph-authored answer.
 EG741 owner helpers and generated artifacts remain untouched.
 ## Amendments

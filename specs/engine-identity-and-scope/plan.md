@@ -39,7 +39,7 @@ Parse bounded JWT header and claims without trusting them. Resolve exact issuer 
 | `external → local` | Each retained admin has a verified local credential before external dependence is removed. |
 | `local/external → none` | Exact acknowledgment, human `identity:admin`, fresh MFA attestation, engine and gateway loopback attestations, and a transition nonce bound to expected epoch. |
 
-The transition response contains old/new mode, epoch and revocation receipt. Session revocation/issuer rotation are durable follow-up effects with retry state. Until completed, the old sessions are denied by epoch at EG. Concurrent transitions race on epoch. One commits, others return typed conflict. A failed prerequisite changes neither mode nor epoch.
+The transition response contains old/new mode, epoch and revocation receipt. Session revocation/issuer rotation are durable follow-up effects with retry state. Until completed, the old sessions are denied by epoch at Medulla. Concurrent transitions race on epoch. One commits, others return typed conflict. A failed prerequisite changes neither mode nor epoch.
 
 ### Scope registry
 
@@ -66,7 +66,7 @@ Flow: stored policy node → `scope_within_bound` → `ScopeExceedsPolicy` refus
 The attach point is the plan-admission path beside `policy_admin.rs`; the first child row locates it.
 The change reuses the existing verified-principal binding and the audit append from R002.
 Decision: the engine reads the bound from the stored node, not from the plan body. A rejected alternative is deriving scope from the plan, because a model-written plan could then widen its own bound.
-Handoff: graph-os must check the same bound when work enters; agent-utilities only applies the engine's refusal.
+Handoff: Arbora must check the same bound when work enters; Meristem only applies the engine's refusal.
 
 ## Principal-scoped knowledge segments (R023)
 
@@ -83,7 +83,7 @@ Decision: access labels live in the unit itself, so every reader enforces them. 
 
 ### Model and authority
 
-EG owns typed preferences, client descriptions and interaction networks as graph records.
+Medulla owns typed preferences, client descriptions and interaction networks as graph records.
 The canonical identity store remains the sole principal, credential and grant authority.
 `crates/eg-types/src/identity/model.rs:41` defines UserRecord and its stable principal_id.
 `crates/eg-types/src/identity.rs:1` documents that authority and its RBAC projection.
@@ -154,11 +154,11 @@ Existing security denial auditing remains separate and must contain no metadata 
 Imports from legacy files require an explicit versioned mapping into these same variants and admission rules.
 Record source kind, logical source reference, source Digest256, mapping version and verified importing actor.
 Record the schema digest, previous revision and commit receipt in the same admitted transaction.
-The caller supplies candidate source evidence; EG checks the bytes and derives the stored digest.
+The caller supplies candidate source evidence; Medulla checks the bytes and derives the stored digest.
 The same import identity and content replay once. Reusing it with changed content refuses.
 Invalid legacy records remain unimported; an import cannot retain an untyped fallback in the authoritative graph.
 A bounded import batch commits all validated records or none. Large imports use explicit independent batches.
-Readback after restart uses EG records, even when the source file disappears or changes.
+Readback after restart uses Medulla records, even when the source file disappears or changes.
 An exported file is a snapshot, never write authority. Reimport requires fresh admission and an expected revision.
 Migration never changes canonical identity records, grants, credentials or principal IDs.
 
@@ -167,7 +167,7 @@ Migration never changes canonical identity records, grants, credentials or princ
 The six new children require the planned positive and negative cases in test-spec.md.
 No helper-only test, schema declaration or generated client establishes served acceptance.
 R051 and R098 remain schema prerequisites; their typed-packs files and crosswalk work are unchanged.
-GraphOS may compose these engine results. AU applies them; clients cannot become metadata or identity authorities.
+Arbora may compose these engine results. Meristem applies them; clients cannot become metadata or identity authorities.
 
 
 ### 2026-10-13: preserve the R008.2 construction invariant
@@ -180,23 +180,23 @@ Existing subset checks and allowed-tool/graph fields keep their behavior.
 
 ## Amendments
 
-### 2026-10-16 — GraphOS curated operation scopes (R004)
+### 2026-10-16 — Arbora curated operation scopes (R004)
 
-GraphOS owns `decide:commit`, `policy:read`, `security:read`, `swarm:read`,
+Arbora owns `decide:commit`, `policy:read`, `security:read`, `swarm:read`,
 `telemetry:read` and `usage:read`. Register `decide:commit` as service-only;
 register the five read scopes as user class, eligible for explicitly authorized
 humans, services and API keys. Registration grants nothing automatically.
-GraphOS must still require the exact scope and bind reads to the verified caller's
+Arbora must still require the exact scope and bind reads to the verified caller's
 tenant; decision commits remain service-only. This decision permits authorized
 automated policy/security inspection without conferring administrative authority.
 Regenerate both contract catalogs and their receipt using `gen_contract`.
-Installed-wheel GraphOS acceptance remains separate consumer evidence.
+Installed-wheel Arbora acceptance remains separate consumer evidence.
 
 ## EG-IDENTITY-R023.13 — served share grant and revoke
 
 Replaces: `agent_utilities/knowledge_graph/core/tenant_sharing.py` (`share_with_org`, `make_private`, `promote_to_commons`, `_set_scope`). The harness keeps no share logic after this row lands.
 
-AU acceptance case: `tests/integration/knowledge_graph/test_goc61_commons_sharing_live.py::test_org_share_revocation_persists_across_a_real_restart`.
+Meristem acceptance case: `tests/integration/knowledge_graph/test_goc61_commons_sharing_live.py::test_org_share_revocation_persists_across_a_real_restart`.
 
 Call path: served `RbacAdmin` -> `src/server/dispatch/router/identity_access.rs:47` -> `share_transition` (`crates/eg-core/src/isolation/share.rs`, new) -> mutation gateway commit -> `row_visibility` (`crates/eg-core/src/isolation.rs:157`) on every read.
 
@@ -217,7 +217,7 @@ References
 
 ## Amendments: 2026-10-22
 
-EG-IDENTITY-R003.1 adds an explicit, isolated anonymous durable-store authority for Arbora's local no-auth admission. Arbora owns public admission and mode selection; EG owns the fixed anonymous provenance record, store separation, client/native protocol projection and existing ACL/mutation machinery. Default verified-envelope/OIDC behavior remains unchanged. This narrow opt-in supersedes earlier unconditional no-development-escape wording only for fresh anonymous-marked local stores. No deployment, credential or mode migration is authorized.
+EG-IDENTITY-R003.1 adds an explicit, isolated anonymous durable-store authority for Arbora's local no-auth admission. Arbora owns public admission and mode selection; Medulla owns the fixed anonymous provenance record, store separation, client/native protocol projection and existing ACL/mutation machinery. Default verified-envelope/OIDC behavior remains unchanged. This narrow opt-in supersedes earlier unconditional no-development-escape wording only for fresh anonymous-marked local stores. No deployment, credential or mode migration is authorized.
 
 Unsigned replay metadata uses `anon1.` plus a strict JSON object containing only a 1..256-byte UTF-8 `idempotency_key` in the legacy envelope slot named `auth_token`. It is not a credential and carries no identity, MAC or signature. Only explicit anonymous mode accepts it. Durable request provenance uses authentication_method `none`; verified modes reject that provenance.
 

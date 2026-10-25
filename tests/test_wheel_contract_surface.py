@@ -6,7 +6,7 @@ staged probe is not wheel-install evidence; set EG_CONTRACT_INSTALLED_PYTHON to 
 already installed candidate's interpreter for the independent installed check.
 It exists because the generated client added `pydantic` as a
 module-scope import of `epistemic_graph/__init__.py`'s own import chain while
-`[project].dependencies` still listed three packages: `pip install epistemic-graph` then
+`[project].dependencies` still listed three packages: `pip install medulla` then
 raised `ModuleNotFoundError` for every consumer, and a dev checkout that already had
 pydantic installed could never notice.
 """
@@ -74,7 +74,7 @@ if sys.argv[1]:
 else:
     from epistemic_graph import contract as module
     root = resources.files("epistemic_graph").joinpath("contract")
-    distribution = metadata.distribution("epistemic-graph")
+    distribution = metadata.distribution("medulla")
     installed = Path(distribution.locate_file("epistemic_graph/contract")).resolve()
     assert Path(str(root)).resolve() == installed, "package is outside distribution"
     record_text = distribution.read_text("RECORD")
@@ -261,9 +261,9 @@ class ContractProbeFixtures(unittest.TestCase):
             "receipt_hex": receipt.hex(),
             "schemas": ["schemas/fixture.json"],
         }
-        info = self.site / "epistemic_graph-0.dist-info"
+        info = self.site / "medulla-0.dist-info"
         info.mkdir()
-        info.joinpath("METADATA").write_text("Name: epistemic-graph\nVersion: 0\n")
+        info.joinpath("METADATA").write_text("Name: medulla\nVersion: 0\n")
         self.record = info / "RECORD"
         self.record.write_text(
             "".join(

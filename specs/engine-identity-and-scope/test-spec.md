@@ -109,13 +109,13 @@ Confirm metadata cannot register an identity, grant a role, change a credential 
 Record the source SHA, generated contract digest, binary digest and authenticated receipts for eventual served proof.
 Run contract generation and the affected language, CCCC, KISS, jscpd and Dupehound checks when runtime code changes.
 
-### R004 GraphOS curated scope regression
+### R004 Arbora curated scope regression
 
 `graph_os_curated_scopes_preserve_principal_and_key_boundaries` pins all six
-GraphOS-owned scopes, service-only decision commits, user-class reads, API-key
+Arbora-owned scopes, service-only decision commits, user-class reads, API-key
 eligibility and wildcard refusal. `gen_contract --check` verifies regenerated
 server/package catalogs and receipt freshness. This slice does not claim an
-installed GraphOS wheel or live authorization deployment.
+installed Arbora wheel or live authorization deployment.
 
 ## EG-IDENTITY-R023.13 acceptance
 

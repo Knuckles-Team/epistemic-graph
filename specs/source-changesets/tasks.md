@@ -1,6 +1,6 @@
 # EG-SCM tasks
 
-Ordered one-bite lanes. Compile slot: EG only, one cargo lane host-wide at a time.
+Ordered one-bite lanes. Compile slot: Medulla only, one cargo lane host-wide at a time.
 
 - [ ] EG-SCM-R001 — content-addressed blob store (blob CAS binding, sealed create-only guard, digest readback).
 - [ ] EG-SCM-R002 — changeset record (`crates/eg-types/src/source_changeset.rs`; chain append; first-parent delta).

@@ -10,7 +10,7 @@
 
 ```
 question (classes only, e.g. :Incident, :Service)
-   |  graph-os intent tool -> EG method (read-only)
+   |  Arbora intent tool -> Medulla method (read-only)
    v
 eg-rdf::source_selection::select_sources   (R072: hop search + subclass entailment)
    |  per class/facet ranks origin-approved vg:SourceAuthority declarations   <-- NEW
@@ -29,11 +29,11 @@ answer rows + provenance (source, record id, as-of) + "sources used and why" (fr
 
 | Component | Repository, module |
 |---|---|
-| Vocabulary and shapes | epistemic-graph, `crates/eg-core/ontology/virtual_graph-v1.ttl`, `virtual_graph-v1.shapes.ttl` (already loaded as core sources by `crates/eg-core/src/graph/schema_sources.rs` lines 809 to 817) |
-| Authority-aware selection, abstention and audit types | epistemic-graph, `crates/eg-rdf/src/source_selection.rs` (extend; no new planner) |
-| Approval of authority | epistemic-graph, governed-change ledger `crates/eg-types/src/governed_change.rs` plus `GraphSchema.AttachApproved` (`src/server/graph_schema/approved.rs`) |
-| Registered, connected source lookup | epistemic-graph, owner-scoped foreign catalog (`EG-FEDERATED-QUERY-R013`), variants in `crates/eg-types/src/wire_query_modalities.rs` |
-| Printing the audit block | graph-os (cross-repo row) |
+| Vocabulary and shapes | Medulla, `crates/eg-core/ontology/virtual_graph-v1.ttl`, `virtual_graph-v1.shapes.ttl` (already loaded as core sources by `crates/eg-core/src/graph/schema_sources.rs` lines 809 to 817) |
+| Authority-aware selection, abstention and audit types | Medulla, `crates/eg-rdf/src/source_selection.rs` (extend; no new planner) |
+| Approval of authority | Medulla, governed-change ledger `crates/eg-types/src/governed_change.rs` plus `GraphSchema.AttachApproved` (`src/server/graph_schema/approved.rs`) |
+| Registered, connected source lookup | Medulla, owner-scoped foreign catalog (`EG-FEDERATED-QUERY-R013`), variants in `crates/eg-types/src/wire_query_modalities.rs` |
+| Printing the audit block | Arbora (cross-repo row) |
 
 ### What R072/R073 already read (D2, CONFIRMED)
 
@@ -41,7 +41,7 @@ I opened `crates/eg-rdf/src/source_selection.rs` (384 lines) and the federated r
 
 - `select_sources(fixture, roots, hop_budget)` returns one `CoverageResult` per class: `Covered { class, mapping_name, path, premises }`, `Uncovered`, `Disconnected`. The `Premise` enum has `Label`, `Relation`, `Subclass`, `Mapping { served_class, mapping_name }`, `SourceGeneration { source, generation }`. Nothing authority-like: no rank, scope, freshness, connection-state or approval-origin.
 - The input is `CoverageFixture`, whose `mappings` field is `BTreeMap<String, (mapping name, source, generation)>` keyed by class and filled by `with_mapping` through `insert`. **Two sources mapping one class silently overwrite each other: the last insert wins.** The module doc says the live ontology and mapping catalog search is "a later child". So R072 today has no tie-breaking and no live read; the fixture is the whole implementation (`R072.1` only).
-- `EG-FEDERATED-QUERY-R072` text: for each class "EG names the approved virtual mapping that serves it, or the class itself as uncovered" (singular mapping). `R073.1` added `ForeignSourceSpec::{Api, Mcp, A2a, GraphQl}` with `ForeignOperationCapabilities` (`wire_query_modalities.rs` lines 324 to 485); an unbound or ungranted spec refuses with a typed error. `R013`: foreign sources are keyed by owning tenant and actor, and resolving outside the registering principal is `ACCESS_DENIED`.
+- `EG-FEDERATED-QUERY-R072` text: for each class "Medulla names the approved virtual mapping that serves it, or the class itself as uncovered" (singular mapping). `R073.1` added `ForeignSourceSpec::{Api, Mcp, A2a, GraphQl}` with `ForeignOperationCapabilities` (`wire_query_modalities.rs` lines 324 to 485); an unbound or ungranted spec refuses with a typed error. `R013`: foreign sources are keyed by owning tenant and actor, and resolving outside the registering principal is `ACCESS_DENIED`.
 - Therefore: the foreign catalog row says **what a source can do and who may use it**; the mapping says **what it maps**; nothing says **which of several candidates should answer**. This spec adds only that.
 
 ## Vocabulary
@@ -130,7 +130,7 @@ sources_used: [{ concept, facet?, source, contract, rank, scope, freshness_seen,
 not_used:     [{ concept, source, reason: Unconnected|UnapprovedMapping|Stale|ContractMismatch|Ambiguous|Proposed }]
 ```
 
-The type is `AuthorityAudit` in `crates/eg-types` (so it appears in the generated contract); graph-os renders it. It is computed from premises, never separately, so it cannot disagree with the selection.
+The type is `AuthorityAudit` in `crates/eg-types` (so it appears in the generated contract); Arbora renders it. It is computed from premises, never separately, so it cannot disagree with the selection.
 
 ## Worked example
 
@@ -151,11 +151,11 @@ R073 fetches each class from its source at query time with the local residual fi
 
 ## Out of scope
 
-Executing the fetch, pushdown and the copy pipeline (R073, R046, R069, R038); entity resolution across sources (`EG-UNIFIED-DATA-PLANE-R030`); the served intent tool and its rendering (graph-os); pack import validation rules; writing back to a source; automatic learning of authority from observed accuracy (a later proposal path through the same approval).
+Executing the fetch, pushdown and the copy pipeline (R073, R046, R069, R038); entity resolution across sources (`EG-UNIFIED-DATA-PLANE-R030`); the served intent tool and its rendering (Arbora); pack import validation rules; writing back to a source; automatic learning of authority from observed accuracy (a later proposal path through the same approval).
 
 ## Blocked dependencies
 
-- BLOCKED: scope `governance:approve-source-authority` and kind `governed.source-authority`. Owner: epistemic-graph engine identity (`EG-IDENTITY-R004` generated scope registry, scopes are generated from capability declarations, not hand-added). Child `EG-SRC-AUTH-R003.1` declares it; `R003.3` onward wait on it.
+- BLOCKED: scope `governance:approve-source-authority` and kind `governed.source-authority`. Owner: Medulla engine identity (`EG-IDENTITY-R004` generated scope registry, scopes are generated from capability declarations, not hand-added). Child `EG-SRC-AUTH-R003.1` declares it; `R003.3` onward wait on it.
 - BLOCKED: the live ontology and mapping-catalog search of `EG-FEDERATED-QUERY-R072` (a later child, not in the repository). `R004.1` supplies the authority-aware slice against the fixture; the live read child `R004.5` is the join point and is owned by `federated-query-and-reasoning`.
 
 ## Source trust role (R010)
@@ -168,7 +168,7 @@ Existing code: `crates/eg-rdf/src/source_selection.rs:26`, `source_selection.rs:
 
 Decision: store the role on the connection and order by it before rank, so one declaration governs every mapped class. Rejected alternative: encode the role as a low rank number, because rank is per class and cannot express trust.
 
-Cross-repository: graph-os prints the role in the "sources used and why" block; owner prefix `ARBORA-INTENT`, contract `AuthorityAudit`.
+Cross-repository: Arbora prints the role in the "sources used and why" block; owner prefix `ARBORA-INTENT`, contract `AuthorityAudit`.
 
 References
 - No paper is cited.
@@ -181,7 +181,7 @@ Attach point: The `AddNode` arm at `src/server/handlers/graph_ops/gateway_graph.
 Failure: A downgrade without approval returns `TRUST_MARK_DOWNGRADE_REFUSED`.
 Consumers: AU-SEC (R012)
 Existing code: `crates/eg-rdf/src/source_selection.rs:172` (`select_sources`); `crates/eg-rdf/src/source_selection.rs:26` (`Premise`); `crates/eg-core/src/isolation.rs:1058` (an untrusted visibility key is ignored, a separate rule). Reachable today: no.
-Existing-code search: the engine has no trust mark on content. Search terms: `taint`, `untrusted`, `trust_mark`, `TrustMark`. No existing agent-utilities code moves for this row.
+Existing-code search: the engine has no trust mark on content. Search terms: `taint`, `untrusted`, `trust_mark`, `TrustMark`. No existing Meristem code moves for this row.
 Reuses: `SourceRole` of `EG-SRC-AUTH-R010` as an input to the default rule. New: the mark, the propagation rule, the downgrade refusal.
 Decision: The mark is a stored fact with inheritance. Rejected alternative: a per-run flag in the harness, because it is lost when content is stored and read back by another run.
 Cross-repository: `AU-SEC-R012` carries the mark through context assembly and refuses to act on `untrusted` content without confirmation. `GRAPHOS-` rows own that confirmation.

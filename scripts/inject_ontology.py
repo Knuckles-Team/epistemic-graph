@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fold the core ontology, shapes and catalog into the epistemic-graph wheel.
+"""Fold the core ontology, shapes and catalog into the medulla wheel.
 
 ``crates/eg-core/ontology/*.ttl`` is the only copy in git. This step copies those
 files into ``epistemic_graph/ontology/`` inside the built wheel (RECORD recomputed)

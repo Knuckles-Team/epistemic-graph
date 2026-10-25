@@ -21,7 +21,7 @@ def rust_pin(path: Path) -> str:
 
 
 def stage(source: Path, destination: Path) -> None:
-    candidates = sorted(source.glob("epistemic_graph-*.whl"))
+    candidates = sorted(source.glob("medulla-*.whl"))
     if (
         len(candidates) != 1
         or candidates[0].is_symlink()

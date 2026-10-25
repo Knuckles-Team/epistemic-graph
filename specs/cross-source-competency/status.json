@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-CQ-XSRC",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-CQ-XSRC-R001",
@@ -365,7 +365,7 @@
     },
     {
       "id": "EG-CQ-XSRC-R006.5",
-      "title": "Serve the report through graph-os",
+      "title": "Serve the report through Arbora",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

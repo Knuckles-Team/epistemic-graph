@@ -11,7 +11,7 @@ release workflow's ``.gates-wheel-venv``.
 
 This test is deliberately skippable outside that job (it never installs a
 wheel itself): running the full root suite from an ordinary source checkout
-has no installed ``epistemic-graph`` distribution to prove anything about,
+has no installed ``medulla`` distribution to prove anything about,
 exactly the same opt-in posture NE-249's own boundary test takes for the
 folded numeric kernel. The release workflow runs it from a scratch directory
 (not the repo root) with the gates venv's interpreter, so a bare `python -m
@@ -48,10 +48,10 @@ def _installed_or_skip() -> None:
     if os.environ.get("EG_INSTALLED_WHEEL_GATE") != "1":
         pytest.skip("set EG_INSTALLED_WHEEL_GATE=1 under the installed-wheel venv")
     try:
-        importlib.metadata.distribution("epistemic-graph")
+        importlib.metadata.distribution("medulla")
     except importlib.metadata.PackageNotFoundError:
         pytest.skip(
-            "epistemic-graph is not an installed distribution here "
+            "medulla is not an installed distribution here "
             "(no wheel installed; run under the release workflow's "
             ".gates-wheel-venv to exercise this boundary)"
         )
@@ -83,10 +83,10 @@ def test_installed_distribution_matches_the_wheel_not_an_editable_install() -> N
     makes for the contract/errors/scopes JSON, applied here to the package
     distribution itself)."""
     _installed_or_skip()
-    distribution = importlib.metadata.distribution("epistemic-graph")
+    distribution = importlib.metadata.distribution("medulla")
     location = Path(str(distribution.locate_file(""))).resolve()
     assert not location.is_relative_to(_REPO_ROOT), (
-        f"epistemic-graph distribution resolved to {location}, inside the "
+        f"medulla distribution resolved to {location}, inside the "
         f"source tree {_REPO_ROOT} -- expected an installed wheel, not an "
         f"editable/source-linked install"
     )

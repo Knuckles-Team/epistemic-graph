@@ -38,7 +38,7 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first;
   - [ ] Report carries freshness per source. **EG-CQ-XSRC-R006.2**
   - [ ] Report abstention variants. **EG-CQ-XSRC-R006.3**
   - [ ] Assemble the report from the federated rows. **EG-CQ-XSRC-R006.4**
-  - [ ] Serve the report through graph-os. **EG-CQ-XSRC-R006.5**
+  - [ ] Serve the report through Arbora. **EG-CQ-XSRC-R006.5**
 - [ ] End-to-end acceptance from real connected data (rollup). **EG-CQ-XSRC-R007**
   - [ ] Acceptance on recorded connector responses. **EG-CQ-XSRC-R007.1**
   - [ ] Acceptance against the live connected sources. **EG-CQ-XSRC-R007.2**

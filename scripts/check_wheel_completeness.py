@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assert a built ``epistemic-graph`` wheel is COMPLETE before it can be published.
+"""Assert a built ``medulla`` wheel is COMPLETE before it can be published.
 
 The published wheel is a maturin ``bindings="bin"`` artifact whose numeric kernel
 (``epistemic_graph/numeric.abi3.so`` — the pyo3 cdylib built separately from
@@ -7,9 +7,9 @@ The published wheel is a maturin ``bindings="bin"`` artifact whose numeric kerne
 :mod:`scripts.inject_numeric_kernel`. That "build one thing, then graft another
 into it" shape has exactly one failure mode, and it is silent: if the graft does
 not happen, every downstream step still succeeds and a *server-only* wheel goes
-to PyPI. It did — published ``epistemic-graph`` wheels from 2.14.0 through
+to PyPI. It did — published ``medulla`` wheels from 2.14.0 through
 2.23.0 carry no kernel at all, so ``import epistemic_graph.numeric`` raises
-``ModuleNotFoundError`` on a clean ``pip install epistemic-graph``, which in turn
+``ModuleNotFoundError`` on a clean ``pip install medulla``, which in turn
 breaks ``agent_utilities.numeric``'s ``xp`` shim (CONCEPT:KG-2.315) and every
 consumer that binds it.
 
@@ -27,7 +27,7 @@ The invariants, each one a regression that actually shipped:
 1. **Numeric kernel present** — ``epistemic_graph/numeric*.{so,pyd}``. The
    2.14.0-2.23.0 regression.
 2. **No executables** — nothing under ``*.data/scripts/``. The native server
-   ships in the separate ``epistemic-graph-server`` package (extra ``server``);
+   ships in the separate ``medulla-stem`` package (extra ``server``);
    the public wheel stays under the PyPI per-file limit.
 3. **Python surface complete** — the ``epistemic_graph`` package plus its
    ``kvcache`` and ``skills`` subpackages, so a wheel that silently loses package
@@ -216,7 +216,7 @@ def _check_server_entries(archive: zipfile.ZipFile) -> list[str]:
     """The public wheel ships no executables; the server is its own package."""
     return [
         f"{info.filename} is an executable — the server binary ships in the "
-        "epistemic-graph-server package (extra `server`), never in this wheel"
+        "medulla-stem package (extra `server`), never in this wheel"
         for info in archive.infolist()
         if _SCRIPTS_RE.match(info.filename)
     ]
@@ -238,7 +238,7 @@ def _check_base_dependencies(archive: zipfile.ZipFile) -> list[str]:
     base_requirements = _base_requirements(archive)
     return [
         f"{requirement!r} is not an unconditional Requires-Dist — the "
-        "bundled kernel needs it on a bare `pip install epistemic-graph`, "
+        "bundled kernel needs it on a bare `pip install medulla`, "
         "so it must not sit behind an extra"
         for requirement in REQUIRED_BASE_DEPENDENCIES
         if requirement not in base_requirements

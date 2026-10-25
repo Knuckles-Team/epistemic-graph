@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-DURABLE-KERNEL",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-DURABLE-KERNEL-R001",
@@ -785,7 +785,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R017",
-      "title": "Correctness-gated benchmark compares EG against HelixDB",
+      "title": "Correctness-gated benchmark compares Medulla against HelixDB",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "28295e96e0a3",
@@ -881,7 +881,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R024",
-      "title": "External graph and database backends become EG federation sources",
+      "title": "External graph and database backends become Medulla federation sources",
       "delivery_state": "LANDED",
       "landed_in": [
         "35f12e9cc56f",
@@ -2439,7 +2439,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.11",
-      "title": "Cross-repo: graph-os hosts any remote worker process; agent-utilities does not",
+      "title": "Cross-repo: Arbora hosts any remote worker process; Meristem does not",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2814,7 +2814,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R091",
-      "title": "Versioned reviewed normative source coexists with EG active policy",
+      "title": "Versioned reviewed normative source coexists with Medulla active policy",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3044,7 +3044,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R095",
-      "title": "GraphOS inter-session inbox operation with sender/recipient authorization",
+      "title": "Arbora inter-session inbox operation with sender/recipient authorization",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3149,7 +3149,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R096",
-      "title": "AU search-result persistence with authorized readback completion gate",
+      "title": "Meristem search-result persistence with authorized readback completion gate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3220,7 +3220,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.10",
-      "title": "Prior-session notes use the existing authorized memory authority. Capture and reuse remain AU-owned",
+      "title": "Prior-session notes use the existing authorized memory authority. Capture and reuse remain Meristem-owned",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

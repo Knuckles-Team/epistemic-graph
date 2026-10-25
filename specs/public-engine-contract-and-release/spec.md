@@ -1,10 +1,10 @@
 # EG-CONTRACT — Public engine contract and reproducible clients
 
-**Owner:** epistemic-graph. **Specification state:** PROPOSED. **Build state:** PARTIAL. **Acceptance:** PENDING.
+**Owner:** Medulla. **Specification state:** PROPOSED. **Build state:** PARTIAL. **Acceptance:** PENDING.
 
 ## Purpose
 
-A contributor must be able to change an engine method once and regenerate the same typed, signed, documented contract for Rust, Python, Go and JavaScript. An application must be able to discover callable methods and stable errors from a published EG package without importing private server internals. A release must prove that the published artifact behaves like the source revision.
+A contributor must be able to change an engine method once and regenerate the same typed, signed, documented contract for Rust, Python, Go and JavaScript. An application must be able to discover callable methods and stable errors from a published Medulla package without importing private server internals. A release must prove that the published artifact behaves like the source revision.
 
 ## Delivery state legend
 
@@ -39,7 +39,7 @@ The generator in `crates/eg-capabilities/src/bin/gen_contract.rs` reads Rust met
 
 The build graph is: Rust declarations → generated catalogs/schemas/fixtures → Rust codec WASM → Go/JS embedding and vector tests → Python wheel with receipt → clean-install consumer tests → release gate. Each arrow must have a deterministic check. Do not create a second method registry, error classifier, Python model hierarchy or signed-body encoder.
 
-External applications consume only the published public catalog and clients. They may project EG methods into their own HTTP/MCP surfaces, but authorization must be checked by that application's own principal-aware service layer; `is_wire_callable` describes an EG capability, not a grant.
+External applications consume only the published public catalog and clients. They may project Medulla methods into their own HTTP/MCP surfaces, but authorization must be checked by that application's own principal-aware service layer; `is_wire_callable` describes a Medulla capability, not a grant.
 
 ## Stable obligation coverage
 
@@ -50,7 +50,7 @@ External applications consume only the published public catalog and clients. The
 | Packaging and tooling compatibility | EG-CONTRACT-R015 contract packaging and `is_wire_callable`; EG-CONTRACT-R011 bounded CI fanout; EG-CONTRACT-R012 and EG-CONTRACT-R013 KISS parser/config compatibility. |
 | Cross-cutting | EG-CONTRACT-R003 wheel privacy; EG-CONTRACT-R010 complexity scoring. |
 
-Adjacent EG capabilities specify their own semantics. This spec governs their published method/error projection and release proof. This table groups the obligations tracked when this spec was last reviewed; [requirements.md](requirements.md) is the authoritative full set.
+Adjacent Medulla capabilities specify their own semantics. This spec governs their published method/error projection and release proof. This table groups the obligations tracked when this spec was last reviewed; [requirements.md](requirements.md) is the authoritative full set.
 
 ## Completion criteria
 

@@ -1,4 +1,4 @@
-"""Locate the native ``epistemic-graph-server`` executable installed by this package."""
+"""Locate the native ``epistemic-graph-server`` executable installed by medulla-stem."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 __all__ = ["BinaryNotFoundError", "__version__", "binary_path"]
 
-__version__ = "2.27.7"
+__version__ = "2.27.8"
 
 _NAME = "epistemic-graph-server"
 
@@ -34,6 +34,5 @@ def binary_path() -> Path:
     if found:
         return Path(found)
     raise BinaryNotFoundError(
-        f"{_NAME} is not installed; "
-        "install it with `pip install epistemic-graph-server`"
+        f"{_NAME} is not installed; install it with `pip install medulla-stem`"
     )

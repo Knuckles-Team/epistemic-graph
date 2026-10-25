@@ -119,12 +119,12 @@ jobs:
       shell: bash
       run: |
         mkdir dist
-        cp dist-primary/epistemic_graph-*.whl dist/
+        cp dist-primary/medulla-*.whl dist/
     - name: Verify the bare installed wheel from a neutral directory
       shell: bash
       run: |
         python -m pip install --upgrade pip
-        python -m pip install --force-reinstall "$(ls dist/epistemic_graph-*.whl)"
+        python -m pip install --force-reinstall "$(ls dist/medulla-*.whl)"
         if command -v epistemic-graph-server >/dev/null 2>&1; then echo 'wheel must not ship the server executable' >&2; exit 1; fi
         cd "$RUNNER_TEMP"
         python - <<'PYTHON'
@@ -132,7 +132,7 @@ jobs:
         import re
         import epistemic_graph.numeric as numeric
         import epistemic_graph.engine as engine
-        dependencies = importlib.metadata.requires('epistemic-graph') or []
+        dependencies = importlib.metadata.requires('medulla') or []
         for requirement in dependencies:
             package = re.split(r'[\[<>=!~;]', requirement, maxsplit=1)[0]
             assert package.lower() != 'numpy', requirement

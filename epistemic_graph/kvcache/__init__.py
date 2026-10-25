@@ -18,7 +18,7 @@ Two entry points:
   "class_name": "RemoteKVL2Connector", "adapter_params": {"base_url": "..."}}``.
 
 The base package import needs **only stdlib** (``urllib``); ``httpx`` is an
-optional acceleration pulled by ``pip install epistemic-graph[lmcache]``.
+optional acceleration pulled by ``pip install medulla[lmcache]``.
 """
 
 from __future__ import annotations

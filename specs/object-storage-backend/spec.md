@@ -1,6 +1,6 @@
 # EG-OBJECT-STORAGE-BACKEND — Object-Storage-Native Durable Store and Comparative Cost Gate
 
-Owner: epistemic-graph (`EG`). Sole owner.
+Owner: Medulla (`EG`). Sole owner.
 
 ## User outcome
 
@@ -12,7 +12,7 @@ the default. Object storage is a declared, typed backend. It is not a second eng
 
 This answers an object-storage-native posture in which a columnar dataset store on
 S3-compatible object storage is the primary substrate. The stated advantage is the control
-plane. EG's object-store backend stays under the existing multi-raft consensus, placement, and
+plane. Medulla's object-store backend stays under the existing multi-raft consensus, placement, and
 resharding authorities. Its comparative cost gate also counts cross-shard federation actions.
 A single-store harness cannot express those.
 

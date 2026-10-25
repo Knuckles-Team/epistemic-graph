@@ -43,7 +43,7 @@ CLI:
     compare_wheel_reproducibility.py PRIMARY REPRODUCTION
 
 ``PRIMARY``/``REPRODUCTION`` are each either a directory containing exactly one
-``epistemic_graph-*.whl`` (matching how the release workflow already lays out
+``medulla-*.whl`` (matching how the release workflow already lays out
 ``dist-primary``/``dist-reproduction``), or a path to a single wheel file
 directly.
 """
@@ -94,13 +94,13 @@ _ZIPINFO_FIELDS: tuple[str, ...] = (
 def _resolve_wheel_group(argument: Path) -> list[Path]:
     """Return the wheel(s) named by ``argument``.
 
-    A directory is globbed for ``epistemic_graph-*.whl`` (matching the release
+    A directory is globbed for ``medulla-*.whl`` (matching the release
     workflow's ``dist-primary``/``dist-reproduction`` layout); a file path is
     used directly.
     """
 
     if argument.is_dir():
-        return sorted(argument.glob("epistemic_graph-*.whl"))
+        return sorted(argument.glob("medulla-*.whl"))
     return [argument]
 
 
@@ -406,13 +406,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "primary",
         type=Path,
-        help="primary wheel directory (globbed for epistemic_graph-*.whl) or wheel "
-        "file path",
+        help="primary wheel directory (globbed for medulla-*.whl) or wheel file path",
     )
     parser.add_argument(
         "reproduction",
         type=Path,
-        help="reproduction wheel directory (globbed for epistemic_graph-*.whl) or "
+        help="reproduction wheel directory (globbed for medulla-*.whl) or "
         "wheel file path",
     )
     args = parser.parse_args(argv)

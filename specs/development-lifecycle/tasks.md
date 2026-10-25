@@ -2,7 +2,7 @@
 
 Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requirements.md](requirements.md).
 
-Ordered producer first. Compile slot: EG only, one cargo lane host-wide at a time.
+Ordered producer first. Compile slot: Medulla only, one cargo lane host-wide at a time.
 
 - [ ] `EG-SDLC-R001` — Lifecycle record vocabulary and derived edges (rollup).
 - [ ] `EG-SDLC-R001.1` — Model.

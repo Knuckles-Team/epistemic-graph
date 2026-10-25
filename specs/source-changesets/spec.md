@@ -1,6 +1,6 @@
 # EG-SCM — Source changesets as the source of truth
 
-Owner: epistemic-graph (`EG`). Sole owner.
+Owner: Medulla (`EG`). Sole owner.
 Cross-repo IDs: none. The served `source.*` operations, the client transport, the gate
 split and the git mirror sync belong to their owners. They file their rows as this
 capability is delivered.

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-FEDERATED-QUERY",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-FEDERATED-QUERY-R001",
@@ -2644,7 +2644,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R085",
-      "title": "EG approves immutable source queries for bounded connector execution (rollup)",
+      "title": "Medulla approves immutable source queries for bounded connector execution (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],

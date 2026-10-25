@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-DECISION-ENGINE",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-DECISION-ENGINE-R001",
@@ -3342,7 +3342,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R113",
-      "title": "EG commits capacity acquisition atomically with synthesis evidence",
+      "title": "Medulla commits capacity acquisition atomically with synthesis evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "202b90167359",
@@ -3456,7 +3456,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R114",
-      "title": "Subagent allowance negotiation reads EG's topology facts",
+      "title": "Subagent allowance negotiation reads Medulla's topology facts",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "26b04e133dfd",
@@ -3469,18 +3469,18 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R115",
-      "title": "RETIRED: tracked by agent-utilities au.swarm.continue. Continuation decisions are evaluate-only and narrow-only",
+      "title": "RETIRED: tracked by Meristem au.swarm.continue. Continuation decisions are evaluate-only and narrow-only",
       "delivery_state": "RETIRED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": [],
-      "retired_reason": "tracked by agent-utilities au.swarm.continue. Continuation decisions are evaluate-only and narrow-only"
+      "retired_reason": "tracked by Meristem au.swarm.continue. Continuation decisions are evaluate-only and narrow-only"
     },
     {
       "id": "EG-DECISION-ENGINE-R116",
-      "title": "Consumers reach EG only through the versioned client contract",
+      "title": "Consumers reach Medulla only through the versioned client contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81"
@@ -4850,7 +4850,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R106.2",
-      "title": "AU position producer identity and execution-to-decision linkage",
+      "title": "Meristem position producer identity and execution-to-decision linkage",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -7033,7 +7033,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R172",
-      "title": "Capability designation index moved from agent-utilities (rollup)",
+      "title": "Capability designation index moved from Meristem (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],

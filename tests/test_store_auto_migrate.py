@@ -10,7 +10,7 @@ keeps the offline refusal. It exits with the store's named format error and the
 
 The writer is this build, and also the previous patch's published engine when
 `EPISTEMIC_GRAPH_PREVIOUS_PATCH_BINARY` names it (`pip install
-epistemic-graph-server==<previous>`). A store binds to its files' device and inode, so
+medulla-stem==<previous>`). A store binds to its files' device and inode, so
 the writer creates it in place. The migration stages its scratch copy inside the data
 directory, which must not be under `/tmp`. Run the previous-patch leg with `--basetemp`
 outside it.

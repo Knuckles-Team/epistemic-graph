@@ -40,10 +40,10 @@ def test_server_extra_pins_the_engine_version_and_is_bumped_with_it() -> None:
     version = _cargo()["package"]["version"]
     pyproject = tomllib.loads((REPO / "pyproject.toml").read_text())
     extra = pyproject["project"]["optional-dependencies"]["server"]
-    assert extra == [f"epistemic-graph-server=={version}"]
+    assert extra == [f"medulla-stem=={version}"]
     cfg = (REPO / ".config/bumpversion.cfg").read_text()
     assert "[bumpversion:file:pyproject.toml]" in cfg
-    assert 'search = "epistemic-graph-server=={current_version}"' in cfg
+    assert 'search = "medulla-stem=={current_version}"' in cfg
 
 
 @pytest.mark.spec("EG-CONTRACT-R053.4")
@@ -53,7 +53,7 @@ def test_server_binary_resolution_order_and_typed_error(
     monkeypatch.setitem(sys.modules, "epistemic_graph_server", None)
     monkeypatch.setattr(server_binary.shutil, "which", lambda _: None)
     with pytest.raises(
-        server_binary.ServerBinaryNotFoundError, match=r"epistemic-graph\[server\]"
+        server_binary.ServerBinaryNotFoundError, match=r"medulla\[server\]"
     ):
         server_binary.resolve_server_binary()
     monkeypatch.setattr(server_binary.shutil, "which", lambda _: "/on/path")
