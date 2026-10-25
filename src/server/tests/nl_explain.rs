@@ -104,3 +104,82 @@ async fn nl_query_explain_refuses_exactly_like_nl_query() {
         );
     }
 }
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[tokio::test]
+async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let state = echo_planned_fixture().await;
+
+    // A spelling variant of a stored label and property runs as the stored name,
+    // and the explain result discloses the UQL that actually ran.
+    let explained = send(&state, 960, nl_explain("MATCH (:doc) |> WHERE Year > 2024")).await;
+    assert_ok(&explained);
+    let body = explain_body(&explained);
+    assert!(body.uql.contains("(:Doc)"), "{}", body.uql);
+    assert!(body.uql.contains("year"), "{}", body.uql);
+    let mut ids: Vec<&str> = body.rows.iter().map(|(id, _)| id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec!["d1", "d2", "d5"]);
+
+    // A property no Doc stores is refused with the typed reason, never run.
+    let text = "MATCH (:Doc) |> WHERE source = 'ServiceNow'";
+    let plain = send(&state, 961, nl(text)).await;
+    let explained = send(&state, 962, nl_explain(text)).await;
+    assert!(plain.result.is_none() && explained.result.is_none());
+    assert_eq!(plain.error.as_deref(), Some("INVALID_ARGUMENT"));
+    let detail = plain.error_detail.clone().unwrap_or_default();
+    assert!(detail.contains("NL_SCHEMA_UNKNOWN_PROPERTY"), "{detail}");
+    assert!(detail.contains("step 2"), "{detail}");
+    assert_eq!(explained.error_detail, plain.error_detail);
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
+#[cfg(feature = "federation")]
+#[tokio::test]
+async fn nl_query_grounds_foreign_names_from_the_verified_owner_registry() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let state = {
+        crate::server::set_nl_planner(Arc::new(EchoPlanner));
+        let state = multi_tenant_state().await;
+        build_unified_fixture(&state).await;
+        state
+    };
+
+    // Register under another principal. The query below defaults to `system`,
+    // whose owner-scoped catalog must not disclose this source.
+    let registered = dispatch_as(
+        &state,
+        963,
+        "worker1",
+        Method::RegisterForeignSource {
+            name: "known".into(),
+            source: eg_types::wire::ForeignSourceSpec::HttpJson {
+                url: "http://example.invalid/worker1-secret".into(),
+                json_path: "data".into(),
+                field_map: eg_types::wire::HttpFieldMap {
+                    id: "id".into(),
+                    score: None,
+                    columns: Default::default(),
+                },
+            },
+        },
+    )
+    .await;
+    assert_ok(&registered);
+
+    // `known` never reaches the executor or the remote endpoint: grounding
+    // rejects it as absent from system's registry and does not disclose the
+    // other principal's source name, owner or endpoint.
+    let response = send(&state, 964, nl("MATCH (:Doc) |> FOREIGN \"known\"")).await;
+    assert!(response.result.is_none());
+    assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
+    let detail = response.error_detail.unwrap_or_default();
+    assert!(detail.contains("NL_SCHEMA_UNKNOWN_SOURCE"), "{detail}");
+    assert!(detail.contains("sources: none"), "{detail}");
+    assert!(!detail.contains("worker1"), "{detail}");
+    assert!(
+        !detail.contains("example.invalid/worker1-secret"),
+        "{detail}"
+    );
+}

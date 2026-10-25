@@ -796,6 +796,16 @@ Budget: engine overhead under 10 ms at p99 per step, excluding planner latency.
 References
 - No paper is cited.
 
+### Amendment 2026-10-25: grounding acceptance review
+
+For `EG-FEDERATED-QUERY-R058.4.7.1`, collect labels and property keys from the complete already-materialized caller snapshot. Collection costs O(nodes + edges), with additional memory for distinct labels and keys. The textual hint keeps its label and per-label property caps. This does not establish the separate p99 budget in `.6`.
+
+Use the existing owner-authorized foreign-source registry before planning. Foreign stages carry only ids and scores. Property reads rematerialize the local snapshot, including after JOIN or mixed fusion. A JOIN can reseed ids from its source when the input is empty. Its output therefore uses the complete local property schema. Resolve attribution input and grouping fields against the operation’s actual local scope. A modality source replaces the previous source scope; spatial and tensor layers use graph labels.
+
+`EG-FEDERATED-QUERY-R058.4.7` remains an open rollup. Its child `.1` delivers snapshot graph and authorized foreign-name grounding. Child `.2` tracks the remaining record-native and embedded-language identifier schemas. Existing execution routes and their source validators remain active.
+
+`EG-FEDERATED-QUERY-R058.4.9` tracks inline adapter authority and schema binding. The named-source path remains supported. NL grounding refuses only the unbound inline form pending that work. Deterministic query routes keep their existing adapter policies.
+
 ## EG-FEDERATED-QUERY-R088 — governed UQL text rows
 
 Replaces: `QueryMixin.uql` in `agent_utilities/knowledge_graph/orchestration/engine_query.py`. The harness calls the served `Uql` method through the generated client.

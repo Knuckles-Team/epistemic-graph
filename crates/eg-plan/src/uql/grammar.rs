@@ -438,8 +438,11 @@ pub fn nl_system_prompt() -> String {
     out.push_str(
         "\nPredicates (after WHERE): comparisons = != > >= < <=, IN (...), BETWEEN a AND b, \
          IS [NOT] NULL, combined with AND / OR / NOT and parentheses.\n\
-         Use ONLY labels/fields named in the provided schema hint. Reply with the UQL query \
-         ONLY — no explanation, no markdown code fences.",
+         The labels, properties, relationships and source names in these examples only \
+         illustrate syntax; they are not the schema. Use ONLY labels, properties and \
+         relationships named in the provided schema hint, and FOREIGN only with a source the \
+         hint names. RETURN takes score channels only, never properties. Reply with the UQL \
+         query ONLY — no explanation, no markdown code fences.",
     );
     out
 }
