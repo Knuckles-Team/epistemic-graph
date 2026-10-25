@@ -36,8 +36,18 @@ fn source_authority_vocabulary_declared_with_domain_and_range() {
         ("authorityRank", "DatatypeProperty", format!("{XSD}integer")),
     ] {
         let subject = format!("{VG}{property}");
-        assert!(has_iri(&triples, &subject, RDF_TYPE, &format!("{OWL}{kind}")));
-        assert!(has_iri(&triples, &subject, &domain, &format!("{VG}SourceAuthority")));
+        assert!(has_iri(
+            &triples,
+            &subject,
+            RDF_TYPE,
+            &format!("{OWL}{kind}")
+        ));
+        assert!(has_iri(
+            &triples,
+            &subject,
+            &domain,
+            &format!("{VG}SourceAuthority")
+        ));
         assert!(has_iri(&triples, &subject, &range, &range_iri));
     }
 }

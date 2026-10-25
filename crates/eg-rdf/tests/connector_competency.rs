@@ -137,7 +137,10 @@ f:baseline-host3 a infra:HealthBaseline ;
     infra:signal "cpu_temp_c" ;
     infra:p95 "65.0"^^xsd:decimal .
 "#;
-    let view = graph(&[include_str!("../../eg-core/ontology/infrastructure-v1.ttl")], fixture);
+    let view = graph(
+        &[include_str!("../../eg-core/ontology/infrastructure-v1.ttl")],
+        fixture,
+    );
     let (vars, rows) = select(
         &view,
         r#"
@@ -230,7 +233,10 @@ f:baseline-temp a infra:HealthBaseline ;
 # sensor-idle: no anomaly at all — no row.
 f:sensor-idle a infra:Entity .
 "#;
-    let view = graph(&[include_str!("../../eg-core/ontology/infrastructure-v1.ttl")], fixture);
+    let view = graph(
+        &[include_str!("../../eg-core/ontology/infrastructure-v1.ttl")],
+        fixture,
+    );
     let (vars, rows) = select(
         &view,
         r#"

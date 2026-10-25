@@ -1285,7 +1285,7 @@
         "7e398e2790d2"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/connector_competency.rs:187"
+        "crates/eg-rdf/tests/connector_competency.rs:190"
       ]
     },
     {
@@ -1718,7 +1718,7 @@
         "7e398e2790d2"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/connector_competency.rs:274"
+        "crates/eg-rdf/tests/connector_competency.rs:280"
       ]
     },
     {

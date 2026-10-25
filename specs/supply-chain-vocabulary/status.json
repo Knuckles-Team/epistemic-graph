@@ -107,9 +107,9 @@
         "ee2a3497659c"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:117",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:67",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:99"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:112",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:62",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:94"
       ]
     },
     {
@@ -127,7 +127,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:164"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:167"
       ]
     },
     {
@@ -168,7 +168,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:194"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:197"
       ]
     },
     {
@@ -186,7 +186,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:255"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:268"
       ]
     },
     {
@@ -197,7 +197,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:285"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:298"
       ]
     },
     {
@@ -208,8 +208,8 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:330",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:34"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:346",
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:36"
       ]
     },
     {
@@ -220,7 +220,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:364"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:380"
       ]
     },
     {
@@ -331,7 +331,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:49"
+        "crates/eg-rdf/tests/commercial_declarations.rs:56"
       ]
     },
     {
@@ -356,7 +356,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:45"
+        "crates/eg-core/tests/commercial_vocabulary.rs:49"
       ]
     },
     {
@@ -367,7 +367,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:90"
+        "crates/eg-core/tests/commercial_vocabulary.rs:92"
       ]
     },
     {
@@ -378,7 +378,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:131"
+        "crates/eg-core/tests/commercial_vocabulary.rs:136"
       ]
     },
     {
@@ -389,7 +389,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:192"
+        "crates/eg-core/tests/commercial_vocabulary.rs:200"
       ]
     },
     {
@@ -419,7 +419,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/infrastructure_host_limits.rs:40"
+        "crates/eg-rdf/tests/infrastructure_host_limits.rs:49"
       ]
     },
     {
