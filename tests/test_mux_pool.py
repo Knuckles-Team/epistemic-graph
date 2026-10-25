@@ -86,7 +86,16 @@ class WorkMockServer:
     async def stop(self):
         if self.server:
             self.server.close()
-            await self.server.wait_closed()
+            # Bounded teardown: `wait_closed` waits for EVERY per-connection
+            # handler task. When the test body fails before `close_all`
+            # (assertion, timeout, error), the pool's clients are never
+            # closed, their handler tasks sit in `readexactly` forever on the
+            # still-open connections, and an unbounded wait turns the plain
+            # failure into a 900s pytest-timeout hang (observed: CI run
+            # 40154846807, test_map_concurrent_parallelizes_the_wire). Close
+            # stops new accepts; any orphaned handler dies with the loop.
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self.server.wait_closed(), 10)
 
 
 def test_pool_auto_sizes_without_a_knob():
@@ -142,14 +151,32 @@ async def test_map_concurrent_parallelizes_the_wire():
         elapsed = time.perf_counter() - t0
 
         assert results == ["pong"] * n
-        serial_sum = n * work
-        # Must be far under the serial sum — the wire ran in parallel.
-        assert elapsed < serial_sum * 0.5, (
-            f"map_concurrent took {elapsed:.3f}s, expected ≪ {serial_sum:.3f}s serial"
+        # The server saw CONCURRENT in-flight requests: the mock processes
+        # each connection serially, so >1 in-flight proves the pool fanned
+        # the ops over multiple live connections. The high-water mark is
+        # bounded at >= 2, not == n: the mock's handler coroutines share
+        # THIS test's event loop, and a loaded xdist runner can interleave
+        # them enough that not all n overlap on the high-water mark (CI run
+        # 40183292701 saw 5 of 8); the load-robust parallelism proof is the
+        # elapsed ratio below.
+        assert server.max_inflight >= 2, (
+            f"pool did not parallelize the wire: "
+            f"{server.max_inflight} concurrent in-flight"
         )
-        # The server actually saw multiple requests in flight at once.
-        assert server.max_inflight == n, (
-            f"expected {n} concurrent in-flight, saw {server.max_inflight}"
+        # Must be far under the SERIAL sum — the wire ran in parallel. The
+        # baseline is self-calibrated (the same ops run serially on THIS
+        # machine right now): a loaded xdist runner cannot guarantee an
+        # absolute bound like 0.5 * n * work, and a slow-but-correct
+        # parallel run failing that bound is exactly how CI run 40154846807
+        # hung this test through the unbounded teardown.
+        t1 = time.perf_counter()
+        for _ in range(n):
+            async with pool.connection() as c:
+                assert await c._send("Ping") == "pong"
+        serial_elapsed = time.perf_counter() - t1
+        assert elapsed < max(serial_elapsed * 0.5, 0.25), (
+            f"map_concurrent took {elapsed:.3f}s, expected ≪ "
+            f"{serial_elapsed:.3f}s serial on this machine"
         )
 
         await pool.close_all()
@@ -284,8 +311,18 @@ async def test_shard_router_map_concurrent_parallelizes_one_graph():
         elapsed = time.perf_counter() - t0
 
         assert results == ["pong"] * n
-        assert elapsed < n * work * 0.5
         assert server.max_inflight >= 2, "router did not parallelize the wire"
+        # Self-calibrated serial baseline — same rationale as
+        # test_map_concurrent_parallelizes_the_wire (CI run 40154846807).
+        t1 = time.perf_counter()
+        for _ in range(n):
+            async with router.connection("g:alpha") as c:
+                assert await c._send("Ping") == "pong"
+        serial_elapsed = time.perf_counter() - t1
+        assert elapsed < max(serial_elapsed * 0.5, 0.2), (
+            f"router map_concurrent took {elapsed:.3f}s, expected ≪ "
+            f"{serial_elapsed:.3f}s serial on this machine"
+        )
         await router.close_all()
     finally:
         await server.stop()

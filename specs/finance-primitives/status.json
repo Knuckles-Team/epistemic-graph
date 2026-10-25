@@ -225,8 +225,7 @@
         "EG-FINANCE-PRIMITIVES-R002.9",
         "EG-FINANCE-PRIMITIVES-R002.10",
         "EG-FINANCE-PRIMITIVES-R002.11"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1",
@@ -249,120 +248,105 @@
         "EG-FINANCE-PRIMITIVES-R002.1.12",
         "EG-FINANCE-PRIMITIVES-R002.1.13",
         "EG-FINANCE-PRIMITIVES-R002.1.14"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.1",
       "title": "Rolling z-score shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.2",
       "title": "EWMA shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.3",
       "title": "Information coefficient shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.4",
       "title": "Information ratio shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.5",
       "title": "Effective sample size shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.6",
       "title": "Diebold-Mariano shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.7",
       "title": "Deflated Sharpe shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.8",
       "title": "Purged combinatorial cross-validation shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.9",
       "title": "Probability of backtest overfitting shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.10",
       "title": "Brier shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.11",
       "title": "Kalman shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.12",
       "title": "Ornstein-Uhlenbeck shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.13",
       "title": "ADF shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.14",
       "title": "Regime HMM shared kernel",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2",
@@ -375,8 +359,7 @@
         "EG-FINANCE-PRIMITIVES-R002.2.2",
         "EG-FINANCE-PRIMITIVES-R002.2.3",
         "EG-FINANCE-PRIMITIVES-R002.2.4"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1",
@@ -399,120 +382,105 @@
         "EG-FINANCE-PRIMITIVES-R002.2.1.12",
         "EG-FINANCE-PRIMITIVES-R002.2.1.13",
         "EG-FINANCE-PRIMITIVES-R002.2.1.14"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.1",
       "title": "Rolling z-score generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.2",
       "title": "EWMA generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.3",
       "title": "Information coefficient generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.4",
       "title": "Information ratio generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.5",
       "title": "Effective sample size generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.6",
       "title": "Diebold-Mariano generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.7",
       "title": "Deflated Sharpe generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.8",
       "title": "Purged combinatorial cross-validation generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.9",
       "title": "Probability of backtest overfitting generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.10",
       "title": "Brier generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.11",
       "title": "Kalman generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.12",
       "title": "Ornstein-Uhlenbeck generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.13",
       "title": "ADF generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.1.14",
       "title": "Regime HMM generic caller migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2",
@@ -535,120 +503,105 @@
         "EG-FINANCE-PRIMITIVES-R002.2.2.12",
         "EG-FINANCE-PRIMITIVES-R002.2.2.13",
         "EG-FINANCE-PRIMITIVES-R002.2.2.14"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.1",
       "title": "Rolling z-score finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.2",
       "title": "EWMA finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.3",
       "title": "Information coefficient finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.4",
       "title": "Information ratio finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.5",
       "title": "Effective sample size finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.6",
       "title": "Diebold-Mariano finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.7",
       "title": "Deflated Sharpe finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.8",
       "title": "Purged combinatorial cross-validation finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.9",
       "title": "Probability of backtest overfitting finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.10",
       "title": "Brier finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.11",
       "title": "Kalman finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.12",
       "title": "Ornstein-Uhlenbeck finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.13",
       "title": "ADF finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.2.14",
       "title": "Regime HMM finance alias compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3",
@@ -671,152 +624,133 @@
         "EG-FINANCE-PRIMITIVES-R002.2.3.12",
         "EG-FINANCE-PRIMITIVES-R002.2.3.13",
         "EG-FINANCE-PRIMITIVES-R002.2.3.14"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.1",
       "title": "Rolling z-score uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.2",
       "title": "EWMA uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.3",
       "title": "Information coefficient uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.4",
       "title": "Information ratio uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.5",
       "title": "Effective sample size uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.6",
       "title": "Diebold-Mariano uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.7",
       "title": "Deflated Sharpe uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.8",
       "title": "Purged combinatorial cross-validation uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.9",
       "title": "Probability of backtest overfitting uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.10",
       "title": "Brier uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.11",
       "title": "Kalman uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.12",
       "title": "Ornstein-Uhlenbeck uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.13",
       "title": "ADF uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.3.14",
       "title": "Regime HMM uql time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.2.4",
       "title": "Complete caller coverage check",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.3",
       "title": "Reconcile generated methods and client bindings",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.4",
       "title": "Bound original regime derivations and streaming work",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.5",
       "title": "Define versioned state-space inputs and checkpoints",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.6",
@@ -830,80 +764,70 @@
         "EG-FINANCE-PRIMITIVES-R002.6.3",
         "EG-FINANCE-PRIMITIVES-R002.6.4",
         "EG-FINANCE-PRIMITIVES-R002.6.5"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.6.1",
       "title": "Shared causal linear recurrence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.6.2",
       "title": "Volatility regime profile",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.6.3",
       "title": "Mean-reversion strength profile",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.6.4",
       "title": "Hedge ratio profile",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.6.5",
       "title": "Time-varying factor sensitivity profile",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.7",
       "title": "Detect innovation shifts and retune within fixed bounds",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.8",
       "title": "Bound nonlinear approximation and robust tail influence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.9",
       "title": "Wire versioned filtering through served series operations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.10",
       "title": "Prove filtering on the production hot paths",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
@@ -930,8 +854,7 @@
         "EG-FINANCE-PRIMITIVES-R004.1",
         "EG-FINANCE-PRIMITIVES-R004.2",
         "EG-FINANCE-PRIMITIVES-R004.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.1",
@@ -960,8 +883,7 @@
         "EG-FINANCE-PRIMITIVES-R004.2.4",
         "EG-FINANCE-PRIMITIVES-R004.2.5",
         "EG-FINANCE-PRIMITIVES-R004.2.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.1",
@@ -980,8 +902,7 @@
       ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R004.2.1.1"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.2",
@@ -1000,56 +921,49 @@
       ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R004.2.2.1"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.1.1",
       "title": "Account/Position complete shape acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.2.1",
       "title": "Activity/Lot complete shape acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.3",
       "title": "PortfolioGroup ontology and shapes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.4",
       "title": "StrategySpec ontology and shapes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.5",
       "title": "StrategyRun ontology and shapes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.6",
       "title": "LeverageTerms ontology and shapes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3",
@@ -1064,8 +978,7 @@
         "EG-FINANCE-PRIMITIVES-R004.3.1",
         "EG-FINANCE-PRIMITIVES-R004.3.2",
         "EG-FINANCE-PRIMITIVES-R004.3.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.1",
@@ -1096,72 +1009,63 @@
         "EG-FINANCE-PRIMITIVES-R004.3.2.6",
         "EG-FINANCE-PRIMITIVES-R004.3.2.7",
         "EG-FINANCE-PRIMITIVES-R004.3.2.8"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.2.1",
       "title": "Account served entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.2.2",
       "title": "Activity served entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.2.3",
       "title": "Lot served entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.2.4",
       "title": "Position served entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.2.5",
       "title": "PortfolioGroup served entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.2.6",
       "title": "StrategySpec served entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.2.7",
       "title": "StrategyRun served entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.2.8",
       "title": "LeverageTerms served entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.3",
@@ -1172,24 +1076,21 @@
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R004.3.3.1",
         "EG-FINANCE-PRIMITIVES-R004.3.3.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.3.1",
       "title": "Finance record contract regeneration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.3.2",
       "title": "Finance generated-client round trips",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005",
@@ -1200,8 +1101,7 @@
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R005.1",
         "EG-FINANCE-PRIMITIVES-R005.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.1",
@@ -1246,8 +1146,7 @@
         "EG-FINANCE-PRIMITIVES-R005.2.2",
         "EG-FINANCE-PRIMITIVES-R005.2.3",
         "EG-FINANCE-PRIMITIVES-R005.2.4"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2.1",
@@ -1267,24 +1166,21 @@
       "title": "Average-cost election",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2.3",
       "title": "Transfer conservation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2.4",
       "title": "Split basis preservation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R006",
@@ -1437,8 +1333,7 @@
         "EG-FINANCE-PRIMITIVES-R011.1",
         "EG-FINANCE-PRIMITIVES-R011.2",
         "EG-FINANCE-PRIMITIVES-R011.3"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R011.1",
@@ -1460,32 +1355,28 @@
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R011.2.1",
         "EG-FINANCE-PRIMITIVES-R011.2.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R011.2.1",
       "title": "Finance envelope to outbox intent",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R011.2.2",
       "title": "Finance event atomic commit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R011.3",
       "title": "Finance delivery replay",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R012",
@@ -1535,9 +1426,6 @@
         "crates/eg-compute/src/finance/ghostfolio_import.rs:191",
         "crates/eg-compute/src/finance/ghostfolio_import.rs:198",
         "crates/eg-compute/src/finance/ghostfolio_import.rs:221"
-      ],
-      "depends_on": [
-        "EG-FINANCE-PRIMITIVES-R012.1"
       ]
     },
     {
@@ -1549,8 +1437,7 @@
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R013.1",
         "EG-FINANCE-PRIMITIVES-R013.2"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.1",
@@ -1573,17 +1460,13 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
-      "depends_on": [
-        "EG-FINANCE-PRIMITIVES-R013.1"
-      ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R013.2.1",
         "EG-FINANCE-PRIMITIVES-R013.2.2",
         "EG-FINANCE-PRIMITIVES-R013.2.3",
         "EG-FINANCE-PRIMITIVES-R013.2.4",
         "EG-FINANCE-PRIMITIVES-R013.2.5"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2.1",
@@ -1603,32 +1486,28 @@
       "title": "Corporate-action golden fixtures against published notices",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2.3",
       "title": "DST and session-boundary golden fixtures against published exchange calendars",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2.4",
       "title": "Leveraged-ETF daily-reset decay golden fixtures against published returns",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2.5",
       "title": "Futures-roll golden fixtures against published contract and settlement records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R014",
@@ -1653,8 +1532,7 @@
       "verified_by": [],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R015.1"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
@@ -1698,72 +1576,63 @@
         "EG-FINANCE-PRIMITIVES-R018.4",
         "EG-FINANCE-PRIMITIVES-R018.5",
         "EG-FINANCE-PRIMITIVES-R018.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R015.1",
       "title": "Immutable order-proposal snapshot and atomic admission boundary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.11",
       "title": "Multi-horizon Markov regime forecast and policy-bound sizing input",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613",
@@ -1778,56 +1647,49 @@
         "EG-FINANCE-PRIMITIVES-R613.4",
         "EG-FINANCE-PRIMITIVES-R613.5",
         "EG-FINANCE-PRIMITIVES-R613.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R750",
@@ -1840,40 +1702,35 @@
         "EG-FINANCE-PRIMITIVES-R750.751",
         "EG-FINANCE-PRIMITIVES-R750.752",
         "EG-FINANCE-PRIMITIVES-R750.753"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R750.750",
       "title": "Model: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R750.751",
       "title": "Behavior: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R750.752",
       "title": "Refusal: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R750.753",
       "title": "Hot-path proof: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R751",
@@ -1886,40 +1743,35 @@
         "EG-FINANCE-PRIMITIVES-R751.751",
         "EG-FINANCE-PRIMITIVES-R751.752",
         "EG-FINANCE-PRIMITIVES-R751.753"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R751.750",
       "title": "Model: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R751.751",
       "title": "Behavior: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R751.752",
       "title": "Refusal: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R751.753",
       "title": "Hot-path proof: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900",
@@ -1934,56 +1786,49 @@
         "EG-FINANCE-PRIMITIVES-R900.4",
         "EG-FINANCE-PRIMITIVES-R900.5",
         "EG-FINANCE-PRIMITIVES-R900.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901",
@@ -1998,318 +1843,49 @@
         "EG-FINANCE-PRIMITIVES-R901.4",
         "EG-FINANCE-PRIMITIVES-R901.5",
         "EG-FINANCE-PRIMITIVES-R901.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     }
-  ],
-  "frontier": [
-    "EG-FINANCE-PRIMITIVES-R002.1.1",
-    "EG-FINANCE-PRIMITIVES-R002.1.2",
-    "EG-FINANCE-PRIMITIVES-R002.1.3",
-    "EG-FINANCE-PRIMITIVES-R002.1.4",
-    "EG-FINANCE-PRIMITIVES-R002.1.5",
-    "EG-FINANCE-PRIMITIVES-R002.1.6",
-    "EG-FINANCE-PRIMITIVES-R002.1.7",
-    "EG-FINANCE-PRIMITIVES-R002.1.8",
-    "EG-FINANCE-PRIMITIVES-R002.1.9",
-    "EG-FINANCE-PRIMITIVES-R002.1.10",
-    "EG-FINANCE-PRIMITIVES-R002.1.11",
-    "EG-FINANCE-PRIMITIVES-R002.1.12",
-    "EG-FINANCE-PRIMITIVES-R002.1.13",
-    "EG-FINANCE-PRIMITIVES-R002.1.14",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.1",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.2",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.3",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.4",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.5",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.6",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.7",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.8",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.9",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.10",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.11",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.12",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.13",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.14",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.1",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.2",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.3",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.4",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.5",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.6",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.7",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.8",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.9",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.10",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.11",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.12",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.13",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.14",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.1",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.2",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.3",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.4",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.5",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.6",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.7",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.8",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.9",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.10",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.11",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.12",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.13",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.14",
-    "EG-FINANCE-PRIMITIVES-R002.2.4",
-    "EG-FINANCE-PRIMITIVES-R002.3",
-    "EG-FINANCE-PRIMITIVES-R002.4",
-    "EG-FINANCE-PRIMITIVES-R002.5",
-    "EG-FINANCE-PRIMITIVES-R002.6.1",
-    "EG-FINANCE-PRIMITIVES-R002.6.2",
-    "EG-FINANCE-PRIMITIVES-R002.6.3",
-    "EG-FINANCE-PRIMITIVES-R002.6.4",
-    "EG-FINANCE-PRIMITIVES-R002.6.5",
-    "EG-FINANCE-PRIMITIVES-R002.7",
-    "EG-FINANCE-PRIMITIVES-R002.8",
-    "EG-FINANCE-PRIMITIVES-R002.9",
-    "EG-FINANCE-PRIMITIVES-R002.10",
-    "EG-FINANCE-PRIMITIVES-R004.2.1.1",
-    "EG-FINANCE-PRIMITIVES-R004.2.2.1",
-    "EG-FINANCE-PRIMITIVES-R004.2.3",
-    "EG-FINANCE-PRIMITIVES-R004.2.4",
-    "EG-FINANCE-PRIMITIVES-R004.2.5",
-    "EG-FINANCE-PRIMITIVES-R004.2.6",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.1",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.2",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.3",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.4",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.5",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.6",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.7",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.8",
-    "EG-FINANCE-PRIMITIVES-R004.3.3.1",
-    "EG-FINANCE-PRIMITIVES-R004.3.3.2",
-    "EG-FINANCE-PRIMITIVES-R005.2.2",
-    "EG-FINANCE-PRIMITIVES-R005.2.3",
-    "EG-FINANCE-PRIMITIVES-R005.2.4",
-    "EG-FINANCE-PRIMITIVES-R011.2.1",
-    "EG-FINANCE-PRIMITIVES-R011.2.2",
-    "EG-FINANCE-PRIMITIVES-R011.3",
-    "EG-FINANCE-PRIMITIVES-R013.2.2",
-    "EG-FINANCE-PRIMITIVES-R013.2.3",
-    "EG-FINANCE-PRIMITIVES-R013.2.4",
-    "EG-FINANCE-PRIMITIVES-R013.2.5",
-    "EG-FINANCE-PRIMITIVES-R018.1",
-    "EG-FINANCE-PRIMITIVES-R018.2",
-    "EG-FINANCE-PRIMITIVES-R018.3",
-    "EG-FINANCE-PRIMITIVES-R018.4",
-    "EG-FINANCE-PRIMITIVES-R018.5",
-    "EG-FINANCE-PRIMITIVES-R018.6",
-    "EG-FINANCE-PRIMITIVES-R015.1",
-    "EG-FINANCE-PRIMITIVES-R002.11",
-    "EG-FINANCE-PRIMITIVES-R613.1",
-    "EG-FINANCE-PRIMITIVES-R613.2",
-    "EG-FINANCE-PRIMITIVES-R613.3",
-    "EG-FINANCE-PRIMITIVES-R613.4",
-    "EG-FINANCE-PRIMITIVES-R613.5",
-    "EG-FINANCE-PRIMITIVES-R613.6",
-    "EG-FINANCE-PRIMITIVES-R750.750",
-    "EG-FINANCE-PRIMITIVES-R750.751",
-    "EG-FINANCE-PRIMITIVES-R750.752",
-    "EG-FINANCE-PRIMITIVES-R750.753",
-    "EG-FINANCE-PRIMITIVES-R751.750",
-    "EG-FINANCE-PRIMITIVES-R751.751",
-    "EG-FINANCE-PRIMITIVES-R751.752",
-    "EG-FINANCE-PRIMITIVES-R751.753",
-    "EG-FINANCE-PRIMITIVES-R900.1",
-    "EG-FINANCE-PRIMITIVES-R900.2",
-    "EG-FINANCE-PRIMITIVES-R900.3",
-    "EG-FINANCE-PRIMITIVES-R900.4",
-    "EG-FINANCE-PRIMITIVES-R900.5",
-    "EG-FINANCE-PRIMITIVES-R900.6",
-    "EG-FINANCE-PRIMITIVES-R901.1",
-    "EG-FINANCE-PRIMITIVES-R901.2",
-    "EG-FINANCE-PRIMITIVES-R901.3",
-    "EG-FINANCE-PRIMITIVES-R901.4",
-    "EG-FINANCE-PRIMITIVES-R901.5",
-    "EG-FINANCE-PRIMITIVES-R901.6"
-  ],
-  "unserved": [
-    "EG-FINANCE-PRIMITIVES-R002.1.1",
-    "EG-FINANCE-PRIMITIVES-R002.1.2",
-    "EG-FINANCE-PRIMITIVES-R002.1.3",
-    "EG-FINANCE-PRIMITIVES-R002.1.4",
-    "EG-FINANCE-PRIMITIVES-R002.1.5",
-    "EG-FINANCE-PRIMITIVES-R002.1.6",
-    "EG-FINANCE-PRIMITIVES-R002.1.7",
-    "EG-FINANCE-PRIMITIVES-R002.1.8",
-    "EG-FINANCE-PRIMITIVES-R002.1.9",
-    "EG-FINANCE-PRIMITIVES-R002.1.10",
-    "EG-FINANCE-PRIMITIVES-R002.1.11",
-    "EG-FINANCE-PRIMITIVES-R002.1.12",
-    "EG-FINANCE-PRIMITIVES-R002.1.13",
-    "EG-FINANCE-PRIMITIVES-R002.1.14",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.1",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.2",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.3",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.4",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.5",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.6",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.7",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.8",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.9",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.10",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.11",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.12",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.13",
-    "EG-FINANCE-PRIMITIVES-R002.2.1.14",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.1",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.2",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.3",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.4",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.5",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.6",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.7",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.8",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.9",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.10",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.11",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.12",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.13",
-    "EG-FINANCE-PRIMITIVES-R002.2.2.14",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.1",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.2",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.3",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.4",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.5",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.6",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.7",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.8",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.9",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.10",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.11",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.12",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.13",
-    "EG-FINANCE-PRIMITIVES-R002.2.3.14",
-    "EG-FINANCE-PRIMITIVES-R002.2.4",
-    "EG-FINANCE-PRIMITIVES-R002.3",
-    "EG-FINANCE-PRIMITIVES-R002.4",
-    "EG-FINANCE-PRIMITIVES-R002.5",
-    "EG-FINANCE-PRIMITIVES-R002.6.1",
-    "EG-FINANCE-PRIMITIVES-R002.6.2",
-    "EG-FINANCE-PRIMITIVES-R002.6.3",
-    "EG-FINANCE-PRIMITIVES-R002.6.4",
-    "EG-FINANCE-PRIMITIVES-R002.6.5",
-    "EG-FINANCE-PRIMITIVES-R002.7",
-    "EG-FINANCE-PRIMITIVES-R002.8",
-    "EG-FINANCE-PRIMITIVES-R002.9",
-    "EG-FINANCE-PRIMITIVES-R002.10",
-    "EG-FINANCE-PRIMITIVES-R004.2.1.1",
-    "EG-FINANCE-PRIMITIVES-R004.2.2.1",
-    "EG-FINANCE-PRIMITIVES-R004.2.3",
-    "EG-FINANCE-PRIMITIVES-R004.2.4",
-    "EG-FINANCE-PRIMITIVES-R004.2.5",
-    "EG-FINANCE-PRIMITIVES-R004.2.6",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.1",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.2",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.3",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.4",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.5",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.6",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.7",
-    "EG-FINANCE-PRIMITIVES-R004.3.2.8",
-    "EG-FINANCE-PRIMITIVES-R004.3.3.1",
-    "EG-FINANCE-PRIMITIVES-R004.3.3.2",
-    "EG-FINANCE-PRIMITIVES-R005.2.2",
-    "EG-FINANCE-PRIMITIVES-R005.2.3",
-    "EG-FINANCE-PRIMITIVES-R005.2.4",
-    "EG-FINANCE-PRIMITIVES-R011.2.1",
-    "EG-FINANCE-PRIMITIVES-R011.2.2",
-    "EG-FINANCE-PRIMITIVES-R011.3",
-    "EG-FINANCE-PRIMITIVES-R013.2.2",
-    "EG-FINANCE-PRIMITIVES-R013.2.3",
-    "EG-FINANCE-PRIMITIVES-R013.2.4",
-    "EG-FINANCE-PRIMITIVES-R013.2.5",
-    "EG-FINANCE-PRIMITIVES-R018.1",
-    "EG-FINANCE-PRIMITIVES-R018.2",
-    "EG-FINANCE-PRIMITIVES-R018.3",
-    "EG-FINANCE-PRIMITIVES-R018.4",
-    "EG-FINANCE-PRIMITIVES-R018.5",
-    "EG-FINANCE-PRIMITIVES-R018.6",
-    "EG-FINANCE-PRIMITIVES-R015.1",
-    "EG-FINANCE-PRIMITIVES-R002.11",
-    "EG-FINANCE-PRIMITIVES-R613.1",
-    "EG-FINANCE-PRIMITIVES-R613.2",
-    "EG-FINANCE-PRIMITIVES-R613.3",
-    "EG-FINANCE-PRIMITIVES-R613.4",
-    "EG-FINANCE-PRIMITIVES-R613.5",
-    "EG-FINANCE-PRIMITIVES-R613.6",
-    "EG-FINANCE-PRIMITIVES-R750.750",
-    "EG-FINANCE-PRIMITIVES-R750.751",
-    "EG-FINANCE-PRIMITIVES-R750.752",
-    "EG-FINANCE-PRIMITIVES-R750.753",
-    "EG-FINANCE-PRIMITIVES-R751.750",
-    "EG-FINANCE-PRIMITIVES-R751.751",
-    "EG-FINANCE-PRIMITIVES-R751.752",
-    "EG-FINANCE-PRIMITIVES-R751.753",
-    "EG-FINANCE-PRIMITIVES-R900.1",
-    "EG-FINANCE-PRIMITIVES-R900.2",
-    "EG-FINANCE-PRIMITIVES-R900.3",
-    "EG-FINANCE-PRIMITIVES-R900.4",
-    "EG-FINANCE-PRIMITIVES-R900.5",
-    "EG-FINANCE-PRIMITIVES-R900.6",
-    "EG-FINANCE-PRIMITIVES-R901.1",
-    "EG-FINANCE-PRIMITIVES-R901.2",
-    "EG-FINANCE-PRIMITIVES-R901.3",
-    "EG-FINANCE-PRIMITIVES-R901.4",
-    "EG-FINANCE-PRIMITIVES-R901.5",
-    "EG-FINANCE-PRIMITIVES-R901.6"
   ]
 }

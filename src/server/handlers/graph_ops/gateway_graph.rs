@@ -14,6 +14,15 @@ pub(super) fn decode_json_object(blob: &[u8]) -> serde_json::Map<String, serde_j
     eg_types::msgpack::decode_property_object(blob).unwrap_or_default()
 }
 
+// EG-ORCH-VOCAB-R801.3 — the versioned harness-component write attaches to
+// the existing AddNode path at the pre-commit point in `try_handle_gateway`
+// (beside the owner-id stamp), through
+// `crate::server::harness_admission::direct_add_node`: the method is mutated
+// BEFORE both the durable commit and the `apply` closure clone it, so the
+// stamped record is exactly what gets persisted and what the RAM projection
+// applies. The ChangeEnvelope path runs the shared rules through
+// `harness_admission::envelope_boundary` instead of mutating.
+
 /// BUG-193: stamp the BUG-052/GOC-61 canonical `_owner_id` onto a brand-new
 /// node's property blob when the caller did not already supply an ownership
 /// key, so a genuinely natively-written row is no longer permanently unowned

@@ -33,8 +33,6 @@ pub const MAX_PROPERTIES_PER_LABEL: usize = 16;
 pub const DEFAULT_MAX_STEPS: usize = 2;
 /// Upper bound on `max_steps`.
 pub const MAX_STEPS: usize = 4;
-/// Keys that carry a node's label rather than a queryable property.
-const LABEL_KEYS: [&str; 4] = ["type", "node_type", "label", "labels"];
 
 /// One ontology property, reduced to what grounding needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +61,9 @@ pub struct LabelSchema {
 pub struct SchemaContext {
     labels: BTreeMap<String, LabelSchema>,
     relationships: BTreeSet<String>,
+    unlabelled: LabelSchema,
+    edge_schemas: BTreeMap<String, LabelSchema>,
+    untyped_edges: LabelSchema,
     /// Federation sources the caller may name; `None` leaves `FOREIGN` names
     /// to the served source registry, which refuses an unknown one.
     foreign_sources: Option<BTreeSet<String>>,
@@ -196,6 +197,22 @@ enum Scope {
     AnyLocal,
     /// Rows come from outside the local graph; their keys are not checked.
     External,
+    /// Stored edge properties, restricted to a relationship when present.
+    Edges(Option<String>),
+}
+
+/// Fusion returns the union of the branches' row scopes. An external branch
+/// prevents asserting that an unknown property is absent from every output row.
+#[cfg(feature = "text")]
+fn union_scope(left: Scope, right: Scope) -> Scope {
+    match (left, right) {
+        (Scope::External, _) | (_, Scope::External) => Scope::External,
+        (Scope::Labels(mut left), Scope::Labels(right)) => {
+            left.extend(right);
+            Scope::Labels(left)
+        }
+        _ => Scope::AnyLocal,
+    }
 }
 
 impl SchemaContext {
@@ -211,10 +228,17 @@ impl SchemaContext {
         }
         for blobs in view.edge_properties.values() {
             for blob in blobs {
-                if let Ok(value) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
-                    if let Some(rel) = value.get("relationship").and_then(|v| v.as_str()) {
-                        context.observe_relationship(rel);
-                    }
+                if let Ok(serde_json::Value::Object(props)) =
+                    eg_types::msgpack::decode_property_value(blob.as_slice())
+                {
+                    let schema =
+                        if let Some(rel) = props.get("relationship").and_then(|v| v.as_str()) {
+                            context.observe_relationship(rel);
+                            context.edge_schemas.entry(rel.to_string()).or_default()
+                        } else {
+                            &mut context.untyped_edges
+                        };
+                    schema.fields.extend(props.keys().cloned());
                 }
             }
         }
@@ -223,14 +247,16 @@ impl SchemaContext {
 
     /// Record one node's labels and property keys.
     pub fn observe_node(&mut self, props: &serde_json::Map<String, serde_json::Value>) {
-        let fields: Vec<&String> = props
-            .keys()
-            .filter(|key| !LABEL_KEYS.contains(&key.as_str()))
-            .collect();
-        for label in node_labels(props) {
+        let labels = node_labels(props);
+        if labels.is_empty() {
+            self.unlabelled.nodes += 1;
+            self.unlabelled.fields.extend(props.keys().cloned());
+        }
+        for label in labels {
             let entry = self.labels.entry(label).or_default();
             entry.nodes += 1;
-            entry.fields.extend(fields.iter().map(|f| (*f).clone()));
+            // Label-bearing keys remain queryable SQL properties too.
+            entry.fields.extend(props.keys().cloned());
         }
     }
 
@@ -283,7 +309,7 @@ impl SchemaContext {
     /// (ontology-mapped ones as `ontologyName = stored_key`, then the ones the
     /// question mentions, capped per label), and the relationships.
     pub fn hint(&self, question: &str) -> String {
-        if self.labels.is_empty() {
+        if self.labels.is_empty() && self.unlabelled.nodes == 0 {
             return "The graph holds no labelled nodes.".to_string();
         }
         let tokens = question_tokens(question);
@@ -299,10 +325,23 @@ impl SchemaContext {
                 hint_fields(schema, &tokens).join(", ")
             ));
         }
+        if self.unlabelled.nodes > 0 {
+            out.push_str(&format!(
+                "  Unlabelled ({} nodes, use MATCH ()): {}\n",
+                self.unlabelled.nodes,
+                hint_fields(&self.unlabelled, &tokens).join(", ")
+            ));
+        }
         out.push_str(&format!(
             "Relationships: {}\n",
             list(&self.relationships.iter().cloned().collect::<Vec<_>>())
         ));
+        for (rel, schema) in &self.edge_schemas {
+            out.push_str(&format!(
+                "  Edge :{rel} properties: {}\n",
+                hint_fields(schema, &tokens).join(", ")
+            ));
+        }
         if let Some(sources) = &self.foreign_sources {
             out.push_str(&format!(
                 "Foreign sources: {}\n",
@@ -330,10 +369,7 @@ impl SchemaContext {
     /// spelling variants to the stored names (EG-FEDERATED-QUERY-R058.4.7).
     pub fn ground(&self, plan: &Plan) -> Result<Grounded, SchemaViolation> {
         let mut repairs = Vec::new();
-        // A pipeline with a federation stage may seed a label only the foreign
-        // source holds; the foreign leg supplies those rows.
-        let federated = plan.ops.iter().any(is_foreign_op);
-        let ops = self.ground_ops(&plan.ops, Scope::AnyLocal, federated, &mut repairs)?;
+        let (ops, _) = self.ground_ops(&plan.ops, Scope::AnyLocal, &mut repairs)?;
         Ok(Grounded {
             plan: Plan::new(ops),
             repairs,
@@ -344,27 +380,25 @@ impl SchemaContext {
         &self,
         ops: &[Op],
         mut scope: Scope,
-        federated: bool,
         repairs: &mut Vec<Repair>,
-    ) -> Result<Vec<Op>, SchemaViolation> {
+    ) -> Result<(Vec<Op>, Scope), SchemaViolation> {
         let mut out = Vec::with_capacity(ops.len());
         for op in ops {
-            let (grounded, next) = self.ground_op(op, scope, federated, repairs)?;
+            let (grounded, next) = self.ground_op(op, scope, repairs)?;
             out.push(grounded);
             scope = next;
         }
-        Ok(out)
+        Ok((out, scope))
     }
 
     fn ground_op(
         &self,
         op: &Op,
         scope: Scope,
-        federated: bool,
         repairs: &mut Vec<Repair>,
     ) -> Result<(Op, Scope), SchemaViolation> {
         match op {
-            Op::Scan { label } => self.ground_scan(label, federated, repairs),
+            Op::Scan { label } => self.ground_scan(label, repairs),
             Op::ScanAll {} => Ok((op.clone(), Scope::AnyLocal)),
             Op::Filter { preds } => {
                 let preds = self.ground_preds(preds, &scope, repairs)?;
@@ -377,6 +411,26 @@ impl SchemaContext {
             }
             Op::Expand { .. } | Op::Propagate { .. } => {
                 Ok((self.ground_edge_op(op, repairs)?, Scope::AnyLocal))
+            }
+            #[cfg(feature = "text")]
+            Op::FuseRrf { branches, k } => {
+                let mut grounded = Vec::with_capacity(branches.len());
+                let mut output_scope: Option<Scope> = None;
+                for branch in branches {
+                    let (ops, branch_scope) = self.ground_ops(branch, scope.clone(), repairs)?;
+                    grounded.push(ops);
+                    output_scope = Some(match output_scope {
+                        None => branch_scope,
+                        Some(previous) => union_scope(previous, branch_scope),
+                    });
+                }
+                Ok((
+                    Op::FuseRrf {
+                        branches: grounded,
+                        k: *k,
+                    },
+                    output_scope.unwrap_or(scope),
+                ))
             }
             Op::Foreign { name } => {
                 self.check_foreign_source(name)?;
@@ -398,40 +452,34 @@ impl SchemaContext {
         }
     }
 
-    /// `MATCH (:label)`: a stored label (or a spelling variant of one) scopes
-    /// the rows to it. In a federated pipeline a label the local graph lacks is
-    /// left to the foreign leg, and its rows are not checked locally.
+    /// `MATCH (:label)` always reads the local snapshot, even when a later
+    /// stage replaces its rows with foreign data.
     fn ground_scan(
         &self,
         label: &str,
-        federated: bool,
         repairs: &mut Vec<Repair>,
     ) -> Result<(Op, Scope), SchemaViolation> {
-        match self.resolve_label(label, repairs) {
-            Ok(label) => {
-                let scope = Scope::Labels(BTreeSet::from([label.clone()]));
-                Ok((Op::Scan { label }, scope))
-            }
-            Err(_) if federated => Ok((
-                Op::Scan {
-                    label: label.to_string(),
-                },
-                Scope::External,
-            )),
-            Err(violation) => Err(violation),
-        }
+        let label = self.resolve_label(label, repairs)?;
+        let scope = Scope::Labels(BTreeSet::from([label.clone()]));
+        Ok((Op::Scan { label }, scope))
     }
 
     /// `Expand`/`Propagate`: resolve the optional relationship name.
     fn ground_edge_op(&self, op: &Op, repairs: &mut Vec<Repair>) -> Result<Op, SchemaViolation> {
         let mut op = op.clone();
-        let rel = match &mut op {
-            Op::Expand { rel, .. } | Op::Propagate { rel, .. } => rel,
+        let (rel, edge_preds) = match &mut op {
+            Op::Expand {
+                rel, edge_preds, ..
+            }
+            | Op::Propagate {
+                rel, edge_preds, ..
+            } => (rel, edge_preds),
             _ => return Ok(op),
         };
         if let Some(name) = rel.as_ref() {
             *rel = Some(self.resolve_relationship(name, repairs)?);
         }
+        *edge_preds = self.ground_preds(edge_preds, &Scope::Edges(rel.clone()), repairs)?;
         Ok(op)
     }
 
@@ -460,6 +508,24 @@ impl SchemaContext {
             }
             Pred::Not { pred: inner } => {
                 **inner = self.ground_pred(inner, scope, repairs)?;
+            }
+            Pred::JsonPath { path, .. } => {
+                // The snapshot schema records top-level keys, not document
+                // shapes. Check the root key; deeper path segments keep their
+                // existing JSONPath semantics and are never guessed.
+                if let Some(eg_core::jsonpath::Segment::Key(key)) =
+                    eg_core::jsonpath::parse_path(path)
+                        .as_deref()
+                        .and_then(|p| p.first())
+                {
+                    if let Some(schemas) = self.scope_schemas(scope) {
+                        let fields: BTreeSet<&String> =
+                            schemas.iter().flat_map(|s| s.fields.iter()).collect();
+                        if !fields.iter().any(|field| field.as_str() == key) {
+                            return Err(self.unknown_property(key, scope, &fields));
+                        }
+                    }
+                }
             }
             other => {
                 if let Some(prop) = pred_property(other) {
@@ -514,7 +580,9 @@ impl SchemaContext {
             Some(schemas) => schemas,
             None => return Ok(prop.to_string()),
         };
-        if prop == "id" || schemas.iter().any(|s| s.fields.contains(prop)) {
+        if (prop == "id" && !matches!(scope, Scope::Edges(_)))
+            || schemas.iter().any(|s| s.fields.contains(prop))
+        {
             return Ok(prop.to_string());
         }
         if let Some(stored) = ontology_target(&schemas, prop) {
@@ -531,7 +599,19 @@ impl SchemaContext {
     fn scope_schemas(&self, scope: &Scope) -> Option<Vec<&LabelSchema>> {
         match scope {
             Scope::External => None,
-            Scope::AnyLocal => Some(self.labels.values().collect()),
+            Scope::AnyLocal => Some(
+                self.labels
+                    .values()
+                    .chain(std::iter::once(&self.unlabelled))
+                    .collect(),
+            ),
+            Scope::Edges(Some(rel)) => Some(self.edge_schemas.get(rel).into_iter().collect()),
+            Scope::Edges(None) => Some(
+                self.edge_schemas
+                    .values()
+                    .chain(std::iter::once(&self.untyped_edges))
+                    .collect(),
+            ),
             Scope::Labels(labels) => Some(
                 labels
                     .iter()
@@ -549,6 +629,8 @@ impl SchemaContext {
     ) -> SchemaViolation {
         let labels = match scope {
             Scope::Labels(labels) => labels.iter().cloned().collect(),
+            Scope::Edges(Some(rel)) => vec![format!("edges :{rel}")],
+            Scope::Edges(None) => vec!["any edge".to_string()],
             _ => vec!["any label".to_string()],
         };
         SchemaViolation::UnknownProperty {
@@ -560,16 +642,6 @@ impl SchemaContext {
                 .map(|f| (*f).clone())
                 .collect(),
         }
-    }
-}
-
-/// True for an op that reads rows from a federation source.
-fn is_foreign_op(op: &Op) -> bool {
-    match op {
-        Op::Foreign { .. } => true,
-        #[cfg(feature = "federation")]
-        Op::ForeignScan { .. } => true,
-        _ => false,
     }
 }
 
@@ -644,6 +716,16 @@ fn pred_property(pred: &mut Pred) -> Option<&mut String> {
         | Pred::In { prop, .. }
         | Pred::Between { prop, .. }
         | Pred::IsNull { prop } => Some(prop),
+        #[cfg(feature = "geo")]
+        Pred::SpatialWithin { column, .. }
+        | Pred::SpatialDWithin { column, .. }
+        | Pred::SpatialContains { column, .. }
+        | Pred::SpatialCovers { column, .. }
+        | Pred::SpatialTouches { column, .. }
+        | Pred::SpatialCrosses { column, .. }
+        | Pred::SpatialOverlaps { column, .. }
+        | Pred::SpatialEquals { column, .. }
+        | Pred::SpatialDisjoint { column, .. } => Some(column),
         _ => None,
     }
 }

@@ -1,7 +1,8 @@
 //! Signed current-discovery and historical-content acceptance.
 
 use super::{
-    bind, build_pack, context, head_of, imported, ok, persistence_id, tool, Served, ADMIN, TENANT,
+    bind, build_pack, context, head_of, import_uploaded_with, imported, ok, persistence_id, tool,
+    Served, ADMIN, TENANT,
 };
 use crate::protocol::Method;
 use eg_types::agent_component::{
@@ -10,6 +11,7 @@ use eg_types::agent_component::{
     AgentComponentSearchRequest, ComponentDependency,
 };
 use eg_types::agent_library::AgentLibraryLifecycle;
+use eg_types::connector_pack::{PackImportResult, PackViolationCode};
 
 async fn search(served: &Served) -> Vec<String> {
     let page: AgentComponentSearchPage = ok(
@@ -148,4 +150,96 @@ async fn withdrawn_tool_leaves_search_but_keeps_historical_content() {
         .current_component(TENANT, "skill:new-withdrawn-pin")
         .unwrap()
         .is_none());
+}
+
+/// Upload `pack` and import it over `head` with the given approval.
+async fn import_approved(
+    served: &Served,
+    pack: &(eg_types::connector_pack::ConnectorPackIndex, Vec<u8>),
+    head: eg_types::connector_pack::PackHeadRef,
+    allow_mass_withdrawal: bool,
+) -> PackImportResult {
+    let (mut index, archive) = pack.clone();
+    index.archive.blob_digest = served.upload(&archive).await;
+    ok(
+        "Import",
+        import_uploaded_with(served, index, Some(head), allow_mass_withdrawal).await,
+    )
+}
+
+/// A connector whose MCP server name changed re-keys every tool URI while the
+/// component ids (connector + kind + name) stay the same. The import withdraws
+/// every old URI, so it needs the mass-withdrawal approval, and with it the
+/// import lands: each component keeps one revision under its new URI.
+// spec: EG-TYPED-PACKS-R039
+#[tokio::test]
+async fn an_approved_mass_withdrawal_that_moves_every_uri_imports() {
+    let served = Served::new();
+    let connector = "moved-uris";
+    bind(&served, connector, ADMIN).await;
+    let alpha = tool(connector, "alpha", "Alpha tool.");
+    let beta = tool(connector, "beta", "Beta tool.");
+    let first = imported(
+        &served,
+        &build_pack(connector, &[alpha.clone(), beta.clone()]),
+        None,
+    )
+    .await;
+    let moved = |mut content: super::Content| {
+        content.uri = format!("tool://renamed-server/{}", content.name);
+        content
+    };
+    let tools = [moved(alpha), moved(beta)];
+    let renamed = build_pack(connector, &tools);
+
+    // Without approval the move is refused as a mass withdrawal.
+    match import_approved(&served, &renamed, head_of(&first), false).await {
+        PackImportResult::Rejected { violations, .. } => assert!(violations
+            .iter()
+            .any(|v| v.code == PackViolationCode::PackMassWithdrawal)),
+        other => panic!("expected PACK_MASS_WITHDRAWAL, got {other:?}"),
+    }
+
+    // With the approval it lands. The tool bodies are unchanged, the failing
+    // production case; a revised server entry gives the request its own pack
+    // digest and so its own deterministic operation key.
+    let mut server = super::server(connector);
+    server.body = format!(
+        r#"{{"contract_version":"1","instructions":"Renamed server.","name":"{connector}"}}"#
+    )
+    .into_bytes();
+    let approved = super::build_pack_with_server(connector, &server, &tools);
+    let receipt = match import_approved(&served, &approved, head_of(&first), true).await {
+        PackImportResult::Imported { receipt } => receipt,
+        other => panic!("approved import did not land: {other:?}"),
+    };
+    assert_eq!(receipt.counts.withdrawn, 2);
+    assert_eq!(
+        search(&served).await,
+        vec![
+            format!("mcp:{connector}/tool/alpha"),
+            format!("mcp:{connector}/tool/beta")
+        ]
+    );
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    let members = store
+        .connector_pack_members(
+            TENANT,
+            &eg_types::contract::ResourceId::new(connector).unwrap(),
+        )
+        .unwrap();
+    for name in ["alpha", "beta"] {
+        let old = members
+            .iter()
+            .find(|m| m.uri == format!("tool://{connector}/{name}"))
+            .unwrap();
+        let new = members
+            .iter()
+            .find(|m| m.uri == format!("tool://renamed-server/{name}"))
+            .unwrap();
+        assert_eq!(old.lifecycle, AgentLibraryLifecycle::Withdrawn);
+        assert_eq!(new.lifecycle, AgentLibraryLifecycle::Published);
+        assert_eq!(old.component_id, new.component_id);
+        assert!(new.entry_revision > old.entry_revision);
+    }
 }

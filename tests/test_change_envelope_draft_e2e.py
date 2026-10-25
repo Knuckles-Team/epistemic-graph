@@ -11,6 +11,8 @@ import hashlib
 from typing import Any
 
 import msgpack
+from _harness_envelope import governed_fields
+from _harness_envelope import graph_name as _graph_name
 
 
 def _envelope(graph: str, node_id: str, key: str, sequence: int) -> dict[str, Any]:
@@ -44,29 +46,8 @@ def _envelope(graph: str, node_id: str, key: str, sequence: int) -> dict[str, An
             "digest": hashlib.sha256(repr(body).encode()).hexdigest(),
             "source_version": {"kind": "sequence", "value": sequence},
         },
-        # Every material object carries its policy proof; the client stamps the
-        # verified tenant onto it.
-        "policies": [
-            {
-                "policy_id": f"policy:{node_id}",
-                "operation": "upsert",
-                "object_id": node_id,
-                "classification": "internal",
-                "policy_version": "policy-v1",
-                "subject_set_digest": "b" * 64,
-            }
-        ],
-        "privacy": {
-            "policy_version": "privacy-v1",
-            "sanitizer_version": "sanitizer-v1",
-            "sanitized_payload_digest": "c" * 64,
-        },
+        **governed_fields(node_id),
     }
-
-
-def _graph_name(client: Any) -> str:
-    inner = getattr(client, "_client", client)
-    return str(inner._graph_name)
 
 
 def test_changes_apply_commits_a_draft_under_engine_minted_authority(clean_graph):

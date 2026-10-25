@@ -61,56 +61,49 @@
         "EG-SDLC-R001.4",
         "EG-SDLC-R001.5",
         "EG-SDLC-R001.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-SDLC-R001.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R001.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R001.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R001.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R001.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R001.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R002",
@@ -125,56 +118,49 @@
         "EG-SDLC-R002.4",
         "EG-SDLC-R002.5",
         "EG-SDLC-R002.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-SDLC-R002.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R002.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R002.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R002.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R002.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R002.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R003",
@@ -189,56 +175,49 @@
         "EG-SDLC-R003.4",
         "EG-SDLC-R003.5",
         "EG-SDLC-R003.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-SDLC-R003.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R003.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R003.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R003.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R003.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R003.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R004",
@@ -253,56 +232,49 @@
         "EG-SDLC-R004.4",
         "EG-SDLC-R004.5",
         "EG-SDLC-R004.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-SDLC-R004.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R004.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R004.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R004.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R004.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R004.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R005",
@@ -317,56 +289,49 @@
         "EG-SDLC-R005.4",
         "EG-SDLC-R005.5",
         "EG-SDLC-R005.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-SDLC-R005.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R005.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R005.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R005.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R005.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R005.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R006",
@@ -381,132 +346,49 @@
         "EG-SDLC-R006.4",
         "EG-SDLC-R006.5",
         "EG-SDLC-R006.6"
-      ],
-      "priority": 0
+      ]
     },
     {
       "id": "EG-SDLC-R006.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R006.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R006.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R006.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R006.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     },
     {
       "id": "EG-SDLC-R006.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "priority": 0
+      "verified_by": []
     }
-  ],
-  "frontier": [
-    "EG-SDLC-R001.1",
-    "EG-SDLC-R001.2",
-    "EG-SDLC-R001.3",
-    "EG-SDLC-R001.4",
-    "EG-SDLC-R001.5",
-    "EG-SDLC-R001.6",
-    "EG-SDLC-R002.1",
-    "EG-SDLC-R002.2",
-    "EG-SDLC-R002.3",
-    "EG-SDLC-R002.4",
-    "EG-SDLC-R002.5",
-    "EG-SDLC-R002.6",
-    "EG-SDLC-R003.1",
-    "EG-SDLC-R003.2",
-    "EG-SDLC-R003.3",
-    "EG-SDLC-R003.4",
-    "EG-SDLC-R003.5",
-    "EG-SDLC-R003.6",
-    "EG-SDLC-R004.1",
-    "EG-SDLC-R004.2",
-    "EG-SDLC-R004.3",
-    "EG-SDLC-R004.4",
-    "EG-SDLC-R004.5",
-    "EG-SDLC-R004.6",
-    "EG-SDLC-R005.1",
-    "EG-SDLC-R005.2",
-    "EG-SDLC-R005.3",
-    "EG-SDLC-R005.4",
-    "EG-SDLC-R005.5",
-    "EG-SDLC-R005.6",
-    "EG-SDLC-R006.1",
-    "EG-SDLC-R006.2",
-    "EG-SDLC-R006.3",
-    "EG-SDLC-R006.4",
-    "EG-SDLC-R006.5",
-    "EG-SDLC-R006.6"
-  ],
-  "unserved": [
-    "EG-SDLC-R001.1",
-    "EG-SDLC-R001.2",
-    "EG-SDLC-R001.3",
-    "EG-SDLC-R001.4",
-    "EG-SDLC-R001.5",
-    "EG-SDLC-R001.6",
-    "EG-SDLC-R002.1",
-    "EG-SDLC-R002.2",
-    "EG-SDLC-R002.3",
-    "EG-SDLC-R002.4",
-    "EG-SDLC-R002.5",
-    "EG-SDLC-R002.6",
-    "EG-SDLC-R003.1",
-    "EG-SDLC-R003.2",
-    "EG-SDLC-R003.3",
-    "EG-SDLC-R003.4",
-    "EG-SDLC-R003.5",
-    "EG-SDLC-R003.6",
-    "EG-SDLC-R004.1",
-    "EG-SDLC-R004.2",
-    "EG-SDLC-R004.3",
-    "EG-SDLC-R004.4",
-    "EG-SDLC-R004.5",
-    "EG-SDLC-R004.6",
-    "EG-SDLC-R005.1",
-    "EG-SDLC-R005.2",
-    "EG-SDLC-R005.3",
-    "EG-SDLC-R005.4",
-    "EG-SDLC-R005.5",
-    "EG-SDLC-R005.6",
-    "EG-SDLC-R006.1",
-    "EG-SDLC-R006.2",
-    "EG-SDLC-R006.3",
-    "EG-SDLC-R006.4",
-    "EG-SDLC-R006.5",
-    "EG-SDLC-R006.6"
   ]
 }

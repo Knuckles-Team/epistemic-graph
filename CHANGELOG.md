@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.27.7] - 2026-10-24 — Complete server sdist, packaged ontology and store migration at open
+
+### Fixed
+- **Server sdist carries every path crate (#743)**: the v2.27.6 isolated rebuild of
+  the `epistemic-graph-server` sdist failed on `eg-asr-whisper`. The sdist now
+  includes every path-dependency crate of the root manifest. It also includes
+  every workspace member. A test fails if a crate is missing from that list.
+  The sdist, container image and GitHub release that 2.27.6 skipped ship with
+  this release.
+- **Ontology injector runs as a script**: `scripts/inject_ontology.py` now works
+  when the gates-wheel job and the folded-wheel release action run it directly.
+
+### Added
+- **Core ontology as package data (#757)**: the core ontology, its shapes and the
+  catalog ship in the `epistemic-graph` wheel under `epistemic_graph.ontology`.
+- **RunTrace termination and budget properties (#761)**: these come with exact
+  numeric SHACL in the new `core:orchestration-shapes@1` core source.
+- **Store migration when the engine opens a store (#738)**: an older supported
+  store is migrated on open, and a fresh data directory is left untouched.
+- **Specs (#753, #739, #704, #707)**: typed tool steps in task plans; catalog
+  answers as graph queries; reachability rows corrected; the intent of parked
+  drafts captured as SPECIFIED rows.
+
+### Removed
+- The uncalled in-memory `eg-core` `usage_ledger` module (#704). It was a Rust
+  crate module, so no Python symbol changed.
+
 ## [2.27.6] - 2026-10-23 — Connector-resource mappings and configurable NL planner timeout
 
 ### Added

@@ -548,10 +548,32 @@ fn rows_from_outside_the_local_graph_are_not_checked_against_it() {
         .ground(&crate::uql::parse("FOREIGN 'remote' |> WHERE anything = 1").unwrap())
         .expect("external rows are not local-schema checked");
     assert!(grounded.repairs.is_empty());
-    // A label only the foreign source holds is left to the foreign leg.
-    assert!(context
-        .ground(&crate::uql::parse("MATCH (:RemoteDoc) |> FOREIGN 'remote' |> LIMIT 10").unwrap())
-        .is_ok());
+    // A later foreign source cannot exempt an earlier local label scan.
+    assert!(matches!(
+        context.ground(
+            &crate::uql::parse("MATCH (:RemoteDoc) |> FOREIGN 'remote' |> LIMIT 10").unwrap()
+        ),
+        Err(SchemaViolation::UnknownLabel { .. })
+    ));
+    // Nor can it exempt a local predicate before the source changes.
+    assert!(matches!(
+        context.ground(
+            &crate::uql::parse("MATCH (:Incident) WHERE invented = 1 |> FOREIGN 'remote'").unwrap()
+        ),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
+    // A local scan after foreign rows also returns to local schema checking.
+    assert!(matches!(
+        context.ground(&Plan::new(vec![
+            Op::Foreign {
+                name: "remote".into()
+            },
+            Op::Scan {
+                label: "RemoteDoc".into()
+            },
+        ])),
+        Err(SchemaViolation::UnknownLabel { .. })
+    ));
     // Without a federation stage the same label is unknown.
     assert!(matches!(
         context.ground(&crate::uql::parse("MATCH (:RemoteDoc) |> LIMIT 10").unwrap()),
@@ -613,4 +635,210 @@ fn an_over_budget_answer_is_refused_at_once() {
         plan_grounded(&planner, "x", &context, NlQueryBudget { max_uql_len: 8 }, 2).unwrap_err();
     assert!(matches!(err, NlQueryError::BudgetExceeded { limit: 8, .. }));
     assert_eq!(planner.hints().len(), 1);
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7
+#[cfg(feature = "text")]
+#[test]
+fn fused_branches_ground_local_names_and_repair_properties() {
+    let context = SchemaContext::from_view(&servicenow_view());
+    let plan = |label: &str, prop: &str| {
+        Plan::new(vec![
+            Op::Scan {
+                label: "Incident".into(),
+            },
+            Op::FuseRrf {
+                branches: vec![vec![
+                    Op::Scan {
+                        label: label.into(),
+                    },
+                    Op::Filter {
+                        preds: vec![Pred::Eq {
+                            prop: prop.into(),
+                            value: "1".into(),
+                        }],
+                    },
+                ]],
+                k: 60.0,
+            },
+        ])
+    };
+    assert!(matches!(
+        context.ground(&plan("Imaginary", "priority")),
+        Err(SchemaViolation::UnknownLabel { .. })
+    ));
+    assert!(matches!(
+        context.ground(&plan("Incident", "imaginary")),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
+    let grounded = context.ground(&plan("Incident", "Priority")).unwrap();
+    assert_eq!(
+        grounded.repairs,
+        vec![Repair {
+            from: "Priority".into(),
+            to: "priority".into()
+        }]
+    );
+    let mut local = plan("Incident", "priority");
+    local.ops.push(Op::Filter {
+        preds: vec![Pred::Eq {
+            prop: "owned_by".into(),
+            value: "alice".into(),
+        }],
+    });
+    assert!(matches!(
+        context.ground(&local),
+        Err(SchemaViolation::UnknownProperty { .. })
+    ));
+    let external = Plan::new(vec![
+        Op::FuseRrf {
+            branches: vec![vec![Op::Foreign {
+                name: "remote".into(),
+            }]],
+            k: 60.0,
+        },
+        Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "remote_only".into(),
+                value: "x".into(),
+            }],
+        },
+    ]);
+    assert!(context.ground(&external).is_ok());
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7
+#[test]
+fn stored_label_fields_and_unlabelled_node_fields_remain_queryable() {
+    let core = GraphCore::new();
+    core.add_node(
+        "labelled".into(),
+        blob(json!({"node_type": "Incident", "number": "INC-1"})),
+    );
+    core.add_node(
+        "unlabelled".into(),
+        blob(json!({"description": "standalone"})),
+    );
+    let view = core.analysis_snapshot();
+    let context = SchemaContext::from_view(&view);
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic);
+    for (query, expected) in [
+        ("MATCH (:Incident) WHERE node_type = 'Incident'", "labelled"),
+        ("MATCH () WHERE description = 'standalone'", "unlabelled"),
+    ] {
+        let grounded = context.ground(&crate::uql::parse(query).unwrap()).unwrap();
+        let rows = execute(&grounded.plan, &ctx).unwrap();
+        assert_eq!(rows.ids(), vec![expected.to_string()]);
+    }
+    assert!(context.hint("description").contains("description"));
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7
+#[test]
+fn edge_predicates_are_grounded_against_edges_instead_of_nodes() {
+    use eg_types::wire::{EdgeDir, PropagateModel};
+    let core = GraphCore::new();
+    for id in ["a", "b"] {
+        core.add_node(id.into(), blob(json!({"type": "Item", "node_only": true})));
+    }
+    core.add_edge(
+        "a".into(),
+        "b".into(),
+        blob(json!({"relationship": "LINK", "edge_only": "yes"})),
+    )
+    .unwrap();
+    core.add_edge("a".into(), "b".into(), blob(json!({"untyped_only": "yes"})))
+        .unwrap();
+    let context = SchemaContext::from_view(&core.analysis_snapshot());
+    for prop in ["edge_only", "Edge_Only", "node_only", "invented"] {
+        let preds = vec![Pred::Eq {
+            prop: prop.into(),
+            value: "yes".into(),
+        }];
+        for op in [
+            Op::Expand {
+                rel: Some("LINK".into()),
+                dir: EdgeDir::Out,
+                min: 1,
+                max: 1,
+                edge_preds: preds.clone(),
+            },
+            Op::Propagate {
+                model: PropagateModel::NoisyOr,
+                rel: None,
+                dir: EdgeDir::Out,
+                edge_preds: preds.clone(),
+                hops: 1,
+                default_transmission: 1.0,
+            },
+        ] {
+            let result = context.ground(&Plan::new(vec![op]));
+            if prop == "edge_only" || prop == "Edge_Only" {
+                let grounded = result.unwrap();
+                assert_eq!(grounded.repairs.len(), usize::from(prop == "Edge_Only"));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(SchemaViolation::UnknownProperty { .. })
+                ));
+            }
+        }
+    }
+    for (rel, accepted) in [(None, true), (Some("LINK".into()), false)] {
+        let op = Op::Expand {
+            rel,
+            dir: EdgeDir::Out,
+            min: 1,
+            max: 1,
+            edge_preds: vec![Pred::Eq {
+                prop: "untyped_only".into(),
+                value: "yes".into(),
+            }],
+        };
+        assert_eq!(context.ground(&Plan::new(vec![op])).is_ok(), accepted);
+    }
+}
+
+// spec: EG-FEDERATED-QUERY-R058.4.7
+#[test]
+fn jsonpath_root_keys_are_checked_without_guessing_nested_document_shapes() {
+    let context = SchemaContext::from_view(&servicenow_view());
+    for path in [
+        "$.invented.value",
+        "$['invented']",
+        "invented",
+        "$.id",
+        "$.Priority",
+    ] {
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Incident".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::JsonPath {
+                    path: path.into(),
+                    op: eg_types::wire::JsonPathOp::Exists,
+                }],
+            },
+        ]);
+        assert!(matches!(
+            context.ground(&plan),
+            Err(SchemaViolation::UnknownProperty { .. })
+        ));
+    }
+    for path in ["$.priority", "$['priority']", "$", "$.*"] {
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Incident".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::JsonPath {
+                    path: path.into(),
+                    op: eg_types::wire::JsonPathOp::Exists,
+                }],
+            },
+        ]);
+        assert!(context.ground(&plan).is_ok());
+    }
 }
