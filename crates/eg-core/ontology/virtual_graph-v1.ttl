@@ -20,7 +20,7 @@
 # --- Properties --------------------------------------------------------------
 
 vg:sourceKind a owl:DatatypeProperty ;
-    rdfs:comment "api, mcp, a2a, graphql, sql, iceberg, warehouse or sparql. A closed vocabulary checked by the virtual-graph shapes." ;
+    rdfs:comment "api, mcp, a2a, graphql, sql, iceberg, warehouse, sparql or document. A closed vocabulary checked by the virtual-graph shapes." ;
     rdfs:domain vg:SourceConnection ;
     rdfs:range xsd:string .
 vg:endpointRef a owl:ObjectProperty ;
