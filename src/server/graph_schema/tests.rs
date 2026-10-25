@@ -53,14 +53,14 @@ fn attach_list_and_detach_share_one_authoritative_source_set() {
             _ => None,
         })
         .collect();
-    // The listing reports exactly the immutable core catalog: all 50 core
-    // artifacts (39 ontologies, the governance, world-model, swarm-topology,
-    // finance, temporal, virtual-graph, metadata-catalog and domain modules).
+    // The listing reports the exact immutable catalog: 52 sources carrying
+    // 44 ontology documents and 9 shape documents. Commercial owns both kinds
+    // in one source; every other source owns exactly one document kind.
     let catalog = core.schema_sources();
     let catalog_ids: std::collections::BTreeSet<_> =
         catalog.core.keys().map(String::as_str).collect();
     assert_eq!(core_ids, catalog_ids);
-    assert_eq!(core_ids.len(), 50);
+    assert_eq!(core_ids.len(), 52);
     for anchor in [
         "core:catalog@1",
         "core:foundation@1",
@@ -69,10 +69,37 @@ fn attach_list_and_detach_share_one_authoritative_source_set() {
     ] {
         assert!(core_ids.contains(anchor), "missing {anchor}");
     }
-    assert!(initial
-        .core_sources
-        .iter()
-        .all(|source| { source.shapes_sha256.is_some() ^ source.ontology_sha256.is_some() }));
+    assert_eq!(
+        initial
+            .core_sources
+            .iter()
+            .filter(|source| source.ontology_sha256.is_some())
+            .count(),
+        44
+    );
+    assert_eq!(
+        initial
+            .core_sources
+            .iter()
+            .filter(|source| source.shapes_sha256.is_some())
+            .count(),
+        9
+    );
+    for source in &initial.core_sources {
+        let expected = if source.source_id == "core:commercial@1" {
+            (true, true)
+        } else {
+            assert!(source.shapes_sha256.is_some() ^ source.ontology_sha256.is_some());
+            continue;
+        };
+        assert_eq!(
+            (
+                source.ontology_sha256.is_some(),
+                source.shapes_sha256.is_some()
+            ),
+            expected
+        );
+    }
     let ontology = "@prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix ex: <http://example/> . ex:Local a owl:Class .";
     apply(&core, "g", &attach("admin:local", ontology)).unwrap();
     let listed = list("g", &core).unwrap();

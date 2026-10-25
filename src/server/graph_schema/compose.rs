@@ -767,7 +767,9 @@ ex:parent a owl:AsymmetricProperty .
         // catalog import (1).
         // +1052: the data-platform, IT4IT-delivery, media and retrieval domain
         // modules and their catalog imports (EG-TYPED-PACKS-R105.6 to R105.9).
-        assert_eq!(composed.ontology.len(), 15_343);
+        // +236: the registered supply-chain vocabulary, commercial vocabulary,
+        // and final catalog integration amendments.
+        assert_eq!(composed.ontology.len(), 15_579);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -802,13 +804,15 @@ ex:parent a owl:AsymmetricProperty .
         // subject is not itself one).
         // +1 (EG-TYPED-PACKS-R106.1): the metadata-catalog module header; +4:
         // the data-platform, IT4IT-delivery, media and retrieval module headers.
-        assert_eq!(ontology_subjects.len(), 42);
+        // +2: the commercial and newly registered supply-chain module headers.
+        assert_eq!(ontology_subjects.len(), 44);
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:imports <.../core>`; +6: the service-operations module's five
         // imports and its catalog entry; +5: the metadata-catalog module's four
         // imports and its catalog entry (EG-TYPED-PACKS-R106.1); +19: the four
         // domain modules and their catalog imports (EG-TYPED-PACKS-R105.6-R105.9).
-        assert_eq!(imports, 102);
+        // +6: commercial and supply-chain module imports and catalog entries.
+        assert_eq!(imports, 108);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -826,7 +830,8 @@ ex:parent a owl:AsymmetricProperty .
         // +32: the RunTrace termination and budget properties (EG-ORCH-VOCAB-R009.12).
         // +196: the metadata-catalog module (EG-TYPED-PACKS-R106.1).
         // +1017: the data-platform, IT4IT-delivery, media and retrieval modules.
-        assert_eq!(semantic_axioms, 15_103);
+        // +224: semantic axioms from the final commercial/supply-chain catalog.
+        assert_eq!(semantic_axioms, 15_327);
 
         let count_type = |object: &str| {
             composed
@@ -860,7 +865,8 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#propertyChainAxiom"),
-            5
+            // +1: the registered supply-chain usesComponent property chain.
+            6
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#minCardinality"),
@@ -886,7 +892,8 @@ ex:parent a owl:AsymmetricProperty .
             // +31: the metadata-catalog classes and their EG core and W3C parents
             // (EG-TYPED-PACKS-R106.1).
             // +105: the data-platform, IT4IT-delivery, media and retrieval classes.
-            636
+            // +9: the commercial and registered supply-chain class placements.
+            645
         );
     }
 
