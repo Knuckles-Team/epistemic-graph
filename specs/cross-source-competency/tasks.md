@@ -54,9 +54,9 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first;
     - [ ] Authority rows and query fixture: capability to service to host over a limit. **EG-CQ-XSRC-R008.2.3**
     - [ ] Acceptance: capabilities at risk listed with the host, reading and limit. **EG-CQ-XSRC-R008.2.4**
   - [ ] Which open incidents or changes touch a service a customer contract depends on? (rollup) **EG-CQ-XSRC-R008.3**
-    - [ ] Add `:CustomerContract`, `:ChangeRequest` and `:coversService`. **EG-CQ-XSRC-R008.3.1**
+    - [ ] Add `:CustomerContract` and `:coversService`; reuse canonical `kg:Change` (the `:BusinessProcess` change), with no commercial `:ChangeRequest`. **EG-CQ-XSRC-R008.3.1**
     - [ ] SHACL shape: a contract names a customer and at least one service. **EG-CQ-XSRC-R008.3.2**
-    - [ ] Authority rows and query fixture: open incident or change to service to contract. **EG-CQ-XSRC-R008.3.3**
+    - [ ] Authority rows and query fixture for `:Incident` and canonical `:Change` to service to contract. **EG-CQ-XSRC-R008.3.3**
     - [ ] Acceptance: open incidents and changes listed with the service and contract. **EG-CQ-XSRC-R008.3.4**
 
 ## Agent-memory substrate claims (2026-10-22)
