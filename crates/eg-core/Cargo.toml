@@ -117,3 +117,9 @@ hmac = { version = "0.12", optional = true }
 # OFF) — a default/pi/node/full build links none of it and `index::NodeChange`
 # carries no new required trait. See `src/contract.rs`.
 eg-modality = { path = "../eg-modality", optional = true }
+
+[dev-dependencies]
+# The commercial-vocabulary contract tests (EG-SUPPLY-VOCAB-R003.13-.16) parse
+# the registered core documents with the native RDF stack. Dev-only: a default
+# build links nothing extra (the eg-plan test-target precedent).
+eg-rdf = { path = "../eg-rdf", features = ["rdf"] }

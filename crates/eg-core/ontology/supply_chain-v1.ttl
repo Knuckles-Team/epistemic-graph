@@ -1,13 +1,15 @@
 @prefix : <http://knuckles.team/kg#> .
 @prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 <http://knuckles.team/kg/supply_chain> a owl:Ontology ;
     rdfs:label "Supply Chain" ;
-    rdfs:comment "Shared supplier and procurement-item vocabulary. Connector records reuse these IRIs; source mappings supply the relationships." ;
-    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/trm> .
+    rdfs:comment "Shared supplier, procurement-item and software supply-chain vocabulary. Connector records reuse these IRIs; source mappings supply the relationships." ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/trm>, <http://knuckles.team/kg/infrastructure> .
 
 :Supplier a owl:Class ;
     rdfs:label "Supplier" ;
@@ -25,8 +27,103 @@
     rdfs:domain :Supplier ;
     rdfs:range :SupplyChainItem .
 
+:realizedByAsset a owl:ObjectProperty ;
+    rdfs:label "realized by asset" ;
+    rdfs:comment "Links a SupplyChainItem to the deployed AssetInstance that realizes it (an ERPNext asset, a CMDB configuration item)." ;
+    rdfs:domain :SupplyChainItem ;
+    rdfs:range :AssetInstance .
+
+:assetHost a owl:ObjectProperty ;
+    rdfs:label "asset host" ;
+    rdfs:comment "Links a deployed AssetInstance to the infrastructure Host it runs on. Asserted only through an approved owl:sameAs or a CMDB CI link." ;
+    rdfs:domain :AssetInstance ;
+    rdfs:range infra:Host .
+
+:SoftwareComponent a owl:Class ;
+    rdfs:label "Software Component" ;
+    rdfs:comment "A library, package or base image supplied into a deployment (a registry namespace, a repository package, a system package). The SDD module declares the same IRI under BFO_0000004, which the core-foundation axioms keep disjoint from BFO_0000031; this declaration aligns with the SDD parent." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:ComponentVersion a owl:Class ;
+    rdfs:label "Component Version" ;
+    rdfs:comment "One published version of a SoftwareComponent, named by its version string." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:versionOf a owl:ObjectProperty ;
+    rdfs:label "version of" ;
+    rdfs:comment "Links a ComponentVersion to the SoftwareComponent it is a version of." ;
+    rdfs:domain :ComponentVersion ;
+    rdfs:range :SoftwareComponent .
+
+:versionString a owl:DatatypeProperty ;
+    rdfs:label "version string" ;
+    rdfs:comment "The published identifier of a ComponentVersion (semver, tag or digest)." ;
+    rdfs:domain :ComponentVersion ;
+    rdfs:range xsd:string .
+
+:containsComponent a owl:ObjectProperty ;
+    rdfs:label "contains component" ;
+    rdfs:comment "Links a container image to each ComponentVersion it contains (registry SBOM)." ;
+    rdfs:domain infra:ContainerImage ;
+    rdfs:range :ComponentVersion .
+
+:publishedBy a owl:ObjectProperty ;
+    rdfs:label "published by" ;
+    rdfs:comment "Links a SoftwareComponent to the Supplier that publishes it (registry namespace, repository owner)." ;
+    rdfs:domain :SoftwareComponent ;
+    rdfs:range :Supplier .
+
+:usesImage a owl:ObjectProperty ;
+    rdfs:label "uses image" ;
+    rdfs:comment "Links a container or workload to the container image it was created from. Shared IRI with the container-manager ontology; declared once, not redefined per module." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf (infra:Container infra:Workload) ] ;
+    rdfs:range infra:ContainerImage .
+
+:deployedAs a owl:ObjectProperty ;
+    rdfs:label "deployed as" ;
+    rdfs:comment "Links a service to the workload it is deployed as, resolved by entity resolution between the service and its workload." ;
+    rdfs:domain infra:Service ;
+    rdfs:range infra:Workload .
+
+:usesComponent a owl:ObjectProperty ;
+    rdfs:label "uses component" ;
+    rdfs:comment "Links a service to each ComponentVersion it runs: directly from a repository dependency list, or through the runtime chain deployedAs, usesImage, containsComponent." ;
+    rdfs:domain infra:Service ;
+    rdfs:range :ComponentVersion ;
+    owl:propertyChainAxiom (:deployedAs :usesImage :containsComponent) .
+
 :Vulnerability a owl:Class ;
     rdfs:label "Vulnerability" ;
     rdfs:comment "A known weakness in a software component, image or system that can be exploited, with a severity and a fix state (a CVE record, a scanner finding). The properties that describe it belong to EG-SUPPLY-VOCAB-R002.6." ;
     skos:altLabel "CVE", "Security Finding", "Weakness" ;
     rdfs:subClassOf bfo:0000031 .
+
+:cveId a owl:DatatypeProperty ;
+    rdfs:label "CVE id" ;
+    rdfs:comment "The CVE identifier of a Vulnerability (for example CVE-2024-1234); a scanner finding without a CVE id carries its own finding id here." ;
+    rdfs:domain :Vulnerability ;
+    rdfs:range xsd:string .
+
+:severity a owl:DatatypeProperty ;
+    rdfs:label "severity" ;
+    rdfs:comment "The severity of a Vulnerability: low, medium, high, critical or unknown (closed by the supply-chain shapes)." ;
+    rdfs:domain :Vulnerability ;
+    rdfs:range xsd:string .
+
+:fixedInVersion a owl:DatatypeProperty ;
+    rdfs:label "fixed in version" ;
+    rdfs:comment "The ComponentVersion string in which a Vulnerability was fixed, when known." ;
+    rdfs:domain :Vulnerability ;
+    rdfs:range xsd:string .
+
+:affectsComponent a owl:ObjectProperty ;
+    rdfs:label "affects component" ;
+    rdfs:comment "Links a Vulnerability to the ComponentVersion it affects." ;
+    rdfs:domain :Vulnerability ;
+    rdfs:range :ComponentVersion .
+
+:hasVulnerability a owl:ObjectProperty ;
+    rdfs:label "has vulnerability" ;
+    rdfs:comment "Links a container image to each Vulnerability its scanner found in it. Same IRI as the dockerhub ontology; kept, not replaced." ;
+    rdfs:domain infra:ContainerImage ;
+    rdfs:range :Vulnerability .

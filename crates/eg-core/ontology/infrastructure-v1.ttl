@@ -490,6 +490,54 @@ to another (e.g., from direct container management to orchestrator-managed).""" 
     rdfs:comment "How many baseline standard-spreads a :HealthAnomaly's observed value sits above p50." ;
     rdfs:range xsd:decimal .
 
+:temperatureCelsius a owl:DatatypeProperty ;
+    rdfs:label "temperature (Celsius)" ;
+    rdfs:comment "A host's current temperature reading in Celsius." ;
+    rdfs:domain :Host ;
+    rdfs:range xsd:decimal .
+
+:temperatureLimitCelsius a owl:DatatypeProperty ;
+    rdfs:label "temperature limit (Celsius)" ;
+    rdfs:comment "The declared ceiling a host's temperature must not exceed. The limit is stated as data on the host, never hard-coded in a query." ;
+    rdfs:domain :Host ;
+    rdfs:range xsd:decimal .
+
+:capacityUtilization a owl:DatatypeProperty ;
+    rdfs:label "capacity utilization" ;
+    rdfs:comment "A host's utilization of a declared capacity limit (disk, memory or cpu) as a fraction in [0,1]; 1 means the declared limit is reached." ;
+    rdfs:domain :Host ;
+    rdfs:range xsd:decimal .
+
+:limitOf a owl:ObjectProperty ;
+    rdfs:label "limit of" ;
+    rdfs:comment "Links a HostLimit row to the host it constrains." ;
+    rdfs:domain :HostLimit ;
+    rdfs:range :Host .
+
+:limitKind a owl:DatatypeProperty ;
+    rdfs:label "limit kind" ;
+    rdfs:comment "Which limit a HostLimit row carries: temperature, disk, memory or cpu (closed by the infrastructure shapes)." ;
+    rdfs:domain :HostLimit ;
+    rdfs:range xsd:string .
+
+:readingValue a owl:DatatypeProperty ;
+    rdfs:label "reading value" ;
+    rdfs:comment "The observed value of a HostLimit row, in its limitUnit." ;
+    rdfs:domain :HostLimit ;
+    rdfs:range xsd:decimal .
+
+:limitValue a owl:DatatypeProperty ;
+    rdfs:label "limit value" ;
+    rdfs:comment "The declared ceiling of a HostLimit row, in its limitUnit." ;
+    rdfs:domain :HostLimit ;
+    rdfs:range xsd:decimal .
+
+:limitUnit a owl:DatatypeProperty ;
+    rdfs:label "limit unit" ;
+    rdfs:comment "The unit of a HostLimit row's reading and limit (celsius, bytes, count)." ;
+    rdfs:domain :HostLimit ;
+    rdfs:range xsd:string .
+
 :ContainerRegistry a owl:Class ;
     rdfs:label "Container Registry" ;
     rdfs:comment "An OCI-compliant container image registry." ;
@@ -522,6 +570,13 @@ BFO:GenericallyDependentContinuant.""" ;
     rdfs:comment """A reachable host in the tunnel-manager inventory (an addressable compute
 node, possibly reached through a :Tunnel). CONCEPT:KG-2.158.""" ;
     rdfs:subClassOf au:HardwareNode .
+
+:HostLimit a owl:Class ;
+    rdfs:label "Host Limit" ;
+    rdfs:comment """One normalized (reading, limit) pair on a host: a virtual row, not stored
+by default. 'Over limit' is the query condition reading > limit; no stored breach
+class exists (a stored breach would go stale between fetches).""" ;
+    rdfs:subClassOf bfo:0000031 .
 
 :MetricsExporter a owl:Class ;
     rdfs:label "Metrics Exporter" ;
