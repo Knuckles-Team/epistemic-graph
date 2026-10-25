@@ -110,12 +110,15 @@ pub const ELEVATION_APPROVERS_GROUP: &str = "elevation-approvers";
 pub const LIVE_ORDER_APPROVERS_GROUP: &str = "live-order-approvers";
 /// Approvers of governed schema repairs.
 pub const SCHEMA_APPROVERS_GROUP: &str = "schema-approvers";
+/// Approvers of governed source authority (EG-SRC-AUTH-R003).
+pub const SOURCE_AUTHORITY_APPROVERS_GROUP: &str = "source-authority-approvers";
 /// Built-in roles seeded at initialize.
 pub const ADMIN_ROLE: &str = "admin";
 pub const USER_ROLE: &str = "user";
 pub const ELEVATION_APPROVER_ROLE: &str = "elevation-approver";
 pub const LIVE_ORDER_APPROVER_ROLE: &str = "live-order-approver";
 pub const SCHEMA_APPROVER_ROLE: &str = "schema-approver";
+pub const SOURCE_AUTHORITY_APPROVER_ROLE: &str = "source-authority-approver";
 /// Prefix of every RBAC role the store projects, so the projection owns
 /// exactly its own roles and never touches one registered by another path.
 pub const RBAC_ROLE_PREFIX: &str = "idm:";

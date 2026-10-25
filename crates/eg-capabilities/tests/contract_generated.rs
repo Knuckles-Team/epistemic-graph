@@ -184,6 +184,29 @@ fn split_transaction_result_marker_is_collected_by_the_generator() {
     ));
 }
 
+// spec: EG-SRC-AUTH-R003.1
+#[test]
+fn scope_registry_generation_lists_source_authority_approver() {
+    for path in [
+        "contract/scopes.json",
+        "epistemic_graph/contract/scopes.json",
+    ] {
+        let registry = committed_json(path);
+        let entry = registry["scopes"]
+            .as_array()
+            .expect("the published registry lists scopes")
+            .iter()
+            .find(|entry| entry["scope"] == "governance:approve-source-authority")
+            .unwrap_or_else(|| panic!("{path} omits governance:approve-source-authority"));
+        assert_eq!(
+            entry["class"], "approver",
+            "the generated registry classifies the scope as approver"
+        );
+        assert_eq!(entry["owner"], "engine");
+        assert_eq!(entry["approver_group"], "source-authority-approvers");
+    }
+}
+
 #[test]
 fn every_declared_format_identity_exists_in_the_tree() {
     let root = repo_root();

@@ -42,6 +42,10 @@ pub const APPROVER_GROUPS: &[(&str, &str)] = &[
     ("rbac:approve-elevation", "elevation-approvers"),
     ("finance:approve-live-order", "live-order-approvers"),
     ("governance:approve-schema-repair", "schema-approvers"),
+    (
+        "governance:approve-source-authority",
+        "source-authority-approvers",
+    ),
     ("approvals:decide", "action-approvers"),
     ("approvals:read", "action-approvers"),
 ];
@@ -125,6 +129,7 @@ pub const SCOPES: &[ScopeEntry] = &[
     entry("gap:read", User, "engine"),
     entry("gap:write", User, "engine"),
     entry("governance:approve-schema-repair", Approver, "engine"),
+    entry("governance:approve-source-authority", Approver, "engine"),
     entry("governance:propose", Domain, "engine"),
     entry("governance:read", User, "engine"),
     entry("graph:admin", Admin, "engine"),
