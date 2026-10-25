@@ -338,6 +338,19 @@ mod imp {
             "epistemic_graph_storage_scrub_cycles_total",
             "Completed full walks of a shard file by the background storage scrub",
         );
+        // EG-DURABLE-KERNEL-R006.2 shard-open phase split.
+        static ref STORE_OPEN_PHASE: HistogramVec = histogram_vec(
+            "epistemic_graph_store_open_phase_seconds",
+            "Wall-clock duration of one kernel-owned store open, by phase \
+             (file_open|table_validation|recovery|bind|ledger|total)",
+            &["phase"],
+            DURATION_BUCKETS.to_vec(),
+        );
+        static ref STORE_OPEN_SCAN: IntCounterVec = counter_vec(
+            "epistemic_graph_store_open_recovery_scan_total",
+            "Store opens by recovery-scan outcome (ran|skipped_clean_marker|created)",
+            &["outcome"],
+        );
         static ref COMMIT_OPS_BYTES: HistogramVec = histogram_vec(
             "epistemic_graph_commit_ops_bytes",
             "Bytes accounted per commit_ops drain, by kind (logical|physical_delta)",
@@ -749,6 +762,16 @@ mod imp {
         if completed_cycle {
             STORAGE_SCRUB_CYCLES.inc();
         }
+    }
+
+    /// Record one kernel-owned store open's phase split (R006.2).
+    pub fn store_open(phases: &[(&str, f64)], outcome: &str) {
+        for (phase, seconds) in phases {
+            STORE_OPEN_PHASE
+                .with_label_values(&[phase])
+                .observe(*seconds);
+        }
+        STORE_OPEN_SCAN.with_label_values(&[outcome]).inc();
     }
 
     /// Record one `commit_ops` drain's bytes (EH-290): `kind` is `logical`/`physical_delta`.

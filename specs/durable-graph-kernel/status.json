@@ -10,6 +10,9 @@
     "EG-DURABLE-KERNEL-R004",
     "EG-DURABLE-KERNEL-R005",
     "EG-DURABLE-KERNEL-R006",
+    "EG-DURABLE-KERNEL-R006.1",
+    "EG-DURABLE-KERNEL-R006.2",
+    "EG-DURABLE-KERNEL-R006.3",
     "EG-DURABLE-KERNEL-R007",
     "EG-DURABLE-KERNEL-R008",
     "EG-DURABLE-KERNEL-R009",
@@ -495,14 +498,52 @@
     {
       "id": "EG-DURABLE-KERNEL-R006",
       "title": "Engine startup does not block on one store's lazy open",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "03670fc1f33c",
-        "8dbb5bd9de53",
-        "a676823d2b54"
+        "8dbb5bd9de53"
       ],
       "verified_by": [
         "src/raft/harness/resource_acceptance_test.rs:2570"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R006.1",
+        "EG-DURABLE-KERNEL-R006.2",
+        "EG-DURABLE-KERNEL-R006.3"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R006.1",
+      "title": "A clean reopen writes nothing, and a fresh shard is ready in one commit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-storage/src/physical/tests.rs:1023",
+        "tests/shard_open_budget.rs:357"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R006.2",
+      "title": "Startup open has a time budget that holds under host load, and each open is diagnosable",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/shard_open_budget.rs:339",
+        "tests/shard_open_budget.rs:349",
+        "tests/shard_open_budget.rs:403"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R006.3",
+      "title": "A clean-shutdown marker lets open skip the full recovery scan",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-storage/src/physical/tests.rs:1008",
+        "crates/eg-storage/src/physical/tests.rs:768",
+        "crates/eg-storage/src/physical/tests.rs:782",
+        "crates/eg-storage/src/physical/tests.rs:793",
+        "crates/eg-storage/src/physical/tests.rs:821"
       ]
     },
     {
@@ -1919,7 +1960,7 @@
         "c143146d7855"
       ],
       "verified_by": [
-        "src/server/persistence/durable_stores.rs:627"
+        "src/server/persistence/durable_stores.rs:671"
       ]
     },
     {

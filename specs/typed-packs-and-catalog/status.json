@@ -677,7 +677,7 @@
         "a7fb03fc503f"
       ],
       "verified_by": [
-        "src/server/persistence/store_upgrade/tests.rs:424"
+        "src/server/persistence/store_upgrade/tests.rs:439"
       ]
     },
     {

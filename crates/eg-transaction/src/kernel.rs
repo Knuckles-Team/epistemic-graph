@@ -77,9 +77,13 @@ impl MutationKernel {
         if !mine.is_subset(&declared) {
             return Err("mutation ledger census is not declared by the storage kernel".to_string());
         }
+        // The create census already created every ledger table, so there is
+        // nothing to write: prove each is present and typed as declared under a
+        // real write capability, then ABORT. An aborted transaction commits
+        // nothing and issues no fsync (EG-DURABLE-KERNEL-R006.1).
         let write = AdmittedMutation::open(&self.authority, owner)?;
         commit::open_ledger_tables(&write)?;
-        write.commit()
+        write.abort()
     }
 
     /// Open the one write transaction for `owner` and admit `batch` into it.
