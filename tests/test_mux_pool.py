@@ -151,9 +151,17 @@ async def test_map_concurrent_parallelizes_the_wire():
         elapsed = time.perf_counter() - t0
 
         assert results == ["pong"] * n
-        # The server actually saw multiple requests in flight at once.
-        assert server.max_inflight == n, (
-            f"expected {n} concurrent in-flight, saw {server.max_inflight}"
+        # The server saw CONCURRENT in-flight requests: the mock processes
+        # each connection serially, so >1 in-flight proves the pool fanned
+        # the ops over multiple live connections. The high-water mark is
+        # bounded at >= 2, not == n: the mock's handler coroutines share
+        # THIS test's event loop, and a loaded xdist runner can interleave
+        # them enough that not all n overlap on the high-water mark (CI run
+        # 40183292701 saw 5 of 8); the load-robust parallelism proof is the
+        # elapsed ratio below.
+        assert server.max_inflight >= 2, (
+            f"pool did not parallelize the wire: "
+            f"{server.max_inflight} concurrent in-flight"
         )
         # Must be far under the SERIAL sum — the wire ran in parallel. The
         # baseline is self-calibrated (the same ops run serially on THIS
