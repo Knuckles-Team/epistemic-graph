@@ -1,6 +1,6 @@
 # Medulla
 
-Medulla is distributed as `epistemic-graph` and imported as `epistemic_graph`.
+The `epistemic-graph` distribution provides Medulla; import it as `epistemic_graph`.
 Repository, package, CLI and API identifiers remain unchanged.
 
 <p align="center">
@@ -106,7 +106,7 @@ The package, executable and container image identifiers remain unchanged.
 </p>
 
 <p align="center">
-  <img src="docs/assets/engine-architecture.svg" alt="Medulla architecture: authenticated interfaces feed a unified planner, which composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
+  <img src="docs/assets/engine-architecture.svg" alt="Medulla architecture. Authenticated interfaces feed one planner. It composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
 </p>
 
 People use the **Agent Web UI**, **Agent Terminal UI**, **Geniusbot**, or the

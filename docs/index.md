@@ -1,9 +1,13 @@
 <section class="site-hero" aria-labelledby="epistemic-graph-title">
   <p class="site-hero__eyebrow">The knowledge engine</p>
-  <h1 class="site-hero__title" id="epistemic-graph-title">Make connected knowledge durable, explainable, and computable.</h1>
+
+  <h1 class="site-hero__title" id="epistemic-graph-title">
+    Make connected knowledge durable, explainable, and computable.
+  </h1>
+
   <p class="site-hero__summary">
-    Medulla unifies graph, SQL, RDF/OWL, vectors, time, evidence, and
-    multimodal data behind one Rust-native planner and transaction boundary.
+    Medulla unifies graph, SQL, RDF/OWL, vectors, time, evidence, and multimodal data.
+    One Rust-native planner and transaction boundary govern them.
   </p>
   <div class="site-hero__actions">
     <a class="md-button md-button--primary" href="get-started/">Run it locally</a>
@@ -32,7 +36,7 @@
 ## One authority across every data shape
 
 <figure class="site-card">
-  <img src="assets/engine-architecture.svg" alt="Authenticated interfaces enter the unified Medulla planner, compose five data and compute domains, and commit through one authoritative durable store.">
+  <img src="assets/engine-architecture.svg" alt="Authenticated interfaces enter the Medulla planner. It composes five data and compute domains. One authoritative durable store commits the results.">
   <figcaption>Interfaces differ. Authority, planning, evidence, and commit semantics do not.</figcaption>
 </figure>
 
@@ -72,19 +76,31 @@ authority, durability, audit, CDC, and transaction properties.
 <ol class="site-flow">
   <li class="site-flow__step">
     <span class="site-flow__title">Enter through Arbora</span>
-    <span class="site-flow__body">MCP, REST, A2A, identity, policy, and the hosted WebUI share one public door.</span>
+
+    <span class="site-flow__body">
+      MCP, REST, A2A, identity, policy, and the hosted WebUI share one public door.
+    </span>
   </li>
   <li class="site-flow__step">
     <span class="site-flow__title">Run with agent-utilities</span>
-    <span class="site-flow__body">Agents, workflows, skills, evaluation, and control-plane decisions run above the database.</span>
+
+    <span class="site-flow__body">
+      Agents, workflows, skills, evaluation, and control-plane decisions run above the database.
+    </span>
   </li>
   <li class="site-flow__step">
     <span class="site-flow__title">Commit in Medulla</span>
-    <span class="site-flow__body">State, schema, evidence, provenance, and outcomes become durable under one transaction boundary.</span>
+
+    <span class="site-flow__body">
+      State, schema, evidence, provenance, and outcomes become durable under one transaction boundary.
+    </span>
   </li>
   <li class="site-flow__step">
     <span class="site-flow__title">Synchronize through connectors</span>
-    <span class="site-flow__body">SDK-based connectors exchange governed records with external source systems.</span>
+
+    <span class="site-flow__body">
+      SDK-based connectors exchange governed records with external source systems.
+    </span>
   </li>
 </ol>
 
