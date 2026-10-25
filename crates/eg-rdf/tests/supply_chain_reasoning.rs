@@ -106,7 +106,10 @@ fn module_version_edges_retain_the_shared_version_query_predicate() {
         }) else {
             panic!("{local} must remain queryable as shared {generic}");
         };
-        assert!(!shared.asserted, "shared edge must be inferred from the local sub-property");
+        assert!(
+            !shared.asserted,
+            "shared edge must be inferred from the local sub-property"
+        );
         assert_eq!(shared.rule, "RL-subPropertyOf");
     }
     assert!(entailed.iter().any(|fact| {
