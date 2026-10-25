@@ -700,6 +700,38 @@ fn harness_add_node_admission(
     Ok(None)
 }
 
+/// The stamped, re-encoded blob of one admitted `Admission::New` harness
+/// write (EG-ORCH-VOCAB-R801.3/R802.4): the transaction time is stamped, and
+/// when the writer left the `supersedes_id` pointer absent the new record is
+/// linked to the current one. The record already decoded and validated in
+/// the admission; `tx_from` is an engine-owned key the decoders strip, so
+/// the stamped object decodes to the same record.
+fn stamp_new_record(props: &Props, head: Option<&str>, tx_now: u64) -> Result<Vec<u8>, String> {
+    let component = is_harness_component_write(props);
+    let lesson = is_harness_lesson_write(props);
+    let mut stamped = props.clone();
+    stamped.insert("tx_from".into(), serde_json::json!(tx_now));
+    if component || lesson {
+        if let Some(pointer_target) = head {
+            let pointer_absent = if component {
+                decode_component_write(&stamped)
+                    .map(|record| record.supersedes_id.is_none())
+                    .unwrap_or(false)
+            } else {
+                decode_lesson_write(&stamped)
+                    .map(|record| record.supersedes_id.is_none())
+                    .unwrap_or(false)
+            };
+            if pointer_absent {
+                stamped.insert("supersedes_id".into(), serde_json::json!(pointer_target));
+            }
+        }
+    }
+    rmp_serde::to_vec_named(&serde_json::Value::Object(stamped)).map_err(|error| {
+        format!("HarnessRecordMalformed: cannot re-encode stamped record: {error}")
+    })
+}
+
 /// EG-ORCH-VOCAB-R801.3/R802.4 — the harness-record write attaches to the
 /// existing AddNode path at the pre-commit point, beside the owner-id stamp.
 /// A non-harness `AddNode` passes through untouched; a harness write comes
@@ -735,35 +767,7 @@ pub fn direct_add_node(method: &Method, core: &GraphCore, tx_now: u64) -> Result
             })
         }
         Admission::New { head } => {
-            // Stamp the transaction time and, when the writer left the
-            // pointer absent, link the new record to the current one. The
-            // record already decoded and validated above.
-            let component = is_harness_component_write(&props);
-            let lesson = is_harness_lesson_write(&props);
-            let mut stamped = props;
-            stamped.insert("tx_from".into(), serde_json::json!(tx_now));
-            if component || lesson {
-                if let Some(pointer_target) = &head {
-                    // `tx_from` is an engine-owned key the decoders strip, so
-                    // the stamped object decodes to the same record.
-                    let pointer_absent = if component {
-                        decode_component_write(&stamped)
-                            .map(|record| record.supersedes_id.is_none())
-                            .unwrap_or(false)
-                    } else {
-                        decode_lesson_write(&stamped)
-                            .map(|record| record.supersedes_id.is_none())
-                            .unwrap_or(false)
-                    };
-                    if pointer_absent {
-                        stamped.insert("supersedes_id".into(), serde_json::json!(pointer_target));
-                    }
-                }
-            }
-            let blob =
-                rmp_serde::to_vec_named(&serde_json::Value::Object(stamped)).map_err(|error| {
-                    format!("HarnessRecordMalformed: cannot re-encode stamped record: {error}")
-                })?;
+            let blob = stamp_new_record(&props, head.as_deref(), tx_now)?;
             Ok(Method::AddNode {
                 node_id: node_id.clone(),
                 properties_msgpack: blob,
@@ -792,6 +796,66 @@ impl HarnessBoundaryState {
             || is_harness_probe_run_write(props)
     }
 
+    /// The envelope `AddNode` op: a harness record must decode, validate,
+    /// carry its `tx_from` stamp, and name its supersession — then it joins
+    /// the pending set for the later ops' supersession checks. Non-harness
+    /// and non-record ops pass through.
+    fn check_add_node(
+        &mut self,
+        node_id: &str,
+        properties_msgpack: &[u8],
+        core: &GraphCore,
+    ) -> Result<(), String> {
+        let props = decode_props(properties_msgpack);
+        if !Self::is_harness_record(&props) {
+            return Ok(());
+        }
+        let view = HarnessView {
+            core,
+            pending: &self.pending,
+        };
+        let Some(admission) = harness_add_node_admission(&view, node_id, &props, false)? else {
+            return Ok(());
+        };
+        if matches!(admission, Admission::New { .. }) && tx_stamp(&props).is_none() {
+            let code = if is_harness_component_write(&props) {
+                "HarnessVersionWithoutStamp"
+            } else {
+                "HarnessRecordWithoutStamp"
+            };
+            return Err(format!(
+                "{code}: harness record '{node_id}' must carry its transaction-time stamp `tx_from`"
+            ));
+        }
+        self.pending.insert(node_id.to_string(), props);
+        Ok(())
+    }
+
+    /// The envelope `CompareAndSetNodeFields` op: a head-window-close (or
+    /// any field merge) on a harness record must be visible to the
+    /// supersession checks of the write's later ops. Non-harness nodes pass
+    /// through.
+    fn check_cas(&mut self, node_id: &str, updates_msgpack: &[u8], core: &GraphCore) {
+        let base = match self.pending.get(node_id) {
+            Some(props) => props.clone(),
+            None => {
+                let Some(stored) = core.get_node_properties(node_id) else {
+                    return;
+                };
+                let stored = decode_props(&stored);
+                if !Self::is_harness_record(&stored) {
+                    return;
+                }
+                stored
+            }
+        };
+        let mut merged = base;
+        for (key, value) in &decode_props(updates_msgpack) {
+            merged.insert(key.clone(), value.clone());
+        }
+        self.pending.insert(node_id.to_string(), merged);
+    }
+
     /// EG-ORCH-VOCAB-R801.3/R802.4 — check one envelope's harness-record
     /// writes op by op, in application order, against the graph as the write
     /// sees it. The envelope bytes are byte-stable for replay, so the engine
@@ -810,62 +874,18 @@ impl HarnessBoundaryState {
                 Method::AddNode {
                     node_id,
                     properties_msgpack,
-                } => {
-                    let props = decode_props(properties_msgpack);
-                    if !Self::is_harness_record(&props) {
-                        continue;
-                    }
-                    let view = HarnessView {
-                        core,
-                        pending: &self.pending,
-                    };
-                    let Some(admission) =
-                        harness_add_node_admission(&view, node_id, &props, false)?
-                    else {
-                        continue;
-                    };
-                    if matches!(admission, Admission::New { .. }) && tx_stamp(&props).is_none() {
-                        let code = if is_harness_component_write(&props) {
-                            "HarnessVersionWithoutStamp"
-                        } else {
-                            "HarnessRecordWithoutStamp"
-                        };
-                        return Err(format!(
-                            "{code}: harness record '{node_id}' must carry its transaction-time stamp `tx_from`"
-                        ));
-                    }
-                    self.pending.insert(node_id.clone(), props);
-                }
+                } => self.check_add_node(node_id, properties_msgpack, core)?,
                 Method::CompareAndSetNodeFields {
                     node_id,
                     updates_msgpack,
                     ..
-                } => {
-                    // A head-window-close (or any field merge) on a
-                    // harness record must be visible to the supersession
-                    // checks of the write's later ops.
-                    let base = match self.pending.get(node_id) {
-                        Some(props) => props.clone(),
-                        None => {
-                            let Some(stored) = core.get_node_properties(node_id) else {
-                                continue;
-                            };
-                            let stored = decode_props(&stored);
-                            if !Self::is_harness_record(&stored) {
-                                continue;
-                            }
-                            stored
-                        }
-                    };
-                    let mut merged = base;
-                    for (key, value) in &decode_props(updates_msgpack) {
-                        merged.insert(key.clone(), value.clone());
-                    }
-                    self.pending.insert(node_id.clone(), merged);
-                }
+                } => self.check_cas(node_id, updates_msgpack, core),
                 _ => {}
             }
         }
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

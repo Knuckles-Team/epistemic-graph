@@ -2857,6 +2857,123 @@
       ],
       "type": "object"
     },
+    "ApprovalKeyAttestation": {
+      "description": "A trusted broker's assertion, not a native signature-verification result.",
+      "enum": [
+        "broker_verified_ed25519"
+      ],
+      "type": "string"
+    },
+    "ApprovalKeyBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "description": "Zero creates a key; a positive revision replaces an existing live key.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "key_id": {
+          "type": "string"
+        },
+        "principal_id": {
+          "type": "string"
+        },
+        "public_key_hex": {
+          "description": "Exactly 32 public-key bytes encoded as 64 lowercase hex characters.",
+          "type": "string"
+        },
+        "purpose": {
+          "$ref": "#/$defs/ApprovalKeyPurpose"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_id",
+        "principal_id",
+        "tenant",
+        "purpose",
+        "public_key_hex",
+        "expected_revision",
+        "expires_at_ms"
+      ],
+      "type": "object"
+    },
+    "ApprovalKeyLookup": {
+      "additionalProperties": false,
+      "properties": {
+        "key_id": {
+          "type": "string"
+        },
+        "principal_id": {
+          "type": "string"
+        },
+        "purpose": {
+          "$ref": "#/$defs/ApprovalKeyPurpose"
+        }
+      },
+      "required": [
+        "key_id",
+        "principal_id",
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "ApprovalKeyPurpose": {
+      "enum": [
+        "signed_approval"
+      ],
+      "type": "string"
+    },
+    "ApprovalKeyRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "attestation": {
+          "$ref": "#/$defs/ApprovalKeyAttestation"
+        },
+        "binding": {
+          "$ref": "#/$defs/ApprovalKeyBinding"
+        },
+        "session_token": {
+          "$ref": "#/$defs/Secret"
+        }
+      },
+      "required": [
+        "session_token",
+        "binding",
+        "attestation"
+      ],
+      "type": "object"
+    },
+    "ApprovalKeyRevocation": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "key": {
+          "$ref": "#/$defs/ApprovalKeyLookup"
+        },
+        "session_token": {
+          "$ref": "#/$defs/Secret"
+        }
+      },
+      "required": [
+        "session_token",
+        "key",
+        "expected_revision"
+      ],
+      "type": "object"
+    },
     "ArrayEncoding": {
       "description": "How the elements of a referenced array are encoded.",
       "oneOf": [
@@ -4226,6 +4343,13 @@
         "$ref": "#/$defs/SubagentAllowance"
       },
       "maxItems": 6,
+      "type": "array"
+    },
+    "BoundedVec_TaskPlanTask_64": {
+      "items": {
+        "$ref": "#/$defs/TaskPlanTask"
+      },
+      "maxItems": 64,
       "type": "array"
     },
     "BoundedVec_TemplateFacts_8": {
@@ -7637,6 +7761,35 @@
       },
       "type": "object"
     },
+    "ConversationTurnAdmission": {
+      "additionalProperties": false,
+      "description": "Expected conversation head for one newly admitted run. Revision zero creates\na context; later turns name the exact preceding successful run. A host must\nseparately validate its completed model history before executing the run.",
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "predecessor_run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "context_id",
+        "expected_revision"
+      ],
+      "type": "object"
+    },
     "CostBudget": {
       "additionalProperties": false,
       "description": "A currency-denominated ceiling on the selection's declared cost.",
@@ -7844,6 +7997,17 @@
         },
         "run_id": {
           "type": "string"
+        },
+        "task_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Immutable executable attachment, not scaffold text or authority. The\nnative owner transaction verifies the original proposal before binding."
         }
       },
       "required": [
@@ -16696,6 +16860,54 @@
             {
               "properties": {
                 "op": {
+                  "const": "register_approval_key",
+                  "type": "string"
+                },
+                "request": {
+                  "$ref": "#/$defs/ApprovalKeyRegistration"
+                }
+              },
+              "required": [
+                "op",
+                "request"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "inspect_approval_key",
+                  "type": "string"
+                },
+                "request": {
+                  "$ref": "#/$defs/ApprovalKeyLookup"
+                }
+              },
+              "required": [
+                "op",
+                "request"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "revoke_approval_key",
+                  "type": "string"
+                },
+                "request": {
+                  "$ref": "#/$defs/ApprovalKeyRevocation"
+                }
+              },
+              "required": [
+                "op",
+                "request"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "op": {
                   "const": "set_password",
                   "type": "string"
                 },
@@ -16789,6 +17001,62 @@
         {
           "description": "Server-side sessions.",
           "oneOf": [
+            {
+              "description": "Inspect original durable session facts without refreshing or issuing authority.",
+              "properties": {
+                "op": {
+                  "const": "inspect_reference",
+                  "type": "string"
+                },
+                "session_ref": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "session_ref",
+                "tenant"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Extend idle expiry within the original absolute lifetime using a global authority CAS.",
+              "properties": {
+                "expected_authority_revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "expected_scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "op": {
+                  "const": "renew_reference",
+                  "type": "string"
+                },
+                "session_ref": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "session_ref",
+                "tenant",
+                "expected_authority_revision",
+                "expected_scopes"
+              ],
+              "type": "object"
+            },
             {
               "description": "Touch a live session and answer its principal's resolution.",
               "properties": {
@@ -22051,6 +22319,16 @@
                 "retryable": {
                   "default": false,
                   "type": "boolean"
+                },
+                "run_completion": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/RunCompletionInput"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "tenant": {
                   "type": "string"
@@ -32056,6 +32334,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "`NlQuery` that also discloses the generated query (EG-FEDERATED-QUERY-R058.2.2.1):\nthe SAME request, planner, budget, parse, authority and rows as `NlQuery`, answered\nas `{uql, rows}` so a caller can show the exact UQL the engine executed. Like\n`NlQuery`, the handler is gated behind the facade `nl-query` feature.",
+          "properties": {
+            "method": {
+              "const": "NlQueryExplain",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "graph": {
+                  "default": "",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Register (or replace) a foreign RowSet source under `name`. `source` is the\n[`crate::wire::ForeignSourceSpec`] (a remote engine or an HTTP/JSON API). A\nlater `ForeignScan` can name this registered source by id (the registry-backed\nform) instead of inlining the whole spec. Returns the name on success.",
           "properties": {
             "method": {
@@ -37442,6 +37751,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "Historical native run admission, visible only to its verified immutable\nowner. Missing and foreign rows return null; missing original admission\nevidence refuses explicitly. Independent of current lease or terminal state.",
+          "properties": {
+            "method": {
+              "const": "GetRunWorkItem",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "run_id": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tenant",
+                "run_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "The caller's view of one native WorkItem row, or `null` when no row with\nthis id is visible to `tenant`. `tenant` must equal the verified request\ntenant (`ACCESS_DENIED` otherwise); lease owner, epoch and fencing token\nare never returned. See [`crate::work_item_read`].",
           "properties": {
             "method": {
@@ -39079,6 +39419,41 @@
           "type": "object"
         }
       ]
+    },
+    "NlQueryExplainResult": {
+      "description": "The executed UQL and its rows, the served form of `eg_plan::nl::NlQueryResult` in\nexecuting mode.",
+      "properties": {
+        "rows": {
+          "description": "The `[node id, score | nil]` rows of that UQL, identical to `NlQuery`'s rows.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "uql": {
+          "description": "The exact UQL text the planner produced; the engine parsed and ran this text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uql",
+        "rows"
+      ],
+      "type": "object"
     },
     "NlTarget": {
       "description": "Which request a template fills.",
@@ -41174,7 +41549,6 @@
         "shapes",
         "model_profile",
         "a2a_card",
-        "manifest",
         "skill_file"
       ],
       "type": "string"
@@ -43658,6 +44032,17 @@
         "snapshot": {
           "$ref": "#/$defs/CurrentPlanSnapshot"
         },
+        "task_plan_proposal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskPlanProposal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Required only with an explicit `snapshot.task_plan`. Recomputing from\nthe original declaration order verifies even the plan's input digest.\nOmit both fields on later scaffold updates to retain the bound plan."
+        },
         "tenant": {
           "type": "string"
         },
@@ -43970,6 +44355,11 @@
         {
           "const": "harness_config",
           "description": "Evaluate-only harness configuration advice (EG-DECISION-ENGINE-R128).\nReturns proposed context, scaffold and action-space choices; never runs them.",
+          "type": "string"
+        },
+        {
+          "const": "task_plan",
+          "description": "Bounded explicit dependency planning; admission belongs to the host.",
           "type": "string"
         },
         {
@@ -44809,7 +45199,8 @@
         "workload_identity",
         "oidc",
         "mutual_tls",
-        "local_process"
+        "local_process",
+        "none"
       ],
       "type": "string"
     },
@@ -46002,6 +46393,34 @@
       "minimum": 0,
       "type": "integer"
     },
+    "RunCompletionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunEvent": {
       "additionalProperties": false,
       "description": "One durable projection event a [`CommitOutcomeBundle`]'s commit (or a\nrepair pass) publishes. Streaming/AG-UI/SSE/WebSocket/terminal/MCP\nsurfaces are projections of a sequence of these, never a second event\nauthority (lane doc \"Cursor/streaming semantics\").",
@@ -46132,6 +46551,52 @@
         "cursor_token",
         "carrier_digest"
       ],
+      "type": "object"
+    },
+    "RunUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "requests": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tool_calls": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "SafetyOutcome": {
@@ -50012,6 +50477,13 @@
           "default": "",
           "description": "A TOTP or recovery code, for the second-factor ops."
         },
+        "refresh": {
+          "description": "Resolve only: omitted means refresh; false verifies without touching expiry.\nOther session-token operations ignore this flag.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "session_token": {
           "$ref": "#/$defs/Secret"
         }
@@ -51079,7 +51551,7 @@
       "additionalProperties": false,
       "properties": {
         "mapping_reference": {
-          "description": "Exact Connector Manifest schema-mapping reference for this entity.",
+          "description": "Exact connector mapping reference for this entity.",
           "type": "string"
         },
         "payload": {
@@ -51160,7 +51632,7 @@
           "$ref": "#/$defs/SourceRecordProvenance"
         },
         "relation_reference": {
-          "description": "Exact Connector Manifest resource-relation reference, for example\n`manifest:demo#resources/Document/relations/contains`.",
+          "description": "Exact connector relation reference, for example\n`connector:demo#relations/Document/contains`.",
           "type": "string"
         },
         "source": {
@@ -52008,6 +52480,17 @@
           "description": "Synthetic evidence is labelled as such, always.",
           "type": "boolean"
         },
+        "task_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Evaluate-only explicit task DAG. Absent on every other question kind."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -52715,6 +53198,17 @@
         "context": {
           "$ref": "#/$defs/RequestContext"
         },
+        "conversation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversationTurnAdmission"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional ordered conversation reservation, never a history or execution grant.\nBoxed to preserve the existing Method enum allocation-size bound."
+        },
         "deadline_unix": {
           "format": "double",
           "type": [
@@ -52922,6 +53416,111 @@
         "linear"
       ],
       "type": "string"
+    },
+    "TaskPlan": {
+      "additionalProperties": false,
+      "description": "Canonical task order is a topological order with lexical ready-task ties.\nThe input digest retains the submitted order; the plan digest binds the\ncanonical executable body and policy, independent of declaration order.",
+      "properties": {
+        "input_digest": {
+          "type": "string"
+        },
+        "max_concurrency": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_steps": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_task_id": {
+          "type": "string"
+        },
+        "plan_digest": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "policy_revision": {
+          "type": "string"
+        },
+        "tasks": {
+          "$ref": "#/$defs/BoundedVec_TaskPlanTask_64"
+        },
+        "total_tasks": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tasks",
+        "output_task_id",
+        "max_concurrency",
+        "max_steps",
+        "total_tasks",
+        "policy_revision",
+        "policy_digest",
+        "input_digest",
+        "plan_digest"
+      ],
+      "type": "object"
+    },
+    "TaskPlanProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "max_concurrency": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_steps": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_task_id": {
+          "type": "string"
+        },
+        "tasks": {
+          "$ref": "#/$defs/BoundedVec_TaskPlanTask_64"
+        }
+      },
+      "required": [
+        "tasks",
+        "output_task_id",
+        "max_concurrency",
+        "max_steps"
+      ],
+      "type": "object"
+    },
+    "TaskPlanTask": {
+      "additionalProperties": false,
+      "description": "A task uses the host's already-bound agent. It cannot select credentials,\ntools, models or a different principal.",
+      "properties": {
+        "depends_on": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": []
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "prompt"
+      ],
+      "type": "object"
     },
     "TemplateFacts": {
       "additionalProperties": false,
@@ -54259,7 +54858,7 @@
       "type": "object"
     },
     "TypedValue": {
-      "description": "A typed question parameter. Values are typed, never substituted into text:\na parameter cannot become part of a prompt or a query string.",
+      "description": "A typed question parameter. Scalar values are never interpolated into queries.\nAn explicit task proposal carries prompts as data for the host executor.",
       "oneOf": [
         {
           "properties": {
@@ -54350,6 +54949,23 @@
             },
             "value": {
               "$ref": "#/$defs/UnitRationalWire"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Explicit task claims, never policy or authorization.",
+          "properties": {
+            "type": {
+              "const": "task_plan",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/TaskPlanProposal"
             }
           },
           "required": [
@@ -56715,6 +57331,18 @@
               "type": "array"
             },
             "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "NlQueryExplain": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/NlQueryExplainResult"
           }
         }
       },

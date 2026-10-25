@@ -117,7 +117,9 @@ impl HarnessContrastDecision {
             (Some(ref_), None) if !self.candidate_version_refs.as_slice().contains(ref_) => {
                 return Err("the decision adopts a candidate it did not present".to_string())
             }
-            _ => {}
+            // The presented-adopted and the abstained states pass the check.
+            (Some(_), None) => {}
+            (None, Some(_)) => {}
         }
         if self.abstain_reason == Some(HarnessContrastAbstainReason::NoImprovement)
             && self.deltas.iter().any(|delta| delta.eval_score_delta > 0)
@@ -436,12 +438,29 @@ pub fn replay_record(record: &StatisticalDecisionRecord) -> Result<(), String> {
                     .to_string(),
             );
         }
-        _ => {}
+        // `check()` above already refused the both-set and neither-set
+        // states; the remaining abstain reasons carry no adoption-side
+        // check of their own.
+        (Some(_), Some(_)) => {}
+        (None, None) => {}
+        (None, Some(_)) => {}
     }
     match (&record.outcome, &decision.adopted_version_ref) {
         (StatisticalOutcome::Explored { option_id, .. }, Some(ref_)) if option_id == ref_ => {}
         (StatisticalOutcome::Abstained { .. }, None) => {}
-        _ => return Err("the record's outcome does not match its decision state".to_string()),
+        // Every other state pairing is a decision-state mismatch.
+        (StatisticalOutcome::Acted { .. }, _) => {
+            return Err("the record's outcome does not match its decision state".to_string())
+        }
+        (StatisticalOutcome::Advisory { .. }, _) => {
+            return Err("the record's outcome does not match its decision state".to_string())
+        }
+        (StatisticalOutcome::Explored { .. }, _) => {
+            return Err("the record's outcome does not match its decision state".to_string())
+        }
+        (StatisticalOutcome::Abstained { .. }, Some(_)) => {
+            return Err("the record's outcome does not match its decision state".to_string())
+        }
     }
     Ok(())
 }
@@ -909,6 +928,7 @@ mod tests {
             trace_fidelity: TraceFidelity::FullStep,
             premises: BoundedVec::new(Vec::<PremiseRef>::new()).unwrap(),
             outcome,
+            task_plan: None,
             calibration: None,
             explanation: None,
             audit: None,

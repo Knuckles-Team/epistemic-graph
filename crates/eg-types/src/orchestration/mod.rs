@@ -291,6 +291,75 @@ pub struct HarnessSupersession {
     pub tx_now: u64,
 }
 
+/// Resolve the `supersedes_id` of one new version before it is admitted
+/// (R801.2): a writer-named pointer must name the component's current
+/// version, or an existing version of the component when no current window
+/// is open; an absent pointer is filled with the current version's node id —
+/// never the version's own id, since a version never supersedes itself.
+fn resolve_supersedes_pointer(
+    new: &mut HarnessComponentVersion,
+    component: Option<&HarnessComponentVersion>,
+    versions: &[HarnessComponentVersion],
+) -> Result<(), HarnessComponentRefusal> {
+    match new.supersedes_id.as_deref() {
+        Some(superseded) => match component {
+            Some(head) if head.node_id() == superseded => {}
+            Some(_) => return Err(HarnessComponentRefusal::SupersessionStale),
+            None => {
+                if !versions
+                    .iter()
+                    .any(|v| v.node_id() == superseded && v.component_id == new.component_id)
+                {
+                    return Err(HarnessComponentRefusal::SupersessionUnknown);
+                }
+            }
+        },
+        None => {
+            // A version never supersedes itself: when the writer is naming
+            // the only existing version of the component, there is nothing
+            // to supersede.
+            new.supersedes_id = component
+                .filter(|head| head.node_id() != new.node_id())
+                .map(|head| head.node_id());
+        }
+    }
+    Ok(())
+}
+
+/// Close the superseded version's validity window and record the
+/// `:supersedes` edge (R801.2): the window closes at the newer version's
+/// `valid_from`, and the edge is stamped with the write's transaction time
+/// (R078/R081). A version never closes its own window.
+fn record_supersession(
+    versions: &mut [HarnessComponentVersion],
+    supersessions: &mut Vec<HarnessSupersession>,
+    new: &HarnessComponentVersion,
+    tx_now: u64,
+) {
+    if let Some(head) = &new.supersedes_id {
+        if head != &new.node_id() {
+            if versions
+                .iter()
+                .find(|v| v.node_id() == *head)
+                .and_then(|v| v.valid_to)
+                .is_none()
+            {
+                for v in versions.iter_mut().filter(|v| v.node_id() == *head) {
+                    if v.valid_to.is_none() {
+                        v.valid_to = Some(new.valid_from);
+                    }
+                }
+            }
+            supersessions.push(HarnessSupersession {
+                new_version: new.node_id(),
+                superseded_version: head.clone(),
+                valid_at: new.valid_from,
+                tx_now,
+            });
+        }
+    }
+}
+
 /// Admit one new version into the store's vocabulary (R801.2).
 ///
 /// A new version supersedes the current one by edge: the older version's
@@ -325,50 +394,8 @@ pub fn register_version(
         .iter()
         .filter(|v| v.component_id == new.component_id)
         .max_by_key(|v| (v.valid_from, v.node_id().clone()));
-    match new.supersedes_id.as_deref() {
-        Some(superseded) => match component {
-            Some(head) if head.node_id() == superseded => {}
-            Some(_) => return Err(HarnessComponentRefusal::SupersessionStale),
-            None => {
-                if !versions
-                    .iter()
-                    .any(|v| v.node_id() == superseded && v.component_id == new.component_id)
-                {
-                    return Err(HarnessComponentRefusal::SupersessionUnknown);
-                }
-            }
-        },
-        None => {
-            // A version never supersedes itself: when the writer is naming
-            // the only existing version of the component, there is nothing
-            // to supersede.
-            new.supersedes_id = component
-                .filter(|head| head.node_id() != new.node_id())
-                .map(|head| head.node_id());
-        }
-    }
-    if let Some(head) = &new.supersedes_id {
-        if head != &new.node_id() {
-            if versions
-                .iter()
-                .find(|v| v.node_id() == *head)
-                .and_then(|v| v.valid_to)
-                .is_none()
-            {
-                for v in versions.iter_mut().filter(|v| v.node_id() == *head) {
-                    if v.valid_to.is_none() {
-                        v.valid_to = Some(new.valid_from);
-                    }
-                }
-            }
-            supersessions.push(HarnessSupersession {
-                new_version: new.node_id(),
-                superseded_version: head.clone(),
-                valid_at: new.valid_from,
-                tx_now,
-            });
-        }
-    }
+    resolve_supersedes_pointer(&mut new, component, versions)?;
+    record_supersession(versions, supersessions, &new, tx_now);
     versions.push(new);
     Ok(())
 }

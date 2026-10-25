@@ -933,6 +933,13 @@
       "maxItems": 8,
       "type": "array"
     },
+    "BoundedVec_TaskPlanTask_64": {
+      "items": {
+        "$ref": "#/$defs/TaskPlanTask"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "BoundedVec_TypedParam_16": {
       "items": {
         "$ref": "#/$defs/TypedParam"
@@ -2056,6 +2063,38 @@
       ],
       "type": "object"
     },
+    "CommittedRunCompletion": {
+      "additionalProperties": false,
+      "properties": {
+        "commit_sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ordinal": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/RunCompletionPayload"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/MutationScopeIdentity"
+        }
+      },
+      "required": [
+        "payload",
+        "scope",
+        "commit_sequence",
+        "ordinal",
+        "payload_digest"
+      ],
+      "type": "object"
+    },
     "ComponentContribution": {
       "additionalProperties": false,
       "description": "One component's share of a slate's success rate.",
@@ -2295,6 +2334,35 @@
       ],
       "type": "object"
     },
+    "ConversationTurnAdmission": {
+      "additionalProperties": false,
+      "description": "Expected conversation head for one newly admitted run. Revision zero creates\na context; later turns name the exact preceding successful run. A host must\nseparately validate its completed model history before executing the run.",
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "predecessor_run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "context_id",
+        "expected_revision"
+      ],
+      "type": "object"
+    },
     "CurrentPlanPublished": {
       "properties": {
         "changed_work_item_ids": {
@@ -2349,6 +2417,17 @@
         },
         "run_id": {
           "type": "string"
+        },
+        "task_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Immutable executable attachment, not scaffold text or authority. The\nnative owner transaction verifies the original proposal before binding."
         }
       },
       "required": [
@@ -7943,6 +8022,11 @@
           "type": "string"
         },
         {
+          "const": "task_plan",
+          "description": "Bounded explicit dependency planning; admission belongs to the host.",
+          "type": "string"
+        },
+        {
           "const": "harness_contrast",
           "description": "The contrastive harness composition decision (EG-DECISION-ENGINE-R803):\ntwo to eight candidate component versions probed against the same\nbaseline under identical conditions; the engine adopts a candidate only\nwhen its measured `eval_score_delta` is positive and unbeaten, with\ncost as the tie-break, and abstains keeping the current harness when no\ncandidate improves. See `decision::harness_contrast`.",
           "type": "string"
@@ -8180,6 +8264,97 @@
         "diebold_mariano_p"
       ],
       "type": "object"
+    },
+    "RequestContext": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "authentication_method": {
+          "$ref": "#/$defs/RequestContextAuthenticationMethod"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "issued_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "placement_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "policy_version": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/RequestContextSchemaVersion"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subject_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "request_id",
+        "subject_id",
+        "tenant_id",
+        "agent_id",
+        "scopes",
+        "audience",
+        "authentication_method",
+        "policy_version",
+        "graph",
+        "trace_id",
+        "issued_at_ms",
+        "expires_at_ms"
+      ],
+      "type": "object"
+    },
+    "RequestContextAuthenticationMethod": {
+      "enum": [
+        "workload_identity",
+        "oidc",
+        "mutual_tls",
+        "local_process",
+        "none"
+      ],
+      "type": "string"
+    },
+    "RequestContextSchemaVersion": {
+      "enum": [
+        "2"
+      ],
+      "type": "string"
     },
     "ResolutionKind": {
       "description": "How the conclusion was reached.",
@@ -9642,6 +9817,147 @@
       ],
       "type": "object"
     },
+    "RunCompletionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunCompletionPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "completion": {
+          "$ref": "#/$defs/RunCompletionInput"
+        },
+        "error_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "result_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "completion",
+        "tenant",
+        "work_item_id",
+        "batch_id",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "RunUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "requests": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tool_calls": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RunWorkItemView": {
+      "additionalProperties": false,
+      "description": "Owner-only historical admission evidence and the current caller-safe view.\nThe original context is provenance, not a credential or execution grant.",
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/SubmitWorkItemRequest"
+        },
+        "run_completion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommittedRunCompletion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "work_item": {
+          "$ref": "#/$defs/WorkItemView"
+        }
+      },
+      "required": [
+        "work_item",
+        "admission"
+      ],
+      "type": "object"
+    },
     "Scalar": {
       "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
       "type": "string"
@@ -10331,6 +10647,17 @@
           "description": "Synthetic evidence is labelled as such, always.",
           "type": "boolean"
         },
+        "task_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Evaluate-only explicit task DAG. Absent on every other question kind."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -10620,6 +10947,119 @@
       ],
       "type": "object"
     },
+    "SubmitWorkItemRequest": {
+      "additionalProperties": false,
+      "description": "Native WorkItem admission request.  `context.tenant_id` and\n`context.graph` are checked against the verified request envelope; they are\nnot caller-controlled routing hints.",
+      "properties": {
+        "catalog_digest": {
+          "type": "string"
+        },
+        "command_digest": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/$defs/RequestContext"
+        },
+        "conversation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversationTurnAdmission"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional ordered conversation reservation, never a history or execution grant.\nBoxed to preserve the existing Method enum allocation-size bound."
+        },
+        "deadline_unix": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "input_ref": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "max_attempts": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_tenant_in_flight": {
+          "description": "Tenant admission cap. The engine applies a bounded default when zero;\nit never permits a caller to raise the hard engine maximum.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "model_digest": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "priority": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "provenance_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "description": "Optional run identity; native admission binds its verified owner atomically.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        },
+        "work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "context",
+        "idempotency_key",
+        "command_digest",
+        "kind",
+        "priority",
+        "depends_on",
+        "input_ref",
+        "policy_digest",
+        "catalog_digest",
+        "model_digest",
+        "max_attempts",
+        "metadata",
+        "provenance_refs",
+        "max_tenant_in_flight"
+      ],
+      "type": "object"
+    },
     "SubmitWorkItemResult": {
       "additionalProperties": false,
       "properties": {
@@ -10729,6 +11169,111 @@
         "replayed",
         "outbox_id",
         "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "TaskPlan": {
+      "additionalProperties": false,
+      "description": "Canonical task order is a topological order with lexical ready-task ties.\nThe input digest retains the submitted order; the plan digest binds the\ncanonical executable body and policy, independent of declaration order.",
+      "properties": {
+        "input_digest": {
+          "type": "string"
+        },
+        "max_concurrency": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_steps": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_task_id": {
+          "type": "string"
+        },
+        "plan_digest": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "policy_revision": {
+          "type": "string"
+        },
+        "tasks": {
+          "$ref": "#/$defs/BoundedVec_TaskPlanTask_64"
+        },
+        "total_tasks": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tasks",
+        "output_task_id",
+        "max_concurrency",
+        "max_steps",
+        "total_tasks",
+        "policy_revision",
+        "policy_digest",
+        "input_digest",
+        "plan_digest"
+      ],
+      "type": "object"
+    },
+    "TaskPlanProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "max_concurrency": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_steps": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_task_id": {
+          "type": "string"
+        },
+        "tasks": {
+          "$ref": "#/$defs/BoundedVec_TaskPlanTask_64"
+        }
+      },
+      "required": [
+        "tasks",
+        "output_task_id",
+        "max_concurrency",
+        "max_steps"
+      ],
+      "type": "object"
+    },
+    "TaskPlanTask": {
+      "additionalProperties": false,
+      "description": "A task uses the host's already-bound agent. It cannot select credentials,\ntools, models or a different principal.",
+      "properties": {
+        "depends_on": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": []
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "prompt"
       ],
       "type": "object"
     },
@@ -11037,7 +11582,7 @@
       "type": "object"
     },
     "TypedValue": {
-      "description": "A typed question parameter. Values are typed, never substituted into text:\na parameter cannot become part of a prompt or a query string.",
+      "description": "A typed question parameter. Scalar values are never interpolated into queries.\nAn explicit task proposal carries prompts as data for the host executor.",
       "oneOf": [
         {
           "properties": {
@@ -11128,6 +11673,23 @@
             },
             "value": {
               "$ref": "#/$defs/UnitRationalWire"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Explicit task claims, never policy or authorization.",
+          "properties": {
+            "type": {
+              "const": "task_plan",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/TaskPlanProposal"
             }
           },
           "required": [
@@ -12369,6 +12931,25 @@
             "anyOf": [
               {
                 "$ref": "#/$defs/CurrentPlanSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetRunWorkItem": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RunWorkItemView"
               },
               {
                 "type": "null"

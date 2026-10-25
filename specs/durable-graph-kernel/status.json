@@ -61,6 +61,7 @@
     "EG-DURABLE-KERNEL-R030",
     "EG-DURABLE-KERNEL-R031",
     "EG-DURABLE-KERNEL-R031.1",
+    "EG-DURABLE-KERNEL-R031.2",
     "EG-DURABLE-KERNEL-R032",
     "EG-DURABLE-KERNEL-R032.1",
     "EG-DURABLE-KERNEL-R033",
@@ -122,11 +123,14 @@
     "EG-DURABLE-KERNEL-R063.2",
     "EG-DURABLE-KERNEL-R064",
     "EG-DURABLE-KERNEL-R065",
+    "EG-DURABLE-KERNEL-R065.1",
     "EG-DURABLE-KERNEL-R066",
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
     "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R070.1",
+    "EG-DURABLE-KERNEL-R070.2",
     "EG-DURABLE-KERNEL-R071",
     "EG-DURABLE-KERNEL-R072",
     "EG-DURABLE-KERNEL-R073",
@@ -380,7 +384,10 @@
     "EG-DURABLE-KERNEL-R852.5",
     "EG-DURABLE-KERNEL-R852.6",
     "EG-DURABLE-KERNEL-R028.4",
+    "EG-DURABLE-KERNEL-R028.4.1",
+    "EG-DURABLE-KERNEL-R028.4.2",
     "EG-DURABLE-KERNEL-R028.5",
+    "EG-DURABLE-KERNEL-R030.1",
     "EG-DURABLE-KERNEL-R083.5",
     "EG-DURABLE-KERNEL-R083.6",
     "EG-DURABLE-KERNEL-R083.7",
@@ -396,7 +403,21 @@
     "EG-DURABLE-KERNEL-R860.3",
     "EG-DURABLE-KERNEL-R860.4",
     "EG-DURABLE-KERNEL-R860.5",
-    "EG-DURABLE-KERNEL-R860.6"
+    "EG-DURABLE-KERNEL-R860.6",
+    "EG-DURABLE-KERNEL-R028.5.1",
+    "EG-DURABLE-KERNEL-R028.5.2",
+    "EG-DURABLE-KERNEL-R028.5.3",
+    "EG-DURABLE-KERNEL-R028.5.4",
+    "EG-DURABLE-KERNEL-R028.6",
+    "EG-DURABLE-KERNEL-R861",
+    "EG-DURABLE-KERNEL-R861.1",
+    "EG-DURABLE-KERNEL-R861.2",
+    "EG-DURABLE-KERNEL-R862",
+    "EG-DURABLE-KERNEL-R862.1",
+    "EG-DURABLE-KERNEL-R862.2",
+    "EG-DURABLE-KERNEL-R862.3",
+    "EG-DURABLE-KERNEL-R028.4.3",
+    "EG-DURABLE-KERNEL-R028.4.4"
   ],
   "requirements": [
     {
@@ -522,7 +543,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:179"
+        "src/raft/command/native/tests.rs:180"
       ]
     },
     {
@@ -788,7 +809,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation/context.rs:549",
+        "src/server/mutation/context.rs:567",
         "src/server/udf_catalog.rs:126"
       ]
     },
@@ -802,7 +823,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:410"
+        "src/server/mutation_batch/lifecycle_tests.rs:411"
       ]
     },
     {
@@ -866,8 +887,8 @@
         "35f12e9cc56f",
         "3a14159c3768",
         "3ddc77c97ef8",
-        "4746fbcf1601",
-        "7b7d4a0fb10f"
+        "42a0b101b111",
+        "4746fbcf1601"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -903,9 +924,17 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3ddc77c97ef8",
-        "7a8f87ca8484"
+        "42a0b101b111",
+        "7a8f87ca8484",
+        "9a7674d1bae5"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/mirror_target.rs:138",
+        "crates/eg-plan/src/mirror_target.rs:148",
+        "crates/eg-plan/src/mirror_target.rs:159",
+        "crates/eg-plan/src/mirror_target.rs:169",
+        "crates/eg-plan/src/mirror_target.rs:180"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R024.2.1",
         "EG-DURABLE-KERNEL-R024.2.2"
@@ -1052,11 +1081,19 @@
       "title": "Schema repair uses a reserved two-person approval lease (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2a4982e949a3",
         "3c618dd255ba",
-        "a676823d2b54",
-        "cd899a5c8c20"
+        "42a0b101b111",
+        "6e52c9bcfb57",
+        "a676823d2b54"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/control_lease/tests.rs:174",
+        "crates/eg-types/src/governed_change/tests.rs:110",
+        "crates/eg-types/src/governed_change/tests.rs:148",
+        "crates/eg-types/src/governed_change/tests.rs:54",
+        "crates/eg-types/src/governed_change/tests.rs:77"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R027.1",
         "EG-DURABLE-KERNEL-R027.2",
@@ -1106,7 +1143,7 @@
         "cd899a5c8c20"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:279"
+        "src/raft/command/native/tests.rs:280"
       ]
     },
     {
@@ -1123,7 +1160,8 @@
         "EG-DURABLE-KERNEL-R028.2",
         "EG-DURABLE-KERNEL-R028.3",
         "EG-DURABLE-KERNEL-R028.4",
-        "EG-DURABLE-KERNEL-R028.5"
+        "EG-DURABLE-KERNEL-R028.5",
+        "EG-DURABLE-KERNEL-R028.6"
       ]
     },
     {
@@ -1139,12 +1177,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R030",
       "title": "Reserved RBAC elevation lease kind cannot be issued generically",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "3157bcbb4ac2",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R030.1"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R031",
@@ -1153,15 +1194,18 @@
       "landed_in": [
         "1ef84395fa69",
         "2cc878fb8938",
+        "5c83a1967042",
         "8628416b1736",
-        "8e288da667fc",
-        "94edcf341758"
+        "8e288da667fc"
       ],
       "verified_by": [
-        "src/redb_store/operation_audit_tests.rs:278"
+        "src/redb_store/operation_audit_tests.rs:278",
+        "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:687",
+        "src/server/mutation_batch/tests.rs:1394"
       ],
       "rollup_of": [
-        "EG-DURABLE-KERNEL-R031.1"
+        "EG-DURABLE-KERNEL-R031.1",
+        "EG-DURABLE-KERNEL-R031.2"
       ]
     },
     {
@@ -1172,7 +1216,19 @@
         "92f13033b00a"
       ],
       "verified_by": [
-        "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:686"
+        "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:687"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R031.2",
+      "title": "Writes are stamped from the authoritative scope version",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5c83a1967042",
+        "aeb9c998476a"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/tests.rs:1394"
       ]
     },
     {
@@ -1180,10 +1236,16 @@
       "title": "Native primary-key fast path bypasses the SQL planner",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "49c43fca68d0"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/fast_path.rs:109",
+        "crates/eg-types/src/fast_path.rs:118",
+        "crates/eg-types/src/fast_path.rs:81",
+        "crates/eg-types/src/fast_path.rs:97"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R032.1"
       ]
@@ -1208,17 +1270,24 @@
       "title": "Hot-store engine choice is evaluated against captured workloads",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "be3fad3f9840"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/hot_store_engine.rs:125",
+        "crates/eg-types/src/hot_store_engine.rs:140",
+        "crates/eg-types/src/hot_store_engine.rs:157",
+        "crates/eg-types/src/hot_store_engine.rs:168",
+        "crates/eg-types/src/hot_store_engine.rs:190"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R033.1"
       ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R033.1",
-      "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed, and winner selection refuses rather than silently defaulting",
+      "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed. Winner selection refuses rather than silently defaulting",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "19da6ec1bc9b",
@@ -1237,10 +1306,16 @@
       "title": "Cross-store atomicity is proven and scoped to mixed transactions",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "5dc0a601b2cf"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/cross_store_scope.rs:65",
+        "crates/eg-types/src/cross_store_scope.rs:79",
+        "crates/eg-types/src/cross_store_scope.rs:85",
+        "crates/eg-types/src/cross_store_scope.rs:94"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R034.1"
       ]
@@ -1283,10 +1358,17 @@
       "title": "Mirror sinks reach fan-out parity and include Postgres table mirroring",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "d833c1d987a6"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/mirror_sink.rs:111",
+        "crates/eg-types/src/mirror_sink.rs:121",
+        "crates/eg-types/src/mirror_sink.rs:130",
+        "crates/eg-types/src/mirror_sink.rs:138",
+        "crates/eg-types/src/mirror_sink.rs:147"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R036.1"
       ]
@@ -1362,10 +1444,18 @@
       "title": "Workload classifier routes point operations around the SQL planner",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
-        "4ed831ced92f"
+        "4ed831ced92f",
+        "add3fe5b1d67"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/workload_class.rs:110",
+        "crates/eg-types/src/workload_class.rs:117",
+        "crates/eg-types/src/workload_class.rs:126",
+        "crates/eg-types/src/workload_class.rs:136",
+        "crates/eg-types/src/workload_class.rs:144"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R037.1",
         "EG-DURABLE-KERNEL-R037.2"
@@ -1543,10 +1633,16 @@
       "title": "Pipelined requests commit as a single batch",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "726ee0a3eadf"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/pipeline_batch.rs:101",
+        "crates/eg-types/src/pipeline_batch.rs:112",
+        "crates/eg-types/src/pipeline_batch.rs:78",
+        "crates/eg-types/src/pipeline_batch.rs:92"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R040.1"
       ]
@@ -1556,10 +1652,18 @@
       "title": "SQL plan cache keyed by statement digest and schema version",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
+        "88496b615981",
         "aaf7113fe427"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/plan_cache_key.rs:142",
+        "crates/eg-types/src/plan_cache_key.rs:150",
+        "crates/eg-types/src/plan_cache_key.rs:157",
+        "crates/eg-types/src/plan_cache_key.rs:170",
+        "crates/eg-types/src/plan_cache_key.rs:178"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R041.1",
         "EG-DURABLE-KERNEL-R041.2"
@@ -1741,7 +1845,7 @@
         "ceec54145720"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:242"
+        "src/server/mutation_batch/lifecycle_tests.rs:243"
       ]
     },
     {
@@ -1958,10 +2062,26 @@
       "title": "Signed dispatch commit recovers correctly after an ack-lost fault window",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "57a12eb06632"
+        "57a12eb06632",
+        "c3daf5c4438c"
       ],
       "verified_by": [
+        "src/server/mutation_batch/commit/internal.rs:611",
         "tests/txn_reconcile_ack_lost_retry.rs:573"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R065.1"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R065.1",
+      "title": "The transaction coordinator lane is disjoint from graph lanes",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c3daf5c4438c"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/commit/internal.rs:611"
       ]
     },
     {
@@ -2008,11 +2128,55 @@
     {
       "id": "EG-DURABLE-KERNEL-R070",
       "title": "Operator command inspects and applies registered offline store upgrades",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "8dbb5bd9de53"
+        "2d6a22cb9bb4",
+        "4dfe8b2f33e0",
+        "8dbb5bd9de53",
+        "c3827ffe4f44",
+        "d44e49b9d67c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:129",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:170",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:197",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:223"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R070.1",
+        "EG-DURABLE-KERNEL-R070.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070.1",
+      "title": "The engine migrates an older supported store when it opens it",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4dfe8b2f33e0",
+        "c3827ffe4f44",
+        "d44e49b9d67c"
+      ],
+      "verified_by": [
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:107",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:129",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:170",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:197",
+        "src/server/persistence/store_upgrade/auto_migrate_tests.rs:223"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070.2",
+      "title": "Hot-path proof: a previous-patch store migrates and serves at open",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2d6a22cb9bb4",
+        "c3827ffe4f44",
+        "d44e49b9d67c"
+      ],
+      "verified_by": [
+        "tests/test_store_auto_migrate.py:39"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R071",
@@ -3134,7 +3298,7 @@
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:161",
         "crates/eg-types/src/change_envelope/material.rs:181",
-        "src/server/mod.rs:2162"
+        "src/server/mod.rs:2163"
       ]
     },
     {
@@ -3147,7 +3311,7 @@
       ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:198",
-        "src/server/mod.rs:2162"
+        "src/server/mod.rs:2163"
       ]
     },
     {
@@ -3402,7 +3566,7 @@
         "6aa2533a8865"
       ],
       "verified_by": [
-        "src/redb_store.rs:6302",
+        "src/redb_store.rs:6294",
         "src/redb_store/work_item/read/tests.rs:130",
         "src/redb_store/work_item/read/tests.rs:182",
         "src/redb_store/work_item/read/tests.rs:221",
@@ -3482,11 +3646,16 @@
       "landed_in": [
         "34d9e78dbe3c",
         "48284711e3db",
+        "5430f4d714ee",
         "70d7b722668b",
-        "b714af935390"
+        "74f3436402b8"
       ],
       "verified_by": [
-        "src/server/kv/dispatch_tests.rs:158"
+        "src/server/kv/dispatch_tests.rs:158",
+        "src/server/kv/dispatch_tests.rs:159",
+        "src/server/kv/dispatch_tests.rs:160",
+        "src/server/kv/dispatch_tests.rs:232",
+        "src/server/kv/dispatch_tests.rs:261"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R102.1",
@@ -4148,24 +4317,70 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/redb_store/work_item/row_guard.rs:263",
-        "tests/adopt_workitem_authenticated_replay.rs:451"
+        "src/redb_store/work_item/row_guard.rs:266",
+        "tests/adopt_workitem_authenticated_replay.rs:459",
+        "tests/test_work_item_retry_identity.py:128",
+        "tests/test_work_item_retry_identity.py:274"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R028.4.1",
+        "EG-DURABLE-KERNEL-R028.4.2",
+        "EG-DURABLE-KERNEL-R028.4.3",
+        "EG-DURABLE-KERNEL-R028.4.4"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.1",
+      "title": "Recover immutable run submission records",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "62374ef41f37",
+        "924601ce5495",
+        "fc65d45d509d"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/row_guard.rs:316",
+        "src/redb_store/work_item/run_owner/tests.rs:115",
+        "src/redb_store/work_item/run_owner/tests.rs:147",
+        "src/redb_store/work_item/run_owner/tests.rs:446",
+        "src/redb_store/work_item/run_owner/tests.rs:48"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.2",
+      "title": "Qualify recovery performance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.5",
       "title": "Native current-plan publication and readback",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
-        "88fc4a5577c7"
+        "88fc4a5577c7",
+        "f9bfc0da8ae7"
       ],
       "verified_by": [
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:293",
-        "crates/eg-types/src/current_plan.rs:106",
-        "src/redb_store/work_item/current_plan/tests.rs:131",
-        "src/redb_store/work_item/current_plan/tests.rs:62",
-        "src/redb_store/work_item/current_plan/tests.rs:95"
+        "crates/eg-types/src/current_plan/tests.rs:110",
+        "crates/eg-types/src/current_plan/tests.rs:3",
+        "src/redb_store/work_item/current_plan/tests.rs:135",
+        "src/redb_store/work_item/current_plan/tests.rs:66"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R028.5.1",
+        "EG-DURABLE-KERNEL-R028.5.2",
+        "EG-DURABLE-KERNEL-R028.5.3",
+        "EG-DURABLE-KERNEL-R028.5.4"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1",
+      "title": "Issuer-bound host-start record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.5",
@@ -4283,6 +4498,166 @@
     {
       "id": "EG-DURABLE-KERNEL-R860.6",
       "title": "Hot-path proof: one store behind four protocols",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.1",
+      "title": "Typed executable attachment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/current_plan/tests.rs:20",
+        "crates/eg-types/src/current_plan/tests.rs:56"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.2",
+      "title": "Immutable fenced attachment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/redb_store/work_item/current_plan/tests/attachment.rs:13",
+        "src/redb_store/work_item/current_plan/tests/attachment.rs:139",
+        "src/redb_store/work_item/current_plan/tests/attachment.rs:61"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.3",
+      "title": "Attachment replay and recovery",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/mutation_batch/digest.rs:319",
+        "tests/adopt_workitem_authenticated_replay.rs:588",
+        "tests/decide/test_task_plan_served.py:230",
+        "tests/decide/test_task_plan_served.py:351"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.4",
+      "title": "Attachment performance qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.6",
+      "title": "Commit ordinary run completion and observed usage atomically",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42376299456f",
+        "701e8e498e07",
+        "870424b46d0b",
+        "8b5cbc59e851",
+        "b286edc1b3bf"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/run_owner/tests.rs:200",
+        "src/redb_store/work_item/run_owner/tests.rs:225",
+        "src/redb_store/work_item/run_owner/tests.rs:249",
+        "src/redb_store/work_item/run_owner/tests.rs:325",
+        "src/redb_store/work_item/run_owner/tests.rs:446"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R861",
+      "title": "Graph lifecycle replay and graph listing survive a patch upgrade (rollup)",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9d5b6a58de75",
+        "eec3e5ffbf2d",
+        "f3b89fbc5e09",
+        "fcb8d033061e"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/lifecycle_tests.rs:480",
+        "tests/test_upgrade_store_listing.py:39"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R861.1",
+        "EG-DURABLE-KERNEL-R861.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R861.1",
+      "title": "Lifecycle replay compares the stored identity",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9d5b6a58de75",
+        "f3b89fbc5e09",
+        "fcb8d033061e"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/lifecycle_tests.rs:480"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R861.2",
+      "title": "Graph listing survives a restart and a patch upgrade",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eec3e5ffbf2d"
+      ],
+      "verified_by": [
+        "tests/test_upgrade_store_listing.py:39"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R862",
+      "title": "A copied store or bundle restores onto new files (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R862.1",
+        "EG-DURABLE-KERNEL-R862.2",
+        "EG-DURABLE-KERNEL-R862.3"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R862.1",
+      "title": "Restore reads bundle sources by content, not by physical identity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R862.2",
+      "title": "Wiring: an explicit command re-binds a copied data directory",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R862.3",
+      "title": "Hot-path proof: a copied bundle restores and serves",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.3",
+      "title": "Reserve ordered conversation turns with native run admission",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1c6664149612",
+        "2df788ead124",
+        "74bd0bcf3899",
+        "a1874ae34e29"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/conversation/tests.rs:138",
+        "src/redb_store/work_item/conversation/tests.rs:159",
+        "src/redb_store/work_item/conversation/tests.rs:175",
+        "src/redb_store/work_item/conversation/tests.rs:215",
+        "src/redb_store/work_item/conversation/tests.rs:235"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.4",
+      "title": "Replay a repeated run admission from its retained owner receipt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
