@@ -2,7 +2,7 @@
   <p class="site-hero__eyebrow">The knowledge engine</p>
   <h1 class="site-hero__title" id="epistemic-graph-title">Make connected knowledge durable, explainable, and computable.</h1>
   <p class="site-hero__summary">
-    Epistemic Graph unifies graph, SQL, RDF/OWL, vectors, time, evidence, and
+    Medulla unifies graph, SQL, RDF/OWL, vectors, time, evidence, and
     multimodal data behind one Rust-native planner and transaction boundary.
   </p>
   <div class="site-hero__actions">
@@ -32,7 +32,7 @@
 ## One authority across every data shape
 
 <figure class="site-card">
-  <img src="assets/engine-architecture.svg" alt="Authenticated interfaces enter the unified Epistemic Graph planner, compose five data and compute domains, and commit through one authoritative durable store.">
+  <img src="assets/engine-architecture.svg" alt="Authenticated interfaces enter the unified Medulla planner, compose five data and compute domains, and commit through one authoritative durable store.">
   <figcaption>Interfaces differ. Authority, planning, evidence, and commit semantics do not.</figcaption>
 </figure>
 
@@ -50,8 +50,8 @@ authority, durability, audit, CDC, and transaction properties.
 ## Where this engine fits
 
 <figure class="site-card">
-  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems.">
-  <figcaption>Epistemic Graph is the durable authority at the base of the shared runtime.</figcaption>
+  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Medulla stores knowledge. Connectors synchronize source systems.">
+  <figcaption>Medulla is the durable authority at the base of the shared runtime.</figcaption>
 </figure>
 
 <p><a href="https://knuckles-team.github.io/.github/architecture/#eg">Explore the live architecture</a>.</p>
@@ -79,7 +79,7 @@ authority, durability, audit, CDC, and transaction properties.
     <span class="site-flow__body">Agents, workflows, skills, evaluation, and control-plane decisions run above the database.</span>
   </li>
   <li class="site-flow__step">
-    <span class="site-flow__title">Commit in Epistemic Graph</span>
+    <span class="site-flow__title">Commit in Medulla</span>
     <span class="site-flow__body">State, schema, evidence, provenance, and outcomes become durable under one transaction boundary.</span>
   </li>
   <li class="site-flow__step">

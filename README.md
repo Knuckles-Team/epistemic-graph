@@ -1,7 +1,10 @@
-# Epistemic Graph
+# Medulla
+
+Medulla is distributed as `epistemic-graph` and imported as `epistemic_graph`.
+Repository, package, CLI and API identifiers remain unchanged.
 
 <p align="center">
-  <img src="docs/assets/brands/epistemic-graph-logo-v1.png" alt="Epistemic Graph logo" width="176">
+  <img src="docs/assets/brands/epistemic-graph-logo-v1.png" alt="Medulla logo" width="176">
 </p>
 
 <p align="center">
@@ -43,17 +46,17 @@
 
 ## Overview
 
-Epistemic Graph is a Rust-native database and compute engine for teams building
+Medulla is a Rust-native database and compute engine for teams building
 knowledge systems, evidence-led applications, analytics, and agent memory. It
 stores and queries connected graph records, relational data, RDF/OWL knowledge,
 vectors, time-series, events, documents, and media through one engine.
 
 Claims can retain their evidence, provenance, confidence, and time of validity,
 so applications can inspect why information is present and how it changes.
-Use Epistemic Graph directly through its clients and query interfaces. It also
+Use Medulla directly through its clients and query interfaces. It also
 serves as the durable knowledge layer beneath [Arbora](https://knuckles-team.github.io/arbora/)
 and [Agent Utilities](https://knuckles-team.github.io/agent-utilities/).
-Epistemic Graph is the database. Agent execution and connector runtimes live in
+Medulla is the database. Agent execution and connector runtimes live in
 their respective ecosystem projects.
 
 ## Key capabilities
@@ -75,6 +78,9 @@ for the current behavior of each operation.
 
 This repository publishes two PyPI packages and one container image, all at the same version.
 
+**Medulla Stem** is the native server, distributed as `epistemic-graph-server`.
+The package, executable and container image identifiers remain unchanged.
+
 | Artifact | Contents | Install |
 |---|---|---|
 | `epistemic-graph` | The Python client, the in-process engine module and the numeric kernel. Carries no executable. | `pip install epistemic-graph` |
@@ -87,20 +93,20 @@ This repository publishes two PyPI packages and one container image, all at the 
 - [Start here](https://knuckles-team.github.io/epistemic-graph/) for a guided engine tour.
 - [Interfaces](https://knuckles-team.github.io/epistemic-graph/interfaces/) explains UQL, SQL, SPARQL, Cypher, GraphQL, vectors, time-series, and clients.
 - [Architecture](https://knuckles-team.github.io/epistemic-graph/architecture/) covers query execution, reasoning, storage, and distribution.
-- [Deploy Epistemic Graph](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/) covers durable server, TLS, containers, and clusters.
+- [Deploy Medulla](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/) covers durable server, TLS, containers, and clusters.
 - [Operations](https://knuckles-team.github.io/epistemic-graph/operations/runbook/) covers day-two procedures and recovery.
 
 ## Architecture
 
 <p align="center">
   <a href="https://knuckles-team.github.io/.github/architecture/#eg">
-  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems." width="960">
+  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Medulla stores knowledge. Connectors synchronize source systems." width="960">
   </a>
   <br><a href="https://knuckles-team.github.io/.github/architecture/#eg">Explore the live architecture</a>
 </p>
 
 <p align="center">
-  <img src="docs/assets/engine-architecture.svg" alt="Epistemic Graph architecture: authenticated interfaces feed a unified planner, which composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
+  <img src="docs/assets/engine-architecture.svg" alt="Medulla architecture: authenticated interfaces feed a unified planner, which composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
 </p>
 
 People use the **Agent Web UI**, **Agent Terminal UI**, **Geniusbot**, or the
@@ -108,7 +114,7 @@ messaging services hosted by **Arbora**. The terminal UI reaches Arbora through
 its REST API.
 External applications and agents connect through Arbora using MCP, REST, or
 A2A. Arbora governs the runtime boundary. **Agent Utilities** coordinates
-agents and workflows. Epistemic Graph stores and reasons over their durable
+agents and workflows. Medulla stores and reasons over their durable
 knowledge. Source systems enter through **Agent Connector SDK**, which commits
 typed source data to the graph.
 
@@ -150,7 +156,7 @@ True 1
 ```
 
 For durable storage, authenticated clients, containers, TLS, or clustering,
-continue with [Deploy Epistemic Graph](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/).
+continue with [Deploy Medulla](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/).
 
 ## Contributing
 
