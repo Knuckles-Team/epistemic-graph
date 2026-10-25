@@ -937,6 +937,8 @@
     "EG-DECISION-ENGINE-R134.111.13",
     "EG-DECISION-ENGINE-R814",
     "EG-DECISION-ENGINE-R814.1",
+    "EG-DECISION-ENGINE-R814.1.1",
+    "EG-DECISION-ENGINE-R814.1.2",
     "EG-DECISION-ENGINE-R814.2",
     "EG-DECISION-ENGINE-R814.3",
     "EG-DECISION-ENGINE-R814.4",
@@ -9794,15 +9796,37 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R814.1",
-      "title": "Model",
-      "delivery_state": "VERIFIED",
+      "title": "Model (rollup)",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1274d990f940"
       ],
-      "verified_by": [
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:200",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:40"
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R814.1.1",
+        "EG-DECISION-ENGINE-R814.1.2"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R814.1.1",
+      "title": "Vocabulary",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b0d8adcaa41f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:227",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:248",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:41",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:67"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R814.1.2",
+      "title": "Typed record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R814.2",
@@ -9823,9 +9847,7 @@
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:221"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R814.5",

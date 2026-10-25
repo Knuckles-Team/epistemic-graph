@@ -3453,13 +3453,15 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1274d990f940"
+        "1274d990f940",
+        "b0d8adcaa41f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:148",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:199",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:220",
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:39"
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:175",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:226",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:247",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:40",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:66"
       ]
     },
     {
