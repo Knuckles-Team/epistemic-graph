@@ -15,6 +15,8 @@ const EX: &str = "http://knuckles.team/test/supply-chain#";
 
 fn documents() -> Vec<Triple> {
     parse_all(&[
+        include_str!("../../eg-core/ontology/core-foundation-v1.ttl"),
+        include_str!("../../eg-core/ontology/sdd-v1.ttl"),
         include_str!("../../eg-core/ontology/trm-v1.ttl"),
         include_str!("../../eg-core/ontology/infrastructure-v1.ttl"),
         include_str!("../../eg-core/ontology/supply_chain-v1.ttl"),
@@ -31,6 +33,22 @@ fn supplier_entails_vendor_under_the_native_reasoner() {
         "the shared vocabulary classifies consistently"
     );
     assert!(classification.entails_subclass(&format!("<{KG}Supplier>"), &format!("<{KG}Vendor>")));
+}
+
+// spec: EG-CQ-XSRC-R002.2, EG-SUPPLY-VOCAB-R002.2
+#[test]
+fn container_image_entails_software_component_under_the_native_reasoner() {
+    let triples = documents();
+    let classification = Reasoner::from_triples(&triples).classify();
+    assert!(
+        classification.consistent,
+        "the SDD, infrastructure and supply-chain vocabularies classify consistently: {:?}",
+        classification.unsatisfiable
+    );
+    assert!(classification.entails_subclass(
+        "<http://knuckles.team/kg/infrastructure#ContainerImage>",
+        "<http://knuckles.team/kg#SoftwareComponent>"
+    ));
 }
 
 // spec: EG-SUPPLY-VOCAB-R002.5

@@ -41,8 +41,8 @@
 
 :SoftwareComponent a owl:Class ;
     rdfs:label "Software Component" ;
-    rdfs:comment "A library, package or base image supplied into a deployment (a registry namespace, a repository package, a system package). The SDD module declares the same IRI under BFO_0000004, which the core-foundation axioms keep disjoint from BFO_0000031; this declaration aligns with the SDD parent." ;
-    rdfs:subClassOf bfo:0000004 .
+    rdfs:comment "A library, package or base image supplied into a deployment (a registry namespace, a repository package, a system package). The shared IRI is also declared by the SDD module; its generically dependent parent lets container images specialize it without crossing the core disjointness axiom." ;
+    rdfs:subClassOf bfo:0000031 .
 
 :ComponentVersion a owl:Class ;
     rdfs:label "Component Version" ;

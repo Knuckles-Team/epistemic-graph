@@ -198,13 +198,12 @@ fn realized_by_asset_and_asset_host_declare_domain_and_range() {
 #[test]
 fn software_component_terms_declared() {
     let triples = parse_turtle(DOCUMENT).unwrap();
-    // SoftwareComponent reuses the IRI the SDD module already declares under
-    // BFO_0000004 (disjoint from BFO_0000031 by the core-foundation axioms),
-    // so its parent aligns with that declaration; ComponentVersion is new.
+    // SoftwareComponent reuses the IRI the SDD module already declares. Both
+    // it and the new ComponentVersion are information-bearing continuants.
     for (class, parent) in [
         (
             "SoftwareComponent",
-            "http://purl.obolibrary.org/obo/BFO_0000004",
+            "http://purl.obolibrary.org/obo/BFO_0000031",
         ),
         (
             "ComponentVersion",
