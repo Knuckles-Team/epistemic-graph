@@ -523,6 +523,7 @@ pub(crate) fn seed_component_for_test(
                     supports_tools: true,
                     supports_structured_output: true,
                     supports_vision: false,
+                    input_capabilities: None,
                     modalities: Default::default(),
                     cost: None,
                     latency_declared: None,
@@ -875,6 +876,50 @@ mod tests {
             .current_component("tenant-a", "tool:a")
             .unwrap()
             .is_some());
+    }
+
+    // spec: EG-DECISION-ENGINE-R050.1
+    #[test]
+    fn model_input_capabilities_survive_owner_restart_and_tenant_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_str().unwrap();
+        let expected_facts: eg_types::agent_component::AgentComponentFacts =
+            serde_json::from_value(serde_json::json!({
+                "facts":"model_profile", "provider":"fixture", "model_identity":"fixture/model",
+                "context_window_tokens":8192, "max_output_tokens":1024,
+                "supports_tools":false, "supports_structured_output":false, "supports_vision":true,
+                "input_capabilities":{"media_types":["image/png"],"max_aggregate_bytes":4096,"max_parts":2}
+            })).unwrap();
+        let expected_digest;
+        {
+            let store = AgentLibraryStore::open(path).unwrap();
+            let mut component = super::test_component_draft("tenant-a", "model:media");
+            component.kind = AgentComponentKind::ModelProfile;
+            component.facts = expected_facts.clone();
+            store
+                .publish_component(AgentComponentPublishRequest {
+                    context: context(&store, "model-media", 1, 0, "agent-component:publish"),
+                    evaluation_receipt_digest: None,
+                    component,
+                })
+                .unwrap();
+            expected_digest = store
+                .current_component("tenant-a", "model:media")
+                .unwrap()
+                .unwrap()
+                .definition_digest;
+        }
+        let reopened = AgentLibraryStore::open(path).unwrap();
+        let restored = reopened
+            .current_component("tenant-a", "model:media")
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.facts, expected_facts);
+        assert_eq!(restored.definition_digest, expected_digest);
+        assert!(reopened
+            .current_component("tenant-b", "model:media")
+            .unwrap()
+            .is_none());
     }
 
     // ---- provenance is a PIN, and admission resolves it ----

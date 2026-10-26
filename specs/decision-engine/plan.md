@@ -145,6 +145,9 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R048 | T2 | LANDED | NOT_RUN | WP A2 — Derivation: is_a records, weakest-premise evidence class, task→capability closure, claim-premised task mappings, verifier |
 | EG-DECISION-ENGINE-R049 | T4 | BUILT | NOT_RUN | WP A3 — Solver: preprocess; find a greedy incumbent; use branch-and-bound and a Lagrangian/dual covering bound. Set a node budget, emit a certificate, and check it with verify_certificate. List templates, run no-good cuts, and compare with a brute-force oracle |
 | EG-DECISION-ENGINE-R050 | T2 | LANDED | NOT_RUN | WP A4 — Facts: typed optional ModelProfile/tool facts (modality, cost, latency, schema digests); delete unread provides |
+| EG-DECISION-ENGINE-R050.1 | T2 | BUILT | NOT_RUN | Optional digest-bound media declaration source and producer fixtures; no media-run admission |
+| EG-DECISION-ENGINE-R050.2 | T2 | SPECIFIED | NOT_RUN | Fresh generated contract and strict client preservation; missing generation remains a red boundary |
+| EG-DECISION-ENGINE-R050.3 | T2 | SPECIFIED | NOT_RUN | Exact-commit native qualification and planned maximum-parts benchmark receipt |
 | EG-DECISION-ENGINE-R051 | T2 | LANDED | NOT_RUN | WP A5 — Executor and commit: AgentAssemble/DecisionCommit handlers, one-agent-graph rule, refuse DecisionRecord in packs, audit lines |
 | EG-DECISION-ENGINE-R052 | T2 | LANDED | NOT_RUN | WP A6 — Acceptance: routing fixture with acceptability sets, planted bad inputs, oracle, golden vectors, latency report, outcome-link test |
 | EG-DECISION-ENGINE-R053 | T2 | LANDED | NOT_RUN | G0 — Gold set: ≈50 labelled typed-requirements→acceptable-assemblies items for 2.27.x, growing to ≈500 (≈100/class) before any 2.28 calibration claim |
@@ -2111,3 +2114,39 @@ That test proves the `usage:read` user scope and the service-only `usage:write` 
 Superseded evidence: the in-memory `UsageLedger` in `crates/eg-core/src/usage_ledger.rs` had no caller.
 Its tests did not prove a served tenant-scoped read. The module and its tests were removed.
 `EG-DECISION-ENGINE-R801.7` owns the served tenant-scoped read. It depends on the durable ledger of `EG-DECISION-ENGINE-R801.2`.
+
+## Amendment 2026-10-23: model media producer and qualification split
+
+R050.1 extends the existing component facts, pack annotations and digest owners.
+Its optional declaration binds exact MIME membership, aggregate decoded bytes,
+and part count. Absence or null emits no new digest bytes and remains unknown.
+The source preserves the original component V3/V4 and pack golden vectors.
+Image declarations require explicit vision support at component validation.
+Pack import reuses the existing G18 draft validation before body persistence,
+component writes, receipts or outbox records. It adds no parallel validator.
+
+R050.2 owns generated schema and client compatibility. The strict generated
+model fixture is intentionally unskipped and requires a valid declaration to
+succeed before testing refusal. Rust source alone cannot satisfy it. Regenerate
+through the canonical generator, never by hand-editing contract or client files.
+R050.3 separately requires exact-commit native execution and resource evidence.
+Source annotations and generated status are not test-execution receipts. The
+planned `model_media_capabilities_max_parts` benchmark is not implemented here.
+Its workload is four declared media types and 128 supplied part sizes.
+The total is at most 64 MiB. The checker processes metadata, not image buffers.
+
+The existing CandidateFacts constructor already copies the complete component
+facts with its revision and definition digest. DecisionCommit compares those
+facts inside the Agent Library write transaction. This protects a decision's
+catalog snapshot, not a run's media admission. The new validate_parts helper
+has no production admission caller, accepts already supplied decoded sizes,
+and grants no authority. Empty part lists are not forbidden by this max-only
+contract; neither a minimum count nor an image decoder is introduced.
+
+R036 retains selected-profile authority and atomic decision/task admission.
+A media-specific selected-profile/run snapshot, owner-issued authority binding,
+consumer enforcement, and successful served PNG journey remain open. Do not
+infer them from catalog visibility, supports_vision, model identity, transport,
+or a successful producer fixture. Preserve TUI104's honest refusal until separate
+consumer, admission, and served evidence exists. This amendment changes no
+terminal or admission behavior. It does not close the end-to-end gap.

@@ -8,7 +8,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::agent_component::{
-    DeclaredCost, DeclaredLatency, MeasuredFact, ShellProficiency, StoppingBehaviour,
+    DeclaredCost, DeclaredLatency, MeasuredFact, ModelInputCapabilities, ShellProficiency,
+    StoppingBehaviour,
 };
 use crate::contract::BoundedVec;
 
@@ -40,6 +41,8 @@ pub struct PackModelFacts {
     pub supports_structured_output: Option<bool>,
     #[serde(default)]
     pub supports_vision: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_capabilities: Option<ModelInputCapabilities>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

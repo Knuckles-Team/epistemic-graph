@@ -50,6 +50,7 @@ use crate::agent_library::AgentLibraryLifecycle;
 
 pub mod content;
 pub mod facts;
+pub mod input_capabilities;
 pub mod search;
 
 mod validation;
@@ -63,6 +64,7 @@ pub use facts::{
     ModalityFacts, ObservationRef, PriceSource, PromptMode, ShellProficiency, StoppingBehaviour,
     ToolEffect, ToolsetTransport,
 };
+pub use input_capabilities::{ModelInputCapabilities, ModelInputMediaType};
 pub use search::{
     decode_search_cursor, encode_search_cursor, AgentComponentSearchPage,
     AgentComponentSearchRequest, AgentComponentStatusRequest,
@@ -751,6 +753,22 @@ fn put_measured_fact(hasher: &mut Sha256, field: &str, value: &str, reference: &
     put_text(hasher, &reference.digest);
 }
 
+/// Absent declarations add no bytes to either legacy component digest version.
+fn put_input_capabilities(hasher: &mut Sha256, capabilities: Option<&ModelInputCapabilities>) {
+    let Some(capabilities) = capabilities else {
+        return;
+    };
+    put_text(hasher, "input_capabilities");
+    let mut media_types = capabilities.media_types.clone();
+    media_types.sort();
+    hasher.update((media_types.len() as u64).to_be_bytes());
+    for media_type in media_types {
+        put_text(hasher, media_type.as_str());
+    }
+    hasher.update(capabilities.max_aggregate_bytes.to_be_bytes());
+    hasher.update(capabilities.max_parts.to_be_bytes());
+}
+
 fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
     put_text(hasher, facts.label());
     match facts {
@@ -768,6 +786,7 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
             latency_observed_ref,
             shell_proficiency,
             stopping_behaviour,
+            input_capabilities,
         } => {
             put_text(hasher, provider);
             put_text(hasher, model_identity);
@@ -789,6 +808,7 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
                 hasher,
                 latency_observed_ref.as_ref().map(|r| r.digest.as_str()),
             );
+            put_input_capabilities(hasher, input_capabilities.as_ref());
             if let Some(fact) = shell_proficiency {
                 put_measured_fact(
                     hasher,
@@ -1397,6 +1417,7 @@ mod tests {
             supports_tools: true,
             supports_structured_output: true,
             supports_vision: true,
+            input_capabilities: None,
             modalities: ModalityFacts::default(),
             cost: None,
             latency_declared: None,
@@ -1591,6 +1612,71 @@ mod tests {
             reference.digest.clear();
             assert!(source.validate().is_err());
             assert!(AgentComponentEntry::publish(source, 1, 1_000).is_err());
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R050.1
+    #[test]
+    fn model_input_capabilities_publish_round_trip_and_bind_every_limit() {
+        let baseline = model();
+        let legacy_digest = definition_digest(&baseline);
+        let mut wire = serde_json::to_value(&baseline).unwrap();
+        assert!(wire["facts"].get("input_capabilities").is_none());
+        wire["facts"]["input_capabilities"] = serde_json::json!({
+            "media_types": ["text/plain", "image/png"],
+            "max_aggregate_bytes": 1024,
+            "max_parts": 2
+        });
+        let declared: AgentComponentDraft = serde_json::from_value(wire.clone()).unwrap();
+        let entry = AgentComponentEntry::publish(declared.clone(), 1, 1_000).unwrap();
+        let reread: AgentComponentEntry =
+            serde_json::from_value(serde_json::to_value(&entry).unwrap()).unwrap();
+        reread.validate().unwrap();
+        assert_eq!(reread.as_draft(), declared);
+        let digest = definition_digest(&declared);
+        assert_ne!(digest, legacy_digest);
+        for (field, value) in [
+            (
+                "media_types",
+                serde_json::json!(["text/plain", "image/jpeg"]),
+            ),
+            ("max_aggregate_bytes", serde_json::json!(1025)),
+            ("max_parts", serde_json::json!(3)),
+        ] {
+            let mut changed = wire.clone();
+            changed["facts"]["input_capabilities"][field] = value;
+            let changed: AgentComponentDraft = serde_json::from_value(changed).unwrap();
+            assert_ne!(definition_digest(&changed), digest);
+        }
+        wire["facts"]["input_capabilities"]["media_types"] =
+            serde_json::json!(["image/png", "text/plain"]);
+        let reordered: AgentComponentDraft = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(definition_digest(&reordered), digest);
+        wire["facts"]["input_capabilities"] = serde_json::Value::Null;
+        let unknown: AgentComponentDraft = serde_json::from_value(wire).unwrap();
+        assert_eq!(definition_digest(&unknown), legacy_digest);
+    }
+
+    // spec: EG-DECISION-ENGINE-R050.1
+    #[test]
+    fn invalid_model_media_declarations_never_publish() {
+        let baseline = serde_json::to_value(model()).unwrap();
+        for (vision, media, bytes, parts) in [
+            (false, serde_json::json!(["image/png"]), 1024_u64, 2),
+            (true, serde_json::json!(["image/png", "image/png"]), 1024, 2),
+            (true, serde_json::json!([]), 1024, 2),
+            (true, serde_json::json!(["text/plain"]), 0, 2),
+            (true, serde_json::json!(["text/plain"]), 1024, 0),
+            (true, serde_json::json!(["text/plain"]), 1024, 129),
+            (true, serde_json::json!(["text/plain"]), 67_108_865, 2),
+        ] {
+            let mut wire = baseline.clone();
+            wire["facts"]["supports_vision"] = vision.into();
+            wire["facts"]["input_capabilities"] = serde_json::json!({
+                "media_types": media, "max_aggregate_bytes": bytes, "max_parts": parts
+            });
+            let invalid: AgentComponentDraft = serde_json::from_value(wire).unwrap();
+            assert!(AgentComponentEntry::publish(invalid, 1, 1_000).is_err());
         }
     }
 
