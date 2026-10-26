@@ -149,12 +149,12 @@ def _verified_x86_workflow() -> dict:
     caller = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     expected = (
         "Knuckles-Team/medulla/.github/workflows/eg-release-x86.yml@"
-        "35fe8e492acedce6c31c399e98a8c62c26ee2cd3"
+        "219c853efa7aacb8cf7032abf67fc7f70aefb1ce"
     )
     assert caller["jobs"]["build-x86"]["uses"] == expected
     source = (WORKFLOW.parent / "eg-release-x86.yml").read_bytes()
     assert hashlib.sha256(source).hexdigest() == (
-        "28d6e43039e000b1aaf16bc4677c2cd598e10209d0659c7be512573c01ce4e17"
+        "cb93273beb1a92326b67415bb209e362213314b0d1d63684d3f8cb00cd98500f"
     )
     return yaml.safe_load(source)
 
