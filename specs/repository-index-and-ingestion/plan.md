@@ -116,7 +116,7 @@ The R008-bound test in `src/server/handlers/repository_index_tests.rs` construct
 roughly 60 MB of payload, exceeds the 48 MiB write-set ceiling, and invokes
 `lower()` on the full and halved fixtures. It proves the stable refusal prefix
 and successful lowering of the smaller fixture. It does not exercise a batch
-above 64 MiB through a served request, graph commit, or Scion SDK halve-and-resend
+above 64 MiB through a served request, graph commit, or Graft SDK halve-and-resend
 retry. T2 remains open for that integration proof; its already established
 contract and lowering checks remain supplementary evidence.
 
@@ -159,7 +159,7 @@ are lowercase `sha256:<64 hex>`. Unknown fields and missing bindings refuse.
 Admit through existing governed ChangeEnvelope authorization and expected
 binding revision. Verified tenant and graph authority control admission;
 payload principal does not grant permission. The binding selects an explicit
-publisher/source without assigning either role to Scion SDK transport or Arbora/Meristem.
+publisher/source without assigning either role to Graft SDK transport or Arbora/Meristem.
 The publisher must have current graph write authority at every submission.
 
 `AdvanceRepositoryInventoryV1` = `{binding_id, binding_revision, expected_inventory_revision, source_event_id, source_revision, inventory_digest, files}`. Each file is `{path, blob_digest, byte_length}`. Paths are unique,

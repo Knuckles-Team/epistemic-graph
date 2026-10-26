@@ -23,15 +23,15 @@ Found in this repository: work-item methods (ClaimWorkItem, SubmitWorkItem, Rene
 
 ## Architecture and ownership decision
 
-The engine owns state and policy: queue, leases, retry, dead letter, depth, metrics. The running process is owned by the connector Scion SDK runner, with Arbora as host only.
+The engine owns state and policy: queue, leases, retry, dead letter, depth, metrics. The running process is owned by the connector Graft SDK runner, with Arbora as host only.
 - Not the engine: job bodies parse files, call LLMs and touch source systems and credentials. The engine is a store and must not run source effects or hold their secrets.
 - Not Arbora: it is the door and supervisor. Embedding job logic there recreates the monolith and ties worker scale to the front door.
-- The Scion SDK already owns source effects and the halve-and-resend retry against Medulla batch refusals (EG-REPO-INGEST-R008), so the worker is a client of the engine in the same shape.
+- The Graft SDK already owns source effects and the halve-and-resend retry against Medulla batch refusals (EG-REPO-INGEST-R008), so the worker is a client of the engine in the same shape.
 - Native fast stages (parse, symbols, stats) stay in-engine per EG-REPO-INGEST-R006; this worker drains only the deferred, source-effect and enrichment jobs.
 
 ## Wiring
 
-enqueue_ingest_job is called by SourceIngest when it defers enrichment and by Scion SDK producers. Run_ingest_worker claims through the generated client methods (EG-DURABLE-KERNEL-R073). The identity scopes already in the engine contract apply, and any new scope is a named dependency row. Config keys: queue depth limit, retry policy, lease seconds, worker count, engine endpoint.
+enqueue_ingest_job is called by SourceIngest when it defers enrichment and by Graft SDK producers. Run_ingest_worker claims through the generated client methods (EG-DURABLE-KERNEL-R073). The identity scopes already in the engine contract apply, and any new scope is a named dependency row. Config keys: queue depth limit, retry policy, lease seconds, worker count, engine endpoint.
 
 ## Failure and Backpressure
 
@@ -54,7 +54,7 @@ Failed outcome: redeliver with jittered delay until the ceiling, then one dead-l
 
 ## Out of scope
 
-Kafka compatibility, the analytics worker, the job bodies' parsing and LLM logic (Scion SDK existing runners).
+Kafka compatibility, the analytics worker, the job bodies' parsing and LLM logic (Graft SDK existing runners).
 
 ## EG-INGEST-WORKER-R002 ontology induction with admission tests
 
@@ -65,7 +65,7 @@ Failure: a failing score keeps the draft and populates nothing.
 Reuses the queue and ack path of R001.4. New: the proposal and its scores.
 Decision: admit only after scoring. Rejected: admitting at once and repairing later, which pollutes instances.
 Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
-That Scion SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
+That Graft SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
 
 ## EG-INGEST-WORKER-R003 knowledge atoms
 
@@ -77,11 +77,11 @@ Existing code: `crates/eg-document/src/contract.rs:141` (chunk validation). Reac
 Reuses document chunks. New: the atom type, decomposition and selection.
 Decision: select atoms per query. Rejected: sending whole documents as context, which spends budget on irrelevant text.
 Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
-That Scion SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
+That Graft SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
 
 ## Document and transcript producers within R003
 
-Planned data flow: Scion SDK worker -> served `SourceIngest` -> authorize -> resolve trusted mappings -> validate -> reconcile/admit/map -> one envelope.
+Planned data flow: Graft SDK worker -> served `SourceIngest` -> authorize -> resolve trusted mappings -> validate -> reconcile/admit/map -> one envelope.
 The authorized committed-replay shortcut precedes mapping resolution and preserves its recorded outcome.
 The production route calls `prepare` at `src/server/dispatch/graph_pipeline/native_routes.rs:408`.
 It commits the envelope at `src/server/dispatch/graph_pipeline/native_routes.rs:428`, then calls `finish` at line 429.
@@ -155,7 +155,7 @@ Three more batch kinds keep the held copy true to the source:
 | `enumeration` | R903 | Lists every source identifier. Missing records delete after a grace window. |
 | `containers` | R904 | Upserts the container tree. Scope filters name subtrees. |
 
-All four enter through `admit_records` in `src/server/handlers/source_ingestion.rs`. The Scion SDK
+All four enter through `admit_records` in `src/server/handlers/source_ingestion.rs`. The Graft SDK
 connector contract `SDK-SOURCE-INGEST-R805` produces them. A restricted record whose access
 snapshot is older than its bound fails closed at retrieval.
 

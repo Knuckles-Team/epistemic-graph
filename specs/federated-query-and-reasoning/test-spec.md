@@ -91,7 +91,7 @@ These are required acceptance cases, not claims of completed tests.
 | Unapproved drop and invalid publication | R079.4 | Unapproved drop, unknown column, absent graph binding and unsupported manifest features return their typed codes. Visible versions remain unchanged. |
 | Correlated publication evidence | R079.5 | Match committed graph version and LSN to schema/snapshot IDs, artifact digests, outcome and time-travel resolution. Record reader version and feature matrix. |
 | Projection stays read-only | R080.2, R080.4, R080.6 | Reject create, data commit, metadata/schema commit, rename, drop and unknown mutation through the projection. Assert HTTP 405, `PROJECTION_READ_ONLY`, no graph change and no publication call. |
-| Boundary preservation | R079.3, R080.6 | Graph write becomes externally readable through the engine publisher without a separate copy job. No external-source adapter effect or credentials are invoked by manifest publication; requested source effects require the existing Scion SDK-governed contract. |
+| Boundary preservation | R079.3, R080.6 | Graph write becomes externally readable through the engine publisher without a separate copy job. No external-source adapter effect or credentials are invoked by manifest publication; requested source effects require the existing Graft SDK-governed contract. |
 
 ### EG-FEDERATED-QUERY-R081 tests
 
@@ -253,7 +253,7 @@ Crate parser tests cannot stand in for served ShExJ syntax, authorization or rep
 
 ## R085 planned evidence
 
-The following are proving targets, not execution receipts. Runtime delivery requires the real producer and the linked Scion SDK consumer.
+The following are proving targets, not execution receipts. Runtime delivery requires the real producer and the linked Graft SDK consumer.
 
 - **EG-FEDERATED-QUERY-R085:** All child tests and linked consumer evidence. Each child must pass; these definitions do not establish runtime delivery.
 - **EG-FEDERATED-QUERY-R085.1:** `crates/eg-types/src/source_query.rs::tests::approval_records_round_trip` (planned). Round trips preserve every binding. Invalid references, parameter types, nonfinite values, absent snapshot identity and zero/unbounded limits refuse.

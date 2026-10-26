@@ -61,5 +61,5 @@ Producer/consumer boundary: Medulla served impact view and capability query feed
 
 Preserve existing coverage: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
 
-Owner source hash: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 <!-- /spec-definition-patch -->

@@ -339,7 +339,7 @@
     },
     {
       "id": "EG-PLACEMENT-R002.13",
-      "title": "Cross-repo (connector Scion SDK repository): no policy constants in the worker",
+      "title": "Cross-repo (connector Graft SDK repository): no policy constants in the worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

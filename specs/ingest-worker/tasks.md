@@ -2,7 +2,7 @@
 
 Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 
-- [ ] **T1 - R001:** Ingest worker capability is served by the engine queue and run by the Scion SDK runner (rollup).
+- [ ] **T1 - R001:** Ingest worker capability is served by the engine queue and run by the Graft SDK runner (rollup).
 - [ ] **T2 - R001.1:** Typed ingest job envelope with refusal tests.
 - [ ] **T3 - R001.2:** Typed job kinds and lane derivation.
 - [ ] **T4 - R001.3:** Partition key function.
@@ -16,12 +16,12 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 - [ ] **T12 - R001.11:** Backpressure read and producer refusal.
 - [ ] **T13 - R001.12:** Lease renewal for long jobs.
 - [ ] **T14 - R001.13:** Ingest queue metrics.
-- [ ] **T15 - R001.14:** Cross-repo (connector Scion SDK repository): ingest worker runner.
-- [ ] **T16 - R001.15:** Cross-repo (connector Scion SDK repository): CLI entry point and autosize.
+- [ ] **T15 - R001.14:** Cross-repo (connector Graft SDK repository): ingest worker runner.
+- [ ] **T16 - R001.15:** Cross-repo (connector Graft SDK repository): CLI entry point and autosize.
 - [ ] **T17 - R001.16:** Cross-repo (Arbora): host and supervise the worker.
 - [ ] **T18 - R001.17:** Parity test against the deleted module.
 
-Order: R001.5 and R001.6 prerequisites, then R001.1-R001.3, R001.7-R001.8, R001.4, R001.9-R001.13, then Scion SDK and Arbora rows.
+Order: R001.5 and R001.6 prerequisites, then R001.1-R001.3, R001.7-R001.8, R001.4, R001.9-R001.13, then Graft SDK and Arbora rows.
 - [ ] **T-R002 - EG-INGEST-WORKER-R002:** Ontology induction from text stays a draft until it passes checks (rollup).
 - [ ] **T-R002 - EG-INGEST-WORKER-R002.1:** `OntologyProposal` typed model
 - [ ] **T-R002 - EG-INGEST-WORKER-R002.2:** Coverage and redundancy checks as replaceable defaults

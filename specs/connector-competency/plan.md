@@ -22,7 +22,7 @@ acceptance for each contract kind and declared materialisation.
 
 Medulla owns the ontology vocabulary, query behavior, provenance, typed abstentions,
 and engine-side verification. Connector transports and mappings belong to the
-[connector Scion SDK and package owners](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs).
+[connector Graft SDK and package owners](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs).
 
 The [Arbora serving owner](https://github.com/Knuckles-Team/graph-os/tree/main/specs) provides
 the integrated query surface. Cross-repository prerequisites remain

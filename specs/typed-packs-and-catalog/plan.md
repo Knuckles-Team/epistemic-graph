@@ -2,27 +2,27 @@
 
 ## Design decisions
 
-The implementation extends Medulla's current typed pack, component, schema, outbox and capability registry. It adds no separate pack database or dynamic response envelope. It adds no second contract generator or graph projection side channel. The public wire is generated from `eg-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the Scion SDK TCK.
+The implementation extends Medulla's current typed pack, component, schema, outbox and capability registry. It adds no separate pack database or dynamic response envelope. It adds no second contract generator or graph projection side channel. The public wire is generated from `eg-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the Graft SDK TCK.
 
 The order below minimizes incompatible intermediate states. A step may be a verification or repair of existing code. The existence of a module is not proof that the step is accepted. Each step maps to `tasks.md` and `test-spec.md`.
 
 1. **Freeze contract and baseline.** Record the exact default-branch revision, current pack schema version and generated receipt. Run contract generation in check mode, full test inventory, CCCC, jscpd, Dupehound and KISS scans. Compare committed artifact *content* across all output directories. Classify findings as fixed, open or unrelated with exact evidence.
-2. **Type and encoding proof.** Audit `eg-types` bounds, kinds, digest framing, sorted lists, optionals and canonical fixture vectors. Make the Scion SDK's JSON serialization and deterministic idempotency key a shared TCK contract. Extend generated method/result descriptors rather than hand-writing client DTO copies.
+2. **Type and encoding proof.** Audit `eg-types` bounds, kinds, digest framing, sorted lists, optionals and canonical fixture vectors. Make the Graft SDK's JSON serialization and deterministic idempotency key a shared TCK contract. Extend generated method/result descriptors rather than hand-writing client DTO copies.
 3. **Admission and atomicity proof.** Audit G1–G21, tenant/importer checks, reserved IDs, preflight size checks and stable codes. The import planner resolves staged pins and stages engine bodies with holder/refcount invariants. It commits all owner rows plus N outbox intents atomically. Test all crash windows and replay identities.
 4. **Lifecycle and catalog proof.** Verify carry-forward, changed pin cascade, reversible withdrawal, permanent retirement, content reads, no-op import and mass-withdrawal override. Confirm typed ServerRegistry owns liveness and component/pack owner owns content; remove any shadow catalog after consumer migration.
 5. **Schema and projection proof.** Reuse one G13–G16/K1–K7 validator for operator, pack and ingestion sources. Attach current pack schema in one graph commit. Mark visibility only after attach; use durable failure/retry and least-privilege row-scoped graph grant. Verify static `AttachPack` staleness and `GraphSchemaClasses` output. Preserve exact `IcvConfigure` behavior.
-6. **Consumer and release proof.** Run an end-to-end connector fixture from Scion SDK package creation through Import, projection, Arbora typed read and an authorized body read. Run Go/JS/Python/Rust contract vectors and full integration suites on the exact commit. Include scanner and architecture gates, release workflow parity, and a crash/restart restore check. Record exact evidence for each required outcome.
+6. **Consumer and release proof.** Run an end-to-end connector fixture from Graft SDK package creation through Import, projection, Arbora typed read and an authorized body read. Run Go/JS/Python/Rust contract vectors and full integration suites on the exact commit. Include scanner and architecture gates, release workflow parity, and a crash/restart restore check. Record exact evidence for each required outcome.
 
 ## Interfaces and ownership
 
 | Interface | Medulla owner | Caller/consumer contract |
 |---|---|---|
-| Pack wire and digest | `eg-types` connector-pack modules; generated fixtures | Scion SDK creates index/archive and uses exact golden vectors. |
-| Import and admin ops | `src/server/handlers/admin/connector_pack/` with typed method descriptor | Scion SDK uses `Status` then deterministic Import; admin calls Bind/Unbind/Retire/Reproject. |
+| Pack wire and digest | `eg-types` connector-pack modules; generated fixtures | Graft SDK creates index/archive and uses exact golden vectors. |
+| Import and admin ops | `src/server/handlers/admin/connector_pack/` with typed method descriptor | Graft SDK uses `Status` then deterministic Import; admin calls Bind/Unbind/Retire/Reproject. |
 | Durable rows and body liveness | Agent Library owner tables plus `engine_bodies` | No client writes component rows or body holder state directly. |
 | Projection and graph schema | Outbox worker; `GraphSchema` graph commit; visibility gate | Typed catalog, assembly and search consume only visible head state. |
 | Fleet catalog | ServerRegistry liveness plus component content | Arbora joins typed reads and may cache by version, without becoming content authority. |
-| Contract receipt | `eg-capabilities` registry and `gen_contract` | Python/Go/JS senders and Scion SDK verify method/result/signing vectors. |
+| Contract receipt | `eg-capabilities` registry and `gen_contract` | Python/Go/JS senders and Graft SDK verify method/result/signing vectors. |
 
 ## R016 digest v4: package version is provenance only
 
@@ -58,8 +58,8 @@ For each PACK requirement, attach a PR/merged commit link and contract receipt d
 
 ```mermaid
 flowchart LR
-  Scion SDK[Scion SDK builds canonical pack] --> UP[Blob upload]
-  Scion SDK --> IM[ConnectorPack.Import]
+  Graft SDK[Graft SDK builds canonical pack] --> UP[Blob upload]
+  Graft SDK --> IM[ConnectorPack.Import]
   UP --> IM
   IM --> V[Bounded validation G1–G21]
   V --> B[Engine body store]
@@ -78,7 +78,7 @@ The body store can commit before the Agent Library transaction. An orphan has no
 
 Entries are a closed kind set: `mcp_server`, `tool`, `skill`, `prompt`, `ontology`, `shapes`, `model_profile`, `a2a_card`. Each entry has a URI, name, media type, raw-body section, optional input/output schema sections, typed annotations and bounded sibling references. Every section carries offset, length and SHA-256. Section ranges use checked arithmetic, cover the uncompressed archive once, and never overlap. Text is UTF-8 without BOM; JSON has no duplicate keys, NaN or infinity and is depth/node bounded. `$ref` remains data rather than a network fetch.
 
-`Digest256::framed` hashes length-framed fields in domain-separated order. Nested digest values are 32 raw bytes. String lists are UTF-8 byte sorted and deduplicated. Integers are big-endian u64. Absent optionals encode an empty field. Tri-state booleans use `00` absent, `01` false, `02` true. `entry_digest` frames kind, URI, name, media type, body/schema digests, annotations digest and reference digest under `eg/connector-pack-entry/v1`. `pack_digest` frames connector, server-entry digest, count and URI-sorted entry digests under `eg/connector-pack/v1`. Archive offsets and package version are excluded. Tool input/output schema digests are computed by Medulla over the exact received bytes. The Scion SDK must serialize MCP JSON objects deterministically before byte hashing and replay the shared vectors. The Scion SDK's normalized contract pin is a claim, not a Medulla-verified digest.
+`Digest256::framed` hashes length-framed fields in domain-separated order. Nested digest values are 32 raw bytes. String lists are UTF-8 byte sorted and deduplicated. Integers are big-endian u64. Absent optionals encode an empty field. Tri-state booleans use `00` absent, `01` false, `02` true. `entry_digest` frames kind, URI, name, media type, body/schema digests, annotations digest and reference digest under `eg/connector-pack-entry/v1`. `pack_digest` frames connector, server-entry digest, count and URI-sorted entry digests under `eg/connector-pack/v1`. Archive offsets and package version are excluded. Tool input/output schema digests are computed by Medulla over the exact received bytes. The Graft SDK must serialize MCP JSON objects deterministically before byte hashing and replay the shared vectors. The Graft SDK's normalized contract pin is a claim, not a Medulla-verified digest.
 
 ### Identity, lifecycle and reads
 
@@ -215,7 +215,7 @@ Cross-repository rows: the `AU-HARNESS` row for the matched ablation runner writ
 
 ## Tool-contract facts on pack annotations (R045)
 
-Data flow: connector Scion SDK pack (`SDK-CONNECTOR-CONTROL-R045.1` to `.11`) → `PackAnnotations` (`crates/eg-types/src/connector_pack/annotations.rs:46`) → `check_annotations` (`src/server/handlers/admin/connector_pack/import/annotations.rs:34`) → `tool_facts` (`src/server/handlers/admin/connector_pack/import/facts.rs:21`) → `AgentComponentFacts::Tool` (`crates/eg-types/src/agent_component/facts.rs:198`) → `request_body` (`src/server/handlers/decide/stat_tool_subset.rs:99`) → `smallest_covering_subset` (`crates/eg-types/src/decision/statistical/tool_subset.rs:58`) → `HarnessConfig` action space (`EG-DECISION-ENGINE-R128.9`).
+Data flow: connector Graft SDK pack (`SDK-CONNECTOR-CONTROL-R045.1` to `.11`) → `PackAnnotations` (`crates/eg-types/src/connector_pack/annotations.rs:46`) → `check_annotations` (`src/server/handlers/admin/connector_pack/import/annotations.rs:34`) → `tool_facts` (`src/server/handlers/admin/connector_pack/import/facts.rs:21`) → `AgentComponentFacts::Tool` (`crates/eg-types/src/agent_component/facts.rs:198`) → `request_body` (`src/server/handlers/decide/stat_tool_subset.rs:99`) → `smallest_covering_subset` (`crates/eg-types/src/decision/statistical/tool_subset.rs:58`) → `HarnessConfig` action space (`EG-DECISION-ENGINE-R128.9`).
 
 Types and fields: `side_effects` (`none`, `workspace_write`, `external_write`, `network`), `declared_by` (`connector`, `mcp_hint`, `certified`) and `schema_tokens` (positive integer) are new optional fields beside `read_only_hint` (`annotations.rs:58`). Safe defaults when absent: `read_only` false, `side_effects` external_write, `declared_by` connector, `schema_tokens` absent.
 
@@ -456,7 +456,7 @@ Any related prompt-evolution overlap is a dependency note only, not another abso
 
 R094.7 retains the original repository-source persistence obligation.
 A graph write or exported JSON file does not complete that obligation.
-The Scion SDK producer must accept repository identity, allowed path, exact base revision, proposed bytes and their digest.
+The Graft SDK producer must accept repository identity, allowed path, exact base revision, proposed bytes and their digest.
 Arbora must bind human approval to that exact effect, actor and scope before execution.
 The producer must refuse absent approval, changed base revision, path traversal and a mismatched payload.
 R094.7 is a retained dependency acceptance obligation, not an assignment to implement another repository.
@@ -464,7 +464,7 @@ Its receipt must bind the approved request, actual repository revision and writt
 Medulla may retain that receipt as evidence; it must not grant approval or write repository files.
 The source-effect definitions now have exact merged producers:
 
-- [Scion SDK governed write-back](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SDK-GOVERNED-WRITEBACK) at `0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734`.
+- [Graft SDK governed write-back](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SDK-GOVERNED-WRITEBACK) at `0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734`.
 - [Arbora fleet composition](https://github.com/Knuckles-Team/graph-os/tree/86737b45aaceb2eebe29b3a98ada5a55f8b71955/specs/fleet-catalog-and-tools) at `86737b45aaceb2eebe29b3a98ada5a55f8b71955`.
 
 SDK-GOVERNED-WRITEBACK-R004.1 through R004.4 retain generic approval, replay, audit reservation and business-rule routing.
@@ -474,18 +474,18 @@ Arbora ARBORA-FLEET-R003.4 retains original fleet-wide acceptance. R003.5 throug
 R003.8 through R003.10 require real effect/readback evidence, zero-effect refusal parity and durable replay after restart.
 ARBORA-OPS-R009 remains that producer's existing invoke authority, not a new Medulla approval boundary.
 
-R094.7 consumes Scion SDK RepositorySourceEffectIntent, RepositorySourceEffectRequest and RepositorySourceEffectReceipt through Arbora RepositoryWriteBackParams.
+R094.7 consumes Graft SDK RepositorySourceEffectIntent, RepositorySourceEffectRequest and RepositorySourceEffectReceipt through Arbora RepositoryWriteBackParams.
 The existing operation IDs are fleet.write_back.preview and fleet.write_back.commit.
-Arbora RepositoryWriteBackPreview carries the actual Scion SDK DryRunObservation; RepositoryWriteBackResult carries the Scion SDK receipt and its digest.
+Arbora RepositoryWriteBackPreview carries the actual Graft SDK DryRunObservation; RepositoryWriteBackResult carries the Graft SDK receipt and its digest.
 These are defined producer contracts; their names and merge commits do not prove runtime availability.
 Their published definitions identify missing exports, provider adapters, registry composition and qualified replay wiring as implementation prerequisites.
 
-Use the exact exported blueprint bytes as Scion SDK payload_base64, with matching SHA-256 and byte count.
-Bind the immutable repository base, relative path, mode, actor, scope, canonical change-set digest, approval and Scion SDK effect key.
-Require request.intent to equal durable.desired_patch["repository_effect"], preserving the Scion SDK's sole-field patch, scope and provenance constraints.
+Use the exact exported blueprint bytes as Graft SDK payload_base64, with matching SHA-256 and byte count.
+Bind the immutable repository base, relative path, mode, actor, scope, canonical change-set digest, approval and Graft SDK effect key.
+Require request.intent to equal durable.desired_patch["repository_effect"], preserving the Graft SDK's sole-field patch, scope and provenance constraints.
 Arbora binds the complete RepositoryWriteBackParams projection and trusted configuration digest to the COMMIT operation and existing confirmation.
-A preview-operation lease cannot authorize commit. A Arbora plan reference cannot replace Scion SDK approval or its effect key.
-Accept source persistence evidence only from the actual immutable provider revision and independent readback, joined to the durable Scion SDK attempt.
+A preview-operation lease cannot authorize commit. A Arbora plan reference cannot replace Graft SDK approval or its effect key.
+Accept source persistence evidence only from the actual immutable provider revision and independent readback, joined to the durable Graft SDK attempt.
 Unknown outcomes require producer reconciliation; an echoed key, applied flag or matching current bytes cannot establish this request's effect.
 Medulla retains its original graph identity, revision, complete payload and body authority throughout that journey.
 It may store the bound producer receipt as evidence; it neither approves nor performs the repository write.
@@ -535,8 +535,8 @@ Neither accepted input supplies a research citation; no research result is claim
 ### `EG-TYPED-PACKS-R069.100` / AU:69
 
 - Extend existing parent `R069` without removing its existing behavior.
-- Specify `FingerprintIdentityV1`. Include repository, branch/ref, normalized path and commit/source revision. Also include blob/raw digest, language, parser implementation/version, normalization-policy revision and grammar digest. An identical full identity/profile is idempotent. The same blob at another branch/path/source revision always writes the new binding and provenance. Reuse parsed output only under an identical parser/profile key. Parser/profile changes force reparse and fingerprint recomputation before semantic graph effects are decided. Cosmetic or profile-only changes with identical canonical semantics update source binding/provenance without semantic graph mutation. Structural changes update both source binding and semantic graph. Unsupported languages compare raw digests only and are never called cosmetic. Scion SDK transports source identity and raw digest. Medulla classifies semantic changes.
-- Producer/consumer boundary: RepositorySnapshotProvider -> Scion SDK transport -> generated IndexRepository -> Medulla parser/index mutation; R079 embedding dedupe is not structural-mutation suppression.
+- Specify `FingerprintIdentityV1`. Include repository, branch/ref, normalized path and commit/source revision. Also include blob/raw digest, language, parser implementation/version, normalization-policy revision and grammar digest. An identical full identity/profile is idempotent. The same blob at another branch/path/source revision always writes the new binding and provenance. Reuse parsed output only under an identical parser/profile key. Parser/profile changes force reparse and fingerprint recomputation before semantic graph effects are decided. Cosmetic or profile-only changes with identical canonical semantics update source binding/provenance without semantic graph mutation. Structural changes update both source binding and semantic graph. Unsupported languages compare raw digests only and are never called cosmetic. Graft SDK transports source identity and raw digest. Medulla classifies semantic changes.
+- Producer/consumer boundary: RepositorySnapshotProvider -> Graft SDK transport -> generated IndexRepository -> Medulla parser/index mutation; R079 embedding dedupe is not structural-mutation suppression.
 - Source record SHA-256: `8ca81dc16448fefc73440f2eb9ea07b2e433f7e38075563f86800071029846e9`.
 - Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
@@ -544,7 +544,7 @@ Neither accepted input supplies a research citation; no research result is claim
 
 - Extend existing parent `R100` without removing its existing behavior.
 - Specify: Define an edit representation bound to the original SKILL.md byte digest and source revision. Bind it to frontmatter field spans, step spans, line endings and unknown/custom-field spans. Apply edits as bounded source-range patches. Do not parse and reserialize the entire document. Preserve all untouched bytes, ordering, spacing, comments, line endings and unknown frontmatter fields. Emit a new content digest and source provenance. Continue to enforce R019 SKILL.md-only import and R029 restricted YAML validation.
-- Producer/consumer boundary: Medulla owns skill parse/admission and R100 rendering; Scion SDK owns source transport/edit write-back edge. No prompt blueprint or whole-document normalization path is substituted.
+- Producer/consumer boundary: Medulla owns skill parse/admission and R100 rendering; Graft SDK owns source transport/edit write-back edge. No prompt blueprint or whole-document normalization path is substituted.
 - Source record SHA-256: `1b717c4a284896dbf8c7b4fb1f00ebba80fa6a75e930a020c5bc01706634f582`.
 - Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
@@ -559,8 +559,8 @@ Neither accepted input supplies a research citation; no research result is claim
 ### `EG-TYPED-PACKS-R001.100` / AU:52
 
 - Extend existing parent `R001` without removing its existing behavior.
-- Specify: Extend existing ConnectorPack prompt and tool definition entries. Include explicit schema version, nested field schema, required/optional status and compatibility revision. Incremental evolution records the base digest, changed paths and compatibility verdict. Admit additive optional fields only when consumer policy says they are compatible. Removed or changed required fields refuse before publication. Pack index/entry digest rules remain canonical. Scion SDK owns tool execution/schema compatibility authority. Medulla records and serves the versioned declaration and does not authorize Scion SDK calls.
-- Producer/consumer boundary: Medulla ConnectorPack typed authority -> generated public pack APIs; Scion SDK retains tool compatibility and execution authority. Preserve R001 index/entry/section/annotation and digest contract.
+- Specify: Extend existing ConnectorPack prompt and tool definition entries. Include explicit schema version, nested field schema, required/optional status and compatibility revision. Incremental evolution records the base digest, changed paths and compatibility verdict. Admit additive optional fields only when consumer policy says they are compatible. Removed or changed required fields refuse before publication. Pack index/entry digest rules remain canonical. Graft SDK owns tool execution/schema compatibility authority. Medulla records and serves the versioned declaration and does not authorize Graft SDK calls.
+- Producer/consumer boundary: Medulla ConnectorPack typed authority -> generated public pack APIs; Graft SDK retains tool compatibility and execution authority. Preserve R001 index/entry/section/annotation and digest contract.
 - Source record SHA-256: `e03b25156a4f84d27c4afba63d0cd9e526b549b5905994a53664d193416d048c`.
 - Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
@@ -587,7 +587,7 @@ Neither accepted input supplies a research citation; no research result is claim
 
 ### Vision
 
-Every connector ships one OWL/RDF ontology pack. The pack holds the connector's domain ontology and its ingest contract. It also holds the connector's features, tools, prompts and skills. The engine imports the pack and stores every element as native relationships in the pack graph. Selection is an engine decision. The engine answers which algorithm, tool or skill applies by SPARQL and `Decide` over that ontology. Connectors and agents ask; the engine decides and computes. The Scion SDK authors the pack from the connector's typed declarations (`SDK-CONNECTOR-CONTROL-R067`). The competency questions in `EG-CQ-CONN-R084` accept this design.
+Every connector ships one OWL/RDF ontology pack. The pack holds the connector's domain ontology and its ingest contract. It also holds the connector's features, tools, prompts and skills. The engine imports the pack and stores every element as native relationships in the pack graph. Selection is an engine decision. The engine answers which algorithm, tool or skill applies by SPARQL and `Decide` over that ontology. Connectors and agents ask; the engine decides and computes. The Graft SDK authors the pack from the connector's typed declarations (`SDK-CONNECTOR-CONTROL-R067`). The competency questions in `EG-CQ-CONN-R084` accept this design.
 
 ### Current state
 

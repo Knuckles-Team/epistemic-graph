@@ -19,7 +19,7 @@ Public provenance: closes three engine-side design gaps so each keeps one decisi
 
 ## Scope and interfaces
 
-Owned: `QuestionKind::Placement`, placement vocabulary, `stat_placement.rs`, proposed edits to durable-kernel R074-R076 and ingest-worker rows, and the submit.rs bound. Not owned: manifests and fleet-tool components (Arbora), the worker runner (connector Scion SDK), R111.1 (decision-engine spec).
+Owned: `QuestionKind::Placement`, placement vocabulary, `stat_placement.rs`, proposed edits to durable-kernel R074-R076 and ingest-worker rows, and the submit.rs bound. Not owned: manifests and fleet-tool components (Arbora), the worker runner (connector Graft SDK), R111.1 (decision-engine spec).
 
 ## Traceability
 

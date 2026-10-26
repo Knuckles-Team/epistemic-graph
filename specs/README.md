@@ -36,7 +36,7 @@ States are `SPECIFIED`, `LANDED`, and `VERIFIED`. The generator sets them. See t
 | Prefix | Repository specs | Responsibility |
 |---|---|---|
 | `EG` | [Medulla](https://github.com/Knuckles-Team/epistemic-graph/tree/main/specs) | Rust database, graph compute, ontology, governed ingestion, durable records and clients |
-| `SDK` | [Scion SDK](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs) | connector control, transport, manifests, certification, governed effects |
+| `SDK` | [Graft SDK](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs) | connector control, transport, manifests, certification, governed effects |
 | `AU` | [Meristem](https://github.com/Knuckles-Team/agent-utilities/tree/main/specs) | agent orchestration and control workflows |
 | `ARBORA` | [arbora](https://github.com/Knuckles-Team/arbora/tree/main/specs) | serving composition, fleet, gateway, A2A, deployment operations |
 | `WEBUI` | [Overstory](https://github.com/Knuckles-Team/agent-webui/tree/main/specs) | browser presentation and interaction |

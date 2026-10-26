@@ -151,7 +151,7 @@ Failure: missing authority/version binding, unsupported format features and inco
 
 Decision: engine-owned serialization of committed graph state writes the projection artifacts. A client cannot bypass graph authority by submitting an Iceberg commit. This replaces the earlier contradictory REST schema-write scenario while retaining the schema-evolution obligation.
 
-Cross-repository: `EG-UNIFIED-DATA-PLANE-R039` owns catalog authentication, tenant isolation and partition metadata. `EG-UNIFIED-DATA-PLANE-R012` and `SDK-GOVERNED-WRITEBACK-R002` through `R004` govern effects on externally owned sources: credentials, approval, idempotency, audit reservation and adapter execution remain Scion SDK responsibilities. This requirement creates no direct external-source write or unmanaged export path. Engine artifact publication is not source writeback.
+Cross-repository: `EG-UNIFIED-DATA-PLANE-R039` owns catalog authentication, tenant isolation and partition metadata. `EG-UNIFIED-DATA-PLANE-R012` and `SDK-GOVERNED-WRITEBACK-R002` through `R004` govern effects on externally owned sources: credentials, approval, idempotency, audit reservation and adapter execution remain Graft SDK responsibilities. This requirement creates no direct external-source write or unmanaged export path. Engine artifact publication is not source writeback.
 
 References
 - Existing engine catalog, manifest writer and governed-writeback contracts are the implementation anchors. Candidate EG:2 has no paper citation.
@@ -165,7 +165,7 @@ Failure: a projected write returns `PROJECTION_READ_ONLY` and the graph is uncha
 Existing code: `crates/eg-lake/src/catalog.rs:27`; `crates/eg-core/src/projection_catalog.rs:75`; `crates/eg-plan/src/federation.rs:933`; `src/server/lake/rest/catalog.rs:318`, `:349`. Reachable today: SQL write refusal yes; projection write refusal no.
 Reuses the shared read-only SQL check pattern. New: the typed access value and the route refusal.
 Decision: one refusal at the listener. Rejected: per-route checks, which a new route may skip.
-Cross-repository: R079 may write engine-owned manifest artifacts from committed graph state. External source effects retain the Scion SDK-governed boundary described above.
+Cross-repository: R079 may write engine-owned manifest artifacts from committed graph state. External source effects retain the Graft SDK-governed boundary described above.
 
 References
 - No paper is cited.
@@ -252,7 +252,7 @@ A missing calibration row always remains visible as `ROUND_NOT_CALIBRATED`, incl
 
 These definitions extend existing retrieval owners. The acceptance scenarios in this amendment have not been executed.
 Medulla owns context, constraints, retrieval choices, encoding policy, scoring and evidence.
-The Scion SDK owns ingestion execution and provider transport.
+The Graft SDK owns ingestion execution and provider transport.
 The harness executes bounded engine decisions and acceptance journeys.
 The host composes authenticated service access.
 No consumer gains a second planner.
@@ -376,7 +376,7 @@ Tokenize once; preserve token IDs and include the final partial window exactly o
 Absolute positions retain original token offsets; local positions start at zero for each window.
 Unsupported absolute offsets must refuse, never reset silently.
 
-The Scion SDK ingestion worker must execute the Medulla-approved recipe through its existing provider binding.
+The Graft SDK ingestion worker must execute the Medulla-approved recipe through its existing provider binding.
 Each chunk must use a fresh encoder context.
 The initial aggregate must be the arithmetic mean of raw chunk vectors, accumulated in ordinal order.
 Normalize only the final aggregate when the pinned space requires normalization.
@@ -554,7 +554,7 @@ R084.8 requires the real entry point and the observations in test-spec.md.
 
 ## Approved source query interface (R085)
 
-R085 defines the missing Medulla producer for [SDK-SOURCE-INGEST-R004.1–.6](https://github.com/Knuckles-Team/agent-connector-sdk/blob/518402ee1a096a1d1dda26b8c604e704d2163cb5/specs/SDK-SOURCE-INGEST/requirements.md#L76). Scion SDK executes transport and native driver calls. Medulla decides query meaning and authorization. Existing R015/R043/R069 are reuse dependencies, not proof of this interface. All records and operations below are planned.
+R085 defines the missing Medulla producer for [SDK-SOURCE-INGEST-R004.1–.6](https://github.com/Knuckles-Team/agent-connector-sdk/blob/518402ee1a096a1d1dda26b8c604e704d2163cb5/specs/SDK-SOURCE-INGEST/requirements.md#L76). Graft SDK executes transport and native driver calls. Medulla decides query meaning and authorization. Existing R015/R043/R069 are reuse dependencies, not proof of this interface. All records and operations below are planned.
 
 ### Exact producer interface
 
@@ -575,7 +575,7 @@ Each method uses the ordinary authenticated request envelope and request graph. 
 
 Use the existing control-lease store with reserved kind `source.query.approval`. Its immutable grant contains query identity and all binding digests, not raw SQL, parameter values or credentials. The descriptor carries the exact approved SQL and parameters. The native issuer validates the descriptor before committing the grant. Generic `IssueControlLease` must reject this reserved kind, even for callers holding `lease:write`. Existing reserved-producer validation patterns separate generic wire issuance from validated native issuance.
 
-Verification reads the actual lease in the verified tenant and request graph, then recomputes every descriptor binding. It requires matching owner/actor or verified delegation and current source authorization. Policy or identity changes invalidate the stored approval. Expiry uses engine time and both immutable expiry bounds. Existing `TransitionControlLease` CAS rules govern authorized revocation; no renewal or reactivation is introduced. Only active approval leases validate. Scion SDK must use its authenticated Medulla client for verification; a JSON descriptor or copied lease view grants no authority. No new credentials or signing secrets are distributed. `PolicyDecisionLease` remains nonserializable engine authority, not an exported credential.
+Verification reads the actual lease in the verified tenant and request graph, then recomputes every descriptor binding. It requires matching owner/actor or verified delegation and current source authorization. Policy or identity changes invalidate the stored approval. Expiry uses engine time and both immutable expiry bounds. Existing `TransitionControlLease` CAS rules govern authorized revocation; no renewal or reactivation is introduced. Only active approval leases validate. Graft SDK must use its authenticated Medulla client for verification; a JSON descriptor or copied lease view grants no authority. No new credentials or signing secrets are distributed. `PolicyDecisionLease` remains nonserializable engine authority, not an exported credential.
 
 ### Concrete reuse and current limits
 
@@ -588,13 +588,13 @@ Source inspected at Medulla `560b391592cd405f999fbc72ba8ee8ff64782bd4`:
 - [Column rendering](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation_opt/columns.rs#L215) reuses `sql_text` helpers. Current literal rendering does not establish native parameter binding.
 - [Existing result fetch](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation.rs#L1255) returns a vector. `handlers/federation.rs:112` collects output. `handlers/knowledge_stream/families.rs:93` also adapts a materialized SQL result. Bounded output batches do not prove flat producer memory.
 
-### Scion SDK handoff and evidence
+### Graft SDK handoff and evidence
 
-SDK-SOURCE-INGEST-R004.1 must accept the generated `ApprovedSourceQuery` without changing its semantics or authorization. Its receiving method must call `VerifySourceQueryApproval` at the specified execution boundaries. Scion SDK owns that method's name and implementation. Match its definition to these exact Medulla records before declaring the cross-owner definition complete. Existing `SourceAdapter` at `agent_connector_sdk/ports/source_adapter.py:21` has only describe/discover/extract/reconcile; native SQL execution remains absent.
+SDK-SOURCE-INGEST-R004.1 must accept the generated `ApprovedSourceQuery` without changing its semantics or authorization. Its receiving method must call `VerifySourceQueryApproval` at the specified execution boundaries. Graft SDK owns that method's name and implementation. Match its definition to these exact Medulla records before declaring the cross-owner definition complete. Existing `SourceAdapter` at `agent_connector_sdk/ports/source_adapter.py:21` has only describe/discover/extract/reconcile; native SQL execution remains absent.
 
 Only an explicit terminal event completes a query. Failure, cancellation, expiry, revocation or lost verification after emitted chunks leaves an incomplete execution. Keep existing durable SourceCheckpoint receipts for previously accepted pages; never checkpoint a failed chunk as accepted. Redact SQL literals, parameters and credentials from operational evidence. Record source revisions, descriptor digests, chunk sequence, totals, queue high-water marks and measured resident memory.
 
-Use the real Medulla approval/verifier dispatch and Scion SDK's registered connector against an actual database. Inject failure after three chunks, revoke between chunks, alter each binding and attempt forbidden SQL effects. Compare fixed-limit fresh-process memory runs across a hundredfold cardinality increase. Set the memory envelope from declared buffers and a documented fixed runtime allowance before measuring. An observed peak that scales with total rows fails the contract. No execution receipt exists for this definition change.
+Use the real Medulla approval/verifier dispatch and Graft SDK's registered connector against an actual database. Inject failure after three chunks, revoke between chunks, alter each binding and attempt forbidden SQL effects. Compare fixed-limit fresh-process memory runs across a hundredfold cardinality increase. Set the memory envelope from declared buffers and a documented fixed runtime allowance before measuring. An observed peak that scales with total rows fails the contract. No execution receipt exists for this definition change.
 
 Verification RPC latency and count belong in the execution evidence. Each verification must finish within the remaining execution deadline. Timeout or unavailable verification closes the driver and produces terminal failure. A prior validity result cannot authorize later chunks after verification fails. These are planned acceptance requirements, not measured overhead claims.
 
@@ -751,7 +751,7 @@ Preserve `EG-FEDERATED-QUERY-R081.9.7.1-.6`. Source record `GRAPHOS:24` SHA-256 
 
 ### `EG-FEDERATED-QUERY-R081.9.7.8`
 
-**Definition hold — offline TOC producer and finite span-read policy are unbound.** Preserve existing space/section mappings. Do not recreate interaction spaces. The requested producer is an offline line-numbered TOC derived from an immutable document revision. Each entry binds section id, title/path and inclusive line range to the source digest. Medulla needs a bounded line-span read from the pinned document. Return the exact lines with source digest and line range, never the whole document. The Scion SDK source-ingest -> Medulla document/section records -> Arbora retrieval.space -> Meristem path does not define who builds or refreshes the TOC. It also lacks source byte/line encoding and finite line-span/response-byte limits. Those owner decisions and their producer/consumer schema are required before this can be executable. Existing directory mappings do not fill the gap.
+**Definition hold — offline TOC producer and finite span-read policy are unbound.** Preserve existing space/section mappings. Do not recreate interaction spaces. The requested producer is an offline line-numbered TOC derived from an immutable document revision. Each entry binds section id, title/path and inclusive line range to the source digest. Medulla needs a bounded line-span read from the pinned document. Return the exact lines with source digest and line range, never the whole document. The Graft SDK source-ingest -> Medulla document/section records -> Arbora retrieval.space -> Meristem path does not define who builds or refreshes the TOC. It also lacks source byte/line encoding and finite line-span/response-byte limits. Those owner decisions and their producer/consumer schema are required before this can be executable. Existing directory mappings do not fill the gap.
 
 Preserve `ARBORA-OPS-R053.1-.3, R053.6; EG-FEDERATED-QUERY-R081.9.7.1, R081.9.7.5`. Source record `GRAPHOS:25` SHA-256 `6797cff839c16c3b9c3877d6bbf48bf8953eae8696087abc99f2b57147daed93`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
@@ -874,7 +874,7 @@ Budget: p99 under 15 ms in `standard` mode at 1,000,000 vectors, and engine over
 
 ## EG-FEDERATED-QUERY-R073.2 — connection-protocol pushdown matrix
 
-The source-category matrix is `EG-UNIFIED-DATA-PLANE-R022.4`. This matrix is the second axis: the connection protocol. The engine owns planning and pushdown per protocol. The Scion SDK owns the transport per protocol (`SDK-CONNECTOR-CONTROL-R069`). Arbora owns serving and the multiplexer client (`ARBORA-FLEET-R038`).
+The source-category matrix is `EG-UNIFIED-DATA-PLANE-R022.4`. This matrix is the second axis: the connection protocol. The engine owns planning and pushdown per protocol. The Graft SDK owns the transport per protocol (`SDK-CONNECTOR-CONTROL-R069`). Arbora owns serving and the multiplexer client (`ARBORA-FLEET-R038`).
 
 MCP and A2A each have two roles. In this matrix the engine plans only the consuming role: an external MCP server or an external agent as a source. The serving roles belong to Arbora.
 
@@ -900,7 +900,7 @@ MCP and A2A each have two roles. In this matrix the engine plans only the consum
 | IMAP and SMTP | message sequence ranges | IMAP search filter, header projection, time range | mail access contract |
 | CalDAV and CardDAV | sync tokens | time-range filter, property projection | calendar or contact access contract |
 
-Call path: served query -> planner -> `foreign_scan` (`run.rs:26`) -> the protocol capability row -> the Scion SDK transport -> local residual.
+Call path: served query -> planner -> `foreign_scan` (`run.rs:26`) -> the protocol capability row -> the Graft SDK transport -> local residual.
 
 ## EG-FEDERATED-QUERY-R091 — self-optimizing virtual-query plans
 
