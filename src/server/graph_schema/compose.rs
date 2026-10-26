@@ -702,10 +702,11 @@ ex:parent a owl:AsymmetricProperty .
         // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
         // realizable entity and disposition, the category of `:Skill`, plus BFO's
         // `Continuant owl:disjointWith Occurrent` (operator ruling, EH-363); plus 60 for
-        // the core connector parent classes (EG-TYPED-PACKS-R105.3); plus 138 for
+        // the core connector parent classes (EG-TYPED-PACKS-R105.3); plus 10 for
+        // SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1); plus 138 for
         // the world model: BFO material entity and object, the RO/BFO-aligned shared
         // relations, and the shared reference-term / quantity / observation vocabulary.
-        assert_eq!(triples.len(), 1_085);
+        assert_eq!(triples.len(), 1_095);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -773,7 +774,9 @@ ex:parent a owl:AsymmetricProperty .
         // plus one catalog import for its registered source.
         // +7: the shared versionOf relation's two module-local constrained
         // sub-properties (the shared predicate itself remains unconstrained).
-        assert_eq!(composed.ontology.len(), 15_637);
+        // +10: SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1),
+        // plus one infrastructure ContainerImage → SoftwareComponent edge (R002.2).
+        assert_eq!(composed.ontology.len(), 15_648);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -841,7 +844,7 @@ ex:parent a owl:AsymmetricProperty .
         // +224: semantic axioms from the final commercial/supply-chain catalog.
         // +7: the shared versionOf relation's two module-local constrained
         // sub-properties (the shared predicate itself remains unconstrained).
-        assert_eq!(semantic_axioms, 15_379);
+        assert_eq!(semantic_axioms, 15_390);
 
         let count_type = |object: &str| {
             composed
@@ -903,8 +906,10 @@ ex:parent a owl:AsymmetricProperty .
             // (EG-TYPED-PACKS-R106.1).
             // +105: the data-platform, IT4IT-delivery, media and retrieval classes;
             // +1: the data-platform StoreMapping subclass edge.
-            // +9: the commercial and registered supply-chain class placements.
-            646
+            // +9: the commercial and registered supply-chain class placements;
+            // +2: SourceRecord and OpaqueSourceReference; +1: ContainerImage's
+            // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
+            649
         );
     }
 
