@@ -8,6 +8,8 @@ import zlib
 from pathlib import Path
 
 from generated_artifacts import verify as verify_generated_artifacts
+from third_party_sources import ReviewedFinding
+from third_party_sources import verify as verify_third_party_sources
 
 MAX_SCAN_BYTES = 8 * 1024 * 1024
 
@@ -303,7 +305,11 @@ def _read_source_lines(file_path: Path) -> list[str] | None:
     return content.decode("utf-8").splitlines()
 
 
-def secret_violations(file_path: Path, relative: Path) -> list[str]:
+def secret_violations(
+    file_path: Path,
+    relative: Path,
+    reviewed_labels_by_line: dict[int, frozenset[str]] | None = None,
+) -> list[str]:
     """Credential findings in one readable, in-boundary source file."""
     if file_path.suffix.lower() in EXCLUDED_EXTENSIONS:
         return []
@@ -321,14 +327,42 @@ def secret_violations(file_path: Path, relative: Path) -> list[str]:
     # stops matching -- a habit that launders real credentials just as well as
     # synthetic ones. Pointing at the reviewed inline marker keeps the
     # exemption written down, next to the literal, with a reason.
-    return [
-        f"Potential unmasked secret ({label}) detected in {relative}:{idx}. "
-        f"If this is a reviewed synthetic fixture, mark that line "
-        f"'{SANITIZER_IGNORE_MARKER}' with a reason -- do NOT rename the "
-        f"variable or reword the value to evade the pattern."
-        for idx, line in enumerate(lines, 1)
-        for label in line_secret_labels(line)
-    ]
+    reviewed_labels_by_line = reviewed_labels_by_line or {}
+    violations: list[str] = []
+    for idx, line in enumerate(lines, 1):
+        labels = line_secret_labels(line)
+        reviewed_labels = reviewed_labels_by_line.get(idx, frozenset())
+        violations.extend(
+            f"Potential unmasked secret ({label}) detected in {relative}:{idx}. "
+            f"If this is a reviewed synthetic fixture, mark that line "
+            f"'{SANITIZER_IGNORE_MARKER}' with a reason -- do NOT rename the "
+            f"variable or reword the value to evade the pattern."
+            for label in labels
+            if label not in reviewed_labels
+        )
+    return violations
+
+
+def _reviewed_security_evidence(
+    verified: set[str], findings: tuple[ReviewedFinding, ...]
+) -> tuple[dict[str, frozenset[int]], frozenset[str]]:
+    """Return exact reviewed AWS lines and exact reviewed binary paths."""
+    reviewed_lines: dict[str, set[int]] = {}
+    reviewed_binaries: set[str] = set()
+    for finding in findings:
+        path = finding.path
+        kind = finding.kind
+        line = finding.line
+        if path not in verified:
+            continue
+        if kind == "binary_fixture":
+            reviewed_binaries.add(path)
+        elif kind == "synthetic_aws_example":
+            reviewed_lines.setdefault(path, set()).add(line)
+    return (
+        {path: frozenset(lines) for path, lines in reviewed_lines.items()},
+        frozenset(reviewed_binaries),
+    )
 
 
 def scan_repository(repo_path: Path) -> list[str]:
@@ -336,6 +370,13 @@ def scan_repository(repo_path: Path) -> list[str]:
     # bytes equal its pinned sha256 is exempt from the text inspection a binary
     # cannot pass; a missing or changed one is itself a violation.
     generated, violations = verify_generated_artifacts(repo_path)
+    third_party, source_errors, reviewed_findings = verify_third_party_sources(
+        repo_path
+    )
+    violations.extend(f"third-party source policy: {error}" for error in source_errors)
+    reviewed_lines, reviewed_binaries = _reviewed_security_evidence(
+        third_party, reviewed_findings
+    )
     for file_path in get_repo_files(repo_path):
         if not file_path.is_file():
             continue
@@ -345,8 +386,20 @@ def scan_repository(repo_path: Path) -> list[str]:
             continue
         relative = file_path.relative_to(repo_path)
         violations.extend(naming_violations(relative))
-        if relative.as_posix() not in generated:
-            violations.extend(secret_violations(file_path, relative))
+        relative_name = relative.as_posix()
+        if relative_name not in generated:
+            if relative_name in reviewed_binaries:
+                continue
+            violations.extend(
+                secret_violations(
+                    file_path,
+                    relative,
+                    dict.fromkeys(
+                        reviewed_lines.get(relative_name, frozenset()),
+                        frozenset({"AWS access key"}),
+                    ),
+                )
+            )
     return violations
 
 

@@ -130,7 +130,7 @@ jobs:
     needs: guard
     # Hosted platform legs; x86 is isolated in the immutable reusable job below.
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && inputs.packages != 'server'
       && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: ${{ matrix.runner }}
@@ -316,12 +316,12 @@ jobs:
     name: wheel linux-x86_64
     needs: guard
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && inputs.packages != 'server'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
-    uses: Knuckles-Team/medulla/.github/workflows/eg-release-x86.yml@35fe8e492acedce6c31c399e98a8c62c26ee2cd3
+    uses: Knuckles-Team/medulla/.github/workflows/eg-release-x86.yml@219c853efa7aacb8cf7032abf67fc7f70aefb1ce
 
   # ─────────────────────────────────────────────────────────────────────────
   # PUBLISH — gated to a `v*` tag and the required release wheel matrix.
@@ -329,7 +329,7 @@ jobs:
   build-sdist:
     name: Build and validate source distribution
     needs: guard
-    if: github.repository == 'Knuckles-Team/epistemic-graph' && inputs.packages != 'server'
+    if: github.repository == 'Knuckles-Team/medulla' && inputs.packages != 'server'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
@@ -397,7 +397,7 @@ jobs:
     name: server wheel ${{ matrix.label }}
     needs: guard
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
@@ -561,7 +561,7 @@ jobs:
     name: server image linux-${{ matrix.arch }}
     needs: [guard, build-server]
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.source_ref != ''))
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
