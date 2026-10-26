@@ -249,7 +249,9 @@ Terms to add, by file. Each is one child row (a 5-minute unit: one class or prop
 | `action-v1.ttl` | 1 | `:failureReason` |
 | `commercial-v1.ttl` | See `EG-SUPPLY-VOCAB-R003` | Commercial declarations belong to the supply-chain vocabulary. |
 
-Shapes: only `finance-v1` has a `.shapes.ttl` companion today; the other files are registered with `shapes: None`. Each file rollup with a constrained term has a first child that creates the companion and registers it, so shape children have a home.
+Only `finance-v1` has a `.shapes.ttl` companion today. Other files register
+`shapes: None`. Each constrained file rollup has a first child. That child
+creates and registers its companion. Shape children therefore have a home.
 
 #### Wiring
 
@@ -308,3 +310,38 @@ Vocabulary declarations alone do not prove runtime competency.
 ## Connector-pack competency questions (R084)
 
 Every connector ships an OWL/RDF ontology pack with its domain ontology, ingest contract and surface. The engine imports it as native relationships (`EG-TYPED-PACKS-R101`, `EG-TYPED-PACKS-R102`). R084 states the acceptance questions for that design. The engine answers each by SPARQL over imported packs. The method-selection question also runs through `Decide` (`EG-DECISION-ENGINE-R172.12`). Call path: `ConnectorPack.Import` → pack graph → `SourceIngest` → served SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `handle_decide` (`src/server/handlers/decide/stat_decide.rs:50`).
+
+## Amendments
+
+### 2026-10-25: fixture SPARQL answers for R020.1, R026.1, R039.1
+
+`crates/eg-rdf/tests/connector_competency.rs` answers the three question rows
+fully expressible in the vocabulary on main: fan-manager (R020.1) and
+home-assistant (R026.1) over `infrastructure-v1.ttl`, microsoft (R039.1) over
+`calendar-v1.ttl` plus `core-foundation-v1.ttl`. Each test loads a
+disposable TTL fixture, with no live credentials and no network. It executes
+the question through the native SPARQL surface and asserts the expected row.
+Its provenance cells — `dc:source`, `dc:identifier`, `dc:date` — stand in
+for the virtual-mapping fields the connector attaches to fetched records.
+`status.json` records the `verified_by` bindings.
+
+The other 129 question rows are skipped on recorded dependencies, as are the
+four named bulk rows:
+
+- The 46 `.1`/`.2` rows of the 23 MISSING connectors (the out-of-scope list
+  above) have no vocabulary to answer over.
+- The 83 question rows whose terms live in producer rows R068.2–R082.1
+  (per-connector term dependencies in the `.3` rows of requirements.md) are
+  blocked on those unlanded producer rows; the corresponding TTL modules do
+  not exist on main.
+- R069.2 (`:Repository`), R069.3 (`:Branch`) and R069.11 (`:proposalState`)
+  need `sdlc_lifecycle-v1.ttl`; R084.5 needs `finance-v1.ttl` and
+  `finance-v1.shapes.ttl`. The vocabulary lane (EG-SUPPLY-VOCAB-R003.x)
+  owns those ontology files, not this delivery lane.
+
+Engine gaps observed. The ordering comparator parses operands as f64, so a
+FILTER comparison over a dateTime lexical silently drops the row. The tests
+express windows with the `YEAR()`, `MONTH()`, `DAY()`, `HOURS()` and
+`MINUTES()` accessors instead. The native query path has no typed-abstention
+mechanism, so the test-spec's "or a typed abstention" branch stays
+unexercised here.
