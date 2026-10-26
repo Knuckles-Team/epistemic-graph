@@ -1,7 +1,10 @@
-# Epistemic Graph
+# Medulla
+
+The `epistemic-graph` distribution provides Medulla; import it as `epistemic_graph`.
+The repository is `medulla`. Package, CLI and API identifiers remain unchanged.
 
 <p align="center">
-  <img src="docs/assets/brands/epistemic-graph-logo-v1.png" alt="Epistemic Graph logo" width="176">
+  <img src="docs/assets/brands/epistemic-graph-logo-v1.png" alt="Medulla logo" width="176">
 </p>
 
 <p align="center">
@@ -12,21 +15,21 @@
 <p align="center">
 
 [![PyPI - Version](https://img.shields.io/pypi/v/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-526cff)](https://knuckles-team.github.io/epistemic-graph/)
-[![GitHub license](https://img.shields.io/github/license/Knuckles-Team/epistemic-graph)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.27.8-blue)](https://github.com/Knuckles-Team/epistemic-graph/releases)
-[![Build](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/ci.yml)
-[![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/forks)
-[![GitHub contributors](https://img.shields.io/github/contributors/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/graphs/contributors)
-[![GitHub last commit (by committer)](https://img.shields.io/github/last-commit/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/commits/main)
-[![GitHub pull requests](https://img.shields.io/github/issues-pr/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/pulls)
-[![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/pulls?q=is%3Apr+is%3Aclosed)
-[![GitHub issues](https://img.shields.io/github/issues/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/issues)
-[![GitHub top language](https://img.shields.io/github/languages/top/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
-[![GitHub language count](https://img.shields.io/github/languages/count/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
-[![GitHub repo size](https://img.shields.io/github/repo-size/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
-[![GitHub repo file count (file type)](https://img.shields.io/github/directory-file-count/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-526cff)](https://knuckles-team.github.io/medulla/)
+[![GitHub license](https://img.shields.io/github/license/Knuckles-Team/medulla)](LICENSE)
+[![Version](https://img.shields.io/badge/version-2.27.8-blue)](https://github.com/Knuckles-Team/medulla/releases)
+[![Build](https://github.com/Knuckles-Team/medulla/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Knuckles-Team/medulla/actions/workflows/ci.yml)
+[![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla/forks)
+[![GitHub contributors](https://img.shields.io/github/contributors/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla/graphs/contributors)
+[![GitHub last commit (by committer)](https://img.shields.io/github/last-commit/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla/commits/main)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla/pulls)
+[![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla/pulls?q=is%3Apr+is%3Aclosed)
+[![GitHub issues](https://img.shields.io/github/issues/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla/issues)
+[![GitHub top language](https://img.shields.io/github/languages/top/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla)
+[![GitHub language count](https://img.shields.io/github/languages/count/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla)
+[![GitHub repo size](https://img.shields.io/github/repo-size/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla)
+[![GitHub repo file count (file type)](https://img.shields.io/github/directory-file-count/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla)
 [![PyPI - Downloads](https://img.shields.io/pypi/dd/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
 [![PyPI - License](https://img.shields.io/pypi/l/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
 [![PyPI - Wheel](https://img.shields.io/pypi/wheel/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
@@ -35,25 +38,25 @@
 </p>
 
 <p align="center">
-  <a href="https://knuckles-team.github.io/epistemic-graph/">Documentation</a> ·
-  <a href="https://knuckles-team.github.io/epistemic-graph/capabilities/">Capabilities</a> ·
-  <a href="https://knuckles-team.github.io/epistemic-graph/interfaces/">Interfaces</a> ·
-  <a href="https://knuckles-team.github.io/epistemic-graph/status/">Status</a>
+  <a href="https://knuckles-team.github.io/medulla/">Documentation</a> ·
+  <a href="https://knuckles-team.github.io/medulla/capabilities/">Capabilities</a> ·
+  <a href="https://knuckles-team.github.io/medulla/interfaces/">Interfaces</a> ·
+  <a href="https://knuckles-team.github.io/medulla/status/">Status</a>
 </p>
 
 ## Overview
 
-Epistemic Graph is a Rust-native database and compute engine for teams building
+Medulla is a Rust-native database and compute engine for teams building
 knowledge systems, evidence-led applications, analytics, and agent memory. It
 stores and queries connected graph records, relational data, RDF/OWL knowledge,
 vectors, time-series, events, documents, and media through one engine.
 
 Claims can retain their evidence, provenance, confidence, and time of validity,
 so applications can inspect why information is present and how it changes.
-Use Epistemic Graph directly through its clients and query interfaces. It also
+Use Medulla directly through its clients and query interfaces. It also
 serves as the durable knowledge layer beneath [Arbora](https://knuckles-team.github.io/arbora/)
-and [Agent Utilities](https://knuckles-team.github.io/agent-utilities/).
-Epistemic Graph is the database. Agent execution and connector runtimes live in
+and [Agent Utilities](https://knuckles-team.github.io/meristem/).
+Medulla is the database. Agent execution and connector runtimes live in
 their respective ecosystem projects.
 
 ## Key capabilities
@@ -67,13 +70,16 @@ their respective ecosystem projects.
 | Durable operation | Commit-before-ack persistence, audit, change data capture, tenant isolation, and observability |
 | Distributed deployment | Single-node operation and an optional cluster build with replication and coordinated placement |
 
-Check the [capability matrix](https://knuckles-team.github.io/epistemic-graph/capabilities/)
-and [generated method ledger](https://knuckles-team.github.io/epistemic-graph/capabilities.generated/)
+Check the [capability matrix](https://knuckles-team.github.io/medulla/capabilities/)
+and [generated method ledger](https://knuckles-team.github.io/medulla/capabilities.generated/)
 for the current behavior of each operation.
 
 ## Packages
 
 This repository publishes two PyPI packages and one container image, all at the same version.
+
+**Medulla Stem** is the native server, distributed as `epistemic-graph-server`.
+The package, executable and container image identifiers remain unchanged.
 
 | Artifact | Contents | Install |
 |---|---|---|
@@ -84,23 +90,23 @@ This repository publishes two PyPI packages and one container image, all at the 
 
 ## Documentation
 
-- [Start here](https://knuckles-team.github.io/epistemic-graph/) for a guided engine tour.
-- [Interfaces](https://knuckles-team.github.io/epistemic-graph/interfaces/) explains UQL, SQL, SPARQL, Cypher, GraphQL, vectors, time-series, and clients.
-- [Architecture](https://knuckles-team.github.io/epistemic-graph/architecture/) covers query execution, reasoning, storage, and distribution.
-- [Deploy Epistemic Graph](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/) covers durable server, TLS, containers, and clusters.
-- [Operations](https://knuckles-team.github.io/epistemic-graph/operations/runbook/) covers day-two procedures and recovery.
+- [Start here](https://knuckles-team.github.io/medulla/) for a guided engine tour.
+- [Interfaces](https://knuckles-team.github.io/medulla/interfaces/) explains UQL, SQL, SPARQL, Cypher, GraphQL, vectors, time-series, and clients.
+- [Architecture](https://knuckles-team.github.io/medulla/architecture/) covers query execution, reasoning, storage, and distribution.
+- [Deploy Medulla](https://knuckles-team.github.io/medulla/standalone_deployment/) covers durable server, TLS, containers, and clusters.
+- [Operations](https://knuckles-team.github.io/medulla/operations/runbook/) covers day-two procedures and recovery.
 
 ## Architecture
 
 <p align="center">
   <a href="https://knuckles-team.github.io/.github/architecture/#eg">
-  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems." width="960">
+  <img src="https://raw.githubusercontent.com/Knuckles-Team/medulla/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Medulla stores knowledge. Connectors synchronize source systems." width="960">
   </a>
   <br><a href="https://knuckles-team.github.io/.github/architecture/#eg">Explore the live architecture</a>
 </p>
 
 <p align="center">
-  <img src="docs/assets/engine-architecture.svg" alt="Epistemic Graph architecture: authenticated interfaces feed a unified planner, which composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
+  <img src="docs/assets/engine-architecture.svg" alt="Medulla architecture. Authenticated interfaces feed one planner. It composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
 </p>
 
 People use the **Agent Web UI**, **Agent Terminal UI**, **Geniusbot**, or the
@@ -108,16 +114,16 @@ messaging services hosted by **Arbora**. The terminal UI reaches Arbora through
 its REST API.
 External applications and agents connect through Arbora using MCP, REST, or
 A2A. Arbora governs the runtime boundary. **Agent Utilities** coordinates
-agents and workflows. Epistemic Graph stores and reasons over their durable
+agents and workflows. Medulla stores and reasons over their durable
 knowledge. Source systems enter through **Agent Connector SDK**, which commits
 typed source data to the graph.
 
 | This repository owns | Ecosystem projects own |
 |---|---|
 | Durable graph and multimodal state, query planning, reasoning, and engine authorization | [Arbora](https://knuckles-team.github.io/arbora/) owns MCP/REST/A2A entrypoints, runtime policy, and frontend hosting |
-| Generated engine contracts and capability truth | [Agent Utilities](https://knuckles-team.github.io/agent-utilities/) owns agents, workflows, skills, evaluation, and the agent control plane |
-| Source-ingestion admission, schema validation, evidence, and provenance commits | [Agent Connector SDK](https://knuckles-team.github.io/agent-connector-sdk/) owns connector execution and source-system adapters |
-| Database and compute execution | [Agent Web UI](https://knuckles-team.github.io/agent-webui/), [Agent Terminal UI](https://github.com/Knuckles-Team/agent-terminal-ui), and [Geniusbot](https://github.com/Knuckles-Team/geniusbot) provide user-facing clients |
+| Generated engine contracts and capability truth | [Agent Utilities](https://knuckles-team.github.io/meristem/) owns agents, workflows, skills, evaluation, and the agent control plane |
+| Source-ingestion admission, schema validation, evidence, and provenance commits | [Agent Connector SDK](https://knuckles-team.github.io/scion-sdk/) owns connector execution and source-system adapters |
+| Database and compute execution | [Agent Web UI](https://knuckles-team.github.io/overstory/), [Agent Terminal UI](https://github.com/Knuckles-Team/tuig), and [Geniusbot](https://github.com/Knuckles-Team/axil) provide user-facing clients |
 
 ## Quick start
 
@@ -150,7 +156,7 @@ True 1
 ```
 
 For durable storage, authenticated clients, containers, TLS, or clustering,
-continue with [Deploy Epistemic Graph](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/).
+continue with [Deploy Medulla](https://knuckles-team.github.io/medulla/standalone_deployment/).
 
 ## Contributing
 
