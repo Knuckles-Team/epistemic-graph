@@ -34,14 +34,18 @@ repos:
   - id: check-merge-conflict
   - id: detect-private-key
   - id: trailing-whitespace
+    exclude: ^vendor/
   - id: end-of-file-fixer
+    exclude: ^vendor/
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: 38bfb07c0c64c304f47eb52090f8288150c77730 # v0.17.1
   hooks:
   - id: ruff-check
     args: ["--ignore=E402"]
+    exclude: ^vendor/
     stages: [pre-commit, pre-push, manual]
   - id: ruff-format
+    exclude: ^vendor/
     stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: 2834ec6639549dd6796205c8f011dedcd587288b # v2.4.0
@@ -53,7 +57,7 @@ repos:
     # errors and are quarantined exactly, rather than hiding both directories.
     args: ["--ignore-missing-imports", "--explicit-package-bases"]
     exclude: |
-      (?x)^scripts/(?:
+      (?x)^(?:vendor/.*|scripts/(?:
         bounded_test_runner|
         certify_exact_fault_restart|
         certify_exact_knowledge_batch|
@@ -74,7 +78,7 @@ repos:
         scanner_contract|
         security_sanitizer|
         soak_scale
-      )\.py$
+      ))\.py$
     stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/Knuckles-Team/pipelines
   rev: main # sanctioned exception to immutable pins; public-surface contract; shared theme reads .config/
@@ -88,6 +92,7 @@ repos:
   - id: spec-standard
     stages: [pre-commit]
   - id: ste-staged
+    exclude: ^vendor/
     stages: [pre-commit]
   - id: spec-trailers
     stages: [pre-push]
@@ -96,20 +101,20 @@ repos:
   hooks:
   - id: vulture
     pass_filenames: false
-    args: [".", "--min-confidence", "95", "--exclude", "node_modules,dotnet,.venv,venv,node_modules,.git,build,dist,target"]
+    args: [".", "--min-confidence", "95", "--exclude", "vendor,node_modules,dotnet,.venv,venv,node_modules,.git,build,dist,target"]
     require_serial: true
 - repo: https://github.com/codespell-project/codespell
   rev: 57b21406f092110c18776e39b0bda50d37c945c8 # v2.4.3
   hooks:
   - id: codespell
     args: ["-L", "ans,linar,nam,tread,ot,ser,inh,copyin,unparseable,implementors,implementor,nd,datas,alls,re-declaring,re-declares,fals,paeth", "--ignore-words=.config/codespell.ignore"]
-    exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/)
+    exclude: ^(vendor/|tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/)
 - repo: https://github.com/PyCQA/bandit
   rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # 1.9.4
   hooks:
   - id: bandit
     args: ["--skip", "B101,B404,B603"]
-    exclude: ^(tests/|test/|scripts/|script/|__tests__/)
+    exclude: ^(vendor/|tests/|test/|scripts/|script/|__tests__/)
 - repo: local
   hooks:
   - id: dependency-readiness

@@ -36,15 +36,7 @@ feature-depth = 1
 # advisories — FAIL-CLOSED (RUSTSEC / OSV advisory database)
 # ─────────────────────────────────────────────────────────────────────────────
 [advisories]
-ignore = [
-    # GOC-76-W01 / CA-18 (2026-08-26): adding the official `iceberg` +
-    # `iceberg-storage-opendal` 0.10.x crates (as the lane contract specifies
-    # verbatim) pulls three advisories with no available fix AT THIS PIN today.
-    # See `.config/cargo-audit-allow.txt` for the full justification and review date.
-    "RUSTSEC-2024-0436", # paste (unmaintained) via iceberg -> parquet 58.4.0
-    "RUSTSEC-2026-0194", # quick-xml 0.39.4 quadratic-scan DoS, pinned by opendal-core 0.57.0
-    "RUSTSEC-2026-0195", # quick-xml 0.39.4 unbounded-alloc DoS, same pin as above
-]
+ignore = []
 
 # ─────────────────────────────────────────────────────────────────────────────
 # licenses — minimal/permissive for now (broad OSI-permissive allow-list)

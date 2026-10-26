@@ -2105,3 +2105,14 @@ opt-level = 1
 debug = "line-tables-only"
 incremental = true
 codegen-units = 256
+
+# Private portable zstd RustSec remediation candidate; do not publish this path block.
+[patch.crates-io]
+apache-avro = { path = "vendor/zstd-parent-patches/apache-avro-0.21.0" }
+arrow-ipc = { path = "vendor/zstd-parent-patches/arrow-ipc-58.4.0" }
+iceberg = { path = "vendor/zstd-parent-patches/iceberg-0.10.1" }
+parquet = { path = "vendor/zstd-parent-patches/parquet-58.4.0" }
+polars-parquet = { path = "vendor/zstd-parent-patches/polars-parquet-0.54.4" }
+tantivy-sstable = { path = "vendor/zstd-parent-patches/tantivy-sstable-0.7.0" }
+opendal-core = { path = "vendor/security-patches/opendal-core-0.57.0" }
+opendal-service-s3 = { path = "vendor/security-patches/opendal-service-s3-0.57.0" }
