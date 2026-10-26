@@ -226,6 +226,7 @@
     "EG-TYPED-PACKS-R105.1",
     "EG-TYPED-PACKS-R105.2",
     "EG-TYPED-PACKS-R105.3",
+    "EG-TYPED-PACKS-R105.3.1",
     "EG-TYPED-PACKS-R105.4",
     "EG-TYPED-PACKS-R105.5",
     "EG-TYPED-PACKS-R105.6",
@@ -2643,7 +2644,7 @@
     {
       "id": "EG-TYPED-PACKS-R105.3",
       "title": "The parent catalog declares the recurring connector concepts",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0b2f084f5f52",
         "52dbb35d88bb",
@@ -2652,7 +2653,19 @@
         "e93c5f6ed76c"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/connector_parent_classes.rs:36"
+        "crates/eg-rdf/tests/connector_parent_classes.rs:37"
+      ],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R105.3.1"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.3.1",
+      "title": "Central source-record bridge",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_parent_classes.rs:90"
       ]
     },
     {
