@@ -97,6 +97,11 @@ include = [
     { path = "crates/eg-viz-graph-tiles/**/*", format = "sdist" },
     { path = "crates/eg-viz-kernels/**/*", format = "sdist" },
     { path = "crates/eg-wasm/**/*", format = "sdist" },
+    # The root manifest patches crates.io with these vendored RustSec repairs.
+    # Cargo loads every patched manifest during the isolated sdist rebuild, even
+    # when the selected feature set does not compile every patched crate.
+    { path = "vendor/zstd-parent-patches/**/*", format = "sdist" },
+    { path = "vendor/security-patches/**/*", format = "sdist" },
 ]
 exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
 
