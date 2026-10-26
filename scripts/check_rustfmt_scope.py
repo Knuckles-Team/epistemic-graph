@@ -35,6 +35,7 @@ GUARD_FILES = frozenset(
 )
 PINNED_CHANNEL = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\Z")
 EDITION = re.compile(r"\d{4}\Z")
+VENDORED_PREFIX = "vendor/"
 
 
 class GuardError(RuntimeError):
@@ -91,7 +92,7 @@ def _normalise_path(raw: str) -> str:
 def _is_scope_path(path: str) -> bool:
     normalised = Path(path)
     return (
-        normalised.suffix == ".rs"
+        (normalised.suffix == ".rs" and not path.startswith(VENDORED_PREFIX))
         or normalised.name in CONFIGURATION_FILES
         or path in GUARD_FILES
     )
@@ -101,6 +102,8 @@ def _explicit_paths(raw_paths: Iterable[str]) -> list[str]:
     paths: set[str] = set()
     for raw in raw_paths:
         path = _normalise_path(raw)
+        if path.startswith(VENDORED_PREFIX):
+            continue
         if not _is_scope_path(path):
             raise GuardError(
                 f"unsupported path {path!r}; pass Rust files or a Rustfmt "
@@ -135,7 +138,14 @@ def _changed_paths(base: str) -> list[str]:
 
 def _all_tracked_rust_files() -> list[str]:
     output = _git_output(["ls-files", "-z", "--", "*.rs"])
-    return sorted({_normalise_path(path) for path in _split_nul(output)})
+    return sorted(
+        {
+            normalised
+            for raw in _split_nul(output)
+            for normalised in [_normalise_path(raw)]
+            if not normalised.startswith(VENDORED_PREFIX)
+        }
+    )
 
 
 def _read_toml(path: Path) -> dict[str, object]:
