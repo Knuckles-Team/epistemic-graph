@@ -138,15 +138,19 @@
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:122",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:24"
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:26"
       ]
     },
     {
       "id": "EG-CQ-XSRC-R002.2",
       "title": "Add `:SoftwareComponent`, `:ComponentVersion` and `:publishedBy`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9421614f7ae7"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:38"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R002.3",
