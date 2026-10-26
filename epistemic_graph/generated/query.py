@@ -34,6 +34,10 @@ if TYPE_CHECKING:
     KnowledgeStreamRequest = _models.MethodKnowledgeStreamParams
     UnifiedQueryRequest = _models.MethodUnifiedQueryParams
     QueryForeignColumnsRequest = _models.MethodQueryForeignColumnsParams
+    ForeignReadOpenRequest = _models.MethodForeignReadOpenParams
+    ForeignReadChunkRequest = _models.MethodForeignReadChunkParams
+    ForeignReadCompleteRequest = _models.MethodForeignReadCompleteParams
+    ForeignReadAbortRequest = _models.MethodForeignReadAbortParams
     UqlRequest = _models.MethodUqlParams
     ExplainPlanRequest = _models.MethodExplainPlanParams
     ExplainProvenanceRequest = _models.MethodExplainProvenanceParams
@@ -470,6 +474,174 @@ def decode_query_foreign_columns(
     return decode_result(
         "QueryForeignColumns", models().QueryForeignColumnsResult, result
     )
+
+
+async def send_foreign_read_open(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ForeignReadOpen
+    Authorization:
+        federation:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/ForeignReadOpen
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodForeignReadOpenParams.model_validate(params or {})
+    payload = await client._send(
+        "ForeignReadOpen",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ForeignReadOpen", payload)
+
+
+def decode_foreign_read_open(result: OpaqueResult) -> _models.ForeignReadOpenResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ForeignReadOpen", models().ForeignReadOpenResult, result)
+
+
+async def send_foreign_read_chunk(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ForeignReadChunk
+    Authorization:
+        federation:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/ForeignReadChunk
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodForeignReadChunkParams.model_validate(params or {})
+    payload = await client._send(
+        "ForeignReadChunk",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ForeignReadChunk", payload)
+
+
+def decode_foreign_read_chunk(result: OpaqueResult) -> _models.ForeignReadChunkResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ForeignReadChunk", models().ForeignReadChunkResult, result)
+
+
+async def send_foreign_read_complete(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ForeignReadComplete
+    Authorization:
+        federation:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/ForeignReadComplete
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodForeignReadCompleteParams.model_validate(params or {})
+    payload = await client._send(
+        "ForeignReadComplete",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ForeignReadComplete", payload)
+
+
+def decode_foreign_read_complete(
+    result: OpaqueResult,
+) -> _models.ForeignReadCompleteResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ForeignReadComplete", models().ForeignReadCompleteResult, result
+    )
+
+
+async def send_foreign_read_abort(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ForeignReadAbort
+    Authorization:
+        federation:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/ForeignReadAbort
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodForeignReadAbortParams.model_validate(params or {})
+    payload = await client._send(
+        "ForeignReadAbort",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ForeignReadAbort", payload)
+
+
+def decode_foreign_read_abort(result: OpaqueResult) -> _models.ForeignReadAbortResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ForeignReadAbort", models().ForeignReadAbortResult, result)
 
 
 async def send_uql(
@@ -1513,6 +1685,10 @@ _REQUEST_METHODS = frozenset(
         "KnowledgeStream",
         "UnifiedQuery",
         "QueryForeignColumns",
+        "ForeignReadOpen",
+        "ForeignReadChunk",
+        "ForeignReadComplete",
+        "ForeignReadAbort",
         "Uql",
         "ExplainPlan",
         "ExplainProvenance",

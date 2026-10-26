@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 472,
+  "method_count": 476,
   "methods": [
     {
       "consumer_profiles": [
@@ -24069,6 +24069,278 @@
         "BUSY",
         "CANCELLED",
         "CAPACITY_DENIED",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "RESULT_TOO_LARGE",
+        "SQL_OWNER_REPAIR_PENDING",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT",
+        "UQL_BUDGET_EXCEEDED",
+        "UQL_CREDENTIAL_BEARING_SPEC",
+        "UQL_UNSUPPORTED"
+      ],
+      "format_identities": [],
+      "id": "ForeignReadOpen",
+      "is_wire_callable": true,
+      "note": "Host-driven bounded source execution; durable approval and current catalog are re-read before binding",
+      "policy": {
+        "audited": false,
+        "authz_action": "federation:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ForeignReadOpen"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ForeignReadOpen",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AST_INPUT_INVALID",
+        "AST_INPUT_LIMIT",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_BAD_SIGNATURE",
+        "AUTH_EXPIRED",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "AUTH_UNKNOWN_PRINCIPAL",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "RESULT_TOO_LARGE",
+        "SQL_OWNER_REPAIR_PENDING",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT",
+        "UQL_BUDGET_EXCEEDED",
+        "UQL_CREDENTIAL_BEARING_SPEC",
+        "UQL_UNSUPPORTED"
+      ],
+      "format_identities": [],
+      "id": "ForeignReadChunk",
+      "is_wire_callable": true,
+      "note": "Monotone bounded page append",
+      "policy": {
+        "audited": false,
+        "authz_action": "federation:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ForeignReadChunk"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ForeignReadChunk",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AST_INPUT_INVALID",
+        "AST_INPUT_LIMIT",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_BAD_SIGNATURE",
+        "AUTH_EXPIRED",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "AUTH_UNKNOWN_PRINCIPAL",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "RESULT_TOO_LARGE",
+        "SQL_OWNER_REPAIR_PENDING",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT",
+        "UQL_BUDGET_EXCEEDED",
+        "UQL_CREDENTIAL_BEARING_SPEC",
+        "UQL_UNSUPPORTED"
+      ],
+      "format_identities": [],
+      "id": "ForeignReadComplete",
+      "is_wire_callable": true,
+      "note": "One terminal completion before correlated query",
+      "policy": {
+        "audited": false,
+        "authz_action": "federation:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ForeignReadComplete"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ForeignReadComplete",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AST_INPUT_INVALID",
+        "AST_INPUT_LIMIT",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_BAD_SIGNATURE",
+        "AUTH_EXPIRED",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "AUTH_UNKNOWN_PRINCIPAL",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "RESULT_TOO_LARGE",
+        "SQL_OWNER_REPAIR_PENDING",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT",
+        "UQL_BUDGET_EXCEEDED",
+        "UQL_CREDENTIAL_BEARING_SPEC",
+        "UQL_UNSUPPORTED"
+      ],
+      "format_identities": [],
+      "id": "ForeignReadAbort",
+      "is_wire_callable": true,
+      "note": "One terminal abort",
+      "policy": {
+        "audited": false,
+        "authz_action": "federation:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ForeignReadAbort"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ForeignReadAbort",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AST_INPUT_INVALID",
+        "AST_INPUT_LIMIT",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_BAD_SIGNATURE",
+        "AUTH_EXPIRED",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "AUTH_UNKNOWN_PRINCIPAL",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
         "DECISION_CLAUSE_IN_UQL",
         "ENGINE_DEADLINE_EXCEEDED",
         "ENGINE_INTERNAL_METHOD",
@@ -28856,6 +29128,8 @@
         "READ_ONLY",
         "REDIRECTED",
         "RESERVED_COMPONENT_ID",
+        "SOURCE_CONTRACT_MISMATCH",
+        "SOURCE_REGISTRATION_NOT_FOUND",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
         "TIMEOUT",
@@ -28884,6 +29158,10 @@
       },
       "result_schema": {
         "bodies": {
+          "approve_source": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "attest_self_served_catalog": {
             "dynamic": null,
             "encoding": "Raw"

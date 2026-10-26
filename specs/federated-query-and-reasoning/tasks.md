@@ -421,3 +421,29 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] **EG-FEDERATED-QUERY-R722.4:** Refusal.
 - [ ] **EG-FEDERATED-QUERY-R722.5:** Evidence.
 - [ ] **EG-FEDERATED-QUERY-R722.6:** Hot-path proof.
+
+R722.1 qualification in progress: run the typed-model, RDF parser and served
+import-held persistence tests before claiming delivery. Keep R722.2 through
+R722.6 open until approval and the real governed source execution path work.
+
+Tracked R722.3 amendment (2026-10-26): the next EG leaf is the owner-scoped,
+request-scoped bound-driver seam on the existing `ForeignSourceRegistry`.
+It uses the new typed `ForeignReadOpen`/`ForeignReadChunk`/
+`ForeignReadComplete`/`ForeignReadAbort` operations over the existing
+authenticated transport. Reuse
+R085 verification, R722.2 registration CAS, Arbora R042/R043.7
+admission/executor and SDK-SOURCE-INGEST-R004.7-.12;
+do not add a second authority or direct connector transport. The exact native,
+refusal and served matrix is in `test-spec.md`. Leave R722.3 through R722.6
+unchecked until the bound-driver and served `fleet.call` evidence exists.
+
+The same pending leaf now includes the typed `ForeignReadOpen`/
+`ForeignReadChunk`/`ForeignReadComplete`/`ForeignReadAbort` DTOs, the optional
+`UnifiedQuery`/`Uql` execution correlation, and the additive
+`ExplainPlanResult.plan_digest` pin. The `test-spec.md` section lists the
+native evidence bindings and their boundaries under “R722.3 EG native leaf
+evidence”.
+Run `cargo run -q --locked -p eg-capabilities --features contract --bin
+gen_contract` through the governed native lane after source changes. Do not
+hand-edit generated contract artifacts. Keep all R722.3--R722.6 checkboxes
+unchecked until the served SDK/Arbora path and live provenance evidence pass.

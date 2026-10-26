@@ -222,7 +222,7 @@ async fn run_nl_query(
     // (CONCEPT:EG-KG.query.native-time-series) and the CALLER'S owner-scoped foreign
     // registry (EH-373), so an NL-planned `FOREIGN "<name>"` / `Named` `ForeignScan`
     // leg resolves only sources the caller (tenant+principal) registered.
-    let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan)
+    let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan, None)
         .await
         .map_err(|denied| Response::err(req_id, denied))?;
     // The same off-lock run as `Uql`: persistent vector/lexical/spatial/

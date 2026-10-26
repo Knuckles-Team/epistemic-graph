@@ -42,6 +42,11 @@ pub(crate) fn explain_plan(
     use crate::protocol::{ExplainNodeWire, ExplainPlanResult};
     use eg_plan::{Cardinality, ModalityCardinality, PlanCtx, PlanStats};
 
+    // Keep this byte contract identical to the foreign-read query binder: a
+    // host can obtain the authoritative digest from ExplainPlan without
+    // implementing or guessing the Rust planner's serialization.
+    let plan_digest = crate::server::foreign_read::canonical_plan_digest(&plan)?;
+
     /// Annotate every node of `dag` with its plan-time cost/cardinality estimate, walked
     /// in topological order so a node's `estimated_rows_in` is always derived from its
     /// already-visited inputs' `estimated_rows_out` (never guessed out of order). A
@@ -90,6 +95,7 @@ pub(crate) fn explain_plan(
     let before = eg_plan::PlanDag::from(plan);
     let after = eg_plan::optimize_dag(&before, &ctx);
     Ok(ExplainPlanResult {
+        plan_digest: Some(plan_digest),
         before: to_wire(&before, &card, &ctx),
         after: to_wire(&after, &card, &ctx),
         applied_rules: eg_plan::cost_opt_rule_names()

@@ -130,8 +130,16 @@ async fn dispatch_sql_query(ctx: &QueryHandlerCtx<'_>, method: Method) -> Result
             query,
             params_msgpack,
         } => handle_sql(ctx, query, params_msgpack).await,
-        Method::UnifiedQuery { plan } => handle_unified_query(ctx, plan).await,
-        Method::Uql { text, params } => handle_uql(ctx, text, params).await,
+        Method::UnifiedQuery {
+            plan,
+            foreign_execution,
+        } => handle_unified_query(ctx, plan, foreign_execution).await,
+        Method::Uql {
+            text,
+            params,
+            prepare,
+            foreign_execution,
+        } => handle_uql(ctx, text, params, prepare, foreign_execution).await,
         other => Err(other),
     }
 }
@@ -548,7 +556,8 @@ async fn handle_cross_modal_with_lease(
         Err(refusal) => return Ok(refusal),
     };
     // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
-    let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await?;
+    let legs =
+        ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan, None).await?;
     let (snap, _version) = lease_filtered_snapshot(core, policy_lease, store)?;
     let resp = match run_unified_off_lock(state, req_id, core, snap, plan, legs).await {
         Ok(Ok(rows)) => result_response::<query_results::UnifiedQuery>(req_id, &rows),

@@ -1466,6 +1466,12 @@
       "retryable": false
     },
     {
+      "class": "connector",
+      "code": "SOURCE_CONTRACT_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "server",
       "code": "SOURCE_INGESTION_REPLAY_CONFLICT",
       "http_status_hint": 400,
@@ -1510,6 +1516,12 @@
     {
       "class": "server",
       "code": "SOURCE_RECONCILIATION_MARKER_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "connector",
+      "code": "SOURCE_REGISTRATION_NOT_FOUND",
       "http_status_hint": 400,
       "retryable": false
     },

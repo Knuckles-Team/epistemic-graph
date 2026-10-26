@@ -849,6 +849,17 @@ pub enum UqlResult {
     /// `EXPLAIN`: the canonical and the optimized plan, per-stage estimates, and
     /// whether the plan is incrementally maintainable (with the reason when not).
     Explain {
+        /// Server-computed SHA-256 of the exact named-MessagePack plan used for
+        /// this statement.  The standalone planner leaves this absent; the
+        /// authenticated server fills it before returning an EXPLAIN so a
+        /// foreign-read host never has to reproduce planner serialization.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan_digest: Option<crate::contract::Digest256>,
+        /// Server-computed digest of the exact UQL text and typed parameter map.
+        /// A host must use this value when opening the correlated foreign read;
+        /// it must not locally reconstruct the MessagePack/framing convention.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query_digest: Option<crate::contract::Digest256>,
         canonical: String,
         optimized: String,
         stages: Vec<UqlStageReport>,

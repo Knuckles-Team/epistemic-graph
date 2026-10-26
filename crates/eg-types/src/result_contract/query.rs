@@ -36,6 +36,14 @@ method_results! {
     UnifiedQuery(UnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;
     #[cfg(feature = "federation")]
     QueryForeignColumns(QueryForeignColumns) => Raw<Vec<crate::wire::ForeignColumnRow>>;
+    #[cfg(feature = "federation")]
+    ForeignReadOpen(ForeignReadOpen) => Raw<crate::foreign_read::ForeignReadOpenResult>;
+    #[cfg(feature = "federation")]
+    ForeignReadChunk(ForeignReadChunk) => Raw<crate::foreign_read::ForeignReadChunkResult>;
+    #[cfg(feature = "federation")]
+    ForeignReadComplete(ForeignReadComplete) => Raw<crate::foreign_read::ForeignReadCompleteResult>;
+    #[cfg(feature = "federation")]
+    ForeignReadAbort(ForeignReadAbort) => Raw<crate::foreign_read::ForeignReadAbortResult>;
     // A UQL statement's rows (with named score channels), EXPLAIN report or PROFILE.
     #[cfg(feature = "query")]
     Uql(Uql) => Raw<crate::wire::UqlResult>;

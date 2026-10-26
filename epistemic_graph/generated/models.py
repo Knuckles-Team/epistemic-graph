@@ -171,8 +171,6 @@ from ._shared import (
     MeasuredFact_ShellProficiency,
     MeasuredFact_StoppingBehaviour,
     ModalityFacts,
-    ModelInputCapabilities,
-    ModelInputMediaType,
     Nonce,
     ObjectiveLevelKind,
     ObjectiveLevelSpec,
@@ -308,6 +306,7 @@ from .connector_pack import (
     ConnectorPackImportRequest,
     ConnectorPackIndex,
     ConnectorPackOp,
+    ConnectorPackOpApproveSource,
     ConnectorPackOpAttestSelfServedCatalog,
     ConnectorPackOpBind,
     ConnectorPackOpCatalogAuthorityStatus,
@@ -324,6 +323,7 @@ from .connector_pack import (
     ConnectorPackReconcileRequest,
     ConnectorPackReprojectRequest,
     ConnectorPackRetireRequest,
+    ConnectorPackSourceApprovalRequest,
     ConnectorPackStatus,
     ConnectorPackStatusRequest,
     ConnectorPackUnbindRequest,
@@ -2940,6 +2940,19 @@ class ConnectorPackBindingResult(BaseModel):
     tenant_id: str
 
 
+class ConnectorPackSourceApprovalResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    batch_id: str
+    committed_version: Annotated[int, Field(ge=0)]
+    connector: str
+    contract_digest: Digest256
+    head: PackHeadRef
+    registration: PackSourceRegistration
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    tenant_id: str
+
+
 class ContentVersion(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5160,6 +5173,7 @@ class ExplainPlanResult(BaseModel):
     after: list[ExplainNodeWire]
     applied_rules: list[str]
     before: list[ExplainNodeWire]
+    plan_digest: Digest256 | None = None
 
 
 class ExplainPolicyResult(BaseModel):
@@ -5786,6 +5800,114 @@ class ForeignOperationCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     key_filter_pushdown: bool | None = None
+
+
+class ForeignReadAbortRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    reason: str
+    sequence: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadAbortResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    reason: str
+    sequence: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadChunkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    rows: list[ForeignReadRow]
+    sequence: Annotated[int, Field(ge=0)]
+    source_identity: ForeignReadSourceIdentity
+
+
+class ForeignReadChunkResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    accepted_rows: Annotated[int, Field(ge=0)]
+    execution: ForeignReadExecutionRef
+    next_sequence: Annotated[int, Field(ge=0)]
+    sequence: Annotated[int, Field(ge=0)]
+    total_bytes: Annotated[int, Field(ge=0)]
+    total_rows: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    sequence: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadCompleteResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    sequence: Annotated[int, Field(ge=0)]
+    total_bytes: Annotated[int, Field(ge=0)]
+    total_rows: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadExecutionRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution_id: Annotated[int, Field(ge=0)]
+    query_digest: Digest256
+
+
+class ForeignReadLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    chunk_bytes: Annotated[int, Field(ge=0)]
+    chunk_rows: Annotated[int, Field(ge=0)]
+    deadline_ms: Annotated[int, Field(ge=0)]
+    max_bytes: Annotated[int, Field(ge=0)]
+    max_rows: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadOpenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval: ConnectorPackSourceApprovalResult
+    limits: ForeignReadLimits
+    plan_digest: Digest256
+    query_digest: Digest256
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    source_name: str
+
+
+class ForeignReadOpenResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    next_sequence: Annotated[int, Field(ge=0)]
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    source_identity: ForeignReadSourceIdentity
+
+
+class ForeignReadRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: dict[str, Any] | None = None
+    id: str
+    provenance: list[str] = Field(default_factory=list)
+    score: float | None = None
+
+
+class ForeignReadSourceIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    schema_digest: Digest256
+    snapshot_ref: Digest256
+    source_ref: str
+    source_revision: Annotated[int, Field(ge=0)]
 
 
 class ForeignSourceFreshness(BaseModel):
@@ -11201,6 +11323,34 @@ class MethodQueryForeignColumns(BaseModel):
     params: MethodQueryForeignColumnsParams
 
 
+class MethodForeignReadOpen(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadOpen"]
+    params: MethodForeignReadOpenParams
+
+
+class MethodForeignReadChunk(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadChunk"]
+    params: MethodForeignReadChunkParams
+
+
+class MethodForeignReadComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadComplete"]
+    params: MethodForeignReadCompleteParams
+
+
+class MethodForeignReadAbort(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadAbort"]
+    params: MethodForeignReadAbortParams
+
+
 class MethodRegisterUdf(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12557,6 +12707,10 @@ Method = Annotated[
     | MethodNlQueryExplain
     | MethodRegisterForeignSource
     | MethodQueryForeignColumns
+    | MethodForeignReadOpen
+    | MethodForeignReadChunk
+    | MethodForeignReadComplete
+    | MethodForeignReadAbort
     | MethodRegisterUdf
     | MethodRunUdf
     | MethodDistributedCompute
@@ -14224,6 +14378,30 @@ class MethodFleetCatalogParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: FleetCatalogOp
+
+
+class MethodForeignReadAbortParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadAbortRequest
+
+
+class MethodForeignReadChunkParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadChunkRequest
+
+
+class MethodForeignReadCompleteParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadCompleteRequest
+
+
+class MethodForeignReadOpenParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadOpenRequest
 
 
 class MethodFreshnessFeedParams(BaseModel):
@@ -15988,6 +16166,7 @@ class MethodUnbindQueueParams(BaseModel):
 class MethodUnifiedQueryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    foreign_execution: ForeignReadExecutionRef | None = None
     plan: Plan
 
 
@@ -16034,7 +16213,9 @@ class MethodUpdateResourceHostParams(BaseModel):
 class MethodUqlParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    foreign_execution: ForeignReadExecutionRef | None = None
     params: dict[str, UqlParam] | None = None
+    prepare: bool | None = None
     text: str
 
 
@@ -17396,6 +17577,34 @@ class PackRetireResult(BaseModel):
     retired: BoundedVec_ComponentDependency_8192
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     tenant_id: str
+
+
+class PackSourceApproval(str, Enum):
+    HELD = "held"
+    APPROVED = "approved"
+
+
+class PackSourceKind(str, Enum):
+    MCP_TOOL = "mcp_tool"
+    HTTP_ENDPOINT = "http_endpoint"
+    GRAPHQL_QUERY = "graphql_query"
+    A2A_SKILL = "a2a_skill"
+    VIRTUAL_GRAPH = "virtual_graph"
+
+
+class PackSourceRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval: PackSourceApproval | None = None
+    class_iri: str
+    connector: str
+    contract_iri: str
+    entity: str
+    key_field: str
+    operation: str
+    resource_uri: str
+    source_id: str
+    source_kind: PackSourceKind
 
 
 class ParallelRelationRow(BaseModel):
@@ -23442,6 +23651,8 @@ class UqlResultExplainBody(BaseModel):
     incremental: bool
     incremental_note: str
     optimized: str
+    plan_digest: Digest256 | None = None
+    query_digest: Digest256 | None = None
     stages: list[UqlStageReport]
     warnings: list[str]
 
@@ -26215,6 +26426,7 @@ __all__ = [
     "ConnectorPackImportRequest",
     "ConnectorPackIndex",
     "ConnectorPackOp",
+    "ConnectorPackOpApproveSource",
     "ConnectorPackOpAttestSelfServedCatalog",
     "ConnectorPackOpBind",
     "ConnectorPackOpCatalogAuthorityStatus",
@@ -26231,6 +26443,8 @@ __all__ = [
     "ConnectorPackReconcileRequest",
     "ConnectorPackReprojectRequest",
     "ConnectorPackRetireRequest",
+    "ConnectorPackSourceApprovalRequest",
+    "ConnectorPackSourceApprovalResult",
     "ConnectorPackStatus",
     "ConnectorPackStatusRequest",
     "ConnectorPackUnbindRequest",
@@ -26709,6 +26923,18 @@ __all__ = [
     "ForeignColumnRow",
     "ForeignCypherBackend",
     "ForeignOperationCapabilities",
+    "ForeignReadAbortRequest",
+    "ForeignReadAbortResult",
+    "ForeignReadChunkRequest",
+    "ForeignReadChunkResult",
+    "ForeignReadCompleteRequest",
+    "ForeignReadCompleteResult",
+    "ForeignReadExecutionRef",
+    "ForeignReadLimits",
+    "ForeignReadOpenRequest",
+    "ForeignReadOpenResult",
+    "ForeignReadRow",
+    "ForeignReadSourceIdentity",
     "ForeignSourceFreshness",
     "ForeignSourceSpec",
     "ForeignSourceSpecA2a",
@@ -27594,6 +27820,14 @@ __all__ = [
     "MethodFiredTriggersParams",
     "MethodFleetCatalog",
     "MethodFleetCatalogParams",
+    "MethodForeignReadAbort",
+    "MethodForeignReadAbortParams",
+    "MethodForeignReadChunk",
+    "MethodForeignReadChunkParams",
+    "MethodForeignReadComplete",
+    "MethodForeignReadCompleteParams",
+    "MethodForeignReadOpen",
+    "MethodForeignReadOpenParams",
     "MethodFork",
     "MethodFreshnessFeed",
     "MethodFreshnessFeedParams",
@@ -28112,8 +28346,6 @@ __all__ = [
     "MinimumSpanningTreeResultValueItem",
     "ModalityFacts",
     "ModeTransition",
-    "ModelInputCapabilities",
-    "ModelInputMediaType",
     "ModelPolicyVersion",
     "ModelSpec",
     "MotifCountsRow",
@@ -28337,6 +28569,9 @@ __all__ = [
     "PackRef",
     "PackRetireResult",
     "PackSection",
+    "PackSourceApproval",
+    "PackSourceKind",
+    "PackSourceRegistration",
     "PackToolMode",
     "PackViolation",
     "PackViolationCode",

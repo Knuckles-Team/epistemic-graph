@@ -370,6 +370,10 @@
 | `KnowledgeStream` | false | None | `query:stream` | true | false | false | Snapshot | one RequestContext/RLS/placement-bound stream with the sole native Arrow IPC projection for all seven query families |
 | `UnifiedQuery` | false | None | `query:unified` | true | false | false | Snapshot |  |
 | `QueryForeignColumns` | false | None | `federation:read` | true | false | false | Snapshot | Verified owner-scoped mapped-column read with bounded source fetch and local predicate residual |
+| `ForeignReadOpen` | false | None | `federation:read` | true | false | false | Snapshot | Host-driven bounded source execution; durable approval and current catalog are re-read before binding |
+| `ForeignReadChunk` | false | None | `federation:read` | true | false | false | Snapshot | Monotone bounded page append |
+| `ForeignReadComplete` | false | None | `federation:read` | true | false | false | Snapshot | One terminal completion before correlated query |
+| `ForeignReadAbort` | false | None | `federation:read` | true | false | false | Snapshot | One terminal abort |
 | `Uql` | false | None | `query:unified` | true | false | false | Snapshot | UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only |
 | `ExplainPlan` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainProvenance` | false | None | `explain:read` | true | false | false | Snapshot |  |

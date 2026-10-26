@@ -480,8 +480,8 @@
         "2b3e2738b5ff"
       ],
       "verified_by": [
-        "crates/eg-types/src/wire_query_core.rs:882",
-        "crates/eg-types/src/wire_query_core.rs:914"
+        "crates/eg-types/src/wire_query_core.rs:893",
+        "crates/eg-types/src/wire_query_core.rs:925"
       ]
     },
     {
@@ -746,7 +746,7 @@
         "c3b87d31ac11"
       ],
       "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:226"
+        "crates/eg-capabilities/tests/contract_registry.rs:228"
       ]
     },
     {
@@ -775,7 +775,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2661",
-        "src/server/mod.rs:2099"
+        "src/server/mod.rs:2111"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R022.1"
@@ -792,7 +792,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2661",
-        "src/server/mod.rs:2099"
+        "src/server/mod.rs:2111"
       ]
     },
     {
@@ -4500,7 +4500,11 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/pack/sources.rs:114",
+        "crates/eg-types/src/connector_pack/source.rs:63",
+        "src/server/handlers/admin/connector_pack/tests/ontology.rs:175"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R722.2",
@@ -4511,7 +4515,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R722.3",
-      "title": "Wiring",
+      "title": "Wiring and served execution contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4521,7 +4525,9 @@
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/pack/sources.rs:136"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R722.5",
