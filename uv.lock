@@ -336,7 +336,7 @@ provides-extras = ["all", "ast", "datascience", "finance", "full", "lake-parity"
 
 [[package]]
 name = "medulla-stem"
-version = "2.27.8"
+version = "2.27.9"
 source = { directory = "packaging/epistemic-graph-server" }
 
 [[package]]
