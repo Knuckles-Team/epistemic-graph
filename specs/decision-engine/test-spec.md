@@ -934,3 +934,47 @@ The bindings are static: no test claims that a path exists in a run-time output.
 - `EG-DECISION-ENGINE-R814.5`: `tests/decision/test_prompt_candidates_served.py::test_record_names_prompt_connector_digest_and_capability`.
 - `EG-DECISION-ENGINE-R814.6`: `tests/decision/test_prompt_candidates_served.py::test_dynamic_agent_gets_the_matching_connector_system_prompt`.
 - `EG-DECISION-ENGINE-R814.7`: `tests/decision/test_prompt_candidates_served.py::test_system_prompt_query_lists_candidates_for_a_task`. Vector: `SELECT ?prompt ?connector ?digest WHERE { ?prompt a :PromptCandidate ; :systemPromptFor ?t ; cp:ofConnector ?connector ; cp:digest ?digest . ?t :requiresCapability ?need . <Y> :requiresCapability ?need }`. `:systemPromptFor` ranges over `:Task`, so the join goes through the task. The query returns the prompt of the connector that serves task Y and not the other connector's prompt.
+
+## Model media declarations: source, generated consumers and qualification
+
+R050.1 source fixtures preserve these six producer tests:
+
+- `agent_component::tests::model_input_capabilities_publish_round_trip_and_bind_every_limit`
+- `agent_component::tests::invalid_model_media_declarations_never_publish`
+- `agent_component::input_capabilities::tests::selected_profile_enforces_exact_decoded_bounds`
+- `agent_component::input_capabilities::tests::declarations_reject_unknown_media_duplicates_and_unbounded_limits`
+- `connector_pack::digest::measured_model_tests::pack_model_input_capabilities_are_digest_bound`
+- `server::persistence::agent_component::tests::model_input_capabilities_survive_owner_restart_and_tenant_reads`
+
+Also run the existing `absent_shell_proficiency_keeps_digest` component V3/V4
+vectors and `measured_pack_model_digest_preserves_absence_and_binds_provenance`
+pack vector unchanged. Absent/null capabilities must not change those digests.
+
+The signed pack-import module
+`src/server/handlers/admin/connector_pack/tests/model_input_capabilities.rs`
+adds two producer fixtures. `declared_model_media_facts_round_trip_through_pack_import`
+imports a declaration and reads the complete facts back. It changes only the
+byte bound and checks a new component digest/revision with retained old facts.
+`nonvision_image_pack_refuses_without_owner_or_body_mutation` covers a fresh
+catalog and an already published model. Upload the archive before recording the
+baseline. Reject false-vision image facts as InvalidComponent. Compare the owner
+snapshot: heads, components, imports, holders, and outbox. Compare blob and chunk
+counts. A fixture declaration is not a claim that an image ran.
+
+R050.2 runs `tests/test_generated_model_input_capabilities.py` with no engine.
+Both strict generated model classes must accept and preserve all four media values.
+They distinguish unknown from unrestricted input. After a successful positive
+control, they reject unknown MIME or extra capability fields. Do not skip or
+xfail missing generated fields. Run `gen_contract --check` after canonical
+regeneration; the generated fixture alone is not full contract freshness.
+
+R050.3 requires command/result/commit receipts for all native fixtures above;
+formatting and source inspection are not compilation or execution. The planned
+`model_media_capabilities_max_parts` benchmark uses four media types and 128
+size-only parts. Total supplied size is 64 MiB. The benchmark then exceeds the
+byte and count bounds.
+Record hardware/profile, latency and peak allocations independently. The
+benchmark is not implemented or executed by this producer slice. Selected
+profile/run binding, atomic authority/admission, and consumer invocation remain
+open. The served PNG journey also remains open under R036/downstream acceptance.
+Do not infer it from these fixtures or generated status.

@@ -741,7 +741,7 @@
         "daa948722eca"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1298"
+        "crates/eg-types/src/agent_component.rs:1318"
       ]
     },
     {
@@ -991,7 +991,7 @@
         "f41725ac0f6f"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1337"
+        "crates/eg-types/src/agent_component.rs:1357"
       ]
     },
     {
@@ -1120,7 +1120,7 @@
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:204"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:205"
       ]
     },
     {
@@ -1261,7 +1261,7 @@
         "a565bdb085f2"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component/facts.rs:514"
+        "crates/eg-types/src/agent_component/facts.rs:542"
       ]
     },
     {
@@ -1272,10 +1272,10 @@
         "3a23459ceec7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/rules/capability/tests.rs:234",
-        "crates/eg-types/src/agent_component.rs:1459",
-        "crates/eg-types/src/agent_component.rs:1510",
-        "crates/eg-types/src/agent_component.rs:1549"
+        "crates/eg-rdf/src/rules/capability/tests.rs:235",
+        "crates/eg-types/src/agent_component.rs:1480",
+        "crates/eg-types/src/agent_component.rs:1531",
+        "crates/eg-types/src/agent_component.rs:1570"
       ]
     },
     {
@@ -1286,10 +1286,10 @@
         "3a23459ceec7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/rules/capability/tests.rs:235",
-        "crates/eg-types/src/agent_component.rs:1460",
-        "crates/eg-types/src/agent_component.rs:1511",
-        "crates/eg-types/src/agent_component.rs:1550"
+        "crates/eg-rdf/src/rules/capability/tests.rs:236",
+        "crates/eg-types/src/agent_component.rs:1481",
+        "crates/eg-types/src/agent_component.rs:1532",
+        "crates/eg-types/src/agent_component.rs:1571"
       ]
     },
     {
@@ -1304,7 +1304,7 @@
         "6be6da12f970"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/digest.rs:302",
+        "crates/eg-types/src/connector_pack/digest.rs:359",
         "tests/typed_packs/test_model_harness_facts.py:36"
       ]
     },
@@ -1317,7 +1317,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/digest.rs:348"
+        "crates/eg-types/src/connector_pack/digest.rs:405"
       ]
     },
     {
@@ -1469,7 +1469,7 @@
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:205"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:206"
       ]
     },
     {

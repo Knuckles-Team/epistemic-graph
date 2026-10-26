@@ -60,6 +60,7 @@ pub(crate) fn seed_library(store: &AgentLibraryStore) {
         supports_tools: true,
         supports_structured_output: true,
         supports_vision: false,
+        input_capabilities: None,
         modalities: ModalityFacts::default(),
         cost: None,
         latency_declared: None,

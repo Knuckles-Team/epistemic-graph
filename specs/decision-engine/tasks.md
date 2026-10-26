@@ -856,3 +856,17 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 ## Usage ledger (R801)
 - [ ] **EG-DECISION-ENGINE-R801.7:** Serve `UsageRead` over the durable ledger; take the tenant from the verified context; add the served test.
 - [ ] **EG-DECISION-ENGINE-R036.106:** Wire profile-use grant records and the offline RBAC layout upgrade. Qualify grant issuance and composed model admission.
+
+## Model media producer qualification
+
+- [ ] **EG-DECISION-ENGINE-R050.1:** Land optional bounded media declarations,
+  digest compatibility, pack propagation and the eight producer fixtures.
+  Source exists; native execution is not inferred from test annotations.
+- [ ] **EG-DECISION-ENGINE-R050.2:** Regenerate canonical contracts and clients;
+  pass the strict generated-model fixture and freshness gate on the same head.
+- [ ] **EG-DECISION-ENGINE-R050.3:** Run native declaration, digest,
+  persistence and signed pack-import fixtures on that head; implement and
+  qualify the planned maximum-parts benchmark with a hardware/profile receipt.
+- [ ] Keep **EG-DECISION-ENGINE-R036** selected-profile authority and atomic
+  admission open. Record the missing media-run snapshot, downstream consumer
+  enforcement and served PNG evidence before changing the TUI104 refusal.

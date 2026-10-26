@@ -20,7 +20,7 @@ use super::annotations::{PackAnnotations, PackCost, PackModelFacts};
 use super::index::{
     ConnectorPackIndex, McpCatalogSnapshotBinding, PackEntry, PackEntryKind, PackRef,
 };
-use crate::agent_component::DeclaredLatency;
+use crate::agent_component::{DeclaredLatency, ModelInputCapabilities};
 use crate::contract::Digest256;
 
 /// Framing domain of one pack entry.
@@ -132,10 +132,32 @@ pub fn model_facts_digest(facts: &PackModelFacts) -> Result<Digest256, String> {
             }
         }
     }
+    append_input_capabilities(&mut fields, facts.input_capabilities.as_ref())?;
     Digest256::framed(
         MODEL_FACTS_DIGEST_DOMAIN,
         &fields.iter().map(Vec::as_slice).collect::<Vec<_>>(),
     )
+}
+
+/// Keep the optional extension after measured facts and omit it entirely when unknown.
+fn append_input_capabilities(
+    fields: &mut Vec<Vec<u8>>,
+    capabilities: Option<&ModelInputCapabilities>,
+) -> Result<(), String> {
+    let Some(capabilities) = capabilities else {
+        return Ok(());
+    };
+    capabilities.validate()?;
+    fields.push(b"input_capabilities".to_vec());
+    let mut media_types = capabilities.media_types.clone();
+    media_types.sort();
+    fields.push((media_types.len() as u64).to_be_bytes().to_vec());
+    for media_type in media_types {
+        fields.push(media_type.as_str().as_bytes().to_vec());
+    }
+    fields.push(capabilities.max_aggregate_bytes.to_be_bytes().to_vec());
+    fields.push(capabilities.max_parts.to_be_bytes().to_vec());
+    Ok(())
 }
 
 /// The digest of one entry's annotations.
@@ -298,6 +320,41 @@ pub fn pack_digest(index: &ConnectorPackIndex) -> Result<Digest256, String> {
 #[cfg(test)]
 mod measured_model_tests {
     use super::*;
+
+    // spec: EG-DECISION-ENGINE-R050.1
+    #[test]
+    fn pack_model_input_capabilities_are_digest_bound() {
+        let mut wire = serde_json::json!({
+            "provider":"vendor", "model_identity":"vendor/model-1",
+            "context_window_tokens":128000, "max_output_tokens":8192,
+            "supports_tools":true, "supports_structured_output":true, "supports_vision":true
+        });
+        let baseline = model_facts_digest(&serde_json::from_value(wire.clone()).unwrap()).unwrap();
+        wire["input_capabilities"] = serde_json::json!({
+            "media_types":["text/plain", "image/png"], "max_aggregate_bytes":1024, "max_parts":2
+        });
+        let declared = model_facts_digest(&serde_json::from_value(wire.clone()).unwrap()).unwrap();
+        assert_ne!(declared, baseline);
+        for (field, value) in [
+            ("media_types", serde_json::json!(["image/webp"])),
+            ("max_aggregate_bytes", serde_json::json!(1025)),
+            ("max_parts", serde_json::json!(3)),
+        ] {
+            let mut changed = wire.clone();
+            changed["input_capabilities"][field] = value;
+            assert_ne!(
+                model_facts_digest(&serde_json::from_value(changed).unwrap()).unwrap(),
+                declared
+            );
+        }
+        wire["input_capabilities"]["media_types"] = serde_json::json!(["image/png", "text/plain"]);
+        assert_eq!(
+            model_facts_digest(&serde_json::from_value(wire.clone()).unwrap()).unwrap(),
+            declared
+        );
+        wire["input_capabilities"]["max_parts"] = 0.into();
+        assert!(model_facts_digest(&serde_json::from_value(wire).unwrap()).is_err());
+    }
 
     // spec: EG-TYPED-PACKS-R048.5
     #[test]

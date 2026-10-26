@@ -12,7 +12,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{validate_names, validate_text, AgentComponentKind, MAX_SCOPES, MAX_VARIABLES};
+use super::{
+    validate_names, validate_text, AgentComponentKind, ModelInputCapabilities, ModelInputMediaType,
+    MAX_SCOPES, MAX_VARIABLES,
+};
 
 /// Longest declared latency that is a latency rather than a typo: one day.
 pub const MAX_DECLARED_LATENCY_MS: u32 = 86_400_000;
@@ -242,6 +245,9 @@ pub enum AgentComponentFacts {
         supports_tools: bool,
         supports_structured_output: bool,
         supports_vision: bool,
+        /// Declaration bound by this component's definition digest. Missing is unknown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_capabilities: Option<ModelInputCapabilities>,
         #[serde(default)]
         modalities: ModalityFacts,
         #[serde(default)]
@@ -334,9 +340,12 @@ impl AgentComponentFacts {
                 latency_observed_ref,
                 shell_proficiency,
                 stopping_behaviour,
+                supports_vision,
+                input_capabilities,
                 ..
             } => {
                 validate_model_identity(provider, model_identity)?;
+                validate_input_capabilities(input_capabilities.as_ref(), *supports_vision)?;
                 validate_window(*context_window_tokens, *max_output_tokens)?;
                 validate_observation(latency_observed_ref.as_ref())?;
                 if let Some(fact) = shell_proficiency {
@@ -369,6 +378,25 @@ impl AgentComponentFacts {
             Self::Toolset { .. } | Self::Opaque => Ok(()),
         }
     }
+}
+
+fn validate_input_capabilities(
+    capabilities: Option<&ModelInputCapabilities>,
+    supports_vision: bool,
+) -> Result<(), String> {
+    let Some(capabilities) = capabilities else {
+        return Ok(());
+    };
+    capabilities.validate()?;
+    if !supports_vision
+        && capabilities
+            .media_types
+            .iter()
+            .any(|media| *media != ModelInputMediaType::Text)
+    {
+        return Err("image input requires declared vision support".into());
+    }
+    Ok(())
 }
 
 fn validate_model_identity(provider: &str, model_identity: &str) -> Result<(), String> {
