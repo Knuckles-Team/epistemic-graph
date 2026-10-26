@@ -15,6 +15,7 @@ pub const FOREIGN_READ_SCHEMA_VERSION: u16 = 1;
 
 /// The finite limits accepted for one host-driven foreign read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ForeignReadLimits {
     pub max_rows: u32,
@@ -69,6 +70,7 @@ impl ForeignReadLimits {
 /// Server-issued opaque execution handle plus the query digest it is allowed to
 /// answer.  The digest is recomputed from the correlated query by the server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ForeignReadExecutionRef {
     pub execution_id: u64,
@@ -109,6 +111,7 @@ impl ForeignReadSourceIdentity {
 
 /// A bounded row supplied by the already-authorized host adapter.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ForeignReadRow {
     pub id: String,

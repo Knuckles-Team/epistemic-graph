@@ -1042,7 +1042,6 @@ mod tests {
 
     #[test]
     fn mapped_cells_use_existing_foreign_rows_residual_and_projection() {
-        use eg_plan::federation::ForeignSource;
         use eg_plan::federation_opt::{ColumnPlan, ColumnPredicate, Comparison, PushdownSupport};
 
         let sessions = ForeignReadSessions::default();
