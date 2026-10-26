@@ -501,10 +501,10 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "03670fc1f33c",
+        "0c01d687aba9",
         "20c64b28144f",
         "51d84d58e174",
-        "8dbb5bd9de53",
-        "ace497f2c64a"
+        "8dbb5bd9de53"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:1008",
@@ -559,11 +559,11 @@
       "title": "A clean-shutdown marker lets open skip the full recovery scan",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0c01d687aba9",
         "20c64b28144f",
         "ace497f2c64a",
         "be7d13fed7f9",
-        "cdf5f87230de",
-        "cf7596ed70b6"
+        "cdf5f87230de"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:1008",

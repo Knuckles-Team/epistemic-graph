@@ -3003,6 +3003,7 @@
       "title": "Snapshot graph and authorized foreign-source grounding",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0c01d687aba9",
         "6ee23e8e4d04"
       ],
       "verified_by": [
