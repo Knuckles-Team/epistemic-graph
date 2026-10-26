@@ -1280,7 +1280,7 @@ mod tests {
     #[test]
     fn tenant_census_removes_only_ordinary_named_clean_markers() {
         let root = tempfile::tempdir().unwrap();
-        let destination = root.path().join("owner.redb");
+        let destination = root.path().join("clean.redb");
         let candidate = destination.with_extension("candidate.redb");
         let canonical_marker = destination.with_extension("redb.clean");
         let candidate_marker = candidate.with_extension("redb.clean");
@@ -1308,8 +1308,8 @@ mod tests {
     #[test]
     fn source_census_accepts_only_ordinary_named_clean_markers() {
         let root = tempfile::tempdir().unwrap();
-        let source = root.path().join("owner.redb");
-        let marker = root.path().join("owner.redb.clean");
+        let source = root.path().join("clean.redb");
+        let marker = root.path().join("clean.redb.clean");
         std::fs::write(&source, b"source").unwrap();
         std::fs::write(&marker, b"optional hint").unwrap();
         require_single_regular_file(root.path(), &source).unwrap();
