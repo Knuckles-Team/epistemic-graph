@@ -1950,8 +1950,10 @@
     {
       "id": "EG-DECISION-ENGINE-R050.1",
       "title": "Digest-bound model input declaration source",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "32e0bad2b6a8"
+      ],
       "verified_by": [
         "crates/eg-types/src/agent_component.rs:1618",
         "crates/eg-types/src/agent_component.rs:1660",
