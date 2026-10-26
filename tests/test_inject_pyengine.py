@@ -33,19 +33,19 @@ def _zip_info(name: str, mode: int = 0o644) -> zipfile.ZipInfo:
 
 def _server_wheel(path: Path) -> None:
     script = b"server"
-    metadata = b"Metadata-Version: 2.1\nName: epistemic-graph\n"
-    record_name = "epistemic_graph-0.dist-info/RECORD"
+    metadata = b"Metadata-Version: 2.1\nName: medulla-stem\n"
+    record_name = "medulla_stem-0.dist-info/RECORD"
     record = (
-        f"epistemic_graph-0.data/scripts/epistemic-graph-server,{_hash(script)},{len(script)}\n"
-        f"epistemic_graph-0.dist-info/METADATA,{_hash(metadata)},{len(metadata)}\n"
+        f"medulla_stem-0.data/scripts/epistemic-graph-server,{_hash(script)},{len(script)}\n"
+        f"medulla_stem-0.dist-info/METADATA,{_hash(metadata)},{len(metadata)}\n"
         f"{record_name},,\n"
     ).encode()
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            _zip_info("epistemic_graph-0.data/scripts/epistemic-graph-server", 0o755),
+            _zip_info("medulla_stem-0.data/scripts/epistemic-graph-server", 0o755),
             script,
         )
-        archive.writestr(_zip_info("epistemic_graph-0.dist-info/METADATA"), metadata)
+        archive.writestr(_zip_info("medulla_stem-0.dist-info/METADATA"), metadata)
         archive.writestr(_zip_info(record_name), record)
 
 
@@ -71,10 +71,10 @@ def test_injects_platform_extension_and_preserves_server_mode(
     with zipfile.ZipFile(server) as archive:
         assert archive.read(target) == payload
         server_info = archive.getinfo(
-            "epistemic_graph-0.data/scripts/epistemic-graph-server"
+            "medulla_stem-0.data/scripts/epistemic-graph-server"
         )
         assert (server_info.external_attr >> 16) & 0o777 == 0o755
-        record = archive.read("epistemic_graph-0.dist-info/RECORD").decode()
+        record = archive.read("medulla_stem-0.dist-info/RECORD").decode()
     rows = {row[0]: row[1:] for row in csv.reader(io.StringIO(record))}
     assert rows[target] == [_hash(payload), str(len(payload))]
 
@@ -106,7 +106,7 @@ def test_replaces_stale_kernel_and_rebuilds_record_exactly(tmp_path: Path) -> No
     with zipfile.ZipFile(server) as archive:
         assert archive.namelist().count(target) == 1
         assert archive.read(target) == payload
-        record_name = "epistemic_graph-0.dist-info/RECORD"
+        record_name = "medulla_stem-0.dist-info/RECORD"
         rows = list(csv.reader(io.StringIO(archive.read(record_name).decode())))
         names = [row[0] for row in rows]
         assert len(names) == len(set(names))
@@ -144,7 +144,7 @@ def test_numeric_and_engine_injections_compose_freely(tmp_path: Path) -> None:
         names = archive.namelist()
         assert archive.read("epistemic_graph/numeric.abi3.so") == numeric_payload
         assert archive.read("epistemic_graph/engine.abi3.so") == engine_payload
-        record_name = "epistemic_graph-0.dist-info/RECORD"
+        record_name = "medulla_stem-0.dist-info/RECORD"
         rows = {
             row[0]: row[1:]
             for row in csv.reader(io.StringIO(archive.read(record_name).decode()))

@@ -16,7 +16,7 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 - [ ] **T12 - R001.11:** Served contract test through the real dispatch.
 - [ ] **T13 - R001.12:** Assembled step graph fixture.
 - [ ] **T14 - R001.13:** Assemble abstains rather than invents.
-- [ ] **T15 - R001.14:** Cross-repo (graph-os): correct R017 wording.
+- [ ] **T15 - R001.14:** Cross-repo (Arbora): correct R017 wording.
 - [ ] **T16 - R002:** Ingest-worker policy has one authority: the engine decides, the worker asks and obeys (rollup).
 - [ ] **T17 - R002.1:** Register carries capacity.
 - [x] **T18 - R002.2:** Autosize and depth limit live in the R076.1 `SchedulerConfig` producer; served integration remains R076.2.
@@ -30,7 +30,7 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 - [ ] **T26 - R002.10:** Reword `EG-INGEST-WORKER-R001.11`.
 - [ ] **T27 - R002.11:** Reword `EG-INGEST-WORKER-R001.14`.
 - [ ] **T28 - R002.12:** Reword `EG-INGEST-WORKER-R001.15`.
-- [ ] **T29 - R002.13:** Cross-repo (connector SDK repository): no policy constants in the worker.
+- [ ] **T29 - R002.13:** Cross-repo (connector Scion SDK repository): no policy constants in the worker.
 - [ ] **T30 - R002.14:** Fold the analytics pool knob into the same config.
 - [ ] **T31 - R002.15:** Parity check that no duplicate policy remains.
 - [ ] **T32 - R003:** Analytics payload bound is decided and defended (rollup).
@@ -53,5 +53,5 @@ Order: R003 (independent, smallest), R002.1-R002.5 with the durable-kernel rows,
 <!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
 ## Owner definition tasks — 2026-10-12
 
-- [ ] **`EG-PLACEMENT-R001.15`:** Define typed read-only capacity feasibility input/verdict and refusal rules using R112 premises and R001.6. GraphOS must define proposal, actuation and independent applied-state readback receipt APIs before the row can claim a closed loop.
+- [ ] **`EG-PLACEMENT-R001.15`:** Define typed read-only capacity feasibility input/verdict and refusal rules using R112 premises and R001.6. Arbora must define proposal, actuation and independent applied-state readback receipt APIs before the row can claim a closed loop.
 <!-- /spec-definition-patch -->

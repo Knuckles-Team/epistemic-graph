@@ -124,7 +124,7 @@ def _fixture_pyproject(root_config: dict[str, object], root: Path) -> None:
         'requires = ["maturin>=1.0,<2.0"]\n'
         'build-backend = "maturin"\n\n'
         "[project]\n"
-        'name = "epistemic-graph"\n'
+        'name = "medulla-stem"\n'
         'version = "0.0.0"\n'
         'requires-python = ">=3.10"\n'
         'dependencies = ["msgpack>=1.2.1"]\n\n'
@@ -190,7 +190,7 @@ def _build_server_wheel(fixture: Path, dist: Path) -> Path:
         capture_output=True,
         text=True,
     )
-    server_wheels = sorted(dist.glob("epistemic_graph-*.whl"))
+    server_wheels = sorted(dist.glob("medulla_stem-*.whl"))
     assert len(server_wheels) == 1
     return server_wheels[0]
 

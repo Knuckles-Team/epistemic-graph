@@ -263,7 +263,7 @@ def _installed_distribution(venv):
     from importlib import metadata
     from pathlib import Path
 
-    distribution = metadata.distribution("epistemic-graph")
+    distribution = metadata.distribution("medulla")
     assert Path(str(distribution.locate_file(""))).resolve().is_relative_to(venv), (
         "distribution location is outside candidate venv"
     )
@@ -618,9 +618,9 @@ class ReceiptVerifier(unittest.TestCase):
                 "epistemic_graph/contract_errors.py",
             )
             names.append("epistemic_graph/contract_errors.py")
-        info = self.root / "epistemic_graph-0.dist-info"
+        info = self.root / "medulla-0.dist-info"
         info.mkdir()
-        info.joinpath("METADATA").write_text("Name: epistemic-graph\nVersion: 0\n")
+        info.joinpath("METADATA").write_text("Name: medulla\nVersion: 0\n")
         info.joinpath("RECORD").write_text(
             "".join(
                 f"{name},,\n"
@@ -672,7 +672,7 @@ class ReceiptVerifier(unittest.TestCase):
         import sys
 
         config, package, distribution = self._synthetic_wheel_binding()
-        info = self.root / "epistemic_graph-0.dist-info"
+        info = self.root / "medulla-0.dist-info"
         with (
             patch.dict(sys.modules, {"epistemic_graph": package}),
             patch("importlib.metadata.distribution", return_value=distribution),
@@ -695,7 +695,7 @@ class ReceiptVerifier(unittest.TestCase):
         import sys
 
         config, package, distribution = self._synthetic_wheel_binding()
-        info = self.root / "epistemic_graph-0.dist-info"
+        info = self.root / "medulla-0.dist-info"
         with (
             tempfile.TemporaryDirectory(prefix="eg-external-source-") as temp,
             patch.dict(sys.modules, {"epistemic_graph": package}),
@@ -739,7 +739,7 @@ class ReceiptVerifier(unittest.TestCase):
             "from importlib import metadata\n"
             "package_root = Path(epistemic_graph.__file__).resolve().parent\n"
             "assert package_root.parent == Path(sys.argv[3])\n"
-            "dist_root = metadata.distribution('epistemic-graph').locate_file('')\n"
+            "dist_root = metadata.distribution('medulla').locate_file('')\n"
             "assert Path(dist_root).resolve() == Path(sys.argv[4])\n"
             "print('OTHER_CHECKOUT_DISCOVERED', flush=True)\n"
             "_qualify_installed_contract(json.load(sys.stdin))\n"
@@ -749,7 +749,7 @@ class ReceiptVerifier(unittest.TestCase):
                 expected_dist = self.root
                 expected_error = "distribution location is outside candidate venv"
                 if location == "inside":
-                    info = self.root / "epistemic_graph-0.dist-info"
+                    info = self.root / "medulla-0.dist-info"
                     info.rename(site / info.name)
                     expected_dist = site
                     expected_error = "package or contract is outside candidate venv"

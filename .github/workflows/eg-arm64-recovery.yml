@@ -105,7 +105,7 @@ jobs:
       - name: Stage sole recovery candidate
         run: |
           mkdir dist
-          cp dist-primary/epistemic_graph-*.whl dist/
+          cp dist-primary/medulla-*.whl dist/
       - name: Run the exact original native installed-wheel smoke
         run: |
           python - <<'PYTHON'
@@ -128,7 +128,7 @@ jobs:
           python - <<'PYTHON'
           import hashlib, json, os
           from pathlib import Path
-          wheels = list(Path('dist').glob('epistemic_graph-*.whl'))
+          wheels = list(Path('dist').glob('medulla-*.whl'))
           assert len(wheels) == 1, wheels
           wheel = wheels[0]
           assert 'manylinux_2_28_aarch64' in wheel.name, wheel.name

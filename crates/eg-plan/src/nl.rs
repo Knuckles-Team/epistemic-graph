@@ -35,6 +35,8 @@
 use crate::exec::{execute, PlanCtx};
 use crate::rowset::RowSet;
 
+pub mod context;
+
 /// The NL→query planning seam (CONCEPT:EG-KG.query.core-query-input): turn a natural-language request plus a
 /// `schema_hint` (labels / grammar the model should target) into an executable query
 /// STRING. Returning a string — not a `Plan` — keeps the planner language-agnostic
@@ -120,6 +122,13 @@ pub enum NlQueryError {
         /// The caret-annotated parse error.
         message: String,
     },
+    /// Every planner step named something the parser or the graph schema refused
+    /// (EG-FEDERATED-QUERY-R058.4.7.1). `steps` holds each step's text and typed
+    /// outcome; nothing was executed.
+    Ungrounded {
+        /// Every refused step, in order.
+        steps: Vec<context::NlPlanStep>,
+    },
     /// The produced UQL parsed but failed during execution.
     Execution {
         /// The UQL that was executed when it failed.
@@ -138,6 +147,14 @@ impl std::fmt::Display for NlQueryError {
                 "nl-query: planner output refused: {actual} chars exceeds budget of {limit}"
             ),
             Self::ParseFailed { message, .. } => write!(f, "nl-query: {message}"),
+            Self::Ungrounded { steps } => {
+                let last = steps.last().map_or("no step ran", |s| s.outcome.as_str());
+                write!(
+                    f,
+                    "nl-query: planner output refused after {} step(s): {last}",
+                    steps.len()
+                )
+            }
             Self::Execution { message, .. } => write!(f, "nl-query: execution failed: {message}"),
         }
     }

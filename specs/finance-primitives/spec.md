@@ -1,14 +1,14 @@
 # EG-FINANCE-PRIMITIVES — Finance primitives: accounts, strategies, risk and evidence
 
-**Owner:** epistemic-graph (EG) · **Program:** finance asset manager
+**Owner:** Medulla (EG) · **Program:** finance asset manager
 
 ## Outcome and boundary
 
-EG is the authority for typed finance facts, deterministic portfolio calculations, strategy evaluation, backtest evidence, and informational recommendations. A client can import dated activities, reconstruct a portfolio at any past knowledge time, compare strategies, and inspect every displayed number's source and as-of time. The engine emits proposals and analysis, never an executable order or an approval lease. Connectors own external acquisition; the serving layer owns schedules and delivery; a browser owns presentation. Each can use the public EG contracts specified here without access to any other documentation.
+Medulla is the authority for typed finance facts, deterministic portfolio calculations, strategy evaluation, backtest evidence, and informational recommendations. A client can import dated activities, reconstruct a portfolio at any past knowledge time, compare strategies, and inspect every displayed number's source and as-of time. The engine emits proposals and analysis, never an executable order or an approval lease. Connectors own external acquisition; the serving layer owns schedules and delivery; a browser owns presentation. Each can use the public Medulla contracts specified here without access to any other documentation.
 
 Existing `finance-v1` already models `FinancialInstrument`, `Listing`, `Venue`, `BarSeries`, `IndicatorSpec`, `SignalState`, `TrendFlip`, `BacktestRun` and `AnalysisSnapshot`. Existing `FinanceMarket` operations resolve revisions, compute indicators, seal backtests and snapshots, and publish `finance.flip` events. Extend these types and operations; keep bars in the time-series store rather than copying bars into graph nodes. Reuse the engine's sealed-record guard and graph authorization for persisted account and strategy records.
 
-The `BacktestRun` content digest must be canonical across supported hosts: normalize serialization, floating-point and timestamp inputs before hashing, and compare independent builds on two architectures. The SuperTrend/ATR reference companion in Pine must produce the same signal transitions as EG from the same checked-in bar fixture and parameter version. Fold finance-specific classes into the one `finance-v1` ontology and remove duplicate class definitions; this obligation is tracked as EG-FINANCE-PRIMITIVES-R001.
+The `BacktestRun` content digest must be canonical across supported hosts: normalize serialization, floating-point and timestamp inputs before hashing, and compare independent builds on two architectures. The SuperTrend/ATR reference companion in Pine must produce the same signal transitions as Medulla from the same checked-in bar fixture and parameter version. Fold finance-specific classes into the one `finance-v1` ontology and remove duplicate class definitions; this obligation is tracked as EG-FINANCE-PRIMITIVES-R001.
 
 ## Evidence and obligations
 
@@ -16,7 +16,7 @@ The generator owns delivery state in `status.json`.
 Record exact commits, commands, hosted runs, dates and scenario outcomes as evidence.
 Existing components establish reuse opportunities, not completion of these obligations.
 
-| ID | EG obligation |
+| ID | Medulla obligation |
 |---|---|
 | EG-FINANCE-PRIMITIVES-R001 | Cross-host deterministic `BacktestRun` digest, Pine companion parity for SuperTrend/ATR, and one canonical `finance-v1` class authority. |
 | EG-FINANCE-PRIMITIVES-R004 | Extend ontology and validated portfolio record types. |
@@ -62,13 +62,13 @@ Compare DCA, lump sum and trend on the same point-in-time universe, cash flows, 
 
 For each holding/watchlist item and horizon, a recommendation is `accumulate`, `hold`, `de_risk` or `abstain`. A non-abstaining result cites the strategy ID/version, sealed backtest/evaluation record, calibration cohort, data revision, price source and as-of time. Insufficient history, warmup, drift, ambiguity, stale price, unsupported jurisdiction or missing risk terms must abstain with a typed reason. Scorecards compare prior recommendations to later outcomes using an immutable evaluation window. Seal informational output as `AnalysisSnapshot`; no output authorizes an order.
 
-`LeverageTerms` identifies instrument, product type (`margin`, `future`, `daily_reset_fund`, `fx`), jurisdiction/policy version, multiplier, tick, currency, initial and maintenance margin, financing/fee schedule, expiry/roll and liquidation convention as applicable. Simulate margin calls, liquidation levels, sizing and risk-of-ruin under explicit scenarios. Daily-reset funds compound daily returns, not a horizon return multiplied by leverage. Unknown terms or unavailable product policy refuse any live-action eligibility. EG's default is paper analysis. A separate authorized execution system must enforce per-instrument policy, a valid approval lease, risk guards and authorized approver; EG cannot mint or bypass any of these.
+`LeverageTerms` identifies instrument, product type (`margin`, `future`, `daily_reset_fund`, `fx`), jurisdiction/policy version, multiplier, tick, currency, initial and maintenance margin, financing/fee schedule, expiry/roll and liquidation convention as applicable. Simulate margin calls, liquidation levels, sizing and risk-of-ruin under explicit scenarios. Daily-reset funds compound daily returns, not a horizon return multiplied by leverage. Unknown terms or unavailable product policy refuse any live-action eligibility. Medulla's default is paper analysis. A separate authorized execution system must enforce per-instrument policy, a valid approval lease, risk guards and authorized approver; Medulla cannot mint or bypass any of these.
 
 ### F6. Events and optional import (EG-FINANCE-PRIMITIVES-R011, EG-FINANCE-PRIMITIVES-R012)
 
 Finance events use a versioned envelope `(tenant, event_id, topic, subject, occurrence_time, known_at, source_digest, payload_version)`. `finance.flip` keeps its existing stable ID. Add `finance.price`, `finance.dca_due` and `finance.margin_threshold` facts as needed; replay and outbox publication are idempotent. Delivery channels and scheduling remain consumers. An event never authorizes a trade.
 
-An optional external portfolio source can attach read-only through EG's typed source registry. A one-way mapper converts source activities into F1 records with original source key, source revision and digest. Re-import is idempotent, deletions become explicit tombstone/correction records, and source schema drift rejects or quarantines records. The external database retains its own schema and migrations. EG never writes into it and never shares its storage ownership. This optional connector is independent of completing F1–F5.
+An optional external portfolio source can attach read-only through Medulla's typed source registry. A one-way mapper converts source activities into F1 records with original source key, source revision and digest. Re-import is idempotent, deletions become explicit tombstone/correction records, and source schema drift rejects or quarantines records. The external database retains its own schema and migrations. Medulla never writes into it and never shares its storage ownership. This optional connector is independent of completing F1–F5.
 
 ### F7. Quality and provenance (EG-FINANCE-PRIMITIVES-R013)
 
@@ -104,13 +104,13 @@ The linear recurrence requires mutually uncorrelated process and measurement noi
 
 ### `EG-FINANCE-PRIMITIVES-R015.1` — EG:43
 
-**EG-owned lifecycle.** EG defines `FinanceOrderProposal.StageV1` and `PromoteV1`. `OrderProposalSnapshotV1` is sealed and content-addressed. It binds tenant/proposal/revision, predecessor digest, decision identity/revision/digest, and schema identity/revision. It also binds canonical payload bytes/SHA-256, policy identity/revision/digest, and evidence refs. Hash stored bytes as-is. Refuse noncanonical bytes for the declared schema/version. Staging is create-only. Revision 1 has no predecessor. Later revisions name the prior digest and use expected-head CAS. An identical retry is idempotent; conflicting bytes refuse.
+**Medulla-owned lifecycle.** Medulla defines `FinanceOrderProposal.StageV1` and `PromoteV1`. `OrderProposalSnapshotV1` is sealed and content-addressed. It binds tenant/proposal/revision, predecessor digest, decision identity/revision/digest, and schema identity/revision. It also binds canonical payload bytes/SHA-256, policy identity/revision/digest, and evidence refs. Hash stored bytes as-is. Refuse noncanonical bytes for the declared schema/version. Staging is create-only. Revision 1 has no predecessor. Later revisions name the prior digest and use expected-head CAS. An identical retry is idempotent; conflicting bytes refuse.
 
 `PromoteV1` binds the expected promoted head, candidate digest, gate-manifest digest, and gate receipts. It rechecks the staged payload hash/digest. It rechecks R019 verification/approval and the R010 risk/sizing policy. Apply per-instrument policy and designated approvers when required. Atomically write the promotion pointer, `derivedFrom` history, and `OrderAdmissionReceiptV1`. Bind the receipt to proposal, revision, snapshot, decision, policy, gate receipts, and transaction revision. Stale heads, missing/mismatched evidence, unavailable/failed gates, incomplete receipts, and vetoes refuse before writes. The result admits host review only; it submits no order. Keep `AnalysisSnapshot` informational-only. Preserve `EG-DECISION-ENGINE-R019`, `EG-DURABLE-KERNEL-R057`, and `EG-FINANCE-PRIMITIVES-R015`.
 
-**Exact cross-owner hold.** Evidence does not identify the SDK-accepted payload schema/version. It does not identify the complete admission-hook registry or its owner. GraphOS confirmation operation and receipt fields are also undefined. EG may stage and validate the opaque payload. EG must refuse promotion until those owner contracts are reviewed. SDK writeback must not cause an effect. No live-order behavior or external effect is included.
+**Exact cross-owner hold.** Evidence does not identify the Scion SDK-accepted payload schema/version. It does not identify the complete admission-hook registry or its owner. Arbora confirmation operation and receipt fields are also undefined. Medulla may stage and validate the opaque payload. Medulla must refuse promotion until those owner contracts are reviewed. Scion SDK writeback must not cause an effect. No live-order behavior or external effect is included.
 
-Preserve source record SHA-256 `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`. Definition only; no implementation, GraphOS receipt, or SDK effect is claimed.
+Preserve source record SHA-256 `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`. Definition only; no implementation, Arbora receipt, or Scion SDK effect is claimed.
 
 ### `EG-FINANCE-PRIMITIVES-R002.11` — EG:67
 

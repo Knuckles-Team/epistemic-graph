@@ -1,6 +1,6 @@
 # EG-SDLC — Graph-driven development lifecycle
 
-Owner: epistemic-graph (`EG`). Sole owner of the lifecycle records and their derivation rules.
+Owner: Medulla (`EG`). Sole owner of the lifecycle records and their derivation rules.
 Component: Development lifecycle
 Depends-on: EG-SCM-R002, EG-SCM-R008, EG-ORCH-VOCAB-R012
 References: [EG-SCM](../source-changesets/spec.md), [EG-REPO-INGEST](../repository-index-and-ingestion/spec.md), [EG-ORCH-VOCAB](../orchestration-vocabulary/spec.md), [EG-UNIFIED-DATA-PLANE](../unified-data-plane/spec.md)

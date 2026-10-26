@@ -84,9 +84,13 @@
     {
       "id": "EG-CQ-XSRC-R001.1",
       "title": "Add `vg:SourceAuthority`, `vg:authoritativeSource`, `vg:authorityFor` and `vg:authorityRank` to the virtual-graph vocabulary",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09e3e6be7df9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/virtual_graph_authority.rs:17"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R001.2",
@@ -127,10 +131,15 @@
     },
     {
       "id": "EG-CQ-XSRC-R002.1",
-      "title": "Add `:Supplier` as a subclass of `:Vendor`, and `:SupplyChainItem` with `:suppliedBy`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "title": "Add `:Supplier` as a subclass of `:Vendor`, and `:SupplyChainItem` with `:suppliesItem`",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09e3e6be7df9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:122",
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:24"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R002.2",
@@ -365,7 +374,7 @@
     },
     {
       "id": "EG-CQ-XSRC-R006.5",
-      "title": "Serve the report through graph-os",
+      "title": "Serve the report through Arbora",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -464,9 +473,13 @@
     {
       "id": "EG-CQ-XSRC-R008.2.1",
       "title": "Add a host limit-breach term to the ontology",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09e3e6be7df9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/infrastructure_host_limits.rs:18"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R008.2.2",
@@ -504,10 +517,15 @@
     },
     {
       "id": "EG-CQ-XSRC-R008.3.1",
-      "title": "Add `:CustomerContract`, `:ChangeRequest` and `:coversService`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "title": "Add `:CustomerContract` and `:coversService`; reuse canonical `kg:Change`",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09e3e6be7df9",
+        "8fd835eb199a"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/commercial_declarations.rs:88"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R008.3.2",

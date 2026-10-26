@@ -2430,6 +2430,7 @@ components:
     public_contract_roots: []
     test_roots:
       - "tests/sharded_startup_open_timing_d_cdx_65.rs"
+      - "tests/shard_open_budget.rs"
     generated_roots: []
     shared_roots: []
     shared_files: []

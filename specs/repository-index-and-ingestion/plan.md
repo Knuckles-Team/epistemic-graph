@@ -37,7 +37,7 @@ This document defines the engine-owned boundary and data model for [spec.md](spe
 ```mermaid
 flowchart LR
   P[Provider snapshot adapter] --> S[Generated IndexRepository client]
-  S --> A[Authenticated EG request boundary]
+  S --> A[Authenticated Medulla request boundary]
   A --> I[Branch index parser and resolver]
   I --> C[CAS source admission]
   C --> E[Canonical ChangeEnvelope compiler]
@@ -47,9 +47,9 @@ flowchart LR
   W --> D
 ```
 
-The adapter is transport only. EG verifies graph write access before invoking parser work. The request boundary validates a portable repository-relative path, digest spelling, bounded scope, and feature availability. Parse and projection run off the network reactor. CAS admission can precede the graph transaction; a CAS holder has no graph visibility until the one envelope commits. The envelope is the sole graph writer for this path. The response is emitted after the commit, or on exact digest replay after reading its durable receipt.
+The adapter is transport only. Medulla verifies graph write access before invoking parser work. The request boundary validates a portable repository-relative path, digest spelling, bounded scope, and feature availability. Parse and projection run off the network reactor. CAS admission can precede the graph transaction; a CAS holder has no graph visibility until the one envelope commits. The envelope is the sole graph writer for this path. The response is emitted after the commit, or on exact digest replay after reading its durable receipt.
 
-`SourceIngest` is the parallel entrypoint for governed connector observations. It uses approved manifest mapping references, EG-computed live-set differences and the same `ChangeEnvelope` commit authority. A source-position bridge or index update is a consumer of that committed envelope, keyed by tenant, source ID, partition and position; it cannot reimplement graph mutation outside the envelope path.
+`SourceIngest` is the parallel entrypoint for governed connector observations. It uses approved manifest mapping references, Medulla-computed live-set differences and the same `ChangeEnvelope` commit authority. A source-position bridge or index update is a consumer of that committed envelope, keyed by tenant, source ID, partition and position; it cannot reimplement graph mutation outside the envelope path.
 
 ### Entity and identity model
 
@@ -66,7 +66,7 @@ The adapter is transport only. EG verifies graph write access before invoking pa
 
 Never key an occurrence solely by source text or blob digest: one blob can be mounted at different paths and refs, and identical declarations can appear twice. Branch membership is a relation to an immutable `FileVersion`; removing membership does not delete another ref's graph. Ref names can move, commit IDs cannot. Exact path normalization rejects absolute paths, traversal and URI-like host paths. Hash digests use lowercase `sha256:<64 hex>`.
 
-The parser outcome is one `IndexFileOutcome` per submitted unique blob, preserving order. `success`, `unsupported` and `error` are distinct. A parse capability digest identifies the parser grammar/configuration so a later capability revision can retry failed/unsupported material without changing the immutable source digest. Diagnostics are bounded and machine readable. Rung evidence is derived inside EG and is not trusted from the request.
+The parser outcome is one `IndexFileOutcome` per submitted unique blob, preserving order. `success`, `unsupported` and `error` are distinct. A parse capability digest identifies the parser grammar/configuration so a later capability revision can retry failed/unsupported material without changing the immutable source digest. Diagnostics are bounded and machine readable. Rung evidence is derived inside Medulla and is not trusted from the request.
 
 ### Symbol resolution and semantic bridge
 
@@ -116,7 +116,7 @@ The R008-bound test in `src/server/handlers/repository_index_tests.rs` construct
 roughly 60 MB of payload, exceeds the 48 MiB write-set ceiling, and invokes
 `lower()` on the full and halved fixtures. It proves the stable refusal prefix
 and successful lowering of the smaller fixture. It does not exercise a batch
-above 64 MiB through a served request, graph commit, or SDK halve-and-resend
+above 64 MiB through a served request, graph commit, or Scion SDK halve-and-resend
 retry. T2 remains open for that integration proof; its already established
 contract and lowering checks remain supplementary evidence.
 
@@ -135,13 +135,13 @@ Each work item below extends its named parent and preserves existing obligations
 
 | Requirement | Plan | Open dependency |
 |---|---|---|
-| `EG-REPO-INGEST-R002.1` | Compile a pinned skill directory into a typed plan through SourceIngest and AU. Use the existing graph orchestration path. | Versioned grammar and capability/type lookup remain owner prerequisites. AU-CONTROL-R037.30 remains unmerged. |
-| `EG-REPO-INGEST-R006.1` | Measure distinct completed papers over 24 hours. Admit maintenance only with authorization and bounded goal allocation. | Stage roster, freshness policy, allocation policy, and GraphOS operation remain owner prerequisites. |
+| `EG-REPO-INGEST-R002.1` | Compile a pinned skill directory into a typed plan through SourceIngest and Meristem. Use the existing graph orchestration path. | Versioned grammar and capability/type lookup remain owner prerequisites. AU-CONTROL-R037.30 remains unmerged. |
+| `EG-REPO-INGEST-R006.1` | Measure distinct completed papers over 24 hours. Admit maintenance only with authorization and bounded goal allocation. | Stage roster, freshness policy, allocation policy, and Arbora operation remain owner prerequisites. |
 | `EG-REPO-INGEST-R006.2` | Queue re-embedding outside query routing. Gate promotion through unified data-plane R040.2/.3 before tag_batch. | Importance producer and compatible embedding-space policy remain owner prerequisites. |
 | `EG-REPO-INGEST-R006.3` | Serve typed code maps through current-revision UnifiedQuery. Refuse changed and unchanged-symbol queries against a stale generation. | Source-inventory producer and code-entity IDs remain owner prerequisites. |
 | `EG-REPO-INGEST-R006.4` | Apply revision-scoped deltas under host-granted working-memory limits. | Semantic support matrix and host resource-grant binding remain owner prerequisites. |
-| `EG-REPO-INGEST-R002.100` | Require independently authorized readback before ingestion success. | AU success-transition consumer ID remains unassigned. |
-| `EG-REPO-INGEST-R002.101` | Gate graph-loaded workflow completion on durable hydration readback. | AU execution-success consumer ID remains unassigned. |
+| `EG-REPO-INGEST-R002.100` | Require independently authorized readback before ingestion success. | Meristem success-transition consumer ID remains unassigned. |
+| `EG-REPO-INGEST-R002.101` | Gate graph-loaded workflow completion on durable hydration readback. | Meristem execution-success consumer ID remains unassigned. |
 
 Acceptance cases and exact refusal conditions remain in the linked requirements rows.
 All seven definitions remain SPECIFIED with empty `landed_in` and `verified_by` fields.
@@ -150,7 +150,7 @@ Implementation and served acceptance await separate owner review.
 
 ### Proposed inventory authority and identity binding for R006.3
 
-These proposed EG contracts extend R006/R009 and the R017 query consumer.
+These proposed Medulla contracts extend R006/R009 and the R017 query consumer.
 They are not existing API or implementation claims. All fields are required.
 Text IDs are nonempty UTF-8; counters are unsigned 64-bit integers; digests
 are lowercase `sha256:<64 hex>`. Unknown fields and missing bindings refuse.
@@ -159,7 +159,7 @@ are lowercase `sha256:<64 hex>`. Unknown fields and missing bindings refuse.
 Admit through existing governed ChangeEnvelope authorization and expected
 binding revision. Verified tenant and graph authority control admission;
 payload principal does not grant permission. The binding selects an explicit
-publisher/source without assigning either role to SDK transport or GraphOS/AU.
+publisher/source without assigning either role to Scion SDK transport or Arbora/Meristem.
 The publisher must have current graph write authority at every submission.
 
 `AdvanceRepositoryInventoryV1` = `{binding_id, binding_revision, expected_inventory_revision, source_event_id, source_revision, inventory_digest, files}`. Each file is `{path, blob_digest, byte_length}`. Paths are unique,
@@ -177,7 +177,7 @@ Identical source event/payload replays the receipt; conflicting replay, stale
 CAS, unknown binding, incomplete manifest or unauthorized publisher stores nothing.
 
 `PublishRepositoryMapV1` = `{binding_id, binding_revision, inventory_revision, inventory_digest, source_revision, expected_map_generation, map_digest, identity_scheme, parser_digest, complete}`. Output adds `{map_generation, graph_revision}` to these fields. `complete` must be true. Every admitted file must have an explicit parse outcome, including unsupported/error outcomes.
-Unsupported relations remain incomplete. EG publishes only after comparing the
+Unsupported relations remain incomplete. Medulla publishes only after comparing the
 current inventory and all native IndexRepository/SourceIngest results in one
 ChangeEnvelope. A failed/raced publish keeps the old map historical, never current.
 Every UnifiedQuery page and cursor checks authority, inventory revision/digest,

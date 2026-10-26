@@ -65,7 +65,7 @@ echo "=== build eg-numeric kernel wheel (debug, feature python) ==="
 maturin build -m crates/eg-numeric/Cargo.toml --features python \
   --out "$WORKDIR/numdist-primary"
 
-SERVER_WHEEL=$(ls "$WORKDIR"/dist-primary/epistemic_graph-*.whl)
+SERVER_WHEEL=$(ls "$WORKDIR"/dist-primary/medulla-*.whl)
 NUMERIC_WHEEL=$(ls "$WORKDIR"/numdist-primary/*.whl)
 
 echo "=== fold numeric kernel into server wheel ==="

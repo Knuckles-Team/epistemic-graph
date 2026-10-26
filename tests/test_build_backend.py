@@ -35,7 +35,7 @@ def _wheel(path: Path, member: str, payload: bytes) -> None:
         info = zipfile.ZipInfo(member)
         info.external_attr = 0o100755 << 16
         archive.writestr(info, payload)
-        archive.writestr("epistemic_graph-0.dist-info/RECORD", b"")
+        archive.writestr("medulla-0.dist-info/RECORD", b"")
 
 
 def _record(entries: dict[str, bytes]) -> bytes:
@@ -43,7 +43,7 @@ def _record(entries: dict[str, bytes]) -> bytes:
     for name, payload in sorted(entries.items()):
         digest = base64.urlsafe_b64encode(hashlib.sha256(payload).digest()).decode()
         rows.append((name, f"sha256={digest.rstrip('=')}", len(payload)))
-    rows.append(("epistemic_graph-0.dist-info/RECORD", "", ""))
+    rows.append(("medulla-0.dist-info/RECORD", "", ""))
     # csv.writer needs a file-like object; its output is deterministic for these
     # plain wheel paths and lets the backend verify the exact RECORD contract.
     from io import StringIO
@@ -68,8 +68,8 @@ def _editable_wheel(
             if source_payload is not None
             else f"{source_root}\n".encode()
         ),
-        "epistemic_graph-0.dist-info/METADATA": b"Name: epistemic-graph\n",
-        "epistemic_graph-0.dist-info/WHEEL": b"Wheel-Version: 1.0\n",
+        "medulla-0.dist-info/METADATA": b"Name: medulla\n",
+        "medulla-0.dist-info/WHEEL": b"Wheel-Version: 1.0\n",
     }
     if native_payloads is None:
         native_payloads = {
@@ -83,7 +83,7 @@ def _editable_wheel(
             if name.endswith(".so"):
                 info.external_attr = 0o100755 << 16
             archive.writestr(info, payload)
-        archive.writestr("epistemic_graph-0.dist-info/RECORD", _record(entries))
+        archive.writestr("medulla-0.dist-info/RECORD", _record(entries))
 
 
 @pytest.fixture
@@ -108,7 +108,7 @@ def _mock_composer(monkeypatch: pytest.MonkeyPatch, *, delay: float = 0.0) -> li
         calls[0] += 1
         if delay:
             time.sleep(delay)
-        filename = "epistemic_graph-0-py3-none-any.whl"
+        filename = "medulla-0-py3-none-any.whl"
         destination = Path(wheel_directory)
         destination.mkdir(parents=True, exist_ok=True)
         _editable_wheel(destination / filename)
@@ -140,14 +140,14 @@ def test_build_backend_folds_numeric_into_engine_base(
 ) -> None:
     output = tmp_path / "output"
     output.mkdir()
-    server = output / "epistemic_graph-0-py3-none-any.whl"
+    server = output / "medulla-0-py3-none-any.whl"
     # The base wheel is the engine extension wheel (engine module already in it);
     # a stray console executable proves the strip safety net still runs.
     _editable_wheel(
         server,
         native_payloads={
             f"epistemic_graph/engine.{suffix}": b"engine",
-            "epistemic_graph-0.data/scripts/epistemic-graph-server": b"server",
+            "medulla-0.data/scripts/epistemic-graph-server": b"server",
         },
     )
     calls = []
@@ -208,8 +208,8 @@ def test_regular_and_editable_builds_serialize_complete_maturin_staging(
             filename = f"{label}-py3-none-any.whl"
             _wheel(
                 destination / filename,
-                "epistemic_graph-0.dist-info/METADATA",
-                b"Name: epistemic-graph\n",
+                "medulla-0.dist-info/METADATA",
+                b"Name: medulla\n",
             )
             return filename
 
@@ -444,7 +444,7 @@ def test_parallel_editable_builds_publish_once(
         thread.join()
 
     assert failures == []
-    assert results == ["epistemic_graph-0-py3-none-any.whl"] * 2
+    assert results == ["medulla-0-py3-none-any.whl"] * 2
     assert calls == [1]
 
 
@@ -477,7 +477,7 @@ def test_publish_cached_wheel_accepts_symlinked_source_identity(
 ) -> None:
     source_alias = tmp_path / "hermetic-epistemic-graph"
     source_alias.symlink_to(build_backend.ROOT, target_is_directory=True)
-    wheel = tmp_path / "epistemic_graph-0-py3-none-any.whl"
+    wheel = tmp_path / "medulla-0-py3-none-any.whl"
     source_payload = str(source_alias).encode()
     if trailing_newline:
         source_payload += b"\n"
@@ -500,7 +500,7 @@ def test_publish_cached_wheel_rejects_different_source_checkout(
 ) -> None:
     different_checkout = tmp_path / "different-epistemic-graph"
     different_checkout.mkdir()
-    wheel = tmp_path / "epistemic_graph-0-py3-none-any.whl"
+    wheel = tmp_path / "medulla-0-py3-none-any.whl"
     _editable_wheel(wheel, source_root=different_checkout)
     cache = tmp_path / "cache"
     cache.mkdir()
@@ -525,7 +525,7 @@ def test_publish_cached_wheel_rejects_different_source_checkout(
 def test_publish_cached_wheel_rejects_invalid_source_pointer(
     tmp_path: Path, source_payload: bytes
 ) -> None:
-    wheel = tmp_path / "epistemic_graph-0-py3-none-any.whl"
+    wheel = tmp_path / "medulla-0-py3-none-any.whl"
     _editable_wheel(wheel, source_payload=source_payload)
     cache = tmp_path / "cache"
     cache.mkdir()
@@ -595,7 +595,7 @@ def test_numeric_failure_never_returns_or_caches_incomplete_wheel(
 ):
     output = tmp_path / "failed"
     output.mkdir()
-    filename = "epistemic_graph-0-py3-none-any.whl"
+    filename = "medulla-0-py3-none-any.whl"
     _editable_wheel(
         output / filename, native_payloads={"epistemic_graph/engine.abi3.so": b"engine"}
     )
@@ -694,7 +694,7 @@ def test_editable_cache_rejects_wheel_carrying_an_executable(tmp_path):
         native_payloads={
             "epistemic_graph/numeric.abi3.so": b"numeric",
             "epistemic_graph/engine.abi3.so": b"engine",
-            "epistemic_graph-0.data/scripts/epistemic-graph-server": b"server",
+            "medulla-0.data/scripts/epistemic-graph-server": b"server",
         },
     )
     with pytest.raises(RuntimeError, match="executable"):

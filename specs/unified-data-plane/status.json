@@ -1067,7 +1067,7 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.3",
-      "title": "Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB (rollup)",
+      "title": "Conformance entry comparing Medulla query results and captured change stream against native MongoDB/DocumentDB (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1093,7 +1093,7 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.3.2",
-      "title": "Live comparison of EG's query results and captured change stream against native MongoDB/DocumentDB",
+      "title": "Live comparison of Medulla's query results and captured change stream against native MongoDB/DocumentDB",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1847,7 +1847,7 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.2",
-      "title": "Run the Postgres regression suite and generated metamorphic query corpora against EG",
+      "title": "Run the Postgres regression suite and generated metamorphic query corpora against Medulla",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e8b99c7db914"
@@ -1920,7 +1920,7 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029.2",
-      "title": "Wire the real schema_context query entry point through Graph OS, following the code_context pattern",
+      "title": "Wire the real schema_context query entry point through Arbora, following the code_context pattern",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "c1bf552a9c33",
@@ -2047,7 +2047,7 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033",
-      "title": "Cut over Gramps to EG-backed storage in production (rollup)",
+      "title": "Cut over Gramps to Medulla-backed storage in production (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "273dc35315ff"
@@ -2179,7 +2179,7 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R037",
-      "title": "Virtual-graph vocabulary is an EG core schema source",
+      "title": "Virtual-graph vocabulary is a Medulla core schema source",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3dd56fe53283",

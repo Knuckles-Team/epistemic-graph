@@ -97,6 +97,24 @@ pub(crate) fn validate_recovery_content(
     Ok(counts)
 }
 
+/// The identity half of [`validate_recovery_content`]: the persisted root, every
+/// scope binding and its version row, and every fence's stamped identity. It is
+/// O(scopes), not O(rows), and it runs on EVERY open, including one whose
+/// clean-shutdown marker lets it skip the row scan (EG-DURABLE-KERNEL-R006.3):
+/// the marker may skip the row scan, never the identity, binding or fence checks.
+pub(crate) fn validate_recovery_identity(
+    expected: &StoreIncarnation,
+    rtx: &ReadTransaction,
+) -> Result<(), String> {
+    let root = validate_root(expected, rtx)?;
+    let tables = ValidationTables::open(rtx)?;
+    let mut counts = RecoveryStoreCounts::default();
+    validate_bindings(rtx, &root, &mut counts)?;
+    validate_versions(rtx, &tables, &root, &mut counts)?;
+    validate_fences(rtx, &tables, &root, &mut counts)?;
+    Ok(())
+}
+
 /// The three tables recovery validation consults for almost every row, opened
 /// once per pass instead of once per row.
 struct ValidationTables {

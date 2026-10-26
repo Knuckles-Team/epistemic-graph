@@ -4,11 +4,11 @@ build-backend = "build_backend"
 backend-path = ["."]
 
 [project]
-name = "epistemic-graph"
+name = "medulla"
 # Version is DYNAMIC — sourced from Cargo.toml `[package].version` by maturin so the
 # built wheel/sdist ALWAYS matches the release tag (which bumps Cargo.toml). A static
 # value here silently WON over Cargo.toml and shipped mis-versioned dists: e.g. a
-# v2.6.0 tag built `epistemic_graph-2.2.0` (already on PyPI) which `twine
+# v2.6.0 tag built `medulla-2.2.0` (already on PyPI) which `twine
 # --skip-existing` swallowed as a no-op — a green publish that published nothing.
 dynamic = ["version"]
 description = "Rust-native durable multimodal and epistemic database with governed analytics and program optimization"
@@ -28,7 +28,7 @@ dependencies = [
     # wheel gate and release smoke test prove the bundled native module is callable
     # without resolving an interpreter-side numeric implementation.
     # FULL-BY-DEFAULT (CONCEPT:EG-346, 2026-07-25): the UNIFIED binary is the default install
-    # — `pip install epistemic-graph` (NO extra tag) ships the complete engine. OWL/SPARQL
+    # — `pip install medulla` (NO extra tag) ships the complete engine. OWL/SPARQL
     # (pyoxigraph) and the LMCache HTTP driver (httpx) join numeric in the base so `[full]` is
     # no longer needed to get the whole engine. A slimmer serving consumer still chooses what
     # to import; nothing here forces a heavy ML/torch/native-AVX wheel onto the base.
@@ -78,22 +78,22 @@ ast = []
 datascience = []
 reasoning = []
 # The native server executable ships in its own package, versioned in lockstep with
-# this one (bumped by .config/bumpversion.cfg). `pip install "epistemic-graph[server]"`.
-server = ["epistemic-graph-server==2.27.7"]
+# this one (bumped by .config/bumpversion.cfg). `pip install "medulla[server]"`.
+server = ["medulla-stem==2.27.8"]
 # `full` is now a NO-OP ALIAS (2026-07-25): the unified binary is full-by-DEFAULT, so its
 # Python deps (pyoxigraph for owl and httpx for lmcache) live in the base
-# `dependencies`. `pip install epistemic-graph` (no tag) is now the complete engine;
+# `dependencies`. `pip install medulla` (no tag) is now the complete engine;
 # `[full]` is retained only so existing installs/refs keep resolving.
 full = []
 # CONCEPT:EG-337 — the Python LMCache/vLLM remote-backend driver for the EG-187
 # KV-cache endpoint (`epistemic_graph.kvcache`). The driver itself imports with
 # STDLIB ONLY (urllib), so this extra only pulls the optional httpx acceleration
-# (pooled keep-alive on the inference hot path). `pip install epistemic-graph[lmcache]`.
+# (pooled keep-alive on the inference hot path). `pip install medulla[lmcache]`.
 lmcache = [
     "httpx>=0.28.1",
 ]
 # CONCEPT:EG-346 — numeric is NATIVE; this extra is retained as a NO-OP alias so existing
-# `epistemic-graph[numeric]`/`[full]` installs and the `all` aggregate keep resolving. The
+# `medulla[numeric]`/`[full]` installs and the `all` aggregate keep resolving. The
 # compiled faer/ndarray kernel remains always-bundled as package data
 # `epistemic_graph/numeric.abi3.so` (pure-Rust, BLAS/LAPACK-free) and does not add a
 # Python numeric dependency.
@@ -240,7 +240,7 @@ jscpd_exclusions = [
 # The published server extra keeps its exact version pin. Release wheel and
 # public-index validation remain separate from this development-only source.
 [tool.uv.sources]
-epistemic-graph-server = { path = "packaging/epistemic-graph-server" }
+medulla-stem = { path = "packaging/epistemic-graph-server" }
 
 [tool.maturin]
 python-source = "."
@@ -248,7 +248,7 @@ python-source = "."
 # the base is the in-process engine binding `epistemic_graph.engine`, built from the
 # `eg-pyengine` crate with the pure-Python package; `build_backend.py` and the
 # release `folded-wheel` action fold `epistemic_graph.numeric` in. No server crate
-# or bin target is built here -- the server ships in `epistemic-graph-server`.
+# or bin target is built here -- the server ships in `medulla-stem`.
 manifest-path = "crates/eg-pyengine/Cargo.toml"
 module-name = "epistemic_graph.engine"
 strip = true
@@ -276,13 +276,13 @@ include = [
     "epistemic_graph/contract/schemas/**/*.json",
 ]
 # The engine binding's feature set (`security` = engine-level row-level security). The
-# server's `full` feature set belongs to the separate epistemic-graph-server package.
+# server's `full` feature set belongs to the separate medulla-stem package.
 features = ["python", "security"]
 
 [tool.pipelines_hooks.public_surface]
-repository = "Knuckles-Team/epistemic-graph"
-distribution = "epistemic-graph"
-pages_url = "https://knuckles-team.github.io/epistemic-graph/"
+repository = "Knuckles-Team/medulla"
+distribution = "medulla"
+pages_url = "https://knuckles-team.github.io/medulla/"
 mcp_server = false
 
 [tool.pipelines_hooks.ste]

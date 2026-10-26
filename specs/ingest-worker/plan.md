@@ -4,7 +4,7 @@ Governing spec: [spec.md](spec.md).
 
 ## Functional description (what the deleted worker did)
 
-The agent-utilities `kg-ingest-worker` was a standalone process joining the Kafka consumer group `kg-ingest` on topic `kg_tasks`. The host engine used the same pool in Kafka mode.
+The Meristem `kg-ingest-worker` was a standalone process joining the Kafka consumer group `kg-ingest` on topic `kg_tasks`. The host engine used the same pool in Kafka mode.
 - Queue: keyed messages on `kg_tasks`; hydration task types (skill_workflows, capability_hydration) went to a separate `kg_tasks_hydration` topic and consumer group `kg-ingest-hydration`.
 - Job kinds: task type read from the WorkItem metadata (document or codebase, plus the two hydration types). Target path resolved from metadata.
 - Routing: partition key tenant, then repo or corpus, then task type, giving per-key ordering without global serialization.
@@ -19,19 +19,19 @@ The agent-utilities `kg-ingest-worker` was a standalone process joining the Kafk
 
 ## Existing system and reuse
 
-Found in this repository: work-item methods (ClaimWorkItem, SubmitWorkItem, RenewWorkItemLease, CommitWorkItemResult, DeferWorkItem, CancelWorkItem) in the coordination domain; SourceIngest dead_letter and enrichment admission (EG-REPO-INGEST-R002, R006); the broker's consumer QoS acks. Not found: a served task queue (landing via EG-DURABLE-KERNEL-R071 to R073), a worker registry (R074), and any ingest-specific lane, depth read or metrics. No Kafka path is wanted.
+Found in this repository: work-item methods (ClaimWorkItem, SubmitWorkItem, RenewWorkItemLease, CommitWorkItemResult, DeferWorkItem, CancelWorkItem) in the coordination domain. SourceIngest dead_letter and enrichment admission (EG-REPO-INGEST-R002, R006) are also present, along with the broker's consumer QoS acks. Not found: a served task queue (landing via EG-DURABLE-KERNEL-R071 to R073) or a worker registry (R074). No ingest-specific lane, depth read or metrics exists. No Kafka path is wanted.
 
 ## Architecture and ownership decision
 
-The engine owns state and policy: queue, leases, retry, dead letter, depth, metrics. The running process is owned by the connector SDK runner, with graph-os as host only.
+The engine owns state and policy: queue, leases, retry, dead letter, depth, metrics. The running process is owned by the connector Scion SDK runner, with Arbora as host only.
 - Not the engine: job bodies parse files, call LLMs and touch source systems and credentials. The engine is a store and must not run source effects or hold their secrets.
-- Not graph-os: it is the door and supervisor. Embedding job logic there recreates the monolith and ties worker scale to the front door.
-- The SDK already owns source effects and the halve-and-resend retry against EG batch refusals (EG-REPO-INGEST-R008), so the worker is a client of the engine in the same shape.
+- Not Arbora: it is the door and supervisor. Embedding job logic there recreates the monolith and ties worker scale to the front door.
+- The Scion SDK already owns source effects and the halve-and-resend retry against Medulla batch refusals (EG-REPO-INGEST-R008), so the worker is a client of the engine in the same shape.
 - Native fast stages (parse, symbols, stats) stay in-engine per EG-REPO-INGEST-R006; this worker drains only the deferred, source-effect and enrichment jobs.
 
 ## Wiring
 
-enqueue_ingest_job is called by SourceIngest when it defers enrichment and by SDK producers. Run_ingest_worker claims through the generated client methods (EG-DURABLE-KERNEL-R073). The identity scopes already in the engine contract apply, and any new scope is a named dependency row. Config keys: queue depth limit, retry policy, lease seconds, worker count, engine endpoint.
+enqueue_ingest_job is called by SourceIngest when it defers enrichment and by Scion SDK producers. Run_ingest_worker claims through the generated client methods (EG-DURABLE-KERNEL-R073). The identity scopes already in the engine contract apply, and any new scope is a named dependency row. Config keys: queue depth limit, retry policy, lease seconds, worker count, engine endpoint.
 
 ## Failure and Backpressure
 
@@ -54,7 +54,7 @@ Failed outcome: redeliver with jittered delay until the ceiling, then one dead-l
 
 ## Out of scope
 
-Kafka compatibility, the analytics worker, the job bodies' parsing and LLM logic (SDK existing runners).
+Kafka compatibility, the analytics worker, the job bodies' parsing and LLM logic (Scion SDK existing runners).
 
 ## EG-INGEST-WORKER-R002 ontology induction with admission tests
 
@@ -65,7 +65,7 @@ Failure: a failing score keeps the draft and populates nothing.
 Reuses the queue and ack path of R001.4. New: the proposal and its scores.
 Decision: admit only after scoring. Rejected: admitting at once and repairing later, which pollutes instances.
 Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
-That SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
+That Scion SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
 
 ## EG-INGEST-WORKER-R003 knowledge atoms
 
@@ -77,11 +77,11 @@ Existing code: `crates/eg-document/src/contract.rs:141` (chunk validation). Reac
 Reuses document chunks. New: the atom type, decomposition and selection.
 Decision: select atoms per query. Rejected: sending whole documents as context, which spends budget on irrelevant text.
 Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
-That SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
+That Scion SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
 
 ## Document and transcript producers within R003
 
-Planned data flow: SDK worker -> served `SourceIngest` -> authorize -> resolve trusted mappings -> validate -> reconcile/admit/map -> one envelope.
+Planned data flow: Scion SDK worker -> served `SourceIngest` -> authorize -> resolve trusted mappings -> validate -> reconcile/admit/map -> one envelope.
 The authorized committed-replay shortcut precedes mapping resolution and preserves its recorded outcome.
 The production route calls `prepare` at `src/server/dispatch/graph_pipeline/native_routes.rs:408`.
 It commits the envelope at `src/server/dispatch/graph_pipeline/native_routes.rs:428`, then calls `finish` at line 429.
@@ -125,7 +125,7 @@ The named defaults `complete_document`, `content_identity`, `source_sequence` an
 Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies `run_ingest_worker`; its delivery state remains `SPECIFIED`.
 This planned worker must capture sources, perform source effects, parse external formats and submit normalized records.
 `ARBORA-` owns the hosted entry and worker supervision; `AU-` emits harness events only in this ingestion boundary.
-EG must validate, store and select knowledge; no connector credential or source-effect loop moves into EG.
+Medulla must validate, store and select knowledge; no connector credential or source-effect loop moves into Medulla.
 R001 already owns queues and retries; R003.1 through R003.6 already own atom decomposition and selection.
 Decision rows R133 through R138 own run traces, plans and budgets; they do not own source transcript ingestion.
 
@@ -133,7 +133,7 @@ Decision rows R133 through R138 own run traces, plans and budgets; they do not o
 
 Audit candidates 47 and 48 define the document and transcript requirements below.
 The audit tracker retains their complete source locations and provenance.
-Code and deduplication base: EG commit `2e44b8af87ec9681ab0f45d13b37fab38d45c7c2`.
+Code and deduplication base: Medulla commit `2e44b8af87ec9681ab0f45d13b37fab38d45c7c2`.
 
 | Candidate ID | Source descriptions | Citation | Requirement mapping |
 |---|---|---|---|
@@ -155,7 +155,7 @@ Three more batch kinds keep the held copy true to the source:
 | `enumeration` | R903 | Lists every source identifier. Missing records delete after a grace window. |
 | `containers` | R904 | Upserts the container tree. Scope filters name subtrees. |
 
-All four enter through `admit_records` in `src/server/handlers/source_ingestion.rs`. The SDK
+All four enter through `admit_records` in `src/server/handlers/source_ingestion.rs`. The Scion SDK
 connector contract `SDK-SOURCE-INGEST-R805` produces them. A restricted record whose access
 snapshot is older than its bound fails closed at retrieval.
 

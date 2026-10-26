@@ -1,7 +1,7 @@
 """Locate the ``epistemic-graph-server`` executable.
 
-The public ``epistemic-graph`` wheel carries no executables. The server ships in
-the separate ``epistemic-graph-server`` package (extra ``server``). Resolution
+The public ``medulla`` wheel carries no executables. The server ships in
+the separate ``medulla-stem`` package (extra ``server``). Resolution
 order: ``epistemic_graph_server.binary_path()`` when importable, then
 ``shutil.which("epistemic-graph-server")``, else :class:`ServerBinaryNotFoundError`.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import shutil
 
 SERVER_BINARY_NAME = "epistemic-graph-server"
-INSTALL_HINT = 'pip install "epistemic-graph[server]"'
+INSTALL_HINT = 'pip install "medulla[server]"'
 
 
 class ServerBinaryNotFoundError(RuntimeError):

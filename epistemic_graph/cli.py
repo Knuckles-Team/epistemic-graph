@@ -91,8 +91,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     if not binary:
         print("Error: epistemic-graph-server binary not found.", file=sys.stderr)
         print(
-            'Install it with: pip install "epistemic-graph[server]" '
-            "(or cargo build --release)",
+            'Install it with: pip install "medulla[server]" (or cargo build --release)',
             file=sys.stderr,
         )
         sys.exit(1)

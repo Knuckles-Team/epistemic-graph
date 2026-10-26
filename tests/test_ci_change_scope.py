@@ -528,7 +528,7 @@ def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
     [
         (
             "gates-wheel",
-            "72ab1402e460e5298e3e0451f01fd0352cee1a594e93784006876b5b3321585a",
+            "6813e079e24f89bca2422161a8b09f8f1e681bfd7d337229bab34bfb46b6b0a8",
         ),
         (
             "gates-whisper",
@@ -612,9 +612,7 @@ def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> N
         f"EG_GATES_WHEEL_VENV={runner_temp}/.gates-wheel-venv\n"
     )
     steps = {step.get("name"): step.get("run", "") for step in job["steps"]}
-    install = steps[
-        "Install the folded epistemic-graph wheel into a clean throwaway venv"
-    ]
+    install = steps["Install the folded medulla wheel into a clean throwaway venv"]
     assert 'python -m venv "$EG_GATES_WHEEL_VENV"' in install
     assert install.count('"$EG_GATES_WHEEL_VENV/bin/pip"') == 2
     consumers = {
@@ -656,7 +654,7 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
     upload = names.index("Upload validated wheel for installed acceptance")
     capture = names.index("Record the exact wheel before installation")
     install = names.index(
-        "Install the folded epistemic-graph wheel into a clean throwaway venv"
+        "Install the folded medulla wheel into a clean throwaway venv"
     )
     assert capture + 1 == install < package
     for prerequisite in (
@@ -681,7 +679,7 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
     assert set(config["path"].splitlines()) == {
         "${{ runner.temp }}/validated-eg-wheel/" + name
         for name in (
-            "epistemic_graph-*.whl",
+            "medulla-*.whl",
             "source.sha",
             "source.tree",
             "build-recipe.sha256",
@@ -746,7 +744,7 @@ def test_validated_wheel_packaging_refuses_invalid_inputs(
     revision = git("rev-parse", "HEAD")
     dist = repo / "dist-gates"
     dist.mkdir()
-    wheel = dist / "epistemic_graph-1.0-py3-none-any.whl"
+    wheel = dist / "medulla-1.0-py3-none-any.whl"
     wheel.write_bytes(b"already-validated-wheel-fixture")
     runner = tmp_path / "runner"
     runner.mkdir()
@@ -788,7 +786,7 @@ def _corrupt_wheel_input(
     if fault == "missing":
         wheel.unlink()
     elif fault == "multiple":
-        (wheel.parent / "epistemic_graph-second.whl").write_bytes(b"other")
+        (wheel.parent / "medulla-second.whl").write_bytes(b"other")
     elif fault == "symlink":
         wheel.unlink()
         wheel.symlink_to(repo / "Cargo.lock")

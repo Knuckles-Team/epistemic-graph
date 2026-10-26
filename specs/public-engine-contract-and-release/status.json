@@ -750,7 +750,7 @@
       ],
       "verified_by": [
         "tests/test_ci_change_scope.py:497",
-        "tests/test_ci_change_scope.py:846",
+        "tests/test_ci_change_scope.py:844",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -992,7 +992,7 @@
     },
     {
       "id": "EG-CONTRACT-R001.1",
-      "title": "Generated types throughout the AU lifecycle",
+      "title": "Generated types throughout the Meristem lifecycle",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1114,7 +1114,7 @@
       ],
       "verified_by": [
         "tests/test_server_package.py:190",
-        "tests/test_server_package.py:246",
+        "tests/test_server_package.py:244",
         "tests/test_server_package.py:34",
         "tests/test_server_package.py:47",
         "tests/test_server_package.py:88"
@@ -1175,9 +1175,9 @@
         "be072c1cf996"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:649",
-        "tests/test_ci_change_scope.py:693",
-        "tests/test_ci_change_scope.py:822"
+        "tests/test_ci_change_scope.py:647",
+        "tests/test_ci_change_scope.py:691",
+        "tests/test_ci_change_scope.py:820"
       ]
     }
   ]

@@ -2890,7 +2890,7 @@
     },
     {
       "id": "EG-CQ-CONN-R069",
-      "title": "sdlc_lifecycle-v1.ttl additions rollup",
+      "title": "sdlc_lifecycle-v1.ttl additions plus software-v1 canonical reuse rollup",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2930,16 +2930,24 @@
     {
       "id": "EG-CQ-CONN-R069.2",
       "title": "Repository",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2fc1f877d1a3"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069.rs:67"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.3",
       "title": "Branch",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2fc1f877d1a3"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069.rs:86"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.4",

@@ -18,7 +18,7 @@ Equal-rank authority. Authority on an unapproved mapping. Unconnected rank-1 sou
 
 ## Quality and release proof
 
-Focused `cargo test` for `eg-rdf`, `eg-types` and `eg-core` ontology tests; `pipelines-hook spec-status` and `spec-decomposition`. Live acceptance runs through graph-os and records revision, connected sources and output. A source test alone is not served acceptance.
+Focused `cargo test` for `eg-rdf`, `eg-types` and `eg-core` ontology tests; `pipelines-hook spec-status` and `spec-decomposition`. Live acceptance runs through Arbora and records revision, connected sources and output. A source test alone is not served acceptance.
 
 ## Agent-memory substrate claims (2026-10-22)
 

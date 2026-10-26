@@ -1,16 +1,16 @@
 # EG-CQ-CONN — Design and implementation plan
 
-Owner: epistemic-graph. The governing behavior and requirement
+Owner: Medulla. The governing behavior and requirement
 IDs are in [spec.md](spec.md) and [requirements.md](requirements.md). The complete
 question and vocabulary inventory remains in [design.md](plan.md).
 
 ## Architecture and reuse
 
-The engine answers connector competency questions through its existing
+The engine answers these questions through its existing
 [federated query contract](../federated-query-and-reasoning/spec.md) and
-[unified data plane](../unified-data-plane/spec.md). Reuse their ontology-driven
-source selection, approved virtual mappings, query planning, and provenance
-interfaces. Do not introduce a separate connector-specific query planner.
+[unified data plane](../unified-data-plane/spec.md). Reuse their source
+selection, virtual mappings, query planning, and provenance interfaces. Do not
+introduce a separate connector-specific query planner.
 
 The ontology describes source access contracts. Records remain at their source
 and are fetched at query time through MCP, A2A, API, GraphQL, or virtual-graph
@@ -20,11 +20,12 @@ acceptance for each contract kind and declared materialisation.
 
 ## Ownership and interfaces
 
-EG owns the ontology vocabulary, query behavior, provenance, typed abstentions,
+Medulla owns the ontology vocabulary, query behavior, provenance, typed abstentions,
 and engine-side verification. Connector transports and mappings belong to the
-[connector SDK and package owners](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs).
-The [graph-os serving owner](https://github.com/Knuckles-Team/graph-os/tree/main/specs)
-provides the integrated query surface. Cross-repository prerequisites remain
+[connector Scion SDK and package owners](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs).
+
+The [Arbora serving owner](https://github.com/Knuckles-Team/graph-os/tree/main/specs) provides
+the integrated query surface. Cross-repository prerequisites remain
 explicit dependencies, not engine implementations or evidence of delivery.
 
 Each connector rollup has a single-source question, a cross-source question,
@@ -84,7 +85,7 @@ Mechanism is existing engine functionality, not new: cross-source answers use fe
 | R012 | clarity | Which pages have the highest rage-click or dead-click rate over the last week? | Which pages with a spike in rage clicks were changed by a pull request merged in the previous week? (plane, github; web page / release) | MISSING |
 | R013 | container-manager | Which containers or pods are restarting repeatedly, and from which image? | Which running images have a newer tag on Docker Hub than the one deployed? (dockerhub, portainer; container image) | infrastructure-v1 |
 | R014 | data-science | Which trained models have validation metrics below their baseline run, and on which dataset? | Which fine-tuned models have no evaluation dataset trace in the trace store and no stored artifact in the object store? (langfuse, objectstore; model / dataset) | MISSING |
-| R015 | dockerhub | Which repositories in an organization have not been pushed to in a year, and what are their pull counts? | Which Docker Hub repositories correspond to a GitHub repository with recent commits but no recent image push? (container-manager, github; container image / repository) | infrastructure-v1 |
+| R015 | dockerhub | Which repositories in an organization have not been pushed to in a year, and what are their pull counts? | Which Docker Hub repositories correspond to a GitHub repository with recent commits but no recent image push? (container-manager, github; container image / repository) | infrastructure-v1 + software-v1 |
 | R016 | documentdb | Which collections have the most documents and which fields are missing in more than half of them? | Which documentdb collections duplicate a table in the SQL database, and which side is newer? (sql, objectstore; dataset / collection) | MISSING |
 | R017 | egeria | Which glossary terms are linked to a data asset with a confidential classification? | Which Egeria-cataloged assets correspond to a live SQL table, and which are cataloged but missing? (sql, jena; data asset) | core-foundation-v1 |
 | R018 | emerald-exchange | Which open orders on an exchange are partially filled and what is their remaining quantity? | Which exchange fills correspond to a deposit or withdrawal recorded in the Firefly III ledger? (firefly-iii, home-assistant; account / currency) | finance-v1 |
@@ -92,9 +93,9 @@ Mechanism is existing engine functionality, not new: cross-source answers use fe
 | R020 | fan-manager | Which fans ran above 80 percent duty while the host temperature stayed above its threshold? | Which hosts had fan duty at maximum during a window in which Grafana alerted on temperature? (systems-manager, lgtm; host) | infrastructure-v1 |
 | R021 | firefly-iii | Which budgets were exceeded this month, and by which transactions? | Which Firefly III expenses match an ERPNext purchase invoice by amount and date? (erpnext, emerald-exchange; account / transaction) | finance-v1 |
 | R022 | freshrss | Which unread articles from a given feed were published in the last 48 hours? | Which FreshRSS articles also appear in SearXNG results for the same query, and which are new? (archivebox, searxng; URL / article) | MISSING |
-| R023 | github | Which open pull requests have failing checks and no reviewer assigned? | Which GitHub pull requests close a Jira issue that is still in an open state? (gitlab, atlassian; repository / change request) | sdlc_lifecycle-v1 |
-| R024 | gitlab | Which pipelines on the default branch failed in the last day, and at which job? | Which repositories exist in GitLab and GitHub with diverging default-branch heads? (github, repository-manager; repository / pipeline) | sdlc_lifecycle-v1 |
-| R025 | gramps | Which people in the tree were born in a given place before a given year, and who are their parents? | Which Gramps people have a photo or document reference that exists as a file in Nextcloud? (nextcloud; person / media) | personal-v1 |
+| R023 | github | Which open pull requests have failing checks and no reviewer assigned? | Which GitHub pull requests close a Jira issue that is still in an open state? (gitlab, atlassian; repository / change request) | sdlc_lifecycle-v1 + software-v1 |
+| R024 | gitlab | Which pipelines on the default branch failed in the last day, and at which job? | Which repositories exist in GitLab and GitHub with diverging default-branch heads? (github, repository-manager; repository / pipeline) | sdlc_lifecycle-v1 + software-v1 |
+| R025 | gramps | Which people were born in a given place before a given year, and who are their parents? | Which Gramps people have a photo or document reference that exists as a file in Nextcloud? (nextcloud; person / media) | personal-v1 |
 | R026 | home-assistant | Which sensors reported a value outside their normal range in the last 24 hours? | Which Home Assistant devices went unavailable at the same time as an Uptime Kuma monitor failure? (fan-manager, uptime; device / host) | infrastructure-v1 |
 | R027 | jellyfin | Which movies in a library have never been played and were added more than a year ago? | Which Jellyfin items have no matching Radarr or Sonarr entry, and so cannot be re-fetched? (arr, qbittorrent; media item (title)) | MISSING |
 | R028 | jena | Which named graphs contain the most triples and which have no recent update? | Which Jena named graphs describe the same entities as an Egeria-cataloged asset? (egeria, sql; graph / dataset) | virtual_graph-v1 |
@@ -121,7 +122,7 @@ Mechanism is existing engine functionality, not new: cross-source answers use fe
 | R049 | postiz | Which scheduled posts failed to publish and on which channel? | Which Postiz posts promote a campaign that Listmonk also sent, and which got the better engagement? (owncast, listmonk; campaign / channel) | MISSING |
 | R050 | pulselink | Which videos on a topic had transcripts mentioning a given term this week? | Which topics appear in PulseLink video transcripts and SearXNG news but not in any archived page? (searxng, audio-transcriber; topic / transcript) | MISSING |
 | R051 | qbittorrent | Which torrents are stalled, with what ratio and how long since last activity? | Which stalled torrents belong to a wanted Radarr or Sonarr title, and so block it from import? (arr, jellyfin; media item (torrent)) | MISSING |
-| R052 | repository-manager | Which worktrees are stale or dangling relative to their base branch? | Which local worktrees track a branch whose pull request has already been merged on GitHub or GitLab? (github, gitlab; repository / branch) | sdlc_lifecycle-v1 |
+| R052 | repository-manager | Which worktrees are stale or dangling relative to their base branch? | Which local worktrees track a branch whose pull request has already been merged on GitHub or GitLab? (github, gitlab; repository / branch) | sdlc_lifecycle-v1 + software-v1 |
 | R053 | rom-manager | Which ROMs in a platform collection fail a checksum match against the reference set? | Which ROMs were obtained by a media-downloader job and which are still unconverted? (media-downloader, jellyfin; game / file) | MISSING |
 | R054 | salesforce | Which open opportunities close this quarter, with what amount and owner? | Which Salesforce accounts have an open ServiceNow incident and an opportunity closing this quarter? (twenty, servicenow; account / customer) | commercial-v1 |
 | R055 | scholarx | Which papers cite a given paper and were published in the last two years? | Which papers on a topic are in ScholarX but were never surfaced by a SearXNG query for that topic? (searxng, langfuse; paper / topic) | MISSING |
@@ -155,7 +156,7 @@ Mechanism is existing engine functionality, not new: cross-source answers use fe
 | clarity | data | MISSING |
 | container-manager | IT operations | infrastructure-v1.ttl |
 | data-science | data | MISSING |
-| dockerhub | engineering | infrastructure-v1.ttl |
+| dockerhub | engineering | infrastructure-v1.ttl + software-v1.ttl |
 | documentdb | data | MISSING |
 | egeria | governance | core-foundation-v1.ttl |
 | emerald-exchange | finance | finance-v1.ttl |
@@ -163,8 +164,8 @@ Mechanism is existing engine functionality, not new: cross-source answers use fe
 | fan-manager | home | infrastructure-v1.ttl |
 | firefly-iii | finance | finance-v1.ttl |
 | freshrss | knowledge | MISSING |
-| github | engineering | sdlc_lifecycle-v1.ttl |
-| gitlab | engineering | sdlc_lifecycle-v1.ttl |
+| github | engineering | sdlc_lifecycle-v1.ttl + software-v1.ttl |
+| gitlab | engineering | sdlc_lifecycle-v1.ttl + software-v1.ttl |
 | gramps | knowledge | personal-v1.ttl |
 | home-assistant | home | infrastructure-v1.ttl |
 | jellyfin | media | MISSING |
@@ -192,7 +193,7 @@ Mechanism is existing engine functionality, not new: cross-source answers use fe
 | postiz | business | MISSING |
 | pulselink | knowledge | MISSING |
 | qbittorrent | media | MISSING |
-| repository-manager | engineering | sdlc_lifecycle-v1.ttl |
+| repository-manager | engineering | sdlc_lifecycle-v1.ttl + software-v1.ttl |
 | rom-manager | media | MISSING |
 | salesforce | business | commercial-v1.ttl |
 | scholarx | knowledge | MISSING |
@@ -222,7 +223,7 @@ competency question -> vocabulary file (the coverage table) -> classes/propertie
    -> fetch at query time -> provenance-carrying answer or typed abstention
 ```
 
-Owners: ontology files and `schema_sources.rs` registration are epistemic-graph (`crates/eg-core`); connector-side mappings stay with the connector package (cross-repo, not in this spec).
+Owners: ontology files and `schema_sources.rs` registration are Medulla (`crates/eg-core`); connector-side mappings stay with the connector package (cross-repo, not in this spec).
 
 #### Vocabulary
 
@@ -231,7 +232,8 @@ Terms to add, by file. Each is one child row (a 5-minute unit: one class or prop
 | File | Terms | Names |
 |---|---|---|
 | `infrastructure-v1.ttl` | 25 | `:AutomationJob`, `:AutomationJobTemplate`, `:jobStatus`, `:ranAgainstHost`, `:routeHostname`, `:upstreamAddress`, `:Alert`, `:alertSeverity`, `:alertState`, `:firingSince`, `:alertsOn`, `:lastPushedAt`, `:pullCount`, `:entityState`, `:unavailableSince`, `:desiredReplicas`, `:runningReplicas`, `:stackSourceRepository`, `:ManagementEnvironment`, `:pendingUpdateCount`, `:uptimeSeconds`, `:recordType`, `:recordValue`, `:lastConnectionStatus`, `:lastConnectionError` |
-| `sdlc_lifecycle-v1.ttl` | 22 | `:Repository`, `:Branch`, `:branchOf`, `:headCommit`, `:isDefaultBranch`, `:blockedBy`, `:assignedTo`, `:ticketStatus`, `:closesTicket`, `:proposalState`, `:requestedReviewer`, `:PipelineJob`, `:pipelineJobOf`, `:IterationCycle`, `:inCycle`, `:WorkModule`, `:inModule`, `:ticketDueDate`, `:Worktree`, `:worktreeState`, `:tracksBranch`, `:proposalBranch` |
+| `sdlc_lifecycle-v1.ttl` | 20 | `:branchOf`, `:headCommit`, `:isDefaultBranch`, `:blockedBy`, `:assignedTo`, `:ticketStatus`, `:closesTicket`, `:proposalState`, `:requestedReviewer`, `:PipelineJob`, `:pipelineJobOf`, `:IterationCycle`, `:inCycle`, `:WorkModule`, `:inModule`, `:ticketDueDate`, `:Worktree`, `:worktreeState`, `:tracksBranch`, `:proposalBranch` |
+| `software-v1.ttl` | 2 | Existing canonical `:Repository`, `:Branch` classes reused by connector competency mappings; no duplicate declarations. |
 | `archimate-v1.ttl` | 7 | `:ApplicationComponent`, `:ArchimateRelationship`, `:relationshipType`, `:ConfigurationItem`, `:affectsConfigurationItem`, `:incidentState`, `:incidentAssignee` |
 | `documentation-v1.ttl` | 5 | `:WebSnapshot`, `:ArchiveResult`, `:hasArchiveResult`, `:extractorName`, `:resultStatus` |
 | `process_intelligence-v1.ttl` | 7 | `:EpcFunction`, `:EpcRuleOperator`, `:flowsTo`, `:ProcessInstance`, `:instanceOfProcessModel`, `:stoppedAtActivity`, `:raisedIncident` |
@@ -287,8 +289,8 @@ Home Assistant uses `infrastructure-v1.ttl`; the trace-store connector uses `orc
 Ciso Assistant and OneTrust use `government-v1.ttl`.
 OneTrust derives overdue status from assessmentDueDate and assessmentStatus; assessedVendor refers to the existing TRM Vendor class.
 ServiceNow uses the shared kg Incident and Change anchors in `archimate-v1.ttl`.
-GitHub, GitLab, and Repository Manager share Repository, Branch, and Worktree terms in `sdlc_lifecycle-v1.ttl`.
-DockerHub uses `infrastructure-v1.ttl` and depends on `EG-CQ-CONN-R069.2` for SDLC Repository.
+GitHub, GitLab, and Repository Manager use canonical Repository and Branch classes from `software-v1.ttl` together with the lifecycle-specific Worktree and other terms in `sdlc_lifecycle-v1.ttl`.
+DockerHub uses `infrastructure-v1.ttl` and the canonical `software-v1.ttl` Repository via `EG-CQ-CONN-R069.2`.
 Egeria and Legal Peripherals use `core-foundation-v1.ttl`; the generated catalog remains term-free.
 Gramps, Paperless, and Nextcloud use `personal-v1.ttl`.
 StirlingPDF uses `action-v1.ttl`.

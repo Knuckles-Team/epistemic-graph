@@ -5,9 +5,9 @@ python -m pip install --upgrade pip
 # interpreter-side NumPy dependency; `check_wheel_completeness.py` rejects both
 # base and extra-gated NumPy metadata. Keep this smoke test independent from the
 # developer-only parity environment below.
-pip install --force-reinstall "$(ls dist/epistemic_graph-*.whl)"
+pip install --force-reinstall "$(ls dist/medulla-*.whl)"
 # (1) The public wheel carries NO executable; the server ships in the separate
-#     epistemic-graph-server package (extra `server`).
+#     medulla-stem package (extra `server`).
 if command -v epistemic-graph-server >/dev/null 2>&1; then
   echo "unexpected epistemic-graph-server executable from the bare wheel" >&2
   exit 1
@@ -21,7 +21,7 @@ python - <<'PY'
 import importlib.metadata as metadata
 import re
 
-requirements = metadata.requires("epistemic-graph") or []
+requirements = metadata.requires("medulla") or []
 assert not any(
     re.split(r"[\\[<>=!~;]", requirement, maxsplit=1)[0].lower() == "numpy"
     for requirement in requirements

@@ -1,6 +1,6 @@
 # EG-CQ-ORCH — Orchestration competency questions
 
-Owner: epistemic-graph. Cross-repo IDs: graph-os (intent-surface probes, rollup R009), agent-utilities (none required).
+Owner: Medulla. Cross-repo IDs: Arbora (intent-surface probes, rollup R009), Meristem (none required).
 Public provenance: none; spec-only change.
 
 ## Purpose and user stories
@@ -18,7 +18,7 @@ Questions (verbatim):
 7. "What does the agent graph shape (DAG) look like?"
 
 Composed: "How can I execute task XYZ?" as one response carrying all seven parts with provenance (rollup R008).
-Probes through the intent surface: rollup R009, owned by graph-os.
+Probes through the intent surface: rollup R009, owned by Arbora.
 
 A question is **answered** when one query over the ontology returns a correct, provenance-carrying answer from real connected data. When the source is not connected, the answer is a typed abstention naming the missing source or capability, never an empty success.
 
@@ -26,12 +26,12 @@ A question is **answered** when one query over the ontology returns a correct, p
 
 - FR-001: Each of questions 1-7 has one rollup row and an end-to-end acceptance test asserting a non-empty, provenance-carrying answer or the typed abstention.
 - FR-002: The composed answer is produced by the assemble handler. No parallel planner, router, guardrail engine or topology chooser is added.
-- FR-003: Each probe in R009 is an acceptance test through the graph-os intent tools, recorded with its previously observed result.
+- FR-003: Each probe in R009 is an acceptance test through the Arbora intent tools, recorded with its previously observed result.
 - SC-001: All 8 plus 1 rollups have passing acceptance children on a fixture graph.
 
 ## Scope and interfaces
 
-Owned: ontology gaps, SHACL shapes, source-authority mappings, fixtures and acceptance tests listed in `requirements.md`. Mechanisms are cited, not re-specified: `specs/decision-engine`, `specs/federated-query-and-reasoning`, `specs/unified-data-plane`, `specs/typed-packs-and-catalog`. Non-goals: a new planner; changes to the solver; graph-os tool implementation (owned by graph-os, rows marked cross-repo).
+Owned: ontology gaps, SHACL shapes, source-authority mappings, fixtures and acceptance tests listed in `requirements.md`. Mechanisms are cited, not re-specified: `specs/decision-engine`, `specs/federated-query-and-reasoning`, `specs/unified-data-plane`, `specs/typed-packs-and-catalog`. Non-goals: a new planner; changes to the solver; Arbora tool implementation (owned by Arbora, rows marked cross-repo).
 
 ## Traceability
 
@@ -55,11 +55,11 @@ What is ingested from a connected source is its **ontology and access contract**
 
 Original objective: Before planning, query graph architecture and wiring. Report design differences. Each feature names its hot-path attach point. Refuse plans with unwired features.
 
-EG-owned residual: No cited contract requires architecture/wiring comparison before planning. No cited contract requires a hot-path attach point for every feature. No cited contract refuses unwired features. Capability gap reports and architecture views are inputs, not admission gates.
+Medulla-owned residual: No cited contract requires architecture/wiring comparison before planning. No cited contract requires a hot-path attach point for every feature. No cited contract refuses unwired features. Capability gap reports and architecture views are inputs, not admission gates.
 
-Producer/consumer boundary: EG served impact view and capability query feed AU study-gap proposals. AU proposals feed EG planning admission. The preplanning comparison and unwired-feature refusal edge are absent.
+Producer/consumer boundary: Medulla served impact view and capability query feed Meristem study-gap proposals. Meristem proposals feed Medulla planning admission. The preplanning comparison and unwired-feature refusal edge are absent.
 
 Preserve existing coverage: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
 
-Owner source hash: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+Owner source hash: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
 <!-- /spec-definition-patch -->

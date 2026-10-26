@@ -35,7 +35,7 @@ def _version() -> str:
 def test_package_wraps_the_root_server_bin_with_the_full_feature_set() -> None:
     project = tomllib.loads((PACKAGE / "pyproject.toml").read_text())
     maturin = project["tool"]["maturin"]
-    assert project["project"]["name"] == "epistemic-graph-server"
+    assert project["project"]["name"] == "medulla-stem"
     assert maturin["bindings"] == "bin"
     assert maturin["manifest-path"] == "../../Cargo.toml"
     assert maturin["features"] == ["full", "ast-extended"]
@@ -74,7 +74,7 @@ def test_release_builds_every_platform_natively_and_uploads_each() -> None:
     names = [s.get("name", "") for s in job["steps"]]
     assert names.index("Smoke test the built wheel") < names.index(upload["name"])
     verify = _script(jobs["verify-pypi"])
-    assert "--package epistemic-graph-server" in verify
+    assert "--package medulla-stem" in verify
     assert "build-server" in jobs["verify-pypi"]["needs"]
     for tag in (
         "manylinux_2_28_x86_64",
@@ -181,7 +181,7 @@ def test_tag_release_creates_the_github_release_after_pypi() -> None:
     assert job["needs"] == ["verify-pypi"]
     assert job["permissions"] == {"contents": "write"}
     script = _script(job)
-    for package in ("epistemic-graph", "epistemic-graph-server"):
+    for package in ("medulla", "medulla-stem"):
         assert package in script
     assert "https://pypi.org/project/$package/$version/" in script
     assert "--latest" in script
@@ -203,7 +203,7 @@ def test_server_sdist_is_built_proven_published_and_verified() -> None:
     for step in (build, proof, upload, publish):
         assert "matrix.arch == 'x86_64'" in step["if"]
     assert "maturin sdist" in build["run"]
-    assert "epistemic_graph_server-${VERSION}.tar.gz" in build["run"]
+    assert "medulla_stem-${VERSION}.tar.gz" in build["run"]
     assert "pip wheel --isolated --no-deps" in proof["run"]
     assert '"$work/venv/bin/epistemic-graph-server" --help' in proof["run"]
     assert (
@@ -225,9 +225,7 @@ def test_server_sdist_is_built_proven_published_and_verified() -> None:
     )
     verify = jobs["verify-pypi"]["steps"]
     assert any((s.get("with") or {}).get("name") == "server-sdist" for s in verify)
-    assert 'epistemic_graph_server-"${GITHUB_REF_NAME#v}".tar.gz' in _script(
-        jobs["verify-pypi"]
-    )
+    assert 'medulla_stem-"${GITHUB_REF_NAME#v}".tar.gz' in _script(jobs["verify-pypi"])
 
 
 def _path_crates(manifest_dir: Path, seen: dict[Path, None]) -> None:

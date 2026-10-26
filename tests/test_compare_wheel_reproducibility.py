@@ -36,7 +36,7 @@ from scripts.compare_wheel_reproducibility import main as compare_main
 # test modules (test_wheel_privacy.py, test_check_wheel_completeness.py).
 pytestmark = pytest.mark.no_engine
 
-WHEEL_NAME = "epistemic_graph-9.9.9-py3-none-any.whl"
+WHEEL_NAME = "medulla-9.9.9-py3-none-any.whl"
 
 # Fixed zip entry timestamp for every fixture wheel. ``ZipFile.writestr(name, ...)``
 # stamps the wall clock, so two fixtures built seconds apart differed in
@@ -68,8 +68,7 @@ _BASE_MEMBERS = {
     "epistemic_graph/server.exe": b"\x00" * 32
     + b"NATIVE-BINARY-PAYLOAD"
     + b"\x00" * 32,
-    "epistemic_graph-9.9.9.dist-info/METADATA": b"Metadata-Version: 2.3\nName: "
-    b"epistemic-graph\n",
+    "medulla-9.9.9.dist-info/METADATA": b"Metadata-Version: 2.3\nName: medulla\n",
 }
 
 
@@ -127,12 +126,12 @@ def test_filename_mismatch_raises_the_exact_protected_message(tmp_path: Path):
     _make_wheel(
         primary_dir,
         members=_BASE_MEMBERS,
-        name="epistemic_graph-9.9.9-py3-none-any.whl",
+        name="medulla-9.9.9-py3-none-any.whl",
     )
     _make_wheel(
         reproduction_dir,
         members=_BASE_MEMBERS,
-        name="epistemic_graph-9.9.8-py3-none-any.whl",
+        name="medulla-9.9.8-py3-none-any.whl",
     )
 
     with pytest.raises(AssertionError, match="^release wheel filename mismatch$"):

@@ -33,7 +33,7 @@ DIST_INFO = f"epistemic_graph-{VERSION}.dist-info"
 DATA_SCRIPTS = f"epistemic_graph-{VERSION}.data/scripts"
 
 METADATA_COMPLETE = f"""Metadata-Version: 2.3
-Name: epistemic-graph
+Name: medulla
 Version: {VERSION}
 Requires-Dist: msgpack>=1.2.1
 Requires-Dist: pyoxigraph>=0.3.22 ; extra == 'owl'
@@ -44,7 +44,7 @@ Requires-Python: >=3.10
 # NumPy is forbidden in both forms: base metadata and compatibility extras must
 # not reintroduce the retired interpreter-side runtime.
 METADATA_NUMPY_BASE = f"""Metadata-Version: 2.3
-Name: epistemic-graph
+Name: medulla
 Version: {VERSION}
 Requires-Dist: msgpack>=1.0.0
 Requires-Dist: numpy>=1.22.0
@@ -54,7 +54,7 @@ Requires-Python: >=3.10
 # msgpack is the bundled kernel's one required runtime dependency: it must be
 # an unconditional Requires-Dist, never gated behind an extra or absent.
 METADATA_MSGPACK_BEHIND_EXTRA = f"""Metadata-Version: 2.3
-Name: epistemic-graph
+Name: medulla
 Version: {VERSION}
 Requires-Dist: msgpack>=1.2.1 ; extra == 'wire'
 Provides-Extra: wire
@@ -62,7 +62,7 @@ Requires-Python: >=3.10
 """
 
 METADATA_WITHOUT_MSGPACK = f"""Metadata-Version: 2.3
-Name: epistemic-graph
+Name: medulla
 Version: {VERSION}
 Requires-Dist: pyoxigraph>=0.3.22 ; extra == 'owl'
 Provides-Extra: owl
@@ -70,7 +70,7 @@ Requires-Python: >=3.10
 """
 
 METADATA_NUMPY_BEHIND_EXTRA = f"""Metadata-Version: 2.3
-Name: epistemic-graph
+Name: medulla
 Version: {VERSION}
 Requires-Dist: msgpack>=1.0.0
 Requires-Dist: numpy>=1.22.0 ; extra == 'numeric'
