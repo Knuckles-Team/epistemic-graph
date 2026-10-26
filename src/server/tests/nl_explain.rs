@@ -105,6 +105,67 @@ async fn nl_query_explain_refuses_exactly_like_nl_query() {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R058.3.2
+#[tokio::test]
+async fn nl_mutating_candidates_refuse_without_changing_graph_data() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let state = echo_planned_fixture().await;
+    let core = state
+        .read()
+        .await
+        .registry
+        .get("__commons__")
+        .expect("fixture graph")
+        .core
+        .clone();
+    let before = core.analysis_snapshot();
+    assert_eq!(before.graph.node_count(), 7);
+    assert_eq!(before.graph.edge_count(), 4);
+
+    for (index, text) in [
+        "CREATE (n:Doc {id: 'injected'})",
+        "INSERT INTO nodes (id, type) VALUES ('injected', 'Doc')",
+        "MATCH (:Doc) |> DELETE",
+        "MATCH (:Doc) |> SET year = 1900",
+        "MATCH (:Doc) |> LIMIT 1; DELETE FROM nodes",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = 980 + 2 * index as u64;
+        let plain = send(&state, id, nl(text)).await;
+        let explained = send(&state, id + 1, nl_explain(text)).await;
+        assert_eq!(
+            plain.error.as_deref(),
+            Some("INVALID_ARGUMENT"),
+            "{text}: {:?}",
+            plain.error_detail
+        );
+        assert!(plain.result.is_none(), "{text}: no partial rows");
+        assert!(explained.result.is_none(), "{text}: no explain result");
+        assert_eq!(explained.error, plain.error, "{text}");
+        assert_eq!(explained.error_detail, plain.error_detail, "{text}");
+        let detail = plain.error_detail.as_deref().expect("parse refusal detail");
+        assert!(detail.contains(text), "{detail}");
+        assert!(detail.contains("step 2"), "{detail}");
+
+        let after = core.analysis_snapshot();
+        assert_eq!(
+            after.graph.node_count(),
+            before.graph.node_count(),
+            "{text}"
+        );
+        assert_eq!(
+            after.graph.edge_count(),
+            before.graph.edge_count(),
+            "{text}"
+        );
+        assert_eq!(after.node_map, before.node_map, "{text}: node identities");
+        assert_eq!(after.node_properties, before.node_properties, "{text}");
+        assert_eq!(after.edge_properties, before.edge_properties, "{text}");
+    }
+}
+
 // spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[tokio::test]
 async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
