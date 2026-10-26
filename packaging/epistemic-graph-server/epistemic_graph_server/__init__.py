@@ -9,7 +9,7 @@ from pathlib import Path
 
 __all__ = ["BinaryNotFoundError", "__version__", "binary_path"]
 
-__version__ = "2.27.8"
+__version__ = "2.27.9"
 
 _NAME = "epistemic-graph-server"
 
