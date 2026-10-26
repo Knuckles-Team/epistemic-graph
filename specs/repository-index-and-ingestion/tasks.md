@@ -28,7 +28,7 @@ Task completion requires code and test evidence at an exact commit. The presence
 - [ ] **T1j — EG-REPO-INGEST-R003.10:** Confirm the migrated relational-authority governance capability is reachable only through its Medulla typed interface and add the consumer test proving the retiring source module no longer performs the same computation.
 - [ ] **T1k — EG-REPO-INGEST-R003.11:** Confirm the migrated placement-mining research capability is reachable only through its Medulla typed interface and add the consumer test proving the retiring source module no longer performs the same computation.
 
-Parallel implementation is allowed only where interfaces and file ownership are explicit. Merge the native engine contract before dependent Scion SDK or application consumers cut over. Retire obsolete graph writers after their callers are migrated and parity tests pass.
+Parallel implementation is allowed only where interfaces and file ownership are explicit. Merge the native engine contract before dependent Graft SDK or application consumers cut over. Retire obsolete graph writers after their callers are migrated and parity tests pass.
 
 <!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
 ## Reviewed residual definition tasks — owner batch 2026-10-12

@@ -108,9 +108,9 @@ The linear recurrence requires mutually uncorrelated process and measurement noi
 
 `PromoteV1` binds the expected promoted head, candidate digest, gate-manifest digest, and gate receipts. It rechecks the staged payload hash/digest. It rechecks R019 verification/approval and the R010 risk/sizing policy. Apply per-instrument policy and designated approvers when required. Atomically write the promotion pointer, `derivedFrom` history, and `OrderAdmissionReceiptV1`. Bind the receipt to proposal, revision, snapshot, decision, policy, gate receipts, and transaction revision. Stale heads, missing/mismatched evidence, unavailable/failed gates, incomplete receipts, and vetoes refuse before writes. The result admits host review only; it submits no order. Keep `AnalysisSnapshot` informational-only. Preserve `EG-DECISION-ENGINE-R019`, `EG-DURABLE-KERNEL-R057`, and `EG-FINANCE-PRIMITIVES-R015`.
 
-**Exact cross-owner hold.** Evidence does not identify the Scion SDK-accepted payload schema/version. It does not identify the complete admission-hook registry or its owner. Arbora confirmation operation and receipt fields are also undefined. Medulla may stage and validate the opaque payload. Medulla must refuse promotion until those owner contracts are reviewed. Scion SDK writeback must not cause an effect. No live-order behavior or external effect is included.
+**Exact cross-owner hold.** Evidence does not identify the Graft SDK-accepted payload schema/version. It does not identify the complete admission-hook registry or its owner. Arbora confirmation operation and receipt fields are also undefined. Medulla may stage and validate the opaque payload. Medulla must refuse promotion until those owner contracts are reviewed. Graft SDK writeback must not cause an effect. No live-order behavior or external effect is included.
 
-Preserve source record SHA-256 `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`. Definition only; no implementation, Arbora receipt, or Scion SDK effect is claimed.
+Preserve source record SHA-256 `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`. Definition only; no implementation, Arbora receipt, or Graft SDK effect is claimed.
 
 ### `EG-FINANCE-PRIMITIVES-R002.11` — EG:67
 

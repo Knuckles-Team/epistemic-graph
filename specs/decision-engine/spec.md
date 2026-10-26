@@ -240,13 +240,13 @@ Original objective. Search grounding is a replaceable provider selected through 
 
 Medulla-owned residual. Replaceable search-grounding provider independently selected from reasoning model and bound to a committed route. Unavailable committed provider must refuse rather than substitute.
 
-Producer/consumer boundary. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. Medulla must produce the committed provider binding and the Scion SDK/Arbora consumer must execute that exact provider. That edge is missing.
+Producer/consumer boundary. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. Medulla must produce the committed provider binding and the Graft SDK/Arbora consumer must execute that exact provider. That edge is missing.
 
 Proposed contract. Define RetrievalProviderBindingV1 in the committed retrieval plan with provider id/revision/config digest, query/request digest, tenant scope. And a separately identified reasoning model id/revision. The binding has an explicit no-substitution policy. Execution evidence records the exact provider, binding digest, request/result digests and provider revision.
 
 Planned acceptance. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers.
 
-Exact attachment and hold: Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. Medulla must commit the provider binding. The Scion SDK/Arbora consumer contract that executes and receipts that exact binding is not defined.
+Exact attachment and hold: Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. Medulla must commit the provider binding. The Graft SDK/Arbora consumer contract that executes and receipts that exact binding is not defined.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -446,9 +446,9 @@ Preserve the existing `R042` obligation and all prior children. Add `EG-DECISION
 
 #### `EG-DECISION-ENGINE-R042.100` — AU:28
 
-Model `ToolPathHistory` by tenant, connector, capability, stable path id/version, observation window, sample count, success/failure counts. As-of time and source invocation ids. Behavior ranks only already-admitted equivalent paths by observed success rate. Skip a path only when the versioned decision policy declares a minimum sample and failure threshold and both are met. Missing, stale or undersampled history is `unknown` and cannot suppress a path. Wiring adds the evidence to the existing R042 Decide advisory and consumes current attempt outcomes from Scion SDK `ordered_equivalent_fallback`. It must not replace the Scion SDK declared fallback order or execute writes. Evidence binds policy, candidate paths and observation window.
+Model `ToolPathHistory` by tenant, connector, capability, stable path id/version, observation window, sample count, success/failure counts. As-of time and source invocation ids. Behavior ranks only already-admitted equivalent paths by observed success rate. Skip a path only when the versioned decision policy declares a minimum sample and failure threshold and both are met. Missing, stale or undersampled history is `unknown` and cannot suppress a path. Wiring adds the evidence to the existing R042 Decide advisory and consumes current attempt outcomes from Graft SDK `ordered_equivalent_fallback`. It must not replace the Graft SDK declared fallback order or execute writes. Evidence binds policy, candidate paths and observation window.
 
-Producer/consumer: Medulla R042 remains evaluate-only connector tool-choice advisory; Scion SDK owns ordered transport fallback and current attempt outcomes.
+Producer/consumer: Medulla R042 remains evaluate-only connector tool-choice advisory; Graft SDK owns ordered transport fallback and current attempt outcomes.
 
 Source record SHA-256: `9dac8e5f41f6948885215836733ce3116b8246ca5c9c4725a12a62bdb11cb400`. Verification remains planned until independently served by each named owner.
 
@@ -548,7 +548,7 @@ Preserve the existing `R031` obligation and all prior children. Add `EG-DECISION
 
 Define a Medulla per-paper admission request/decision binding paper locator/content digest, summary digest, platform-goal revision, graph snapshot revision. Relevance dimensions/scores, declared threshold and selected claim ids. A paper is selected for ingestion only when it meets the configured relevance rule against both platform goals. And current graph content. The verdict names the scored evidence and selected claims. Excluded papers produce no graph write. This definition covers scoring/admission only, not scheduled retrieve.
 
-Producer/consumer: Arbora owns six-hour durable scheduler; Scion SDK owns paper retrieve/provider receipts; Medulla owns relevance scoring/admission and selected-claim contract.
+Producer/consumer: Arbora owns six-hour durable scheduler; Graft SDK owns paper retrieve/provider receipts; Medulla owns relevance scoring/admission and selected-claim contract.
 
 Source record SHA-256: `8c69b66d62c833b4da482e38a51efa624c3e3fc924d6fd6d3e2ef114378a8527`. Verification remains planned until independently served by each named owner.
 
@@ -648,7 +648,7 @@ Extend comparative `StudySource` admission with a `graph_ref` containing tenant,
 
 Bind each decision record to its decision id/revision and the simulation, inspection and process-knowledge stream ids. Revisions and digests used. Expose an authorized reviewer-readable provenance read. Before any recommendation commit. Require an approval receipt bound to the decision revision and recommendation digest with reviewer principal, approval time and approval-record revision. Missing, stale or mismatched approval refuses before commit. Retain existing R019 re-derivation/CAS and R047 reference semantics. Do not duplicate governed-effect audit rows.
 
-**Producer/consumer boundary:** Medulla produces decision/provenance and approval-binding inputs; Arbora owns shared invoke/A2A approval admission. Scion SDK owns governed source effects and effect receipts. R047 remains the related producer reference.
+**Producer/consumer boundary:** Medulla produces decision/provenance and approval-binding inputs; Arbora owns shared invoke/A2A approval admission. Graft SDK owns governed source effects and effect receipts. R047 remains the related producer reference.
 
 **Source record SHA-256:** `0e4858352b73b18661ed21ef503cc4c4f36e72045c3ffeff8d2094d9f8f8e50a`.
 

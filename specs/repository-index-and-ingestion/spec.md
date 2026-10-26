@@ -42,7 +42,7 @@ A contributor can index a repository snapshot into a durable, queryable graph wi
 
 ## Boundaries and interfaces
 
-Medulla owns `Method::IndexRepository`, `IndexRepositoryScope`, `IndexResult`, `SourceIngest`, `ChangeEnvelope`, graph projection, CAS binding, native parsing/resolution, admission, durable work and queryable lineage. The connector Scion SDK owns provider authentication, immutable snapshot fetch, paging, checksum validation and transport; it may retry based on Medulla's typed outcomes but cannot mint graph facts or checkpoint authority. Agent applications may request ingestion and consume receipts but cannot bypass Medulla's projection. Repository tooling may discover repositories and provide authenticated source coordinates, but is not a second graph writer.
+Medulla owns `Method::IndexRepository`, `IndexRepositoryScope`, `IndexResult`, `SourceIngest`, `ChangeEnvelope`, graph projection, CAS binding, native parsing/resolution, admission, durable work and queryable lineage. The connector Graft SDK owns provider authentication, immutable snapshot fetch, paging, checksum validation and transport; it may retry based on Medulla's typed outcomes but cannot mint graph facts or checkpoint authority. Agent applications may request ingestion and consume receipts but cannot bypass Medulla's projection. Repository tooling may discover repositories and provide authenticated source coordinates, but is not a second graph writer.
 
 This feature does not require a hosted Git provider, private manifest, local service inventory, model service or running cluster for its deterministic development tests. Served multi-node and provider integration remain separate release evidence.
 

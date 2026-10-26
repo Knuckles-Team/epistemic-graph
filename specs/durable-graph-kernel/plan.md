@@ -507,7 +507,7 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 
 - Define order-snapshot structure with immutable-history marker and derivation-link binding.
 - Reuse sealed-record guard and transactional authority from R057 for atomic promotion.
-- Route provider submission through Scion SDK governed writeback; host confirmation through Arbora.
+- Route provider submission through Graft SDK governed writeback; host confirmation through Arbora.
 - Tests: snapshot creation, promotion with history immutability, derivation binding, veto on refusal.
 
 ### EG-DURABLE-KERNEL-R087 — EG:46
@@ -753,7 +753,7 @@ mutation identity/transaction paths. Regenerate the authoritative protocol,
 method catalog, schemas and Python bindings. Add native transaction/restart tests
 and measure the new operation against the existing WorkItem transaction budget.
 No numerical performance result is claimed by this amendment. Only after those
-native gates pass may Scion SDK/Meristem/Arbora composition and authenticated served acceptance
+native gates pass may Graft SDK/Meristem/Arbora composition and authenticated served acceptance
 establish runtime availability. No native build or generation is part of this
 spec-only amendment.
 

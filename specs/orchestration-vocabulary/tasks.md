@@ -123,7 +123,7 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 - [ ] **EG-ORCH-VOCAB-R004.6 acceptance:** Run `capability_gap_and_enhancement_are_queryable` through served mutation and generated UnifiedQuery. Prove abstention alone creates no durable gap. Admit a separate gap that cites it. Read fields, edges, and provenance after restart. Test deduplication, revision conflict, invalid taxonomy, exact/descendant matching, denied-tenant pagination, and unchanged capability state. Keep resolver and mutation producer bindings open. Do not invent an EG:7 owner ID.
 - [ ] **EG-ORCH-VOCAB-R004.6 status:** Keep SPECIFIED with empty `landed_in` and `verified_by` until implementation and independent served evidence are reviewed; no closure is claimed.
 
-- [ ] **EG-ORCH-VOCAB-R012.8 (EG:61):** Implement reviewed normative-source binding and activation per `requirements.md`. Keep normative files authoritative and graph policy active. Bind Scion SDK governed writeback and Arbora approval. Medulla never writes normative files directly. Preserve R012.7 and existing identity/operations coverage.
+- [ ] **EG-ORCH-VOCAB-R012.8 (EG:61):** Implement reviewed normative-source binding and activation per `requirements.md`. Keep normative files authoritative and graph policy active. Bind Graft SDK governed writeback and Arbora approval. Medulla never writes normative files directly. Preserve R012.7 and existing identity/operations coverage.
 - [ ] **EG-ORCH-VOCAB-R012.8 acceptance:** Run `reviewed_normative_source_activates_without_graph_overwrite` through served ingestion, review, activation, and decision use. Compare source bytes/revision before and after graph work. Test no-effect graph writes, missing/rejected review, modified blob, changed rules, and revision races. A permitted change requires actual governed writeback, reread, and renewed review. Fixture activation fails acceptance. Keep review-receipt and source-effect producer binding open.
 - [ ] **EG-ORCH-VOCAB-R012.8 status:** Keep SPECIFIED with empty `landed_in` and `verified_by` until implementation and independent served evidence are reviewed; no closure is claimed.
 <!-- /spec-definition-patch -->
@@ -141,7 +141,7 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 <!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
 ## Cross-owner harness analytics tasks — 2026-10-12
 
-- [ ] `EG-ORCH-VOCAB-R009.101`: Define and serve full-manifest, tenant-scoped RunTrace session index/browse/search. Bind Scion SDK receipt, source coverage, cursor, and optional R010.101 cost profile. Test idempotent replay and refusals.
+- [ ] `EG-ORCH-VOCAB-R009.101`: Define and serve full-manifest, tenant-scoped RunTrace session index/browse/search. Bind Graft SDK receipt, source coverage, cursor, and optional R010.101 cost profile. Test idempotent replay and refusals.
 - [ ] `EG-ORCH-VOCAB-R010.100`: Define and serve proposal/prompt/progress-to-trace joins with revisioned metrics and partial/unknown semantics. Independently read results. Link Meristem producer and Arbora adapter IDs before closure.
 - [ ] `EG-ORCH-VOCAB-R010.101`: Add disjoint token accounting and grouped indexed queries. Aggregate exact rational cost and round once per group/category. Measure the specified 1,000,000-row p95 through the served path.
 - [ ] For each row, implement positive, refusal, stale-revision, and cross-tenant cases from its requirement. Preserve R009/R010 children and metric meanings.

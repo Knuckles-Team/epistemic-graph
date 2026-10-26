@@ -1311,7 +1311,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R049",
-      "title": "contract_pin is carried as an opaque Scion SDK claim",
+      "title": "contract_pin is carried as an opaque Graft SDK claim",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0b9445099b24",
@@ -1475,7 +1475,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R065",
-      "title": "Medulla does not recompute the Scion SDK's contract-pin normalization",
+      "title": "Medulla does not recompute the Graft SDK's contract-pin normalization",
       "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
@@ -1639,7 +1639,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R072",
-      "title": "Medulla/Scion SDK typed fleet-catalog authority, not SQL tables",
+      "title": "Medulla/Graft SDK typed fleet-catalog authority, not SQL tables",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",

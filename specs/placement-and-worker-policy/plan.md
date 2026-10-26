@@ -7,7 +7,7 @@ All three gaps keep ONE decision authority: the engine decides, callers (Arbora,
 ## Problem and evidence
 
 - A. Arbora `ARBORA-DEPLOY-R017` (branch `land/train-1010h`, `specs/portable-deployment/requirements.md:27`) requires "a deployment-placement question kind under `EG-DECISION-ENGINE-R046`/`R111`" and says assemble is "a refusal stub". In code: `QuestionKind` (`crates/eg-types/src/decision/statistical.rs:56-95`) has no placement or topology kind. `R111.1` (`specs/decision-engine/requirements.md:163`) says the standalone topology question is not built and its proving test name `a_standalone_topology_decide_question_returns_a_typed_decision_record` appears nowhere in `src`. Topology is reachable only through `AgentAssemble` (`src/server/handlers/decide/assemble.rs:57`, `topology_read.rs:44`).
-- B. `specs/ingest-worker` (R001.2, .3, .10, .11, .15) asks the worker/Scion SDK to autosize (0.36 of cores, 3 GiB), hold a hydration floor and route partitions. `EG-DURABLE-KERNEL-R074`-`R077` (`specs/durable-graph-kernel/requirements.md:109-112`) give the engine the registry, admission, floors and shard-writer width. No code for either exists yet (`git grep AdmitWorkerTask|SchedulerConfig|WorkerRecord` finds nothing in `src`/`crates`). The overlap is still only in specs and is cheap to remove now. The only live autosize knob is `EG_ANALYTICS_WORKERS` (`src/server/handlers/jobs/executor_loop.rs:22-25`, default 1, cap 32).
+- B. `specs/ingest-worker` (R001.2, .3, .10, .11, .15) asks the worker/Graft SDK to autosize (0.36 of cores, 3 GiB), hold a hydration floor and route partitions. `EG-DURABLE-KERNEL-R074`-`R077` (`specs/durable-graph-kernel/requirements.md:109-112`) give the engine the registry, admission, floors and shard-writer width. No code for either exists yet (`git grep AdmitWorkerTask|SchedulerConfig|WorkerRecord` finds nothing in `src`/`crates`). The overlap is still only in specs and is cheap to remove now. The only live autosize knob is `EG_ANALYTICS_WORKERS` (`src/server/handlers/jobs/executor_loop.rs:22-25`, default 1, cap 32).
 - C. `EG-DURABLE-KERNEL-R082.3` says the cap's existence "was not determinable". It is: `src/server/handlers/jobs/submit.rs:289` refuses `distinct_items > 31` (inside the same merged check as the threshold tests, one message at `:293`).
 
 ## Architecture
@@ -77,7 +77,7 @@ If cell-a headroom is below demand for every feasible target: `Abstained[CAPACIT
 
 ## Out of scope
 
-Rendering or applying manifests (Arbora `deploy/`), acquiring capacity, systemd, runtime auto-migration between targets, and the worker runner itself (Scion SDK).
+Rendering or applying manifests (Arbora `deploy/`), acquiring capacity, systemd, runtime auto-migration between targets, and the worker runner itself (Graft SDK).
 
 ### B producer implementation boundary
 

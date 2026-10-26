@@ -30,7 +30,7 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 - [ ] **T26 - R002.10:** Reword `EG-INGEST-WORKER-R001.11`.
 - [ ] **T27 - R002.11:** Reword `EG-INGEST-WORKER-R001.14`.
 - [ ] **T28 - R002.12:** Reword `EG-INGEST-WORKER-R001.15`.
-- [ ] **T29 - R002.13:** Cross-repo (connector Scion SDK repository): no policy constants in the worker.
+- [ ] **T29 - R002.13:** Cross-repo (connector Graft SDK repository): no policy constants in the worker.
 - [ ] **T30 - R002.14:** Fold the analytics pool knob into the same config.
 - [ ] **T31 - R002.15:** Parity check that no duplicate policy remains.
 - [ ] **T32 - R003:** Analytics payload bound is decided and defended (rollup).

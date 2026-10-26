@@ -4,7 +4,7 @@
 
 - `EG-REPO-INGEST-R009` defines repository/source relationships; `AU-HARNESS-R024` supplies connected execution spans. Neither row currently defines the Meristem walkthrough producer input/output binding or the Overstory interactive artifact consumer. Those exact owner requirement IDs and served receipts remain pending coordinator assignment; `EG-ORCH-VOCAB-R013.7` is SPECIFIED and cannot be treated as end-to-end closed.
 - `AU-HARNESS-R019.5-.7` are the existing study-gap producer/consumer prerequisites for `EG-CQ-ORCH-R010.7`; they must carry the same repository and revision as `EG-CQ-ORCH-R010.1-.6`. If the Meristem rows lack a stable proposal id/revision, that missing producer field remains a hold.
-- `WEBUI-APPS-R004.7` and `.8` are named consumers for R010.100 and R010.101. Meristem progress-source and Scion SDK harness-manifest/sync-receipt producer IDs remain unknown. Exact Arbora served-adapter IDs are also unknown. These remain explicit holds.
+- `WEBUI-APPS-R004.7` and `.8` are named consumers for R010.100 and R010.101. Meristem progress-source and Graft SDK harness-manifest/sync-receipt producer IDs remain unknown. Exact Arbora served-adapter IDs are also unknown. These remain explicit holds.
 - Existing `EG-DECISION-ENGINE-R036`, `R135.2`, `R135.4`, and `EG-TYPED-PACKS-R006` are prerequisites for `EG-ORCH-VOCAB-R003.8`; they define the assembly authority, program store, and Agent Library projection.
 - `EG-ORCH-VOCAB-R801` and `-R802` define the versioned harness component and the improvement library. `EG-DURABLE-KERNEL-R078` and `-R081` own the bitemporal stamps they use. `EG-DECISION-ENGINE-R803` consumes the contrast. `AU-HARNESS-CYCLE-R001` is the producer. `ARBORA-OPS-R068` serves the reads.
 
@@ -83,7 +83,7 @@ Producer/consumer boundary: Medulla repository hydration supplies source relatio
 
 Preserve existing coverage: `EG-REPO-INGEST-R009`, `AU-HARNESS-R024`, `EG-ORCH-VOCAB-R013.1`, `EG-ORCH-VOCAB-R013.3`.
 
-Owner source hash: `445704f78ae07d1c4b62f42dd23797823d91bc470f04a9dc779e3f6777fffbf0`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `445704f78ae07d1c4b62f42dd23797823d91bc470f04a9dc779e3f6777fffbf0`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-ORCH-VOCAB-R003.8` — EG:12
 
@@ -95,7 +95,7 @@ Producer/consumer boundary: graph.assemble consumes capabilities; Agent Library 
 
 Preserve existing coverage: `EG-DECISION-ENGINE-R135.2`, `EG-DECISION-ENGINE-R135.4`, `EG-DECISION-ENGINE-R036`, `EG-ORCH-VOCAB-R003.5`, `EG-ORCH-VOCAB-R003.6`.
 
-Owner source hash: `517823a931bb93e173b301a9a31fbe6bd75c14687233c72278a59ced1940673a`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `517823a931bb93e173b301a9a31fbe6bd75c14687233c72278a59ced1940673a`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-ORCH-VOCAB-R012.7` — EG:46
 
@@ -157,9 +157,9 @@ This is a definition only; status remains SPECIFIED and no implementation, serve
 
 Original source objective: Epistemic state and active policy live in the graph. Normative rules and constitutions live in versioned files. Graph writes never overwrite them. Normative changes require review.
 
-**Contract definition:** Medulla SHALL retain epistemic state and active runtime policy in the graph. It SHALL bind normative source to reviewed, versioned repository files. Each activated binding SHALL include repository, path, commit, blob digest, and candidate-set digest. It SHALL also include review actor/receipt digest, invariant generation, and expected active-policy revision. Review SHALL cover exact source and synthesized-rule digests. Stale, absent, rejected, or mismatched review SHALL refuse before active-policy mutation. Medulla mutations and reasoning SHALL NOT overwrite normative files. Source changes SHALL use governed Scion SDK writeback and Arbora approval. Then reread the committed revision and review it before graph-policy activation. A graph-policy edit SHALL NOT rewrite a file or make an unreviewed file runtime authority. R012.7 invariant checks and generation comparison apply at activation.
+**Contract definition:** Medulla SHALL retain epistemic state and active runtime policy in the graph. It SHALL bind normative source to reviewed, versioned repository files. Each activated binding SHALL include repository, path, commit, blob digest, and candidate-set digest. It SHALL also include review actor/receipt digest, invariant generation, and expected active-policy revision. Review SHALL cover exact source and synthesized-rule digests. Stale, absent, rejected, or mismatched review SHALL refuse before active-policy mutation. Medulla mutations and reasoning SHALL NOT overwrite normative files. Source changes SHALL use governed Graft SDK writeback and Arbora approval. Then reread the committed revision and review it before graph-policy activation. A graph-policy edit SHALL NOT rewrite a file or make an unreviewed file runtime authority. R012.7 invariant checks and generation comparison apply at activation.
 
-**Production wiring:** Link R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review evidence to ARBORA-OPS-R050.2/.4 and the concrete Scion SDK source effect. Medulla has no normative filesystem writer.
+**Production wiring:** Link R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review evidence to ARBORA-OPS-R050.2/.4 and the concrete Graft SDK source effect. Medulla has no normative filesystem writer.
 
 **Planned acceptance:** `reviewed_normative_source_activates_without_graph_overwrite` pins a real policy and owner review receipt. Ingest and activate through served Medulla routes. Dispatch a decision recording policy revision. Compare source bytes and Git revision before/after graph mutation and reasoning. Graph-originated normative writes must have no source effect. Missing/rejected review, modified blob, changed synthesized rules, or raced revisions preserve prior active policy. A permitted source change requires actual governed writeback, reread, renewed review, then activation. Direct fixture activation is insufficient.
 
@@ -220,7 +220,7 @@ Source record SHA-256: `5d53cbdda932456b27c6649360c3051d4ab09f2db42018550b4ee81c
 
 The existing `AddNode` RunTrace write and `Uql` query substrates remain authoritative. Owner-batch additions expose three versioned reads/writes over those records. They do not replace Meristem discovery, Arbora transport, or existing model/task-class metrics.
 
-`SyncHarnessSessionIndexV1` accepts Scion SDK sync receipts and manifest-pinned source-session identities. `SearchHarnessSessionsV1` returns tenant-scoped sessions with per-harness coverage and snapshot-bound cursors. Identical syncs are idempotent. Conflicts refuse. Missing harness sources remain visibly partial. `RunTraceUsageQueryV1` groups disjoint cached/uncached input and reasoning/nonreasoning output tokens by model, project, and agent. Costs use pinned profiles and currencies; unknown values remain unknown. Target p95 ≤500 ms for one million indexed traces and 32 concurrent readers.
+`SyncHarnessSessionIndexV1` accepts Graft SDK sync receipts and manifest-pinned source-session identities. `SearchHarnessSessionsV1` returns tenant-scoped sessions with per-harness coverage and snapshot-bound cursors. Identical syncs are idempotent. Conflicts refuse. Missing harness sources remain visibly partial. `RunTraceUsageQueryV1` groups disjoint cached/uncached input and reasoning/nonreasoning output tokens by model, project, and agent. Costs use pinned profiles and currencies; unknown values remain unknown. Target p95 ≤500 ms for one million indexed traces and 32 concurrent readers.
 
 `EvolutionTraceMetricsV1` joins Meristem proposal/prompt revisions and progress to exact RunTrace identities, metric windows, and stored outcomes. Missing traces yield partial coverage, never zero. Calibration or trace counts are not progress proxies. Overstory R004.7 consumes via Arbora run reads. Session browse/search and usage totals map to Overstory R006.4 and R004.8. These are SPECIFIED interfaces and future acceptance only.
 <!-- /spec-definition-patch -->

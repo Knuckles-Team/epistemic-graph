@@ -79,7 +79,7 @@ R039.1 through R039.4, R040.1 through R040.4, R077.6 and R081.9.7 define these a
 These extensions define acceptance requirements, without claiming completed served tests.
 
 The engine must retain community retrieval and R081/R082 termination precedence.
-The Scion SDK must execute governed ingestion recipes; the harness must apply bounded decisions.
+The Graft SDK must execute governed ingestion recipes; the harness must apply bounded decisions.
 The host must compose authenticated access.
 The definitions add no textual grammar, alternate identity authority or runtime implementation.
 
@@ -97,7 +97,7 @@ The lifecycle generator owns status; this definition supplies no runtime receipt
 
 ## Approved source queries (R085)
 
-Medulla supplies immutable, read-only source-query approvals and verifies their authority throughout bounded connector execution. SDK-SOURCE-INGEST-R004 consumes that producer contract. Query semantics, authorization and provenance remain engine-owned; native driver execution remains Scion SDK-owned. Existing query, lease and checkpoint contracts remain intact. These definitions introduce no runtime delivery claim.
+Medulla supplies immutable, read-only source-query approvals and verifies their authority throughout bounded connector execution. SDK-SOURCE-INGEST-R004 consumes that producer contract. Query semantics, authorization and provenance remain engine-owned; native driver execution remains Graft SDK-owned. Existing query, lease and checkpoint contracts remain intact. These definitions introduce no runtime delivery claim.
 
 <!-- spec-definition-patch:owner-batch-20261012-federated-query-and-reasoning -->
 ## Reviewed owner residuals — 2026-10-12
@@ -112,7 +112,7 @@ Producer/consumer boundary: Arbora retrieval.space -> GovernedRetriever -> Medul
 
 Preserve existing coverage: `EG-FEDERATED-QUERY-R070`, `ARBORA-OPS-R053.2`, `ARBORA-OPS-R053.3`, `ARBORA-OPS-R053.5`.
 
-Owner source hash: `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R006.1` — EG:11
 
@@ -124,7 +124,7 @@ Producer/consumer boundary: Medulla reasoners and proof queries return answer-le
 
 Preserve existing coverage: `EG-FEDERATED-QUERY-R001`, `EG-FEDERATED-QUERY-R011`, `EG-DECISION-ENGINE-R003`, `EG-FEDERATED-QUERY-R006`.
 
-Owner source hash: `2c2ffcf18d947730bc60a935fed942e1f82e9e8547f4509fe2941a34672fb8f3`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `2c2ffcf18d947730bc60a935fed942e1f82e9e8547f4509fe2941a34672fb8f3`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R040.5` — EG:20
 
@@ -136,7 +136,7 @@ Producer/consumer boundary: Medulla lifecycle and filtered query operators are a
 
 Preserve existing coverage: `EG-FEDERATED-QUERY-R007`, `EG-FEDERATED-QUERY-R040`, `EG-FEDERATED-QUERY-R040.4`, `EG-FEDERATED-QUERY-R008`.
 
-Owner source hash: `07df52b453f0f1b7be7aec7bf790f087c3fc5e13500915011382a9fcd8d9d41a`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `07df52b453f0f1b7be7aec7bf790f087c3fc5e13500915011382a9fcd8d9d41a`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R040.6` — EG:21
 
@@ -148,7 +148,7 @@ Producer/consumer boundary: SourceIngest validates/project transcripts and Unifi
 
 Preserve existing coverage: `EG-INGEST-WORKER-R003.13`, `EG-INGEST-WORKER-R003.14`, `EG-INGEST-WORKER-R003.17`, `EG-FEDERATED-QUERY-R040`, `EG-INGEST-WORKER-R003.18`, `EG-INGEST-WORKER-R003.16`, `EG-FEDERATED-QUERY-R016`.
 
-Owner source hash: `c321db3aa79c29d891456f2bee98f545611b8d1be7c93d299b939c3d73a40279`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `c321db3aa79c29d891456f2bee98f545611b8d1be7c93d299b939c3d73a40279`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R083.7` — EG:22
 
@@ -160,7 +160,7 @@ Producer/consumer boundary: Planned AU-RETRIEVAL-R006 prior probe -> served cros
 
 Preserve existing coverage: `EG-FEDERATED-QUERY-R083.1`, `EG-FEDERATED-QUERY-R083.2`, `EG-FEDERATED-QUERY-R083.3`, `EG-FEDERATED-QUERY-R083.4`, `EG-FEDERATED-QUERY-R083.6`.
 
-Owner source hash: `544b7b0054e8c7cd9a76aedd0d665589d555a0bcf20d1f00679442574936af36`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `544b7b0054e8c7cd9a76aedd0d665589d555a0bcf20d1f00679442574936af36`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R081.10` — EG:25
 
@@ -172,7 +172,7 @@ Producer/consumer boundary: Medulla served cross-modal query -> eg_plan::execute
 
 Preserve existing coverage: `EG-FEDERATED-QUERY-R081.1`, `EG-FEDERATED-QUERY-R081.2`, `EG-FEDERATED-QUERY-R081.3`, `EG-FEDERATED-QUERY-R081.4`, `EG-FEDERATED-QUERY-R081.8.1`, `EG-FEDERATED-QUERY-R081.8.2`, `EG-FEDERATED-QUERY-R081.8.3`, `EG-FEDERATED-QUERY-R081.8.5`, `EG-FEDERATED-QUERY-R081.8.6`.
 
-Owner source hash: `fb8d54d8554b8158da64f7c9e8bf02ea846e5b411768a0381c2682b2e6302dac`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `fb8d54d8554b8158da64f7c9e8bf02ea846e5b411768a0381c2682b2e6302dac`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R028.1` — EG:29
 
@@ -184,7 +184,7 @@ Producer/consumer boundary: R028 names UQL and structured queries as KnowledgeSe
 
 Preserve existing coverage: `EG-FEDERATED-QUERY-R028`, `EG-FEDERATED-QUERY-R045`.
 
-Owner source hash: `2eb8aadb1b6ccc2d5de77a4d1964fc04a4e944bccf9bcc1793e262f146af7583`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `2eb8aadb1b6ccc2d5de77a4d1964fc04a4e944bccf9bcc1793e262f146af7583`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R005.1` — EG:31
 
@@ -200,7 +200,7 @@ Planned asymmetry acceptance: `(a,p,b)` alone is the clean control. Adding `(b,p
 
 Preserve existing coverage: `EG-DECISION-ENGINE-R034`, `EG-FEDERATED-QUERY-R001`, `EG-FEDERATED-QUERY-R005`, `EG-FEDERATED-QUERY-R011`, `EG-FEDERATED-QUERY-R012`.
 
-Owner source hash: `973de1c3b38646a438d057299d8070070f0ef7a2056bb30acff6d1a3814df513`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `973de1c3b38646a438d057299d8070070f0ef7a2056bb30acff6d1a3814df513`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R078.7` — EG:59
 
@@ -212,7 +212,7 @@ Producer/consumer boundary: Approved source mappings plus native graph/time-seri
 
 Preserve existing coverage: `EG-DURABLE-KERNEL-R043`, `EG-FEDERATED-QUERY-R078`, `EG-UNIFIED-DATA-PLANE-R001`, `EG-UNIFIED-DATA-PLANE-R003`, `EG-FEDERATED-QUERY-R078.1`, `EG-FEDERATED-QUERY-R078.2`, `EG-FEDERATED-QUERY-R078.3`, `EG-FEDERATED-QUERY-R078.4`, `EG-FEDERATED-QUERY-R078.5`, `EG-FEDERATED-QUERY-R078.6`.
 
-Owner source hash: `fd5990a7c9f30e1e1aa0eed9aa08efef4e2ebc8f5f34387598f1c9e577c458dc`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `fd5990a7c9f30e1e1aa0eed9aa08efef4e2ebc8f5f34387598f1c9e577c458dc`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R081.9.7.7` — GRAPHOS:24
 
@@ -224,7 +224,7 @@ Producer/consumer boundary: Governed section-record ingestion -> PlanCtx section
 
 Preserve existing coverage: `EG-FEDERATED-QUERY-R081.9.7.1`, `EG-FEDERATED-QUERY-R081.9.7.2`, `EG-FEDERATED-QUERY-R081.9.7.3`, `EG-FEDERATED-QUERY-R081.9.7.4`, `EG-FEDERATED-QUERY-R081.9.7.5`, `EG-FEDERATED-QUERY-R081.9.7.6`.
 
-Owner source hash: `b2e5de8386b3ca72b59a81ca5fa3193eaf7736af86aca472a720b9e4511961c0`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `b2e5de8386b3ca72b59a81ca5fa3193eaf7736af86aca472a720b9e4511961c0`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R081.9.7.8` — GRAPHOS:25
 
@@ -232,11 +232,11 @@ Original objective: Documents in an indexed space are preprocessed offline into 
 
 Medulla-owned residual: No cited contract requires offline line-numbered TOCs or navigation by their line ranges without whole-file reads. Source spans and directories alone do not establish line numbering, offline construction, or bounded span-read behavior.
 
-Producer/consumer boundary: Scion SDK source ingestion -> Medulla immutable document/section records -> Arbora retrieval.space directories -> Meristem exploration. The offline line-numbered TOC producer and bounded line-range read contract are unbound.
+Producer/consumer boundary: Graft SDK source ingestion -> Medulla immutable document/section records -> Arbora retrieval.space directories -> Meristem exploration. The offline line-numbered TOC producer and bounded line-range read contract are unbound.
 
 Preserve existing coverage: `ARBORA-OPS-R053.1`, `ARBORA-OPS-R053.2`, `ARBORA-OPS-R053.3`, `ARBORA-OPS-R053.6`, `EG-FEDERATED-QUERY-R081.9.7.1`, `EG-FEDERATED-QUERY-R081.9.7.5`.
 
-Owner source hash: `6797cff839c16c3b9c3877d6bbf48bf8953eae8696087abc99f2b57147daed93`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `6797cff839c16c3b9c3877d6bbf48bf8953eae8696087abc99f2b57147daed93`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R040.2.7` — GRAPHOS:28
 
@@ -248,7 +248,7 @@ Producer/consumer boundary: TopicBackend returns responsibilities, centroids, ba
 
 Preserve existing coverage: `EG-FEDERATED-QUERY-R040.2.1`, `EG-FEDERATED-QUERY-R040.2.2`, `EG-FEDERATED-QUERY-R040.2.3`, `EG-FEDERATED-QUERY-R040.2.6`.
 
-Owner source hash: `f7654cd07d4d95f32f09fec742c4172b35c689749b3228aef9424830b1f7cc1b`. This definition adds no Meristem/Arbora/Scion SDK implementation or acceptance claim.
+Owner source hash: `f7654cd07d4d95f32f09fec742c4172b35c689749b3228aef9424830b1f7cc1b`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->

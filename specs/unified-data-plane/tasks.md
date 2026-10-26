@@ -40,7 +40,7 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R010.1:** Typed per-table `AccelerationPolicy` model and validation; part of EG-UNIFIED-DATA-PLANE-R010 (parent rollup).
 - [x] **EG-UNIFIED-DATA-PLANE-R011:** Freshness-aware native/live/accelerated router and EXPLAIN; depends on EG-UNIFIED-DATA-PLANE-R007.
 - [x] **EG-UNIFIED-DATA-PLANE-R011.1:** Typed `FreshnessRoute`/`ReadYourWritesWait` refusing an unbounded wait; part of EG-UNIFIED-DATA-PLANE-R011 (parent rollup).
-- [x] **EG-UNIFIED-DATA-PLANE-R012:** Governed idempotent write-back through Scion SDK/app API and EG-DURABLE-KERNEL-R031 audit; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [x] **EG-UNIFIED-DATA-PLANE-R012:** Governed idempotent write-back through Graft SDK/app API and EG-DURABLE-KERNEL-R031 audit; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R012.1:** Typed `AttachedSourceWriteRequest`/`validate` model in `eg-types::attached_source_governance` with refusal tests for missing approval, audit reservation, idempotency key and business-logic-bypassing direct writes. Depends on EG-UNIFIED-DATA-PLANE-R012.
 
 ## Dialects and conformance

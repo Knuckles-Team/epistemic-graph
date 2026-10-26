@@ -10,7 +10,7 @@ A competency question is answered when one query over the ontology returns a cor
 
 ## Requirements and acceptance
 
-Rows `EG-CQ-CONN-R001` to `R066` are rollups, one per connector; each has children `.1` (single-source question), `.2` (cross-source question) and `.3` (acceptance test). Cross-repo prerequisites: connector Scion SDK mappings (owning repo: the connector's package in agent-packages) and Arbora surface for federated query.
+Rows `EG-CQ-CONN-R001` to `R066` are rollups, one per connector; each has children `.1` (single-source question), `.2` (cross-source question) and `.3` (acceptance test). Cross-repo prerequisites: connector Graft SDK mappings (owning repo: the connector's package in agent-packages) and Arbora surface for federated query.
 
 ## Traceability
 
