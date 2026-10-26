@@ -414,8 +414,10 @@
     {
       "id": "EG-SRC-AUTH-R007.1",
       "title": "Add `AuthorityAudit` and `AuditEntry` types",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f4de9d310511"
+      ],
       "verified_by": [
         "crates/eg-types/src/authority_audit.rs:241",
         "crates/eg-types/src/authority_audit.rs:261",
