@@ -1078,9 +1078,13 @@
     {
       "id": "EG-CQ-CONN-R020.1",
       "title": "fan-manager single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f4de9d310511"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:71"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R020.2",
@@ -1276,9 +1280,13 @@
     {
       "id": "EG-CQ-CONN-R026.1",
       "title": "home-assistant single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f4de9d310511"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:190"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R026.2",
@@ -1705,9 +1713,13 @@
     {
       "id": "EG-CQ-CONN-R039.1",
       "title": "microsoft single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f4de9d310511"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:280"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R039.2",

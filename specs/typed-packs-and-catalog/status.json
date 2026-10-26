@@ -2650,7 +2650,7 @@
         "52dbb35d88bb",
         "6048a5ca398c",
         "9b4cb81fe847",
-        "e2e696640993"
+        "af2df826b260"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/connector_parent_classes.rs:37",
@@ -2665,6 +2665,7 @@
       "title": "Central source-record bridge",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "af2df826b260",
         "e2e696640993"
       ],
       "verified_by": [
