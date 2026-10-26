@@ -622,7 +622,7 @@
         "f17f47ab300f"
       ],
       "verified_by": [
-        "src/server/graph_schema/compose.rs:916"
+        "src/server/graph_schema/compose.rs:921"
       ]
     },
     {
@@ -1349,9 +1349,18 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.3",
       "title": "No-cache-on-NL-text and no-mutation-reachable guarantees",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8710a3709c47",
+        "a685d96e5de3",
+        "d2cb221aa148"
+      ],
+      "verified_by": [
+        "src/server/handlers/query/nl.rs:261",
+        "src/server/handlers/query/nl.rs:267",
+        "src/server/handlers/query/nl.rs:290",
+        "src/server/tests/nl_explain.rs:108"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.3.1",
         "EG-FEDERATED-QUERY-R058.3.2"
@@ -1374,9 +1383,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.3.2",
       "title": "No mutating operation is reachable from the NL surface",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a685d96e5de3"
+      ],
+      "verified_by": [
+        "src/server/tests/nl_explain.rs:108"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R059",
@@ -1526,11 +1539,11 @@
         "f948211fb8c7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:321",
-        "crates/eg-rdf/src/source_selection.rs:343",
-        "crates/eg-rdf/src/source_selection.rs:369",
-        "crates/eg-rdf/src/source_selection.rs:378",
-        "crates/eg-rdf/src/source_selection.rs:388"
+        "crates/eg-rdf/src/source_selection.rs:472",
+        "crates/eg-rdf/src/source_selection.rs:494",
+        "crates/eg-rdf/src/source_selection.rs:520",
+        "crates/eg-rdf/src/source_selection.rs:529",
+        "crates/eg-rdf/src/source_selection.rs:539"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R072.1"
@@ -1545,11 +1558,11 @@
         "f948211fb8c7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:321",
-        "crates/eg-rdf/src/source_selection.rs:343",
-        "crates/eg-rdf/src/source_selection.rs:369",
-        "crates/eg-rdf/src/source_selection.rs:378",
-        "crates/eg-rdf/src/source_selection.rs:388"
+        "crates/eg-rdf/src/source_selection.rs:472",
+        "crates/eg-rdf/src/source_selection.rs:494",
+        "crates/eg-rdf/src/source_selection.rs:520",
+        "crates/eg-rdf/src/source_selection.rs:529",
+        "crates/eg-rdf/src/source_selection.rs:539"
       ]
     },
     {

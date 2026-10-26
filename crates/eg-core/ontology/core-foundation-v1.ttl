@@ -707,6 +707,18 @@ CONCEPT:AU-KG.identity.asset-occurrence.""" ;
             owl:onProperty :dependsOn ],
         bfo:0000016 .
 
+:SourceRecord a owl:Class ;
+    rdfs:label "Source Record" ;
+    rdfs:comment "A provider-owned structured metadata record. This class does not, by itself, assert verified identity, admission, or materialization." ;
+    skos:altLabel "provider record" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:OpaqueSourceReference a owl:Class ;
+    rdfs:label "Opaque Source Reference" ;
+    rdfs:comment "A reference record keyed by a provider-scoped opaque identifier; it does not assert the referenced entity's content, identity, document, person, endpoint, or evidence occurrence." ;
+    skos:altLabel "provider reference" ;
+    rdfs:subClassOf :SourceRecord .
+
 :SourceObject a owl:Class ;
     rdfs:label "Source Object" ;
     rdfs:comment """The stable, document/table/image-level identity a located

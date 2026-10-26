@@ -637,7 +637,8 @@ Canonical generation and focused native execution are separate qualification ste
 
 R085.2 retains the original parent operation, redaction and catalogue acceptance.
 The projection fixtures bind only R085.1; their presence does not qualify the
-whole identity domain or Arbora's served admission and host lifecycle.
+whole identity domain. It also does not qualify Arbora's served admission and
+host lifecycle.
 
 ## 2026-10-18 current-main session evidence reconciliation
 
@@ -768,3 +769,16 @@ The earlier identity exports remain preserved with their original source receipt
 Superseded evidence: `tests/packs/test_schema_drift_served.py` drives attach, validate and approval-lease operations only. It never classifies drift.
 No engine code outside `benches/` calls the classifier today.
 `EG-TYPED-PACKS-R714` owns the delivery-path wiring. `EG-TYPED-PACKS-R715` owns the served quarantine proof.
+
+## 2026-10-26 amendment — R105.3.1 central source-record bridge
+
+Extend the existing `core-foundation-v1.ttl` vocabulary with two vendor-neutral
+record classes. `SourceRecord` is a structured provider metadata record directly
+under BFO `0000031`; its definition does not assert verified identity, admission,
+or materialization automatically. `OpaqueSourceReference` is a reference record
+keyed by a provider-scoped opaque identifier and subclasses `SourceRecord`.
+Neither class changes the already qualified R105.3 parent set or implies
+`Document`, `Person`, `AssetOccurrence`, `SourceObject`,
+`ExternalGraphReference`, or `Credential`. The existing connector pack classes
+may specialise these terms only after the central vocabulary and its native
+classification test qualify together.

@@ -1278,7 +1278,7 @@ mod tests {
             ),
             (
                 "foundation",
-                "7de021b92a2661ea6413a0191f6862f5127105f6cd33b801970920d2cf831ff3",
+                "c9bd8c1c66bcb6d142cf5d75659e87dc8c8c5b061d78ddcc370681a1c44ac41e",
             ),
             (
                 "documentation",
@@ -1314,7 +1314,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "dc52bcab4b5722eb71c903ca13948966a15097aad0c906ddc82e6b2a51ff4f79",
+                "9b86de53197e7c294fba6f7fb28efc9f32f95eb69d52d2d117316a23fb22426a",
             ),
             (
                 "medical",
@@ -1342,7 +1342,7 @@ mod tests {
             ),
             (
                 "sdd",
-                "0701adf9b634ba96548484b30ac3f951e97e04027518e55e1990401d50bb3c61",
+                "db421a14086da905ff377173cd1006e0b3fb520ca9361b53a05e0c18a700d387",
             ),
             (
                 "service_operations",
@@ -1451,7 +1451,7 @@ mod tests {
             ),
             (
                 "supply_chain",
-                "ebaf904bfd886ad16cba6023027c4e6fa2f290cffc6375a7ae7c1d4b47b1fcb4",
+                "640999e7f89656c1e599c82ee240faf5d434480526fa6b6aeaf6a03eef4a2007",
             ),
         ];
         let catalog = current_core_catalog();

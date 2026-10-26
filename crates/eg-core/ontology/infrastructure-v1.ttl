@@ -8,6 +8,7 @@
 @prefix : <http://knuckles.team/kg/infrastructure#> .
 @prefix au: <https://agent-utilities.dev/ontology#> .
 @prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix kg: <http://knuckles.team/kg#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
@@ -35,7 +36,7 @@
     rdfs:label "Container Image" ;
     rdfs:comment """An OCI container image / DockerHub repository tag-set, published from a
 :ContainerRegistry and contained by a :Repository namespace (CONCEPT:KG-2.155).""" ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf bfo:0000031, kg:SoftwareComponent .
 
 :DDClient a owl:Class ;
     rdfs:label "Dynamic DNS Client" ;

@@ -180,9 +180,9 @@ the spec↔ticket link flow (CONCEPT:KG-2.9).""" ;
 :SoftwareComponent a owl:Class ;
     rdfs:label "Software Component" ;
     rdfs:comment """A modular, deployable unit of software.
-    BFO:IndependentContinuant. ArchiMate: Application → ApplicationComponent.
+    BFO:GenericallyDependentContinuant. ArchiMate: Application → ApplicationComponent.
     May be a microservice, library, module, or package.""" ;
-    rdfs:subClassOf bfo:0000004 .
+    rdfs:subClassOf bfo:0000031 .
 
 :TestCase a owl:Class ;
     rdfs:label "Test Case" ;
