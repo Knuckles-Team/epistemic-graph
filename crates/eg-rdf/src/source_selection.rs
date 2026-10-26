@@ -45,6 +45,20 @@ pub enum Premise {
         served_class: String,
         mapping_name: String,
     },
+    /// The ontology authority row that declared the source and rank for a
+    /// mapping.  This is kept separate from [`Premise::Mapping`] so callers
+    /// can explain why one candidate won and why the remaining candidates are
+    /// alternates.
+    Authority {
+        row: String,
+        source: String,
+        class: String,
+        facet: Option<String>,
+        rank: u64,
+        scope: Option<String>,
+        origin: String,
+        generation: u64,
+    },
     /// The source generation (append-only epoch) the above facts were read at.
     SourceGeneration { source: String, generation: u64 },
 }
@@ -69,6 +83,10 @@ pub enum CoverageResult {
     Covered {
         class: String,
         mapping_name: String,
+        /// Lower-ranked mappings for the same covered class, in authority-rank
+        /// order.  They are reported for provenance; execution/fallback is a
+        /// later planner concern.
+        alternates: Vec<String>,
         path: Vec<SourceSelectionHop>,
         premises: Vec<Premise>,
     },
@@ -81,6 +99,23 @@ pub enum CoverageResult {
     /// `class` has no object-property path to any queried root within the hop
     /// budget — it is not merely unmapped, it was never reached.
     Disconnected { class: String },
+}
+
+/// One ontology `vg:SourceAuthority` row in the fixture-backed selection
+/// model.  The optional fields are retained in the typed premise now so the
+/// live graph-schema reader can add facet/scope/origin filtering without
+/// changing the covered-result shape.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthorityRow {
+    pub row: String,
+    pub source: String,
+    pub class: String,
+    pub mapping_name: String,
+    pub facet: Option<String>,
+    pub rank: u64,
+    pub scope: Option<String>,
+    pub origin: String,
+    pub generation: u64,
 }
 
 impl CoverageResult {
@@ -102,8 +137,9 @@ impl CoverageResult {
 pub struct CoverageFixture {
     object_properties: Vec<(String, String, String)>,
     subclass_of: Vec<(String, String)>,
-    /// class -> (mapping name, source, generation)
-    mappings: BTreeMap<String, (String, String, u64)>,
+    /// class -> all authority rows (the previous implementation kept one
+    /// tuple here and silently discarded earlier candidates).
+    mappings: BTreeMap<String, Vec<AuthorityRow>>,
 }
 
 impl CoverageFixture {
@@ -133,11 +169,52 @@ impl CoverageFixture {
         source: &str,
         generation: u64,
     ) -> Self {
-        self.mappings.insert(
-            class.to_string(),
-            (mapping_name.to_string(), source.to_string(), generation),
-        );
+        self.push_mapping(AuthorityRow {
+            row: format!("{class}::{mapping_name}"),
+            source: source.to_string(),
+            class: class.to_string(),
+            mapping_name: mapping_name.to_string(),
+            facet: None,
+            rank: 1,
+            scope: None,
+            origin: "fixture".to_string(),
+            generation,
+        });
         self
+    }
+
+    /// Add a ranked `vg:SourceAuthority` candidate for `class`.
+    ///
+    /// Lower authority ranks win.  The row identifier is deterministic in the
+    /// fixture because the live authority vocabulary is not parsed by this
+    /// R072/R005.1 unit.
+    pub fn with_authority(
+        mut self,
+        class: &str,
+        mapping_name: &str,
+        source: &str,
+        generation: u64,
+        rank: u64,
+    ) -> Self {
+        self.push_mapping(AuthorityRow {
+            row: format!("{class}::{mapping_name}"),
+            source: source.to_string(),
+            class: class.to_string(),
+            mapping_name: mapping_name.to_string(),
+            facet: None,
+            rank,
+            scope: None,
+            origin: "fixture".to_string(),
+            generation,
+        });
+        self
+    }
+
+    fn push_mapping(&mut self, row: AuthorityRow) {
+        self.mappings
+            .entry(row.class.clone())
+            .or_default()
+            .push(row);
     }
 
     /// Asserted superclasses of `class` plus `class` itself — the subclass
@@ -157,11 +234,24 @@ impl CoverageFixture {
         seen
     }
 
-    fn mapping_premises(&self, source_mapping: &(String, String, u64)) -> Vec<Premise> {
+    fn mapping_premises(&self, source_mapping: &AuthorityRow) -> Vec<Premise> {
         vec![Premise::SourceGeneration {
-            source: source_mapping.1.clone(),
-            generation: source_mapping.2,
+            source: source_mapping.source.clone(),
+            generation: source_mapping.generation,
         }]
+    }
+
+    fn authority_premise(row: &AuthorityRow) -> Premise {
+        Premise::Authority {
+            row: row.row.clone(),
+            source: row.source.clone(),
+            class: row.class.clone(),
+            facet: row.facet.clone(),
+            rank: row.rank,
+            scope: row.scope.clone(),
+            origin: row.origin.clone(),
+            generation: row.generation,
+        }
     }
 }
 
@@ -274,8 +364,16 @@ fn classify_class(
         return CoverageResult::Disconnected { class };
     };
     for ancestor in fixture.superclasses_closure(&class) {
-        if let Some(source_mapping) = fixture.mappings.get(&ancestor) {
+        if let Some(source_mappings) = fixture.mappings.get(&ancestor) {
+            let mut candidates = source_mappings.clone();
+            candidates.sort_by(|left, right| {
+                left.rank
+                    .cmp(&right.rank)
+                    .then_with(|| left.row.cmp(&right.row))
+            });
+            let source_mapping = &candidates[0];
             let mut premises = fixture.mapping_premises(source_mapping);
+            premises.push(CoverageFixture::authority_premise(source_mapping));
             if ancestor != class {
                 premises.push(Premise::Subclass {
                     sub_class: class.clone(),
@@ -284,11 +382,20 @@ fn classify_class(
             }
             premises.push(Premise::Mapping {
                 served_class: ancestor.clone(),
-                mapping_name: source_mapping.0.clone(),
+                mapping_name: source_mapping.mapping_name.clone(),
             });
+            let alternates = candidates
+                .iter()
+                .skip(1)
+                .map(|candidate| {
+                    premises.push(CoverageFixture::authority_premise(candidate));
+                    candidate.mapping_name.clone()
+                })
+                .collect();
             return CoverageResult::Covered {
                 class,
-                mapping_name: source_mapping.0.clone(),
+                mapping_name: source_mapping.mapping_name.clone(),
+                alternates,
                 path: path.clone(),
                 premises,
             };
@@ -316,6 +423,50 @@ mod tests {
             .with_subclass("Contractor", "Person")
             .with_mapping("Invoice", "source-a-invoices", "source-a", 7)
             .with_mapping("Person", "source-b-people", "source-b", 3)
+    }
+
+    // spec: EG-CQ-XSRC-R005.1
+    #[test]
+    fn authority_rank_selects_winner_and_lists_lower_ranked_alternate() {
+        let fixture = CoverageFixture::new()
+            .with_relation("Invoice", "billedTo", "Customer")
+            .with_authority("Invoice", "source-b-invoices", "source-b", 3, 2)
+            .with_authority("Invoice", "source-a-invoices", "source-a", 7, 1);
+        let results = select_sources(&fixture, &["Invoice".to_string()], 1);
+        let invoice = results.iter().find(|r| r.class() == "Invoice").unwrap();
+
+        match invoice {
+            CoverageResult::Covered {
+                mapping_name,
+                alternates,
+                premises,
+                ..
+            } => {
+                assert_eq!(mapping_name, "source-a-invoices");
+                assert_eq!(alternates, &["source-b-invoices".to_string()]);
+                assert!(premises.contains(&Premise::Authority {
+                    row: "Invoice::source-a-invoices".to_string(),
+                    source: "source-a".to_string(),
+                    class: "Invoice".to_string(),
+                    facet: None,
+                    rank: 1,
+                    scope: None,
+                    origin: "fixture".to_string(),
+                    generation: 7,
+                }));
+                assert!(premises.contains(&Premise::Authority {
+                    row: "Invoice::source-b-invoices".to_string(),
+                    source: "source-b".to_string(),
+                    class: "Invoice".to_string(),
+                    facet: None,
+                    rank: 2,
+                    scope: None,
+                    origin: "fixture".to_string(),
+                    generation: 3,
+                }));
+            }
+            other => panic!("expected ranked Covered, got {other:?}"),
+        }
     }
 
     // spec: EG-FEDERATED-QUERY-R072.1

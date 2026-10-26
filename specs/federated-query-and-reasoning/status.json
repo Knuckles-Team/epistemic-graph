@@ -1539,11 +1539,11 @@
         "f948211fb8c7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:321",
-        "crates/eg-rdf/src/source_selection.rs:343",
-        "crates/eg-rdf/src/source_selection.rs:369",
-        "crates/eg-rdf/src/source_selection.rs:378",
-        "crates/eg-rdf/src/source_selection.rs:388"
+        "crates/eg-rdf/src/source_selection.rs:472",
+        "crates/eg-rdf/src/source_selection.rs:494",
+        "crates/eg-rdf/src/source_selection.rs:520",
+        "crates/eg-rdf/src/source_selection.rs:529",
+        "crates/eg-rdf/src/source_selection.rs:539"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R072.1"
@@ -1558,11 +1558,11 @@
         "f948211fb8c7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:321",
-        "crates/eg-rdf/src/source_selection.rs:343",
-        "crates/eg-rdf/src/source_selection.rs:369",
-        "crates/eg-rdf/src/source_selection.rs:378",
-        "crates/eg-rdf/src/source_selection.rs:388"
+        "crates/eg-rdf/src/source_selection.rs:472",
+        "crates/eg-rdf/src/source_selection.rs:494",
+        "crates/eg-rdf/src/source_selection.rs:520",
+        "crates/eg-rdf/src/source_selection.rs:529",
+        "crates/eg-rdf/src/source_selection.rs:539"
       ]
     },
     {

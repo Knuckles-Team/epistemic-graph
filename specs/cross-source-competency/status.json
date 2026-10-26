@@ -304,7 +304,9 @@
       "title": "`select_sources` orders candidate mappings by `vg:authorityRank`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection.rs:428"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R005.2",
