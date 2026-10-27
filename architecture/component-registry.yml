@@ -4006,6 +4006,7 @@ components:
       - "tests/test_validate_raft_cluster.py"
       - "tests/test_release_python_suite_contract.py"
       - "tests/test_ci_change_scope.py"
+      - "tests/test_ci_light_gates_topology.py"
       - "tests/test_pages_workflow_contract.py"
       - "tests/test_normal_release_publication.py"
       - "tests/test_normal_release_routing.py"
