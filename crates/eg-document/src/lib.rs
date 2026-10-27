@@ -35,6 +35,9 @@ mod header;
 mod html;
 /// Deterministic heading- and paragraph-aware chunking (EG-REPO-INGEST-R652).
 pub mod processing;
+/// Source-free transcript turn records shared by supported line-delimited
+/// coding-agent transcript dialects (EG-REPO-INGEST-R800.1).
+pub mod transcript;
 
 // ModalityContract implementation, behind the crate's opt-in contract feature.
 #[cfg(feature = "contract")]
@@ -49,6 +52,7 @@ pub use document::{
     Table, TableCell,
 };
 pub use header::content_hash;
+pub use transcript::{TranscriptRole, TranscriptToolCall, TranscriptTurn};
 
 /// Governed, restartable served document runtime. Available under `serving` and
 /// backed by the universal Artifact/Occurrence/Rendition/Segment/Feature/Locus
