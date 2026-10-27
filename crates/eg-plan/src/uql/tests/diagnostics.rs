@@ -73,7 +73,7 @@ fn lexical_errors_report_the_offending_span_and_caret() {
             .lines()
             .nth(2)
             .unwrap()
-            .ends_with("                   ^"),
+            .ends_with("                  ^"),
         "{rendered}"
     );
 }
