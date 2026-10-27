@@ -2792,8 +2792,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R087.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "dcbbb7873248"
+      ],
       "verified_by": [
         "crates/eg-types/src/changeset_review.rs:234",
         "crates/eg-types/src/changeset_review.rs:255",
