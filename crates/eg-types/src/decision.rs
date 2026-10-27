@@ -25,6 +25,7 @@ pub mod coverage;
 pub mod derivation;
 pub mod digest;
 pub mod errors;
+pub mod execution_answer;
 pub mod guardrail;
 pub mod harness_contrast;
 pub mod ingestion_admission;
@@ -70,6 +71,9 @@ pub const MAX_ASSEMBLY_TEMPLATES: usize = 8;
 pub const MAX_TEMPLATE_SLOTS: usize = 6;
 
 pub use errors::DecisionErrorCode;
+pub use execution_answer::{
+    ExecutionAnswer, ExecutionAnswerPart, ExecutionAnswerParts, EXECUTION_ANSWER_SCHEMA_VERSION,
+};
 pub use ingestion_admission::ContentClass;
 pub use jobs::{
     DecisionEvalOp, DecisionEvalReceipt, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
