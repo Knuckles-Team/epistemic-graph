@@ -2,9 +2,9 @@
 //!
 //! The cache is process-local and disposable. Its key binds the pinned
 //! embedding-space digest and exact input text; it never supplies or invents
-//! provenance for vectors already resident in a [`super::semantic::SemanticStore`].
+//! provenance for vectors already resident in a [`super::SemanticStore`].
 
-use super::semantic::EmbeddingProvider;
+use super::EmbeddingProvider;
 use eg_types::contract::Digest256;
 use eg_types::EmbeddingSpaceRef;
 use parking_lot::Mutex;
