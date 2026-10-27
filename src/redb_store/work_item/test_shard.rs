@@ -73,6 +73,20 @@ pub(super) fn apply(
     method: Method,
     now_ms: u64,
 ) -> Result<crate::protocol::ResultPayload, String> {
+    apply_as_actor(shard, tag, method, now_ms, Some("owner"))
+}
+
+pub(super) fn apply_as_actor(
+    shard: &Shard, tag: &str, method: Method, now_ms: u64, actor: Option<&str>,
+) -> Result<crate::protocol::ResultPayload, String> {
+    apply_then(shard, tag, method, now_ms, actor, |_, _| Ok(()))
+}
+
+/// Test-only outer transaction seam: the callback runs AFTER native row effects.
+pub(super) fn apply_then(
+    shard: &Shard, tag: &str, method: Method, now_ms: u64, actor: Option<&str>,
+    after: impl FnOnce(&super::NativeNodeRows<'_>, &super::NativeNodeRows<'_>) -> Result<(), String>,
+) -> Result<crate::protocol::ResultPayload, String> {
     let op_id = format!("work-item-test/{tag}");
     with_write(shard, &op_id, now_ms, |admitted| {
         let member = admitted.graph(GRAPH).unwrap();
@@ -82,11 +96,13 @@ pub(super) fn apply(
                 admitted, GRAPH,
             )
             .unwrap();
-        apply_work_item_rows(WorkItemApplyRequest {
+        let result = apply_work_item_rows(WorkItemApplyRequest {
             graph: GRAPH,
+            admitted_actor: actor,
             batch_id: tag,
             method: &method,
             nodes: &mut graph.nodes,
+            inline_history: &mut graph.inline_history,
             holds: &mut holds,
             work_item_index: &index,
             counters: &mut counters,
@@ -98,7 +114,9 @@ pub(super) fn apply(
             committed_at_ms: now_ms,
             crypto: DurableCrypto::none(),
         })
-        .map(|result| result.expect("a WorkItem-family write always answers"))
+        .map(|result| result.expect("a WorkItem-family write always answers"))?;
+        after(&graph.nodes, &graph.inline_history)?;
+        Ok(result)
     })
 }
 

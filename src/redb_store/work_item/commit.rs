@@ -171,6 +171,7 @@ pub(crate) fn commit_work_item_release_downstream(
 
 pub(crate) struct CommitWorkItemResultInput<'args, 'table, 'crypto> {
     pub(crate) graph: &'args str,
+    pub(crate) admitted_actor: Option<&'args str>,
     pub(crate) tenant: &'args str,
     pub(crate) work_item_id: &'args str,
     pub(crate) worker_id: &'args str,
@@ -184,6 +185,8 @@ pub(crate) struct CommitWorkItemResultInput<'args, 'table, 'crypto> {
     pub(crate) outcome_extension: Option<&'args eg_types::outcome_bundle::TerminalOutcomeExtension>,
     pub(crate) run_completion: Option<&'args eg_types::run_completion::RunCompletionInput>,
     pub(crate) batch_id: &'args str,
+    pub(crate) inline_history:
+        &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
     pub(crate) nodes:
         &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
     pub(crate) holds:
@@ -210,7 +213,7 @@ pub(crate) struct CommitWorkItemResultInput<'args, 'table, 'crypto> {
 }
 
 pub(crate) fn apply_commit_work_item_result_row(
-    input: CommitWorkItemResultInput<'_, '_, '_>,
+    mut input: CommitWorkItemResultInput<'_, '_, '_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let current = input
         .nodes
@@ -256,6 +259,7 @@ pub(crate) fn apply_commit_work_item_result_row(
         )?;
         ensure_receipt_rows_absent(input.graph, &extension.receipt_nodes, input.nodes)?;
     }
+    super::inline_history::attach(&mut input, &mut props)?;
     let now_s = input.now_ms as f64 / 1000.0;
     // Phase-1 mirror inputs: pre-status (leased|running, validated above) + the
     // DLQ-threshold policy boolean (retryable && attempt < max_attempts) that the
@@ -326,7 +330,9 @@ pub(crate) fn apply_commit_work_item_result_row(
     if let Some(completion) = input.run_completion {
         use sha2::{Digest, Sha256};
         let payload = eg_types::run_completion::RunCompletionPayload {
-            completion: completion.clone(),
+            completion: completion.receipt_input(),
+            completed_checkpoint: completion.completed_checkpoint.as_ref()
+                .map(|value| value.checkpoint_ref(input.work_item_id)),
             tenant: input.tenant.into(),
             work_item_id: input.work_item_id.into(),
             batch_id: input.batch_id.into(),

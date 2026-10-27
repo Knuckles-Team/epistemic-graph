@@ -108,6 +108,7 @@ pub(crate) struct WorkItemCommitRequest<'a> {
     pub(crate) core: &'a Arc<GraphCore>,
     pub(crate) request_id: u64,
     attempt_nonce: Option<Nonce>,
+    inline_history_enable_authorized: bool,
     pub(crate) stable_idempotency_key: Option<&'a str>,
     pub(crate) principal: Option<&'a str>,
     pub(crate) graph: &'a str,
@@ -131,6 +132,7 @@ impl<'a> WorkItemCommitRequest<'a> {
             core,
             request_id: origin.request_id,
             attempt_nonce: None,
+            inline_history_enable_authorized: false,
             stable_idempotency_key,
             principal: origin.principal,
             graph,
@@ -138,6 +140,13 @@ impl<'a> WorkItemCommitRequest<'a> {
             placement_fencing_token: None,
             method,
         }
+    }
+
+    pub(crate) fn with_verified_history_policy(mut self,
+        context: &crate::server::auth::VerifiedRequestContext) -> Self {
+        self.inline_history_enable_authorized = self.principal == Some(context.principal())
+            && context.allows_inline_history_enable();
+        self
     }
 
     pub(crate) fn with_attempt_nonce(mut self, attempt_nonce: Option<Nonce>) -> Self {
@@ -155,6 +164,7 @@ struct WorkItemCommitPlan<'a> {
     persistence: &'a Arc<dyn PersistenceBackend>,
     core: &'a Arc<GraphCore>,
     attempt_nonce: Option<Nonce>,
+    inline_history_enable_authorized: bool,
     principal: Option<&'a str>,
     graph: &'a str,
     placement_epoch: u64,
@@ -173,10 +183,12 @@ struct WorkItemCommitOutcome<'a> {
     publishes_work_item_rows: bool,
     submit: bool,
     submit_batch: bool,
+    claim: bool,
 }
 
 #[derive(Clone, Copy)]
 struct WorkItemOutputFlags {
+    claim: bool,
     submit: bool,
     submit_batch: bool,
     publishes_work_item_rows: bool,
@@ -186,6 +198,7 @@ fn work_item_output_flags(method: &Method) -> WorkItemOutputFlags {
     let submit_batch = matches!(method, Method::SubmitWorkItems { .. });
     let submit = submit_batch || matches!(method, Method::SubmitWorkItem { .. });
     WorkItemOutputFlags {
+        claim: matches!(method, Method::ClaimWorkItem { .. }),
         submit,
         submit_batch,
         publishes_work_item_rows: !matches!(method, Method::UpdateResourceHost { .. }),
@@ -200,6 +213,7 @@ async fn commit_work_item_inner(
         core,
         request_id,
         attempt_nonce,
+        inline_history_enable_authorized,
         stable_idempotency_key,
         principal,
         graph,
@@ -222,6 +236,7 @@ async fn commit_work_item_inner(
         persistence,
         core,
         attempt_nonce,
+        inline_history_enable_authorized,
         principal,
         graph,
         placement_epoch,
@@ -239,6 +254,7 @@ async fn commit_work_item_plan(plan: WorkItemCommitPlan<'_>) -> Result<ResultPay
         persistence,
         core,
         attempt_nonce,
+        inline_history_enable_authorized,
         principal,
         graph,
         placement_epoch,
@@ -255,7 +271,7 @@ async fn commit_work_item_plan(plan: WorkItemCommitPlan<'_>) -> Result<ResultPay
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
     let fname = crate::persist::sanitize(graph);
     let expected_graph_version = authoritative_graph_version(persistence, &fname, core).await?;
-    let batch = compile_methods(
+    let mut batch = compile_methods(
         CompileBatch {
             batch_id: &identity.batch_id,
             request_id: identity.durable_request_id,
@@ -273,6 +289,12 @@ async fn commit_work_item_plan(plan: WorkItemCommitPlan<'_>) -> Result<ResultPay
         },
         vec![method],
     )?;
+    if inline_history_enable_authorized {
+        let crate::mutation_batch::MutationEnvelope::Operation(envelope) = &mut batch.envelope else {
+            return Err("inline history enablement requires authenticated operation authority".into());
+        };
+        envelope.verified_capabilities.insert(eg_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
+    }
     let committed = persistence
         .commit_mutation_batch(&fname, &batch, None, created_at_ms)
         .await?;
@@ -284,6 +306,7 @@ async fn commit_work_item_plan(plan: WorkItemCommitPlan<'_>) -> Result<ResultPay
         publishes_work_item_rows: flags.publishes_work_item_rows,
         submit: flags.submit,
         submit_batch: flags.submit_batch,
+        claim: flags.claim,
     };
     publish_work_item_outcome(outcome).await
 }
@@ -299,6 +322,7 @@ async fn publish_work_item_outcome(
         publishes_work_item_rows,
         submit,
         submit_batch,
+        claim,
     } = outcome;
     let result = publish_committed_work_item(
         persistence,
@@ -309,6 +333,7 @@ async fn publish_work_item_outcome(
     )
     .await;
     match result {
+        Ok(result) if committed.replayed && claim => mark_claim_replayed(result),
         Ok(result) if committed.replayed && submit => mark_submit_replayed(result, submit_batch),
         Ok(result) => Ok(result),
         Err(error) => {
@@ -344,6 +369,26 @@ fn decode_submit_receipt<T: serde::de::DeserializeOwned>(
             .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string()),
         _ => Err("replayed SubmitWorkItem result has an invalid payload shape".to_string()),
     }
+}
+
+/// A stored first-claim receipt is replayable evidence, not permission to start
+/// the model a second time. Override its marker from the authoritative commit's
+/// replay bit, never from request data or the stored result's original true bit.
+fn mark_claim_replayed(result: ResultPayload) -> Result<ResultPayload, String> {
+    let mut body: eg_types::inline_history::NativeClaimWorkItemResult = match result {
+        ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(
+            &bytes,
+            eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
+        )
+        .map_err(|_| "replayed ClaimWorkItem result is corrupt".to_string())?,
+        ResultPayload::Json(value) => serde_json::from_value(value)
+            .map_err(|_| "replayed ClaimWorkItem result is corrupt".to_string())?,
+        _ => return Err("replayed ClaimWorkItem result has an invalid payload shape".into()),
+    };
+    if body.fresh_execution_grant.is_some() {
+        body.fresh_execution_grant = Some(false);
+    }
+    ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(body)
 }
 
 fn mark_submit_replayed(result: ResultPayload, batch: bool) -> Result<ResultPayload, String> {
@@ -473,3 +518,6 @@ pub(crate) fn changed_work_item_ids(
         _ => Err("committed WorkItem result has an invalid payload shape".to_string()),
     }
 }
+
+#[cfg(test)]
+mod fresh_claim_tests;

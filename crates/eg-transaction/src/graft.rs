@@ -79,6 +79,25 @@ pub struct GraftOwnerWrite<'cap, 'store, D: OwnerDomain> {
     capability: &'cap PhysicalWriteCapability<'store, D>,
 }
 
+/// Read-only owner view held under the source writer before the graft fence.
+/// No owner mutation, ledger access or transaction commit is exposed.
+pub struct GraftOwnerRead<'cap, 'store, D: OwnerDomain> {
+    write: &'cap AdmittedMutation<'store, D>,
+}
+
+impl<D: OwnerDomain> GraftOwnerRead<'_, '_, D> {
+    pub fn open_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<eg_storage::OwnerReadTable<'_, K, V>, String>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        self.write.open_read_table(definition)
+    }
+}
+
 /// Owner-table access shared by a normal admitted owner window and the
 /// reservation-authenticated graft window.  It deliberately has no ledger
 /// accessor.
@@ -205,7 +224,7 @@ pub trait OwnerPayloadTransfer<S: OwnerDomain, D: OwnerDomain> {
 
 mod reservation;
 use reservation::{
-    cleanup_losing_reservation_in, require_empty_destination, require_reservation_baseline,
+    cleanup_losing_reservation_in, cleanup_refused_validation_in, require_empty_destination, require_reservation_baseline,
     reservation_in, reserve_destination, scope_domain, scope_expectation,
     validate_destination_phase_b, validate_reservation_state, with_losing_reservation_cleanup,
 };
@@ -443,11 +462,15 @@ impl<'a, D: OwnerDomain> GraftDestination<'a, D> {
 /// `(u64::MAX, u64::MAX)`, so every ordinary admission afterwards fails closed
 /// with `STALE_FENCE`. Its batch id is its idempotency key, so running it twice
 /// replays the first marker rather than fencing again.
-pub(crate) fn graft_begin<S: OwnerDomain, D: OwnerDomain>(
+pub(crate) fn graft_begin<S: OwnerDomain, D: OwnerDomain, F>(
     kernel: &MutationKernel,
     source: &OwnedStoreHandle<S>,
     destination: &GraftDestination<'_, D>,
-) -> Result<GraftIntent, String> {
+    validate: F,
+) -> Result<GraftIntent, String>
+where
+    F: for<'cap, 'store> FnOnce(&GraftOwnerRead<'cap, 'store, S>) -> Result<(), String>,
+{
     if S::LAYOUT != D::LAYOUT {
         return Err("graft may not move a scope between two owner layouts".to_string());
     }
@@ -495,6 +518,15 @@ pub(crate) fn graft_begin<S: OwnerDomain, D: OwnerDomain>(
             ));
         }
     };
+    if let Err(error) = validate(&GraftOwnerRead { write: &write }) {
+        // No source marker has been written by this attempt. Keep the source
+        // writer while proving absence and cancelling the exact reservation.
+        let error = cleanup_refused_validation_in(
+            error, &write, destination, &identity, &source_digest, &target,
+        );
+        write.abort()?;
+        return Err(error);
+    }
     match mark_source(kernel, &write, source, &identity, &source_digest, &target) {
         Ok(Marked::Fresh(batch, source_version)) => {
             if let Err(error) = kernel.commit(write, &batch) {

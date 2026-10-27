@@ -160,6 +160,8 @@ impl DurabilityDomain {
 pub enum MutationCapability {
     /// Reserved for authenticated first-boot/system-recovery operations.
     UnversionedSystemMutation,
+    /// Authenticated operator consent to the bounded stable-graph history policy.
+    EnableInlineHistoryProfile,
 }
 
 /// Exact commit boundaries used by the black-box release certification harness.

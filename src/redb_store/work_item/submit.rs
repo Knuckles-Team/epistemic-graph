@@ -721,6 +721,7 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
     graph: &str,
     request: &eg_types::native_control::SubmitWorkItemRequest,
     nodes: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
+    inline_history: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
     edges: &mut ScopedOwnerTableMut<
         'txn,
         (&'static str, &'static str, &'static str, u32),
@@ -734,7 +735,10 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
         authoritative_now_ms,
         outbox_id,
         admitted_actor,
+        inline_history_enable_authorized,
     } = scope;
+    super::inline_history::authorize_profile_presence(graph, request, inline_history,
+        inline_history_enable_authorized)?;
     let context_tenant = request.context.tenant_id.as_str();
     let owner = super::run_owner::admit_owner(graph, request, admitted_actor)?;
 
@@ -754,6 +758,7 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
 
     let conversation_head =
         super::conversation::reserve(graph, request, admitted_actor, nodes, crypto)?;
+    super::inline_history::record_profile_presence(graph, request, inline_history)?;
 
     let now_s = authoritative_now_ms as f64 / 1000.0;
     let pending_dependencies = dependency_rows
@@ -798,6 +803,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
     graph: &str,
     request: &eg_types::native_control::SubmitWorkItemsRequest,
     nodes: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
+    inline_history: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
     edges: &mut ScopedOwnerTableMut<
         'txn,
         (&'static str, &'static str, &'static str, u32),
@@ -811,6 +817,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
         authoritative_now_ms,
         outbox_id,
         admitted_actor,
+        inline_history_enable_authorized,
     } = scope;
     use eg_types::native_control::{
         NativeControlSchemaVersion, MAX_SUBMIT_BATCH, MAX_SUBMIT_BATCH_CHANGED_IDS,
@@ -844,10 +851,12 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
             graph,
             child,
             nodes,
+            inline_history,
             edges,
             command_sequences,
             WorkItemCommitScope {
                 admitted_actor,
+        inline_history_enable_authorized,
                 crypto,
                 authoritative_now_ms,
                 outbox_id,

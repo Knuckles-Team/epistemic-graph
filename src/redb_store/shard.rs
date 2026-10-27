@@ -937,6 +937,10 @@ impl Shard {
         if source.kernel().owner_authority_digest()? == self.kernel.owner_authority_digest()? {
             return Err("graft source and destination use the same authority".to_string());
         }
+        // Profile v1 cannot migrate: refuse before reservation or source fence.
+        // Retirement also rechecks authoritative private presence in its write.
+        source.refuse_inline_history_graft(graph_fname, &source_identity)?;
+        self.refuse_inline_history_graft(graph_fname, &source_identity)?;
         let source_bound = source.kernel().scope_binding_exists(&source_identity)?;
         if !source_bound && !self.kernel.scope_binding_exists(&source_identity)? {
             return Err(
@@ -979,7 +983,9 @@ impl Shard {
         // the same precondition.
         source
             .mutations()
-            .graft_begin(source_handle.as_ref(), &destination)?;
+            .graft_begin_with_validation(source_handle.as_ref(), &destination, |read| {
+                Self::validate_inline_history_graft(read, graph_fname)
+            })?;
         let payload = payload
             .ok_or_else(|| "graph shard graft requires an owner payload transfer".to_string())?;
         let grafted = self.mutations.graft_scope_with_payload(
@@ -990,6 +996,36 @@ impl Shard {
         )?;
         source.forget_graph(graph_fname, &source_identity)?;
         Ok(grafted)
+    }
+
+    #[cfg(feature = "server")]
+    pub(crate) fn validate_inline_history_graft(
+        read: &eg_transaction::GraftOwnerRead<'_, '_, GraphShardOwner>,
+        graph: &str,
+    ) -> Result<(), String> {
+        let history = read.open_table(super::work_item::inline_history::INLINE_HISTORY)?;
+        let mut rows = history.range_from((graph, ""))?;
+        if let Some(row) = rows.next() {
+            let (key, _) = row.map_err(|error| error.to_string())?;
+            if key.value().0 == graph {
+                return Err("inline history graph graft is unsupported".into());
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "server")]
+    fn refuse_inline_history_graft(&self, graph: &str, identity: &MutationScopeIdentity)
+        -> Result<(), String>
+    {
+        if !self.kernel.scope_binding_exists(identity)? { return Ok(()); }
+        let handle = self.graph(graph)?;
+        let snapshot = self.read(&handle)?;
+        let history = snapshot.scoped_owner_table(super::work_item::inline_history::INLINE_HISTORY)?;
+        if history.scope_rows()?.next().transpose()?.is_some() {
+            return Err("inline history graph graft is unsupported".into());
+        }
+        Ok(())
     }
 
     /// Seal and commit a group whose ONE graph member carries a caller batch,

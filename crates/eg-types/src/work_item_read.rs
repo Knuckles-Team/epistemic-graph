@@ -47,7 +47,8 @@ pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
 pub const WORK_ITEM_EVENT_BATCH: &str = "terminal_event_batch";
 pub const WORK_ITEM_EVENT_DIGEST: &str = "terminal_event_digest";
 pub const RUN_ADMISSION_REQUEST: &str = "run_admission_request";
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 12] = [
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 13] = [
+    crate::inline_history::INLINE_CHECKPOINT,
     RUN_ADMISSION_REQUEST,
     crate::run_completion::RUN_COMPLETION_BATCH,
     crate::run_completion::RUN_COMPLETION_DIGEST,
@@ -135,6 +136,11 @@ pub(crate) fn stored_value<T: Copy>(table: &[(&str, T)], stored: &str) -> Option
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RunWorkItemView {
+    /// Owner-only completed own-turn text for display; never an execution grant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_checkpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_selection: Option<crate::inline_history::RunCheckpointSelection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_completion: Option<crate::run_completion::CommittedRunCompletion>,
     pub work_item: WorkItemView,

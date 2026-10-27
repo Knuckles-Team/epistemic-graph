@@ -1018,3 +1018,56 @@ fn the_graft_moves_every_table_the_ledger_census_declares() {
     declared.sort_unstable();
     assert_eq!(grafted, declared);
 }
+
+#[test]
+fn owner_validation_refusal_preserves_source_and_cancels_exact_reservation() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = native_identity("tenant-a", "incarnation:graft:owner-refusal");
+    let (source, source_owner) = populated_source(&dir.path().join("source.redb"), &identity);
+    let (destination, destination_owner) =
+        empty_destination(&dir.path().join("dest.redb"), identity.clone(), "tenant-a");
+    let target = GraftDestination::new(
+        &destination.mutations, &destination.kernel, &destination_owner,
+    );
+    let before = encoded(&read_batches(&source.kernel.read_scope(&source_owner).unwrap()).unwrap());
+    let error = source.mutations.graft_begin_with_validation(&source_owner, &target,
+        |_| Err("owner refuses graft".into())).unwrap_err();
+    assert_eq!(error, "owner refuses graft");
+    assert_eq!(encoded(&read_batches(&source.kernel.read_scope(&source_owner).unwrap()).unwrap()), before);
+    assert!(source.mutations.graft_source_marker(&source_owner).unwrap().is_none());
+    let read = destination.kernel.read_scope(&destination_owner).unwrap();
+    assert!(read_batches(&read).unwrap().is_empty());
+    assert_eq!(version(&read).unwrap(), 0);
+    drop(read);
+    // Exact cancellation, rather than leaving an empty maximum-fenced target.
+    apply_batch(&destination, &destination_owner, &event_batch(&identity, "after-refusal", 0));
+    apply_batch(&source, &source_owner, &event_batch(&identity, "source-after-refusal", 3));
+}
+
+#[test]
+fn accepted_owner_validation_fences_later_admission_and_replays_existing_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = native_identity("tenant-a", "incarnation:graft:owner-accept");
+    let (source, source_owner) = populated_source(&dir.path().join("source.redb"), &identity);
+    let (destination, destination_owner) =
+        empty_destination(&dir.path().join("dest.redb"), identity.clone(), "tenant-a");
+    let target = GraftDestination::new(
+        &destination.mutations, &destination.kernel, &destination_owner,
+    );
+    let intent = source.mutations.graft_begin_with_validation(&source_owner, &target,
+        |_| Ok(())).unwrap();
+    let blocked = event_batch(&identity, "late-owner-write", intent.version);
+    let error = match source.mutations.admit(&source_owner, &blocked) {
+        Err(error) => error,
+        Ok((write, _)) => {
+            write.abort().unwrap();
+            panic!("graft fence admitted a later owner write");
+        }
+    };
+    assert!(error.starts_with("STALE_FENCE"), "{error}");
+    // Existing markers are already irrevocable. They replay without trying to
+    // reinterpret owner validation or cancel their recovery reservation.
+    let replay = source.mutations.graft_begin_with_validation(&source_owner, &target,
+        |_| panic!("replayed marker must not invoke a new validator")).unwrap();
+    assert_eq!(replay.version, intent.version);
+}

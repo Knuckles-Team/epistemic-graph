@@ -8,7 +8,12 @@ $($variants)*
     /// Historical native run admission, visible only to its verified immutable
     /// owner. Missing and foreign rows return null; missing original admission
     /// evidence refuses explicitly. Independent of current lease or terminal state.
-    GetRunWorkItem { tenant: String, run_id: String },
+    GetRunWorkItem {
+        tenant: String, run_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selection: Option<Box<crate::inline_history::RunSelectionRequest>>,
+    },
+    GetConversationHead { tenant: String, context_id: String },
 
     // ── Typed WorkItem reads (EH-219) ──────────────────────────────────────
     /// The caller's view of one native WorkItem row, or `null` when no row with

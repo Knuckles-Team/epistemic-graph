@@ -88,6 +88,7 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             "PublishCurrentPlan",
             "GetCurrentPlan",
             "GetRunWorkItem",
+            "GetConversationHead",
             "GetWorkItem",
             "ListWorkItems",
             "GetWorkItemOutcome",
@@ -544,6 +545,7 @@ mod native_resource_capability_tests {
             append_native_work_item_ops(&mut ops, available);
             for op in [
                 "GetRunWorkItem",
+            "GetConversationHead",
                 "GetWorkItem",
                 "ListWorkItems",
                 "GetWorkItemOutcome",

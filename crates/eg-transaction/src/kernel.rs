@@ -670,7 +670,22 @@ impl MutationKernel {
         source: &OwnedStoreHandle<S>,
         destination: &GraftDestination<'_, D>,
     ) -> Result<GraftIntent, String> {
-        crate::graft::graft_begin(self, source, destination)
+        crate::graft::graft_begin(self, source, destination, |_| Ok(()))
+    }
+
+    /// Phase A with read-only owner validation under the source writer,
+    /// before a new marker or fence is written. Existing durable markers replay
+    /// unchanged; validation cannot undo a graft that has already begun.
+    pub fn graft_begin_with_validation<S: OwnerDomain, D: OwnerDomain, F>(
+        &self,
+        source: &OwnedStoreHandle<S>,
+        destination: &GraftDestination<'_, D>,
+        validate: F,
+    ) -> Result<GraftIntent, String>
+    where
+        F: for<'cap, 'store> FnOnce(&crate::GraftOwnerRead<'cap, 'store, S>) -> Result<(), String>,
+    {
+        crate::graft::graft_begin(self, source, destination, validate)
     }
 
     /// Read and authenticate the unique source-side graft marker before a

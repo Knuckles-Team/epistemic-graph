@@ -200,6 +200,13 @@ impl VerifiedRequestContext {
             .any(|(offset, _)| self.scope_wildcard_domains.contains(&action[..offset]))
     }
 
+    /// Explicit operator consent; generic graph/work scopes and anonymous mode
+    /// cannot opt a shared graph into the experimental no-retirement policy.
+    pub(crate) fn allows_inline_history_enable(&self) -> bool {
+        self.is_authenticated() && ["kg:admin", "*"]
+            .iter().any(|scope| self.scope_index.contains(*scope))
+    }
+
     /// Dedicated authority for remote analytics worker leases. A general
     /// `kg:write` grant cannot read job payloads or publish results.
     pub(crate) fn allows_analytics_worker(&self) -> bool {
@@ -611,5 +618,24 @@ mod catalog_partition_tests {
         assert!(first
             .tenant_local_catalog_partition_digest("invalid/name")
             .is_err());
+    }
+}
+
+#[cfg(test)]
+mod inline_history_policy_tests {
+    use super::*;
+
+    #[test]
+    fn only_explicit_authenticated_operator_can_enable_stable_history() {
+        for scopes in [&["work:submit"][..], &["kg:write"][..], &["graph:*"][..]] {
+            let context = VerifiedRequestContext::verified_for_test_with_scopes("owner", "tenant", scopes);
+            assert!(!context.allows_inline_history_enable());
+        }
+        for scopes in [&["kg:admin"][..], &["*"][..]] {
+            let mut context = VerifiedRequestContext::verified_for_test_with_scopes("owner", "tenant", scopes);
+            assert!(context.allows_inline_history_enable());
+            context.origin = AuthorityOrigin::AnonymousLocal;
+            assert!(!context.allows_inline_history_enable());
+        }
     }
 }

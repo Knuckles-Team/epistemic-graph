@@ -275,6 +275,7 @@ fn native_record_consumption_checks_commit_time_and_preserves_expired_rows() {
                         batch_id: "lease-expiry-test",
                         method: &method,
                         nodes: &mut rows.nodes,
+                        inline_history: &mut rows.inline_history,
                         native_work_items: &rows.native_work_items,
                         edges: &mut rows.edges,
                         command_sequences: &mut rows.command_sequences,

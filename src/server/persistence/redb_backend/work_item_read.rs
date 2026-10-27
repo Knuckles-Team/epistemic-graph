@@ -173,20 +173,24 @@ impl RedbBackend {
     }
 
     pub(crate) async fn read_run_work_item(
-        &self,
-        graph_fname: &str,
-        tenant: &str,
-        run_id: &str,
-        actor: &str,
+        &self, graph_fname: &str, tenant: &str, run_id: &str, actor: &str,
+        selection: Option<Box<eg_types::inline_history::RunSelectionRequest>>,
     ) -> Result<Option<eg_types::work_item_read::RunWorkItemView>, String> {
-        self.owner_point_read(
-            graph_fname,
-            tenant,
-            run_id,
-            actor,
-            crate::redb_store::work_item::read_run_admission,
-        )
-        .await
+        if let Some(selection) = selection {
+            let (graph, tenant, run_id, actor) = (graph_fname.to_owned(), tenant.to_owned(), run_id.to_owned(), actor.to_owned());
+            self.read_snapshot(graph_fname, move |shard, crypto| {
+                crate::redb_store::work_item::history_selection::read_selection(shard, &graph, &tenant, &run_id, &actor, &selection, crypto, crate::server::dispatch::authoritative_now_ms())
+            }).await
+        } else {
+            self.owner_point_read(graph_fname, tenant, run_id, actor, crate::redb_store::work_item::read_run_admission).await
+        }
+    }
+
+    pub(crate) async fn read_conversation_head(
+        &self, graph_fname: &str, tenant: &str, context_id: &str, actor: &str,
+    ) -> Result<Option<eg_types::inline_history::ConversationHeadView>, String> {
+        self.owner_point_read(graph_fname, tenant, context_id, actor,
+            crate::redb_store::work_item::history_selection::read_head).await
     }
 
     pub(crate) async fn current_plan_owner(

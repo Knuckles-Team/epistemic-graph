@@ -25,7 +25,7 @@ use crate::decision::statistical::retrieval::LearningRecorded;
 use crate::decision::DecisionJobRecord;
 use crate::delegation::KgDelegateResult;
 use crate::epistemic_operations::{
-    ClaimWorkItemResult, DevelopmentLaneCleanupCompleteResult, DevelopmentLaneFinishResult,
+    DevelopmentLaneCleanupCompleteResult, DevelopmentLaneFinishResult,
     DevelopmentLaneObserveResult, DevelopmentLaneQueryResult, DevelopmentLaneQuotaUpdateResult,
     DevelopmentLaneRenewResult, DevelopmentLaneResult, DevelopmentLaneStatusResult,
     ResourceHostUpdateResult, ResourceReservationResult, ResourceReservationStatusResult,
@@ -45,7 +45,7 @@ method_results! {
     visit_coordination;
     // The claimed node's id and its updated properties, or nil when nothing matched.
     ClaimNext(ClaimNext) => Raw<Option<(String, serde_json::Value)>>;
-    ClaimWorkItem(ClaimWorkItem) => Raw<ClaimWorkItemResult>;
+    ClaimWorkItem(ClaimWorkItem) => Raw<crate::inline_history::NativeClaimWorkItemResult>;
     AcquireCapacity(AcquireCapacity) => Raw<CapacityAcquireResult>;
     RenewCapacity(RenewCapacity) => Raw<CapacityMutationResult>;
     ReleaseCapacity(ReleaseCapacity) => Raw<CapacityMutationResult>;
@@ -68,6 +68,7 @@ method_results! {
     // visible to the verified tenant.
     PublishCurrentPlan(PublishCurrentPlan) => Raw<crate::current_plan::CurrentPlanPublished>;
     GetCurrentPlan(GetCurrentPlan) => Raw<Option<crate::current_plan::CurrentPlanSnapshot>>;
+    GetConversationHead(GetConversationHead) => Raw<Option<crate::inline_history::ConversationHeadView>>;
     GetRunWorkItem(GetRunWorkItem) => Raw<Option<crate::work_item_read::RunWorkItemView>>;
     GetWorkItem(GetWorkItem) => Raw<Option<WorkItemView>>;
     ListWorkItems(ListWorkItems) => Raw<WorkItemPage>;

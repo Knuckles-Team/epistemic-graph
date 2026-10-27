@@ -22,7 +22,7 @@ All fixtures run against a disposable local data directory and generated credent
 
 ## Commands and quality evidence
 
-Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-stream`, `eg-tsdb`, and affected server integration tests, followed by the configured full pre-commit and hosted parity commands in `plan.md`. Run `python3 scripts/check_universal_read_rls.py` and `python3 scripts/check_persisted_mutation_contract.py` when their paths are affected. The repository's CCCC changed-function gate rejects new cyclomatic >10 or cognitive >15; run the configured Dupehound changed-function and jscpd differential gates without new suppressions, plus KISS, Rust architecture lint and clippy. Record scanner versions from the checked-in scanner contract. A benchmark is evidence only for its measured hardware/workload/durability class; no live environment is an implicit prerequisite to unit or contract acceptance.
+Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-stream` and `eg-tsdb`, plus affected server integration tests. Then run the configured full pre-commit and hosted parity commands in `plan.md`. Run `python3 scripts/check_universal_read_rls.py` and `python3 scripts/check_persisted_mutation_contract.py` when their paths are affected. The repository's CCCC changed-function gate rejects new cyclomatic >10 or cognitive >15; run the configured Dupehound changed-function and jscpd differential gates without new suppressions, plus KISS, Rust architecture lint and clippy. Record scanner versions from the checked-in scanner contract. A benchmark is evidence only for its measured hardware/workload/durability class; no live environment is an implicit prerequisite to unit or contract acceptance.
 
 ## Evidence record
 
@@ -462,3 +462,31 @@ turns, inspect the actual model request for prior user, assistant and tool
 messages, and prove no repeated tool effect. It must also prove fresh new-turn
 budgets, exact same-run checkpoint precedence, bounded context and explicit
 conflict handling. Those checks remain open under the existing parent rows.
+
+## R028.4.5–.7 bounded terminal-text qualification (pending)
+
+- DTO canonical Unicode/quote/newline/slash vectors; raw and escaped byte bounds.
+- Atomic terminal own-pair commit, prompt digest, private row/pointer/receipt,
+  exact-expiry refusal, storage rollback, quota boundary and replay uncharged.
+- Close/reopen storage without losing admitted identity or private checkpoints.
+- Pending, failed and completed profiles refuse `ClearGraph`/`DeleteGraph`, retirement and snapshot replacement before effects.
+  Assert original rows, markers, counters and authority remain unchanged. Legacy retirement still succeeds.
+- Generic GetNodeProperties, Query and graph export under another graph-authorized
+  principal never return private text; owner selection succeeds, foreign selection
+  is redacted. Test real dispatch/auth rather than only native write guards.
+- Same-snapshot first turn and two-turn chain; receipt/digest/revision corruption,
+  unknown profile, cycles, 128 prior-turn and 64 KiB aggregate boundaries.
+- Direct first claim true; exact lost-response retry false; live competing claim
+  unavailable; expired reclaim false; process restart replay false; zero effects.
+- Real producer+Arbora restart, released Meristem selection and captured next model
+  input. Assert persisted prior text, current prompt once and no repeated effects.
+
+Source cases are not native execution receipts. Generated contracts and hosted
+qualification remain required; broader R028.1/R085/R751 remain open.
+
+- First ordinary or anonymous admission refuses before any row writes. Operator
+  admission enables the retained graph; later valid owners can submit normally.
+- Forged public carrier capabilities cannot dispatch native profile admission.
+- Graft validation under the source write lock orders against profile admission.
+  Refusal leaves no maximum fence or destination reservation; prior graft fencing
+  prevents a later admission from creating a private profile marker.

@@ -11,6 +11,7 @@ use super::layout::{layout_digest_over, OwnerLayout};
 use super::lineage::{
     AGENT_LIBRARY_BEFORE_MCP_CATALOG, GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
     GRAPH_SHARD_BEFORE_CURRENT_PLANS, GRAPH_SHARD_BEFORE_ENRICHMENT,
+    GRAPH_SHARD_BEFORE_INLINE_HISTORY,
 };
 use super::persisted_layout::LayoutPredecessor;
 use super::registry::predecessor_evidence;
@@ -53,6 +54,8 @@ pub enum GraphShardSource {
     BeforeAuditRequests,
     /// Before private current-plan snapshots.
     BeforeCurrentPlans,
+    /// Before the private completed-text snapshot and quota table.
+    BeforeInlineHistory,
 }
 
 impl GraphShardSource {
@@ -61,6 +64,7 @@ impl GraphShardSource {
             Self::BeforeEnrichment => &GRAPH_SHARD_BEFORE_ENRICHMENT,
             Self::BeforeAuditRequests => &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
             Self::BeforeCurrentPlans => &GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+            Self::BeforeInlineHistory => &GRAPH_SHARD_BEFORE_INLINE_HISTORY,
         }
     }
 
@@ -69,6 +73,7 @@ impl GraphShardSource {
             Self::BeforeEnrichment => super::lineage::GRAPH_SHARD_PRE_ENRICHMENT_DIGEST,
             Self::BeforeAuditRequests => super::lineage::GRAPH_SHARD_PRE_AUDIT_REQUESTS_DIGEST,
             Self::BeforeCurrentPlans => super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST,
+            Self::BeforeInlineHistory => super::lineage::GRAPH_SHARD_PRE_INLINE_HISTORY_DIGEST,
         }
     }
 }

@@ -939,6 +939,7 @@ async fn run_admission_owner_read_survives_native_changes_and_restart() {
         "admit recovery run",
     );
     let get = || Method::GetRunWorkItem {
+        selection: None,
         tenant: TENANT.into(),
         run_id: original.run_id.clone().unwrap(),
     };
@@ -972,6 +973,7 @@ async fn assert_original_admission_reads(
 ) {
     use eg_types::work_item_read::RunWorkItemView;
     let get = || Method::GetRunWorkItem {
+        selection: None,
         tenant: TENANT.into(),
         run_id: original.run_id.clone().unwrap(),
     };
@@ -998,6 +1000,7 @@ async fn assert_original_admission_reads(
             signed_run_request(
                 903,
                 Method::GetRunWorkItem {
+                    selection: None,
                     tenant: TENANT.into(),
                     run_id: "missing".into(),
                 },
@@ -1013,6 +1016,7 @@ async fn assert_original_admission_reads(
         signed_run_request(
             904,
             Method::GetRunWorkItem {
+                selection: None,
                 tenant: "foreign-tenant".into(),
                 run_id: original.run_id.clone().unwrap(),
             },
@@ -1147,6 +1151,7 @@ async fn run_admission_concurrent_retry_recovers_exact_winner() {
             signed_run_request(
                 922,
                 Method::GetRunWorkItem {
+                    selection: None,
                     tenant: TENANT.into(),
                     run_id: expected.run_id.clone().unwrap(),
                 },
@@ -1282,6 +1287,7 @@ async fn assert_strict_admission_recovery(
             signed_run_request(
                 first_id + 20,
                 Method::GetRunWorkItem {
+                    selection: None,
                     tenant: TENANT.into(),
                     run_id: "run-owner-admission".into(),
                 },
@@ -1330,5 +1336,75 @@ async fn strict_run_admission_refusals_preserve_durable_evidence_after_restart()
     drop(restarted);
     reopened.shutdown();
     drop(reopened);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+
+// spec: EG-DURABLE-KERNEL-R028.4.3
+#[tokio::test]
+async fn terminal_history_claim_replay_never_reissues_fresh_execution_grant() {
+    use eg_types::inline_history::NativeClaimWorkItemResult as ClaimWorkItemResult;
+    let (dir, concrete, state) = fresh_run_state("eg-history-claim-freshness").await;
+    let mut submit = run_submit_method();
+    if let Method::SubmitWorkItem { request } = &mut submit {
+        request.conversation = Some(Box::new(serde_json::from_value(serde_json::json!({
+            "schema_version":"1", "context_id":"freshness-context", "expected_revision":0,
+            "predecessor_run_id":null, "history_profile":{"version":1,"user_text_digest":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}
+        })).unwrap()));
+    }
+    let response = test_support::dispatch(
+        &state, signed_run_request(801, submit, "history-freshness-submit"),
+    ).await;
+    let submitted: SubmitWorkItemResult = decode_raw(&response, "profile admission");
+    let mut claim = claim_method(WORKER);
+    if let Method::ClaimWorkItem { request } = &mut claim {
+        request.work_item_id = Some(submitted.work_item_id.clone());
+        request.lease_ms = 60_000;
+    }
+    let before = concrete.read_node(GRAPH, &submitted.work_item_id).await.unwrap().unwrap();
+    let foreign = test_support::dispatch(
+        &state,
+        signed_request_with_agent(
+            806, claim.clone(), "history-foreign-claim", "agent:foreign-owner",
+            "agent:delegated-run-worker",
+        ),
+    ).await;
+    assert!(foreign.error.is_some(), "foreign owner must not obtain profile grant");
+    assert_eq!(concrete.read_node(GRAPH, &submitted.work_item_id).await.unwrap().unwrap(), before);
+    let response = test_support::dispatch(
+        &state, signed_run_request(802, claim.clone(), "history-freshness-claim"),
+    ).await;
+    let first: ClaimWorkItemResult = decode_raw(&response, "fresh profile claim");
+    assert!(first.claimed);
+    assert_eq!(first.attempt, Some(1));
+    assert_eq!(first.fresh_execution_grant, Some(true));
+
+    // Simulate an uncertain/lost reply by retrying with a new transport nonce.
+    let response = test_support::dispatch(
+        &state, signed_run_request(803, claim.clone(), "history-freshness-claim"),
+    ).await;
+    let replay: ClaimWorkItemResult = decode_raw(&response, "profile claim replay");
+    assert_eq!(replay.lease_epoch, first.lease_epoch);
+    assert_eq!(replay.fencing_token, first.fencing_token);
+    assert_eq!(replay.work_item_id, first.work_item_id);
+    assert_eq!(replay.fresh_execution_grant, Some(false));
+
+    let response = test_support::dispatch(
+        &state, signed_run_request(804, claim.clone(), "history-freshness-another-claim"),
+    ).await;
+    let in_flight: ClaimWorkItemResult = decode_raw(&response, "already leased profile run");
+    assert!(!in_flight.claimed);
+    assert_ne!(in_flight.fresh_execution_grant, Some(true));
+
+    let (reopened, restarted) = reopen_run_state(state, concrete, &dir).await;
+    let response = test_support::dispatch(
+        &restarted, signed_run_request(805, claim, "history-freshness-claim"),
+    ).await;
+    let replay: ClaimWorkItemResult = decode_raw(&response, "reopened profile claim replay");
+    assert_eq!(replay.lease_epoch, first.lease_epoch);
+    assert_eq!(replay.fencing_token, first.fencing_token);
+    assert_eq!(replay.fresh_execution_grant, Some(false));
+    drop(restarted);
+    reopened.shutdown();
     let _ = std::fs::remove_dir_all(dir);
 }

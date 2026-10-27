@@ -55,6 +55,7 @@ fn validate<'a>(
     {
         return Err("CONVERSATION_INVALID: invalid context or predecessor binding".into());
     }
+    turn.history_profile.as_ref().map(|profile| profile.validate()).transpose()?;
     Ok((actor, run))
 }
 
@@ -94,6 +95,7 @@ fn preceding_run(
     if !admission_matches(&original, head) {
         return Err("CONVERSATION_UNAVAILABLE: predecessor admission binding changed".into());
     }
+    validate_profile_continuity(turn, &original, &row)?;
     match property_string(&row, "status") {
         "succeeded" => Ok(()),
         "failed" | "cancelled" | "dead_letter" => {
@@ -104,6 +106,21 @@ fn preceding_run(
         }
         _ => Err("CONVERSATION_UNAVAILABLE: predecessor state is unknown".into()),
     }
+}
+
+fn validate_profile_continuity(
+    turn: &ConversationTurnAdmission, original: &SubmitWorkItemRequest,
+    row: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    if turn.history_profile.is_some()
+        != original.conversation.as_ref().is_some_and(|value| value.history_profile.is_some())
+    {
+        return Err("CONVERSATION_UNSUPPORTED: cannot change the admitted history profile".into());
+    }
+    if turn.history_profile.is_some() && !row.contains_key(super::inline_history::POINTER) {
+        return Err("CONVERSATION_UNAVAILABLE: completed predecessor checkpoint is absent".into());
+    }
+    Ok(())
 }
 
 fn admission_matches(original: &SubmitWorkItemRequest, head: &Head) -> bool {

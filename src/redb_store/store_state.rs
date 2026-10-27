@@ -599,6 +599,7 @@ pub(crate) fn apply_snapshot_state(
     // generic restore cannot manufacture an active lease, then purge all
     // private claim state atomically before installing the replacement.
     work_item_capability::validate_snapshot_nodes(&incoming_nodes)?;
+    work_item::inline_history::refuse_snapshot_replacement(write, graph_fname, &incoming_nodes, crypto)?;
     work_item_capability::clear_graph_rows(write, graph_fname)?;
     enrichment_budget::clear_graph_rows(write, graph_fname)?;
     development_lane::validate_lane_links_in_wtx(write, graph_fname, &incoming_nodes, crypto)?;

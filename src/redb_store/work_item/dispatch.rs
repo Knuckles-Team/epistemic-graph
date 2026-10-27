@@ -4,8 +4,11 @@ use super::*;
 
 pub(crate) struct WorkItemApplyRequest<'args, 'table, 'crypto> {
     pub(crate) graph: &'args str,
+    pub(crate) admitted_actor: Option<&'args str>,
     pub(crate) batch_id: &'args str,
     pub(crate) method: &'args Method,
+    pub(crate) inline_history:
+        &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
     pub(crate) nodes:
         &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
     pub(crate) holds:
@@ -43,9 +46,11 @@ pub(crate) fn apply_work_item_rows(
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let WorkItemApplyRequest {
         graph,
+        admitted_actor,
         batch_id,
         method,
         nodes,
+        inline_history,
         holds,
         work_item_index,
         counters,
@@ -59,7 +64,7 @@ pub(crate) fn apply_work_item_rows(
     } = request;
     match method {
         Method::ClaimWorkItem { request } => {
-            apply_claim_work_item_row(graph, request, nodes, native_work_items, crypto)
+            apply_claim_work_item_row(graph, request, nodes, native_work_items, crypto, admitted_actor)
         }
         Method::RenewWorkItemLease {
             tenant,
@@ -102,6 +107,7 @@ pub(crate) fn apply_work_item_rows(
             idempotency_key: _,
         } => apply_commit_work_item_result_row(CommitWorkItemResultInput {
             graph,
+            admitted_actor,
             tenant,
             work_item_id,
             worker_id,
@@ -123,6 +129,7 @@ pub(crate) fn apply_work_item_rows(
             run_completion: run_completion.as_deref(),
             batch_id,
             nodes: &mut *nodes,
+            inline_history: &mut *inline_history,
             holds: &mut *holds,
             work_item_index,
             counters: &mut *counters,
@@ -189,6 +196,7 @@ pub(crate) fn apply_work_item_rows(
                 batch_id,
                 method: other,
                 nodes,
+                inline_history,
                 native_work_items,
                 edges,
                 command_sequences,

@@ -264,21 +264,24 @@ pub(crate) fn claim_not_claimed_payload(
     changed_work_item_ids: Vec<String>,
 ) -> Result<crate::protocol::ResultPayload, String> {
     crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
-        ClaimWorkItemResult {
-            schema_version: ClaimWorkItemResultSchemaVersion::V1,
-            claimed: false,
-            reason,
-            work_item_id: None,
-            kind: None,
-            payload_ref: None,
-            lease_holder_ref: None,
-            lease_epoch: None,
-            fencing_token: None,
-            lease_expires_at_ms: None,
-            attempt: None,
-            max_attempts: None,
-            tenant_in_flight: Some(u64::from(inflight)),
-            changed_work_item_ids,
+        eg_types::inline_history::NativeClaimWorkItemResult {
+            fresh_execution_grant: None,
+            claim: ClaimWorkItemResult {
+                schema_version: ClaimWorkItemResultSchemaVersion::V1,
+                claimed: false,
+                reason,
+                work_item_id: None,
+                kind: None,
+                payload_ref: None,
+                lease_holder_ref: None,
+                lease_epoch: None,
+                fencing_token: None,
+                lease_expires_at_ms: None,
+                attempt: None,
+                max_attempts: None,
+                tenant_in_flight: Some(u64::from(inflight)),
+                changed_work_item_ids,
+            },
         },
     )
 }
@@ -325,6 +328,7 @@ pub(crate) fn claim_grant_lease(
 }
 
 struct ClaimWorkItemApply<'args, 'table, 'crypto> {
+    admitted_actor: Option<&'args str>,
     graph: &'args str,
     request: &'args crate::epistemic_operations::ClaimWorkItemRequest,
     now_ms: u64,
@@ -360,10 +364,53 @@ fn select_claim_candidate(mut candidates: Vec<ClaimCandidateRow>) -> Option<Clai
     candidates.into_iter().next()
 }
 
+/// The immutable native admission opts into the bounded terminal-only profile.
+/// The verified claim actor must own the profile, not merely know lease fields.
+/// The marker is not a bearer credential: selection checks the owner and live
+/// fence again before the trusted host can consume the grant once.
+fn profile_execution_grant(
+    graph: &str,
+    tenant: &str,
+    node_id: &str,
+    props: &serde_json::Map<String, serde_json::Value>,
+    attempt: u64,
+    admitted_actor: Option<&str>,
+) -> Result<Option<bool>, String> {
+    let Some(original) = props.get(super::run_owner::ADMISSION_REQUEST) else {
+        return Ok(None);
+    };
+    if original
+        .get("conversation")
+        .and_then(|turn| turn.get("history_profile"))
+        .is_none_or(serde_json::Value::is_null)
+    {
+        return Ok(None);
+    }
+    let admission: eg_types::native_control::SubmitWorkItemRequest =
+        serde_json::from_value(original.clone())
+            .map_err(|_| "invalid immutable history-profile admission")?;
+    let profile = admission
+        .conversation
+        .as_ref()
+        .and_then(|turn| turn.history_profile.as_ref())
+        .ok_or("missing immutable history profile")?;
+    profile.validate()?;
+    let run = admission.run_id.as_deref().ok_or("missing native profile run")?;
+    super::run_owner::validate_completion_owner(props, graph, tenant, run, node_id)?;
+    let actor = admitted_actor
+        .filter(|actor| !actor.is_empty())
+        .ok_or("ACCESS_DENIED: history-profile claim requires verified owner")?;
+    if !super::run_owner::binding_matches(props, graph, tenant, run, node_id, actor) {
+        return Err("ACCESS_DENIED: history-profile claim requires verified owner".into());
+    }
+    Ok(Some(attempt == 1))
+}
+
 fn apply_claimed_work_item(
     input: ClaimWorkItemApply<'_, '_, '_>,
 ) -> Result<crate::protocol::ResultPayload, String> {
     let ClaimWorkItemApply {
+        admitted_actor,
         graph,
         request,
         now_ms,
@@ -380,6 +427,8 @@ fn apply_claimed_work_item(
     } = input;
     let worker_id = &request.worker_ref;
     let (epoch, attempt) = claim_grant_lease(&mut props, worker_id, now_s, lease_until_s)?;
+    let fresh_execution_grant =
+        profile_execution_grant(graph, &request.tenant_ref, &node_id, &props, attempt, admitted_actor)?;
     let kind = property_string(&props, "kind").to_string();
     let payload_ref = property_string(&props, "payload_ref").to_string();
     let max_attempts = property_u64(&props, "max_attempts").max(1);
@@ -406,21 +455,24 @@ fn apply_claimed_work_item(
     )?;
     changed_work_item_ids.push(node_id.clone());
     crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
-        ClaimWorkItemResult {
-            schema_version: ClaimWorkItemResultSchemaVersion::V1,
-            claimed: true,
-            reason: ClaimWorkItemResultReason::Claimed,
-            work_item_id: Some(node_id),
-            kind: (!kind.is_empty()).then_some(kind),
-            payload_ref: (!payload_ref.is_empty()).then_some(payload_ref),
-            lease_holder_ref: Some(worker_id.clone()),
-            lease_epoch: Some(epoch),
-            fencing_token: Some(epoch),
-            lease_expires_at_ms: Some(now_ms.saturating_add(lease_ms)),
-            attempt: Some(attempt),
-            max_attempts: Some(max_attempts),
-            tenant_in_flight: Some(u64::from(inflight.saturating_add(1))),
-            changed_work_item_ids,
+        eg_types::inline_history::NativeClaimWorkItemResult {
+            fresh_execution_grant,
+            claim: ClaimWorkItemResult {
+                schema_version: ClaimWorkItemResultSchemaVersion::V1,
+                claimed: true,
+                reason: ClaimWorkItemResultReason::Claimed,
+                work_item_id: Some(node_id),
+                kind: (!kind.is_empty()).then_some(kind),
+                payload_ref: (!payload_ref.is_empty()).then_some(payload_ref),
+                lease_holder_ref: Some(worker_id.clone()),
+                lease_epoch: Some(epoch),
+                fencing_token: Some(epoch),
+                lease_expires_at_ms: Some(now_ms.saturating_add(lease_ms)),
+                attempt: Some(attempt),
+                max_attempts: Some(max_attempts),
+                tenant_in_flight: Some(u64::from(inflight.saturating_add(1))),
+                changed_work_item_ids,
+            },
         },
     )
 }
@@ -431,6 +483,7 @@ pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
     nodes: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
     native_work_items: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
     crypto: DurableCrypto<'crypto>,
+    admitted_actor: Option<&str>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let tenant = &request.tenant_ref;
     let worker_id = &request.worker_ref;
@@ -469,6 +522,7 @@ pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
         )?));
     };
     Ok(Some(apply_claimed_work_item(ClaimWorkItemApply {
+        admitted_actor,
         graph,
         request,
         now_ms,
@@ -615,4 +669,60 @@ mod tests {
             assert!(props["lease_owner"].is_null());
         }
     }
+
+    fn history_profile_row() -> (String, serde_json::Map<String, serde_json::Value>) {
+        let mut admission = super::super::test_shard::run_request();
+        admission.conversation = Some(Box::new(serde_json::from_value(serde_json::json!({
+            "schema_version":"1", "context_id":"context", "expected_revision":0,
+            "predecessor_run_id":null, "history_profile":{"version":1,"user_text_digest":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}
+        })).unwrap()));
+        let graph = super::super::test_shard::GRAPH;
+        let id = super::super::run_owner::work_item_id(graph, "tenant", "run").unwrap();
+        let binding = super::super::run_owner::admit_owner(graph, &admission, Some("owner"))
+            .unwrap().unwrap();
+        let row = serde_json::json!({
+            "node_type":"WorkItem", "tenant":"tenant", "status":"ready",
+            "attempt":0, "max_attempts":3, "lease_epoch":0, "fencing_token":0,
+            "run_owner_binding":binding, "run_admission_request":admission
+        }).as_object().unwrap().clone();
+        (id, row)
+    }
+
+    #[test]
+    fn history_profile_first_claim_and_expired_reclaim_have_distinct_freshness() {
+        let graph = super::super::test_shard::GRAPH;
+        let (id, mut row) = history_profile_row();
+        let (_, first_attempt) = claim_grant_lease(&mut row, "worker", 1.0, 2.0).unwrap();
+        assert_eq!(profile_execution_grant(graph, "tenant", &id, &row, first_attempt, Some("owner")), Ok(Some(true)));
+        let mut request = claim_request(Some(&id));
+        request.tenant_ref = "tenant".into();
+        assert!(matches!(classify_claim_row(&request, &id, row.clone(), 1.5), Ok(ClaimRowOutcome::InFlight)));
+        assert!(!claim_reclaim_expired_lease(&mut row, &id, "leased", 2.0).unwrap());
+        let (_, next_attempt) = claim_grant_lease(&mut row, "worker", 2.0, 3.0).unwrap();
+        assert_eq!(next_attempt, 2);
+        assert_eq!(profile_execution_grant(graph, "tenant", &id, &row, next_attempt, Some("owner")), Ok(Some(false)));
+    }
+
+    #[test]
+    fn history_profile_freshness_requires_immutable_run_binding() {
+        let graph = super::super::test_shard::GRAPH;
+        let (id, mut row) = history_profile_row();
+        assert!(profile_execution_grant(graph, "other-tenant", &id, &row, 1, Some("owner")).is_err());
+        for actor in [None, Some(""), Some("foreign-owner")] {
+            assert!(profile_execution_grant(graph, "tenant", &id, &row, 1, actor).is_err());
+        }
+        row["run_owner_binding"]["run_id"] = "foreign-run".into();
+        assert!(profile_execution_grant(graph, "tenant", &id, &row, 1, Some("owner")).is_err());
+        let (_, mut row) = history_profile_row();
+        row["run_admission_request"]["conversation"]["history_profile"]["version"] = 2.into();
+        assert!(profile_execution_grant(graph, "tenant", &id, &row, 1, Some("owner")).is_err());
+    }
+
+    #[test]
+    fn legacy_claim_has_no_new_execution_hint() {
+        let row = serde_json::json!({"node_type":"WorkItem","attempt":1})
+            .as_object().unwrap().clone();
+        assert_eq!(profile_execution_grant("graph", "tenant", "id", &row, 1, Some("owner")), Ok(None));
+    }
+
 }

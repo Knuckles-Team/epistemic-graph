@@ -33,6 +33,7 @@ const GAP_MARKET_POLICY: &str = "eg/work-market/v1";
 pub(super) struct GapUpsertTables<'args, 'table> {
     pub(super) graph: &'args str,
     pub(super) nodes: &'args mut NodeRows<'table>,
+    pub(super) inline_history: &'args mut NodeRows<'table>,
     pub(super) edges: &'args mut ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str, &'static str, u32),
@@ -51,6 +52,7 @@ pub(super) fn apply_gap_upsert_rows(
     let GapUpsertTables {
         graph,
         nodes,
+        inline_history,
         edges,
         command_sequences,
     } = tables;
@@ -84,6 +86,7 @@ pub(super) fn apply_gap_upsert_rows(
             graph,
             &submission,
             nodes,
+            inline_history,
             edges,
             command_sequences,
             scope,

@@ -118,6 +118,29 @@ pub(super) fn cleanup_losing_reservation_in<S: OwnerDomain, D: OwnerDomain>(
     }
 }
 
+/// Owner validation definitively refused before this attempt wrote a marker.
+/// Only an authenticated absent source marker permits cancellation; ambiguous
+/// or already-marked source state retains the existing recovery reservation.
+pub(super) fn cleanup_refused_validation_in<S: OwnerDomain, D: OwnerDomain>(
+    primary: String,
+    source_write: &AdmittedMutation<'_, S>,
+    destination: &GraftDestination<'_, D>,
+    identity: &MutationScopeIdentity,
+    source_digest: &str,
+    target: &str,
+) -> String {
+    match super::source_marker_in(source_write, identity) {
+        Ok(None) => match cancel_reservation(destination, identity, source_digest, target) {
+            Ok(()) => primary,
+            Err(error) => format!("{primary}; refused reservation was retained: {error}"),
+        },
+        Ok(Some(_)) => cleanup_losing_reservation_in(
+            primary, source_write, destination, identity, source_digest, target,
+        ),
+        Err(_) => primary,
+    }
+}
+
 fn cancel_reservation<D: OwnerDomain>(
     destination: &GraftDestination<'_, D>,
     identity: &MutationScopeIdentity,

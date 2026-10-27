@@ -31,6 +31,7 @@ pub(crate) struct NativeRecordRequest<'args, 'table, 'crypto> {
     pub(crate) batch_id: &'args str,
     pub(crate) method: &'args Method,
     pub(crate) nodes: &'args mut NodeRows<'table>,
+    pub(crate) inline_history: &'args mut NodeRows<'table>,
     pub(crate) native_work_items: &'args NodeRows<'table>,
     pub(crate) edges: &'args mut NativeEdgeRows<'table>,
     pub(crate) command_sequences: &'args mut NativeSequenceRows<'table>,
@@ -60,10 +61,11 @@ pub(crate) fn apply_native_record_rows(
             upsert::GapUpsertTables {
                 graph: request.graph,
                 nodes: request.nodes,
+                inline_history: request.inline_history,
                 edges: request.edges,
                 command_sequences: request.command_sequences,
             },
-            WorkItemCommitScope {
+            WorkItemCommitScope { inline_history_enable_authorized: false,
                 admitted_actor: None,
                 crypto: request.crypto,
                 authoritative_now_ms: request.committed_at_ms,

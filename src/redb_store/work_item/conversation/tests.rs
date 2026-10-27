@@ -10,6 +10,7 @@ fn request(run: &str, revision: u64, predecessor: Option<&str>) -> SubmitWorkIte
         context_id: "context".into(),
         expected_revision: revision,
         predecessor_run_id: predecessor.map(str::to_owned),
+        history_profile: None,
     }));
     request
 }
@@ -22,9 +23,10 @@ fn admit(shard: &Shard, request: &SubmitWorkItemRequest, owner: &str) -> Result<
             GRAPH,
             request,
             &mut rows.nodes,
+            &mut rows.inline_history,
             &mut rows.edges,
             &mut rows.command_sequences,
-            WorkItemCommitScope {
+            WorkItemCommitScope { inline_history_enable_authorized: false,
                 crypto: DurableCrypto::none(),
                 authoritative_now_ms: 1000,
                 admitted_actor: Some(owner),

@@ -41,7 +41,7 @@ mod tables;
 
 pub use admitted::{AdmittedMutation, AdmittedOwnerWrite};
 pub use graft::{
-    GraftDestination, GraftIntent, GraftOwnerWrite, GraftSource, GraftedScope,
+    GraftDestination, GraftIntent, GraftOwnerRead, GraftOwnerWrite, GraftSource, GraftedScope,
     OwnerPayloadTransfer, OwnerPayloadWrite,
 };
 pub use group::{AdmittedGroup, CurrentIntent, ScopedIntent};

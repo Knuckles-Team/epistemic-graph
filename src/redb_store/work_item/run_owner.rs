@@ -75,12 +75,20 @@ pub(crate) fn read_admission(
     actor: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<eg_types::work_item_read::RunWorkItemView>, String> {
-    use eg_types::native_control::SubmitWorkItemRequest;
-    use eg_types::work_item_read::{validate_work_item_get, RunWorkItemView, WorkItemView};
+    use eg_types::work_item_read::validate_work_item_get;
     validate_work_item_get(tenant, run_id)?;
-    let id = work_item_id(graph, tenant, run_id)?;
     let handle = shard.graph(graph)?;
     let snapshot = shard.read(&handle)?;
+    read_admission_in(&snapshot, graph, tenant, run_id, actor, crypto)
+}
+
+pub(super) fn read_admission_in(
+    snapshot: &eg_storage::ScopedRead<'_, eg_storage::GraphShardOwner>,
+    graph: &str, tenant: &str, run_id: &str, actor: &str, crypto: DurableCrypto<'_>,
+) -> Result<Option<eg_types::work_item_read::RunWorkItemView>, String> {
+    use eg_types::native_control::SubmitWorkItemRequest;
+    use eg_types::work_item_read::{RunWorkItemView, WorkItemView};
+    let id = work_item_id(graph, tenant, run_id)?;
     let nodes = snapshot.scoped_owner_table(NODES)?;
     let row = nodes
         .get((graph, id.as_str()))?
@@ -117,9 +125,9 @@ pub(crate) fn read_admission(
         (Some(batch), Some(digest)) => {
             let batch = batch.as_str().ok_or("invalid run completion batch")?;
             let digest = digest.as_str().ok_or("invalid run completion digest")?;
-            let receipt = eg_transaction::read_ledger(&snapshot, batch)?
+            let receipt = eg_transaction::read_ledger(snapshot, batch)?
                 .ok_or("missing run completion receipt")?;
-            let records = eg_transaction::read_outbox(&snapshot, batch)?;
+            let records = eg_transaction::read_outbox(snapshot, batch)?;
             Some(project_completion(
                 snapshot.scope(),
                 tenant,
@@ -134,11 +142,19 @@ pub(crate) fn read_admission(
         }
         _ => return Err("incomplete run completion binding".into()),
     };
-    Ok(Some(RunWorkItemView {
+    let mut view = RunWorkItemView {
+        completed_checkpoint: None,
+        checkpoint_selection: None,
         run_completion,
         work_item,
         admission,
-    }))
+    };
+    let profiled = view.admission.conversation.as_ref().is_some_and(|c| c.history_profile.is_some());
+    if profiled && view.work_item.status == eg_types::work_item_read::WorkItemStatus::Succeeded {
+        let (envelope, _) = super::history_selection::completed_turn(snapshot, graph, tenant, actor, &view, crypto)?;
+        view.completed_checkpoint = Some(serde_json::to_string(&envelope).map_err(|e| e.to_string())?);
+    }
+    Ok(Some(view))
 }
 
 #[cfg(test)]

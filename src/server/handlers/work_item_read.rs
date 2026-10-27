@@ -26,10 +26,12 @@ use crate::server::persistence::PersistenceBackend;
 /// One decoded WorkItem read.
 pub(crate) enum WorkItemRead {
     RunAdmission {
+        selection: Option<Box<eg_types::inline_history::RunSelectionRequest>>,
         tenant: String,
         run_id: String,
         actor: String,
     },
+    ConversationHead { tenant: String, context_id: String, actor: String },
     CurrentPlan {
         tenant: String,
         run_id: String,
@@ -65,7 +67,7 @@ impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
             Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
-            Self::CurrentPlan { tenant, .. } | Self::RunAdmission { tenant, .. } => tenant,
+            Self::CurrentPlan { tenant, .. } | Self::RunAdmission { tenant, .. } | Self::ConversationHead { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLeases(request) => &request.tenant,
             Self::ControlLease { tenant, .. } | Self::Gap { tenant, .. } => tenant,
@@ -117,6 +119,7 @@ async fn serve_native(
         .ok_or_else(|| NATIVE_UNAVAILABLE.to_string())?;
     match read {
         WorkItemRead::RunAdmission {
+            selection,
             tenant,
             run_id,
             actor,
@@ -124,9 +127,13 @@ async fn serve_native(
             let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
             ResultPayload::of::<eg_types::result_contract::coordination::GetRunWorkItem>(
                 backend
-                    .read_run_work_item(graph, &tenant, &run_id, &actor)
+                    .read_run_work_item(graph, &tenant, &run_id, &actor, selection)
                     .await?,
             )
+        }
+        WorkItemRead::ConversationHead { tenant, context_id, actor } => {
+            let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetConversationHead>(backend.read_conversation_head(graph, &tenant, &context_id, &actor).await?)
         }
         WorkItemRead::CurrentPlan {
             tenant,

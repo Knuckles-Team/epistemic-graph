@@ -82,6 +82,7 @@ pub(crate) fn apply_add_edge_row(
 /// what keeps the writers below inside the argument cap without threading six
 /// same-shaped handles positionally through every one of them.
 pub(crate) struct GraphRowTables<'g> {
+    pub(crate) inline_history: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) current_plans: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) nodes: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) edges:
@@ -108,6 +109,7 @@ where
     'w: 'a,
 {
     pub(crate) nodes: &'a mut ScopedOwnerTableMut<'n, (&'static str, &'static str), &'static [u8]>,
+    pub(crate) inline_history: &'a mut ScopedOwnerTableMut<'n, (&'static str, &'static str), &'static [u8]>,
     pub(crate) edges: &'a mut ScopedOwnerTableMut<
         'e,
         (&'static str, &'static str, &'static str, u32),
@@ -126,6 +128,7 @@ impl<'g> GraphRowTables<'g> {
     ) -> Result<Self, String> {
         Ok(Self {
             nodes: member.open_scoped_table(NODES)?,
+            inline_history: member.open_scoped_table(super::work_item::inline_history::INLINE_HISTORY)?,
             current_plans: member
                 .open_scoped_table(super::work_item::current_plan::CURRENT_PLANS)?,
             edges: member.open_scoped_table(EDGES)?,
@@ -147,6 +150,7 @@ pub(crate) fn apply_method_rows(
 ) -> Result<(), String> {
     let mut tables = GraphRowTablesRef {
         nodes: &mut tables.nodes,
+        inline_history: &mut tables.inline_history,
         edges: &mut tables.edges,
         ledger: &mut tables.ledger,
         semantic: &mut tables.semantic,
@@ -163,6 +167,7 @@ pub(crate) fn apply_method_rows_ref(
 ) -> Result<(), String> {
     let GraphRowTablesRef {
         nodes,
+        inline_history,
         edges,
         ledger,
         semantic,
@@ -172,6 +177,7 @@ pub(crate) fn apply_method_rows_ref(
     work_item_capability::validate_generic_method(graph, method, nodes, native_work_items, crypto)?;
     work_item::refuse_generic_native_row_write(graph, method, nodes, crypto)?;
     sealed_rows::refuse_generic_sealed_row_write(graph, method, nodes, crypto)?;
+    work_item::inline_history::guard_clear(method, nodes, inline_history, crypto)?;
     match method {
         Method::AddNode {
             node_id,
@@ -230,6 +236,7 @@ pub(crate) fn apply_method_rows_ref(
         // (including cross-modal and checkpoint pending methods) can silently
         // commit a no-op graph delete.
         Method::ClearGraph | Method::DeleteGraph { .. } => {
+            inline_history.purge_scope_rows()?;
             clear_graph_rows(graph, nodes, edges, ledger)?;
             semantic.remove(graph).map_err(|error| error.to_string())?;
         }

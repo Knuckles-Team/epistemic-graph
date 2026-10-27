@@ -881,6 +881,34 @@ mod tests {
     }
 
     #[test]
+    fn forged_serialized_profile_capability_cannot_cross_a_public_carrier() {
+        let method = serde_json::from_value(serde_json::json!({
+            "method":"SubmitWorkItem", "params": {"request": {
+                "schema_version":"1", "run_id":"run", "work_item_id":null,
+                "context":{"schema_version":"2", "request_id":"request", "subject_id":"owner",
+                    "tenant_id":"tenant", "agent_id":"worker", "scopes":["kg:admin"],
+                    "audience":"engine", "authentication_method":"local_process", "policy_version":"v1",
+                    "graph":"g", "placement_epoch":null, "trace_id":"trace", "issued_at_ms":1,
+                    "expires_at_ms":2},
+                "idempotency_key":"run-key", "command_digest":"a".repeat(64), "kind":"run",
+                "priority":0, "depends_on":[], "input_ref":"input", "policy_digest":"policy",
+                "catalog_digest":"catalog", "model_digest":"model", "max_attempts":1,
+                "deadline_unix":null, "metadata":{}, "provenance_refs":[], "max_tenant_in_flight":1,
+                "conversation":{"schema_version":"1", "context_id":"conversation", "expected_revision":0,
+                    "predecessor_run_id":null, "history_profile":{"version":1,"user_text_digest":"a".repeat(64)}}
+            }}
+        })).unwrap();
+        let mut envelope = carrying(method);
+        if let crate::mutation_batch::MutationEnvelope::Operation(operation) = &mut envelope.mutation.envelope {
+            operation.verified_capabilities.insert(crate::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
+        }
+        let bytes = rmp_serde::to_vec_named(&envelope).unwrap();
+        let decoded: ChangeEnvelope = rmp_serde::from_slice(&bytes).unwrap();
+        let error = decoded.validate().unwrap_err();
+        assert!(error.starts_with("CARRIER_INNER_METHOD_REFUSED: operation 0: SubmitWorkItem"), "{error}");
+    }
+
+    #[test]
     fn commit_seq_defaults_absent_and_is_valid() {
         let envelope = minimal_envelope();
         envelope.validate().unwrap();

@@ -218,7 +218,7 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 471 -> 472: EG-FEDERATED-QUERY-R058.2.2.1 read-only `NlQueryExplain`.
     assert_eq!(
         variants.len(),
-        472,
+        473,
         "the wire method census changed; update this exact count deliberately"
     );
 }

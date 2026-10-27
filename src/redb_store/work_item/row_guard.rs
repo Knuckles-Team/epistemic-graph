@@ -38,7 +38,14 @@ const LEASE_AUTHORITY: &str =
 /// WorkItem).
 /// Matched on every field EG's label index reads (`type`, `node_type`,
 /// `label`, `labels[]`), so no spelling of the label slips past.
-const NATIVE_ONLY_LABELS: [&str; 4] = ["ControlLease", "ActionApproval", "Gap", "ConversationHead"];
+const NATIVE_ONLY_LABELS: [&str; 6] = [
+    "ControlLease",
+    "ActionApproval",
+    "Gap",
+    "ConversationHead",
+    "InlineRunCheckpoint",
+    "InlineHistoryQuota",
+];
 const NATIVE_KEY_AUTHORITY: &str =
     "native WorkItem authority required for a kernel-owned row field";
 
@@ -405,6 +412,7 @@ fn has_reserved_run_binding(row: &NodeMap) -> bool {
         eg_types::run_completion::RUN_COMPLETION_BATCH,
         eg_types::run_completion::RUN_COMPLETION_DIGEST,
         "current_plan",
+        super::inline_history::POINTER,
         "run_owner_binding",
         super::run_owner::ADMISSION_REQUEST,
         "pending_call_lease_ref",

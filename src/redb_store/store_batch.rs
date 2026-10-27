@@ -250,7 +250,7 @@ pub(crate) fn apply_crossmodal_rows_phase(
     development_lane::validate_current_lane_links_in_wtx(write, graph_fname, crypto)
 }
 
-fn apply_crossmodal_graph_rows(
+pub(crate) fn apply_crossmodal_graph_rows(
     write: &ShardWrite<'_>,
     graph_fname: &str,
     rows: &CrossModalBatchRows<'_>,

@@ -55,16 +55,24 @@ impl RunUsage {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RunCompletionInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_checkpoint: Option<Box<crate::inline_history::CompletedTextInput>>,
     pub schema_version: u32,
     pub run_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<RunUsage>,
 }
 impl RunCompletionInput {
+    pub fn receipt_input(&self) -> Self {
+        let mut receipt = self.clone();
+        receipt.completed_checkpoint = None;
+        receipt
+    }
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 || self.run_id.trim().is_empty() || self.run_id.len() > 512 {
             return Err("invalid ordinary run completion version or run id".into());
         }
+        if let Some(checkpoint) = &self.completed_checkpoint { checkpoint.validate(&self.run_id)?; }
         self.usage.as_ref().map_or(Ok(()), RunUsage::validate)
     }
 }
@@ -73,6 +81,8 @@ impl RunCompletionInput {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RunCompletionPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_checkpoint: Option<crate::inline_history::InlineCheckpointRef>,
     pub completion: RunCompletionInput,
     pub tenant: String,
     pub work_item_id: String,
@@ -108,8 +118,12 @@ impl RunCompletionPayload {
         {
             return Err("ordinary run completion requires an exclusive final result without failed answer artifacts".into());
         }
+        if completion.completed_checkpoint.is_some() && outcome != "succeeded" {
+            return Err("completed checkpoint requires successful terminal outcome".into());
+        }
         Ok(Some(Self {
-            completion: (**completion).clone(),
+            completed_checkpoint: completion.completed_checkpoint.as_ref().map(|c| c.checkpoint_ref(work_item_id)),
+            completion: completion.receipt_input(),
             tenant: tenant.clone(),
             work_item_id: work_item_id.clone(),
             batch_id: batch_id.into(),

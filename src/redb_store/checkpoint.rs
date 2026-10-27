@@ -164,6 +164,7 @@ fn apply_checkpoint_dump(
         .map(|(node_id, properties)| (node_id.clone(), properties.clone()))
         .collect::<Vec<_>>();
     work_item_capability::validate_snapshot_nodes(&incoming_nodes)?;
+    work_item::inline_history::refuse_snapshot_replacement(write, graph, &incoming_nodes, crypto)?;
 
     // Validate every retained native authority before touching graph rows. The
     // handles are dropped before private capability cleanup because redb rejects

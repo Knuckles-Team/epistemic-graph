@@ -12,9 +12,10 @@ fn admit(shard: &Shard) -> String {
             GRAPH,
             &request(),
             &mut rows.nodes,
+            &mut rows.inline_history,
             &mut rows.edges,
             &mut rows.command_sequences,
-            WorkItemCommitScope {
+            WorkItemCommitScope { inline_history_enable_authorized: false,
                 crypto: DurableCrypto::none(),
                 authoritative_now_ms: 1000,
                 admitted_actor: Some("owner"),
@@ -257,7 +258,9 @@ fn ordinary_completion_projection_requires_exact_committed_payload() {
     let snapshot = temp.shard.read(&handle).unwrap();
     let mut receipt = eg_transaction::read_batches(&snapshot).unwrap().remove(0);
     let payload = RunCompletionPayload {
+        completed_checkpoint: None,
         completion: RunCompletionInput {
+            completed_checkpoint: None,
             schema_version: 1,
             run_id: "run".into(),
             usage: Some(RunUsage::default()),
@@ -714,6 +717,7 @@ fn completion_method(
         now_ms: 3000,
         outcome_extension: None,
         run_completion: Some(Box::new(eg_types::run_completion::RunCompletionInput {
+            completed_checkpoint: None,
             schema_version: 1,
             run_id: "run".into(),
             usage,

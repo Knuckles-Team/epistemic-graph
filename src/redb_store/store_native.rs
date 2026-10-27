@@ -200,11 +200,14 @@ fn terminal_scope_digest(batch: &MutationBatch, graph: &str) -> String {
 }
 
 pub(crate) fn apply_native_clear_or_delete_graph_rows(
+    method: &Method,
     write: &ShardWrite<'_>,
     graph_fname: &str,
     tables: &mut NativeOperationTables<'_>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    work_item::inline_history::guard_clear(method, &tables.graph.nodes, &tables.graph.inline_history, crypto)?;
+    tables.graph.inline_history.purge_scope_rows()?;
     clear_graph_rows(
         graph_fname,
         &mut tables.graph.nodes,
@@ -356,6 +359,8 @@ where
         crypto,
     } = scope;
     let result = apply_rows(WorkItemCommitScope {
+        inline_history_enable_authorized: batch.verified_capabilities().is_some_and(|caps|
+            caps.contains(&eg_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile)),
         admitted_actor: batch
             .envelope
             .operation()
@@ -408,9 +413,11 @@ pub(crate) fn apply_native_work_item_family_operation(
     }
     let result = apply_work_item_rows(super::work_item::WorkItemApplyRequest {
         graph: graph_fname,
+        admitted_actor: batch.envelope.operation().map(|op| op.authority.actor.as_str()),
         batch_id: batch.batch_id.as_str(),
         method,
         nodes: &mut tables.graph.nodes,
+        inline_history: &mut tables.graph.inline_history,
         holds: &mut tables.lane_holds,
         work_item_index: &tables.lane_work_item_index,
         counters: &mut tables.lane_counters,
@@ -512,7 +519,7 @@ fn apply_one_native_operation_row(
     match &operation.method {
         Method::CreateGraph { .. } => Ok(()),
         Method::DeleteGraph { .. } | Method::ClearGraph => {
-            apply_native_clear_or_delete_graph_rows(write, graph_fname, tables, crypto)
+            apply_native_clear_or_delete_graph_rows(&operation.method, write, graph_fname, tables, crypto)
         }
         Method::ClearLedger => clear_ledger_rows(graph_fname, &mut tables.graph.ledger),
         Method::SubmitWorkItem { request } => apply_native_submit_operation::<
@@ -530,6 +537,7 @@ fn apply_one_native_operation_row(
                     graph_fname,
                     request,
                     &mut tables.graph.nodes,
+                    &mut tables.graph.inline_history,
                     &mut tables.graph.edges,
                     &mut tables.graph.command_sequences,
                     commit_scope,
@@ -551,6 +559,7 @@ fn apply_one_native_operation_row(
                     graph_fname,
                     request,
                     &mut tables.graph.nodes,
+                    &mut tables.graph.inline_history,
                     &mut tables.graph.edges,
                     &mut tables.graph.command_sequences,
                     commit_scope,
@@ -593,6 +602,7 @@ fn apply_one_native_operation_row(
         method => {
             let mut tables = GraphRowTablesRef {
                 nodes: &mut tables.graph.nodes,
+                inline_history: &mut tables.graph.inline_history,
                 edges: &mut tables.graph.edges,
                 ledger: &mut tables.graph.ledger,
                 semantic: &mut tables.graph.semantic,

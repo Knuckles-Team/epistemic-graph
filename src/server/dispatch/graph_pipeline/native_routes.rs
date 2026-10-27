@@ -236,12 +236,16 @@ async fn route_work_item_reads(
     method: Method,
 ) -> Result<Response, Method> {
     let read = match method {
-        Method::GetRunWorkItem { tenant, run_id } => {
+        Method::GetRunWorkItem { tenant, run_id, selection } => {
             handlers::work_item_read::WorkItemRead::RunAdmission {
+                selection,
                 tenant,
                 run_id,
                 actor: ctx.verified_context.principal().to_string(),
             }
+        }
+        Method::GetConversationHead { tenant, context_id } => {
+            handlers::work_item_read::WorkItemRead::ConversationHead { tenant, context_id, actor: ctx.verified_context.principal().to_string() }
         }
         Method::GetCurrentPlan { tenant, run_id } => {
             handlers::work_item_read::WorkItemRead::CurrentPlan {

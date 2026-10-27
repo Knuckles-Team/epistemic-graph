@@ -464,6 +464,7 @@ pub(super) async fn dispatch_op_workitem_submission_or_resources(
             placement_epoch,
             method,
         )
+        .with_verified_history_policy(verified_context)
         .with_attempt_nonce(verified_context.attempt_nonce())
         .with_placement_fencing_token(placement_fence),
     )

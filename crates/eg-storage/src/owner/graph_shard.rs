@@ -154,6 +154,10 @@ pub(crate) const NATIVE_WORK_ITEM_AUTHORITY: TableDefinition<'static, (&str, &st
 
 pub(crate) const CURRENT_PLANS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("work_item_current_plans");
+/// Native owner-only text snapshots and their retained-capacity accounting.
+/// Graph-scoped, but deliberately separate from the query-visible NODES table.
+pub(crate) const INLINE_HISTORY: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("work_item_inline_history");
 
 // -- development lane -----------------------------------------------------
 pub(crate) const DEVELOPMENT_LANE_HOLDS: TableDefinition<'static, (&str, &str), &[u8]> =
@@ -250,6 +254,7 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::REPOSITORY_ENRICHMENT_PARKS);
         $visit!(shard::AUDIT_REQUESTS);
         $visit!(shard::CURRENT_PLANS);
+        $visit!(shard::INLINE_HISTORY);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITIES);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITY_INVOCATIONS);
         $visit!(shard::NATIVE_WORK_ITEM_AUTHORITY);
@@ -350,6 +355,7 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = graph_shard_table_names!(
     "repository_enrichment_parks",
     "audit_requests",
     "work_item_current_plans",
+    "work_item_inline_history",
 );
 
 /// The eight tables of the shard's retired private mutation ledger.
@@ -445,6 +451,7 @@ fn key_type_wide_tuple(name: &str) -> Option<&'static str> {
         | "work_item_claim_capability_invocations"
         | "native_work_item_authority"
         | "work_item_current_plans"
+        | "work_item_inline_history"
         | "development_lane_holds"
         | "development_lane_counters"
         | "development_lane_policies"

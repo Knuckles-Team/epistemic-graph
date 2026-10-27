@@ -295,3 +295,13 @@ This batch defines the slices; it runs none of their runtime tests.
 
 - [ ] **EG-DURABLE-KERNEL-R028.4.3:** Qualify typed conversation head reservation in the existing native admission transaction. Complete native store tests, actual MutationBatch replay and changed-body refusal, graph-incarnation isolation and generated contract checks. Keep R028.1 and R751.750/R751.751 open for checkpoint-backed history, public transcript paging and served continuation.
 - [ ] **EG-DURABLE-KERNEL-R028.4.4:** Replay a repeated run admission from its retained owner receipt. Add the refreshed-context, restart, changed-input and missing-evidence replay tests and the pre-change store upgrade test.
+
+## Bounded terminal-text profile
+
+- [ ] R028.4.5 qualify private atomic checkpoint/receipt/quota and destructive-operation refusal.
+- [ ] R028.4.6 qualify generated head/selection surfaces and exact-version restart journey.
+- [ ] R028.4.7 qualify fresh-claim replay projection and trusted single-use dispatch.
+- [ ] Run generic graph read/export privacy negatives with realistic caller grants.
+- [ ] Generate canonical contracts with pinned Rust; run native and hosted gates.
+
+- [ ] Add real catalog-incarnation binding before permitting profile graph deletion, recreation or quota reclamation.

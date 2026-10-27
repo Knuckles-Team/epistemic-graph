@@ -257,6 +257,8 @@ pub struct CapacityThrottleResult {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ConversationTurnAdmission {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_profile: Option<Box<crate::inline_history::CompletedTextAdmission>>,
     pub schema_version: NativeControlSchemaVersion,
     pub context_id: String,
     pub expected_revision: u64,

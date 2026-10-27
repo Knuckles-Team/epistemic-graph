@@ -931,3 +931,70 @@ A store left by an unclean shutdown is not inspected at open. Its ordinary open 
 **Copied-store restore.** `StoreIncarnation::derive` binds a store root to its files' device and inode.
 That binding stops a copied file from replacing a live store unnoticed. R862 keeps it for the ordinary open.
 Only an explicit restore or `rebind` re-binds a store, and only after a content-digest check.
+
+## R028.4.5–.7: approved bounded inline terminal-text profile
+
+The first continuation slice refines the R028.1/R085 storage attachment.
+Small terminal-only text uses a private graph-owner table in the existing native MutationBatch.
+It adds no second database or transcript transport. Broader blob-backed
+memory sync, short/long memory references, retention release, stream recovery and
+interrupted-run restoration stay open. Public WorkItem admission stores only an
+exact prompt digest; private text must never enter generic graph projection.
+
+`CompletedTextAdmission` is `{version:1,user_text_digest}`. The write-only
+`CompletedTextInput` adds exact user/assistant text and its canonical envelope
+SHA-256. Canonical UTF-8 JSON field order is version, phase, run_id, messages;
+message fields are role then text. It uses compact separators, no ASCII escaping
+or Unicode normalization. The immutable receipt contains only document ID,
+revision one and digest; the native request ledger may still retain write inputs.
+
+Selection returns native graph scope/version and immutable reference
+provenance separately from the exact Meristem v1 completed-text envelope. The
+latest predecessor is the envelope run_id. First turn returns None, not an empty
+messages envelope. Same-snapshot helpers borrow the one native read handle.
+
+A current checkpoint, unknown profile, missing native operation or incompatible
+contract refuses before model execution. A terminal write may refuse after model execution because of oversize, quota or lease loss.
+It then reports no successful checkpoint. The host must not replay effects. Fresh-claim projection is a direct response
+witness, not reusable authority. Existing claim lifecycle remains authoritative.
+
+Qualification remains incomplete.
+Generated contracts, private read isolation and native storage tests must pass on exact versions.
+Actual Arbora/Meristem restart continuation must pass too. The development fallback lacks Rust
+1.96/cargo/rustfmt; no generated outputs are fabricated and no native pass is inferred.
+
+Owner-only display also uses existing `GetRunWorkItem`.
+Optional `completed_checkpoint` projects the completed own-turn envelope after private receipt/ref/digest/fence validation.
+It requires no live execution claim. Foreign owners return no view before private content lookup. A successful
+profile with missing/corrupt content refuses rather than falling back to mutable
+RunEvent output. Legacy reads keep the field omitted. This projection is historical
+display, never a reusable execution or restoration grant.
+
+### Stable retained graph limitation
+
+The native graph scope identity is fixed by graph name. Actual retirement also
+removes its ledger version. Neither is a safe admission-incarnation witness.
+This profile therefore refuses graph clear/delete, actual retirement and snapshot
+replacement. A constant private marker is set in the profiled admission transaction.
+It covers pending, failed and cancelled turns before any completed checkpoint exists.
+Retirement checks the private table before any sweep; it needs no plaintext access.
+Legacy graphs without profile state retain their existing lifecycle behavior.
+
+Deletion, recreation, quota reclamation and snapshot migration remain held until
+a reviewed catalog-incarnation binding exists. Scope/version in a selection is
+snapshot provenance only, not a promise of safe authority reuse after deletion.
+Ordinary close/reopen on the same retained graph is still required qualification.
+
+The first profile admission requires an authenticated existing `kg:admin` or `*`
+operator grant. The server projects that verified grant into an internal mutation
+capability; the native submit checks it before any row mutation. Client metadata,
+`work:submit`, `kg:write`, `graph:*` and anonymous local authority cannot enable it.
+The private marker records the operator's stable-retention choice. Later ordinary
+callers still pass native tenant and owner admission checks. The policy is off by
+default. The graph retains this restriction until a future lifecycle design exists.
+
+External mutation carriers refuse nested native WorkItem submissions, including
+serialized envelopes with forged capability fields. The trusted in-process Rust
+persistence ABI is not a boundary against hostile code inside the engine process.
+Graft validation checks the private marker under the source write lock before
+fencing. Refusal uses the existing authenticated destination-reservation cleanup.

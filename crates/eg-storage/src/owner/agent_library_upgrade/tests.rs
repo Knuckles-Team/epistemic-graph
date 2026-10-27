@@ -139,12 +139,13 @@ const GRAPH_GENERATIONS: [GraphGeneration; 2] = [
             "repository_enrichment_parks",
             "audit_requests",
             "work_item_current_plans",
+            "work_item_inline_history",
         ],
     },
     GraphGeneration {
         recorded: BEFORE_AUDIT_REQUESTS,
         source: GraphShardSource::BeforeAuditRequests,
-        added: &["audit_requests", "work_item_current_plans"],
+        added: &["audit_requests", "work_item_current_plans", "work_item_inline_history"],
     },
 ];
 
@@ -343,4 +344,62 @@ fn current_plan_upgrade_preserves_existing_graph_rows() {
             .unwrap(),
         0
     );
+}
+
+// spec: EG-DURABLE-KERNEL-R028.4.3
+#[test]
+fn inline_history_upgrade_preserves_graph_and_private_plan_rows() {
+    use super::super::graph_shard::{CURRENT_PLANS, INLINE_HISTORY};
+    use super::super::lineage::{
+        GRAPH_SHARD_BEFORE_INLINE_HISTORY, GRAPH_SHARD_PRE_INLINE_HISTORY_DIGEST,
+    };
+    let directory = private_local_tempdir();
+    let path = directory.path().join("graph-inline-history-predecessor.redb");
+    create_predecessor_owner_file(&path, identity(), &GRAPH_SHARD_BEFORE_INLINE_HISTORY)
+        .unwrap();
+    assert_eq!(
+        RecordedLayout::read(&path).manifest().layout_digest,
+        GRAPH_SHARD_PRE_INLINE_HISTORY_DIGEST
+    );
+    let database = Database::open(&path).unwrap();
+    let write = database.begin_write().unwrap();
+    write
+        .open_table(NODES)
+        .unwrap()
+        .insert(NODE_KEY, b"preserved native row".as_slice())
+        .unwrap();
+    write
+        .open_table(CURRENT_PLANS)
+        .unwrap()
+        .insert(NODE_KEY, b"preserved private plan".as_slice())
+        .unwrap();
+    write.commit().unwrap();
+    drop(database);
+    let before = std::fs::read(&path).unwrap();
+    let refused = StorageKernel::open_owner::<GraphShardOwner>(&path, identity(), None)
+        .err()
+        .expect("normal open refuses predecessor");
+    assert!(refused.starts_with("GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED:"));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let token = inspect_graph_shard_upgrade(
+        &path,
+        identity(),
+        None,
+        options(&path),
+        GraphShardSource::BeforeInlineHistory,
+    )
+    .unwrap();
+    drop(upgrade_graph_shard(token).unwrap());
+    drop(StorageKernel::open_owner::<GraphShardOwner>(&path, identity(), None).unwrap());
+    let database = Database::open(&path).unwrap();
+    let read = database.begin_read().unwrap();
+    assert_eq!(
+        read.open_table(NODES).unwrap().get(NODE_KEY).unwrap().unwrap().value(),
+        b"preserved native row"
+    );
+    assert_eq!(
+        read.open_table(CURRENT_PLANS).unwrap().get(NODE_KEY).unwrap().unwrap().value(),
+        b"preserved private plan"
+    );
+    assert_eq!(read.open_table(INLINE_HISTORY).unwrap().len().unwrap(), 0);
 }
