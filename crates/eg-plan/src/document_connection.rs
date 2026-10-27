@@ -74,7 +74,11 @@ impl DocumentDriverConfig {
     /// All resolved addresses must be loopback; mixed public/private answers
     /// fail closed. The returned handle is configuration only, not a driver.
     pub fn connect(&self) -> Result<DocumentConnection, DocumentConnectionError> {
-        let addresses: Vec<_> = (self.host.as_str(), self.port)
+        // The fields remain public for configuration serialization and
+        // inspection, so callers can construct or mutate an invalid value
+        // without going through `new`. Revalidate at the operation boundary.
+        let config = Self::new(self.host.clone(), self.port, self.database.clone())?;
+        let addresses: Vec<_> = (config.host.as_str(), config.port)
             .to_socket_addrs()
             .map_err(|_| DocumentConnectionError::ResolveFailed)?
             .collect();
@@ -84,10 +88,7 @@ impl DocumentDriverConfig {
         if addresses.iter().any(|address| !address.ip().is_loopback()) {
             return Err(DocumentConnectionError::UnsafeDestination);
         }
-        Ok(DocumentConnection {
-            config: self.clone(),
-            addresses,
-        })
+        Ok(DocumentConnection { config, addresses })
     }
 }
 
@@ -113,6 +114,24 @@ mod tests {
         );
         assert_eq!(
             DocumentDriverConfig::new("localhost", 27017, " "),
+            Err(DocumentConnectionError::EmptyDatabase)
+        );
+        let invalid_port = DocumentDriverConfig {
+            host: "localhost".into(),
+            port: 0,
+            database: "catalog".into(),
+        };
+        assert_eq!(
+            invalid_port.connect(),
+            Err(DocumentConnectionError::ZeroPort)
+        );
+        let invalid_database = DocumentDriverConfig {
+            host: "localhost".into(),
+            port: 27017,
+            database: " ".into(),
+        };
+        assert_eq!(
+            invalid_database.connect(),
             Err(DocumentConnectionError::EmptyDatabase)
         );
 
