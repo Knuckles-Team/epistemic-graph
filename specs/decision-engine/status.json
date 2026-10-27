@@ -8967,7 +8967,8 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "09f35497acd2"
+        "09f35497acd2",
+        "eef40ee82ca2"
       ],
       "verified_by": [
         "crates/eg-program/tests/optimize_front.rs:14",
