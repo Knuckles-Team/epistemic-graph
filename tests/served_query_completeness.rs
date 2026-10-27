@@ -260,7 +260,7 @@ async fn add_edge(state: &Arc<RwLock<ServerState>>, request: u64, source: &str, 
             Method::AddEdge {
                 source_id: source.to_string(),
                 target_id: target.to_string(),
-                properties_msgpack: test_support::edge_properties("CITES"),
+                properties_msgpack: test_support::json_bytes(json!({ "relationship": "CITES" })),
             },
         ),
     ))
