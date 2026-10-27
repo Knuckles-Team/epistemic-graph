@@ -175,4 +175,53 @@ mod served_tests {
             .as_deref()
             .is_some_and(|detail| detail.contains("UQL_UNBOUND_PARAMETER")));
     }
+
+    // spec: EG-FEDERATED-QUERY-R028
+    #[tokio::test]
+    async fn with_knowledge_is_served_without_changing_row_identity() {
+        let state = state();
+        add_doc(&state, 10, "d1", 2020).await;
+        add_doc(&state, 11, "d2", 2024).await;
+
+        let plain = uql(&state, 12, "MATCH (:Doc) |> LIMIT 2", &[]).await;
+        let annotated = uql(
+            &state,
+            13,
+            "MATCH (:Doc) |> LIMIT 2 WITH KNOWLEDGE (year)",
+            &[],
+        )
+        .await;
+        let UqlResult::Rows {
+            rows: plain_rows, ..
+        } = body(&plain)
+        else {
+            panic!("plain UQL rows expected")
+        };
+        let UqlResult::Rows {
+            rows: annotated_rows,
+            ..
+        } = body(&annotated)
+        else {
+            panic!("annotated UQL rows expected")
+        };
+
+        assert_eq!(
+            annotated_rows
+                .iter()
+                .map(|row| (&row.id, row.score))
+                .collect::<Vec<_>>(),
+            plain_rows
+                .iter()
+                .map(|row| (&row.id, row.score))
+                .collect::<Vec<_>>()
+        );
+        for row in &annotated_rows {
+            let knowledge = row.knowledge.as_ref().expect("knowledge annotation");
+            assert_eq!(knowledge.kind, "Doc");
+            assert_eq!(
+                knowledge.projection.as_ref().and_then(|p| p.get("year")),
+                Some(&serde_json::json!(if row.id == "d1" { 2020 } else { 2024 }))
+            );
+        }
+    }
 }
