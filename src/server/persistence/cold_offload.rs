@@ -213,11 +213,26 @@ pub fn offload_graph_core(
     if core.node_count() == 0 {
         return Some(0); // already empty / hibernated
     }
-    let node_ids: Vec<String> = core
+    // The topology is the authoritative resident-node set.  `get_nodes()` is
+    // the property projection and may omit a topology resident while a
+    // partially materialized/recovered core is being reconciled.  Never let a
+    // durability proof silently skip such an id: hibernating in that state
+    // would discard the topology-only projection and make the graph appear
+    // complete in RAM after the durable check.
+    let node_ids = core.node_ids();
+    let property_ids: HashSet<String> = core
         .get_nodes()
         .into_iter()
         .map(|(node_id, _)| node_id)
         .collect();
+    if node_ids.len() != core.node_count()
+        || property_ids.len() != node_ids.len()
+        || node_ids
+            .iter()
+            .any(|node_id| !property_ids.contains(node_id))
+    {
+        return None;
+    }
     let fname = crate::persist::sanitize(graph_name);
     let presence = backend.durable_node_presence(&fname, &node_ids).ok()?;
     if presence.len() != node_ids.len() || presence.iter().any(|present| !present) {
@@ -612,9 +627,91 @@ mod tracker_tests {
     }
 }
 
-// Every test here drives a REAL `RedbBackend` through `lazy_open`/`admit_capacity`
-// (both `redb`-gated), so — like every other `ServerState`-constructing test module
-// in this crate — the whole module only builds under the `redb` feature.
+// The admission tests below drive a REAL `RedbBackend` through
+// `lazy_open`/`admit_capacity` (both `redb`-gated), so — like every other
+// `ServerState`-constructing test module in this crate — that module only
+// builds under the `redb` feature.  The focused gate tests above use a tiny
+// backend double so every refusal branch remains deterministic.
+#[cfg(all(test, feature = "redb"))]
+mod unsafe_eviction_tests {
+    use super::offload_graph_core;
+    use crate::graph::GraphCore;
+    use crate::server::persistence::PersistenceBackend;
+    use std::sync::Arc;
+
+    #[derive(Clone, Copy)]
+    enum PresenceOutcome {
+        All,
+        False,
+        WrongLength,
+        Error,
+    }
+
+    struct StubBackend {
+        outcome: PresenceOutcome,
+    }
+
+    #[async_trait::async_trait]
+    impl PersistenceBackend for StubBackend {
+        fn durable_node_presence(
+            &self,
+            _graph_fname: &str,
+            node_ids: &[String],
+        ) -> Result<Vec<bool>, String> {
+            match self.outcome {
+                PresenceOutcome::All => Ok(vec![true; node_ids.len()]),
+                PresenceOutcome::False => Ok(vec![false; node_ids.len()]),
+                PresenceOutcome::WrongLength => Ok(Vec::new()),
+                PresenceOutcome::Error => Err("presence lookup failed".to_string()),
+            }
+        }
+
+        fn shutdown(&self) {}
+    }
+
+    fn resident_core() -> (GraphCore, Vec<u8>) {
+        let core = GraphCore::new();
+        let properties = vec![0x91, 0xa1, 0x78];
+        core.add_node("node-1".to_string(), properties.clone());
+        (core, properties)
+    }
+
+    #[test]
+    fn unsafe_presence_outcomes_retain_the_resident_projection() {
+        for (label, outcome) in [
+            ("false", PresenceOutcome::False),
+            ("wrong-length", PresenceOutcome::WrongLength),
+            ("error", PresenceOutcome::Error),
+        ] {
+            let (core, properties) = resident_core();
+            let backend: Arc<dyn PersistenceBackend> = Arc::new(StubBackend { outcome });
+
+            assert_eq!(
+                offload_graph_core(&core, &backend, "tenant:unsafe"),
+                None,
+                "{label} durable presence must refuse eviction"
+            );
+            assert_eq!(core.node_count(), 1, "{label} path dropped a resident node");
+            assert_eq!(core.get_node_properties("node-1"), Some(properties));
+        }
+    }
+
+    #[test]
+    fn complete_presence_is_the_only_path_that_hibernates() {
+        let (core, _) = resident_core();
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(StubBackend {
+            outcome: PresenceOutcome::All,
+        });
+
+        assert_eq!(
+            offload_graph_core(&core, &backend, "tenant:durable"),
+            Some(1)
+        );
+        assert_eq!(core.node_count(), 0);
+        assert_eq!(core.get_node_properties("node-1"), None);
+    }
+}
+
 #[cfg(all(test, feature = "redb"))]
 mod admission_tests {
     //! Bounded hot-context cache + admission-control proofs over a REAL redb
