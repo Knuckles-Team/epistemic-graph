@@ -2540,7 +2540,9 @@
       "title": "`KvBlockKey` typed model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-kvcache/src/version.rs:141"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.2",

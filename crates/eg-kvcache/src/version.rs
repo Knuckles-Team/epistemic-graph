@@ -48,6 +48,36 @@
 //! feature be **zero-cost / opt-in**: a cache used purely for content-addressed KV pages
 //! (put `Agnostic`, never call `set_data_version`) behaves EXACTLY as before.
 
+/// Identity of a token-prefix KV block for one model revision.
+///
+/// Model revisions describe the weights that produced the KV bytes. They are
+/// independent of [`DataVersion`], which tracks mutable graph-derived context.
+/// The prefix hash uses the existing [`crate::content_hash`] representation.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct KvBlockKey {
+    /// Model whose weights produced the block.
+    pub model_id: String,
+    /// Exact revision of those weights.
+    pub model_version: String,
+    /// Content hash of the prefix token bytes.
+    pub token_prefix_hash: String,
+}
+
+impl KvBlockKey {
+    /// Bind an existing token-prefix hash to its producing model revision.
+    pub fn new(
+        model_id: impl Into<String>,
+        model_version: impl Into<String>,
+        token_prefix_hash: impl Into<String>,
+    ) -> Self {
+        Self {
+            model_id: model_id.into(),
+            model_version: model_version.into(),
+            token_prefix_hash: token_prefix_hash.into(),
+        }
+    }
+}
+
 /// The data-version an entry was derived at — the invalidation epoch (CONCEPT:EG-KG.storage.content-addressed-put).
 ///
 /// Deliberately an enum, NOT a bare `u64`, because a real `GraphCore::version()` starts
@@ -107,6 +137,38 @@ impl DataVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // spec: EG-DURABLE-KERNEL-R083.1
+    #[test]
+    fn kv_block_keys_bind_model_revision_and_token_prefix() {
+        let prefix = crate::content_hash(b"shared token prefix");
+        let first = KvBlockKey::new("model-a", "revision-1", prefix.clone());
+        let same = KvBlockKey::new(
+            "model-a".to_string(),
+            "revision-1".to_string(),
+            crate::content_hash(b"shared token prefix"),
+        );
+        assert_eq!(first, same);
+
+        let next_version = KvBlockKey::new("model-a", "revision-2", prefix.clone());
+        let other_model = KvBlockKey::new("model-b", "revision-1", prefix.clone());
+        let other_prefix = KvBlockKey::new(
+            "model-a",
+            "revision-1",
+            crate::content_hash(b"different token prefix"),
+        );
+        for other in [&next_version, &other_model, &other_prefix] {
+            assert_ne!(&first, other);
+        }
+
+        let mut blocks = std::collections::HashMap::new();
+        blocks.insert(first, b"first revision".as_slice());
+        blocks.insert(next_version, b"next revision".as_slice());
+        blocks.insert(other_model, b"other model".as_slice());
+        blocks.insert(other_prefix, b"other prefix".as_slice());
+        assert_eq!(blocks.len(), 4);
+        assert_eq!(blocks.get(&same), Some(&b"first revision".as_slice()));
+    }
 
     #[test]
     fn agnostic_is_never_stale() {
