@@ -786,6 +786,7 @@
       "title": "Contract receipt freshness is checked before merge",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1a2750feb38f",
         "2688cddd2f7f"
       ],
       "verified_by": []
