@@ -343,6 +343,9 @@ pub mod ontology_inspection;
 // F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
 pub mod rdf_report;
 pub mod row_predicate;
+// EG-FEDERATED-QUERY-R082.1 — typed calibration, bounded limits and closed
+// stop-verdict vocabulary; decision precedence lives in eg-plan.
+pub mod retrieval_stop;
 pub mod runtime_limit;
 // EH-558 — sealed record classes: content-addressed rows generic writes may not change.
 pub mod sealed_record;
