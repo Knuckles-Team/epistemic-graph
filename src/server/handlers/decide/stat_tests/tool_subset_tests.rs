@@ -141,13 +141,19 @@ async fn missing_schema_tokens_abstains() {
             tool_without_schema_tokens("missing-tool", &["search"]),
         ],
     );
-    let refused = decide(&h, request).await.unwrap_err();
+    let verified = verified();
+    let refused = super::super::statistical::handle_decide(&h.state, 1, &verified, request).await;
     assert!(
-        refused.starts_with("PARAMETER_INVALID"),
-        "expected a parameter-invalid refusal, got {refused}"
+        refused.error.as_deref() == Some("PARAMETER_INVALID"),
+        "expected a parameter-invalid refusal, got {:?}",
+        refused.error
     );
+    let detail = refused
+        .error_detail
+        .as_deref()
+        .expect("parameter-invalid refusal should preserve its detail");
     assert!(
-        refused.contains("schema_tokens"),
-        "refusal must identify the missing schema size, got {refused}"
+        detail.contains("schema_tokens"),
+        "refusal detail must identify the missing schema size, got {detail}"
     );
 }
