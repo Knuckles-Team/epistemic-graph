@@ -228,6 +228,9 @@ pub mod postgres_adapter;
 // `row_predicate`, since `eg-core` needs it on both sides of its backend `#[cfg]`
 // split.
 pub mod embedding;
+// EG-FEDERATED-QUERY-R083.1 — typed prior/retrieved candidates and the closed
+// arbitration verdict value; support classification and policy live above.
+pub mod retrieval_arbitration;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
