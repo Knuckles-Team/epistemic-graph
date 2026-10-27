@@ -4,16 +4,26 @@
 use super::*;
 use eg_types::decision::statistical::declared::{DeclaredNumber, DeclaredOption};
 
-fn tool(id: &str, capabilities: &[&str], token_cost: i64) -> DeclaredOption {
+fn tool(id: &str, capabilities: &[&str], schema_tokens: i64) -> DeclaredOption {
     DeclaredOption {
         option_id: id.to_string(),
         classification: BoundedVec::new(capabilities.iter().map(|s| s.to_string()).collect())
             .unwrap(),
         numbers: BoundedVec::new(vec![DeclaredNumber {
-            key: "token_cost".to_string(),
-            q32: token_cost,
+            key: "schema_tokens".to_string(),
+            q32: schema_tokens,
         }])
         .unwrap(),
+        texts: BoundedVec::default(),
+    }
+}
+
+fn tool_without_schema_tokens(id: &str, capabilities: &[&str]) -> DeclaredOption {
+    DeclaredOption {
+        option_id: id.to_string(),
+        classification: BoundedVec::new(capabilities.iter().map(|s| s.to_string()).collect())
+            .unwrap(),
+        numbers: BoundedVec::default(),
         texts: BoundedVec::default(),
     }
 }
@@ -114,5 +124,30 @@ async fn tool_subset_question_refuses_when_the_budget_cannot_cover_every_capabil
     assert!(
         refused.starts_with("PARAMETER_INVALID"),
         "expected a parameter-invalid refusal, got {refused}"
+    );
+}
+
+#[tokio::test]
+async fn missing_schema_tokens_abstains() {
+    let h = Harness::new().await;
+    let (schema_pin, _digest) = publish_route_schema(&h);
+
+    let request = tool_subset_request(
+        &schema_pin,
+        &["search"],
+        100,
+        vec![
+            tool("declared-tool", &["search"], 20),
+            tool_without_schema_tokens("missing-tool", &["search"]),
+        ],
+    );
+    let refused = decide(&h, request).await.unwrap_err();
+    assert!(
+        refused.starts_with("PARAMETER_INVALID"),
+        "expected a parameter-invalid refusal, got {refused}"
+    );
+    assert!(
+        refused.contains("schema_tokens"),
+        "refusal must identify the missing schema size, got {refused}"
     );
 }
