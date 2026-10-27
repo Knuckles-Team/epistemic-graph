@@ -776,7 +776,9 @@ ex:parent a owl:AsymmetricProperty .
         // sub-properties (the shared predicate itself remains unconstrained).
         // +10: SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1),
         // plus one infrastructure ContainerImage → SoftwareComponent edge (R002.2).
-        assert_eq!(composed.ontology.len(), 15_648);
+        // +95: the connector-pack ingest vocabulary (94) and its catalog import
+        // (EG-TYPED-PACKS-R101.1).
+        assert_eq!(composed.ontology.len(), 15_743);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -813,7 +815,8 @@ ex:parent a owl:AsymmetricProperty .
         // the data-platform, IT4IT-delivery, media and retrieval module headers;
         // +1: the shared data-platform vocabulary header.
         // +2: the commercial and newly registered supply-chain module headers.
-        assert_eq!(ontology_subjects.len(), 45);
+        // +1: the connector-pack ingest vocabulary header (R101.1).
+        assert_eq!(ontology_subjects.len(), 46);
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:imports <.../core>`; +6: the service-operations module's five
         // imports and its catalog entry; +5: the metadata-catalog module's four
@@ -822,7 +825,8 @@ ex:parent a owl:AsymmetricProperty .
         // +6: commercial and supply-chain module imports and catalog entries;
         // +2: the data-platform vocabulary's core and virtual-graph imports;
         // +1: its catalog entry.
-        assert_eq!(imports, 111);
+        // +2: the connector-pack import and catalog entry (R101.1).
+        assert_eq!(imports, 113);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -844,7 +848,8 @@ ex:parent a owl:AsymmetricProperty .
         // +224: semantic axioms from the final commercial/supply-chain catalog.
         // +7: the shared versionOf relation's two module-local constrained
         // sub-properties (the shared predicate itself remains unconstrained).
-        assert_eq!(semantic_axioms, 15_390);
+        // +90: semantic axioms from the connector-pack ingest vocabulary (R101.1).
+        assert_eq!(semantic_axioms, 15_480);
 
         let count_type = |object: &str| {
             composed
@@ -909,7 +914,8 @@ ex:parent a owl:AsymmetricProperty .
             // +9: the commercial and registered supply-chain class placements;
             // +2: SourceRecord and OpaqueSourceReference; +1: ContainerImage's
             // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
-            649
+            // +3: the connector-pack ingest vocabulary subclass edges (R101.1).
+            652
         );
     }
 
