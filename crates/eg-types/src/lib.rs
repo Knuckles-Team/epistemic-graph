@@ -48,6 +48,9 @@ pub mod authority;
 // EG-SRC-AUTH-R007.1 — typed audit entries for source selection evidence.
 pub mod authority_audit;
 pub mod change_envelope;
+// EG-DURABLE-KERNEL-R087.1 — typed semantic changeset-review model. The
+// authenticated producer/consumer route is a later R087.2 concern.
+pub mod changeset_review;
 // EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and
 // change-stream capture are later children.
