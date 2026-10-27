@@ -226,6 +226,12 @@ pub(crate) async fn handle_gateway(
         GraphSchemaOp::ValidateRepair { .. } => {
             approved::handle_validate(ctx, plan, method, op).await
         }
+        GraphSchemaOp::ImportOntology { .. } | GraphSchemaOp::WithdrawOntology { .. } => {
+            Response::err(
+                ctx.req_id,
+                "ONTOLOGY_IMPORT_NOT_WIRED: runtime ontology import is delivered by R103.2",
+            )
+        }
     }
 }
 
@@ -439,6 +445,12 @@ fn apply(
         GraphSchemaOp::Detach { source_id, .. } => sources.detach_dynamic(source_id),
         GraphSchemaOp::AttachPack { .. } | GraphSchemaOp::ValidateRepair { .. } => {
             unreachable!("attach-pack and validate-repair have their own routes")
+        }
+        GraphSchemaOp::ImportOntology { .. } | GraphSchemaOp::WithdrawOntology { .. } => {
+            return Err(
+                "ONTOLOGY_IMPORT_NOT_WIRED: runtime ontology import is delivered by R103.2"
+                    .to_string(),
+            );
         }
     };
     if matches!(op, GraphSchemaOp::Detach { .. }) {

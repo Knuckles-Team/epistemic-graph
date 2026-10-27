@@ -6,7 +6,7 @@
 //! able to silently erase the other: attaching under a key replaces that key
 //! and nothing else, and the composed digest says which set is in force.
 //!
-//! `pack:` and `ingest:` are reserved key prefixes. A source under one of them
+//! `pack:`, `ingest:` and `ontology:` are reserved key prefixes. A source under one of them
 //! is owned by an importer, so an operator attaching there by hand would be
 //! forging the provenance the key asserts. `approved:` is reserved the same
 //! way: only [`GraphSchemaOp::AttachApproved`] writes it, and only with an
@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::contract::{closed_error_codes, BoundedVec, ResourceId};
+use crate::contract::{closed_error_codes, BoundedVec, Digest256, ResourceId};
 
 pub mod approval;
 pub mod drift;
@@ -39,7 +39,8 @@ pub const MAX_SCHEMA_DOCUMENT_BYTES: usize = 2 << 20;
 pub const MAX_SCHEMA_SOURCE_ID_BYTES: usize = 128;
 
 /// Key prefixes only an importer may write.
-pub const RESERVED_SCHEMA_SOURCE_PREFIXES: &[&str] = &["core:", "pack:", "ingest:", "approved:"];
+pub const RESERVED_SCHEMA_SOURCE_PREFIXES: &[&str] =
+    &["core:", "pack:", "ingest:", "approved:", "ontology:"];
 
 /// Attach, replace or detach one keyed schema source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +65,27 @@ pub enum GraphSchemaOp {
         connector: ResourceId,
         #[serde(default)]
         if_composed_digest: Option<String>,
+    },
+    /// Import or revise one connector-owned ontology source. The runtime
+    /// handler is introduced by R103.2; keeping the closed model here makes
+    /// the source identity and CAS fields explicit before that wiring lands.
+    ImportOntology {
+        connector: ResourceId,
+        ontology_iri: String,
+        version: String,
+        ontology_ttl: String,
+        #[serde(default)]
+        shapes_ttl: Option<String>,
+        content_digest: Digest256,
+        #[serde(default)]
+        expected_prior_revision: Option<u64>,
+    },
+    /// Withdraw the complete connector-owned ontology source at a known
+    /// revision. The runtime handler is introduced by R103.2.
+    WithdrawOntology {
+        connector: ResourceId,
+        ontology_iri: String,
+        expected_revision: u64,
     },
     Detach {
         source_id: String,
@@ -108,6 +130,8 @@ impl GraphSchemaOp {
         match self {
             Self::Attach { .. } => "attach",
             Self::AttachPack { .. } => "attach_pack",
+            Self::ImportOntology { .. } => "import_ontology",
+            Self::WithdrawOntology { .. } => "withdraw_ontology",
             Self::Detach { .. } => "detach",
             Self::AttachApproved { .. } => "attach_approved",
             Self::ValidateRepair { .. } => "validate_repair",
@@ -122,6 +146,12 @@ impl GraphSchemaOp {
             | Self::AttachApproved { source_id, .. }
             | Self::ValidateRepair { source_id, .. } => source_id,
             Self::AttachPack { connector, .. } => connector.as_str(),
+            // The exact source key is available from [`ontology_source_key`].
+            // This borrowed token preserves the existing audit-line API until
+            // the runtime operation gets its dedicated result/wiring surface.
+            Self::ImportOntology { connector, .. } | Self::WithdrawOntology { connector, .. } => {
+                connector.as_str()
+            }
         }
     }
 
@@ -143,6 +173,7 @@ impl GraphSchemaOp {
             | Self::ValidateRepair {
                 if_composed_digest, ..
             } => if_composed_digest.as_deref(),
+            Self::ImportOntology { .. } | Self::WithdrawOntology { .. } => None,
         }
     }
 
@@ -174,6 +205,26 @@ fn validate_operation_payload(operation: &GraphSchemaOp) -> Result<(), String> {
             validate_documents(shapes_ttl.as_deref(), ontology_ttl.as_deref())
         }
         GraphSchemaOp::AttachPack { .. } => Ok(()),
+        GraphSchemaOp::ImportOntology {
+            connector,
+            ontology_iri,
+            version,
+            ontology_ttl,
+            shapes_ttl,
+            ..
+        } => {
+            validate_ontology_identity(connector, ontology_iri)?;
+            if version.is_empty() {
+                return Err("ontology version must not be empty".to_string());
+            }
+            validate_document("ontology_ttl", Some(ontology_ttl))?;
+            validate_document("shapes_ttl", shapes_ttl.as_deref())
+        }
+        GraphSchemaOp::WithdrawOntology {
+            connector,
+            ontology_iri,
+            ..
+        } => validate_ontology_identity(connector, ontology_iri),
         GraphSchemaOp::Detach { source_id, .. } => validate_source_id(source_id),
         GraphSchemaOp::AttachApproved {
             source_id,
@@ -210,6 +261,18 @@ pub fn is_reserved_schema_source(source_id: &str) -> bool {
     RESERVED_SCHEMA_SOURCE_PREFIXES
         .iter()
         .any(|prefix| source_id.starts_with(prefix))
+}
+
+/// The stable source key used for a connector-owned runtime ontology.
+pub fn ontology_source_key(connector: &ResourceId, ontology_iri: &str) -> String {
+    format!("ontology:{}/{}", connector.as_str(), ontology_iri)
+}
+
+fn validate_ontology_identity(connector: &ResourceId, ontology_iri: &str) -> Result<(), String> {
+    if ontology_iri.is_empty() {
+        return Err("ontology IRI must not be empty".to_string());
+    }
+    validate_source_key_shape(&ontology_source_key(connector, ontology_iri))
 }
 
 fn validate_source_id(source_id: &str) -> Result<(), String> {
@@ -312,6 +375,17 @@ pub struct GraphSchemaCommitted {
     pub changed: bool,
 }
 
+/// What a runtime ontology import or withdrawal returns once R103.2 wires the
+/// operation to the graph-schema commit path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct GraphSchemaOntologyCommitted {
+    pub revision: u64,
+    pub content_digest: Digest256,
+    pub composed_digest: Digest256,
+}
+
 /// The graph's whole schema-source set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -400,5 +474,71 @@ mod tests {
             .validate()
             .unwrap_err();
         assert!(error.contains(&MAX_SCHEMA_DOCUMENT_BYTES.to_string()));
+    }
+
+    fn digest(byte: u8) -> Digest256 {
+        Digest256::from_bytes([byte; 32])
+    }
+
+    fn ontology_import() -> GraphSchemaOp {
+        GraphSchemaOp::ImportOntology {
+            connector: ResourceId::new("example").unwrap(),
+            ontology_iri: "https://example.test/ontology".to_string(),
+            version: "1.0.0".to_string(),
+            ontology_ttl: "<https://example.test/Thing> a <http://www.w3.org/2002/07/owl#Class> ."
+                .to_string(),
+            shapes_ttl: Some(
+                "<https://example.test/ThingShape> a <http://www.w3.org/ns/shacl#NodeShape> ."
+                    .to_string(),
+            ),
+            content_digest: digest(1),
+            expected_prior_revision: None,
+        }
+    }
+
+    #[test]
+    fn ontology_import_ops_round_trip() {
+        let import = ontology_import();
+        import.validate().unwrap();
+        let wire = serde_json::to_value(&import).unwrap();
+        let decoded: GraphSchemaOp = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(decoded, import);
+        assert_eq!(wire["op"], "import_ontology");
+        assert_eq!(import.action_token(), "import_ontology");
+        assert_eq!(
+            ontology_source_key(
+                &ResourceId::new("example").unwrap(),
+                "https://example.test/ontology"
+            ),
+            "ontology:example/https://example.test/ontology"
+        );
+        assert!(is_reserved_schema_source(
+            "ontology:example/https://example.test/ontology"
+        ));
+
+        let withdraw = GraphSchemaOp::WithdrawOntology {
+            connector: ResourceId::new("example").unwrap(),
+            ontology_iri: "https://example.test/ontology".to_string(),
+            expected_revision: 1,
+        };
+        withdraw.validate().unwrap();
+        let withdraw_wire = serde_json::to_value(&withdraw).unwrap();
+        assert_eq!(
+            serde_json::from_value::<GraphSchemaOp>(withdraw_wire).unwrap(),
+            withdraw
+        );
+
+        let result = GraphSchemaOntologyCommitted {
+            revision: 1,
+            content_digest: digest(1),
+            composed_digest: digest(2),
+        };
+        assert_eq!(
+            serde_json::from_value::<GraphSchemaOntologyCommitted>(
+                serde_json::to_value(&result).unwrap()
+            )
+            .unwrap(),
+            result
+        );
     }
 }
