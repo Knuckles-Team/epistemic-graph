@@ -773,7 +773,10 @@
         "8040b672e582",
         "8451d7eecf02"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/exec.rs:2661",
+        "src/server/mod.rs:2099"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R022.1"
       ]
@@ -1129,7 +1132,12 @@
         "6c11520aebfc",
         "f708d6e7728f"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/federation_stats.rs:166",
+        "crates/eg-plan/src/federation_stats.rs:174",
+        "crates/eg-plan/src/federation_stats.rs:185",
+        "crates/eg-plan/src/federation_stats.rs:209"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R048.1"
       ]
@@ -1350,7 +1358,12 @@
         "a685d96e5de3",
         "d2cb221aa148"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "src/server/handlers/query/nl.rs:261",
+        "src/server/handlers/query/nl.rs:267",
+        "src/server/handlers/query/nl.rs:290",
+        "src/server/tests/nl_explain.rs:108"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.3.1",
         "EG-FEDERATED-QUERY-R058.3.2"
@@ -1528,7 +1541,13 @@
         "6c11520aebfc",
         "f948211fb8c7"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection.rs:472",
+        "crates/eg-rdf/src/source_selection.rs:494",
+        "crates/eg-rdf/src/source_selection.rs:520",
+        "crates/eg-rdf/src/source_selection.rs:529",
+        "crates/eg-rdf/src/source_selection.rs:539"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R072.1"
       ]
