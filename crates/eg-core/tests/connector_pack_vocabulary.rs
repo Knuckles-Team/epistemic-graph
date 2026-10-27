@@ -19,7 +19,6 @@ fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> 
     ))
 }
 
-// spec: EG-TYPED-PACKS-R101.1
 #[test]
 fn contract_terms_resolve_with_domain_and_range() {
     let triples = parse_turtle(include_str!("../ontology/connector_pack-v1.ttl"))

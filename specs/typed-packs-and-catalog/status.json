@@ -2324,11 +2324,11 @@
     {
       "id": "EG-TYPED-PACKS-R101.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "crates/eg-core/tests/connector_pack_vocabulary.rs:22"
-      ]
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "5518276883bf"
+      ],
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R101.2",
