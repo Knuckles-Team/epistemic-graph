@@ -1241,7 +1241,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0447684dce7b",
-        "a676823d2b54"
+        "a676823d2b54",
+        "afb4b3238a33"
       ],
       "verified_by": [
         "tests/test_universal_read_rls_gate.py:32"
