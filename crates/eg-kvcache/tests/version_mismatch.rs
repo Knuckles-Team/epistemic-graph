@@ -1,5 +1,6 @@
 use eg_kvcache::{KvBlockKey, SharedKvIndex};
 
+// spec: EG-DURABLE-KERNEL-R083.2
 #[test]
 fn model_revision_mismatch_is_a_typed_refusal_and_preserves_the_block() {
     let mut cache = SharedKvIndex::new();
