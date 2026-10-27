@@ -196,29 +196,7 @@ impl<'de> serde::Deserialize<'de> for VocabularyCrosswalk {
 /// membership, class kind and revision scope are selected-source checks owned
 /// by the later import path, not by this reusable typed record.
 fn is_absolute_iri(value: &str) -> bool {
-    let Some(first) = value.chars().next() else {
-        return false;
-    };
-    if !first.is_ascii_alphabetic() {
-        return false;
-    }
-
-    let Some(colon) = value.find(':') else {
-        return false;
-    };
-    if colon == 0 || colon + 1 == value.len() {
-        return false;
-    }
-    if !value[..colon]
-        .chars()
-        .all(|character| character.is_ascii_alphanumeric() || "+-.".contains(character))
-    {
-        return false;
-    }
-
-    !value
-        .chars()
-        .any(|character| character.is_ascii_whitespace() || "<>\"{}|^`".contains(character))
+    oxiri::Iri::parse(value).is_ok()
 }
 
 /// One closed enumeration of named members (for example EEO-1 job categories).
@@ -478,6 +456,33 @@ mod tests {
             crosswalk.validate(),
             Err(VocabularyCrosswalkError::InvalidApprovedTargetClassIri(_))
         ));
+
+        for malformed in [
+            "http://schema.org/Person\\Subclass",
+            "http://schema.org/Person%GG",
+            "http://schema.org/Person%2",
+        ] {
+            let mut crosswalk = crosswalk_fixture();
+            crosswalk.source_class_iri = malformed.to_string();
+            assert!(matches!(
+                crosswalk.validate(),
+                Err(VocabularyCrosswalkError::InvalidSourceClassIri(_))
+            ));
+
+            let mut crosswalk = crosswalk_fixture();
+            crosswalk.target_class_iri = malformed.to_string();
+            assert!(matches!(
+                crosswalk.validate(),
+                Err(VocabularyCrosswalkError::InvalidTargetClassIri(_))
+            ));
+
+            let mut crosswalk = crosswalk_fixture();
+            crosswalk.approved_target_declarations[0].class_iri = malformed.to_string();
+            assert!(matches!(
+                crosswalk.validate(),
+                Err(VocabularyCrosswalkError::InvalidApprovedTargetClassIri(_))
+            ));
+        }
     }
 
     /// Revision fields are required on the wire and cannot be replaced by an
