@@ -710,9 +710,9 @@ Preserve `EG-FEDERATED-QUERY-R001, EG-FEDERATED-QUERY-R011, EG-DECISION-ENGINE-R
 ### `EG-FEDERATED-QUERY-R040.5`
 
 The earlier generic definition hold is superseded by the 2026-10-26 LEANN-inspired low-storage ANN
-definition patch below. R040.5 remains SPECIFIED: no implementation or evidence follows from this
-plan alone. The patch preserves the existing source record and obligations and binds the new work
-to the current semantic-index, embedding-identity and query authorities.
+definition patch below. R040.5 remains SPECIFIED. This plan makes no implementation or evidence claim.
+The patch preserves the source record and existing obligations. It binds the work to current
+semantic-index, embedding-identity and query authorities.
 
 Preserve `EG-FEDERATED-QUERY-R007, EG-FEDERATED-QUERY-R040, EG-FEDERATED-QUERY-R040.4, EG-FEDERATED-QUERY-R008`. Source record `EG:20` SHA-256 `07df52b453f0f1b7be7aec7bf790f087c3fc5e13500915011382a9fcd8d9d41a`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
@@ -989,11 +989,11 @@ Every Medulla fixture must pin all three inputs independently:
 |---|---|---|
 | Space and encoding identity | `EmbeddingSpaceRef` (`crates/eg-types/src/embedding.rs`), `DocumentEncodingPolicy` obligation R039.2.1, `EmbeddingVersionStore` promotion tags | Require a source-text reference with source revision and digest. Refuse missing identity; do not assume a content hash. |
 | Graph/index | `crates/eg-ann/src/hnsw.rs`, filtered HNSW search and `hnsw/artifact.rs`; `ivfpq.rs` and `persist.rs` codebooks/SQ8/compact (including `durable_codes`); existing `recall.rs` and eg-ann footprint/recall benches; `SemanticStore` incremental mutations and `GenerationStamp`. | Add a compact low-storage manifest and artifact mode. Bound adjacency, codes, and metadata. Account for each. Preserve non-compact compatibility. Reuse the existing recall/footprint measurement path. |
-| Lifecycle/fences | R059 semantic index lifecycle; semantic-index worker/dispatch; R040.3 generation check; existing restart fallback and `EmbeddingVersionStore` gate | Selective invalidation/regeneration receipt and atomic replacement generation; no mixed source/model/policy rows |
+| Lifecycle/fences | R059 semantic index lifecycle; semantic-index worker/dispatch; R040.3 generation check; existing restart fallback and `EmbeddingVersionStore` gate. | Selective invalidation and regeneration produce a receipt. Atomic replacement generation avoids mixed source, model, and policy rows. |
 | Query/embedding seam | `UnifiedQuery` → `run_unified_with` → `PlanCtx`; `eg_plan::TextEmbedder` remains the query-text resolver; facade `uql_text_embedder`/`run_unified_bind_embedder`; SQL `EmbeddingBinding` R077 | Add core-owned `EmbeddingProvider` and `regenerate_eligible` for write-side source rows. Add bounded multi-source batching/cache and an explicit query exact-rescore adapter. Keep `eg-core` independent of `eg-plan`. |
 | Cache | Existing row-norm/embedding arena caches in semantic stores; `eg-kvcache` is model KV only; R017/R018 freshness. | Keep new cache metadata, keys, and eviction behavior inside the existing ANN owner. Add no durable cache or second store. |
 | Pruning | Existing HNSW neighbor selection and bounded degree controls | Disabled-by-default, revision-bound hub-preserving policy with deterministic ties and connectivity refusal |
-| Serving | Existing authenticated query and source/index generation contracts; no new ANN endpoint | Receipt/evidence fields on existing query/readback path; no MCP/server/harness authority |
+| Serving | Existing authenticated query and source/index generation contracts; no new ANN endpoint. | Receipt and evidence fields live on existing query/readback paths. No MCP, server, or harness authority is added. |
 
 ### Proposed producer/consumer boundary
 
@@ -1002,9 +1002,9 @@ DocumentEncodingPolicy, index-generation policy)` rows and emits a content-addre
 `LowStorageAnnManifest` plus graph artifact and `StorageAccounting`. Write-side source changes
 go through the core-owned `EmbeddingProvider::regenerate_eligible` path, which may batch rows from
 multiple sources under one bounded policy. The query consumer presents the manifest to existing
-`PlanCtx`/semantic-index ranking. Compact traversal itself fetches no source text; only an explicit
-exact-rescore adapter may fetch authorized selected rows, invoke the provider and spend its strict
-fetch/rescore budget. The existing `TextEmbedder` remains the query-text resolver. Every returned
+`PlanCtx`/semantic-index ranking. Compact traversal fetches no source text.
+An exact-rescore adapter may fetch authorized rows and spend its budget.
+The existing `TextEmbedder` remains the query-text resolver. Every returned
 vector carries complete space identity and source digest before admission or rescore. Existing
 tenant/RLS predicates run before candidate truncation.
 
@@ -1020,10 +1020,10 @@ contract. Add no directory or framework.
    `EmbeddingSpaceRef`, `DocumentEncodingPolicy`, build workspace and finite ceilings.
 2. Add compact graph artifact behavior by reusing HNSW/IVF-PQ traversal and codecs. Compare compact
    candidates with the exact oracle and preserve the compatibility path.
-3. Add the write-side `EmbeddingProvider::regenerate_eligible` foundation and source-revision
-   invalidation under the existing semantic generation/fence path. Add a separate query exact-
-   rescore adapter that fetches only selected candidates under strict source/fetch budgets; compact
-   graph traversal must remain embeddingless.
+3. Add the write-side `EmbeddingProvider::regenerate_eligible` foundation.
+   Bind source-revision invalidation under existing generation and fence controls.
+   Add a query exact-rescore adapter for selected candidates under strict budgets.
+   Keep compact graph traversal embeddingless.
 4. Add bounded multi-source provider batching and the bounded exact-key in-process cache; retain the
    existing query-text `TextEmbedder` unchanged and record provider call/batch counters.
 5. Add disabled-by-default hub pruning with deterministic policy and connectivity checks.
