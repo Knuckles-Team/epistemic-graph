@@ -1,6 +1,6 @@
 //! Structured diagnostics (UQL-02): codes, spans, expected sets, multi-line carets.
 
-use crate::uql::{ALL_CODES, UqlCode, parse};
+use crate::uql::{parse, UqlCode, ALL_CODES};
 
 #[test]
 fn an_unknown_stage_names_every_alternative() {
