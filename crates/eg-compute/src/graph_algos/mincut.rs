@@ -57,7 +57,7 @@ where
 
     while remaining > 1 {
         let mut added = vec![false; n];
-        let mut connection = vec![0.0; n];
+        let mut connection = vec![0.0_f64; n];
         let mut previous = None;
         let mut last = None;
 
