@@ -1658,3 +1658,114 @@ jobs:
           gh release create engine-main dist/medulla-*.whl dist/SHA256SUMS \
             --target "$SOURCE_SHA" --prerelease --latest=false \
             --title "engine-main (${SOURCE_SHA:0:12})" --notes "$notes"
+
+  # Stable branch-protection surface for pull requests and main pushes. Keep
+  # this aggregate fail-closed: a failed, cancelled, missing, or unexpectedly
+  # skipped blocking job must make the one required check fail. The variants
+  # are intentionally absent on pull requests, so their scope-specific skip is
+  # the only code-path exemption. Documentation-only changes skip the native
+  # jobs through changes.outputs.code and must still have a successful security
+  # job and central light-gate result.
+  ci-required:
+    name: CI required
+    needs:
+      - changes
+      - security
+      - gates
+      - gates-contract
+      - gates-plan-fuzz
+      - gates-wheel
+      - gates-facade
+      - gates-whisper
+      - gates-variants
+      - gates-crates
+      - gates-storage
+      - gates-pyo3
+      - python-kernels
+      - python-server
+      - python-suite
+      - tts-piper-inference
+      - language-clients
+      - quality-advisory
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every blocking CI result
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CODE_SCOPE: ${{ needs.changes.outputs.code }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          GATES_RESULT: ${{ needs.gates.result }}
+          GATES_CONTRACT_RESULT: ${{ needs.gates-contract.result }}
+          GATES_PLAN_FUZZ_RESULT: ${{ needs.gates-plan-fuzz.result }}
+          GATES_WHEEL_RESULT: ${{ needs.gates-wheel.result }}
+          GATES_FACADE_RESULT: ${{ needs.gates-facade.result }}
+          GATES_WHISPER_RESULT: ${{ needs.gates-whisper.result }}
+          GATES_VARIANTS_RESULT: ${{ needs.gates-variants.result }}
+          GATES_CRATES_RESULT: ${{ needs.gates-crates.result }}
+          GATES_STORAGE_RESULT: ${{ needs.gates-storage.result }}
+          GATES_PYO3_RESULT: ${{ needs.gates-pyo3.result }}
+          PYTHON_KERNELS_RESULT: ${{ needs.python-kernels.result }}
+          PYTHON_SERVER_RESULT: ${{ needs.python-server.result }}
+          PYTHON_SUITE_RESULT: ${{ needs.python-suite.result }}
+          TTS_PIPER_INFERENCE_RESULT: ${{ needs.tts-piper-inference.result }}
+          LANGUAGE_CLIENTS_RESULT: ${{ needs.language-clients.result }}
+          QUALITY_ADVISORY_RESULT: ${{ needs.quality-advisory.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$CODE_SCOPE" != true && "$CODE_SCOPE" != false ]]; then
+            echo "changes.outputs.code is missing or invalid: ${CODE_SCOPE:-<empty>}" >&2
+            exit 1
+          fi
+
+          results=(
+            "changes=$CHANGES_RESULT"
+            "security=$SECURITY_RESULT"
+            "gates=$GATES_RESULT"
+            "gates-contract=$GATES_CONTRACT_RESULT"
+            "gates-plan-fuzz=$GATES_PLAN_FUZZ_RESULT"
+            "gates-wheel=$GATES_WHEEL_RESULT"
+            "gates-facade=$GATES_FACADE_RESULT"
+            "gates-whisper=$GATES_WHISPER_RESULT"
+            "gates-variants=$GATES_VARIANTS_RESULT"
+            "gates-crates=$GATES_CRATES_RESULT"
+            "gates-storage=$GATES_STORAGE_RESULT"
+            "gates-pyo3=$GATES_PYO3_RESULT"
+            "python-kernels=$PYTHON_KERNELS_RESULT"
+            "python-server=$PYTHON_SERVER_RESULT"
+            "python-suite=$PYTHON_SUITE_RESULT"
+            "tts-piper-inference=$TTS_PIPER_INFERENCE_RESULT"
+            "language-clients=$LANGUAGE_CLIENTS_RESULT"
+            "quality-advisory=$QUALITY_ADVISORY_RESULT"
+          )
+          failures=()
+          for entry in "${results[@]}"; do
+            job="${entry%%=*}"
+            result="${entry#*=}"
+            result="${result:-MISSING}"
+
+            if [[ "$job" == changes || "$job" == security ]]; then
+              [[ "$result" == success ]] || failures+=("$job=$result")
+              continue
+            fi
+
+            if [[ "$CODE_SCOPE" == false ]]; then
+              [[ "$result" == skipped ]] || failures+=("$job=$result (expected skipped for documentation-only scope)")
+              continue
+            fi
+
+            if [[ "$job" == gates-variants && "$EVENT_NAME" == pull_request && "$result" == skipped ]]; then
+              echo "accepted scope skip: $job (pull_request)"
+              continue
+            fi
+            [[ "$result" == success ]] || failures+=("$job=$result")
+          done
+
+          if ((${#failures[@]})); then
+            printf 'blocking CI result failure:\n- %s\n' "${failures[@]}" >&2
+            exit 1
+          fi
+          echo "all blocking CI results passed for code_scope=$CODE_SCOPE"
