@@ -97,15 +97,66 @@ jobs:
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
-      - name: Install pinned cargo-deny
+      - name: Resolve pinned cargo-deny cache key
+        id: cargo-deny-cache-key
         if: needs.changes.outputs.code != 'false'
+        shell: bash
         run: |
           set -euo pipefail
           version="$(PYTHONPATH=scripts python -c 'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)')"
+          runtime_fingerprint="$({ rustc -vV; ldd --version; } | sha256sum | cut -d' ' -f1)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'key=eg-cargo-deny-v1-%s-%s-%s-runtime-%s\n' \
+            "$RUNNER_OS" "$RUNNER_ARCH" "$version" "$runtime_fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Restore pinned cargo-deny
+        id: cargo-deny-cache
+        if: needs.changes.outputs.code != 'false'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/epistemic-graph-cargo-deny
+          key: ${{ steps.cargo-deny-cache-key.outputs.key }}
+      - name: Install pinned cargo-deny
+        if: needs.changes.outputs.code != 'false'
+        env:
+          CARGO_DENY_VERSION: ${{ steps.cargo-deny-cache-key.outputs.version }}
+        run: |
+          set -euo pipefail
+          version="$CARGO_DENY_VERSION"
           root="$RUNNER_TEMP/epistemic-graph-cargo-deny"
-          cargo install --locked --version "$version" --root "$root" cargo-deny
+          binary="$root/bin/cargo-deny"
+          valid=false
+          if [ -x "$binary" ]; then
+            actual="$("$binary" --version || true)"
+            if [ "$actual" = "cargo-deny $version" ]; then
+              valid=true
+            fi
+          fi
+          if [ "$valid" != true ]; then
+            rm -rf "$root"
+            cargo install --locked --version "$version" --root "$root" cargo-deny
+          fi
           echo "$root/bin" >> "$GITHUB_PATH"
-          test "$("$root/bin/cargo-deny" --version)" = "cargo-deny $version"
+      - name: Verify pinned cargo-deny
+        id: cargo-deny-verified
+        if: needs.changes.outputs.code != 'false'
+        env:
+          CARGO_DENY_VERSION: ${{ steps.cargo-deny-cache-key.outputs.version }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/epistemic-graph-cargo-deny"
+          test "$("$root/bin/cargo-deny" --version)" = "cargo-deny $CARGO_DENY_VERSION"
+          echo 'verified=true' >> "$GITHUB_OUTPUT"
+      - name: Save pinned cargo-deny
+        if: >-
+          needs.changes.outputs.code != 'false' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          steps.cargo-deny-cache.outputs.cache-hit != 'true' &&
+          steps.cargo-deny-verified.outputs.verified == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/epistemic-graph-cargo-deny
+          key: ${{ steps.cargo-deny-cache.outputs.cache-primary-key }}
       - name: Rust dependency advisory gate
         if: needs.changes.outputs.code != 'false'
         run: bash scripts/check_cargo_advisories.sh
