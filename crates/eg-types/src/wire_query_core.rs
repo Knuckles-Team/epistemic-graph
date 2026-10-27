@@ -157,6 +157,145 @@ pub enum EdgeDir {
     Both,
 }
 
+/// Whether a directed relationship constraint must be present or absent for a
+/// candidate. The closed enum makes an unsupported quantifier fail during wire
+/// decoding instead of being silently weakened by a later planner stage.
+#[cfg(feature = "query")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum RelationshipQuantifier {
+    Exists,
+    NotExists,
+}
+
+/// A typed entity predicate used by [`RetrievalConstraints`].
+///
+/// The variants intentionally encode the supported operator/value shapes. In
+/// particular, `In` cannot accidentally receive a scalar and comparison
+/// operators cannot receive an untyped JSON value. Property type checking is
+/// performed by the planner against the pinned graph schema; this wire model
+/// only guarantees that the request is structurally closed and typed.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "operator", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum EntityPredicate {
+    Eq {
+        property: String,
+        value: PredLiteral,
+    },
+    Ne {
+        property: String,
+        value: PredLiteral,
+    },
+    Lt {
+        property: String,
+        value: PredLiteral,
+    },
+    Le {
+        property: String,
+        value: PredLiteral,
+    },
+    Gt {
+        property: String,
+        value: PredLiteral,
+    },
+    Ge {
+        property: String,
+        value: PredLiteral,
+    },
+    In {
+        property: String,
+        values: Vec<PredLiteral>,
+    },
+}
+
+impl EntityPredicate {
+    /// Validate the structural part of an entity predicate before a planner
+    /// attempts schema lookup or execution.
+    #[cfg(feature = "query")]
+    pub fn validate(&self) -> Result<(), String> {
+        let (property, values_empty) = match self {
+            Self::Eq { property, .. }
+            | Self::Ne { property, .. }
+            | Self::Lt { property, .. }
+            | Self::Le { property, .. }
+            | Self::Gt { property, .. }
+            | Self::Ge { property, .. } => (property, false),
+            Self::In { property, values } => (property, values.is_empty()),
+        };
+
+        if property.trim().is_empty() {
+            return Err("entity predicate property must not be empty".to_string());
+        }
+        if values_empty {
+            return Err("entity IN predicate must contain at least one value".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// A directed relationship predicate evaluated against a candidate's
+/// authorized graph view. `target` is itself typed and conjunctive with the
+/// other entity predicates; the execution layer remains responsible for
+/// authorization and graph-revision freshness.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RelationshipPredicate {
+    pub edge_kind: String,
+    pub direction: EdgeDir,
+    pub target: EntityPredicate,
+    pub quantifier: RelationshipQuantifier,
+}
+
+impl RelationshipPredicate {
+    /// Validate the structural part of a relationship predicate before the
+    /// planner resolves an authorized edge set.
+    #[cfg(feature = "query")]
+    pub fn validate(&self) -> Result<(), String> {
+        if self.edge_kind.trim().is_empty() {
+            return Err("relationship predicate edge_kind must not be empty".to_string());
+        }
+        self.target.validate()
+    }
+}
+
+/// Hard retrieval constraints bound to one graph revision. Lists are
+/// conjunctive: every entity and relationship predicate must hold before a
+/// candidate can reach ranking or replenishment. This is the model-only wire
+/// contract; compilation, tenant authorization, and stale-revision refusal
+/// belong to the planner.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RetrievalConstraints {
+    pub graph_revision: u64,
+    pub entity_predicates: Vec<EntityPredicate>,
+    pub relationship_predicates: Vec<RelationshipPredicate>,
+}
+
+impl RetrievalConstraints {
+    /// Validate structural constraints before schema and graph authorization.
+    #[cfg(feature = "query")]
+    pub fn validate(&self) -> Result<(), String> {
+        for (index, predicate) in self.entity_predicates.iter().enumerate() {
+            predicate
+                .validate()
+                .map_err(|error| format!("entity_predicates[{index}]: {error}"))?;
+        }
+        for (index, predicate) in self.relationship_predicates.iter().enumerate() {
+            predicate
+                .validate()
+                .map_err(|error| format!("relationship_predicates[{index}]: {error}"))?;
+        }
+        Ok(())
+    }
+}
+
 /// The impact model of a [`Op::Propagate`] stage (EH-526).
 #[cfg(feature = "query")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -863,6 +1002,102 @@ pub enum UqlResult {
         stages: Vec<UqlStageReport>,
         warnings: Vec<String>,
     },
+}
+
+#[cfg(all(test, feature = "query"))]
+mod retrieval_constraints_tests {
+    use super::*;
+
+    fn sample_constraints() -> RetrievalConstraints {
+        RetrievalConstraints {
+            graph_revision: 17,
+            entity_predicates: vec![
+                EntityPredicate::Eq {
+                    property: "kind".to_string(),
+                    value: PredLiteral::Str("Document".to_string()),
+                },
+                EntityPredicate::In {
+                    property: "priority".to_string(),
+                    values: vec![PredLiteral::Num(1.0), PredLiteral::Num(2.0)],
+                },
+            ],
+            relationship_predicates: vec![
+                RelationshipPredicate {
+                    edge_kind: "supports".to_string(),
+                    direction: EdgeDir::Out,
+                    target: EntityPredicate::Eq {
+                        property: "id".to_string(),
+                        value: PredLiteral::Str("doc-2".to_string()),
+                    },
+                    quantifier: RelationshipQuantifier::Exists,
+                },
+                RelationshipPredicate {
+                    edge_kind: "contradicts".to_string(),
+                    direction: EdgeDir::In,
+                    target: EntityPredicate::Eq {
+                        property: "kind".to_string(),
+                        value: PredLiteral::Str("Draft".to_string()),
+                    },
+                    quantifier: RelationshipQuantifier::NotExists,
+                },
+            ],
+        }
+    }
+
+    // spec: EG-FEDERATED-QUERY-R040.1.1
+    #[test]
+    fn constraints_round_trip_typed_conjunction_and_relationship_quantifiers() {
+        let constraints = sample_constraints();
+        assert!(constraints.validate().is_ok());
+
+        let bytes = rmp_serde::to_vec_named(&constraints).expect("constraints serialize");
+        let decoded: RetrievalConstraints =
+            rmp_serde::from_slice(&bytes).expect("constraints deserialize");
+        assert_eq!(decoded, constraints);
+    }
+
+    // spec: EG-FEDERATED-QUERY-R040.1.1
+    #[test]
+    fn malformed_constraint_shapes_fail_before_planner_binding() {
+        let mut constraints = sample_constraints();
+        constraints.entity_predicates[0] = EntityPredicate::In {
+            property: "priority".to_string(),
+            values: Vec::new(),
+        };
+        assert_eq!(
+            constraints.validate(),
+            Err(
+                "entity_predicates[0]: entity IN predicate must contain at least one value"
+                    .to_string()
+            )
+        );
+
+        constraints = sample_constraints();
+        constraints.relationship_predicates[0].edge_kind.clear();
+        assert_eq!(
+            constraints.validate(),
+            Err(
+                "relationship_predicates[0]: relationship predicate edge_kind must not be empty"
+                    .to_string()
+            )
+        );
+    }
+
+    // spec: EG-FEDERATED-QUERY-R040.1.1
+    #[test]
+    fn unknown_operator_and_fields_are_rejected() {
+        let mut unknown_operator = serde_json::to_value(EntityPredicate::Eq {
+            property: "kind".to_string(),
+            value: PredLiteral::Str("Document".to_string()),
+        })
+        .expect("predicate serializes");
+        unknown_operator["operator"] = serde_json::Value::String("contains".to_string());
+        assert!(serde_json::from_value::<EntityPredicate>(unknown_operator).is_err());
+
+        let mut unknown_field = serde_json::to_value(sample_constraints()).expect("serializes");
+        unknown_field["unexpected"] = serde_json::Value::Bool(true);
+        assert!(serde_json::from_value::<RetrievalConstraints>(unknown_field).is_err());
+    }
 }
 
 /// EG-FEDERATED-QUERY-R002: a query/validation rejection reason is reported

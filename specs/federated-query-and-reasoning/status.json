@@ -480,8 +480,8 @@
         "2b3e2738b5ff"
       ],
       "verified_by": [
-        "crates/eg-types/src/wire_query_core.rs:882",
-        "crates/eg-types/src/wire_query_core.rs:914"
+        "crates/eg-types/src/wire_query_core.rs:1117",
+        "crates/eg-types/src/wire_query_core.rs:1149"
       ]
     },
     {
@@ -2275,7 +2275,11 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/wire_query_core.rs:1047",
+        "crates/eg-types/src/wire_query_core.rs:1059",
+        "crates/eg-types/src/wire_query_core.rs:1086"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R040.1.2",
