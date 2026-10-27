@@ -363,9 +363,8 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            // Qualification hold: calculate the successor natively before updating
-            // this pin; see docs/operations/inline-history-qualification.md.
-            "cfc47e43654abc32fbf63cf3d9d7ffd4e04c742e3c955c259d2d05f5316e0a27"
+            // Native lineage test output from hosted run 40451526869.
+            "e4aeac7d8f73cad643f5b843b542307ee3f1a4208a984bf9aba7cffd2a9baf35"
         }
         OwnerLayout::AgentLibrary => {
             "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"

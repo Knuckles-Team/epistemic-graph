@@ -33,8 +33,7 @@ pub(super) fn authorize_profile_presence(graph: &str, request: &SubmitWorkItemRe
         Some(_) => Err("inline history policy marker is invalid".into()),
         None if authorized => Ok(()),
         None => Err("ACCESS_DENIED: inline history requires operator graph enablement".into()),
-    }?;
-    Ok(())
+    }
 }
 
 pub(super) fn record_profile_presence(graph: &str, request: &SubmitWorkItemRequest,

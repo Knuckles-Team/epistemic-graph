@@ -187,6 +187,7 @@ METHOD_IDS = frozenset(
         "PublishCurrentPlan",
         "GetCurrentPlan",
         "GetRunWorkItem",
+        "GetConversationHead",
         "GetWorkItem",
         "ListWorkItems",
         "GetWorkItemOutcome",

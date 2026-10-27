@@ -4424,7 +4424,7 @@
         "src/redb_store/work_item/row_guard.rs:323",
         "src/redb_store/work_item/run_owner/tests.rs:116",
         "src/redb_store/work_item/run_owner/tests.rs:148",
-        "src/redb_store/work_item/run_owner/tests.rs:449",
+        "src/redb_store/work_item/run_owner/tests.rs:450",
         "src/redb_store/work_item/run_owner/tests.rs:49"
       ]
     },
@@ -4636,11 +4636,11 @@
         "b286edc1b3bf"
       ],
       "verified_by": [
-        "src/redb_store/work_item/run_owner/tests.rs:201",
-        "src/redb_store/work_item/run_owner/tests.rs:226",
-        "src/redb_store/work_item/run_owner/tests.rs:250",
-        "src/redb_store/work_item/run_owner/tests.rs:328",
-        "src/redb_store/work_item/run_owner/tests.rs:449"
+        "src/redb_store/work_item/run_owner/tests.rs:202",
+        "src/redb_store/work_item/run_owner/tests.rs:227",
+        "src/redb_store/work_item/run_owner/tests.rs:251",
+        "src/redb_store/work_item/run_owner/tests.rs:329",
+        "src/redb_store/work_item/run_owner/tests.rs:450"
       ]
     },
     {
@@ -4747,29 +4747,36 @@
     {
       "id": "EG-DURABLE-KERNEL-R028.4.5",
       "title": "Bounded terminal-only text continuation profile",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "966ec29a9eae"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/redb_store/work_item/inline_history/tests.rs:135"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.4.6",
       "title": "Select completed prior text under one native snapshot",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "966ec29a9eae"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/redb_store/work_item/inline_history/tests.rs:277",
+        "src/redb_store/work_item/inline_history/tests.rs:91"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.4.7",
       "title": "A fresh claim is not replay permission",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "966ec29a9eae"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/mutation_batch/commit/work_item/fresh_claim_tests.rs:26"
+      ]
     }
   ]
 }

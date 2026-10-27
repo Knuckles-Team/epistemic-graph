@@ -180,6 +180,7 @@ async fn run_admission_unavailable_is_a_declared_wire_refusal() {
                 tenant: "tenant".into(),
                 run_id: "run".into(),
                 actor: "owner".into(),
+                selection: None,
             },
         )
         .await;

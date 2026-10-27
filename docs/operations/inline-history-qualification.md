@@ -15,11 +15,24 @@ It preserves graph rows, prior private current-plan rows and all earlier upgrade
 
 ## Outstanding native gates
 
-The editing environment has no Rust toolchain. No native test, fingerprint
-calculation, generated manifest fixture or schema regeneration is claimed.
-The successor fingerprint in `pinned_layout_digest(GraphShard)` deliberately
-remains unchanged until the native generator/test workflow calculates it. That
-is a known failing lineage gate, not permission to waive or remove the assertion.
+The canonical spec-status generator labels a committed requirement `VERIFIED`
+when it finds a bound source test. For this blocked draft, those generated
+`verified_by` entries identify test definitions, not successful native execution.
+They do not close any acceptance gate below. Test tasks remain unchecked until
+the reviewers record the exact native and installed results. Do not hand-edit generated
+state to substitute for that evidence.
+
+The editing environment initially had no discovered Rust toolchain. Hosted run
+`40451526869` ran the storage suite: 132 tests passed and four failed on stale pins,
+census counts and generated documentation. The native lineage test calculated
+the successor fingerprint `e4aeac7d8f73cad643f5b843b542307ee3f1a4208a984bf9aba7cffd2a9baf35`.
+The source pin and census expectations now use that result; a subsequent green
+run is still required. The inline-history upgrade preservation test passed.
+Facade tests did not run because compilation failed; scoped compiler repairs
+await hosted verification. The owner-format document now contains the complete
+native-rendered expected output from that storage test, independently checked
+against the recorded log. It still needs a passing native freshness rerun.
+Generated predecessor fixtures remain outstanding.
 
 Before making the change ready:
 
@@ -60,10 +73,16 @@ registry from that actual artifact before enabling the profile. An old generated
 client or registry must refuse the enabled path, not infer a successful empty
 history. Disabled legacy operation remains compatible.
 
-The automatic local reachability check currently detects the absent generated
-method catalog. Pinned rustfmt is also unavailable. The exhaustive native contract
-check is a separate manual local gate and hosted requirement. A blocked draft
-exception covers neither readiness nor passing evidence for these checks.
+Run `40451526869` produced canonical contract artifact `12714498727` and codec
+artifact `12714466315` from source tree `d9ea4b8258614cd9e49ca7e0c9a3bd9ade586d23`.
+Their exact source/recipe/file digests were checked before importing the generated
+bytes. Local method reachability now passes for all 473 methods. This is not a
+successful hosted parity rerun. The cached pinned toolchain is now available.
+Disk capacity limits local native builds; exhaustive native checks still need hosted results.
+The native-generated owner-format document retains one STE sentence-length finding.
+A renderer correction and genuine regeneration remain pending.
+A blocked draft exception covers neither readiness nor passing evidence for
+those checks.
 
 ## Operator enablement
 

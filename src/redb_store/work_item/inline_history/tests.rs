@@ -88,6 +88,51 @@ fn quota_boundary_does_not_partially_charge() {
     assert_eq!(quota.bytes, 0);
 }
 
+// spec: EG-DURABLE-KERNEL-R028.4.6
+#[test]
+fn incomplete_profile_predecessor_refuses_without_advancing_head() {
+    for status in ["running", "failed"] {
+        let temp = open(&format!("inline-predecessor-{status}"));
+        let (id, _, _) = seed(&temp.shard);
+        super::super::test_shard::with_nodes(&temp.shard, "predecessor-state", |nodes| {
+            let bytes = nodes.get((GRAPH, id.as_str()))?.unwrap();
+            let mut props: Row = decode_durable(bytes.value())?;
+            drop(bytes);
+            props.insert("status".into(), status.into());
+            write_work_item_props(nodes, GRAPH, &id, &mut props, DurableCrypto::none())
+        });
+        let head = || super::super::history_selection::read_head(&temp.shard,
+            GRAPH, "tenant", "conversation", "owner", DurableCrypto::none())
+            .unwrap().unwrap();
+        let before = serde_json::to_value(head()).unwrap();
+        let version = crate::redb_store::read_mutation_graph_version(&temp.shard, GRAPH).unwrap();
+        let mut request = super::super::test_shard::run_request();
+        request.run_id = Some("next".into());
+        request.idempotency_key = "next".into();
+        request.conversation = Some(Box::new(serde_json::from_value(serde_json::json!({
+            "schema_version":"1", "context_id":"conversation", "expected_revision":1,
+            "predecessor_run_id":"run",
+            "history_profile":{"version":1,"user_text_digest":content_digest("hello")}
+        })).unwrap()));
+        let denied = with_write(&temp.shard, "premature-next", 3000, |write| {
+            let member = write.graph(GRAPH)?;
+            let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
+            apply_submit_work_item_rows(GRAPH, &request, &mut rows.nodes,
+                &mut rows.inline_history, &mut rows.edges, &mut rows.command_sequences,
+                WorkItemCommitScope { inline_history_enable_authorized: false,
+                    crypto: DurableCrypto::none(), authoritative_now_ms: 3000,
+                    admitted_actor: Some("owner"), outbox_id: "next-outbox" })
+        });
+        assert!(denied.unwrap_err().contains("CONVERSATION_UNAVAILABLE"));
+        assert_eq!(serde_json::to_value(head()).unwrap(), before);
+        assert_eq!(crate::redb_store::read_mutation_graph_version(&temp.shard, GRAPH).unwrap(), version);
+        let next = super::super::run_owner::work_item_id(GRAPH, "tenant", "next").unwrap();
+        assert!(row(&temp.shard, &next).is_none());
+        assert!(row(&temp.shard, &quota_id("tenant")).is_none());
+    }
+}
+
+// spec: EG-DURABLE-KERNEL-R028.4.5
 #[test]
 fn terminal_text_and_pointer_are_atomic_and_protected() {
     let temp = open("inline-terminal");
@@ -229,6 +274,7 @@ fn first_selection_requires_owner_and_refuses_any_current_pointer() {
 // Real native compiler/ledger/outbox and close/reopen; still not a served client
 // journey or proof that Arbora delivered these bytes to a model.
 #[cfg(feature = "server")]
+// spec: EG-DURABLE-KERNEL-R028.4.6
 #[test]
 fn two_turn_selection_uses_committed_snapshot_after_restart() {
     use crate::server::mutation_batch::{compile_methods, principal_fingerprint, CompileBatch};
@@ -508,7 +554,7 @@ fn existing_profile_graft_refuses_before_source_fence_or_destination_reservation
     let (id, _, _) = seed(&source.shard);
     let before = row(&source.shard, &id);
     let version = crate::redb_store::read_mutation_graph_version(&source.shard, GRAPH).unwrap();
-    let identity = crate::redb_store::graph_scope_identity(GRAPH).unwrap();
+    let identity = crate::redb_store::shard::graph_scope_identity(GRAPH).unwrap();
     assert!(!destination.shard.kernel().scope_binding_exists(&identity).unwrap());
     let error = destination.shard.graft_graph_from(&source.shard, GRAPH).unwrap_err();
     assert_eq!(error, "inline history graph graft is unsupported");

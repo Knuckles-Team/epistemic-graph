@@ -23,6 +23,7 @@ fn decode(result: ResultPayload) -> ClaimWorkItemResult {
     }
 }
 
+// spec: EG-DURABLE-KERNEL-R028.4.7
 #[test]
 fn replay_clears_profile_grant_without_changing_lease_identity() {
     for marker in [true, false] {
