@@ -750,7 +750,7 @@
       ],
       "verified_by": [
         "tests/test_ci_change_scope.py:492",
-        "tests/test_ci_change_scope.py:839",
+        "tests/test_ci_change_scope.py:838",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },

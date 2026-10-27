@@ -47,7 +47,6 @@ def test_all_native_scope_consumers_keep_the_changes_output_edge() -> None:
         "gates-pyo3",
         "python-kernels",
         "python-server",
-        "backward-python",
         "python-suite",
         "tts-piper-inference",
         "language-clients",

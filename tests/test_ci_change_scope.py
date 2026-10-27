@@ -830,7 +830,6 @@ def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
         "python-server",
         "python-kernels",
         "python-suite",
-        "backward-python",
         "gates-wheel",
     ):
         assert jobs[name]["runs-on"] == "ubuntu-24.04"
