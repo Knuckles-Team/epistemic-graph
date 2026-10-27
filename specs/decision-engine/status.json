@@ -9619,8 +9619,10 @@
     {
       "id": "EG-DECISION-ENGINE-R805.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "550e623002fa"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/promotion.rs:40"
       ]
