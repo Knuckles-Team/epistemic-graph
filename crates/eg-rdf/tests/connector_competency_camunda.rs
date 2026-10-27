@@ -106,7 +106,9 @@ f:incident-running a proc:ApplicationEvent ;
     proc:incidentStatus "open" .
 "#;
     let view = graph(
-        &[include_str!("../../eg-core/ontology/process_intelligence-v1.ttl")],
+        &[include_str!(
+            "../../eg-core/ontology/process_intelligence-v1.ttl"
+        )],
         fixture,
     );
     let (vars, rows) = select(
@@ -136,7 +138,11 @@ SELECT ?instance ?activity ?incident ?status ?source ?record ?asof WHERE {
     let i_record = idx("record");
     let i_asof = idx("asof");
 
-    assert_eq!(rows.len(), 1, "only the open, stopped instance answers: {rows:?}");
+    assert_eq!(
+        rows.len(),
+        1,
+        "only the open, stopped instance answers: {rows:?}"
+    );
     let row = &rows[0];
     assert_eq!(local(&row[i_instance]), "instance-open");
     assert_eq!(local(&row[i_activity]), "activity-approve");
