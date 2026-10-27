@@ -268,6 +268,10 @@ fn reconcile_readmits_stranded_intent_after_originating_topic_retires() {
     assert!(retry.wakeup_consumed);
     assert_eq!(retry.receipts.len(), 1);
     assert!(retry.receipts[0].replayed);
+    assert!(service
+        .sql_source_manifest(binding.generation, &source_entity_id)
+        .unwrap()
+        .is_none());
 
     // Re-admission leaves the original S1 row intact; the ordinary durable
     // stage consumer can now claim and commit that exact intent.
