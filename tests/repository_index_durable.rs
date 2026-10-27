@@ -486,7 +486,7 @@ async fn served_oversized_write_set_refuses_atomically() {
     )
     .await;
     let error = refusal.error.expect("oversized served batch must refuse");
-    assert!(error.starts_with(BATCH_TOO_LARGE), "{error}");
+    assert!(error.starts_with("REPOSITORY_BATCH_TOO_LARGE"), "{error}");
     assert!(error.len() < 1024, "bounded refusal detail: {error}");
     assert_eq!(graph_version(&state), before, "refusal mutated the graph");
 
