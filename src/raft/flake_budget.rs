@@ -25,6 +25,85 @@ pub struct FlakeBudget {
     pub max_backoff_ms: u64,
 }
 
+/// One failed diagnostic execution retained while an optional retry is pending.
+///
+/// The trace is deliberately owned by the log rather than replaced by a later
+/// successful attempt: a flaky success must not erase the failure that made the
+/// diagnostic retry necessary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiagnosticFailure {
+    /// One-based execution number, including the initial attempt.
+    pub attempt: usize,
+    /// The bounded failure/trace text captured for this attempt.
+    pub trace: String,
+}
+
+/// Decision returned after recording one diagnostic failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagnosticRetryDecision {
+    /// The caller may run another attempt after this backoff.
+    Retry { attempt: usize, backoff_ms: u64 },
+    /// The recorded failure is terminal for this diagnostic run.
+    Exhausted { attempt: usize },
+}
+
+/// Retains diagnostic failures across optional retries without allowing a retry
+/// past the declared [`FlakeBudget`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiagnosticRetryLog {
+    failures: Vec<DiagnosticFailure>,
+}
+
+impl DiagnosticRetryLog {
+    /// Create an empty failure log for one diagnostic run.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a failed attempt and return the bounded next-step decision.
+    ///
+    /// The first failure is attempt one; `max_retries` therefore permits at
+    /// most `max_retries + 1` recorded failures. Once the terminal failure is
+    /// retained, another call is refused instead of silently retrying forever.
+    pub fn record_failure(
+        &mut self,
+        budget: &FlakeBudget,
+        trace: impl Into<String>,
+    ) -> Result<DiagnosticRetryDecision, String> {
+        budget.validate()?;
+        let attempt = self
+            .failures
+            .len()
+            .checked_add(1)
+            .ok_or_else(|| "diagnostic retry attempt count overflowed".to_string())?;
+        let max_attempts = (budget.max_retries as usize).saturating_add(1);
+        if attempt > max_attempts {
+            return Err(format!(
+                "diagnostic retry budget exhausted after {max_attempts} attempts"
+            ));
+        }
+
+        self.failures.push(DiagnosticFailure {
+            attempt,
+            trace: trace.into(),
+        });
+        if attempt <= budget.max_retries as usize {
+            let backoff_ms = budget.backoff_for(attempt as u32)?;
+            Ok(DiagnosticRetryDecision::Retry {
+                attempt,
+                backoff_ms,
+            })
+        } else {
+            Ok(DiagnosticRetryDecision::Exhausted { attempt })
+        }
+    }
+
+    /// Return every retained failure in execution order.
+    pub fn failures(&self) -> &[DiagnosticFailure] {
+        &self.failures
+    }
+}
+
 impl FlakeBudget {
     /// Construct and validate a budget. Refuses a budget that cannot express
     /// a sane retry policy rather than accepting it and misbehaving later.
@@ -134,5 +213,65 @@ mod tests {
         assert_eq!(budget.backoff_for(3).unwrap(), 40);
         // Would be 160 uncapped; the budget's max_backoff_ms clamps it.
         assert_eq!(budget.backoff_for(5).unwrap(), 100);
+    }
+
+    // spec: EG-DURABLE-KERNEL-R014.3.2
+    #[test]
+    fn diagnostic_retry_log_preserves_failures_before_a_later_success() {
+        let budget = FlakeBudget::new(2, 10, 100).unwrap();
+        let mut log = DiagnosticRetryLog::new();
+        assert_eq!(
+            log.record_failure(&budget, "first failure trace"),
+            Ok(DiagnosticRetryDecision::Retry {
+                attempt: 1,
+                backoff_ms: 10,
+            })
+        );
+        assert_eq!(
+            log.record_failure(&budget, "second failure trace"),
+            Ok(DiagnosticRetryDecision::Retry {
+                attempt: 2,
+                backoff_ms: 20,
+            })
+        );
+
+        // A later successful retry is owned by the caller; the retained failed
+        // attempts remain available for the diagnostic receipt.
+        assert_eq!(
+            log.failures(),
+            [
+                DiagnosticFailure {
+                    attempt: 1,
+                    trace: "first failure trace".into(),
+                },
+                DiagnosticFailure {
+                    attempt: 2,
+                    trace: "second failure trace".into(),
+                },
+            ]
+        );
+    }
+
+    // spec: EG-DURABLE-KERNEL-R014.3.2
+    #[test]
+    fn diagnostic_retry_log_refuses_after_terminal_failure() {
+        let budget = FlakeBudget::new(1, 10, 100).unwrap();
+        let mut log = DiagnosticRetryLog::new();
+        assert_eq!(
+            log.record_failure(&budget, "initial trace"),
+            Ok(DiagnosticRetryDecision::Retry {
+                attempt: 1,
+                backoff_ms: 10,
+            })
+        );
+        assert_eq!(
+            log.record_failure(&budget, "terminal trace"),
+            Ok(DiagnosticRetryDecision::Exhausted { attempt: 2 })
+        );
+        assert!(log
+            .record_failure(&budget, "out-of-budget trace")
+            .unwrap_err()
+            .contains("budget exhausted"));
+        assert_eq!(log.failures().len(), 2);
     }
 }
