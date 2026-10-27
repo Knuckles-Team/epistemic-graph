@@ -2544,7 +2544,7 @@ mod tests {
             stream: ResourceId::new("items").unwrap(),
             record_id: "target".into(),
         };
-        let provenance = batch.records[0].provenance.clone();
+        let provenance = batch.records.as_slice()[0].provenance.clone();
         let relationships: Vec<_> = relation_types
             .iter()
             .map(|relation_type| SourceRelationship {
@@ -2589,7 +2589,7 @@ mod tests {
             entry_revision: Some(1),
         };
         for relation_type in relation_types {
-            let resolved =
+            let relation_mapping =
                 crate::server::persistence::connector_pack::ResolvedConnectorRelationshipMapping {
                     relation_reference: format!(
                         "connector:demo-connector#relations/Document/{relation_type}"
@@ -2605,9 +2605,10 @@ mod tests {
                     pack_digest: Digest256::from_bytes([7; 32]),
                     catalog: catalog.clone(),
                 };
-            resolved
-                .relationships
-                .insert(resolved.relation_reference.clone(), resolved);
+            resolved.relationships.insert(
+                relation_mapping.relation_reference.clone(),
+                relation_mapping,
+            );
         }
 
         let verified =
