@@ -181,6 +181,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R086.7
     #[test]
     fn backend_failure_is_not_absence_evidence() {
         let committed_bytes = vec![0, 255, 7, 0];
