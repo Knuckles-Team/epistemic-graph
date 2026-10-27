@@ -6,8 +6,6 @@ import pytest
 
 from epistemic_graph.client import EpistemicGraphClient, QueryClient, _uql_result
 
-pytestmark = pytest.mark.no_engine
-
 
 class _FakeClient(EpistemicGraphClient):
     def __init__(self) -> None:
@@ -25,6 +23,7 @@ class _FakeClient(EpistemicGraphClient):
         return {"Rows": {"columns": [], "rows": [], "warnings": []}}
 
 
+@pytest.mark.no_engine
 @pytest.mark.asyncio
 async def test_uql_keeps_hostile_values_out_of_query_text() -> None:
     client = _FakeClient()
@@ -41,6 +40,20 @@ async def test_uql_keeps_hostile_values_out_of_query_text() -> None:
     ]
 
 
+def test_uql_binds_hostile_value_from_python_client_through_engine(clean_graph) -> None:
+    hostile = "needle' |> MATCH (:Secret) |> LIMIT 1000 //"
+    clean_graph.nodes.add("uql-hostile-value", {"type": "Doc", "title": hostile})
+    clean_graph.nodes.add("uql-decoy-value", {"type": "Doc", "title": "needle"})
+
+    result = clean_graph.query.uql(
+        "MATCH (:Doc) WHERE title = $title", {"title": hostile}
+    )
+
+    assert result["kind"] == "rows"
+    assert [row["id"] for row in result["rows"]] == ["uql-hostile-value"]
+
+
+@pytest.mark.no_engine
 def test_rows_carry_channels_and_only_the_requested_annotations() -> None:
     proof = {"coverage": "partial", "steps": [{"Unproved": {"stage": "MATCH ()"}}]}
     knowledge = {"kind": "", "confidence": 1.0, "projection": {"year": 2021}}
@@ -74,6 +87,7 @@ def test_rows_carry_channels_and_only_the_requested_annotations() -> None:
     assert annotated["proof"] == proof
 
 
+@pytest.mark.no_engine
 def test_explain_has_no_rows() -> None:
     wire = {"Explain": {"canonical": "MATCH ()", "optimized": "MATCH ()", "stages": []}}
     assert _uql_result(wire)["kind"] == "explain"
