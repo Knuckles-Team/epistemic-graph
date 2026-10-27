@@ -701,6 +701,7 @@ mod package_projection_tests {
         );
     }
 
+    // spec: EG-CONTRACT-R038
     #[test]
     fn receipt_check_rejects_python_client_and_new_schema_identity_drift() {
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

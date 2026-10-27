@@ -784,11 +784,13 @@
     {
       "id": "EG-CONTRACT-R038",
       "title": "Contract receipt freshness is checked before merge",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2688cddd2f7f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/src/contract.rs:704"
+      ]
     },
     {
       "id": "EG-CONTRACT-R039",
