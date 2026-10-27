@@ -223,19 +223,14 @@ pub(super) async fn route_repository_index(
         Ok(pending) => pending,
         Err(error) => return Response::err(ctx.req_id, error),
     };
-    #[cfg(all(feature = "ast", feature = "redb", feature = "raft"))]
-    if pending.is_some() {
-        return Response::err(
-            ctx.req_id,
-            "CONFLICT: repository enrichment budget seed requires replicated authority",
-        );
-    }
     #[cfg(all(feature = "ast", feature = "redb"))]
     let outbox = pending
         .as_ref()
         .map(|entry| entry.intent.clone())
         .into_iter()
         .collect();
+    #[cfg(all(feature = "ast", feature = "redb"))]
+    let source_budget = pending_source_budget(pending.as_ref());
     #[cfg(not(all(feature = "ast", feature = "redb")))]
     let outbox = Vec::new();
     let commit_ctx = commit_context(&ctx, placement_epoch, fencing_token);
@@ -251,13 +246,20 @@ pub(super) async fn route_repository_index(
     let commit = crate::server::dispatch::change_envelope::apply_repository_change_envelope(
         ctx,
         envelope,
-        pending.map(|entry| entry.budget),
+        source_budget,
     )
     .await;
     #[cfg(not(all(feature = "ast", feature = "redb")))]
     let commit =
         crate::server::dispatch::change_envelope::apply_one_change_envelope(ctx, envelope).await;
     handlers::repository_index::finish(result, commit)
+}
+
+#[cfg(all(feature = "ast", feature = "redb"))]
+fn pending_source_budget(
+    pending: Option<&enrichment::PendingEnrichment>,
+) -> Option<crate::redb_store::enrichment_budget::SourceBudgetAuthority> {
+    pending.map(|entry| entry.budget.clone())
 }
 
 #[cfg(test)]
@@ -320,5 +322,32 @@ mod tests {
         })
         .expect_err("engine-attested only");
         assert!(error.contains("engine-attested"), "{error}");
+    }
+
+    #[cfg(all(feature = "ast", feature = "redb"))]
+    #[test]
+    fn repository_index_forwards_enrichment_budget_with_pending_intent() {
+        let pending = super::enrichment::PendingEnrichment {
+            intent: eg_types::mutation_batch::MutationOutboxIntent {
+                topic: "repository.enrichment.pending".into(),
+                key: "source-envelope".into(),
+                payload: Vec::new(),
+                headers: Default::default(),
+            },
+            budget: crate::redb_store::enrichment_budget::SourceBudgetAuthority {
+                tenant_id: "tenant".into(),
+                source_envelope: "source-envelope".into(),
+                snapshot_digest: "a".repeat(64),
+                repository_id: "repo".into(),
+                policy_digest: "b".repeat(64),
+                total_budget_units: 7,
+                max_total_units: 9,
+            },
+        };
+        let authority = super::pending_source_budget(Some(&pending)).expect("authority");
+        assert_eq!(authority.source_envelope, "source-envelope");
+        assert_eq!(authority.total_budget_units, 7);
+        assert_eq!(authority.max_total_units, 9);
+        assert!(super::pending_source_budget(None).is_none());
     }
 }
