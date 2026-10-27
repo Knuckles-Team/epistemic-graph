@@ -17,6 +17,13 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.no_engine
+CENTRAL_LIGHT_GATES = (
+    "Knuckles-Team/pipelines/.github/workflows/medulla_light_gates.yml@main"
+)
+CENTRAL_RUNNER = (
+    "${{ vars.ARBORA_TRUSTED_CI_RUNNER == 'true' && "
+    "'\"arbora-ci-trusted\"' || '\"ubuntu-latest\"' }}"
+)
 
 
 def _hooks() -> dict[str, dict]:
@@ -182,7 +189,10 @@ def _assert_security_and_build_jobs(jobs):
         for step in security["steps"]
         if step.get("name") == "Install pinned cargo-deny"
     )
-    assert "load_contract().cargo_deny_version" in deny_install["run"]
+    assert deny_install["env"]["CARGO_DENY_VERSION"] == (
+        "${{ steps.cargo-deny-cache-key.outputs.version }}"
+    )
+    assert 'version="$CARGO_DENY_VERSION"' in deny_install["run"]
     advisory_steps = [
         step
         for step in security["steps"]
@@ -199,34 +209,26 @@ def _assert_security_and_build_jobs(jobs):
 
 
 def _assert_runtime_contract_jobs(jobs, security):
-    runtime_contracts = jobs["lint-and-architecture"]
-    assert "continue-on-error" not in runtime_contracts
-    # CI runs the same pre-commit config as a local commit, so every
-    # commit-stage architecture hook is a blocking CI gate by construction.
-    commands = [
-        line.strip()
-        for step in runtime_contracts["steps"]
-        for line in str(step.get("run", "")).splitlines()
-    ]
-    for scope in ('--from-ref "$BASE" --to-ref "$HEAD"', "--all-files"):
-        assert (
-            f"pre-commit run --config .config/pre-commit.yaml {scope} "
-            "--show-diff-on-failure"
-        ) in commands
+    # Runtime and spec checks are owned by the immutable central reusable
+    # workflow; the caller keeps one job id so native jobs retain their edges.
+    runtime_contracts = jobs["changes"]
+    assert runtime_contracts == {
+        "uses": CENTRAL_LIGHT_GATES,
+        "with": {"runner": CENTRAL_RUNNER},
+    }
+    assert "lint-and-architecture" not in jobs
+    assert "spec-gates" not in jobs
     assert "python3 scripts/check_universal_read_rls.py" in {
         step.get("run") for step in security["steps"]
     }
 
 
-@pytest.mark.parametrize("job_name", ["lint-and-architecture", "spec-gates"])
-def test_spec_status_gates_have_full_checkout_history(job_name: str):
-    """Spec-status derives generated status from commit trailers in git history."""
-    steps = _workflow()["jobs"][job_name]["steps"]
-    checkout = next(
-        step for step in steps if step.get("uses", "").startswith("actions/checkout@")
-    )
-    assert checkout["with"]["fetch-depth"] == 0
-    assert checkout["with"]["persist-credentials"] is False
+def test_spec_status_gates_are_delegated_to_the_central_workflow():
+    """The central workflow owns full-history checkout and spec-status steps."""
+    assert _workflow()["jobs"]["changes"] == {
+        "uses": CENTRAL_LIGHT_GATES,
+        "with": {"runner": CENTRAL_RUNNER},
+    }
 
 
 def test_release_scanner_job_is_full_history_advisory_and_pinned():

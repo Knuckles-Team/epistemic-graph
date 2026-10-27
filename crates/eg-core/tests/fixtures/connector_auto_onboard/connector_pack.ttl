@@ -1,0 +1,41 @@
+@prefix : <http://knuckles.team/test/connector-auto-onboard#> .
+@prefix cat: <http://knuckles.team/kg/catalog#> .
+@prefix cp: <http://knuckles.team/kg/connector-pack#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schema: <https://schema.org/> .
+
+:ontology a owl:Ontology ;
+    owl:imports <http://knuckles.team/kg> .
+
+:ConnectorIncident a owl:Class ;
+    rdfs:label "Connector incident" ;
+    rdfs:subClassOf <http://knuckles.team/kg#Ticket> .
+
+:connector a cp:Connector ;
+    cp:declaredOwner :owner .
+
+:system-prompt a cat:PromptAsset ;
+    cp:ofConnector :connector ;
+    :systemPromptFor :incident-triage .
+
+:incident-skill a cat:SkillAsset ;
+    cp:ofConnector :connector .
+
+:search-incidents a cat:ToolAsset ;
+    cp:ofConnector :connector ;
+    cp:servesClass :ConnectorIncident ;
+    cat:actionType schema:SearchAction .
+
+:incidents a cat:DataResource ;
+    cp:ofConnector :connector ;
+    cp:servesClass :ConnectorIncident ;
+    cat:hasField :incident-id .
+
+:incident-id a cat:Field ;
+    cp:ofConnector :connector ;
+    cp:servesProperty :incidentId .
+
+:incident-1 a :ConnectorIncident ;
+    cat:fromSource :incidents ;
+    :status "open" .
