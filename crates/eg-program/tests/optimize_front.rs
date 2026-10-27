@@ -32,3 +32,19 @@ fn scores_outside_unit_interval_are_refused() {
     assert_eq!(result, Err(eg_program::FrontError::ScoreOutOfBounds));
     assert!(front.candidates().is_empty());
 }
+
+#[test]
+// spec: EG-DECISION-ENGINE-R800.1
+fn deserialization_rejects_invalid_candidates_and_dominated_fronts() {
+    let invalid_candidate = r#"{
+        "id":"invalid","parent":null,"genes_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "scores":[1.01,0.5],"cost_micro_usd":100
+    }"#;
+    assert!(serde_json::from_str::<PolicyCandidate<2>>(invalid_candidate).is_err());
+
+    let dominated_front = r#"{"candidates":[
+        {"id":"efficient","parent":null,"genes_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","scores":[0.9,0.8],"cost_micro_usd":100},
+        {"id":"dominated","parent":null,"genes_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","scores":[0.8,0.7],"cost_micro_usd":200}
+    ]}"#;
+    assert!(serde_json::from_str::<ParetoFront<2>>(dominated_front).is_err());
+}

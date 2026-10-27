@@ -54,7 +54,7 @@ mod score_array {
 }
 
 /// A policy evaluated on one fixed-size set of evaluation metrics.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyCandidate<const K: usize> {
     pub id: String,
@@ -66,6 +66,35 @@ pub struct PolicyCandidate<const K: usize> {
     pub scores: [f32; K],
     /// Measured cost in integer micro-USD.
     pub cost_micro_usd: u64,
+}
+
+impl<'de, const K: usize> Deserialize<'de> for PolicyCandidate<K> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct CandidateData<const K: usize> {
+            id: String,
+            parent: Option<String>,
+            genes_digest: String,
+            #[serde(with = "score_array")]
+            scores: [f32; K],
+            cost_micro_usd: u64,
+        }
+
+        let data = CandidateData::<K>::deserialize(deserializer)?;
+        let candidate = Self {
+            id: data.id,
+            parent: data.parent,
+            genes_digest: data.genes_digest,
+            scores: data.scores,
+            cost_micro_usd: data.cost_micro_usd,
+        };
+        candidate.validate().map_err(serde::de::Error::custom)?;
+        Ok(candidate)
+    }
 }
 
 impl<const K: usize> PolicyCandidate<K> {
@@ -122,11 +151,49 @@ pub enum FrontError {
     ScoreOutOfBounds,
 }
 
+impl std::fmt::Display for FrontError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for FrontError {}
+
 /// Non-dominated candidates sharing one compile-time score dimension `K`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParetoFront<const K: usize> {
     candidates: Vec<PolicyCandidate<K>>,
+}
+
+impl<'de, const K: usize> Deserialize<'de> for ParetoFront<K> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct FrontData<const K: usize> {
+            candidates: Vec<PolicyCandidate<K>>,
+        }
+
+        let data = FrontData::<K>::deserialize(deserializer)?;
+        let expected_len = data.candidates.len();
+        let mut front = Self::default();
+        for candidate in data.candidates {
+            if !front.insert(candidate).map_err(serde::de::Error::custom)? {
+                return Err(serde::de::Error::custom(
+                    "serialized Pareto front contains a dominated candidate",
+                ));
+            }
+        }
+        if front.candidates.len() != expected_len {
+            return Err(serde::de::Error::custom(
+                "serialized Pareto front contains a candidate dominated by a later entry",
+            ));
+        }
+        Ok(front)
+    }
 }
 
 impl<const K: usize> Default for ParetoFront<K> {

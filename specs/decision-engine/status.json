@@ -8965,11 +8965,14 @@
     {
       "id": "EG-DECISION-ENGINE-R800.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09f35497acd2"
+      ],
       "verified_by": [
         "crates/eg-program/tests/optimize_front.rs:14",
-        "crates/eg-program/tests/optimize_front.rs:28"
+        "crates/eg-program/tests/optimize_front.rs:28",
+        "crates/eg-program/tests/optimize_front.rs:37"
       ]
     },
     {
