@@ -4829,9 +4829,9 @@
       "title": "Typed host-start assertions and client projection",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6cd74b05f9a5",
         "a27a7c804f9e",
-        "c0d589973a64",
-        "e9a15c986d24"
+        "c0d589973a64"
       ],
       "verified_by": [
         "crates/eg-types/src/host_start/tests.rs:8",
@@ -4843,8 +4843,8 @@
       "title": "Durable native issuer provenance",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a27a7c804f9e",
-        "e9a15c986d24"
+        "6cd74b05f9a5",
+        "a27a7c804f9e"
       ],
       "verified_by": [
         "src/redb_store/work_item/control_lease/host_start/tests.rs:12"
@@ -4855,8 +4855,8 @@
       "title": "Signed dispatch for dedicated host-start issuance",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a27a7c804f9e",
-        "e9a15c986d24"
+        "6cd74b05f9a5",
+        "a27a7c804f9e"
       ],
       "verified_by": [
         "src/server/handlers/work_item/host_start_tests.rs:11"
