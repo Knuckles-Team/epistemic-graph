@@ -67,6 +67,81 @@ pub struct ChunkSpan {
     pub end_char: usize,
 }
 
+/// An inline Markdown link's visible anchor and destination, addressed in the
+/// original UTF-8 source by the anchor's half-open byte range.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkAnchor {
+    pub anchor: String,
+    pub target: String,
+    pub start_byte: usize,
+    pub end_byte: usize,
+}
+
+/// Extract inline Markdown links (`[anchor](target)`) in source order.
+///
+/// Repeated anchor text is retained as separate links. Escaped delimiters and
+/// image syntax (`![alt](target)`) are not treated as links. Offsets select the
+/// anchor text from the original source, including when it contains non-ASCII
+/// characters. Reference-style links are outside this lightweight document pass.
+pub fn extract_link_anchors(text: &str) -> Vec<LinkAnchor> {
+    let bytes = text.as_bytes();
+    let mut links = Vec::new();
+    let mut anchor: Option<(usize, usize)> = None;
+    let mut target: Option<(usize, usize, usize, usize)> = None;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+
+        if let Some((anchor_start, bracket_depth)) = anchor {
+            if bytes[index] == b'[' {
+                anchor = Some((anchor_start, bracket_depth + 1));
+            } else if bytes[index] == b']' {
+                if bracket_depth > 1 {
+                    anchor = Some((anchor_start, bracket_depth - 1));
+                } else if bytes.get(index + 1) == Some(&b'(') {
+                    target = Some((anchor_start, index, index + 2, 1));
+                    anchor = None;
+                    index += 1;
+                } else {
+                    anchor = None;
+                }
+            }
+        } else if let Some((anchor_start, anchor_end, target_start, paren_depth)) = target {
+            if bytes[index] == b'(' {
+                target = Some((anchor_start, anchor_end, target_start, paren_depth + 1));
+            } else if bytes[index] == b')' {
+                if paren_depth > 1 {
+                    target = Some((anchor_start, anchor_end, target_start, paren_depth - 1));
+                } else {
+                    if let (Some(anchor), Some(destination)) = (
+                        text.get(anchor_start..anchor_end),
+                        text.get(target_start..index),
+                    ) {
+                        if !anchor.is_empty() && !destination.is_empty() {
+                            links.push(LinkAnchor {
+                                anchor: anchor.to_owned(),
+                                target: destination.to_owned(),
+                                start_byte: anchor_start,
+                                end_byte: anchor_end,
+                            });
+                        }
+                    }
+                    target = None;
+                }
+            }
+        } else if bytes[index] == b'[' && (index == 0 || bytes[index - 1] != b'!') {
+            anchor = Some((index + 1, 1));
+        }
+        index += 1;
+    }
+
+    links
+}
+
 impl ChunkSpan {
     /// The chunk's text, borrowed from the source it was cut from.
     pub fn text<'a>(&self, source: &'a str) -> &'a str {
@@ -264,6 +339,33 @@ mod tests {
             max_bytes,
             overlap_bytes,
         }
+    }
+
+    #[test]
+    fn extracts_repeated_and_non_ascii_link_anchors_with_byte_offsets() {
+        let text = "[Read](one) and [Read](two), then [café 🧠](three).";
+        let links = extract_link_anchors(text);
+
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| (link.anchor.as_str(), link.target.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("Read", "one"), ("Read", "two"), ("café 🧠", "three")]
+        );
+        for link in &links {
+            assert_eq!(
+                text.get(link.start_byte..link.end_byte),
+                Some(link.anchor.as_str())
+            );
+        }
+        let non_ascii = &links[2];
+        assert_eq!(non_ascii.start_byte, text.find("café 🧠").unwrap());
+        assert_eq!(non_ascii.end_byte - non_ascii.start_byte, "café 🧠".len());
+        assert_ne!(
+            non_ascii.end_byte - non_ascii.start_byte,
+            "café 🧠".chars().count()
+        );
     }
 
     // spec: EG-UNIFIED-DATA-PLANE-R651.7.2

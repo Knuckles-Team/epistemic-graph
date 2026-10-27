@@ -33,6 +33,7 @@ pub mod jobs;
 pub mod numeric;
 pub mod policy;
 pub mod promotion;
+pub mod prompt_candidate;
 pub mod rapid_r015;
 pub mod rapid_r044;
 pub mod rapid_r056;
