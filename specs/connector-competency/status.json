@@ -1726,7 +1726,9 @@
       "title": "microsoft cross-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:466"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R039.3",
@@ -1818,7 +1820,9 @@
       "title": "okta single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:387"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R042.2",
