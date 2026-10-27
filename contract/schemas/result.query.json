@@ -14822,6 +14822,7 @@
       "type": "object"
     },
     "ForeignReadExecutionRef": {
+      "additionalProperties": false,
       "description": "Server-issued opaque execution handle plus the query digest it is allowed to\nanswer.  The digest is recomputed from the correlated query by the server.",
       "properties": {
         "execution_id": {
@@ -14840,6 +14841,7 @@
       "type": "object"
     },
     "ForeignReadLimits": {
+      "additionalProperties": false,
       "description": "The finite limits accepted for one host-driven foreign read.",
       "properties": {
         "chunk_bytes": {
@@ -14948,6 +14950,7 @@
       "type": "object"
     },
     "ForeignReadRow": {
+      "additionalProperties": false,
       "description": "A bounded row supplied by the already-authorized host adapter.",
       "properties": {
         "columns": {

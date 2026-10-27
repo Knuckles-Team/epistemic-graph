@@ -392,6 +392,7 @@
 | `RankByProvenance` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal` |
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
 | `NlQueryExplain` | false | None | `query:nl` | false | false | false | Snapshot | EG-FEDERATED-QUERY-R058.2.2.1: NlQuery plus the executed UQL text. It shares the planner, budget, authority and refusals of NlQuery |
+| `NlQueryPlan` | false | None | `query:nl` | false | false | false | None | EG-FEDERATED-QUERY-R058.2.2.2: typed plan-only UQL candidate and pins; no graph/source data read or authority claim |
 | `TxnUnifiedQuery` | false | None | `txn:read` | true | false | false | Saga |  |
 | `TxnUql` | false | None | `txn:read` | true | false | false | Saga |  |
 | `EdgeIndex` | ~true | GraphRedb | `semantic:binding-write` | true | false | false | Atomic | EH-351/EH-352, runtime-conditional: status reads; create, refresh and drop write the verified tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it |
