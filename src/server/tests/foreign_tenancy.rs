@@ -90,26 +90,32 @@ fn uql(text: impl Into<String>) -> Method {
     }
 }
 
-/// Principal B naming principal A's source is refused by the owner-scoped catalog before the
-/// executor can bind A's credential. Unknown names retain their typed not-found response, but a
-/// known source outside the caller's scope has the stable authorization code required by R013.
-fn assert_access_denied_for_caller(resp: &crate::protocol::Response, surface: &str) {
-    assert_eq!(
-        resp.error.as_deref(),
-        Some("ACCESS_DENIED"),
-        "{surface}: cross-principal name must be refused by the catalog"
+/// Principal B naming principal A's source is refused exactly like an unregistered
+/// name: the error lists only B's own (empty) registrations. It must be the foreign
+/// not-found — never `ACCESS_DENIED` (an existence oracle) and never the envelope's
+/// tenant-binding refusal (which would mean the request never reached the plan).
+fn assert_not_registered_for_caller(resp: &crate::protocol::Response, surface: &str) {
+    let err = resp
+        .error_detail
+        .as_deref()
+        .unwrap_or_else(|| panic!("{surface}: principal B must not resolve principal A's source"));
+    assert!(
+        err.contains("no foreign source registered under name 'remote_docs' (registered: [])"),
+        "{surface}: cross-principal name must look unregistered, got: {err}"
     );
-    assert_eq!(
-        resp.error_detail.as_deref(),
-        Some("foreign source is outside the caller's owner scope"),
-        "{surface}: stable owner-scope refusal detail"
+    assert!(
+        !err.contains("ACCESS_DENIED"),
+        "{surface}: not an existence oracle: {err}"
+    );
+    assert!(
+        !err.contains("does not match graph tenant"),
+        "{surface}: refused at the envelope, not by the foreign catalog: {err}"
     );
 }
 
 /// A registers `remote_docs`; A's queries succeed on every surface and B's are refused.
 /// A queries FIRST with the identical plan, so B's refusal also proves the result cache
 /// is keyed by the foreign owner (B is never served A's cached foreign rows).
-// spec: EG-FEDERATED-QUERY-R013
 #[tokio::test]
 async fn foreign_source_resolves_only_for_the_registering_principal() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -123,14 +129,14 @@ async fn foreign_source_resolves_only_for_the_registering_principal() {
         "local Docs joined with the remote set"
     );
     let b = dispatch_as(&local, 902, OTHER_B, named_scan_plan()).await;
-    assert_access_denied_for_caller(&b, "Named ForeignScan");
+    assert_not_registered_for_caller(&b, "Named ForeignScan");
 
     let text = || uql(FOREIGN_UQL);
     let a = dispatch_as(&local, 903, OWNER_A, text()).await;
     assert_ok(&a);
     assert_eq!(sorted_uql_ids(&a), vec!["d2", "d3", "d4"]);
     let b = dispatch_as(&local, 904, OTHER_B, text()).await;
-    assert_access_denied_for_caller(&b, "UQL FOREIGN marker");
+    assert_not_registered_for_caller(&b, "UQL FOREIGN marker");
 }
 
 /// The column read uses the same owner boundary as UQL and rejects an unmapped

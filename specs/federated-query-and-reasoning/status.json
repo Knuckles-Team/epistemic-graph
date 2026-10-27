@@ -643,15 +643,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R013",
       "title": "Foreign-source resolution is scoped to the owning principal",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
         "196ded575c8b",
         "a3e0c9984c67"
       ],
-      "verified_by": [
-        "src/server/tests/foreign_tenancy.rs:112"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R014",
