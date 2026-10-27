@@ -7,6 +7,7 @@ use super::*;
 
 /// Maximum distinct items supported by the rule-enumeration mask width.
 const MAX_ASSOCIATION_DISTINCT_ITEMS: usize = (u32::BITS - 1) as usize;
+const OPAQUE_ASSOCIATION_ITEM_PREFIX: &str = "eg:";
 
 pub(super) struct SubmitBuild {
     pub(super) spec: SubmitJobSpec,
@@ -302,6 +303,26 @@ fn validate_association_cardinality(
     Ok(())
 }
 
+/// The legacy analytics worker accepted only opaque graph references.  Check
+/// that contract before hashing caller input into the durable job payload so a
+/// raw label cannot be mistaken for an already-governed item reference.
+fn validate_association_item_refs(
+    req_id: u64,
+    transactions: &[Vec<String>],
+) -> Result<(), Response> {
+    if transactions
+        .iter()
+        .flatten()
+        .any(|item| !item.starts_with(OPAQUE_ASSOCIATION_ITEM_PREFIX))
+    {
+        return Err(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: association items must be opaque references",
+        ));
+    }
+    Ok(())
+}
+
 /// The `JobKind::MineAssociate` arm of [`handle_submit`]'s kind-governance
 /// match: pseudonymize transaction items, validate thresholds/cardinality,
 /// and validate the algorithm name.
@@ -320,6 +341,7 @@ pub(super) fn submit_job_mine_associate(
             "INVALID_ARGUMENT: unsupported association job algorithm",
         ));
     }
+    validate_association_item_refs(req_id, &transactions)?;
     // Durable worker input contains opaque item references only. Source
     // labels and personal identifiers never enter jobs.redb.
     let transactions: Vec<Vec<String>> = transactions
