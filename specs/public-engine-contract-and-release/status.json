@@ -1016,7 +1016,7 @@
         "88b8c1a73156"
       ],
       "verified_by": [
-        "tests/test_build_backend.py:137",
+        "tests/test_build_backend.py:138",
         "tests/test_check_wheel_completeness.py:215",
         "tests/test_ci_change_scope.py:647",
         "tests/test_ci_change_scope.py:691",
