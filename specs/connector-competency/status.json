@@ -524,8 +524,10 @@
     {
       "id": "EG-CQ-CONN-R003.2",
       "title": "archivebox cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af52e3911e71"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_c1.rs:174"
       ]
@@ -981,8 +983,10 @@
     {
       "id": "EG-CQ-CONN-R017.1",
       "title": "egeria single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af52e3911e71"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_c1.rs:77"
       ]
