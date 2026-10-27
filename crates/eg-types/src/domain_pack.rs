@@ -473,7 +473,7 @@ mod tests {
         ));
 
         let mut crosswalk = crosswalk_fixture();
-        crosswalk.approved_target_declarations[0].class_iri = "schema:Person".to_string();
+        crosswalk.approved_target_declarations[0].class_iri = "schema Person".to_string();
         assert!(matches!(
             crosswalk.validate(),
             Err(VocabularyCrosswalkError::InvalidApprovedTargetClassIri(_))
