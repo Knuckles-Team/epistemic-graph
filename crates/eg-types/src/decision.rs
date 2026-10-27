@@ -21,6 +21,7 @@
 //! Every algorithm -- derivation, solving, verification, execution, fitting --
 //! lives above this module. These are data types and their bounds.
 
+pub mod branch_outcomes;
 pub mod coverage;
 pub mod derivation;
 pub mod digest;

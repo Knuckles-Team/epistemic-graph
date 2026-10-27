@@ -106,6 +106,8 @@ pub enum QuestionKind {
     /// cost as the tie-break, and abstains keeping the current harness when no
     /// candidate improves. See `decision::harness_contrast`.
     HarnessContrast,
+    /// Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).
+    BranchOutcome,
 }
 
 /// What is at stake. Exploration is permitted only for
