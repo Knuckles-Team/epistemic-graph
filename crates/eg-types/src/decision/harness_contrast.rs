@@ -55,7 +55,7 @@ closed_error_codes! {
     }
 }
 
-/// The closed abstain reasons of one contrast decision (R803.1).
+/// The closed abstain reasons of one contrast decision (EG-DECISION-ENGINE-R803.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -68,7 +68,7 @@ pub enum HarnessContrastAbstainReason {
     InsufficientEvidence,
 }
 
-/// One contrast decision, recorded (R803.1).
+/// One contrast decision, recorded (EG-DECISION-ENGINE-R803.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]

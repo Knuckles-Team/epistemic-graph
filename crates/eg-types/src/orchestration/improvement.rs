@@ -207,7 +207,7 @@ impl HarnessProbeRun {
 }
 
 /// The measured behavioral contrast of two probe runs of one task
-/// (R802.1/R802.2). Every delta is B minus A on the Q32 fixed-point scale:
+/// (EG-ORCH-VOCAB-R802.1/EG-ORCH-VOCAB-R802.2). Every delta is B minus A on the Q32 fixed-point scale:
 /// signed counts as `count << 32`, fractions as their Q32 numerator.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -314,6 +314,73 @@ jobs:
           path: target/canonical-engine-contract/
           if-no-files-found: error
 
+  # Repair evidence only: required acceptance still waits for the light gates.
+  owner-format-repair:
+    name: Owner-format generation repair evidence
+    needs: changes
+    if: >-
+      ${{ !cancelled() && github.event_name == 'pull_request' &&
+          needs.changes.result == 'failure' }}
+    runs-on: *eg-native-validation-runner
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CARGO_TARGET_DIR: target-isolated
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_DEV_OPT_LEVEL: 0
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 1
+    steps:
+      - *eg-gates-checkout
+      - *eg-gates-python
+      - name: Read the manifest toolchain
+        id: owner-toolchain
+        run: |
+          python - <<'PYCODE' >> "$GITHUB_OUTPUT"
+          import pathlib, tomllib
+          print("channel=" + tomllib.loads(pathlib.Path("rust-toolchain.toml").read_text())["toolchain"]["channel"])
+          PYCODE
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ steps.owner-toolchain.outputs.channel }}
+      - *eg-gates-cache
+      - name: Generate exact owner-format repair evidence
+        run: |
+          python - <<'PYCODE'
+          import hashlib, json, pathlib, subprocess
+          root = pathlib.Path.cwd()
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+          if git("status", "--porcelain"):
+              raise SystemExit("owner-format generation requires a clean source tree")
+          command = ["cargo", "run", "--locked", "-p", "eg-storage", "--example", "gen_owner_store_formats"]
+          recipes = ["Cargo.lock", "Cargo.toml", "rust-toolchain.toml", "crates/eg-storage/Cargo.toml",
+                     "crates/eg-storage/examples/gen_owner_store_formats.rs", "crates/eg-storage/src/owner/lineage.rs"]
+          provenance = {
+              "source_revision": git("rev-parse", "HEAD"),
+              "source_tree": git("rev-parse", "HEAD^{tree}"),
+              "source_dirty": False,
+              "build_command": command,
+              "rustc_version": subprocess.check_output(["rustc", "-vV"], text=True).strip(),
+              "recipe_sha256": {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in recipes},
+          }
+          subprocess.run(command, check=True)
+          document = root / "docs/operations/owner-store-formats.md"
+          data = document.read_bytes()
+          output = root / "target/owner-format-repair"
+          output.mkdir(parents=True, exist_ok=False)
+          (output / document.name).write_bytes(data)
+          provenance.update(sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data))
+          (output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+          PYCODE
+      - name: Upload owner-format repair evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: owner-format-repair-${{ github.sha }}
+          path: target/owner-format-repair/
+          if-no-files-found: error
+
   # Independent required fuzz acceptance avoids serial lower-crate compilation.
   gates-plan-fuzz:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
@@ -1667,6 +1734,7 @@ jobs:
   # jobs through changes.outputs.code and must still have a successful security
   # job and central light-gate result.
   ci-required:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: CI required
     needs:
       - changes
