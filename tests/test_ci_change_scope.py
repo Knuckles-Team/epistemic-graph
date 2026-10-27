@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,13 @@ from scripts import ci_change_scope as scope
 pytestmark = pytest.mark.no_engine
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_SETUP = "./.github/actions/native-validation-setup"
+CENTRAL_LIGHT_GATES = (
+    "Knuckles-Team/pipelines/.github/workflows/medulla_light_gates.yml@main"
+)
+CENTRAL_RUNNER = (
+    "${{ vars.ARBORA_TRUSTED_CI_RUNNER == 'true' && "
+    "'\"arbora-ci-trusted\"' || '\"ubuntu-latest\"' }}"
+)
 
 
 def native_acceptance_steps(steps: list[dict]) -> list[dict]:
@@ -145,6 +153,13 @@ def test_complete_git_diff_has_no_api_file_limit(
 
 def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    light = jobs["changes"]
+    assert light == {
+        "uses": CENTRAL_LIGHT_GATES,
+        "with": {"runner": CENTRAL_RUNNER},
+    }
+    assert "lint-and-architecture" not in jobs
+    assert "spec-gates" not in jobs
     security = {step.get("name"): step for step in jobs["security"]["steps"]}
     for name in (
         "Secret-history scan",
@@ -154,15 +169,8 @@ def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
     for name in ("Install pinned cargo-deny", "Rust dependency advisory gate"):
         assert security[name]["if"] == "needs.changes.outputs.code != 'false'"
     assert jobs["security"]["if"] == "always()"
-    assert "if" not in jobs["spec-gates"]
-    lint = {step.get("name"): step for step in jobs["lint-and-architecture"]["steps"]}
-    hooks = lint["pre-commit (commit stage, PR diff or full publication)"]
-    assert '--from-ref "$BASE" --to-ref "$HEAD"' in hooks["run"]
-    assert "--all-files" in hooks["run"]
-    assert hooks["env"]["SKIP"] == "lane-guard,cargo-deny-advisories"
-    assert lint["rustfmt"]["run"] == "cargo fmt --all -- --check"
-    assert "if" not in lint["rustfmt"]
-    assert "CI change-scope regression tests" in lint
+    assert "changes" in jobs["engine-main-wheel"]["needs"]
+    assert "lint-and-architecture" not in jobs["engine-main-wheel"]["needs"]
 
 
 def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
@@ -214,26 +222,14 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
 
 # spec: EG-CONTRACT-R031
 # spec: EG-CONTRACT-R031.1
-def test_lint_installs_manifest_rustfmt_before_all_formatting_steps() -> None:
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    steps = workflow["jobs"]["lint-and-architecture"]["steps"]
-    install = next(
-        index
-        for index, step in enumerate(steps)
-        if step.get("name") == "Install manifest Rust toolchain and rustfmt"
-    )
-    setup = steps[install]
-    assert "if" not in setup
-    assert setup["run"] == (
-        "rustup toolchain install --profile minimal --component rustfmt "
-        "&& rustup show active-toolchain"
-    )
-    for index, step in enumerate(steps):
-        command = step.get("run", "")
-        if "pre-commit run" in command or "check_rustfmt_scope.py" in command:
-            assert install < index
-    rustfmt = next(step for step in steps if step.get("name") == "rustfmt")
-    assert rustfmt["run"] == "cargo fmt --all -- --check"
+def test_light_runtime_and_spec_checks_are_centralized() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    assert jobs["changes"] == {
+        "uses": CENTRAL_LIGHT_GATES,
+        "with": {"runner": CENTRAL_RUNNER},
+    }
+    assert "lint-and-architecture" not in jobs
+    assert "spec-gates" not in jobs
 
 
 @pytest.fixture
@@ -440,6 +436,68 @@ def test_source_hook_modes_keep_manual_and_full_coverage() -> None:
         assert "source_gate_scope" not in manual["entry"]
         assert manual["stages"] == ["manual"]
         assert manual["always_run"] and not manual["pass_filenames"]
+
+
+def test_static_inventory_hooks_scope_their_complete_input_universes() -> None:
+    """Expensive inventories skip only when their inputs are unchanged."""
+
+    config = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())
+    hooks = {hook["id"]: hook for repo in config["repos"] for hook in repo["hooks"]}
+
+    registry = hooks["registry-test-ownership"]
+    assert registry["files"] == (
+        r"^(tests/|architecture/component-registry\.yml$|"
+        r"scripts/check_registry_test_ownership\.py$|\.config/pre-commit\.yaml$|"
+        r"pyproject\.toml$|uv\.lock$|\.python-version$)"
+    )
+    assert not registry.get("always_run", False)
+    assert registry["pass_filenames"] is False
+    for path in (
+        "tests/new_gate.py",
+        "tests/nested/fixture.rs",
+        "architecture/component-registry.yml",
+        "scripts/check_registry_test_ownership.py",
+        ".config/pre-commit.yaml",
+        "pyproject.toml",
+        "uv.lock",
+        ".python-version",
+    ):
+        assert re.search(registry["files"], path)
+    for path in ("src/server/mod.rs", "README.md", "scripts/check_root_hygiene.py"):
+        assert not re.search(registry["files"], path)
+
+    pinned = hooks["pinned-reference-resolution"]
+    assert pinned["files"] == (
+        r"^(src/server/|crates/eg-storage/src/owner/registry\.rs$|"
+        r"crates/eg-types/src/(agent_component|agent_library|agent_graph|"
+        r"agent_template|delegation)\.rs$|scripts/(check_pinned_reference_resolution|"
+        r"rust_lexer|rust_module_tree)\.py$|\.config/pre-commit\.yaml$|"
+        r"pyproject\.toml$|uv\.lock$|\.python-version$)"
+    )
+    assert not pinned.get("always_run", False)
+    assert pinned["pass_filenames"] is False
+    for path in (
+        "src/server/mod.rs",
+        "src/server/graph/write.rs",
+        "crates/eg-storage/src/owner/registry.rs",
+        "crates/eg-types/src/agent_graph.rs",
+        "crates/eg-types/src/delegation.rs",
+        "scripts/check_pinned_reference_resolution.py",
+        "scripts/rust_lexer.py",
+        "scripts/rust_module_tree.py",
+        ".config/pre-commit.yaml",
+        "pyproject.toml",
+        "uv.lock",
+        ".python-version",
+    ):
+        assert re.search(pinned["files"], path)
+    for path in (
+        "crates/eg-types/src/random.rs",
+        "crates/eg-storage/src/lib.rs",
+        "src/client/mod.rs",
+        "README.md",
+    ):
+        assert not re.search(pinned["files"], path)
 
 
 @pytest.mark.parametrize("flag", ["--assume-unchanged", "--skip-worktree"])
@@ -820,6 +878,7 @@ def _assert_wheel_bundle(
 # spec: EG-CONTRACT-R053.13
 def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    assert "backward-python" not in jobs
     for name, job in jobs.items():
         caches = [
             step.get("with", {}).get("shared-key", "")
@@ -835,7 +894,6 @@ def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
         "python-server",
         "python-kernels",
         "python-suite",
-        "backward-python",
         "gates-wheel",
     ):
         assert jobs[name]["runs-on"] == "ubuntu-24.04"
