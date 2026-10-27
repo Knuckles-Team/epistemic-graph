@@ -319,7 +319,7 @@ mod tests {
         let mut repeated = name_communities(&g, repeated_partition);
 
         let first_names: Vec<&str> = first.iter().map(|community| community.name).collect();
-        repeated.sort_by(|left, right| left.name.cmp(&right.name));
+        repeated.sort_by(|left, right| left.name.cmp(right.name));
         let repeated_names: Vec<&str> = repeated.iter().map(|community| community.name).collect();
 
         assert_eq!(first_names, vec!["d", "w"]);
