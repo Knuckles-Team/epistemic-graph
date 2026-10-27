@@ -2256,8 +2256,14 @@
       "id": "EG-DURABLE-KERNEL-R071",
       "title": "Typed durable task-queue model (enqueue/claim/ack) with refusal tests",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "landed_in": [
+        "a46b42e92532"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/jobs.rs:495",
+        "crates/eg-types/src/jobs.rs:512",
+        "crates/eg-types/src/jobs.rs:548"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R071.600"
       ]
