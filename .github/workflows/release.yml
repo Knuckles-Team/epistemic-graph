@@ -130,7 +130,7 @@ jobs:
     needs: guard
     # Hosted platform legs; x86 is isolated in the immutable reusable job below.
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && inputs.packages != 'server'
       && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: ${{ matrix.runner }}
@@ -271,7 +271,7 @@ jobs:
         shell: bash
         run: |
           mkdir dist
-          cp dist-primary/epistemic_graph-*.whl dist/
+          cp dist-primary/medulla-*.whl dist/
 
       # Smoke test: install the wheel and assert it carries NO executables (the
       # server ships in epistemic-graph-server), then prove the extension modules
@@ -304,10 +304,10 @@ jobs:
   # above), which is what publishes — no more per-tier legs, no more filename collision.
 
   # NOTE: the eg-numeric kernel is NO LONGER a separately-published package. Its
-  # Surface-A pyo3 `.so` is FOLDED INTO the `epistemic-graph` main wheel in the
-  # `build` job above, so a BARE `pip install epistemic-graph` (no extra tag)
+  # Surface-A pyo3 `.so` is FOLDED INTO the `medulla` main wheel in the
+  # `build` job above, so a BARE `pip install medulla` (no extra tag)
   # provides `epistemic_graph.numeric` from ONE published package (CONCEPT:EG-346).
-  # `epistemic-graph[numeric]` still resolves for old pins, but is a no-op alias —
+  # `medulla[numeric]` still resolves for old pins, but is a no-op alias —
   # it is not what makes the kernel present.
 
   # The engine container image is built by `server-image` below.
@@ -316,12 +316,12 @@ jobs:
     name: wheel linux-x86_64
     needs: guard
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && inputs.packages != 'server'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
-    uses: Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@35fe8e492acedce6c31c399e98a8c62c26ee2cd3
+    uses: Knuckles-Team/medulla/.github/workflows/eg-release-x86.yml@219c853efa7aacb8cf7032abf67fc7f70aefb1ce
 
   # ─────────────────────────────────────────────────────────────────────────
   # PUBLISH — gated to a `v*` tag and the required release wheel matrix.
@@ -329,7 +329,7 @@ jobs:
   build-sdist:
     name: Build and validate source distribution
     needs: guard
-    if: github.repository == 'Knuckles-Team/epistemic-graph' && inputs.packages != 'server'
+    if: github.repository == 'Knuckles-Team/medulla' && inputs.packages != 'server'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
@@ -397,7 +397,7 @@ jobs:
     name: server wheel ${{ matrix.label }}
     needs: guard
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
@@ -520,7 +520,7 @@ jobs:
           python -m pip install --quiet 'maturin==1.15.0'
           rm -rf source/dist-server-sdist
           (cd source/packaging/epistemic-graph-server && maturin sdist --out ../../dist-server-sdist)
-          archive="source/dist-server-sdist/epistemic_graph_server-${VERSION}.tar.gz"
+          archive="source/dist-server-sdist/medulla_stem-${VERSION}.tar.gz"
           if [ "$(ls source/dist-server-sdist | wc -l)" -ne 1 ] || [ ! -f "$archive" ]; then
             echo "expected exactly $archive" >&2; ls -l source/dist-server-sdist >&2; exit 1
           fi
@@ -561,7 +561,7 @@ jobs:
     name: server image linux-${{ matrix.arch }}
     needs: [guard, build-server]
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.source_ref != ''))
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
@@ -699,14 +699,14 @@ jobs:
           SOURCE_COMMIT: ${{ github.sha }}
         run: |
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py preflight \
-            --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
+            --directory dist --package medulla --version "${GITHUB_REF_NAME#v}" \
             --manifest "$RUNNER_TEMP/publication.json"
       - name: Verify every published filename and digest
         env:
           SOURCE_COMMIT: ${{ github.sha }}
         run: |
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py postverify \
-            --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
+            --directory dist --package medulla --version "${GITHUB_REF_NAME#v}" \
             --manifest "$RUNNER_TEMP/publication.json"
       # The server package: its wheels are named server-wheel-<arch>, apart from the engine's.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -724,17 +724,17 @@ jobs:
           for tag in manylinux_2_28_x86_64 manylinux_2_28_aarch64 macosx_11_0_arm64 win_amd64; do
             ls dist-server/*"$tag"*.whl >/dev/null || { echo "MISSING: server wheel $tag" >&2; exit 1; }
           done
-          ls dist-server/epistemic_graph_server-"${GITHUB_REF_NAME#v}".tar.gz >/dev/null \
+          ls dist-server/medulla_stem-"${GITHUB_REF_NAME#v}".tar.gz >/dev/null \
             || { echo "MISSING: server source distribution" >&2; exit 1; }
       - name: Verify every published server filename and digest
         env:
           SOURCE_COMMIT: ${{ github.sha }}
         run: |
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py preflight \
-            --directory dist-server --package epistemic-graph-server --version "${GITHUB_REF_NAME#v}" \
+            --directory dist-server --package medulla-stem --version "${GITHUB_REF_NAME#v}" \
             --manifest "$RUNNER_TEMP/publication-server.json"
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py postverify \
-            --directory dist-server --package epistemic-graph-server --version "${GITHUB_REF_NAME#v}" \
+            --directory dist-server --package medulla-stem --version "${GITHUB_REF_NAME#v}" \
             --manifest "$RUNNER_TEMP/publication-server.json"
 
   # The GitHub release for the tag, created only after every distribution is
@@ -763,12 +763,12 @@ jobs:
             echo
             echo "| Package | PyPI |"
             echo "|---|---|"
-            for package in epistemic-graph epistemic-graph-server; do
+            for package in medulla medulla-stem; do
               echo "| \`$package\` $version | https://pypi.org/project/$package/$version/ |"
             done
             echo
             echo '```bash'
-            echo "pip install \"epistemic-graph[server]==$version\""
+            echo "pip install \"medulla[server]==$version\""
             echo '```'
             echo
             echo "Commit: $SHA"

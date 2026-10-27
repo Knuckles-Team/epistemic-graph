@@ -434,7 +434,11 @@ one query plan; `/federated` scatter-gathers a whole query across peer engines.
 `POST /nl` on the **SPARQL** listener turns a natural-language string into a plan and runs it
 through the deterministic pipeline (CONCEPT:EG-KG.query.core-query-input/080). It needs `nl-query` **and** an
 OpenAI-compatible endpoint (`EPISTEMIC_GRAPH_NL_ENDPOINT` / `…_NL_MODEL` / `…_NL_API_KEY_ENV`);
-unconfigured it returns a clear "not configured" error, never a panic.
+unconfigured it returns a clear "not configured" error, never a panic. The planner request is
+also configurable: `read_timeout_secs` / `EPISTEMIC_GRAPH_NL_READ_TIMEOUT_SECS` (default 30, 1 to 600)
+and `extra_body` / `EPISTEMIC_GRAPH_NL_EXTRA_BODY` (a JSON object merged into the chat-completions
+body; default `{"chat_template_kwargs":{"enable_thinking":false}}`). Invalid values make `/nl` refuse
+(`ENGINE_UNAVAILABLE`, naming the bad key) (EG-FEDERATED-QUERY-R058.5).
 
 ```bash
 curl -s -XPOST 'http://127.0.0.1:7878/nl' \

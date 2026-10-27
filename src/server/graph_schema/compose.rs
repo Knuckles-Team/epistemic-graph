@@ -646,6 +646,39 @@ ex:parent a owl:AsymmetricProperty .
         assert!(error.contains("AsymmetricProperty"));
     }
 
+    // spec: EG-SUPPLY-VOCAB-R001.1.2
+    #[test]
+    fn default_catalog_composes_supply_chain_vocabulary() {
+        const SUPPLY_ONTOLOGY: &str = "http://knuckles.team/kg/supply_chain";
+        const SUPPLIER: &str = "http://knuckles.team/kg#Supplier";
+        const USES_COMPONENT: &str = "http://knuckles.team/kg#usesComponent";
+        const OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
+        const OWL_OBJECT_PROPERTY: &str = "http://www.w3.org/2002/07/owl#ObjectProperty";
+        const OWL_PROPERTY_CHAIN: &str = "http://www.w3.org/2002/07/owl#propertyChainAxiom";
+        const CATALOG: &str = "http://knuckles.team/kg";
+
+        let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
+        let has_type = |subject: &str, object: &str| {
+            composed.ontology.iter().any(|triple| {
+                triple.predicate.as_str() == RDF_TYPE
+                    && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == subject)
+                    && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == object)
+            })
+        };
+
+        assert!(has_type(SUPPLIER, OWL_CLASS));
+        assert!(has_type(USES_COMPONENT, OWL_OBJECT_PROPERTY));
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == OWL_IMPORTS
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == CATALOG)
+                && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == SUPPLY_ONTOLOGY)
+        }));
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == OWL_PROPERTY_CHAIN
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == USES_COMPONENT)
+        }));
+    }
+
     #[test]
     fn capability_fixture_retains_the_required_mixed_profile_axioms() {
         let capability = include_str!("../../../crates/eg-core/ontology/capability-v1.ttl");
@@ -669,10 +702,11 @@ ex:parent a owl:AsymmetricProperty .
         // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
         // realizable entity and disposition, the category of `:Skill`, plus BFO's
         // `Continuant owl:disjointWith Occurrent` (operator ruling, EH-363); plus 60 for
-        // the core connector parent classes (EG-TYPED-PACKS-R105.3); plus 138 for
+        // the core connector parent classes (EG-TYPED-PACKS-R105.3); plus 10 for
+        // SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1); plus 138 for
         // the world model: BFO material entity and object, the RO/BFO-aligned shared
         // relations, and the shared reference-term / quantity / observation vocabulary.
-        assert_eq!(triples.len(), 1_085);
+        assert_eq!(triples.len(), 1_095);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -724,9 +758,25 @@ ex:parent a owl:AsymmetricProperty .
         // +8: TaskStep and BestPractice (EG-ORCH-VOCAB-R001.1/R004.1).
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
-        // +129: the 19 connector parent classes across the core, software, sdlc,
+        // +136: the 19 connector parent classes across the core, software, sdlc,
         // company, infrastructure and supply-chain modules (EG-TYPED-PACKS-R105.3).
-        assert_eq!(composed.ontology.len(), 13_892);
+        // +162: the service-operations module and the priority domain
+        // union (EG-TYPED-PACKS-R105.4).
+        // +32 (EG-ORCH-VOCAB-R009.12, R009.13): the RunTrace termination and
+        // budget properties.
+        // +205: the metadata-catalog module (204, EG-TYPED-PACKS-R106.1) and its
+        // catalog import (1).
+        // +1052: the data-platform, IT4IT-delivery, media and retrieval domain
+        // modules and their catalog imports (EG-TYPED-PACKS-R105.6 to R105.9).
+        // +236: the registered supply-chain vocabulary, commercial vocabulary,
+        // and final catalog integration amendments.
+        // +50: the shared data-platform vocabulary (EG-DATAPLAT-VOCAB-R001.1-.4),
+        // plus one catalog import for its registered source.
+        // +7: the shared versionOf relation's two module-local constrained
+        // sub-properties (the shared predicate itself remains unconstrained).
+        // +10: SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1),
+        // plus one infrastructure ContainerImage → SoftwareComponent edge (R002.2).
+        assert_eq!(composed.ontology.len(), 15_648);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -759,10 +809,20 @@ ex:parent a owl:AsymmetricProperty .
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:Ontology` header subject (its shapes pack's prefix-declaration
         // subject is not itself one).
-        assert_eq!(ontology_subjects.len(), 36);
+        // +1 (EG-TYPED-PACKS-R106.1): the metadata-catalog module header; +4:
+        // the data-platform, IT4IT-delivery, media and retrieval module headers;
+        // +1: the shared data-platform vocabulary header.
+        // +2: the commercial and newly registered supply-chain module headers.
+        assert_eq!(ontology_subjects.len(), 45);
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
-        // `owl:imports <.../core>`.
-        assert_eq!(imports, 72);
+        // `owl:imports <.../core>`; +6: the service-operations module's five
+        // imports and its catalog entry; +5: the metadata-catalog module's four
+        // imports and its catalog entry (EG-TYPED-PACKS-R106.1); +19: the four
+        // domain modules and their catalog imports (EG-TYPED-PACKS-R105.6-R105.9).
+        // +6: commercial and supply-chain module imports and catalog entries;
+        // +2: the data-platform vocabulary's core and virtual-graph imports;
+        // +1: its catalog entry.
+        assert_eq!(imports, 111);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -776,7 +836,15 @@ ex:parent a owl:AsymmetricProperty .
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
         // +129: the 19 connector parent classes (EG-TYPED-PACKS-R105.3).
-        assert_eq!(semantic_axioms, 13_706);
+        // +152: the service-operations module (EG-TYPED-PACKS-R105.4).
+        // +32: the RunTrace termination and budget properties (EG-ORCH-VOCAB-R009.12).
+        // +196: the metadata-catalog module (EG-TYPED-PACKS-R106.1).
+        // +1017: the data-platform, IT4IT-delivery, media and retrieval modules;
+        // +45: semantic axioms from the shared data-platform vocabulary.
+        // +224: semantic axioms from the final commercial/supply-chain catalog.
+        // +7: the shared versionOf relation's two module-local constrained
+        // sub-properties (the shared predicate itself remains unconstrained).
+        assert_eq!(semantic_axioms, 15_390);
 
         let count_type = |object: &str| {
             composed
@@ -801,15 +869,17 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_type("http://www.w3.org/2002/07/owl#SymmetricProperty"),
-            8
+            9
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
-            35
+            // +1: cat:lineageTo, the inverse of :derivedFrom (EG-TYPED-PACKS-R106.1).
+            36
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#propertyChainAxiom"),
-            5
+            // +1: the registered supply-chain usesComponent property chain.
+            6
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#minCardinality"),
@@ -831,7 +901,15 @@ ex:parent a owl:AsymmetricProperty .
             // +4: Account, Position, Activity and Lot specialize BFO GDC.
             // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
             // +18: the connector parent classes (EG-TYPED-PACKS-R105.3).
-            482
+            // +18: the service-operations classes and alignments (EG-TYPED-PACKS-R105.4).
+            // +31: the metadata-catalog classes and their EG core and W3C parents
+            // (EG-TYPED-PACKS-R106.1).
+            // +105: the data-platform, IT4IT-delivery, media and retrieval classes;
+            // +1: the data-platform StoreMapping subclass edge.
+            // +9: the commercial and registered supply-chain class placements;
+            // +2: SourceRecord and OpaqueSourceReference; +1: ContainerImage's
+            // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
+            649
         );
     }
 

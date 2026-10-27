@@ -35,7 +35,7 @@ def _version() -> str:
 def test_package_wraps_the_root_server_bin_with_the_full_feature_set() -> None:
     project = tomllib.loads((PACKAGE / "pyproject.toml").read_text())
     maturin = project["tool"]["maturin"]
-    assert project["project"]["name"] == "epistemic-graph-server"
+    assert project["project"]["name"] == "medulla-stem"
     assert maturin["bindings"] == "bin"
     assert maturin["manifest-path"] == "../../Cargo.toml"
     assert maturin["features"] == ["full", "ast-extended"]
@@ -74,7 +74,7 @@ def test_release_builds_every_platform_natively_and_uploads_each() -> None:
     names = [s.get("name", "") for s in job["steps"]]
     assert names.index("Smoke test the built wheel") < names.index(upload["name"])
     verify = _script(jobs["verify-pypi"])
-    assert "--package epistemic-graph-server" in verify
+    assert "--package medulla-stem" in verify
     assert "build-server" in jobs["verify-pypi"]["needs"]
     for tag in (
         "manylinux_2_28_x86_64",
@@ -181,7 +181,7 @@ def test_tag_release_creates_the_github_release_after_pypi() -> None:
     assert job["needs"] == ["verify-pypi"]
     assert job["permissions"] == {"contents": "write"}
     script = _script(job)
-    for package in ("epistemic-graph", "epistemic-graph-server"):
+    for package in ("medulla", "medulla-stem"):
         assert package in script
     assert "https://pypi.org/project/$package/$version/" in script
     assert "--latest" in script
@@ -203,7 +203,7 @@ def test_server_sdist_is_built_proven_published_and_verified() -> None:
     for step in (build, proof, upload, publish):
         assert "matrix.arch == 'x86_64'" in step["if"]
     assert "maturin sdist" in build["run"]
-    assert "epistemic_graph_server-${VERSION}.tar.gz" in build["run"]
+    assert "medulla_stem-${VERSION}.tar.gz" in build["run"]
     assert "pip wheel --isolated --no-deps" in proof["run"]
     assert '"$work/venv/bin/epistemic-graph-server" --help' in proof["run"]
     assert (
@@ -225,6 +225,45 @@ def test_server_sdist_is_built_proven_published_and_verified() -> None:
     )
     verify = jobs["verify-pypi"]["steps"]
     assert any((s.get("with") or {}).get("name") == "server-sdist" for s in verify)
-    assert 'epistemic_graph_server-"${GITHUB_REF_NAME#v}".tar.gz' in _script(
-        jobs["verify-pypi"]
-    )
+    assert 'medulla_stem-"${GITHUB_REF_NAME#v}".tar.gz' in _script(jobs["verify-pypi"])
+
+
+def _path_crates(manifest_dir: Path, seen: dict[Path, None]) -> None:
+    manifest = tomllib.loads((manifest_dir / "Cargo.toml").read_text())
+    tables = [manifest, *manifest.get("target", {}).values()]
+    for table in tables:
+        for kind in ("dependencies", "dev-dependencies", "build-dependencies"):
+            for spec in table.get(kind, {}).values():
+                if isinstance(spec, dict) and "path" in spec:
+                    crate = (manifest_dir / spec["path"]).resolve()
+                    if crate not in seen:
+                        seen[crate] = None
+                        _path_crates(crate, seen)
+
+
+@pytest.mark.spec("EG-CONTRACT-R053.9")
+def test_sdist_carries_every_path_crate_cargo_needs_to_load_the_manifest() -> None:
+    """maturin drops path crates reached only through unselected optional features,
+    but `cargo metadata` still loads their manifests, so the isolated rebuild fails
+    unless each crate tree is an explicit sdist include. maturin rejects `..` in
+    include patterns, so the package dir carries `crates` and `vendor` symlinks to
+    workspace trees and the patterns are relative to them."""
+    seen: dict[Path, None] = {}
+    _path_crates(ROOT, seen)
+    members = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
+    expected = {str(c.relative_to(ROOT)) for c in seen} | set(members)
+    project = tomllib.loads((PACKAGE / "pyproject.toml").read_text())
+    includes = project["tool"]["maturin"]["include"]
+    assert all(i["format"] == "sdist" for i in includes)
+    included = {i["path"].removesuffix("/**/*") for i in includes}
+    link = PACKAGE / "crates"
+    assert link.is_symlink() and link.resolve() == ROOT / "crates"
+    vendor = PACKAGE / "vendor"
+    assert vendor.is_symlink() and vendor.resolve() == ROOT / "vendor"
+    assert expected - included == set(), "crates missing from the sdist include list"
+    assert "crates/eg-asr-whisper" in included
+    assert "crates/eg-tts-piper" in included
+    assert {
+        "vendor/zstd-parent-patches",
+        "vendor/security-patches",
+    } <= included

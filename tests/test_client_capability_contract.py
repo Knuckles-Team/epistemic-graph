@@ -36,7 +36,7 @@ def test_manifest_is_deterministic_and_advertises_live_client_capabilities() -> 
 
     assert first == second
     assert first["schema_version"] == CLIENT_CAPABILITY_SCHEMA_VERSION
-    assert first["package"] == "epistemic-graph"
+    assert first["package"] == "medulla"
     assert first["package_version"]
     assert first["client_build_identity"] == client_build_identity()
     assert _without_sql_source(first["capabilities"]) == {

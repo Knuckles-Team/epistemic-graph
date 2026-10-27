@@ -1,10 +1,10 @@
 INHERIT: .pipeline-theme/templates/mkdocs-theme/base.mkdocs.yml
 
-site_name: "Epistemic Graph"
+site_name: "Medulla"
 site_description: "The durable multimodal knowledge and reasoning engine for the Knuckles agent ecosystem."
-site_url: "https://knuckles-team.github.io/epistemic-graph/"
-repo_name: "Knuckles-Team/epistemic-graph"
-repo_url: "https://github.com/Knuckles-Team/epistemic-graph"
+site_url: "https://knuckles-team.github.io/medulla/"
+repo_name: "Knuckles-Team/medulla"
+repo_url: "https://github.com/Knuckles-Team/medulla"
 edit_uri: "edit/main/docs/"
 copyright: "Copyright &copy; Knuckles-Team — MIT licensed"
 
@@ -13,7 +13,7 @@ extra:
     current: epistemic-graph
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/Knuckles-Team/epistemic-graph
+      link: https://github.com/Knuckles-Team/medulla
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/epistemic-graph/
 
@@ -105,4 +105,4 @@ nav:
       - Ecosystem glossary: glossary.md
       - Skill graph reference: reference/skill-graph.generated.md
   - Status: status.md
-  - For AI agents: https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md
+  - For AI agents: https://github.com/Knuckles-Team/medulla/blob/main/AGENTS.md

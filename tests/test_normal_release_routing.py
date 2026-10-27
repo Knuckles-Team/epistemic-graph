@@ -25,13 +25,13 @@ def load_contract():
 
 def context():
     return dict(
-        repository="Knuckles-Team/epistemic-graph",
+        repository="Knuckles-Team/medulla",
         repository_id="1248541673",
         repository_owner_id="119072828",
         event_name="push",
-        ref="refs/tags/v2.27.0",
+        ref="refs/tags/v2.27.8",
         ref_type="tag",
-        workflow_ref="Knuckles-Team/epistemic-graph/.github/workflows/release.yml@refs/tags/v2.27.0",
+        workflow_ref="Knuckles-Team/medulla/.github/workflows/release.yml@refs/tags/v2.27.8",
         actor="Knucklessg1",
         actor_id="8661571",
         triggering_actor="Knucklessg1",
@@ -63,7 +63,7 @@ class NormalReleaseTrust(unittest.TestCase):
             )
         ]
         changes += [
-            ("repository", "fork/epistemic-graph"),
+            ("repository", "fork/medulla"),
             ("repository_id", "1"),
             ("repository_owner_id", "1"),
             ("ref", "refs/heads/main"),
@@ -92,12 +92,15 @@ class NormalReleaseTrust(unittest.TestCase):
             "urllib.request.urlopen",
             side_effect=[io.StringIO(json.dumps(x)) for x in replies],
         ) as fetch:
-            self.assertEqual(self.guard["remote_tag_commit"]("synthetic-token"), SHA)
+            self.assertEqual(
+                self.guard["remote_tag_commit"]("synthetic-token", context()["ref"]),
+                SHA,
+            )
         self.assertEqual(fetch.call_count, 2)
         for call in fetch.call_args_list:
             self.assertTrue(
                 call.args[0].full_url.startswith(
-                    "https://api.github.com/repos/Knuckles-Team/epistemic-graph/git/"
+                    "https://api.github.com/repos/Knuckles-Team/medulla/git/"
                 )
             )
             self.assertNotIn("/heads/main", call.args[0].full_url)
@@ -111,7 +114,7 @@ class NormalReleaseTrust(unittest.TestCase):
                 ),
                 self.assertRaises(ValueError),
             ):
-                self.guard["remote_tag_commit"]("synthetic-token")
+                self.guard["remote_tag_commit"]("synthetic-token", context()["ref"])
         replies = [
             io.StringIO(json.dumps({"object": dict(type="tag", sha=SHA)}))
             for _ in range(9)
@@ -120,7 +123,7 @@ class NormalReleaseTrust(unittest.TestCase):
             patch("urllib.request.urlopen", side_effect=replies),
             self.assertRaises(ValueError),
         ):
-            self.guard["remote_tag_commit"]("synthetic-token")
+            self.guard["remote_tag_commit"]("synthetic-token", context()["ref"])
 
     def test_no_caller_inputs_or_publication_permissions(self):
         self.assertEqual(self.workflow["on"], {"workflow_call": {}})

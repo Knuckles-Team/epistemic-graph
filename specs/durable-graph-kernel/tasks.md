@@ -14,6 +14,8 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [x] **K-10 (additional hardening):** Close the native-kernel hardening and test-reliability requirements no task above names: upload-cursor non-reuse, owner-manifest lineage, polygon boundary predicates, ring-buffer eviction identity, dispatch-ordering guard reliability, idempotent CreateGraph/DeleteGraph retry, blob GC grace period, holder-scoped BlobRef/BlobUnref, outbox topic classes, AVX2 kernel coverage, placement/consensus routing after sealing, `.redb` registry classification, mutation-durability classification across feature builds, create-only sealed-record guard, publication-waiter cancellation, shared-chunk GC, legacy-layout migration refusal, bounded test threading, idle-upload reclaim, lossless v2 control-state lift, compiled-shape memoization benchmark, signed-dispatch ack-loss recovery, published-contract/BlobRef parity, isolated trace capture, channel-group leave result and no-key scrub-cursor fixture — **EG-DURABLE-KERNEL-R044–EG-DURABLE-KERNEL-R069** (see `requirements.md` for each ID's definition).
 - [ ] **K-11 (all):** Run configured CCCC, Dupehound, jscpd, KISS, rust architecture lint, clippy, focused tests and cloud CI at exact head. Record positive and negative evidence, then update delivery and acceptance state separately.
 - [-] **K-12 (operator store upgrades):** Give the registered offline store upgrades one operator entry point (`EG-DURABLE-KERNEL-R070`): a single upgrade registry in the storage kernel, an `inspect`/`apply` command on the server binary that holds the engine's own directory lock, a startup refusal that names the command, the operator procedure in the generated owner-store format document, and command tests on disposable predecessor stores.
+  - [ ] **EG-DURABLE-KERNEL-R070.1:** Migrate an older supported store at open under the held lock. Add the journal, typed refusals, logs, metric and switch.
+  - [ ] **EG-DURABLE-KERNEL-R070.2:** Prove at the served entry point that a previous-patch store migrates and serves.
 - [x] **K-13 (lazy agent-library open):** Add the missing startup test for `EG-DURABLE-KERNEL-R006`. Start the real server with the digest-verified binary. Use a directory fixture and a malformed-bytes fixture for `agent_library.redb`. Assert that an authenticated `Ping` succeeds and that an Agent Library operation fails on store open. Assert that `Ping` still succeeds afterward and that the process stays alive. Keep the `EG-DURABLE-KERNEL-R070` upgrade-required boot refusal intact. Recovered from the never-published agent claim `codex-eg-r006-startup-test-01a101be`.
 - [x] **K-14 (R052 acceptance record):** Record the scoped acceptance of `EG-DURABLE-KERNEL-R052` in `status.json`. Cite merge `9871859d4e0cc01f0a5a2f1f07584da056cf424e`, PR 41, its merged-head receipt and CI run 36912559244. Change only the R052 row. Keep R052 delivery at `LANDED` and the whole-spec acceptance at `NOT_AUDITED`. Obtain an independent review of the exact diff first. Recovered from the never-branched agent claim `codex-r052-acceptance-record-01a0fe5f`.
 
@@ -33,7 +35,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R014.3.2:** Rust FlakeBudget-driven diagnostic retries.
 - [ ] **EG-DURABLE-KERNEL-R014.4:** Loaded leader-rebalance acceptance. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R014.5:** Loaded three-node placement acceptance. See the exact paths and proving tests in `requirements.md`.
-- [ ] **EG-DURABLE-KERNEL-R024:** External graph and database backends become EG federation sources
+- [ ] **EG-DURABLE-KERNEL-R024:** External graph and database backends become Medulla federation sources
 - [x] **EG-DURABLE-KERNEL-R024.1:** PostgreSQL/AGE backend becomes a ForeignSourceSpec source
 - [x] **EG-DURABLE-KERNEL-R024.2:** Fan-out backend becomes a MirrorTargetSpec federation mirror target
 - [x] **EG-DURABLE-KERNEL-R024.2.1:** MirrorTargetSpec::FanOut typed spec, validation, and registration refusal
@@ -102,7 +104,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R082.8:** Failure codes and retry follow the durable retry policy
 - [ ] **EG-DURABLE-KERNEL-R082.9:** Colocated pool lease and poll interval are configurable
 - [ ] **EG-DURABLE-KERNEL-R082.10:** Remote workers remain supported through the existing coordinator operations
-- [ ] **EG-DURABLE-KERNEL-R082.11:** Cross-repo: graph-os hosts any remote worker process; agent-utilities does not
+- [ ] **EG-DURABLE-KERNEL-R082.11:** Cross-repo: Arbora hosts any remote worker process; Meristem does not
 
 - [-] **EG-DURABLE-KERNEL-R074.1:** Typed capacity record and pure registry lifecycle with native positive/refusal tests; pending merged-head validation.
 - [ ] **EG-DURABLE-KERNEL-R074.2:** Authenticated served registry integration, generated contracts and cross-owner/expiry dispatch tests.
@@ -150,16 +152,20 @@ This batch defines the slices; it runs none of their runtime tests.
 <!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
 ## Durable-kernel owner definition tasks — 2026-10-12
 
+- [ ] **EG-DURABLE-KERNEL-R028.1:** Implement the R085-backed checkpoint snapshot with run/work-item/fence/checkpoint identity and separate short-/long-term memory references. Enforce verified scope, digest and expected-head refusal rules. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, and existing ARBORA-A2A/OPS streaming requirements.
+- [ ] **EG-DURABLE-KERNEL-R028.1 acceptance:** Checkpoint acceptance covers restart/readback and refusal of wrong scope or stale fence/revision. Also refuse digest mismatch, changed-body replay and unavailable storage. Test recovery from interruption between snapshot and pointer update. Meristem resume/Arbora stream continuation remain blocked until transaction/recovery, resume-binding and retention decisions are defined.
+- [ ] **EG-DURABLE-KERNEL-R028.1 status:** Keep SPECIFIED. No runtime or consumer receipt is claimed.
+
 - [ ] **EG-DURABLE-KERNEL-R028.1.1:** Qualify checkpoint-only native source and tests for immutable typed admission context. Check matching original legacy metadata, legacy-only fallback, owner binding and same-snapshot reads. Include fenced/revisioned publication and canonical MutationBatch retry receipts. Generate fresh checkpoint public contracts and graph layout identity from this exact source. Run native tests and offline predecessor migration/reopen proof before claiming delivery.
 - [ ] **EG-DURABLE-KERNEL-R028.1.2:** Complete memory-reference resolution/retention, current-run resume precedence and fence binding. Add durable context ordering and exact host-cursor continuation through AU and served hosts. Keep broad R028.1 open until these companion acceptance cases pass.
 - [ ] **EG-DURABLE-KERNEL-R028.1.3:** Hash-verified hosted checkpoint exports and 30 local facade tests are recorded in the plan. Source formatting, static checks and source review are not native runtime evidence. Final-source native, layout, migration and full repository gates remain pending.
 
-- [ ] **EG-DURABLE-KERNEL-R085.9:** Store complete canonical search state under R085 `active_context`, requiring `search_run_id`, `state_revision`, `transcript`, `evidence`, `constraints`, and `open_claims`. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7.
-- [ ] **EG-DURABLE-KERNEL-R085.9 acceptance:** Exact restart/context-eviction readback. Malformed, missing-field, oversize, wrong-authority, stale-graph, digest and backend refusals. Stale conflict retains candidate without head advance. AU continuation receipt/schema is an explicit dependency hold.
+- [ ] **EG-DURABLE-KERNEL-R085.9:** Store complete canonical search state under R085 `active_context`, requiring `search_run_id`, `state_revision`, `transcript`, `evidence`, `constraints`, and `open_claims`. Preserve Meristem R013.13/R020.1 and Medulla R085.1/.4/.7.
+- [ ] **EG-DURABLE-KERNEL-R085.9 acceptance:** Exact restart/context-eviction readback. Malformed, missing-field, oversize, wrong-authority, stale-graph, digest and backend refusals. Stale conflict retains candidate without head advance. Meristem continuation receipt/schema is an explicit dependency hold.
 - [ ] **EG-DURABLE-KERNEL-R085.9 status:** Keep SPECIFIED. No implementation or served evidence is claimed.
 
-- [ ] **EG-DURABLE-KERNEL-R085.10:** Persist authorized session notes via R085 with note ID, source run/task/revision, content digest, provenance and graph/revision binding. EG returns only authorized versions and conflict state. It performs no auto-injection or relevance selection. Preserve AU R022.3 and EG R085.2/.5/.7.
-- [ ] **EG-DURABLE-KERNEL-R085.10 acceptance:** Acceptance covers durable readback, scope/revocation redaction, stale conflict retention and capacity refusal. AU must define capture trigger, kind mapping, relevance/staleness and conflict presentation before transparent reuse is accepted.
+- [ ] **EG-DURABLE-KERNEL-R085.10:** Persist authorized session notes via R085 with note ID, source run/task/revision, content digest, provenance and graph/revision binding. Medulla returns only authorized versions and conflict state. It performs no auto-injection or relevance selection. Preserve Meristem R022.3 and Medulla R085.2/.5/.7.
+- [ ] **EG-DURABLE-KERNEL-R085.10 acceptance:** Acceptance covers durable readback, scope/revocation redaction, stale conflict retention and capacity refusal. Meristem must define capture trigger, kind mapping, relevance/staleness and conflict presentation before transparent reuse is accepted.
 - [ ] **EG-DURABLE-KERNEL-R085.10 status:** Keep SPECIFIED. No automatic capture/reuse behavior is claimed.
 
 - [ ] **EG-DURABLE-KERNEL-R084.7:** Hold cross-backend coordination until owners decide allowed writable targets, registry/coordinator owner and ordering key. They must also define atomic-versus-eventual semantics and failure/retry/idempotency/receipt behavior. Preserve one-graph R084.1-.6 and R039 as sole durability authority. Never infer writes to R024.1 sources from mirror cursors.
@@ -178,7 +184,7 @@ This batch defines the slices; it runs none of their runtime tests.
 <!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
 ## Cross-owner graph feed tasks — 2026-10-12
 
-- [ ] `EG-DURABLE-KERNEL-R043.100`: define `OpenGraphSnapshotV1` and `ReadGraphChangesV1` on committed ChangeEnvelope records with a same-read high-water cursor, ordered replay ids and bounded retention. Include tombstone filtering and explicit expired-cursor/revocation outcomes. Verify independent durable readback and EG latency through first authorized feed read. Keep GraphOS/WebUI browser commit-to-visible p95 as separate companion acceptance. Also set numeric layout limits for visible node/edge budgets, interactions and labels.
+- [ ] `EG-DURABLE-KERNEL-R043.100`: define `OpenGraphSnapshotV1` and `ReadGraphChangesV1` on committed ChangeEnvelope records with a same-read high-water cursor, ordered replay ids and bounded retention. Include tombstone filtering and explicit expired-cursor/revocation outcomes. Verify independent durable readback and Medulla latency through first authorized feed read. Keep Arbora/Overstory browser commit-to-visible p95 as separate companion acceptance. Also set numeric layout limits for visible node/edge budgets, interactions and labels.
 - [ ] Add typed cursor-expiry, graph-incarnation and authorization-change outcomes. Expose versioned commit-to-visible timing fields.
 - [ ] Preserve R043's single MutationBatch write authority and prove two-client served delivery, reconnect ordering, independent readback and the ≤1000 ms p95 target.
 <!-- /spec-definition-patch -->
@@ -193,14 +199,14 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R084.8:** Define tenant-scoped ordering and backend atomicity semantics. Extend conflict resolution paths and add integration tests covering two tenants, multiple backends, concurrent writes and failure/replay.
 - [ ] **EG-DURABLE-KERNEL-R057.1:** Model order-snapshot lifecycle with immutable-history and derivation-link binding. Integrate with sealed-record guard. Test snapshot creation, atomic promotion, history preservation and veto refusal.
 - [ ] **EG-DURABLE-KERNEL-R087.1:** Define typed changeset-review schema with five flaw classes, impact policy and finding-to-code evidence in `crates/eg-types/src/changeset_review.rs`.
-- [ ] **EG-DURABLE-KERNEL-R087.2:** Serve `ChangesetReview` RPC endpoint. Integrate with GraphOS producer and AU consumer. Regenerate contracts.
+- [ ] **EG-DURABLE-KERNEL-R087.2:** Serve `ChangesetReview` RPC endpoint. Integrate with Arbora producer and Meristem consumer. Regenerate contracts.
 - [ ] **EG-DURABLE-KERNEL-R088.1:** Model rule correction with lineage, versioned approval and replacement/revocation. Enforce two-principal requirement at type level.
 - [ ] **EG-DURABLE-KERNEL-R088.2:** Serve correction submission, approval and application through existing rule authority. Test two-principal validation, replacement flow and revocation refusal.
 - [ ] **EG-DURABLE-KERNEL-R089.1:** Typed step verification verdict with uncertainty bound and proof binding. Round-trip over wire.
-- [ ] **EG-DURABLE-KERNEL-R089.2:** AU consumer path refuses forward-chained conclusions from failed steps. Preserve AU-EG harness integration.
-- [ ] **EG-DURABLE-KERNEL-R090.1:** Route GraphOS schema-selection request through EG admission. Validate candidate and bind schema revision/digest.
+- [ ] **EG-DURABLE-KERNEL-R089.2:** Meristem consumer path refuses forward-chained conclusions from failed steps. Preserve AU-EG harness integration.
+- [ ] **EG-DURABLE-KERNEL-R090.1:** Route Arbora schema-selection request through Medulla admission. Validate candidate and bind schema revision/digest.
 - [ ] **EG-DURABLE-KERNEL-R090.2:** Serve digest readback with mismatch detection. Test accuracy and consistency across restart.
-- [ ] **EG-DURABLE-KERNEL-R090.3:** Enforce read-only on external triple-store projections. Refuse mutations with typed error. Trace lineage to EG revision.
+- [ ] **EG-DURABLE-KERNEL-R090.3:** Enforce read-only on external triple-store projections. Refuse mutations with typed error. Trace lineage to Medulla revision.
 - [ ] **EG-DURABLE-KERNEL-R097.1:** Model typed temporal rule semantics with fact timeline and origin linkage.
 - [ ] **EG-DURABLE-KERNEL-R097.2:** Behavior forward-chaining produces facts in time-order and chains derivations.
 - [ ] **EG-DURABLE-KERNEL-R097.3:** Wiring fact admission and readback bind origin sentence and axiom references.
@@ -253,6 +259,10 @@ This batch defines the slices; it runs none of their runtime tests.
 
 - [ ] **EG-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.
 
+- [ ] **EG-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
+  records through canonical contract generation, typed and signed native tests,
+  and normal publication gates. Keep execution reservation, current session policy,
+  restart and benchmark acceptance pending; no live grant or host deployment.
 ## Agent-memory substrate claims (2026-10-22)
 
   - [ ] **EG-DURABLE-KERNEL-R083.5:** Tier ladder from accelerator memory to durable storage.
@@ -274,6 +284,10 @@ This batch defines the slices; it runs none of their runtime tests.
 - [x] **EG-DURABLE-KERNEL-R861:** Graph lifecycle replay and graph listing survive a patch upgrade (rollup).
   - [x] **EG-DURABLE-KERNEL-R861.1:** Lifecycle replay compares the stored identity.
   - [x] **EG-DURABLE-KERNEL-R861.2:** Graph listing survives a restart and a patch upgrade.
+- [ ] **EG-DURABLE-KERNEL-R862:** A copied store or backup bundle restores onto new files (rollup).
+  - [ ] **EG-DURABLE-KERNEL-R862.1:** Restore reads bundle sources by content, not by physical identity.
+  - [ ] **EG-DURABLE-KERNEL-R862.2:** Wiring: an explicit command re-binds a copied data directory.
+  - [ ] **EG-DURABLE-KERNEL-R862.3:** Hot-path proof: a copied bundle restores and serves.
 - [ ] **EG-DURABLE-KERNEL-R028.5.1:** Add paired typed proposal and executable attachment fields; recompute exact plan equality and retain legacy codecs.
 - [ ] **EG-DURABLE-KERNEL-R028.5.2:** Bind the first attachment immutably through the existing owner transaction; preserve omitted attachments and refuse conflicts.
 - [ ] **EG-DURABLE-KERNEL-R028.5.3:** Verify native attachment replay, restart and scoped availability.
@@ -287,6 +301,8 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.1.3.2:** Qualify final-source native compilation, layout and migration, transaction/replay/restart behavior and full repository gates.
 
 - [ ] **EG-DURABLE-KERNEL-R028.4.3:** Qualify typed conversation head reservation in the existing native admission transaction. Complete native store tests, actual MutationBatch replay and changed-body refusal, graph-incarnation isolation and generated contract checks. Keep R028.1 and R751.750/R751.751 open for checkpoint-backed history, public transcript paging and served continuation.
+- [ ] **EG-DURABLE-KERNEL-R028.4.4:** Replay a repeated run admission from its retained owner receipt. Add the refreshed-context, restart, changed-input and missing-evidence replay tests and the pre-change store upgrade test.
+
 
 - [ ] **EG-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
   records through canonical contract generation, typed and signed native tests,

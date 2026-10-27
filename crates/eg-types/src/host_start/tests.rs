@@ -1,4 +1,3 @@
-// spec: EG-DURABLE-KERNEL-R030.1.1
 use super::*;
 use crate::control_lease::ControlLeaseView;
 

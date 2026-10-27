@@ -94,7 +94,7 @@ struct KindSemantics {
     uri_prefix: &'static str,
 }
 
-const KIND_SEMANTICS: [KindSemantics; 12] = [
+const KIND_SEMANTICS: [KindSemantics; 11] = [
     KindSemantics {
         pack: PackEntryKind::McpServer,
         component: AgentComponentKind::McpServer,
@@ -144,11 +144,6 @@ const KIND_SEMANTICS: [KindSemantics; 12] = [
         pack: PackEntryKind::A2aCard,
         component: AgentComponentKind::A2aAgentCard,
         uri_prefix: "a2a-card://",
-    },
-    KindSemantics {
-        pack: PackEntryKind::Manifest,
-        component: AgentComponentKind::McpResource,
-        uri_prefix: "manifest://",
     },
     KindSemantics {
         pack: PackEntryKind::SkillFile,

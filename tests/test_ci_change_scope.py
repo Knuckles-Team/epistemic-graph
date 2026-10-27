@@ -180,28 +180,16 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
         assert jobs[name]["if"] == "needs.changes.outputs.code == 'true'"
 
 
-@pytest.mark.parametrize(
-    ("job_name", "pr_timeout"),
-    [("gates-crates", 45), ("gates-storage", 10)],
-)
-def test_workspace_gates_use_hosted_runner_with_required_headers(
-    job_name: str, pr_timeout: int
-) -> None:
-    """EG-CONTRACT-R035: prerequisite installation must work on every event.
-
-    gates-crates carries the heavy 45-minute PR budget: its per-crate narrowing
-    sweep falls back to the FULL workspace on a broad/unmapped diff (release
-    version bumps touch every crate), which cold-builds past the former
-    10-minute budget (release PR #666 cancelled at ~10:15 on 3/3 runs).
-    """
+@pytest.mark.parametrize("job_name", ["gates-crates", "gates-storage"])
+def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) -> None:
+    """EG-CONTRACT-R035: prerequisite installation must work on every event."""
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs[job_name]
     assert job["runs-on"] == "ubuntu-24.04"
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
-    # GitHub expression braces are doubled inside f-strings.
     assert job["timeout-minutes"] == (
-        f"${{{{ github.event_name == 'pull_request' && {pr_timeout} || 60 }}}}"
+        "${{ github.event_name == 'pull_request' && 10 || 60 }}"
     )
     installs = [
         step
@@ -540,7 +528,7 @@ def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
     [
         (
             "gates-wheel",
-            "fb183be132512966d0c14feb1139851019b5f1e96518485c2c0b6dbe0452aba9",
+            "6813e079e24f89bca2422161a8b09f8f1e681bfd7d337229bab34bfb46b6b0a8",
         ),
         (
             "gates-whisper",
@@ -624,9 +612,7 @@ def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> N
         f"EG_GATES_WHEEL_VENV={runner_temp}/.gates-wheel-venv\n"
     )
     steps = {step.get("name"): step.get("run", "") for step in job["steps"]}
-    install = steps[
-        "Install the folded epistemic-graph wheel into a clean throwaway venv"
-    ]
+    install = steps["Install the folded medulla wheel into a clean throwaway venv"]
     assert 'python -m venv "$EG_GATES_WHEEL_VENV"' in install
     assert install.count('"$EG_GATES_WHEEL_VENV/bin/pip"') == 2
     consumers = {
@@ -668,7 +654,7 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
     upload = names.index("Upload validated wheel for installed acceptance")
     capture = names.index("Record the exact wheel before installation")
     install = names.index(
-        "Install the folded epistemic-graph wheel into a clean throwaway venv"
+        "Install the folded medulla wheel into a clean throwaway venv"
     )
     assert capture + 1 == install < package
     for prerequisite in (
@@ -693,7 +679,7 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
     assert set(config["path"].splitlines()) == {
         "${{ runner.temp }}/validated-eg-wheel/" + name
         for name in (
-            "epistemic_graph-*.whl",
+            "medulla-*.whl",
             "source.sha",
             "source.tree",
             "build-recipe.sha256",
@@ -758,7 +744,7 @@ def test_validated_wheel_packaging_refuses_invalid_inputs(
     revision = git("rev-parse", "HEAD")
     dist = repo / "dist-gates"
     dist.mkdir()
-    wheel = dist / "epistemic_graph-1.0-py3-none-any.whl"
+    wheel = dist / "medulla-1.0-py3-none-any.whl"
     wheel.write_bytes(b"already-validated-wheel-fixture")
     runner = tmp_path / "runner"
     runner.mkdir()
@@ -800,7 +786,7 @@ def _corrupt_wheel_input(
     if fault == "missing":
         wheel.unlink()
     elif fault == "multiple":
-        (wheel.parent / "epistemic_graph-second.whl").write_bytes(b"other")
+        (wheel.parent / "medulla-second.whl").write_bytes(b"other")
     elif fault == "symlink":
         wheel.unlink()
         wheel.symlink_to(repo / "Cargo.lock")

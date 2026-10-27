@@ -353,23 +353,60 @@ async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
     );
 }
 
-/// The NL handler binds the caller's owner-scoped registry too: the same NL-planned
-/// `FOREIGN` query succeeds for the registering principal and is refused for another.
+/// NL grounding and execution bind the same owner-scoped registry. The local
+/// fixture belongs to system, so the foreign-only query needs no hidden local label.
+// spec: EG-FEDERATED-QUERY-R058.4.7.1
 #[tokio::test]
 async fn nl_query_foreign_leg_is_owner_scoped() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     crate::server::set_nl_planner(Arc::new(EchoPlanner));
     let (_remote, local) = registered_by_owner_a(920).await;
 
-    let nl = || Method::NlQuery {
-        text: FOREIGN_UQL.into(),
+    let nl = |text: &str| Method::NlQuery {
+        text: text.into(),
         graph: "__commons__".into(),
     };
-    let a = dispatch_as(&local, 921, OWNER_A, nl()).await;
-    assert_ok(&a);
+    let a = dispatch_as(
+        &local,
+        921,
+        OWNER_A,
+        nl("FOREIGN \"remote_docs\" |> LIMIT 10"),
+    )
+    .await;
+    assert!(
+        a.error.is_none(),
+        "owner foreign query: {:?}",
+        a.error_detail
+    );
     assert_eq!(sorted_ids(&a), vec!["d2", "d3", "d4"]);
-    let b = dispatch_as(&local, 922, OTHER_B, nl()).await;
-    assert_not_registered_for_caller(&b, "NlQuery");
+    let b = dispatch_as(
+        &local,
+        922,
+        OTHER_B,
+        nl("FOREIGN \"remote_docs\" |> LIMIT 10"),
+    )
+    .await;
+    assert_eq!(b.error.as_deref(), Some("INVALID_ARGUMENT"));
+    assert!(b.result.is_none());
+    let detail = b.error_detail.as_deref().expect("grounding refusal detail");
+    assert!(detail.contains("NL_SCHEMA_UNKNOWN_SOURCE"), "{detail}");
+    assert!(detail.contains("sources: none"), "{detail}");
+    assert!(!detail.contains("ACCESS_DENIED"), "{detail}");
+    assert!(!detail.contains("does not match graph tenant"), "{detail}");
+
+    #[cfg(feature = "security")]
+    {
+        // Even an authorized foreign replacement cannot expose system's local schema.
+        let hidden = dispatch_as(&local, 923, OWNER_A, nl(FOREIGN_UQL)).await;
+        assert_eq!(hidden.error.as_deref(), Some("INVALID_ARGUMENT"));
+        assert!(hidden.result.is_none());
+        let detail = hidden
+            .error_detail
+            .as_deref()
+            .expect("hidden-label refusal");
+        assert!(detail.contains("NL_SCHEMA_UNKNOWN_LABEL"), "{detail}");
+        assert!(detail.contains("labels: none"), "{detail}");
+    }
 }
 
 /// EH-378: principal B uses principal A's source only through the explicit,

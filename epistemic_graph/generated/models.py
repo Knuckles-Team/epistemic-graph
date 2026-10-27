@@ -6645,6 +6645,38 @@ class HarnessConfigRequestBody(BaseModel):
     usable_context_budget_tokens: Annotated[int, Field(ge=0)]
 
 
+class HarnessContrast(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    conditions_digest: str
+    cost_delta: int
+    eval_score_delta: int
+    retry_delta: int
+    run_a_trace_id: str
+    run_b_trace_id: str
+    task_ref: str
+    tool_selection_delta: int
+
+
+class HarnessContrastAbstainReason(str, Enum):
+    NO_IMPROVEMENT = "no_improvement"
+    TRACE_MISMATCH = "trace_mismatch"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+
+
+class HarnessContrastDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    abstain_reason: HarnessContrastAbstainReason | None = None
+    adopted_version_ref: str | None = None
+    candidate_version_refs: BoundedVec_string_8
+    conditions_digest: str
+    deltas: BoundedVec_HarnessContrast_8
+    probe_trace_ids: BoundedVec_Nullable_string_8
+    task_class: str
+    task_ref: str
+
+
 class HarnessPart_ActionSpaceDecided(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -22753,6 +22785,7 @@ class StatisticalInputs(BaseModel):
     exploration: ExplorationRecord | None = None
     feature_matrix: FeatureMatrixRef
     feature_schema: ComponentDependency
+    harness_contrast: HarnessContrastDecision | None = None
     harness_evaluation: HarnessConfigEvaluationEvidence | None = None
     head: ComponentDependency | None = None
     params: BoundedVec_TypedParam_64 = Field(default_factory=list)
@@ -24353,7 +24386,13 @@ BoundedVec_GenerationEvalItem_1024 = Annotated[
 ]
 
 
+BoundedVec_HarnessContrast_8 = Annotated[list[HarnessContrast], Field(max_length=8)]
+
+
 BoundedVec_LabelledItem_4096 = Annotated[list[LabelledItem], Field(max_length=4096)]
+
+
+BoundedVec_Nullable_string_8 = Annotated[list[str | None], Field(max_length=8)]
 
 
 BoundedVec_OpeEstimateView_8 = Annotated[list[OpeEstimateView], Field(max_length=8)]
@@ -25571,6 +25610,7 @@ QuestionKind = (
     | Literal["tool_subset"]
     | Literal["harness_config"]
     | Literal["task_plan"]
+    | Literal["harness_contrast"]
 )
 
 
@@ -26100,6 +26140,7 @@ __all__ = [
     "BoundedVec_GraphSchemaSourceView_32",
     "BoundedVec_GraphSchemaSourceView_64",
     "BoundedVec_GraphSchemaTermView_1000",
+    "BoundedVec_HarnessContrast_8",
     "BoundedVec_IndexDiagnostic_8",
     "BoundedVec_IndexFileVersion_262144",
     "BoundedVec_IndexRef_4096",
@@ -26107,6 +26148,7 @@ __all__ = [
     "BoundedVec_LabelledItem_4096",
     "BoundedVec_LeaseDemand_6",
     "BoundedVec_ManagedIndexStatus_1024",
+    "BoundedVec_Nullable_string_8",
     "BoundedVec_ObjectiveLevelKind_8",
     "BoundedVec_OpeEstimateView_8",
     "BoundedVec_OpeEstimatorKind_8",
@@ -26986,6 +27028,9 @@ __all__ = [
     "HarnessConfigAnswer",
     "HarnessConfigEvaluationEvidence",
     "HarnessConfigRequestBody",
+    "HarnessContrast",
+    "HarnessContrastAbstainReason",
+    "HarnessContrastDecision",
     "HarnessPart_ActionSpace",
     "HarnessPart_ActionSpaceAbstained",
     "HarnessPart_ActionSpaceDecided",

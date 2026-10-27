@@ -1,6 +1,6 @@
 # EG-DATAPLAT-VOCAB — Data-platform vocabulary
 
-Owner: epistemic-graph. Cross-repo IDs: EG-DATAPLAT-VOCAB-R009.1 to .5 (objectstore-mcp, vector-mcp, openbao-mcp, clarity-api, data-science-mcp).
+Owner: Medulla. Cross-repo IDs: EG-DATAPLAT-VOCAB-R009.1 to .5 (objectstore-mcp, vector-mcp, openbao-mcp, clarity-api, data-science-mcp).
 Public provenance: gap found by `specs/connector-competency` (EG-CQ-CONN-001), rows R012, R014, R016, R029, R041, R044, R058, R065.
 
 ## Purpose and user stories
@@ -19,7 +19,7 @@ As the engine, I need one typed vocabulary for the data platform stores (sql, do
 
 ## Scope and interfaces
 
-Vocabulary, shapes, mapping fixtures and validator rule in epistemic-graph. Mechanisms cited, not re-specified: `specs/unified-data-plane` (R003, R004, R005, R005.1, R006, R013, R019, R019.1, R037, R038, R038.2), `specs/connector-competency`, `specs/federated-query-and-reasoning`. Non-goals: discovery, pushdown, CDC, connector code, any secret value.
+Vocabulary, shapes, mapping fixtures and validator rule in Medulla. Mechanisms cited, not re-specified: `specs/unified-data-plane` (R003, R004, R005, R005.1, R006, R013, R019, R019.1, R037, R038, R038.2), `specs/connector-competency`, `specs/federated-query-and-reasoning`. Non-goals: discovery, pushdown, CDC, connector code, any secret value.
 
 ## Traceability
 

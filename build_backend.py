@@ -6,7 +6,7 @@ Maturin builds the wheel from the ``eg-pyengine`` PyO3 crate (the
 crate. Every PEP 517 and editable build folds the numeric module into that wheel
 using the same injector as the release pipeline. No server crate or bin target is
 compiled; the strip step is a safety net that removes any executable, because the
-server ships in the separate ``epistemic-graph-server`` package (extra ``server``).
+server ships in the separate ``medulla-stem`` package (extra ``server``).
 """
 
 from __future__ import annotations
@@ -35,9 +35,11 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 import maturin
 
 from scripts.inject_numeric_kernel import inject as inject_numeric
+from scripts.inject_ontology import inject as inject_ontology
 from scripts.strip_wheel_executables import strip_executables
 
 ROOT = Path(__file__).resolve().parent
+PROJECT_NAME = "medulla"
 NUMERIC_MANIFEST = ROOT / "crates" / "eg-numeric" / "Cargo.toml"
 _CACHE_SCHEMA = 3
 _CACHE_ENV = "EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"
@@ -77,6 +79,7 @@ _NATIVE_FILES = {
     "build_backend.py",
     "pyproject.toml",
     "scripts/inject_numeric_kernel.py",
+    "scripts/inject_ontology.py",
     "scripts/normalize_wheel_build_paths.py",
 }
 
@@ -157,7 +160,7 @@ def _tool_identity(executable: str) -> str:
 def _cache_inputs(config_settings: Mapping[str, Any] | None) -> dict[str, Any]:
     maturin_executable = shutil.which("maturin")
     if maturin_executable is None:
-        raise RuntimeError("maturin executable is required to build epistemic-graph")
+        raise RuntimeError("maturin executable is required to build medulla")
     return {
         "schema": _CACHE_SCHEMA,
         # An editable wheel's .pth is source-root specific.  Keep two EG worktrees
@@ -247,7 +250,7 @@ def _exclusive_file_lock(lock_path: Path):
     try:
         import fcntl
     except ImportError as exc:  # pragma: no cover - Linux deployment contract
-        raise RuntimeError("epistemic-graph builds require POSIX file locking") from exc
+        raise RuntimeError("medulla builds require POSIX file locking") from exc
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
@@ -599,7 +602,7 @@ def _build_component(directory: Path, manifest: Path, features: str) -> Path:
 
     executable = shutil.which("maturin")
     if executable is None:
-        raise RuntimeError("maturin executable is required to build epistemic-graph")
+        raise RuntimeError("maturin executable is required to build medulla")
     subprocess.run(
         [
             executable,
@@ -643,11 +646,12 @@ def _compose(
         if not wheel.is_file():
             raise RuntimeError("maturin did not produce the declared engine wheel")
         with tempfile.TemporaryDirectory(
-            prefix=f"epistemic-graph-{NUMERIC_MANIFEST.parent.name}-"
+            prefix=f"{PROJECT_NAME}-{NUMERIC_MANIFEST.parent.name}-"
         ) as temporary:
             inject_numeric(
                 wheel, _build_component(Path(temporary), NUMERIC_MANIFEST, "python")
             )
+        inject_ontology(wheel)
         strip_executables(wheel)
         return filename
 

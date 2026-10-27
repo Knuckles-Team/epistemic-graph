@@ -2,38 +2,27 @@
 //! (EG-TYPED-PACKS-R105.3).
 #![cfg(feature = "owl")]
 
-use eg_rdf::mapping::parse_turtle;
+mod common;
+
+use common::{has_iri, parse_all, BFO, KG, RDFS};
 use eg_rdf::owl::Reasoner;
 use eg_rdf::oxrdf::{NamedNode, Term, Triple};
 
-const KG: &str = "http://knuckles.team/kg#";
 const INFRA: &str = "http://knuckles.team/kg/infrastructure#";
-const BFO: &str = "http://purl.obolibrary.org/obo/BFO_";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
 const OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
+const OWL_EQUIVALENT_CLASS: &str = "http://www.w3.org/2002/07/owl#equivalentClass";
 const ALT_LABEL: &str = "http://www.w3.org/2004/02/skos/core#altLabel";
 
 fn documents() -> Vec<Triple> {
-    [
+    parse_all(&[
         include_str!("../../eg-core/ontology/core-foundation-v1.ttl"),
         include_str!("../../eg-core/ontology/software-v1.ttl"),
         include_str!("../../eg-core/ontology/sdlc_lifecycle-v1.ttl"),
         include_str!("../../eg-core/ontology/company-v1.ttl"),
         include_str!("../../eg-core/ontology/infrastructure-v1.ttl"),
         include_str!("../../eg-core/ontology/supply_chain-v1.ttl"),
-    ]
-    .into_iter()
-    .flat_map(|document| parse_turtle(document).unwrap())
-    .collect()
-}
-
-fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> bool {
-    triples.contains(&Triple::new(
-        NamedNode::new(subject).unwrap(),
-        NamedNode::new(predicate).unwrap(),
-        NamedNode::new(object).unwrap(),
-    ))
+    ])
 }
 
 fn has_literal(triples: &[Triple], subject: &str, predicate: &str) -> bool {
@@ -96,4 +85,69 @@ fn recurring_connector_concepts_sit_under_their_upper_classes() {
     assert!(
         classification.entails_subclass(&format!("<{KG}Repository>"), &format!("<{BFO}0000031>"))
     );
+}
+
+// spec: EG-TYPED-PACKS-R105.3.1
+#[test]
+fn source_record_classes_have_narrow_parents() {
+    let triples = documents();
+    let source_record = format!("{KG}SourceRecord");
+    let opaque_reference = format!("{KG}OpaqueSourceReference");
+    let bfo_gdc = format!("{BFO}0000031");
+    let expected = [
+        (source_record.clone(), bfo_gdc.clone()),
+        (opaque_reference.clone(), source_record.clone()),
+    ];
+
+    for (class, parent) in &expected {
+        assert!(has_iri(&triples, class, RDF_TYPE, OWL_CLASS), "{class}");
+        assert!(
+            has_iri(&triples, class, &format!("{RDFS}subClassOf"), parent),
+            "{class} under {parent}"
+        );
+        for predicate in [
+            format!("{RDFS}label"),
+            format!("{RDFS}comment"),
+            ALT_LABEL.to_string(),
+        ] {
+            assert!(
+                has_literal(&triples, class, &predicate),
+                "{class} {predicate}"
+            );
+        }
+        assert!(!triples.iter().any(|triple| {
+            triple.subject == NamedNode::new(class).unwrap().into()
+                && triple.predicate.as_str() == OWL_EQUIVALENT_CLASS
+        }));
+    }
+
+    let classification = Reasoner::from_triples(&triples).classify();
+    assert!(classification.consistent);
+    assert!(classification.entails_subclass(
+        &format!("<{opaque_reference}>"),
+        &format!("<{source_record}>"),
+    ));
+    assert!(
+        classification.entails_subclass(&format!("<{source_record}>"), &format!("<{bfo_gdc}>"),)
+    );
+    assert!(
+        classification.entails_subclass(&format!("<{opaque_reference}>"), &format!("<{bfo_gdc}>"),)
+    );
+
+    for class in [&source_record, &opaque_reference] {
+        for forbidden in [
+            "AssetOccurrence",
+            "Credential",
+            "Document",
+            "ExternalGraphReference",
+            "Person",
+            "SourceObject",
+        ] {
+            assert!(
+                !classification
+                    .entails_subclass(&format!("<{class}>"), &format!("<{KG}{forbidden}>"),),
+                "{class} must not inherit {forbidden}"
+            );
+        }
+    }
 }

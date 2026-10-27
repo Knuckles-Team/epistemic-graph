@@ -17,8 +17,8 @@ vg:SourceConnectionShape a sh:NodeShape ;
     sh:targetClass vg:SourceConnection ;
     sh:property [
         sh:path vg:sourceKind ; sh:minCount 1 ; sh:maxCount 1 ;
-        sh:in ( "api" "mcp" "a2a" "graphql" "sql" "iceberg" "warehouse" "sparql" ) ;
-        sh:message "sourceKind is api, mcp, a2a, graphql, sql, iceberg, warehouse or sparql."
+        sh:in ( "api" "mcp" "a2a" "graphql" "sql" "iceberg" "warehouse" "sparql" "document" ) ;
+        sh:message "sourceKind is api, mcp, a2a, graphql, sql, iceberg, warehouse, sparql or document."
     ] ;
     sh:property [
         sh:path vg:endpointRef ; sh:minCount 1 ; sh:maxCount 1 ; sh:node vg:EndpointRefShape ;

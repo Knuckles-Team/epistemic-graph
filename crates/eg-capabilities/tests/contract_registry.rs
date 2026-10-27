@@ -277,7 +277,6 @@ fn internal_methods_declare_no_consumer_and_stable_methods_declare_one() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R801.7.1
 #[test]
 fn session_usage_requires_the_shared_usage_read_scope() {
     let descriptor = eg_capabilities::method_descriptors()

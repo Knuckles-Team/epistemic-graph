@@ -21,9 +21,9 @@ Spec-folder mapping: a fixture folder through `IndexRepository` yields one node 
 
 All targets below are planned acceptance, no test or receipt has run. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
 
-- **`EG-ORCH-VOCAB-R009.18` / AU:26; source `8d2f83f788c5fdd36c4dc47f85c9f7673393b6b9075dc46a5ac1c32afd2386e2`:** Planned served acceptance `run_observations_change_model_and_width_with_trace`. Exercise run_observations_change_model_and_width_with_trace through real AU routing/continuation and served EG Decide. Use identical budgets and controlled latency/cost/error windows. Demonstrate policy-directed model/width changes and budget-forced refusal/stop. Read back exact before/after trace facts. Reject stale windows and invalid rates/denominators. Keep unknown values unknown. Show width narrowing releases capacity. Reject mid-run widening. Host-only AIMD or model-only allocator tests do not pass. Owner wiring and holds are defined in `requirements.md`. No test, served readback, receipt, implementation, or closure is claimed.
+- **`EG-ORCH-VOCAB-R009.18` / AU:26; source `8d2f83f788c5fdd36c4dc47f85c9f7673393b6b9075dc46a5ac1c32afd2386e2`:** Planned served acceptance `run_observations_change_model_and_width_with_trace`. Exercise run_observations_change_model_and_width_with_trace through real Meristem routing/continuation and served Medulla Decide. Use identical budgets and controlled latency/cost/error windows. Demonstrate policy-directed model/width changes and budget-forced refusal/stop. Read back exact before/after trace facts. Reject stale windows and invalid rates/denominators. Keep unknown values unknown. Show width narrowing releases capacity. Reject mid-run widening. Host-only AIMD or model-only allocator tests do not pass. Owner wiring and holds are defined in `requirements.md`. No test, served readback, receipt, implementation, or closure is claimed.
 
-- **`EG-ORCH-VOCAB-R013.7` / AU:115:** Source-pinned `CodeWalkthroughV1` manifest and exact AddNode/UQL/artifact readback/refusal cases as named in requirements.md. AU producer schema/receipt and WebUI artifact-consumer owner IDs remain pending; no producer test is credited.
+- **`EG-ORCH-VOCAB-R013.7` / AU:115:** Source-pinned `CodeWalkthroughV1` manifest and exact AddNode/UQL/artifact readback/refusal cases as named in requirements.md. Meristem producer schema/receipt and Overstory artifact-consumer owner IDs remain pending; no producer test is credited.
 
 - **`EG-ORCH-VOCAB-R003.8` / EG:12:** Require successful-run promotion. Test pinned similarity policy and exact signature/schema/topology eligibility. Test Jaccard score and stable tie break. Refuse stale or malformed handler metadata. Test served `graph.assemble` reuse with R036 certificate. Exact future test names and paths are in `requirements.md`; no implementation evidence is claimed.
 
@@ -39,9 +39,9 @@ All targets below are planned acceptance, no test or receipt has run. Use the re
 
 No test named here has run; names describe acceptance obligations, not evidence.
 
-- **`EG-ORCH-VOCAB-R005.100` (AU:33; source `1a32741b0a97f0c31cd1a3df4ea31d6eee0069c62c3487c0d8057b1ced4b6cf4`):** Served case: a secret undeclared nested field and declared sibling enter the workflow. Worker receives only declared projection. Coordinator can still synthesize typed outputs. Unknown paths, stale schema, and unauthorized fields refuse before dispatch. Preserve R020 result and schema refusal. EG declares projection/shield policy. AU `_dispatch_parallel_batch`/processor applies projection before tools. DTO extra-field rejection is not projection. Require exact revision, IO digests, caller, and independent readback as specified. Planned only.
+- **`EG-ORCH-VOCAB-R005.100` (AU:33; source `1a32741b0a97f0c31cd1a3df4ea31d6eee0069c62c3487c0d8057b1ced4b6cf4`):** Served case: a secret undeclared nested field and declared sibling enter the workflow. Worker receives only declared projection. Coordinator can still synthesize typed outputs. Unknown paths, stale schema, and unauthorized fields refuse before dispatch. Preserve R020 result and schema refusal. Medulla declares projection/shield policy. Meristem `_dispatch_parallel_batch`/processor applies projection before tools. DTO extra-field rejection is not projection. Require exact revision, IO digests, caller, and independent readback as specified. Planned only.
 
-- **`EG-ORCH-VOCAB-R009.100` (AU:60; source `5d53cbdda932456b27c6649360c3051d4ab09f2db42018550b4ee81c785748b4`):** Served read test exports a parent with multiple agents and tool calls. Retrieve all correlated records across pages. Verify stable digest, redaction, and completeness. Detect missing child, duplicate span, unauthorized read, and truncated pagination. EG read tests do not assert MCP transport delivery. AU `default_runtime_capabilities/run_agent` exports. GraphOS transports MCP. EG returns correlated readback. Preserve R008/R024 trace ownership. Require exact revision, IO digests, caller, and independent readback as specified. Planned only.
+- **`EG-ORCH-VOCAB-R009.100` (AU:60; source `5d53cbdda932456b27c6649360c3051d4ab09f2db42018550b4ee81c785748b4`):** Served read test exports a parent with multiple agents and tool calls. Retrieve all correlated records across pages. Verify stable digest, redaction, and completeness. Detect missing child, duplicate span, unauthorized read, and truncated pagination. Medulla read tests do not assert MCP transport delivery. Meristem `default_runtime_capabilities/run_agent` exports. Arbora transports MCP. Medulla returns correlated readback. Preserve R008/R024 trace ownership. Require exact revision, IO digests, caller, and independent readback as specified. Planned only.
 <!-- /spec-definition-patch -->
 
 
@@ -51,8 +51,8 @@ No test named here has run; names describe acceptance obligations, not evidence.
 No test in this section has run; these are future acceptance requirements.
 
 - `EG-ORCH-VOCAB-R009.101`: Serve index/search across every adapter in the pinned manifest. Read traces against receipts. Test restart/replay idempotency, source coverage, and cursor paging. Cost summaries use R010.101 units/profile and preserve unknown state. Refuse conflicting identities, stale cursors, and cross-tenant requests.
-- `EG-ORCH-VOCAB-R010.100`: Serve `EvolutionTraceMetricsV1` joining two revisioned traces and outcome metrics to proposal/prompt/progress revision. Independently read metric/progress digests and window. Missing traces are partial/unknown. Refuse stale, mismatched, and cross-tenant refs. AU producer and GraphOS adapter evidence are separate.
-- `EG-ORCH-VOCAB-R010.101`: Reconcile four token categories and grouped costs against an independent ledger. Test split-trace invariance, half-even boundaries, unknown prices, mixed currencies, and final FX rounding. Measure p95 ≤500 ms on 1,000,000 indexed traces and 32 readers through GraphOS `handle_runs_metrics`.
+- `EG-ORCH-VOCAB-R010.100`: Serve `EvolutionTraceMetricsV1` joining two revisioned traces and outcome metrics to proposal/prompt/progress revision. Independently read metric/progress digests and window. Missing traces are partial/unknown. Refuse stale, mismatched, and cross-tenant refs. Meristem producer and Arbora adapter evidence are separate.
+- `EG-ORCH-VOCAB-R010.101`: Reconcile four token categories and grouped costs against an independent ledger. Test split-trace invariance, half-even boundaries, unknown prices, mixed currencies, and final FX rounding. Measure p95 ≤500 ms on 1,000,000 indexed traces and 32 readers through Arbora `handle_runs_metrics`.
 <!-- /spec-definition-patch -->
 
 
@@ -88,3 +88,40 @@ Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.
 | Row | Proving test |
 |---|---|
 | `EG-ORCH-VOCAB-R012.9` | `crates/eg-core/tests/spec_folder_mapping.rs::requirement_rows_become_nodes` |
+
+## Run measurement schema evidence (2026-10-24)
+
+The schema tests live in `crates/eg-rdf/tests/orchestration_vocabulary.rs::run_trace`.
+This crate already owns the native parser, SPARQL evaluator and SHACL test dependency.
+The tests cover R008.1, R009.1 through R009.8, R009.12 and R009.13.
+They use ASK for declarations and native SHACL validation for constraints.
+They test all termination reasons, unknown reasons, missing measurements and measured zero.
+They also test negative, fractional and malformed typed counters, negative cost, and budget overshoot.
+Exact numeric regressions cover adjacent integers above 2^53 and a negative decimal below floating-point range.
+Shared decimal tests cover lexical validity, signs, scale and arbitrary-length values.
+
+Validation command: `cargo test --locked -p eg-rdf --features owl,sparql --test orchestration_vocabulary`.
+Shared validator command: `cargo test --locked -p eg-shacl`.
+Both commands passed on this source: eight orchestration tests and 55 shared SHACL tests.
+Independent source review approved the schema and exact numeric handling.
+These tests do not establish native producer, authority, restart or generated-client acceptance.
+R009.9 through R009.11 and R009.14 through R009.17 remain open.
+## R009 native producer acceptance proposal (2026-10-24)
+
+These are planned acceptance cases for existing R009.15 through R009.17.
+No test execution, generated contract or native receipt is claimed here.
+
+- Submit each existing termination fixture through generated public mutation methods.
+- Commit a terminal trace and its applied-decision edge atomically, then read both through the public query path.
+- Preserve exact original run ID, separate trace node ID, zero counters and zero cost.
+- Read the recorded decision answer; changing the current configuration must not alter the trace projection.
+- Refuse a negative or fractional counter, non-finite cost and forbidden budget overshoot before commit.
+- Refuse standalone terminal writes lacking the required edge, and invalid later field or edge mutations.
+- Refuse conflicting run-to-trace associations and prove no partial node, edge or receipt survives.
+- Prove original-owner access and foreign-owner absence within the same tenant, plus cross-tenant refusal.
+- Prove mutable work-item metadata cannot transfer trace ownership or change the recorded association.
+- Exercise authenticated and explicit local no-auth modes through their existing public request paths.
+- Keep legacy traces without native admission association unavailable; do not guess a task/hash alias.
+
+Arbora REST/MCP acceptance remains a separate consumer proof under ARBORA-OPS-R021.4.5 and .4.6.
+R009 remains open until actual producer and native readback evidence exists.

@@ -35,7 +35,7 @@ so every network / protocol error is swallowed and mapped to a cache **miss**
 
 Dependencies: the default transport is **stdlib** (``urllib.request``), so
 ``import epistemic_graph.kvcache`` works with only the base package installed.
-When the optional ``lmcache`` extra (``pip install epistemic-graph[lmcache]``)
+When the optional ``lmcache`` extra (``pip install medulla[lmcache]``)
 is present, ``httpx`` is used for pooled keep-alive connections instead.
 """
 
@@ -187,9 +187,7 @@ class HttpxTransport:
         max_connections: int,
     ) -> None:
         if _httpx is None:  # pragma: no cover - guarded by callers
-            raise RuntimeError(
-                "httpx is not installed (pip install epistemic-graph[lmcache])"
-            )
+            raise RuntimeError("httpx is not installed (pip install medulla[lmcache])")
         if tls_context is not True and not isinstance(tls_context, ssl.SSLContext):
             raise ValueError("KV-cache TLS peer verification cannot be disabled")
         if isinstance(tls_context, ssl.SSLContext):

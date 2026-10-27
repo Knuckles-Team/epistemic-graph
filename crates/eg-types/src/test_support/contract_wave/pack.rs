@@ -98,7 +98,6 @@ pub fn index() -> ConnectorPackIndex {
         PackEntryKind::Shapes,
         PackEntryKind::ModelProfile,
         PackEntryKind::A2aCard,
-        PackEntryKind::Manifest,
         PackEntryKind::SkillFile,
     ];
     ConnectorPackIndex {

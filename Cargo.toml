@@ -95,7 +95,7 @@ redb = "~4.1"
 
 [package]
 name = "epistemic-graph"
-version = "2.27.5"
+version = "2.27.10"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Rust-native durable multimodal and epistemic database for governed SI systems"
@@ -1988,6 +1988,26 @@ path = "benches/pyo3_inprocess_vs_uds_bench.rs"
 harness = false
 required-features = ["server"]
 
+# EG-ORCH-VOCAB-R801.6 hot-path receipt: the engine's per-write path for the
+# versioned harness components — pre-commit admission (strict decode,
+# evidence checks, immutability + head-relative supersession checks, the
+# bitemporal stamp and the supersession link) plus the RAM projection — over
+# a growing 1,000-version chain; prints p50/p99 against the spec budget (p99
+# under 5 ms) and exits nonzero on a regression. Needs the server module the
+# admission lives in; a default `cargo check --benches` skips it. DEV-only;
+# never linked into the engine binary.
+[[bench]]
+name = "harness_components"
+path = "benches/harness_components.rs"
+harness = false
+required-features = ["server"]
+
+[[bench]]
+name = "harness_lessons"
+path = "benches/harness_lessons.rs"
+harness = false
+required-features = ["server"]
+
 [profile.release]
 opt-level = 3
 # thin (not fat) LTO. EVIDENCED: the aarch64 wheel cross-build (zig/qemu under
@@ -2085,3 +2105,14 @@ opt-level = 1
 debug = "line-tables-only"
 incremental = true
 codegen-units = 256
+
+# Private portable zstd RustSec remediation candidate; do not publish this path block.
+[patch.crates-io]
+apache-avro = { path = "vendor/zstd-parent-patches/apache-avro-0.21.0" }
+arrow-ipc = { path = "vendor/zstd-parent-patches/arrow-ipc-58.4.0" }
+iceberg = { path = "vendor/zstd-parent-patches/iceberg-0.10.1" }
+parquet = { path = "vendor/zstd-parent-patches/parquet-58.4.0" }
+polars-parquet = { path = "vendor/zstd-parent-patches/polars-parquet-0.54.4" }
+tantivy-sstable = { path = "vendor/zstd-parent-patches/tantivy-sstable-0.7.0" }
+opendal-core = { path = "vendor/security-patches/opendal-core-0.57.0" }
+opendal-service-s3 = { path = "vendor/security-patches/opendal-service-s3-0.57.0" }

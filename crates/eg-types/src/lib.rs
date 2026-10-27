@@ -45,6 +45,8 @@ pub mod scheduler_config;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
+// EG-SRC-AUTH-R007.1 — typed audit entries for source selection evidence.
+pub mod authority_audit;
 pub mod change_envelope;
 // EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and
@@ -300,6 +302,10 @@ pub mod mutation_outbox;
 // Executable admitted plans/tokens are private to the future eg-transaction kernel.
 pub mod mutation;
 pub mod mutation_batch;
+// EG-ORCH-VOCAB-R801/R802 — the versioned harness-component vocabulary and the
+// improvement library beside it: typed model + pure rules. The durable write
+// (ChangeEnvelope/AddNode) and the served reads live upstream.
+pub mod orchestration;
 // AU wire-first native control-plane operations: bounded capacity leases and
 // WorkItem admission/submission.  This module is hand-written until the AU
 // protocol catalog generator can express the bounded maps and native enums.

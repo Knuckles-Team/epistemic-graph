@@ -103,7 +103,7 @@ An agent edits a code symbol, not a file. The engine owns the projection from sy
 
 ```text
 agent -> arbora source.edit_symbol (ARBORA-OPS-R848.4)
-      -> EG SubmitSymbolEdit
+      -> Medulla SubmitSymbolEdit
          1. resolve symbol_id at base_rev -> (path, blob_digest, byte span)   code graph, EG-REPO-INGEST-R600
          2. check anchor_span_digest == digest(span bytes)                     else EDIT_BASE_STALE
          3. splice ops per file, descending span order                         bytes outside spans unchanged

@@ -15,7 +15,7 @@ Blank job_id or target, unknown kind, wrong tenant claim, duplicate delivery aft
 
 ## Quality and release proof
 
-Run cargo test for the touched crates in CI, the SDK unit tests, and the spec-status and spec-decomposition hooks.
+Run cargo test for the touched crates in CI, the Graft SDK unit tests, and the spec-status and spec-decomposition hooks.
 
 ## EG-INGEST-WORKER-R002 acceptance
 

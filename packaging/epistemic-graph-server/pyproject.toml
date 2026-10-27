@@ -3,8 +3,8 @@ requires = ["maturin>=1.15.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "epistemic-graph-server"
-version = "2.27.5"
+name = "medulla-stem"
+version = "2.27.10"
 description = "The native epistemic-graph-server executable, built from the epistemic-graph source at the same version"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,6 +43,66 @@ python-source = "."
 module-name = "epistemic_graph_server"
 features = ["full", "ast-extended"]
 strip = true
+include = [
+# Cargo loads every path crate manifest (also those only unselected optional features
+# reach), so the sdist carries each crate tree through the `crates` symlink (maturin
+# rejects `..` in patterns). Checked against Cargo by tests/test_server_package.py.
+    { path = "crates/eg-alignment/**/*", format = "sdist" },
+    { path = "crates/eg-ann/**/*", format = "sdist" },
+    { path = "crates/eg-asr-whisper/**/*", format = "sdist" },
+    { path = "crates/eg-audio/**/*", format = "sdist" },
+    { path = "crates/eg-capabilities/**/*", format = "sdist" },
+    { path = "crates/eg-compute/**/*", format = "sdist" },
+    { path = "crates/eg-core/**/*", format = "sdist" },
+    { path = "crates/eg-document/**/*", format = "sdist" },
+    { path = "crates/eg-durable/**/*", format = "sdist" },
+    { path = "crates/eg-epistemic/**/*", format = "sdist" },
+    { path = "crates/eg-geo/**/*", format = "sdist" },
+    { path = "crates/eg-graphql/**/*", format = "sdist" },
+    { path = "crates/eg-image/**/*", format = "sdist" },
+    { path = "crates/eg-jobs/**/*", format = "sdist" },
+    { path = "crates/eg-kvcache/**/*", format = "sdist" },
+    { path = "crates/eg-lake/**/*", format = "sdist" },
+    { path = "crates/eg-method-codec/**/*", format = "sdist" },
+    { path = "crates/eg-modality/**/*", format = "sdist" },
+    { path = "crates/eg-numeric/**/*", format = "sdist" },
+    { path = "crates/eg-plan/**/*", format = "sdist" },
+    { path = "crates/eg-program/**/*", format = "sdist" },
+    { path = "crates/eg-pyengine/**/*", format = "sdist" },
+    { path = "crates/eg-quantum-core/**/*", format = "sdist" },
+    { path = "crates/eg-quantum-gates/**/*", format = "sdist" },
+    { path = "crates/eg-quantum-hardware/**/*", format = "sdist" },
+    { path = "crates/eg-quantum-jobs/**/*", format = "sdist" },
+    { path = "crates/eg-quantum-sim/**/*", format = "sdist" },
+    { path = "crates/eg-quantum-workloads/**/*", format = "sdist" },
+    { path = "crates/eg-query/**/*", format = "sdist" },
+    { path = "crates/eg-rdf/**/*", format = "sdist" },
+    { path = "crates/eg-resource/**/*", format = "sdist" },
+    { path = "crates/eg-shacl/**/*", format = "sdist" },
+    { path = "crates/eg-shex/**/*", format = "sdist" },
+    { path = "crates/eg-sqlite-format/**/*", format = "sdist" },
+    { path = "crates/eg-statechart/**/*", format = "sdist" },
+    { path = "crates/eg-storage/**/*", format = "sdist" },
+    { path = "crates/eg-stream/**/*", format = "sdist" },
+    { path = "crates/eg-tensor/**/*", format = "sdist" },
+    { path = "crates/eg-text/**/*", format = "sdist" },
+    { path = "crates/eg-transaction/**/*", format = "sdist" },
+    { path = "crates/eg-tsdb/**/*", format = "sdist" },
+    { path = "crates/eg-tts-piper/**/*", format = "sdist" },
+    { path = "crates/eg-types/**/*", format = "sdist" },
+    { path = "crates/eg-video/**/*", format = "sdist" },
+    { path = "crates/eg-viz-columnstore/**/*", format = "sdist" },
+    { path = "crates/eg-viz-core/**/*", format = "sdist" },
+    { path = "crates/eg-viz-export/**/*", format = "sdist" },
+    { path = "crates/eg-viz-graph-tiles/**/*", format = "sdist" },
+    { path = "crates/eg-viz-kernels/**/*", format = "sdist" },
+    { path = "crates/eg-wasm/**/*", format = "sdist" },
+    # The root manifest patches crates.io with these vendored RustSec repairs.
+    # Cargo loads every patched manifest during the isolated sdist rebuild, even
+    # when the selected feature set does not compile every patched crate.
+    { path = "vendor/zstd-parent-patches/**/*", format = "sdist" },
+    { path = "vendor/security-patches/**/*", format = "sdist" },
+]
 exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
 
 [tool.pytest.ini_options]

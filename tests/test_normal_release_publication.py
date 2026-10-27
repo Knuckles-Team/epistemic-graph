@@ -52,7 +52,7 @@ class ReleasePublication(unittest.TestCase):
         )
         self.assertEqual(
             jobs["build-x86"]["uses"],
-            "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@35fe8e492acedce6c31c399e98a8c62c26ee2cd3",
+            "Knuckles-Team/medulla/.github/workflows/eg-release-x86.yml@219c853efa7aacb8cf7032abf67fc7f70aefb1ce",
         )
         self.assertNotIn("docker-image", jobs)
         self.assertNotIn("publish-image", jobs)
@@ -198,7 +198,7 @@ class ReleasePublication(unittest.TestCase):
             source.mkdir()
             with self.assertRaises(ValueError):
                 METADATA.stage(source, root / "dist")
-            wheel = source / "epistemic_graph-2.27.0-py3-none-any.whl"
+            wheel = source / "medulla-2.27.0-py3-none-any.whl"
             wheel.write_bytes(b"exact primary wheel")
             METADATA.stage(source, root / "dist")
             self.assertEqual(

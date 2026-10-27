@@ -85,14 +85,22 @@ def tracked_rust_files() -> list[str]:
     result = run_git(("ls-files", "-z", "--", "*.rs"), cwd=ROOT)
     if result.returncode != 0:
         raise GateError(f"git ls-files failed: {(result.stderr or '').strip()}")
-    return sorted(entry for entry in result.stdout.split("\0") if entry)
+    return sorted(
+        entry
+        for entry in result.stdout.split("\0")
+        if entry and not entry.startswith("vendor/")
+    )
 
 
 def tracked_manifests() -> list[str]:
     result = run_git(("ls-files", "-z", "--", "Cargo.toml", "*/Cargo.toml"), cwd=ROOT)
     if result.returncode != 0:
         raise GateError(f"git ls-files failed: {(result.stderr or '').strip()}")
-    return sorted(entry for entry in result.stdout.split("\0") if entry)
+    return sorted(
+        entry
+        for entry in result.stdout.split("\0")
+        if entry and not entry.startswith("vendor/")
+    )
 
 
 def _manifest_table(path: Path) -> dict:

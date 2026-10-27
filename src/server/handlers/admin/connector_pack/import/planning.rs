@@ -19,7 +19,7 @@ use crate::server::persistence::connector_pack::commit::{
 };
 use crate::server::persistence::connector_pack::{
     decode_relationship_mappings, decode_schema_mappings, ConnectorPackBodyHolderRow,
-    ConnectorPackMemberRow,
+    ConnectorPackMemberRow, CONNECTOR_DECLARATION_URI,
 };
 
 use super::desired::{build_all_desired, Desired};
@@ -69,7 +69,9 @@ impl ReadyPlan {
                 .find(|member| {
                     member.component_id == component_id && member.entry_revision == entry_revision
                 })
-                .ok_or_else(|| "connector body has no planned member".to_string())?;
+                .ok_or_else(|| {
+                    "CORRUPT_CONNECTOR_PACK: connector body has no planned member".to_string()
+                })?;
             member.engine_manifest_digest = body.manifest_digest.clone();
             member.body_length = body.length;
         }
@@ -114,6 +116,7 @@ pub(super) fn prepare(
         return rejected(request, violations);
     }
     let mut plan = PlanCollector::new(store, blob, request);
+    plan.relations = declared_relations(&all, &desired);
     for entry in &all {
         let wanted = desired
             .remove(&entry.uri)
@@ -191,6 +194,8 @@ struct PlanCollector<'a> {
     body_inputs: Vec<(Digest256, Vec<u8>)>,
     records: Vec<PackEntryRecord>,
     server_pin: Option<ComponentDependency>,
+    /// Relations the pack ontologies declare, attached to the declaration member.
+    relations: BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping>,
 }
 
 impl<'a> PlanCollector<'a> {
@@ -210,6 +215,7 @@ impl<'a> PlanCollector<'a> {
             body_inputs: Vec::new(),
             records: Vec::new(),
             server_pin: None,
+            relations: BTreeMap::new(),
         }
     }
 
@@ -311,7 +317,8 @@ impl<'a> PlanCollector<'a> {
     ) -> Result<(), String> {
         let prior_holder =
             prior.map(|member| (member.engine_manifest_digest.clone(), member.body_length));
-        let (schema_mappings, relationship_mappings) = manifest_projections(entry, &wanted.body)?;
+        let (schema_mappings, relationship_mappings) =
+            declaration_projections(entry, &wanted.body, &self.relations)?;
         self.members.push(ConnectorPackMemberRow {
             uri: entry.uri.clone(),
             kind: entry.kind,
@@ -338,11 +345,22 @@ impl<'a> PlanCollector<'a> {
         current: &[&PackEntry],
     ) -> Result<(), String> {
         let current_uris: BTreeSet<_> = current.iter().map(|entry| entry.uri.as_str()).collect();
+        // A component this import already republishes under a new URI moved:
+        // withdrawing it too would plan a second revision of the same component.
+        let republished: BTreeSet<String> = self
+            .components
+            .iter()
+            .map(|component| component.entry.component_id.clone())
+            .collect();
         for old in prior {
             if current_uris.contains(old.uri.as_str()) {
                 continue;
             }
-            if old.lifecycle == AgentLibraryLifecycle::Published {
+            if old.lifecycle == AgentLibraryLifecycle::Published
+                && republished.contains(&old.component_id)
+            {
+                self.add_moved_member(old);
+            } else if old.lifecycle == AgentLibraryLifecycle::Published {
                 self.withdraw_one(old)?;
             } else {
                 let mut carried = old;
@@ -351,6 +369,25 @@ impl<'a> PlanCollector<'a> {
             }
         }
         Ok(())
+    }
+
+    /// The old URI of a component this import republishes under a new URI. The
+    /// URI is withdrawn; the component keeps the one revision the new URI plans,
+    /// and the old row keeps the revision it last served.
+    fn add_moved_member(&mut self, old: ConnectorPackMemberRow) {
+        let mut member = old.clone();
+        member.lifecycle = AgentLibraryLifecycle::Withdrawn;
+        member.last_record_id = self.record_id.clone();
+        self.members.push(member);
+        self.records.push(PackEntryRecord {
+            uri: old.uri,
+            kind: old.kind,
+            entry_digest: old.entry_digest,
+            disposition: PackDisposition::Withdrawn,
+            component_id: old.component_id,
+            entry_revision: old.entry_revision,
+            definition_digest: old.definition_digest,
+        });
     }
 
     fn withdraw_one(&mut self, old: ConnectorPackMemberRow) -> Result<(), String> {
@@ -485,19 +522,36 @@ fn disposition_for(
     }
 }
 
-type ManifestProjections = (
+type DeclarationProjections = (
     Option<BTreeMap<String, eg_types::connector_pack::ConnectorSchemaMapping>>,
     Option<BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping>>,
 );
 
-fn manifest_projections(entry: &PackEntry, body: &[u8]) -> Result<ManifestProjections, String> {
-    if entry.kind != PackEntryKind::Manifest {
+fn declaration_projections(
+    entry: &PackEntry,
+    body: &[u8],
+    relations: &BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping>,
+) -> Result<DeclarationProjections, String> {
+    if entry.kind != PackEntryKind::Resource || entry.uri != CONNECTOR_DECLARATION_URI {
         return Ok((None, None));
     }
-    let malformed = |error| format!("MALFORMED_BODY: manifest {}: {error}", entry.uri);
-    let schemas = decode_schema_mappings(body).map_err(malformed)?;
-    let relationships = decode_relationship_mappings(body).map_err(malformed)?;
-    Ok((Some(schemas), Some(relationships)))
+    let schemas = decode_schema_mappings(body)
+        .map_err(|error| format!("MALFORMED_BODY: declaration {}: {error}", entry.uri))?;
+    Ok((Some(schemas), Some(relations.clone())))
+}
+
+/// The relations the pack's live ontology entries declare as object properties.
+fn declared_relations(
+    all: &[&PackEntry],
+    desired: &BTreeMap<String, Desired>,
+) -> BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping> {
+    let documents: Vec<&str> = all
+        .iter()
+        .filter(|entry| entry.kind == PackEntryKind::Ontology)
+        .filter_map(|entry| desired.get(&entry.uri))
+        .filter_map(|wanted| std::str::from_utf8(&wanted.body).ok())
+        .collect();
+    decode_relationship_mappings(&documents)
 }
 
 fn import_record(

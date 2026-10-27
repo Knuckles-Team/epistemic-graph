@@ -10,7 +10,6 @@ from .._model import SyntheticModel
 SCHEMA_VERSION = 2
 ENTRY_KINDS = (
     "a2a_card",
-    "manifest",
     "mcp_server",
     "model_profile",
     "ontology",

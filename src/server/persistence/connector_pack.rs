@@ -32,13 +32,15 @@ pub(crate) mod admin;
 pub(crate) mod admitted;
 pub(crate) mod catalog_authority;
 pub(crate) mod commit;
-mod manifest;
+mod declaration;
 pub(crate) mod outbox;
 mod pins;
 pub(crate) mod projection;
 pub(crate) mod visibility;
 
-pub use manifest::{decode_relationship_mappings, decode_schema_mappings};
+pub use declaration::{
+    decode_relationship_mappings, decode_schema_mappings, CONNECTOR_DECLARATION_URI,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -85,8 +87,8 @@ pub struct ConnectorPackBodyHolderRow {
     pub length: u64,
 }
 
-/// Authoritative connector mapping bytes resolved from the current imported
-/// manifest, never supplied by the ingestion caller.
+/// Authoritative connector mapping resolved from the current imported
+/// `connector://resources` declaration, never supplied by the ingestion caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedConnectorSchemaMapping {
     pub mapping_reference: String,
@@ -147,9 +149,9 @@ impl AgentLibraryStore {
         connector: &ResourceId,
     ) -> Result<u64, String> {
         eg_types::agent_library::validate_key(tenant_id, connector.as_str())?;
-        let (head, manifest) = self.current_connector_manifest(tenant_id, connector)?;
-        validate_current_manifest(&head, &manifest)?;
-        Ok(manifest.entry_revision)
+        let (head, declaration) = self.current_connector_declaration(tenant_id, connector)?;
+        validate_current_declaration(&head, &declaration)?;
+        Ok(declaration.entry_revision)
     }
 
     /// Resolve all ontology/SHACL members of the current *visible* pack head in
@@ -377,10 +379,10 @@ impl AgentLibraryStore {
 
     /// Resolve an exact mapping reference against the current pack head.
     ///
-    /// `manifest:<connector>#schema_mappings/<key>` selects one named mapping.
-    /// The shorter `manifest:<connector>` form is retained as the single-map
-    /// request; the resolver rejects it as
-    /// `CONNECTOR_SCHEMA_MAPPING_AMBIGUOUS` unless the decoded manifest has
+    /// `connector:<connector>#mappings/<key>` selects one mapping the
+    /// connector declared at `connector://resources`. The shorter
+    /// `connector:<connector>` form is the single-map request; the resolver rejects it as
+    /// `CONNECTOR_SCHEMA_MAPPING_AMBIGUOUS` unless the declaration has
     /// exactly one mapping.
     ///
     /// The decoded mapping projection was derived from the digest-verified
@@ -394,10 +396,10 @@ impl AgentLibraryStore {
     ) -> Result<ResolvedConnectorSchemaMapping, String> {
         eg_types::agent_library::validate_key(tenant_id, connector.as_str())?;
         let selector = mapping_selector(connector, mapping_reference)?;
-        let (head, manifest) = self.current_connector_manifest(tenant_id, connector)?;
-        validate_current_manifest(&head, &manifest)?;
-        let mappings = manifest.schema_mappings.as_ref().ok_or_else(|| {
-            "CONNECTOR_SCHEMA_MAPPING_UNAVAILABLE: imported manifest has no decoded mappings"
+        let (head, declaration) = self.current_connector_declaration(tenant_id, connector)?;
+        validate_current_declaration(&head, &declaration)?;
+        let mappings = declaration.schema_mappings.as_ref().ok_or_else(|| {
+            "CONNECTOR_SCHEMA_MAPPING_UNAVAILABLE: imported declaration has no decoded mappings"
                 .to_string()
         })?;
         let selected = select_schema_mapping(mappings, selector)?;
@@ -405,8 +407,8 @@ impl AgentLibraryStore {
         Ok(ResolvedConnectorSchemaMapping {
             mapping_reference: mapping_reference.to_string(),
             schema_mapping: selected,
-            body_sha256: manifest.body_sha256,
-            entry_revision: manifest.entry_revision,
+            body_sha256: declaration.body_sha256,
+            entry_revision: declaration.entry_revision,
             pack_digest: head.head.pack_digest,
             catalog: head.head.catalog,
         })
@@ -420,26 +422,26 @@ impl AgentLibraryStore {
     ) -> Result<ResolvedConnectorRelationshipMapping, String> {
         eg_types::agent_library::validate_key(tenant_id, connector.as_str())?;
         let key = relationship_selector(connector, relation_reference)?;
-        let (head, manifest) = self.current_connector_manifest(tenant_id, connector)?;
-        validate_current_manifest(&head, &manifest)?;
-        let relations = manifest.relationship_mappings.as_ref().ok_or_else(|| {
-            "CONNECTOR_RELATIONSHIP_UNAVAILABLE: imported manifest has no decoded relations"
+        let (head, declaration) = self.current_connector_declaration(tenant_id, connector)?;
+        validate_current_declaration(&head, &declaration)?;
+        let relations = declaration.relationship_mappings.as_ref().ok_or_else(|| {
+            "CONNECTOR_RELATIONSHIP_UNAVAILABLE: imported declaration has no decoded relations"
                 .to_string()
         })?;
         let relation = relations.get(&key).cloned().ok_or_else(|| {
-            "UNKNOWN_RELATIONSHIP_REFERENCE: manifest has no relation at that path".to_string()
+            "UNKNOWN_RELATIONSHIP_REFERENCE: the ontology declares no such relation".to_string()
         })?;
         Ok(ResolvedConnectorRelationshipMapping {
             relation_reference: relation_reference.to_string(),
             relation,
-            body_sha256: manifest.body_sha256,
-            entry_revision: manifest.entry_revision,
+            body_sha256: declaration.body_sha256,
+            entry_revision: declaration.entry_revision,
             pack_digest: head.head.pack_digest,
             catalog: head.head.catalog,
         })
     }
 
-    fn current_connector_manifest(
+    fn current_connector_declaration(
         &self,
         tenant_id: &str,
         connector: &ResourceId,
@@ -455,7 +457,7 @@ impl AgentLibraryStore {
             })?;
         let head: ConnectorPackHeadRow =
             super::agent_row::decode(head.value(), "connector pack head")?;
-        let mut manifest = None;
+        let mut declaration = None;
         for row in members
             .range((tenant_id, connector.as_str(), "")..)
             .map_err(|error| error.to_string())?
@@ -467,22 +469,19 @@ impl AgentLibraryStore {
             }
             let member: ConnectorPackMemberRow =
                 super::agent_row::decode(value.value(), "connector pack member")?;
-            if member.kind == PackEntryKind::Manifest {
-                if member.lifecycle != AgentLibraryLifecycle::Published {
-                    continue;
-                }
-                if manifest.is_some() {
-                    return Err(
-                        "CONNECTOR_SCHEMA_MAPPING_AMBIGUOUS: current pack has multiple manifests"
-                            .to_string(),
-                    );
-                }
-                manifest = Some(member);
+            if member.kind == PackEntryKind::Resource
+                && member.uri == CONNECTOR_DECLARATION_URI
+                && member.lifecycle == AgentLibraryLifecycle::Published
+            {
+                declaration = Some(member);
             }
         }
-        manifest.map(|manifest| (head, manifest)).ok_or_else(|| {
-            "UNKNOWN_MAPPING_REFERENCE: current connector pack has no manifest".to_string()
-        })
+        declaration
+            .map(|declaration| (head, declaration))
+            .ok_or_else(|| {
+                "CONNECTOR_SCHEMA_MAPPING_UNAVAILABLE: current connector pack has no connector://resources declaration"
+                    .to_string()
+            })
     }
 }
 
@@ -524,11 +523,11 @@ fn mapping_selector<'a>(
     connector: &ResourceId,
     mapping_reference: &'a str,
 ) -> Result<MappingSelector<'a>, String> {
-    let manifest_reference = format!("manifest:{}", connector.as_str());
-    if mapping_reference == manifest_reference {
+    let connector_reference = format!("connector:{}", connector.as_str());
+    if mapping_reference == connector_reference {
         return Ok(MappingSelector::Only);
     }
-    let keyed_prefix = format!("{manifest_reference}#schema_mappings/");
+    let keyed_prefix = format!("{connector_reference}#mappings/");
     mapping_reference
         .strip_prefix(&keyed_prefix)
         .filter(|key| valid_mapping_key(key))
@@ -542,10 +541,10 @@ fn relationship_selector(
     connector: &ResourceId,
     relation_reference: &str,
 ) -> Result<String, String> {
-    let prefix = format!("manifest:{}#resources/", connector.as_str());
+    let prefix = format!("connector:{}#relations/", connector.as_str());
     let selected = relation_reference
         .strip_prefix(&prefix)
-        .and_then(|suffix| suffix.split_once("/relations/"))
+        .and_then(|suffix| suffix.split_once('/'))
         .filter(|(resource, relation)| valid_mapping_key(resource) && valid_mapping_key(relation));
     selected
         .map(|(resource, relation)| format!("{resource}/{relation}"))
@@ -554,12 +553,14 @@ fn relationship_selector(
         })
 }
 
-fn validate_current_manifest(
+fn validate_current_declaration(
     head: &ConnectorPackHeadRow,
-    manifest: &ConnectorPackMemberRow,
+    declaration: &ConnectorPackMemberRow,
 ) -> Result<(), String> {
-    if manifest.last_record_id != head.head.record_id {
-        return Err("STALE_MAPPING_REFERENCE: manifest is not from the current pack".to_string());
+    if declaration.last_record_id != head.head.record_id {
+        return Err(
+            "STALE_MAPPING_REFERENCE: declaration is not from the current pack".to_string(),
+        );
     }
     Ok(())
 }
@@ -570,7 +571,7 @@ fn select_schema_mapping(
 ) -> Result<ConnectorSchemaMapping, String> {
     match selector {
         MappingSelector::Key(key) => mappings.get(key).cloned().ok_or_else(|| {
-            "UNKNOWN_MAPPING_REFERENCE: manifest has no mapping with that key".to_string()
+            "UNKNOWN_MAPPING_REFERENCE: the declaration has no mapping with that key".to_string()
         }),
         MappingSelector::Only if mappings.len() == 1 => {
             Ok(mappings.values().next().cloned().unwrap())
@@ -684,21 +685,17 @@ mod tests {
     }
 
     #[test]
-    fn relationship_reference_is_an_exact_manifest_resource_path() {
+    fn relationship_reference_is_an_exact_declared_resource_path() {
         let connector = ResourceId::new("demo").unwrap();
         assert_eq!(
-            relationship_selector(
-                &connector,
-                "manifest:demo#resources/Document/relations/contains"
-            )
-            .unwrap(),
+            relationship_selector(&connector, "connector:demo#relations/Document/contains")
+                .unwrap(),
             "Document/contains"
         );
         assert!(relationship_selector(&connector, "manifest:demo#relations/contains").is_err());
-        assert!(relationship_selector(
-            &connector,
-            "manifest:other#resources/Document/relations/contains"
-        )
-        .is_err());
+        assert!(
+            relationship_selector(&connector, "connector:other#relations/Document/contains")
+                .is_err()
+        );
     }
 }

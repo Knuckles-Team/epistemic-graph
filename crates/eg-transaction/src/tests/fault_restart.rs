@@ -336,6 +336,42 @@ fn bootstrap_ledger_proves_the_whole_ledger_census_and_is_idempotent() {
     assert!(read_ledger(&read, "post-bootstrap").unwrap().is_some());
 }
 
+/// The ledger bootstrap that runs on every open proves the census under a real
+/// write capability and then aborts. An aborted write commits nothing, so it
+/// leaves the clean-shutdown marker in place and the next open still skips the
+/// row scan.
+// spec: EG-DURABLE-KERNEL-R006.3
+#[test]
+fn an_aborted_ledger_bootstrap_keeps_the_clean_shutdown_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.redb");
+    let identity = native_identity("tenant-a", "incarnation:bootstrap-marker");
+    let mut marker = path.clone().into_os_string();
+    marker.push(".clean");
+    let marker = std::path::PathBuf::from(marker);
+    {
+        let (fixture, owner) = ledger_fixture(&path, identity.clone());
+        fixture.mutations.bootstrap_ledger(&owner).unwrap();
+    }
+    assert!(marker.exists(), "a graceful close writes the marker");
+
+    let (fixture, owner) = reopen(&path, identity.clone());
+    assert!(fixture.kernel.open_report().recovery_scan_skipped);
+    fixture.mutations.bootstrap_ledger(&owner).unwrap();
+    assert!(
+        marker.exists(),
+        "the aborted bootstrap write leaves the marker in place"
+    );
+    drop(owner);
+    drop(fixture);
+
+    let (fixture, _owner) = reopen(&path, identity);
+    assert!(
+        fixture.kernel.open_report().recovery_scan_skipped,
+        "a session whose only write was the aborted bootstrap still reopens on the marker"
+    );
+}
+
 /// Purging one logical generation removes its replay evidence with its rows, so
 /// a rebound generation never inherits another generation's nonces.
 #[test]

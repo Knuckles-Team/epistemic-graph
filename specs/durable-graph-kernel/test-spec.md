@@ -100,9 +100,9 @@ Each command uses `test --locked --lib --no-default-features`.
 
 | Category | Package | Filter | Features |
 |---|---|---|---|
-| raft | epistemic-graph | `raft::` | `cluster` |
+| raft | Medulla | `raft::` | `cluster` |
 | backup | eg-transaction | `tests::backup_replay::` | none |
-| persistence | epistemic-graph | `server::persistence::` | `full` |
+| persistence | Medulla | `server::persistence::` | `full` |
 
 Source inspection confirmed the module paths, package names, and feature gates.
 The source-binding test checks existing runtime test names in each selected module.
@@ -264,12 +264,14 @@ This specification batch makes no runtime execution or implementation-complete c
 <!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
 ## Durable-kernel owner acceptance targets — 2026-10-12
 
-Execution evidence appears in the relevant rows and plan. Unreported cases remain planned. EG producer acceptance stops at its authenticated durable memory contract. Cross-owner cases remain blocked where called out.
+Planned cases only. None have run. Medulla producer acceptance stops at its authenticated durable memory contract. Cross-owner cases remain blocked where called out.
+
+- **`EG-DURABLE-KERNEL-R028.1` / AU:21:** Write a checkpoint and both referenced memory revisions through R085. Restart and read back the same revision and digests. Refuse wrong tenant/graph, stale head or stale WorkItem fence. Also refuse a crash/race between snapshot write and WorkItem pointer update. Refuse digest mismatch, changed-body replay identity or unavailable storage without advancing the head. Meristem must resume the same run and fence. Arbora must continue from the exact existing host-issued stream cursor without duplicate or skipped output. Those cases remain blocked on the atomic snapshot/pointer transaction or crash-recovery contract. Short-/long-term kind and retention decisions, Meristem resume-binding and host cursor/replay semantics also remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `ARBORA-A2A-R001`, `ARBORA-A2A-R001.1`, `ARBORA-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
+- **`EG-DURABLE-KERNEL-R085.9` / AU:48:** Store all required search-state fields and evict context. Restart or use an independent client. Read back byte-identical exact UTF-8 JSON content at its bound revision. Validate the envelope field types and the equality of state revision and snapshot revision. Refuse missing/malformed fields, oversize content, wrong authority, stale graph, digest mismatch, and unavailable storage without changing the head. Stale expected revision preserves the accepted head and retains the candidate conflict. Meristem continuation must restore all four fields using the exact returned document ID/revision before compacted context is used. That last case is blocked on Meristem’s per-entry schema/source identity and continuation receipt decision. Preserve Meristem R013.13/R020.1 and Medulla R085.1/.4/.7. Source hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
+- **`EG-DURABLE-KERNEL-R085.10` / AU:49:** Write/read an authorized note across restart with source revision, digest, and provenance intact. Ensure cross-tenant/revoked reads are redacted. Stale writes must retain conflict without replacing the accepted head. Capacity exhaustion must refuse before effects. Meristem must separately test the decided capture trigger, relevance/staleness rule, and conflict presentation without using unresolved content. That acceptance is blocked on Meristem defining those semantics. Preserve Meristem R022.3 and Medulla R085.2/.5/.7. Source hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
 
 - **`EG-DURABLE-KERNEL-R028.1.1`:** Run `checkpoint_native_authenticated_cas_replay_and_owner_isolation` through authenticated dispatch and MutationBatch. Exact nonce reuse returns `REPLAY_NONCE_CONSUMED`. Live-claim and expected-head refusals return `CONFLICT`, not `INTERNAL`. Closed error-routing tests preserve only the declared method codes. A fresh nonce with identical canonical retry identity returns the original receipt, including after expiry/reopen, without another snapshot/version. Changed content/references/fence conflict; wrong owner/context/tenant/run refuse before ledger replay. Run `run_checkpoint` DTO tests, native `work_item/checkpoint/tests.rs` for immutable admitted-context authority despite metadata replacement, wrong graph/tenant/run and missing admission/node-type refusals, CAS/digest/fence and rollback tests. Run graph predecessor/offline upgrade/reopen tests and regenerate owner layout/public contracts from the exact candidate. Python `tests/test_run_checkpoint_client.py` requires those fresh generated methods. Hosted job 120276448287 passes the full authenticated checkpoint fixture after the refusal fixes. Replay, expiry, owner isolation, claim-bearing read refusal and reopen now have native evidence for head `c065ad9a`. The integrated final source still requires a fresh complete gate run. Hosted storage predecessor and migration-preservation tests pass, as recorded in the plan. Both Python facade tests pass with the hosted generated send methods. Final composed-head export, parity and complete gate qualification remain pending.
 - **`EG-DURABLE-KERNEL-R028.1.2` / AU:21:** Resolve and read back both referenced memory revisions after restart. AU must resume the same run and current fence, preferring its current-run checkpoint. Shared served paths must enforce durable context ordering and continue the exact host-issued cursor without duplicate or skipped output. Retention/release, memory existence and host replay authority remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `ARBORA-A2A-R001`, `ARBORA-A2A-R001.1`, `ARBORA-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
-- **`EG-DURABLE-KERNEL-R085.9` / AU:48:** Store all required search-state fields and evict context. Restart or use an independent client. Read back byte-identical exact UTF-8 JSON content at its bound revision. Validate the envelope field types and the equality of state revision and snapshot revision. Refuse missing/malformed fields, oversize content, wrong authority, stale graph, digest mismatch, and unavailable storage without changing the head. Stale expected revision preserves the accepted head and retains the candidate conflict. AU continuation must restore all four fields using the exact returned document ID/revision before compacted context is used. That last case is blocked on AU’s per-entry schema/source identity and continuation receipt decision. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7. Source hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
-- **`EG-DURABLE-KERNEL-R085.10` / AU:49:** Write/read an authorized note across restart with source revision, digest, and provenance intact. Ensure cross-tenant/revoked reads are redacted. Stale writes must retain conflict without replacing the accepted head. Capacity exhaustion must refuse before effects. AU must separately test the decided capture trigger, relevance/staleness rule, and conflict presentation without using unresolved content. That acceptance is blocked on AU defining those semantics. Preserve AU R022.3 and EG R085.2/.5/.7. Source hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
 - **`EG-DURABLE-KERNEL-R084.7` / EG:28:** Existing one-graph two-client acceptance continues to prove one commit and one typed stale-writer conflict. No cross-backend positive case is valid until owners define the writable target set, ordering key and coordinator. They must also define atomic/eventual semantics and the partial failure/retry/receipt contract. Once defined, cover two tenants, multiple targets, concurrent writes, failure/replay, and assert R039 remains sole durability authority. This child remains explicitly held. Do not use R084.6 as cross-backend evidence. Preserve all R084.1-.6 clauses. Source hash `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`.
 <!-- /spec-definition-patch -->
 
@@ -278,7 +280,7 @@ Execution evidence appears in the relevant rows and plan. Unreported cases remai
 
 No cases listed here have run. They describe required future acceptance, not evidence.
 
-- **`EG-DURABLE-KERNEL-R038.100` / EG:60. Source `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`:** Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace. Confirm no persistent namespace is silently downgraded. Start served mode against its configured endpoint and confirm its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch. Read back profile and namespace declarations. Producer/consumer: EG owns profile and storage selection. Transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation. Parent `EG-DURABLE-KERNEL-R038` remains intact.
+- **`EG-DURABLE-KERNEL-R038.100` / EG:60. Source `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`:** Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace. Confirm no persistent namespace is silently downgraded. Start served mode against its configured endpoint and confirm its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch. Read back profile and namespace declarations. Producer/consumer: Medulla owns profile and storage selection. Transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation. Parent `EG-DURABLE-KERNEL-R038` remains intact.
 <!-- /spec-definition-patch -->
 
 
@@ -287,8 +289,8 @@ No cases listed here have run. They describe required future acceptance, not evi
 
 No test in this section has run. It is a future contract.
 
-- `EG-DURABLE-KERNEL-R043.100`: Use two authenticated served GraphView clients to take a consistent snapshot. Commit concurrent `ApplyChangeEnvelope` mutations and consume ordered events without refresh. Reconnect from the opaque cursor and independently read back committed state. Exercise stable dedup ids, tombstones, expired cursor recovery, stale graph incarnation and revoked permissions without denied counts/edges. Measure EG commit-to-visible p95 only through first authorized feed read. GraphOS/WebUI acceptance must separately set and confirm a versioned browser commit-to-visible p95. It must also set explicit numeric readable-layout limits for visible node/edge budget, interaction and label bounds. EG feed latency is not end-to-end evidence.
-- Exercise tombstones, expired cursor recovery, graph-incarnation mismatch and authorization revocation. Denied edges/counts remain invisible. Measure p95 commit acknowledgement to first authorized read ≤1000 ms using the recorded latency-profile revision. WebUI R030.8 separately proves concurrent layout remains readable.
+- `EG-DURABLE-KERNEL-R043.100`: Use two authenticated served GraphView clients to take a consistent snapshot. Commit concurrent `ApplyChangeEnvelope` mutations and consume ordered events without refresh. Reconnect from the opaque cursor and independently read back committed state. Exercise stable dedup ids, tombstones, expired cursor recovery, stale graph incarnation and revoked permissions without denied counts/edges. Measure Medulla commit-to-visible p95 only through first authorized feed read. Arbora/Overstory acceptance must separately set and confirm a versioned browser commit-to-visible p95. It must also set explicit numeric readable-layout limits for visible node/edge budget, interaction and label bounds. Medulla feed latency is not end-to-end evidence.
+- Exercise tombstones, expired cursor recovery, graph-incarnation mismatch and authorization revocation. Denied edges/counts remain invisible. Measure p95 commit acknowledgement to first authorized read ≤1000 ms using the recorded latency-profile revision. Overstory R030.8 separately proves concurrent layout remains readable.
 <!-- /spec-definition-patch -->
 
 ## Planned served acceptance — benchmark measurement
@@ -390,6 +392,12 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 | Lifecycle replay and listing survive a patch upgrade (rollup) | `EG-DURABLE-KERNEL-R861` | Rollup: satisfied when the test of every child passes. |
 | Lifecycle replay compares the stored identity | `EG-DURABLE-KERNEL-R861.1` | `src/server/mutation_batch/lifecycle_tests.rs::lifecycle_replay_compares_identity_not_recompiled_bytes` |
 | Graph listing survives a restart and a patch upgrade | `EG-DURABLE-KERNEL-R861.2` | `tests/test_upgrade_store_listing.py::test_reopened_store_lists_graphs_for_the_stored_policy` |
+| Engine migrates an older supported store at open | `EG-DURABLE-KERNEL-R070.1` | `src/server/persistence/store_upgrade/auto_migrate_tests.rs::an_interrupted_migration_resumes_at_the_next_open` and the other tests of that file |
+| Previous-patch store migrates and serves at open | `EG-DURABLE-KERNEL-R070.2` | `tests/test_store_auto_migrate.py::test_open_migrates_a_previous_patch_store_and_serves` |
+| Copied store or bundle restores onto new files (rollup) | `EG-DURABLE-KERNEL-R862` | Rollup: satisfied when the test of every child passes. |
+| Restore reads bundle sources by content | `EG-DURABLE-KERNEL-R862.1` | Copied-bundle restore unit test (not yet written; see #709). |
+| Explicit rebind of a copied data directory | `EG-DURABLE-KERNEL-R862.2` | `store-upgrade rebind` command tests (not yet written; see #709). |
+| Copied bundle restores and serves | `EG-DURABLE-KERNEL-R862.3` | `tests/test_store_copy_restore.py` (not yet written; see #709). |
 - **EG-DURABLE-KERNEL-R028.5.1:** `current_plan_task_plan_validation_and_legacy_roundtrip` checks JSON and named MessagePack compatibility. `current_plan_task_plan_rejects_unpaired_or_changed_content` refuses unpaired fields, tampered executable fields, policy, digests and ordering. The original proposal must reproduce every TaskPlan field.
 - **EG-DURABLE-KERNEL-R028.5.2:** `current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it` checks initial and later attachment. `current_plan_attachment_refusals_preserve_rows` checks conflicting plans, malformed digests, foreign owners, stale fences and expiry. Refusals leave both private snapshot and owner rows unchanged.
 - **EG-DURABLE-KERNEL-R028.5.3:** `publication_attachment_changes_content_not_retry_identity` checks stable identity and changed canonical content. `current_plan_native_publish_read_and_receipt_replay` exercises authenticated attachment, unchanged replay receipts, conflict and exact restart readback. Expired replay returns historical evidence only.
@@ -418,6 +426,17 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - **`EG-DURABLE-KERNEL-R028.1.3.1`:** Validate the hosted source, recipe and artifact hashes against the import. Run `tests/test_run_checkpoint_client.py` and the neighboring read and retry facade suites from the plan.
 - **`EG-DURABLE-KERNEL-R028.1.3.2`:** Run the R028.1.1 native fixtures and predecessor migration against the final reviewed source. Regenerate the layout and public contracts. Attach full repository gate receipts. Pending, not satisfied by the export or Python facade checks.
 
+## Admission retry replay (EG-DURABLE-KERNEL-R028.4.4)
+
+Tests live beside `tests/adopt_workitem_authenticated_replay.rs`.
+They drive the served MutationBatch path with authenticated requests.
+
+- Repeat an admission with a refreshed request context. Require the original receipt.
+- Require no new outbox event and an unchanged WorkItem version, also after a restart.
+- Refuse a changed policy, input or command.
+- Refuse missing or corrupt retained evidence with `RUN_ADMISSION_UNAVAILABLE`.
+- Open a store written by the server before this change and replay one of its admissions.
+
 ## Ordered conversation admission (EG-DURABLE-KERNEL-R028.4.3)
 
 Source tests live in `src/redb_store/work_item/conversation/tests.rs`.
@@ -445,7 +464,7 @@ unchanged. Box the optional admission so it does not enlarge every Method value.
 The first native run measured 640 bytes against the existing 616-byte bound.
 Qualify the correction on fresh source rather than raising that bound.
 
-A complete continuation test must restart EG, Arbora and the client between
+A complete continuation test must restart Medulla, Arbora and the client between
 turns, inspect the actual model request for prior user, assistant and tool
 messages, and prove no repeated tool effect. It must also prove fresh new-turn
 budgets, exact same-run checkpoint precedence, bounded context and explicit

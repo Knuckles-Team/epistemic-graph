@@ -279,8 +279,10 @@ pub(crate) fn render_offline_upgrade_procedure() -> String {
     let mut out = format!(
         "\n## Offline upgrade procedure\n\n\
          A predecessor listed in the table below is upgraded in place, with its rows \
-         preserved, by an explicit operator command. The engine never runs an upgrade \
-         itself: it refuses to start on such a store and names the command.\n\n\
+         preserved. By default the engine runs these upgrades itself when it opens the data \
+         directory. It holds its own lock and keeps a crash-safe journal. Set \
+         `EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE=false` to turn that off: the engine then refuses \
+         to start on such a store and names the command below.\n\n\
          1. Stop the engine. Both verbs refuse while an engine holds the data directory.\n\
          2. Inspect: `{inspect}`. This reads every store's manifest and changes nothing. \
          Exit status `0` means nothing to do, `10` an upgrade is available, `20` a store is \

@@ -331,7 +331,6 @@ class PackEntryKind(str, Enum):
     SHAPES = "shapes"
     MODEL_PROFILE = "model_profile"
     A2A_CARD = "a2a_card"
-    MANIFEST = "manifest"
     SKILL_FILE = "skill_file"
 
 

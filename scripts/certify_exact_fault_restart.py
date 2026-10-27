@@ -39,7 +39,7 @@ from typing import Any
 # This harness must certify THIS checkout's own `epistemic_graph.client`, not
 # whatever copy happens to be resolved by an editable install elsewhere on
 # sys.path (e.g. a different worktree's checkout registered as the editable
-# `epistemic-graph` distribution) -- prepending the repository root makes the
+# `medulla` distribution) -- prepending the repository root makes the
 # local source win the resolution. `importlib.import_module` (a function
 # call, not an `import` statement) reaches it without requiring this
 # late-bound sys.path entry to precede a plain top-of-file import.

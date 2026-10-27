@@ -21,7 +21,7 @@ def verify(lines: str, ref: str, source: str) -> None:
 def main() -> None:
     if (
         os.environ.get("GITHUB_EVENT_NAME") != "push"
-        or os.environ.get("GITHUB_REPOSITORY") != "Knuckles-Team/epistemic-graph"
+        or os.environ.get("GITHUB_REPOSITORY") != "Knuckles-Team/medulla"
     ):
         raise ValueError("publication requires canonical tag push")
     ref, source = os.environ["GITHUB_REF"], os.environ["GITHUB_SHA"]
@@ -33,7 +33,7 @@ def main() -> None:
             "git",
             "ls-remote",
             "--exit-code",
-            "https://github.com/Knuckles-Team/epistemic-graph.git",
+            "https://github.com/Knuckles-Team/medulla.git",
             ref,
             ref + "^{}",
         ],

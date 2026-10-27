@@ -182,3 +182,24 @@ c:Widget a owl:Class .
 ";
     assert!(ontology_orphan_classes(&[split, linked], &parent).is_empty());
 }
+
+// spec: EG-TYPED-PACKS-R101.10
+#[test]
+fn object_properties_reduce_to_domain_range_local_names() {
+    let ttl = "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+        @prefix ex: <https://example.org/demo#> .\n\
+        ex:contains a owl:ObjectProperty ; rdfs:domain ex:Document ; rdfs:range ex:Section .\n\
+        ex:loose a owl:ObjectProperty ; rdfs:domain ex:Document .\n\
+        ex:twice a owl:ObjectProperty ; rdfs:domain ex:A ; rdfs:range ex:B , ex:C .\n\
+        ex:plain a owl:DatatypeProperty ; rdfs:domain ex:Document ; rdfs:range ex:Section .\n";
+    assert_eq!(
+        declared_object_properties(&[ttl]),
+        [DeclaredObjectProperty {
+            name: "contains".into(),
+            domain: "Document".into(),
+            range: "Section".into(),
+        }]
+    );
+    assert!(declared_object_properties(&["not Turtle"]).is_empty());
+}

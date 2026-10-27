@@ -1,6 +1,6 @@
-name: Build the epistemic-graph-server wheel
+name: Build the medulla-stem wheel
 description: >-
-  Native build of the `epistemic-graph-server` wheel (maturin `bindings = "bin"`,
+  Native build of the `medulla-stem` wheel (maturin `bindings = "bin"`,
   `release-server` profile) for the runner's own platform: manylinux_2_28 in a
   container on Linux, plain maturin on macOS arm64 and Windows x64.
   Shared by release.yml (publish) and ci.yml (main-push warm compile cache) so the

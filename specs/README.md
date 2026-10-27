@@ -1,8 +1,8 @@
-# epistemic-graph specifications
+# Medulla specifications
 
 These specs follow the ecosystem [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md): one owning spec per capability, extend an existing spec before creating one, audits and reviews land in the owning spec, one ID and title form, one file set. The `spec-standard` gate enforces it.
 
-This tracked `specs/` directory is the public build contract for **EG** owned work. Every
+This tracked `specs/` directory is the public build contract for **Medulla** owned work. Every
 spec must contain the behavior, architecture, interfaces, tests, quality gates, and acceptance
 criteria needed to implement it from this repository. External program notes may inform a draft,
 but no private document or local workspace path is required to build or verify a public spec.
@@ -31,15 +31,15 @@ no-duplicate-authority check.
 
 States are `SPECIFIED`, `LANDED`, and `VERIFIED`. The generator sets them. See the [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md#states).
 
-## Graph OS owner map
+## Arbora owner map
 
 | Prefix | Repository specs | Responsibility |
 |---|---|---|
-| `EG` | [epistemic-graph](https://github.com/Knuckles-Team/epistemic-graph/tree/main/specs) | Rust database, graph compute, ontology, governed ingestion, durable records and clients |
-| `SDK` | [agent-connector-sdk](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs) | connector control, transport, manifests, certification, governed effects |
-| `AU` | [agent-utilities](https://github.com/Knuckles-Team/agent-utilities/tree/main/specs) | agent orchestration and control workflows |
+| `EG` | [Medulla](https://github.com/Knuckles-Team/epistemic-graph/tree/main/specs) | Rust database, graph compute, ontology, governed ingestion, durable records and clients |
+| `SDK` | [Graft SDK](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs) | connector control, transport, manifests, certification, governed effects |
+| `AU` | [Meristem](https://github.com/Knuckles-Team/agent-utilities/tree/main/specs) | agent orchestration and control workflows |
 | `ARBORA` | [arbora](https://github.com/Knuckles-Team/arbora/tree/main/specs) | serving composition, fleet, gateway, A2A, deployment operations |
-| `WEBUI` | [agent-webui](https://github.com/Knuckles-Team/agent-webui/tree/main/specs) | browser presentation and interaction |
+| `WEBUI` | [Overstory](https://github.com/Knuckles-Team/agent-webui/tree/main/specs) | browser presentation and interaction |
 | `RM` | [repository-manager](https://github.com/Knuckles-Team/repository-manager/tree/main/specs) | repository discovery, worktrees, source control and execution |
 
 ## Contributions
@@ -50,7 +50,7 @@ dedicated branch or worktree. Link the PR to spec IDs and update evidence and st
 corresponding gates actually pass. Use the [universal-skills spec-generator](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-generator),
 [spec-verifier](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-verifier),
 and [task-planner](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/task-planner)
-and the [graph-os-development](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graph-os-development/SKILL.md)
+and the [Arbora-development](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graph-os-development/SKILL.md)
 bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development-workflows/sdd-full-lifecycle) workflow.
 
 ## Local specifications
@@ -60,7 +60,7 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 - [`EG-SDLC`](development-lifecycle/spec.md) — graph-driven development lifecycle records, derived edges, defects and derived requirement state.
 - [`EG-BRANCH-MERGE`](branch-merge/spec.md) — agent branching, three-way merge, and epistemic conflict resolution.
 - [`EG-OBJECT-STORAGE-BACKEND`](object-storage-backend/spec.md) — object-storage-native durable store and comparative cost gate.
-- [`EG-UNIFIED-DATA-PLANE`](unified-data-plane/spec.md) — EG attached-source, dialect and app-admission owner contract
+- [`EG-UNIFIED-DATA-PLANE`](unified-data-plane/spec.md) — Medulla attached-source, dialect and app-admission owner contract
 - [`EG-DECISION-ENGINE`](decision-engine/spec.md) — governed decision and calibration engine contract.
 - [`EG-DURABLE-KERNEL`](durable-graph-kernel/spec.md) — durable graph state and recovery contract.
 - [`EG-IDENTITY`](engine-identity-and-scope/spec.md) — issuer, identity, scope, and audit contract.

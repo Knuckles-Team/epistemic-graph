@@ -1,6 +1,6 @@
 # EG-ENGINE-PARITY — Relational engine parity inside one library
 
-Owner: epistemic-graph (`EG`). Sole owner.
+Owner: Medulla (`EG`). Sole owner.
 Component: Storage
 References: [EG-DURABLE-KERNEL](../durable-graph-kernel/spec.md), [EG-UNIFIED-DATA-PLANE](../unified-data-plane/spec.md), [EG-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md), [EG-SCM](../source-changesets/spec.md)
 

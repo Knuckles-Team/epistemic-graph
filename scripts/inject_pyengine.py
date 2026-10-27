@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Fold the eg-pyengine in-process engine binding into the epistemic-graph wheel.
+"""Fold the eg-pyengine in-process engine binding into the medulla wheel.
 
-There is exactly ONE published package — ``epistemic-graph`` — and the
+There is exactly ONE published package — ``medulla`` — and the
 in-process engine binding ships INSIDE its wheel as a native
 ``epistemic_graph.engine`` extension (``.abi3.so`` on Unix or ``.pyd`` on
 Windows), the module ``epistemic_graph.embedded``'s ``EmbeddedTransport``
 imports (``docs/architecture/unified-inprocess-engine.md``). There is NO
 separately published ``eg-pyengine`` package.
 
-The main ``epistemic-graph`` wheel is a maturin ``bindings="bin"`` wheel (it
+The main ``medulla`` wheel is a maturin ``bindings="bin"`` wheel (it
 ships the ``epistemic-graph-server`` binary, no pyo3). The engine binding is a
 SEPARATE maturin pyo3 cdylib build (``crates/eg-pyengine --features python``).
 This script takes the already-built engine wheel, lifts its compiled

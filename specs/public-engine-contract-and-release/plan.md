@@ -44,7 +44,7 @@ Run Go commands from `clients/go` and npm commands from `clients/js`. If a named
 
 ## Design decisions
 
-- Catalog metadata is generated from Rust code because server dispatch and stable errors are EG authority.
+- Catalog metadata is generated from Rust code because server dispatch and stable errors are Medulla authority.
 - The contract receipt binds all language projections to one revision; a package containing current JSON but stale WASM is invalid.
 - Hosted CI may split bounded fast checks from long soak. A missing external environment cannot convert a required public gate into a permanent skip.
 - Quality scans are differential over changed production code with explicit tracked configuration, and manual scanners remain observable release evidence.
@@ -217,7 +217,7 @@ Each group below describes responsibility; it does not declare a new deployable 
 
 | Responsibility | Existing modules |
 |---|---|
-| Composition, listeners, policy, persistence adapters | Root `src/` and its `epistemic-graph` library and executable targets |
+| Composition, listeners, policy, persistence adapters | Root `src/` and its `Medulla` library and executable targets |
 | Shared records, policies, codecs, resources | `eg-types`, `eg-capabilities`, `eg-method-codec`, `eg-resource` |
 | Physical storage, mutation authority, graph state | `eg-storage`, `eg-transaction`, `eg-core`, `eg-durable`, `eg-sqlite-format` |
 | Query and semantic processing | `eg-query`, `eg-plan`, `eg-rdf`, `eg-shacl`, `eg-shex`, `eg-graphql`, `eg-epistemic` |
@@ -347,8 +347,8 @@ Each task preserves its existing parent and owner boundary.
 
 | Requirement | Implementation work | Open dependency | Source SHA-256 |
 |---|---|---|---|
-| `EG-CONTRACT-R001.1` | Extend the EG generated-model manifest. Connect its exports to AU `HarnessRequest` and `run_agent`. | AU-HARNESS-R007.40 remains unmerged. AU owns lifecycle transitions, persistence, and consumer integration. | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
-| `EG-CONTRACT-R001.2` | Use R094 export/import with governed SDK and GraphOS disk effects. Pin the number encoder. | AU-CONTROL-R025.40 remains unmerged. EG SHALL NOT add a filesystem writer. | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
+| `EG-CONTRACT-R001.1` | Extend the Medulla generated-model manifest. Connect its exports to Meristem `HarnessRequest` and `run_agent`. | AU-HARNESS-R007.40 remains unmerged. Meristem owns lifecycle transitions, persistence, and consumer integration. | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
+| `EG-CONTRACT-R001.2` | Use R094 export/import with governed Graft SDK and Arbora disk effects. Pin the number encoder. | AU-CONTROL-R025.40 remains unmerged. Medulla SHALL NOT add a filesystem writer. | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
 
 Both requirements remain SPECIFIED until separately reviewed implementation and served evidence exist.
 

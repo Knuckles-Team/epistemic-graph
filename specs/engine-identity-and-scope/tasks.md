@@ -50,6 +50,6 @@ For each task record public PR URL, exact merged SHA, test command and hosted ru
 
 ## Explicit isolated anonymous authority
 
-- [ ] **EG-IDENTITY-R003.1:** Implement explicit isolated anonymous origin and fresh-store boundary; bind `I-12`/`I-13` to the real served/Python tests. Finish the combined Arbora/TUI runtime receipt and preserve explicit UDS, AST/full-feature, Rust-unit and authenticated-comparison validation gaps. No deployment migration and no claim that parent R003 is complete.
+- [ ] **EG-IDENTITY-R003.1:** Implement explicit isolated anonymous origin and fresh-store boundary; bind `I-12`/`I-13` to the real served/Python tests. Finish the combined Arbora/Tuig runtime receipt and preserve explicit UDS, AST/full-feature, Rust-unit and authenticated-comparison validation gaps. No deployment migration and no claim that parent R003 is complete.
 - [ ] **EG-IDENTITY-R003.2:** Implement and run the independent admission latency/allocation benchmark. This performance residual is not verified by `I-12`/`I-13`.
 - [ ] **EG-IDENTITY-R003.3:** Run private-UDS and default-feature runtime qualification, including AST enrichment, on a suitable host. Do not infer these receipts from the scoped TCP binary.

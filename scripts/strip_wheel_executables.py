@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Remove console executables (``*.data/scripts/*``) from wheels.
 
-The published ``epistemic-graph`` wheel is executable-free: the native server
-ships in the separate ``epistemic-graph-server`` package. ``maturin build``
+The published ``medulla`` wheel is executable-free: the native server
+ships in the separate ``medulla-stem`` package. ``maturin build``
 always emits the server binary under ``<dist>.data/scripts/``, so every path
 that builds a publishable or gated wheel must call this after folding the
 native modules. The PEP 517 backend (``build_backend.py``) uses the same

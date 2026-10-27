@@ -8,7 +8,7 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first;
   - [ ] Authority applies through subclass entailment. **EG-CQ-XSRC-R001.3**
   - [ ] Authority records the approval of its mapping. **EG-CQ-XSRC-R001.4**
 - [ ] Supply-chain concepts and the sources that are authoritative for them (rollup). **EG-CQ-XSRC-R002**
-  - [ ] Add `:Supplier` as a subclass of `:Vendor`, and `:SupplyChainItem` with `:suppliedBy`. **EG-CQ-XSRC-R002.1**
+  - [ ] Add `:Supplier` as a subclass of `:Vendor`, and `:SupplyChainItem` with `:suppliesItem`; preserve source-owned `:suppliedBy` declarations. **EG-CQ-XSRC-R002.1**
   - [ ] Add `:SoftwareComponent`, `:ComponentVersion` and `:publishedBy`. **EG-CQ-XSRC-R002.2**
   - [ ] Add `:Vulnerability` and `:affectsComponent`. **EG-CQ-XSRC-R002.3**
   - [ ] SHACL shape for supplier and component. **EG-CQ-XSRC-R002.4**
@@ -38,7 +38,7 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first;
   - [ ] Report carries freshness per source. **EG-CQ-XSRC-R006.2**
   - [ ] Report abstention variants. **EG-CQ-XSRC-R006.3**
   - [ ] Assemble the report from the federated rows. **EG-CQ-XSRC-R006.4**
-  - [ ] Serve the report through graph-os. **EG-CQ-XSRC-R006.5**
+  - [ ] Serve the report through Arbora. **EG-CQ-XSRC-R006.5**
 - [ ] End-to-end acceptance from real connected data (rollup). **EG-CQ-XSRC-R007**
   - [ ] Acceptance on recorded connector responses. **EG-CQ-XSRC-R007.1**
   - [ ] Acceptance against the live connected sources. **EG-CQ-XSRC-R007.2**
@@ -54,9 +54,9 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first;
     - [ ] Authority rows and query fixture: capability to service to host over a limit. **EG-CQ-XSRC-R008.2.3**
     - [ ] Acceptance: capabilities at risk listed with the host, reading and limit. **EG-CQ-XSRC-R008.2.4**
   - [ ] Which open incidents or changes touch a service a customer contract depends on? (rollup) **EG-CQ-XSRC-R008.3**
-    - [ ] Add `:CustomerContract`, `:ChangeRequest` and `:coversService`. **EG-CQ-XSRC-R008.3.1**
+    - [ ] Add `:CustomerContract` and `:coversService`; reuse canonical `kg:Change` (the `:BusinessProcess` change), with no commercial `:ChangeRequest`. **EG-CQ-XSRC-R008.3.1**
     - [ ] SHACL shape: a contract names a customer and at least one service. **EG-CQ-XSRC-R008.3.2**
-    - [ ] Authority rows and query fixture: open incident or change to service to contract. **EG-CQ-XSRC-R008.3.3**
+    - [ ] Authority rows and query fixture for `:Incident` and canonical `:Change` to service to contract. **EG-CQ-XSRC-R008.3.3**
     - [ ] Acceptance: open incidents and changes listed with the service and contract. **EG-CQ-XSRC-R008.3.4**
 
 ## Agent-memory substrate claims (2026-10-22)

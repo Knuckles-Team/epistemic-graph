@@ -286,7 +286,7 @@ pub(super) fn skill(connector: &str, name: &str, tools: &[&Content]) -> Content 
     }
 }
 
-fn server(connector: &str) -> Content {
+pub(super) fn server(connector: &str) -> Content {
     Content {
         kind: PackEntryKind::McpServer,
         uri: format!("mcp-server://{connector}"),
@@ -323,7 +323,9 @@ fn lay_out(archive: &mut Vec<u8>, content: &Content) -> PackEntry {
         media_type: content.media_type.to_string(),
         body,
         input_schema,
-        output_schema: None,
+        // A resource entry pins its content schema (the declaration is a JSON object).
+        output_schema: (content.kind == PackEntryKind::Resource)
+            .then(|| section(archive, br#"{"type":"object"}"#)),
         annotations: content.annotations.clone(),
         references: BoundedVec::new(content.references.clone()).unwrap(),
     }
@@ -414,6 +416,17 @@ pub(super) async fn import_uploaded(
     index: ConnectorPackIndex,
     expected_head: Option<eg_types::connector_pack::PackHeadRef>,
 ) -> Response {
+    import_uploaded_with(served, index, expected_head, false).await
+}
+
+/// Import an already uploaded pack as the admin, with the mass-withdrawal
+/// approval set as given.
+pub(super) async fn import_uploaded_with(
+    served: &Served,
+    index: ConnectorPackIndex,
+    expected_head: Option<eg_types::connector_pack::PackHeadRef>,
+    allow_mass_withdrawal: bool,
+) -> Response {
     let key = format!(
         "connector-pack:{}:import:{}:{}",
         index.connector.as_str(),
@@ -430,7 +443,7 @@ pub(super) async fn import_uploaded(
                     context: context(&key),
                     index,
                     expected_head,
-                    allow_mass_withdrawal: false,
+                    allow_mass_withdrawal,
                 }),
             },
         )

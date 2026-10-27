@@ -10,7 +10,7 @@ README for the full incident list).
 
 Deliberately a SEPARATE, dependency-free file rather than an
 `agent-utilities` import, for one concrete reason: `epistemic-graph`
-publishes as a self-contained wheel (`pip install epistemic-graph` alone,
+publishes as a self-contained wheel (`pip install medulla` alone,
 no extras needed for the full engine — see this repo's own
 `pyproject.toml` "FULL-BY-DEFAULT" comment on `[project.dependencies]`) and
 `agent-utilities` already depends on `epistemic-graph` (`agent_utilities.

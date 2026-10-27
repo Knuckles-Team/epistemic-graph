@@ -1,0 +1,71 @@
+# Data-platform vocabulary (EG-DATAPLAT-VOCAB-R001.1).
+#
+# Shared typed terms for attached data stores. Connector-local ontologies remain
+# package contracts; this module is the engine-side vocabulary that describes the
+# store and the observations projected from it.
+
+@prefix dp:   <http://knuckles.team/kg/data-platform#> .
+@prefix vg:   <http://knuckles.team/kg/virtual-graph#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/data-platform> a owl:Ontology ;
+    rdfs:label "Data-platform vocabulary" ;
+    rdfs:comment "Shared typed terms for attached data stores and their source observations." ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/virtual-graph> .
+
+dp:DataStore a owl:Class ;
+    rdfs:label "Data store" ;
+    rdfs:comment "One attached relational, document, object, vector, stream, secret, analytics or ML store." .
+
+dp:storeFamily a owl:DatatypeProperty ;
+    rdfs:label "store family" ;
+    rdfs:comment "The closed store-family vocabulary is enforced by the data-platform shapes companion." ;
+    rdfs:domain dp:DataStore ;
+    rdfs:range xsd:string .
+
+dp:inStore a owl:ObjectProperty ;
+    rdfs:label "in store" ;
+    rdfs:comment "Places a data-platform container or observation in its attached data store." ;
+    rdfs:range dp:DataStore .
+
+dp:viaConnection a owl:ObjectProperty ;
+    rdfs:label "via connection" ;
+    rdfs:comment "The source connection through which an attached data store is reached." ;
+    rdfs:domain dp:DataStore ;
+    rdfs:range vg:SourceConnection .
+
+dp:asOf a owl:DatatypeProperty ;
+    rdfs:label "as of" ;
+    rdfs:comment "The observation time of a measured data-platform property." ;
+    rdfs:range xsd:dateTime .
+
+dp:StoreMapping a owl:Class ;
+    rdfs:label "Store mapping" ;
+    rdfs:comment "An approved binding from a data-store contract to a core ontology class." ;
+    rdfs:subClassOf vg:VirtualMapping .
+
+dp:contractKind a owl:DatatypeProperty ;
+    rdfs:label "contract kind" ;
+    rdfs:comment "The mapping contract kind: r2rml-sql, document-shape or mcp-operation." ;
+    rdfs:domain dp:StoreMapping ;
+    rdfs:range xsd:string .
+
+dp:viaOperation a owl:DatatypeProperty ;
+    rdfs:label "via operation" ;
+    rdfs:comment "The connector tool and action used by an MCP-operation mapping." ;
+    rdfs:domain dp:StoreMapping ;
+    rdfs:range xsd:string .
+
+dp:accelerationMode a owl:DatatypeProperty ;
+    rdfs:label "acceleration mode" ;
+    rdfs:comment "Whether the mapping is virtual or materialised." ;
+    rdfs:domain dp:StoreMapping ;
+    rdfs:range xsd:string .
+
+dp:materialisationReason a owl:DatatypeProperty ;
+    rdfs:label "materialisation reason" ;
+    rdfs:comment "The reason a materialised mapping is allowed; virtual mappings need none." ;
+    rdfs:domain dp:StoreMapping ;
+    rdfs:range xsd:string .

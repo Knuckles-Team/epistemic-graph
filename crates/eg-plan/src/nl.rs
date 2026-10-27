@@ -35,6 +35,8 @@
 use crate::exec::{execute, PlanCtx};
 use crate::rowset::RowSet;
 
+pub mod context;
+
 /// The NL→query planning seam (CONCEPT:EG-KG.query.core-query-input): turn a natural-language request plus a
 /// `schema_hint` (labels / grammar the model should target) into an executable query
 /// STRING. Returning a string — not a `Plan` — keeps the planner language-agnostic
@@ -120,6 +122,13 @@ pub enum NlQueryError {
         /// The caret-annotated parse error.
         message: String,
     },
+    /// Every planner step named something the parser or the graph schema refused
+    /// (EG-FEDERATED-QUERY-R058.4.7.1). `steps` holds each step's text and typed
+    /// outcome; nothing was executed.
+    Ungrounded {
+        /// Every refused step, in order.
+        steps: Vec<context::NlPlanStep>,
+    },
     /// The produced UQL parsed but failed during execution.
     Execution {
         /// The UQL that was executed when it failed.
@@ -138,6 +147,14 @@ impl std::fmt::Display for NlQueryError {
                 "nl-query: planner output refused: {actual} chars exceeds budget of {limit}"
             ),
             Self::ParseFailed { message, .. } => write!(f, "nl-query: {message}"),
+            Self::Ungrounded { steps } => {
+                let last = steps.last().map_or("no step ran", |s| s.outcome.as_str());
+                write!(
+                    f,
+                    "nl-query: planner output refused after {} step(s): {last}",
+                    steps.len()
+                )
+            }
             Self::Execution { message, .. } => write!(f, "nl-query: execution failed: {message}"),
         }
     }
@@ -289,6 +306,57 @@ pub struct OAuth2ClientCredentials {
     pub auth_style: TokenAuthStyle,
 }
 
+/// Smallest accepted planner read timeout, seconds.
+#[cfg(feature = "nl-query")]
+pub const NL_READ_TIMEOUT_MIN_SECS: u64 = 1;
+/// Largest accepted planner read timeout, seconds.
+#[cfg(feature = "nl-query")]
+pub const NL_READ_TIMEOUT_MAX_SECS: u64 = 600;
+/// Request-body members the planner owns; the extra body may not set them.
+#[cfg(feature = "nl-query")]
+const NL_RESERVED_BODY_KEYS: &[&str] = &["model", "messages"];
+
+/// A typed refusal of invalid NL planner request configuration.
+#[cfg(feature = "nl-query")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NlConfigError {
+    /// The read timeout is outside the accepted range.
+    ReadTimeoutOutOfRange(u64),
+    /// The extra request body is not a JSON object.
+    ExtraBodyNotObject,
+    /// The extra request body sets a member the planner owns.
+    ExtraBodyReservedKey(String),
+    /// A value could not be parsed; carries where it came from (env var name or config
+    /// key), the raw rejected text and why it was rejected.
+    InvalidValue {
+        source: String,
+        raw: String,
+        reason: String,
+    },
+}
+
+#[cfg(feature = "nl-query")]
+impl std::fmt::Display for NlConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReadTimeoutOutOfRange(s) => write!(
+                f,
+                "nl-query: read_timeout_secs {s} outside {NL_READ_TIMEOUT_MIN_SECS}..={NL_READ_TIMEOUT_MAX_SECS} seconds"
+            ),
+            Self::InvalidValue { source, raw, reason } => {
+                write!(f, "nl-query: {source}='{raw}' {reason}")
+            }
+            Self::ExtraBodyNotObject => write!(f, "nl-query: extra_body must be a JSON object"),
+            Self::ExtraBodyReservedKey(k) => {
+                write!(f, "nl-query: extra_body may not set reserved key `{k}`")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "nl-query")]
+impl std::error::Error for NlConfigError {}
+
 /// A concrete [`NlPlanner`] (CONCEPT:EG-KG.query.fence-stripper) that asks an OpenAI-compatible
 /// `/chat/completions` endpoint to translate NL → a UQL query, over the SAME pure-Rust
 /// rustls HTTP client (`ureq`) the federation sources use. Kept OUT of the Pi tier.
@@ -312,6 +380,9 @@ pub struct UreqNlPlanner {
     max_response_bytes: u64,
     /// The system prompt that pins the model to emit ONE bare UQL query.
     system_prompt: String,
+    /// Extra top-level members merged into the chat-completions request body
+    /// (default: [`Self::default_extra_body`] — model thinking disabled).
+    extra_body: serde_json::Map<String, serde_json::Value>,
     /// Static headers sent on EVERY request to the endpoint (e.g. a gateway
     /// ``X-Client-Id`` client-id header). Independent of the auth mode.
     headers: Vec<(String, String)>,
@@ -347,6 +418,7 @@ impl UreqNlPlanner {
             read_timeout: std::time::Duration::from_secs(30),
             max_response_bytes: 1024 * 1024,
             system_prompt: Self::default_system_prompt(),
+            extra_body: Self::default_extra_body(),
             headers: Vec::new(),
             tls_ca_path: None,
             oauth2: None,
@@ -381,6 +453,44 @@ impl UreqNlPlanner {
         self.connect_timeout = connect;
         self.read_timeout = read;
         self
+    }
+
+    /// The default extra request-body members: `chat_template_kwargs.enable_thinking=false`,
+    /// so a reasoning model answers the planner prompt directly instead of spending
+    /// minutes on hidden reasoning tokens (EG-FEDERATED-QUERY-R058.5).
+    pub fn default_extra_body() -> serde_json::Map<String, serde_json::Value> {
+        let mut m = serde_json::Map::new();
+        m.insert(
+            "chat_template_kwargs".into(),
+            serde_json::json!({ "enable_thinking": false }),
+        );
+        m
+    }
+
+    /// Override the response read timeout (fluent). Refuses a timeout outside
+    /// [`NL_READ_TIMEOUT_MIN_SECS`]..=[`NL_READ_TIMEOUT_MAX_SECS`].
+    pub fn with_read_timeout_secs(mut self, secs: u64) -> Result<Self, NlConfigError> {
+        if !(NL_READ_TIMEOUT_MIN_SECS..=NL_READ_TIMEOUT_MAX_SECS).contains(&secs) {
+            return Err(NlConfigError::ReadTimeoutOutOfRange(secs));
+        }
+        self.read_timeout = std::time::Duration::from_secs(secs);
+        Ok(self)
+    }
+
+    /// Replace the extra request-body members merged into every chat-completions request
+    /// (fluent). `extra` must be a JSON object and must not set `model` or `messages`,
+    /// which the planner owns; an empty object sends nothing extra.
+    pub fn with_extra_body(mut self, extra: serde_json::Value) -> Result<Self, NlConfigError> {
+        let serde_json::Value::Object(map) = extra else {
+            return Err(NlConfigError::ExtraBodyNotObject);
+        };
+        for reserved in NL_RESERVED_BODY_KEYS {
+            if map.contains_key(*reserved) {
+                return Err(NlConfigError::ExtraBodyReservedKey((*reserved).to_string()));
+            }
+        }
+        self.extra_body = map;
+        Ok(self)
     }
 
     /// Override the response-size cap (fluent).
@@ -553,7 +663,7 @@ impl NlPlanner for UreqNlPlanner {
         } else {
             format!("Schema hint:\n{schema_hint}\n\nQuestion: {nl}")
         };
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": self.model,
             "temperature": 0,
             "messages": [
@@ -561,6 +671,11 @@ impl NlPlanner for UreqNlPlanner {
                 { "role": "user", "content": user },
             ],
         });
+        if let Some(obj) = body.as_object_mut() {
+            for (k, v) in &self.extra_body {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
         let body =
             serde_json::to_string(&body).map_err(|e| format!("nl-query: encode request: {e}"))?;
 

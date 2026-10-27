@@ -52,7 +52,7 @@ No arrow bypasses identity, owner binding, or transaction admission. A native fa
 | `MutationBatch` + terminal result | wire/compiler → transaction + redb/Raft | canonical request digest, verified scope, idempotency key, member set and one terminal outcome |
 | `OwnerManifest` lineage | storage registry → loader/writer | version and member ownership checked on read; unsupported layout gives named refusal |
 | `ChangeEnvelope` + position | committed stream → CDC subscriber | monotonic source position, replay-safe key, schema version, no uncommitted event |
-| Audit reservation/outcome | effect caller → EG audit store | `PENDING` before effect; linked completed/failed/indeterminate result; no outcome forgery |
+| Audit reservation/outcome | effect caller → Medulla audit store | `PENDING` before effect; linked completed/failed/indeterminate result; no outcome forgery |
 | Mirror cursor | committed stream → target sink | per-target durable checkpoint advanced only after idempotent target apply |
 | Auth context | verified transport → all executors | tenant and principal survive every route; no caller-supplied scope substitution |
 
@@ -66,7 +66,7 @@ Owner binding is validated once per write transaction and cached only for that t
 
 The transport verifies claims; all read executors and the native fast path take an immutable scoped authority context. RLS predicates apply before returning or joining user data. Explicit grants are resolved at use time, so revoke takes effect on the next request. KV keys retain principal-bound HMAC partitioning in every durability class. Audit reservation must be durable before any governed effect; an interrupted worker leaves `PENDING` for reconciliation, not a fabricated success. The outbox increments attempts for the head actually tried. Rejected reasoning projections require rebuild rather than skip-ack. CDC and mirror checkpoints move after target apply and can replay from the previous checkpoint safely. Delivery-side cursor rows stay local to their owner unless a versioned replicated contract proves otherwise.
 
-The deployment may offer `none`, `local`, or `external` authentication, but all modes produce the same internal principal/RBAC context before dispatch. `none` is an explicit single-principal development mode and must not mint an administrative identity from a client-supplied name. `local` owns password/session lifecycle in EG; `external` validates issuer, audience, tenant and policy-version binding before mapping claims. Switching modes must not reinterpret an old session as another principal. Every mode uses the same scope checks, request digest, audit class and access-denied errors. JIT elevation is a separate reserved `rbac.elevation` lease. The proposer and approver are distinct verified principals. The digest is exact, and expiry is checked on every use. Ordinary lease-write capability cannot issue it. Schema repair uses its own reserved kind with the same two-person invariant.
+The deployment may offer `none`, `local`, or `external` authentication, but all modes produce the same internal principal/RBAC context before dispatch. `none` is an explicit single-principal development mode and must not mint an administrative identity from a client-supplied name. `local` owns password/session lifecycle in Medulla; `external` validates issuer, audience, tenant and policy-version binding before mapping claims. Switching modes must not reinterpret an old session as another principal. Every mode uses the same scope checks, request digest, audit class and access-denied errors. JIT elevation is a separate reserved `rbac.elevation` lease. The proposer and approver are distinct verified principals. The digest is exact, and expiry is checked on every use. Ordinary lease-write capability cannot issue it. Schema repair uses its own reserved kind with the same two-person invariant.
 
 ### Native storage expansion
 
@@ -74,7 +74,7 @@ Classify requests before planner allocation. Only an exact supported point/struc
 
 ### Cross-product boundaries
 
-The [`unified-data-plane`](../unified-data-plane/spec.md) spec owns attached-source adapters, catalog mapping, upstream CDC capture, and federated query routing. It submits canonical envelopes and consumes EG positions. Serving products may call the audit API but cannot implement an independent audit log or skip reservation when unavailable. Finance can use TSDB and transactions, but this kernel contains no trading decision or order policy. These links are to local repository contracts; implementing this spec requires no private inventory.
+The [`unified-data-plane`](../unified-data-plane/spec.md) spec owns attached-source adapters, catalog mapping, upstream CDC capture, and federated query routing. It submits canonical envelopes and consumes Medulla positions. Serving products may call the audit API but cannot implement an independent audit log or skip reservation when unavailable. Finance can use TSDB and transactions, but this kernel contains no trading decision or order policy. These links are to local repository contracts; implementing this spec requires no private inventory.
 
 ### Design decisions to record before implementation
 
@@ -85,9 +85,9 @@ The [`unified-data-plane`](../unified-data-plane/spec.md) spec owns attached-sou
 
 ### Analytics worker carry-over
 
-The agent-utilities analytics worker (removed in AU-SEMANTIC-R011.10) was a remote client of the engine's existing `eg-jobs` plane, not a separate queue. It opened one engine connection per slot with a service identity holding scopes `kg:write` and `analytics:worker`. It claimed jobs with `worker_claim` and checkpointed at progress 0.1 and 0.9. It stage-published a typed result and called `worker_publish`. It had no schedule: it polled. Schedules for analytics belong to `JobIntent` in `crates/eg-jobs`, which this spec does not change.
+The Meristem analytics worker (removed in AU-SEMANTIC-R011.10) was a remote client of the engine's existing `eg-jobs` plane, not a separate queue. It opened one engine connection per slot with a service identity holding scopes `kg:write` and `analytics:worker`. It claimed jobs with `worker_claim` and checkpointed at progress 0.1 and 0.9. It stage-published a typed result and called `worker_publish`. It had no schedule: it polled. Schedules for analytics belong to `JobIntent` in `crates/eg-jobs`, which this spec does not change.
 
-The engine already runs the same loop in-process (`ensure_job_workers`), so the owning process for mining is the engine. A second process only adds a network hop and a second copy of the kernel. If a remote worker is ever needed, graph-os hosts it and uses the generated client. Graph-os deploys engine-adjacent services. Agent-utilities does not host this worker. The generic task queue in `EG-DURABLE-KERNEL-R071` to `R077` serves other work and is not used by this path.
+The engine already runs the same loop in-process (`ensure_job_workers`), so the owning process for mining is the engine. A second process only adds a network hop and a second copy of the kernel. If a remote worker is ever needed, Arbora hosts it and uses the generated client. Arbora deploys engine-adjacent services. Meristem does not host this worker. The generic task queue in `EG-DURABLE-KERNEL-R071` to `R077` serves other work and is not used by this path.
 
 | Old entry point | New entry point | Status |
 |---|---|---|
@@ -147,7 +147,7 @@ verification bindings. R017 and all other rows are unchanged.
 EG-DURABLE-KERNEL-R082.6 previously left ascending tie keys ambiguous.
 The historical miner sorts first-seen integer IDs, not label strings.
 The engine must preserve this order.
-AU commit `134576bd0f5931a9b22ed3c3859a3f4350731ad6` provides the original implementation.
+Meristem commit `134576bd0f5931a9b22ed3c3859a3f4350731ad6` provides the original implementation.
 Commit `92974bae8c3ed3a270f582300b7458d4f53571c4` deletes that implementation.
 The fixture records unchanged historical mining definitions, executed without unrelated transport imports.
 Six transactions use reverse-lexical labels and duplicate items.
@@ -282,7 +282,7 @@ Reject absolute paths, traversal and duplicate logical paths within one graph.
 
 Each immutable snapshot carries document ID, kind, logical path, revision and parent revision.
 It also carries canonical UTF-8 content, its Digest256, provenance and retention metadata.
-Content uses exact UTF-8 bytes without implicit normalization. EG recomputes the digest.
+Content uses exact UTF-8 bytes without implicit normalization. Medulla recomputes the digest.
 Reuse checked counters and existing blob references for stored content.
 Refuse oversized bodies before allocation or effects. Maximum content is 1 MiB per document.
 Logical IDs and paths are bounded to 256 and 1024 UTF-8 bytes respectively.
@@ -333,7 +333,7 @@ Old conflict contents remain retained until the explicit retention policy permit
 ### Sync state, provenance and retention
 
 Sync states are in_sync, graph_ahead, file_ahead, conflict and unavailable.
-EG derives each state from accepted revisions and persisted, authorized host evidence.
+Medulla derives each state from accepted revisions and persisted, authorized host evidence.
 No host evidence means unavailable, never in_sync.
 A prior materialized revision with a newer accepted head means graph_ahead.
 An observe_file receipt based on the current head means file_ahead until submission completes.
@@ -344,15 +344,15 @@ There must also be no pending observed edit or unresolved conflict.
 A matching acknowledgment cannot discard an observed edit or clear file_ahead.
 A stale acknowledgment cannot clear graph_ahead or conflict.
 
-GraphOS writes hosted files, then acknowledges their revision and digest through SyncMemorySnapshot.
+Arbora writes hosted files, then acknowledges their revision and digest through SyncMemorySnapshot.
 Only a verified materializer authority can acknowledge. A browser assertion is insufficient.
 Each retained observed edit advances a durable, checked observation_generation counter.
 The materializer reads that generation with the snapshot before writing hosted files.
 The acknowledgment binds document, graph incarnation, revision, digest, observation_generation and materialization attempt.
-EG compares both the accepted head and observation_generation atomically when recording an acknowledgment.
+Medulla compares both the accepted head and observation_generation atomically when recording an acknowledgment.
 A generation mismatch refuses without changing synchronization evidence or pending edits.
 A newer observe_file therefore invalidates an older acknowledgment even when the accepted revision is unchanged.
-EG stores this evidence but does not access GraphOS filesystem paths.
+Medulla stores this evidence but does not access Arbora filesystem paths.
 A later graph mutation invalidates the earlier in_sync decision.
 
 Persist the authenticated actor, policy version, operation identity and commit receipt.
@@ -367,13 +367,13 @@ Graph deletion and recreation cannot rebind old holders to the new graph incarna
 
 ### Producer sequence and non-ownership
 
-GraphOS later extends ARBORA-OPS-R024.4 under R009 and R013.
-It must compose these generated EG contracts through a real engine-backed port.
+Arbora later extends ARBORA-OPS-R024.4 under R009 and R013.
+It must compose these generated Medulla contracts through a real engine-backed port.
 It owns authenticated hosted listing, file materialization and conflict artifacts.
-Its operation IDs remain for the GraphOS owner to publish after this producer contract.
-WebUI then refines existing WEBUI-APPS-R031.2 through R031.4 and its R031.7 served proof.
-AU is an EG-driven harness. Neither AU nor WebUI decides synchronization or conflict authority.
-No GraphOS, WebUI, decision-engine or federated-query files change in this producer slice.
+Its operation IDs remain for the Arbora owner to publish after this producer contract.
+Overstory then refines existing WEBUI-APPS-R031.2 through R031.4 and its R031.7 served proof.
+Meristem is a Medulla-driven harness. Neither Meristem nor Overstory decides synchronization or conflict authority.
+No Arbora, Overstory, decision-engine or federated-query files change in this producer slice.
 
 ## 2026-10-12: R086 safe eviction and durable read-through
 
@@ -444,25 +444,25 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 
 ### `EG-DURABLE-KERNEL-R028.1` — AU:21
 
-- **EG storage contract:** persist the run checkpoint as an R085 `active_context` snapshot. Bind `run_id`, `work_item_id`, lease epoch/fencing token, checkpoint revision and payload digest in canonical UTF-8 content. Bind separate short-/long-term memory references by document ID, revision and digest. Derive tenant and graph only from verified request context. Fence updates to the live WorkItem lease epoch/token. No current EG operation atomically joins the R085 snapshot and WorkItem checkpoint pointer; `CasWorkItemMetadata` is scheduling metadata only. Define transaction and crash-recovery semantics before claiming this binding.
+- **Medulla storage contract:** persist the run checkpoint as an R085 `active_context` snapshot. Bind `run_id`, `work_item_id`, lease epoch/fencing token, checkpoint revision and payload digest in canonical UTF-8 content. Bind separate short-/long-term memory references by document ID, revision and digest. Derive tenant and graph only from verified request context. Fence updates to the live WorkItem lease epoch/token. No current Medulla operation atomically joins the R085 snapshot and WorkItem checkpoint pointer; `CasWorkItemMetadata` is scheduling metadata only. Define transaction and crash-recovery semantics before claiming this binding.
 - **Attach point:** proposed R085 `SyncMemorySnapshot` / `ReadMemorySnapshot`. Writes pass through existing MutationBatch, expected-head CAS. R039 remains the sole redb authority. A stale fence/revision, authority mismatch, digest mismatch, changed-body replay, or unavailable store refuses without head advance.
 - **Required acceptance:** restart and read the same checkpoint and memory references. Negative cases cover wrong tenant/graph, stale revision/fence, digest mismatch, changed-body replay, and unavailable persistence.
-- **Explicit dependency hold:** retention bounds/release authority. Owners must define the atomic transaction or explicit recovery contract joining the snapshot and WorkItem checkpoint pointer/fence. AU must define the resume request/receipt binding to the checkpoint and current fence. Define host-issued stream ID/cursor authority and replay semantics. Preserve original R028 and identity obligations, along with ARBORA-A2A/OPS streaming requirements. Hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
+- **Explicit dependency hold:** retention bounds/release authority. Owners must define the atomic transaction or explicit recovery contract joining the snapshot and WorkItem checkpoint pointer/fence. Meristem must define the resume request/receipt binding to the checkpoint and current fence. Define host-issued stream ID/cursor authority and replay semantics. Preserve original R028 and identity obligations, along with ARBORA-A2A/OPS streaming requirements. Hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
 
 ### `EG-DURABLE-KERNEL-R085.9` — AU:48
 
-- Store an `active_context` memory snapshot with a stable search-run document ID. Require exact UTF-8 JSON fields: nonempty `search_run_id`, positive `state_revision` equal to the snapshot revision, and four array-valued state fields. Arrays may be empty. EG validates the envelope and hashes exact bytes; AU defines item schemas and source identities.
-- Reuse R085 digest, one-MiB bound, graph-incarnation binding, authorization-before-lookup, expected-head CAS, durable mutation gateway, conflict retention. R039 remains the authority. AU must save complete state before eviction and resume using the exact document ID/revision read back by `ReadMemorySnapshot`.
+- Store an `active_context` memory snapshot with a stable search-run document ID. Require exact UTF-8 JSON fields: nonempty `search_run_id`, positive `state_revision` equal to the snapshot revision, and four array-valued state fields. Arrays may be empty. Medulla validates the envelope and hashes exact bytes; Meristem defines item schemas and source identities.
+- Reuse R085 digest, one-MiB bound, graph-incarnation binding, authorization-before-lookup, expected-head CAS, durable mutation gateway, conflict retention. R039 remains the authority. Meristem must save complete state before eviction and resume using the exact document ID/revision read back by `ReadMemorySnapshot`.
 - Refuse malformed/missing required fields, oversize content, wrong authority, stale graph, digest mismatch, or unavailable storage without head change. Stale write returns R085 conflict behavior.
-- Required tests: restart/context eviction then independent exact readback. Negatives for each refusal and a stale conflict with the accepted head unchanged. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7. Hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
-- **AU hold:** AU has not defined per-entry schemas/source identity for the four fields. AU also has not defined the continuation request/receipt binding to the exact stored revision. Do not claim consumer completion.
+- Required tests: restart/context eviction then independent exact readback. Negatives for each refusal and a stale conflict with the accepted head unchanged. Preserve Meristem R013.13/R020.1 and Medulla R085.1/.4/.7. Hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
+- **Meristem hold:** Meristem has not defined per-entry schemas/source identity for the four fields. Meristem also has not defined the continuation request/receipt binding to the exact stored revision. Do not claim consumer completion.
 
 ### `EG-DURABLE-KERNEL-R085.10` — AU:49
 
 - Persist each authorized session note through R085 with stable note ID and source run/task references. Bind source revision, canonical UTF-8 content/digest, provenance, graph incarnation and parent/current revision. Serve through existing R085 read/list and sync methods only.
-- EG returns authorized revision and sync/conflict state. Stale submissions are retained without replacing the head. EG does not perform automatic capture, prompt injection, relevance ranking, or conflict selection.
-- Required EG tests: exact source revision/digest/provenance readback after restart. Also test tenant/revocation redaction, stale conflict retention and capacity refusal before effects. Preserve AU R022.3 and EG R085.2/.5/.7. Hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
-- **AU hold:** AU has not defined trigger, note-kind mapping, relevance score/threshold or stale rule. AU must define conflict presentation/selection before automatic capture and transparent reuse acceptance.
+- Medulla returns authorized revision and sync/conflict state. Stale submissions are retained without replacing the head. Medulla does not perform automatic capture, prompt injection, relevance ranking, or conflict selection.
+- Required Medulla tests: exact source revision/digest/provenance readback after restart. Also test tenant/revocation redaction, stale conflict retention and capacity refusal before effects. Preserve Meristem R022.3 and Medulla R085.2/.5/.7. Hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
+- **Meristem hold:** Meristem has not defined trigger, note-kind mapping, relevance score/threshold or stale rule. Meristem must define conflict presentation/selection before automatic capture and transparent reuse acceptance.
 
 ### `EG-DURABLE-KERNEL-R084.7` — EG:28
 
@@ -477,7 +477,7 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 
 - Preserve parent `EG-DURABLE-KERNEL-R038` and its existing clauses.
 - Define: Define an explicit deployment profile with `embedded` (in-process operation requiring no external service) and `served` (configured service endpoint) modes. Profile selection controls transport/startup only. It does not silently change the existing persistent-namespace durability default or sync/redb acknowledgment authority. Ephemeral in-memory namespaces require an explicit `ephemeral` declaration and retain no durable log. Persistent namespaces retain their declared `sync` or `async` class. Do not adopt the source request’s universal in-memory default.
-- Producer/consumer: EG owns profile and storage selection. Transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation.
+- Producer/consumer: Medulla owns profile and storage selection. Transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation.
 - Source record SHA-256: `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
@@ -486,7 +486,7 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 <!-- spec-definition-patch:owner-dispatch-20261012-plan -->
 ## Cross-owner graph feed implementation plan — 2026-10-12
 
-- **`EG-DURABLE-KERNEL-R043.100` / WEBUI:5:** Add snapshot/high-water and cursor-read operations over the committed `ApplyChangeEnvelope` path. Include graph incarnation/revision, stable `(commit_id,event_ordinal)` identity, ordering and tombstones. Also include current authorization revision, 24-hour retention, a 256-event page limit and explicit expired-cursor/revocation outcomes. Emit versioned commit-to-visible latency fields and target p95 ≤1000 ms. GraphOS and WebUI own the served adapter and readable concurrent layout. Consumer id is `WEBUI-APPS-R030.8`. Source SHA-256 `0b416b47d85530fb35cf44bf5dc79e04e1b9746481027d0b0687b66579dc9844`.
+- **`EG-DURABLE-KERNEL-R043.100` / WEBUI:5:** Add snapshot/high-water and cursor-read operations over the committed `ApplyChangeEnvelope` path. Include graph incarnation/revision, stable `(commit_id,event_ordinal)` identity, ordering and tombstones. Also include current authorization revision, 24-hour retention, a 256-event page limit and explicit expired-cursor/revocation outcomes. Emit versioned commit-to-visible latency fields and target p95 ≤1000 ms. Arbora and Overstory own the served adapter and readable concurrent layout. Consumer id is `WEBUI-APPS-R030.8`. Source SHA-256 `0b416b47d85530fb35cf44bf5dc79e04e1b9746481027d0b0687b66579dc9844`.
 - The read feed must reuse the existing durable mutation authority. Do not create an alternate write envelope or count reload/local optimistic state as feed evidence.
 - Keep SPECIFIED until two authenticated served clients demonstrate concurrent commits and cursor reconnect. Also verify tombstone authorization, no-refresh visibility, measured latency and independent graph readback.
 <!-- /spec-definition-patch -->
@@ -507,13 +507,13 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 
 - Define order-snapshot structure with immutable-history marker and derivation-link binding.
 - Reuse sealed-record guard and transactional authority from R057 for atomic promotion.
-- Route provider submission through SDK governed writeback; host confirmation through GraphOS.
+- Route provider submission through Graft SDK governed writeback; host confirmation through Arbora.
 - Tests: snapshot creation, promotion with history immutability, derivation binding, veto on refusal.
 
 ### EG-DURABLE-KERNEL-R087 — EG:46
 
 - `.1`: Define five changeset-review flaw classes (injection, auth, exposure, crypto, logic) with impact policy and finding-to-code evidence in `crates/eg-types/src/changeset_review.rs`.
-- `.2`: Serve `ChangesetReview` endpoint routed from GraphOS producer through EG review logic. Regenerate public contracts.
+- `.2`: Serve `ChangesetReview` endpoint routed from Arbora producer through Medulla review logic. Regenerate public contracts.
 - Tests: all flaw classes, positive/negative acceptance, evidence-to-location tracing.
 
 ### EG-DURABLE-KERNEL-R088 — AU:38
@@ -525,14 +525,14 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 ### EG-DURABLE-KERNEL-R089 — AU:54
 
 - `.1`: Typed `VerificationVerdict` with success/failure, uncertainty bound and proof reference per step.
-- `.2`: AU consumer path refuses forward-chained conclusions from failed steps. Preserve existing AU-EG integration.
+- `.2`: Meristem consumer path refuses forward-chained conclusions from failed steps. Preserve existing AU-EG integration.
 - Tests: failed step, dependent refusal, proof binding round-trip.
 
 ### EG-DURABLE-KERNEL-R090 — EG:57
 
-- `.1`: Route GraphOS deployment selection through EG schema admission with typed refusal for unknown candidates.
+- `.1`: Route Arbora deployment selection through Medulla schema admission with typed refusal for unknown candidates.
 - `.2`: Serve digest readback with mismatch detection and typed refusal for divergence.
-- `.3`: Enforce read-only on external projections; refuse mutations; trace lineage to EG revision.
+- `.3`: Enforce read-only on external projections; refuse mutations; trace lineage to Medulla revision.
 - Tests: import selection, digest verification and accuracy, read-only refusal, lineage preservation.
 
 ### EG-DURABLE-KERNEL-R097 — EG:11
@@ -553,7 +553,7 @@ This declaration records the evidence correction without changing test behavior 
 
 Replaces: the harness-side proof of shard parallelism. The harness only submits one `MultiGraphBatchUpdate`.
 
-AU acceptance case: `tests/integration/knowledge_graph/test_shard_write_parallelism.py::test_cross_graph_writes_fan_across_shard_writers`.
+Meristem acceptance case: `tests/integration/knowledge_graph/test_shard_write_parallelism.py::test_cross_graph_writes_fan_across_shard_writers`.
 
 Call path: served `MultiGraphBatchUpdate` -> `src/server/dispatch/router/data_plane.rs:770` -> `multi_graph_batch_update` (`src/server/dispatch/change_envelope/multi_graph.rs:19`) -> `shard_for` (`backend_shard_routes.rs:12`) -> writer thread (`writer_thread.rs`).
 
@@ -576,7 +576,7 @@ References
 
 Replaces: `agent_utilities/knowledge_graph/backends/contrib/` (three backend modules and their package marker).
 
-AU acceptance cases: `tests/unit/knowledge_graph/test_neo4j_transport_security.py`, `tests/unit/knowledge_graph/test_backend_contrib.py`, `tests/unit/knowledge_graph/test_falkordb_param_sanitize.py` and the three `test_ladybug_*.py` files.
+Meristem acceptance cases: `tests/unit/knowledge_graph/test_neo4j_transport_security.py`, `tests/unit/knowledge_graph/test_backend_contrib.py`, `tests/unit/knowledge_graph/test_falkordb_param_sanitize.py` and the three `test_ladybug_*.py` files.
 
 Call path: served `ApplyMutation` -> outbox row -> `MirrorTargetSpec::Outbox` consumer (`EG-DURABLE-KERNEL-R024.5`) -> `MirrorTargetRegistry` (`crates/eg-plan/src/mirror_target.rs`) -> sink driver -> target acknowledgement -> `MirrorCursor` advance (`crates/eg-types/src/mirror_sink.rs`).
 
@@ -608,7 +608,7 @@ encoded RunEvent on the native WorkItem row. Resolve both node and outbox from
 one scoped read. Compare scope, batch, work item and digest before projecting
 safe fields. Never expose fence tokens, executor lease identity, carrier digest
 or caller-filled event sequence/cursor. Missing legacy bindings remain explicit
-unavailability; invalid bindings fail closed. GraphOS A2A-R010 remains open:
+unavailability; invalid bindings fail closed. Arbora A2A-R010 remains open:
 status/step producers and full replay/gap policy are separate prerequisites.
 ## EG-DURABLE-KERNEL-R101 — downtime work ontology and scheduler
 
@@ -637,11 +637,11 @@ separate decision-owner amendment is outside this change.
 
 #### Immutable ownership at new admission
 
-Arbora owns authenticated run admission; EG owns enforcement and durable state.
+Arbora owns authenticated run admission; Medulla owns enforcement and durable state.
 The existing verified request context supplies tenant, graph authority and the
 principal that starts the run. A delegated request retains its verified ultimate principal;
 worker identity, agent identity and body metadata cannot replace that principal.
-EG captures the privacy-safe principal persistence reference together with graph,
+Medulla captures the privacy-safe principal persistence reference together with graph,
 tenant, run ID and WorkItem ID. The same native transaction admits a new
 WorkItem/run and captures this binding. A run ID selects the record and never grants access. All existing
 authentication, graph, WorkItem-write, quota and dependency checks still apply.
@@ -665,9 +665,9 @@ superseded fences refuse before any new effect. WorkItem revision alone is not a
 lease fence. Keep one redb durability authority. A metadata write followed by a
 separate snapshot write, or a host dictionary, is not this operation.
 
-Publish the initial empty scaffold at revision zero before AU accepts any
+Publish the initial empty scaffold at revision zero before Meristem accepts any
 scaffold update. A first publication at a later revision is refused. Later
-new publications require a strictly greater AU scaffold revision; gaps are
+new publications require a strictly greater Meristem scaffold revision; gaps are
 permitted. Every new accepted publication stores its binding, revision, canonical
 payload digest and existing durable commit receipt atomically. Refusal changes
 none of them. SDK-CONNECTOR-CONTROL-R070 supplies the DTO; AU-BOUNDARY-R043.5.1
@@ -693,7 +693,7 @@ host deduplication cache. The logical command scope binds graph, verified tenant
 admitted run identity. It also binds operation (admit or publish), revision
 discriminator and the stable retry key. Admission uses the fixed tagged discriminator `admission`,
 which cannot equal an integer publication revision, including zero. Publication
-uses the AU scaffold revision integer. Admission reserves the proposed new run identity in the same transaction;
+uses the Meristem scaffold revision integer. Admission reserves the proposed new run identity in the same transaction;
 publication resolves the already admitted identity. Encode the additional scope
 unambiguously in the existing key derivation. Preserve existing operation keys
 and compatibility for unrelated WorkItem methods.
@@ -713,7 +713,7 @@ A retry after lease expiry may return an already accepted receipt only through
 this no-effect replay path. It cannot authorize a new write or make readback
 available. A caller that no longer has authority cannot obtain the receipt.
 
-Existing attachment points, reviewed at EG `11a1aa62`:
+Existing attachment points, reviewed at Medulla `11a1aa62`:
 `src/server/mutation_batch/commit/work_item.rs::derive_work_item_identity`,
 `src/server/mutation_batch/digest.rs::work_item_batch_identity` and
 `terminal_work_item_identity`, and the native durable `MutationBatch` replay
@@ -753,7 +753,7 @@ mutation identity/transaction paths. Regenerate the authoritative protocol,
 method catalog, schemas and Python bindings. Add native transaction/restart tests
 and measure the new operation against the existing WorkItem transaction budget.
 No numerical performance result is claimed by this amendment. Only after those
-native gates pass may SDK/AU/Arbora composition and authenticated served acceptance
+native gates pass may Graft SDK/Meristem/Arbora composition and authenticated served acceptance
 establish runtime availability. No native build or generation is part of this
 spec-only amendment.
 
@@ -774,7 +774,7 @@ Normal opens refuse the predecessor; no production migration is performed by thi
 implementation. A synthesized predecessor test is added; a recorded fixture from
 the previous build and native execution evidence remain pending.
 
-This engine prerequisite does not compose Arbora's reader or AU's run loop and
+This engine prerequisite does not compose Arbora's reader or Meristem's run loop and
 does not establish successful end-to-end inspector publication.
 
 ### 2026-10-22 — executable attachment on the existing current-plan owner
@@ -785,22 +785,22 @@ Legacy JSON and named MessagePack omit this field and decode with no attachment.
 Older binaries use strict snapshot decoding and may reject attachment-bearing rows; downgrade compatibility is not established.
 The existing owner-table layout identity describes table keys and values, which remain unchanged.
 This source change performs no deployment, store migration or production data rewrite.
-EG never embeds executable JSON inside scaffold item text.
+Medulla never embeds executable JSON inside scaffold item text.
 
 The live path remains `PublishCurrentPlan` -> `prepare_current_plan` -> `commit_work_item` -> `store_native` -> `current_plan::publish`.
 An explicit attachment requires the original typed proposal in `PublishCurrentPlanRequest.task_plan_proposal`.
 `PublishCurrentPlanRequest::validate` recomputes `plan_explicit_tasks(proposal)` and requires exact TaskPlan equality.
 This comparison covers canonical tasks, output, limits, total count, policy revision and all three digests.
-The original proposal preserves declaration ordering, so EG also verifies the `input_digest`.
+The original proposal preserves declaration ordering, so Medulla also verifies the `input_digest`.
 An unpaired proposal or attachment refuses; legacy requests omit both fields.
 Content validation is not an attested decision receipt, authenticated principal or authorization proof.
-Arbora still supplies verified admission and transport; AU only executes the admitted bound plan.
+Arbora still supplies verified admission and transport; Meristem only executes the admitted bound plan.
 
 The first accepted attachment becomes immutable for this admitted run.
 An empty revision-zero scaffold may carry that attachment; a later increasing revision may attach a previously absent plan.
 A later omission of both request fields preserves the original attachment, including its input digest.
 An explicit different attachment refuses even with a new revision or retry key.
-EG hashes the resolved publication body, including any retained attachment, into the returned payload digest.
+Medulla hashes the resolved publication body, including any retained attachment, into the returned payload digest.
 The private snapshot stores only the verified TaskPlan; the existing mutation body digest also binds the original proposal.
 The existing MutationBatch digest binds the submitted body, and its stable identity excludes that body's content.
 An exact authenticated retry returns the original receipt without revision, lease, expiry or outbox changes.
@@ -1032,6 +1032,19 @@ The source merge preserves conversation admission and the new ontology fields.
 The conflicting receipt and catalog files retain exact parent versions pending fresh child generation.
 Those placeholders do not certify the combined child schema.
 Fresh native exports and final-head parity remain required before merge.
+
+## Store migration at open and copied-store restore (R070.1, R070.2, R862)
+
+**Migration at open.** The entry point is `main.rs`, which calls `server_startup::acquire_persist_lock`.
+That function takes the exclusive lock and then calls `migrate_stores_on_open` (`src/server_startup.rs:155`).
+`store_upgrade::migrate_on_open` reuses `discover`, `classify_owner_store_format`, `Staging` and `apply_store` of R070.
+It adds no second upgrade path. `open_persistence` keeps the R070 refusal; it fires only with the switch off.
+The journal is evidence and a resume signal. The store manifests stay the authority on format.
+A store left by an unclean shutdown is not inspected at open. Its ordinary open recovers it first.
+
+**Copied-store restore.** `StoreIncarnation::derive` binds a store root to its files' device and inode.
+That binding stops a copied file from replacing a live store unnoticed. R862 keeps it for the ordinary open.
+Only an explicit restore or `rebind` re-binds a store, and only after a content-digest check.
 
 ### 2026-10-20 — R030.1 issuer-bound host-start records
 

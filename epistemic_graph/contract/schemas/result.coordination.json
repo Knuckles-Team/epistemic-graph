@@ -818,6 +818,23 @@
       "maxItems": 32,
       "type": "array"
     },
+    "BoundedVec_HarnessContrast_8": {
+      "items": {
+        "$ref": "#/$defs/HarnessContrast"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_Nullable_string_8": {
+      "items": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_OpeEstimateView_8": {
       "items": {
         "$ref": "#/$defs/OpeEstimateView"
@@ -1010,6 +1027,13 @@
         "type": "string"
       },
       "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_string_8": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
       "type": "array"
     },
     "CalibrationMethod": {
@@ -5569,6 +5593,136 @@
       ],
       "type": "object"
     },
+    "HarnessContrast": {
+      "additionalProperties": false,
+      "description": "The measured behavioral contrast of two probe runs of one task\n(R802.1/R802.2). Every delta is B minus A on the Q32 fixed-point scale:\nsigned counts as `count << 32`, fractions as their Q32 numerator.",
+      "properties": {
+        "conditions_digest": {
+          "description": "The digest of the identical probe conditions (task, seed, model,\nbudget); both runs and the engine agree on it or the contrast refuses.",
+          "type": "string"
+        },
+        "cost_delta": {
+          "description": "B minus A of the run cost; negative is the improvement (lower cost).",
+          "format": "int64",
+          "type": "integer"
+        },
+        "eval_score_delta": {
+          "description": "B minus A of the evaluation score; positive is the improvement\n(higher score).",
+          "format": "int64",
+          "type": "integer"
+        },
+        "retry_delta": {
+          "description": "B minus A of the retry count; negative is the improvement (fewer).",
+          "format": "int64",
+          "type": "integer"
+        },
+        "run_a_trace_id": {
+          "description": "The baseline run, by trace id.",
+          "type": "string"
+        },
+        "run_b_trace_id": {
+          "description": "The candidate run, by trace id.",
+          "type": "string"
+        },
+        "task_ref": {
+          "description": "The task both runs probed.",
+          "type": "string"
+        },
+        "tool_selection_delta": {
+          "description": "B minus A of the tool-selection quality fraction; positive is the\nimprovement (better selection).",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task_ref",
+        "conditions_digest",
+        "run_a_trace_id",
+        "run_b_trace_id",
+        "retry_delta",
+        "tool_selection_delta",
+        "eval_score_delta",
+        "cost_delta"
+      ],
+      "type": "object"
+    },
+    "HarnessContrastAbstainReason": {
+      "description": "The closed abstain reasons of one contrast decision (R803.1).",
+      "oneOf": [
+        {
+          "const": "no_improvement",
+          "description": "Every delta was zero or negative; the current harness is kept.",
+          "type": "string"
+        },
+        {
+          "const": "trace_mismatch",
+          "description": "The named evidence cannot be matched to the stored runs.",
+          "type": "string"
+        },
+        {
+          "const": "insufficient_evidence",
+          "description": "A candidate was never probed, so its delta is not evidence.",
+          "type": "string"
+        }
+      ]
+    },
+    "HarnessContrastDecision": {
+      "additionalProperties": false,
+      "description": "One contrast decision, recorded (R803.1).",
+      "properties": {
+        "abstain_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HarnessContrastAbstainReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the decision abstained; set exactly when `adopted_version_ref` is\nabsent."
+        },
+        "adopted_version_ref": {
+          "description": "The candidate adopted; set exactly when `abstain_reason` is absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "candidate_version_refs": {
+          "$ref": "#/$defs/BoundedVec_string_8",
+          "description": "The candidate component-version node ids, in declared order."
+        },
+        "conditions_digest": {
+          "description": "The digest of the identical probe conditions (task, seed, model,\nbudget).",
+          "type": "string"
+        },
+        "deltas": {
+          "$ref": "#/$defs/BoundedVec_HarnessContrast_8",
+          "description": "The measured contrast per candidate, aligned with the candidates."
+        },
+        "probe_trace_ids": {
+          "$ref": "#/$defs/BoundedVec_Nullable_string_8",
+          "description": "The probe-run trace id per candidate, aligned with the candidates;\n`None` where the caller never probed."
+        },
+        "task_class": {
+          "description": "The task class the adoption applies to.",
+          "type": "string"
+        },
+        "task_ref": {
+          "description": "The task the contrast probed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_ref",
+        "task_class",
+        "candidate_version_refs",
+        "conditions_digest",
+        "probe_trace_ids",
+        "deltas"
+      ],
+      "type": "object"
+    },
     "HarnessPart_ActionSpace": {
       "description": "Each part carries its own decision or conservative fallback.",
       "oneOf": [
@@ -7922,6 +8076,11 @@
         {
           "const": "task_plan",
           "description": "Bounded explicit dependency planning; admission belongs to the host.",
+          "type": "string"
+        },
+        {
+          "const": "harness_contrast",
+          "description": "The contrastive harness composition decision (EG-DECISION-ENGINE-R803):\ntwo to eight candidate component versions probed against the same\nbaseline under identical conditions; the engine adopts a candidate only\nwhen its measured `eval_score_delta` is positive and unbeaten, with\ncost as the tie-break, and abstains keeping the current harness when no\ncandidate improves. See `decision::harness_contrast`.",
           "type": "string"
         }
       ]
@@ -10748,6 +10907,17 @@
         },
         "feature_schema": {
           "$ref": "#/$defs/ComponentDependency"
+        },
+        "harness_contrast": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HarnessContrastDecision"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The contrastive harness composition decision, present exactly when the\nquestion kind is `HarnessContrast` (EG-DECISION-ENGINE-R803)."
         },
         "harness_evaluation": {
           "anyOf": [

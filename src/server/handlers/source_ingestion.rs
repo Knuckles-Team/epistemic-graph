@@ -2145,7 +2145,7 @@ fn validate_mapping_selector(
         return Ok(());
     };
     let selected = mapping_reference
-        .rsplit_once("#schema_mappings/")
+        .rsplit_once("#mappings/")
         .map(|(_, key)| key)
         .ok_or_else(|| "SOURCE_MAPPING_SELECTOR_INVALID: keyed mapping is required".to_string())?;
     if declared != selected {
@@ -2343,7 +2343,7 @@ mod tests {
         SourceRecord {
             stream: ResourceId::new("items").unwrap(),
             record_id: "item-1".into(),
-            mapping_reference: "manifest:demo#schema_mappings/item".into(),
+            mapping_reference: "connector:demo#mappings/item".into(),
             payload: SourceJson::new(serde_json::json!({"id": 7, "name": "seven"})).unwrap(),
             updated_at: None,
             provenance: SourceRecordProvenance {
@@ -2364,7 +2364,7 @@ mod tests {
             &record(),
             "Document",
             &mapping,
-            "manifest:demo#schema_mappings/item",
+            "connector:demo#mappings/item",
             &"a".repeat(64),
             false,
         )
@@ -2381,7 +2381,7 @@ mod tests {
             &record(),
             "Document",
             &missing,
-            "manifest:demo#schema_mappings/item",
+            "connector:demo#mappings/item",
             &"a".repeat(64),
             false,
         )
@@ -2392,7 +2392,7 @@ mod tests {
             &record(),
             "Document",
             &reserved,
-            "manifest:demo#schema_mappings/item",
+            "connector:demo#mappings/item",
             &"a".repeat(64),
             false,
         )
@@ -2407,7 +2407,7 @@ mod tests {
             &record(),
             "Document",
             &xsd,
-            "manifest:demo#schema_mappings/item",
+            "connector:demo#mappings/item",
             &"a".repeat(64),
             false,
         )
@@ -2419,7 +2419,7 @@ mod tests {
             &record(),
             "Document",
             &strict,
-            "manifest:demo#schema_mappings/item",
+            "connector:demo#mappings/item",
             &"a".repeat(64),
             true,
         )
@@ -2431,7 +2431,7 @@ mod tests {
             &extra,
             "Document",
             &strict,
-            "manifest:demo#schema_mappings/item",
+            "connector:demo#mappings/item",
             &"a".repeat(64),
             true,
         )
@@ -2451,7 +2451,7 @@ mod tests {
             &selected,
             "Document",
             &BTreeMap::from([("name".to_string(), "xsd:string".to_string())]),
-            "manifest:demo#schema_mappings/item",
+            "connector:demo#mappings/item",
             &"a".repeat(64),
             true,
         )

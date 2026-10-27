@@ -23,7 +23,7 @@ from .client import (
     _sql_source_native_codec,
 )
 
-PACKAGE_NAME: Final = "epistemic-graph"
+PACKAGE_NAME: Final = "medulla"
 CLIENT_CAPABILITY_SCHEMA_VERSION: Final = 1
 WORK_ITEM_METADATA_CAS_CAPABILITY: Final = "work_items.cas_metadata"
 CONSENSUS_GET_IDENTITY_CAPABILITY: Final = "consensus.get_identity"

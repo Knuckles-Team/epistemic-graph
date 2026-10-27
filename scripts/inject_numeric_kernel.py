@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Fold the eg-numeric Surface-A kernel into the epistemic-graph wheel (EG-346).
+"""Fold the eg-numeric Surface-A kernel into the medulla wheel (EG-346).
 
-There is exactly ONE published package — ``epistemic-graph`` — and the numeric
+There is exactly ONE published package — ``medulla`` — and the numeric
 kernel ships INSIDE its wheel as a native ``epistemic_graph.numeric`` extension
 (``.abi3.so`` on Unix or ``.pyd`` on Windows), the module the
 ``agent_utilities.numeric`` ``xp`` shim probes. There is NO separately published
 ``eg-numeric`` package.
 
-The main ``epistemic-graph`` wheel is a maturin ``bindings="bin"`` wheel (it ships
+The main ``medulla`` wheel is a maturin ``bindings="bin"`` wheel (it ships
 the ``epistemic-graph-server`` binary, no pyo3). The kernel is a SEPARATE maturin
 pyo3 cdylib build (``crates/eg-numeric --features python``). This script takes the
 already-built kernel wheel, lifts its compiled extension, and injects it

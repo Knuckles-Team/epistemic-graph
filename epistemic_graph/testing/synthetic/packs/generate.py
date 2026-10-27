@@ -44,7 +44,7 @@ def _typical(stream: SeededStream, connector: str) -> list[EntrySpec]:
         content.ontology(connector, "core", 8),
         content.shapes(connector, "core-shapes", "core", 4),
         content.model_profile(connector, 0),
-        content.manifest(connector),
+        content.declaration(connector),
     ]
 
 
@@ -57,7 +57,7 @@ def _largest_bytes(stream: SeededStream, connector: str) -> list[EntrySpec]:
     turtle = [content.ontology(connector, f, 40, per_file) for f in files]
     last = turtle_budget - per_file * len(files)
     turtle.append(content.shapes(connector, "shapes", "core", 40, last))
-    return [*tools, *small, *turtle, content.manifest(connector)]
+    return [*tools, *small, *turtle, content.declaration(connector)]
 
 
 def _largest_entries(stream: SeededStream, connector: str) -> list[EntrySpec]:

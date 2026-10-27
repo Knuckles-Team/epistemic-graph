@@ -6,7 +6,9 @@ Tests run against disposable fixtures per connector; no live credential is part 
 
 | Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
 |---|---|---|---|---|---|
-| T-AUD-001 | file rollups EG-CQ-CONN-R068 to R082 | Contract | Load each ontology module named in the child row through the `CoreSpec` registry | The added class or property is declared with the stated domain and range; the module still loads | PENDING |
+| T-AUD-001 | file rollups EG-CQ-CONN-R068 to R082 | Contract | Load each child row's ontology through the `CoreSpec` registry. | The module declares the added class or property with the stated domain and range; the module still loads. | PENDING |
+| `ontology_audit_software::Repository_declared` | EG-CQ-CONN-R069.2 | Contract | Load registered `core:software@1` and `core:sdlc_lifecycle@1` sources | The software module declares `:Repository` with its `:Collection` parent; a lifecycle-module declaration fails | PENDING |
+| `ontology_audit_software::Branch_declared` | EG-CQ-CONN-R069.3 | Contract | Load registered `core:software@1` and `core:sdlc_lifecycle@1` sources | The software module declares `:Branch` with its BFO parent; a lifecycle-module declaration fails | PENDING |
 | T-AUD-002 | children with a SHACL shape | Contract | Validate a fixture node that violates the shape (for example `filledQty` above `orderQty`) | Validation reports the shape's message | PENDING |
 | T-AUD-003 | EG-CQ-CONN-R083 | Docs | Parse the Coverage cells for erpnext, salesforce and twenty after the `EG-SUPPLY-VOCAB-R003` terms land | `commercial_connector_prerequisites` checks all three Coverage rows and both Vocabulary cells. Producers in EG-SUPPLY-VOCAB-R003.7 through R003.17 resolve. Missing producers, unrelated-row-only edits and duplicate incompatible declarations fail; unavailable live fields cause typed abstention | PENDING |
 

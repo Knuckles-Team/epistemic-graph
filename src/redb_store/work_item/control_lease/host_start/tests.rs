@@ -1,4 +1,3 @@
-// spec: EG-DURABLE-KERNEL-R030.1.2
 use super::*;
 use crate::redb_store::work_item::test_shard::{open, with_nodes, GRAPH};
 use eg_types::host_start::HostStartInterfaces;

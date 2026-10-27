@@ -1,6 +1,6 @@
 # EG-BRANCH-MERGE — Agent Branching, Three-Way Merge, and Epistemic Conflict Resolution
 
-Owner: epistemic-graph (`EG`). Sole owner.
+Owner: Medulla (`EG`). Sole owner.
 
 ## User outcome
 
@@ -15,7 +15,7 @@ queryable state. It is never a silent last-write-wins overwrite.
 This gives long-horizon agents a reviewable write path. Each agent or task gets its own branch.
 Merge happens on review. Time travel spans the whole graph. A git-style engine keeps
 entity-level last-write-wins merges with constraint checks. The stated advantage is the merge
-model: EG's merge is evidence-weighted and validity-aware. Its conflict receipts are
+model: Medulla's merge is evidence-weighted and validity-aware. Its conflict receipts are
 first-class epistemic records.
 
 ## Requirements

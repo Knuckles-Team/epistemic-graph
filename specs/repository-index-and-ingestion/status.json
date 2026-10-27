@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-REPO-INGEST",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-REPO-INGEST-R001",
@@ -141,7 +141,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003",
-      "title": "EG is sole home for remaining migrated ingestion modules (rollup)",
+      "title": "Medulla is sole home for remaining migrated ingestion modules (rollup)",
       "delivery_state": "LANDED",
       "landed_in": [
         "0554e82ae743",
@@ -167,7 +167,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.1",
-      "title": "EG is sole home for migrated standardization processing (excluding drift detection)",
+      "title": "Medulla is sole home for migrated standardization processing (excluding drift detection)",
       "delivery_state": "LANDED",
       "landed_in": [
         "06a13bef2738",
@@ -179,7 +179,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.2",
-      "title": "EG owns the migrated infrastructure processing implementation",
+      "title": "Medulla owns the migrated infrastructure processing implementation",
       "delivery_state": "LANDED",
       "landed_in": [
         "06a13bef2738",
@@ -190,7 +190,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.3",
-      "title": "EG is sole home for migrated quantum processing",
+      "title": "Medulla is sole home for migrated quantum processing",
       "delivery_state": "LANDED",
       "landed_in": [
         "a17a6c5ded2f"
@@ -199,7 +199,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.4",
-      "title": "EG is sole home for migrated security processing",
+      "title": "Medulla is sole home for migrated security processing",
       "delivery_state": "LANDED",
       "landed_in": [
         "a17a6c5ded2f"
@@ -208,7 +208,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.5",
-      "title": "EG is sole home for migrated enterprise protocol handling",
+      "title": "Medulla is sole home for migrated enterprise protocol handling",
       "delivery_state": "LANDED",
       "landed_in": [
         "a17a6c5ded2f"
@@ -217,7 +217,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.6",
-      "title": "EG is sole home for migrated ecosystem concept extraction",
+      "title": "Medulla is sole home for migrated ecosystem concept extraction",
       "delivery_state": "LANDED",
       "landed_in": [
         "06a13bef2738",
@@ -228,7 +228,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.7",
-      "title": "EG is sole home for migrated trace-ontology observability",
+      "title": "Medulla is sole home for migrated trace-ontology observability",
       "delivery_state": "LANDED",
       "landed_in": [
         "0554e82ae743",
@@ -239,7 +239,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.8",
-      "title": "EG is sole home for migrated self-ingestion observability",
+      "title": "Medulla is sole home for migrated self-ingestion observability",
       "delivery_state": "LANDED",
       "landed_in": [
         "77fa741ee191"
@@ -248,7 +248,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.9",
-      "title": "EG is sole home for migrated audit-logging observability",
+      "title": "Medulla is sole home for migrated audit-logging observability",
       "delivery_state": "LANDED",
       "landed_in": [
         "77fa741ee191"
@@ -257,7 +257,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.10",
-      "title": "EG is sole home for migrated relational-authority governance",
+      "title": "Medulla is sole home for migrated relational-authority governance",
       "delivery_state": "LANDED",
       "landed_in": [
         "77fa741ee191"
@@ -266,7 +266,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.11",
-      "title": "EG is sole home for migrated placement-mining research",
+      "title": "Medulla is sole home for migrated placement-mining research",
       "delivery_state": "LANDED",
       "landed_in": [
         "0554e82ae743",
@@ -330,7 +330,7 @@
         "33c5c6459154"
       ],
       "verified_by": [
-        "src/server/handlers/repository_index_tests.rs:228"
+        "src/server/handlers/repository_index_tests.rs:242"
       ]
     },
     {
@@ -456,7 +456,7 @@
         "2a47417c6cfc"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/scale.rs:145"
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:278"
       ]
     },
     {

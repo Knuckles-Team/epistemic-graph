@@ -48,6 +48,7 @@ from _git_subprocess_env import (
     sanitized_git_env,
     strip_inherited_git_repository_env,
 )
+from third_party_sources import verify as verify_third_party_sources
 
 # R-07: `pwd` is POSIX-only and raises ImportError at import time on Windows.
 # It only ever supplies one extra candidate identifier (the passwd-db
@@ -1080,16 +1081,21 @@ def _scan_tracked_artifact(
     identifiers: frozenset[str],
     violations: list[Violation],
     ordinals: dict[tuple[str, str, str], int],
+    reviewed_lines: frozenset[int] = frozenset(),
 ) -> None:
     relative = path.relative_to(root)
     rel_str = relative.as_posix()
     deployment_doc = _is_deployment_doc(relative)
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     for number in _author_metadata_lines(path, lines):
+        if number in reviewed_lines:
+            continue
         category = "non-neutral package author identity"
         content_hash = _content_hash(lines[number - 1])
         _record_violation(violations, ordinals, rel_str, number, category, content_hash)
     for number, line in enumerate(lines, 1):
+        if number in reviewed_lines:
+            continue
         for category in classify_line(
             line,
             identifiers=identifiers,
@@ -1107,6 +1113,7 @@ def _scan_runtime_source_artifact(
     identifiers: frozenset[str],
     violations: list[Violation],
     ordinals: dict[tuple[str, str, str], int],
+    reviewed_lines: frozenset[int] = frozenset(),
 ) -> None:
     relative = path.relative_to(root)
     rel_str = relative.as_posix()
@@ -1118,6 +1125,8 @@ def _scan_runtime_source_artifact(
         _record_violation(violations, ordinals, rel_str, 1, category, content_hash)
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     for number, line in enumerate(lines, 1):
+        if number in reviewed_lines:
+            continue
         for category in classify_runtime_source_line(line, identifiers=identifiers):
             content_hash = _content_hash(line)
             _record_violation(
@@ -1190,32 +1199,75 @@ def _self_check() -> tuple[int, dict]:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _scan_one(job: tuple[str, Path, Path, frozenset[str]]) -> list[Violation]:
+def _scan_one(
+    job: tuple[str, Path, Path, frozenset[str], frozenset[int]],
+) -> list[Violation]:
     """Scan one file in a worker.
 
     The ordinal map is keyed by (path, category, hash), so it never crosses a
     file boundary and each file can be scanned independently.
     """
 
-    kind, path, root, identifiers = job
+    kind, path, root, identifiers, reviewed_lines = job
     violations: list[Violation] = []
     ordinals: dict[tuple[str, str, str], int] = {}
     if kind == "artifact":
-        _scan_tracked_artifact(path, root, identifiers, violations, ordinals)
+        _scan_tracked_artifact(
+            path, root, identifiers, violations, ordinals, reviewed_lines
+        )
     else:
-        _scan_runtime_source_artifact(path, root, identifiers, violations, ordinals)
+        _scan_runtime_source_artifact(
+            path, root, identifiers, violations, ordinals, reviewed_lines
+        )
     return violations
 
 
 def scan(root: Path = ROOT) -> list[Violation]:
     identifiers = derive_local_identifiers(root)
-    jobs: list[tuple[str, Path, Path, frozenset[str]]] = []
+    jobs: list[tuple[str, Path, Path, frozenset[str], frozenset[int]]] = []
+    third_party, policy_errors, _reviewed_findings = verify_third_party_sources(root)
+    if policy_errors:
+        return [
+            Violation(
+                path=".config/third-party-sources.toml",
+                line=1,
+                category=f"third-party source policy: {error}",
+                content_hash=_content_hash(error),
+                ordinal=index,
+            )
+            for index, error in enumerate(policy_errors)
+        ]
+    reviewed_lines_by_path: dict[str, frozenset[int]] = {}
+    for finding in _reviewed_findings:
+        if finding.kind == "upstream_privacy_example" and finding.path in third_party:
+            reviewed_lines_by_path.setdefault(finding.path, frozenset())
+            reviewed_lines_by_path[finding.path] = frozenset(
+                {*reviewed_lines_by_path[finding.path], finding.line}
+            )
     for path in _tracked_artifacts(root):
         if path.is_file():
-            jobs.append(("artifact", path, root, identifiers))
+            relative = path.relative_to(root).as_posix()
+            jobs.append(
+                (
+                    "artifact",
+                    path,
+                    root,
+                    identifiers,
+                    reviewed_lines_by_path.get(relative, frozenset()),
+                )
+            )
     for path in _runtime_source_artifacts(root):
         if path.is_file():
-            jobs.append(("runtime", path, root, identifiers))
+            relative = path.relative_to(root).as_posix()
+            jobs.append(
+                (
+                    "runtime",
+                    path,
+                    root,
+                    identifiers,
+                    reviewed_lines_by_path.get(relative, frozenset()),
+                )
+            )
     # The line classifier is pure Python (about a minute serially for the whole
     # repository), so the files are scanned in worker processes.
     workers = min(len(jobs), os.cpu_count() or 1, 16)

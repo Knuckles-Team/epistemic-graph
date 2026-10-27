@@ -11,7 +11,7 @@ registered identity with no grants, or an unregistered principal, sees neither.
 
 The writer is this build, and also the previous patch's published engine when
 `EPISTEMIC_GRAPH_PREVIOUS_PATCH_BINARY` names it (`pip install
-epistemic-graph-server==<previous>`). A store binds to its files' device and inode, so a
+medulla-stem==<previous>`). A store binds to its files' device and inode, so a
 copied store cannot be committed as a fixture; the writer creates it in place. Between
 writer and reader the test runs `store-upgrade apply`, the documented offline step. That
 upgrade refuses a store under `/tmp`, so run the previous-patch leg with `--basetemp`
@@ -126,6 +126,17 @@ async def _listed(socket_path: str, agent: str) -> list[str] | str:
         await client.close()
 
 
+async def _written(socket_path: str) -> None:
+    """Populate a fresh store the way arbora does, and see both graphs."""
+
+    await _populate(socket_path)
+    assert await _listed(socket_path, AGENT) == BOTH
+
+
+async def _lists_both(socket_path: str) -> None:
+    assert await _listed(socket_path, AGENT) == BOTH
+
+
 class _Store:
     """One store on disk, served by a fresh engine process per `run`."""
 
@@ -147,12 +158,14 @@ class _Store:
         )
         assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
 
-    def run(self, binary: str, check) -> None:
+    def run(self, binary: str, check, **extra: str) -> str:
+        """Serve the store once with `extra` environment; return the engine log."""
+
         if os.path.exists(self.socket):
             os.remove(self.socket)
         process = spawn_server(
             [binary, "--socket-path", self.socket, "--persist-dir", str(self.persist)],
-            env=_env(self.state),
+            env={**_env(self.state), **extra},
             log_path=self.log,
         )
         try:
@@ -162,6 +175,7 @@ class _Store:
             asyncio.run(check())
         finally:
             stop_server(process, name="upgrade engine", log_path=self.log)
+        return self.log.read_text(errors="replace")
 
 
 def _writers() -> list:
@@ -186,17 +200,13 @@ def test_reopened_store_lists_graphs_for_the_stored_policy(writer, tmp_path):
         pytest.skip("build the full-featured engine binary before this served test")
     store = _Store(tmp_path)
 
-    async def written() -> None:
-        await _populate(store.socket)
-        assert await _listed(store.socket, AGENT) == BOTH
-
     async def reopened() -> None:
-        assert await _listed(store.socket, AGENT) == BOTH
+        await _lists_both(store.socket)
         for stranger in (UNGRANTED, UNREGISTERED):
             listed = await _listed(store.socket, stranger)
             assert not isinstance(listed, list) or listed == [], (stranger, listed)
 
-    store.run(writer or binary, written)
+    store.run(writer or binary, lambda: _written(store.socket))
     store.upgrade(binary)
     store.run(binary, reopened)
     # A second restart of the upgraded store still lists both graphs.

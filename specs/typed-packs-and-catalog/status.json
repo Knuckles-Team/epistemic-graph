@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-TYPED-PACKS",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-TYPED-PACKS-R001",
@@ -198,6 +198,8 @@
     "EG-TYPED-PACKS-R101.7",
     "EG-TYPED-PACKS-R101.8",
     "EG-TYPED-PACKS-R101.9",
+    "EG-TYPED-PACKS-R101.10",
+    "EG-TYPED-PACKS-R101.11",
     "EG-TYPED-PACKS-R102",
     "EG-TYPED-PACKS-R102.1",
     "EG-TYPED-PACKS-R102.2",
@@ -224,6 +226,13 @@
     "EG-TYPED-PACKS-R105.1",
     "EG-TYPED-PACKS-R105.2",
     "EG-TYPED-PACKS-R105.3",
+    "EG-TYPED-PACKS-R105.3.1",
+    "EG-TYPED-PACKS-R105.4",
+    "EG-TYPED-PACKS-R105.5",
+    "EG-TYPED-PACKS-R105.6",
+    "EG-TYPED-PACKS-R105.7",
+    "EG-TYPED-PACKS-R105.8",
+    "EG-TYPED-PACKS-R105.9",
     "EG-TYPED-PACKS-R750",
     "EG-TYPED-PACKS-R750.750",
     "EG-TYPED-PACKS-R750.751",
@@ -268,6 +277,8 @@
     "EG-TYPED-PACKS-R712",
     "EG-TYPED-PACKS-R711",
     "EG-TYPED-PACKS-R713",
+    "EG-TYPED-PACKS-R714",
+    "EG-TYPED-PACKS-R715",
     "EG-TYPED-PACKS-R800",
     "EG-TYPED-PACKS-R800.1",
     "EG-TYPED-PACKS-R800.2",
@@ -321,6 +332,7 @@
     "EG-TYPED-PACKS-R106.4",
     "EG-TYPED-PACKS-R106.5",
     "EG-TYPED-PACKS-R106.6",
+    "EG-TYPED-PACKS-R106.7",
     "EG-TYPED-PACKS-R107",
     "EG-TYPED-PACKS-R107.1",
     "EG-TYPED-PACKS-R107.2",
@@ -378,7 +390,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:138"
+        "tests/test_connector_pack_client.py:137"
       ],
       "rollup_of": [
         "EG-TYPED-PACKS-R001.1",
@@ -583,8 +595,8 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:258",
-        "tests/test_connector_pack_client.py:368"
+        "tests/test_connector_pack_client.py:257",
+        "tests/test_connector_pack_client.py:367"
       ]
     },
     {
@@ -670,7 +682,7 @@
         "a7fb03fc503f"
       ],
       "verified_by": [
-        "src/server/persistence/store_upgrade/tests.rs:424"
+        "src/server/persistence/store_upgrade/tests.rs:439"
       ]
     },
     {
@@ -770,7 +782,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R020",
-      "title": "A tenant-profile administrative capability defect is out of EG scope",
+      "title": "A tenant-profile administrative capability defect is out of Medulla scope",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "08a2b1958cc3"
@@ -1001,9 +1013,12 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "ac5638477288",
+        "b9e2f8389e6f",
+        "c09b874a403e",
         "d116b7dbfd27"
       ],
       "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:174",
         "tests/test_connector_pack_planted.py:234"
       ]
     },
@@ -1095,18 +1110,18 @@
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:33",
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:62",
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:88",
-        "tests/test_connector_pack_client.py:458"
+        "tests/test_connector_pack_client.py:457"
       ]
     },
     {
       "id": "EG-TYPED-PACKS-R044",
-      "title": "EG-computed tool schema digests",
+      "title": "Medulla-computed tool schema digests",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:210"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:205"
       ]
     },
     {
@@ -1290,20 +1305,20 @@
         "6be6da12f970"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/digest.rs:360",
+        "crates/eg-types/src/connector_pack/digest.rs:359",
         "tests/typed_packs/test_model_harness_facts.py:36"
       ]
     },
     {
       "id": "EG-TYPED-PACKS-R049",
-      "title": "contract_pin is carried as an opaque SDK claim",
+      "title": "contract_pin is carried as an opaque Graft SDK claim",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0b9445099b24",
         "db863f1e2afd"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/digest.rs:406"
+        "crates/eg-types/src/connector_pack/digest.rs:405"
       ]
     },
     {
@@ -1455,12 +1470,12 @@
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:211"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:206"
       ]
     },
     {
       "id": "EG-TYPED-PACKS-R065",
-      "title": "EG does not recompute the SDK's contract-pin normalization",
+      "title": "Medulla does not recompute the Graft SDK's contract-pin normalization",
       "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
@@ -1624,7 +1639,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R072",
-      "title": "EG/SDK typed fleet-catalog authority, not SQL tables",
+      "title": "Medulla/Graft SDK typed fleet-catalog authority, not SQL tables",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",
@@ -1723,7 +1738,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R081",
-      "title": "Ontology object model migrated into EG's kg/ontology package",
+      "title": "Ontology object model migrated into Medulla's kg/ontology package",
       "delivery_state": "LANDED",
       "landed_in": [
         "64b30a5187f3",
@@ -1733,7 +1748,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R082",
-      "title": "EG-generated types replace hand-written graph-schema DTOs",
+      "title": "Medulla-generated types replace hand-written graph-schema DTOs",
       "delivery_state": "LANDED",
       "landed_in": [
         "08a2b1958cc3",
@@ -1743,7 +1758,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R083",
-      "title": "Schema-drift SHACL rendering and contract store move into EG",
+      "title": "Schema-drift SHACL rendering and contract store move into Medulla",
       "delivery_state": "LANDED",
       "landed_in": [
         "90f5578ae2f4",
@@ -1846,12 +1861,16 @@
     {
       "id": "EG-TYPED-PACKS-R087",
       "title": "Stable error codes for auth-boundary refusals",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "18d0e152f4f3",
         "48746fc0e5ac",
+        "7aefb5a067f3",
         "90f5578ae2f4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/auth/claims.rs:184"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R088",
@@ -1880,12 +1899,16 @@
     {
       "id": "EG-TYPED-PACKS-R090",
       "title": "Canonical ontology and SHACL artifacts generated from Rust",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "080677a31fdd",
+        "2177548a24d3",
         "90f5578ae2f4"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-core/src/ontology_codegen.rs:119",
+        "crates/eg-core/src/ontology_codegen.rs:133"
+      ],
       "rollup_of": [
         "EG-TYPED-PACKS-R090.1"
       ]
@@ -1893,11 +1916,15 @@
     {
       "id": "EG-TYPED-PACKS-R090.1",
       "title": "A typed-vocabulary-to-Turtle generator reproduces checked-in output byte-for-byte",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "080677a31fdd"
+        "080677a31fdd",
+        "2177548a24d3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/ontology_codegen.rs:119",
+        "crates/eg-core/src/ontology_codegen.rs:133"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R091",
@@ -1919,8 +1946,8 @@
         "f097533e52c8"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:367",
-        "tests/test_connector_pack_client.py:412"
+        "tests/test_connector_pack_client.py:366",
+        "tests/test_connector_pack_client.py:411"
       ]
     },
     {
@@ -2288,7 +2315,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R101",
-      "title": "Ingest contracts are native OWL/RDF relationships in the pack graph (rollup)",
+      "title": "Ingest mappings come from the connector's declaration and the pack ontology (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2301,7 +2328,9 @@
         "EG-TYPED-PACKS-R101.6",
         "EG-TYPED-PACKS-R101.7",
         "EG-TYPED-PACKS-R101.8",
-        "EG-TYPED-PACKS-R101.9"
+        "EG-TYPED-PACKS-R101.9",
+        "EG-TYPED-PACKS-R101.10",
+        "EG-TYPED-PACKS-R101.11"
       ]
     },
     {
@@ -2320,45 +2349,51 @@
     },
     {
       "id": "EG-TYPED-PACKS-R101.3",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
     },
     {
       "id": "EG-TYPED-PACKS-R101.4",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
     },
     {
       "id": "EG-TYPED-PACKS-R101.5",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
     },
     {
       "id": "EG-TYPED-PACKS-R101.6",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.11",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.11"
     },
     {
       "id": "EG-TYPED-PACKS-R101.7",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
     },
     {
       "id": "EG-TYPED-PACKS-R101.8",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10 and R101.11",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10 and R101.11"
     },
     {
       "id": "EG-TYPED-PACKS-R101.9",
@@ -2369,7 +2404,34 @@
         "c4a73f6d5a74"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/scale.rs:92"
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:93"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.10",
+      "title": "Mappings come from the connector's declaration",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1441a36e7b30",
+        "81059c6ca5db"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/pack/tests.rs:186",
+        "crates/eg-types/src/connector_pack/index.rs:140",
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:140",
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:203",
+        "src/server/persistence/connector_pack/declaration.rs:101"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.11",
+      "title": "Undeclared mappings are refused by type",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "81059c6ca5db"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:153"
       ]
     },
     {
@@ -2560,7 +2622,13 @@
       "rollup_of": [
         "EG-TYPED-PACKS-R105.1",
         "EG-TYPED-PACKS-R105.2",
-        "EG-TYPED-PACKS-R105.3"
+        "EG-TYPED-PACKS-R105.3",
+        "EG-TYPED-PACKS-R105.4",
+        "EG-TYPED-PACKS-R105.5",
+        "EG-TYPED-PACKS-R105.6",
+        "EG-TYPED-PACKS-R105.7",
+        "EG-TYPED-PACKS-R105.8",
+        "EG-TYPED-PACKS-R105.9"
       ]
     },
     {
@@ -2594,10 +2662,114 @@
         "52dbb35d88bb",
         "6048a5ca398c",
         "9b4cb81fe847",
-        "e93c5f6ed76c"
+        "af2df826b260"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/connector_parent_classes.rs:48"
+        "crates/eg-rdf/tests/connector_parent_classes.rs:37",
+        "crates/eg-rdf/tests/connector_parent_classes.rs:90"
+      ],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R105.3.1"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.3.1",
+      "title": "Central source-record bridge",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af2df826b260",
+        "e2e696640993"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_parent_classes.rs:90"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.4",
+      "title": "The parent catalog holds a service-operations core aligned to the Open Group IT4IT data objects",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "26446669b39b",
+        "67b5923b6f57",
+        "7b71f99332ea",
+        "867b42f93737",
+        "9e170f2e27fa"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/service_operations_classes.rs:112",
+        "crates/eg-rdf/tests/service_operations_classes.rs:71"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.5",
+      "title": "The competency-question paths are complete on the engine side",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "67b5923b6f57",
+        "867b42f93737",
+        "9e170f2e27fa"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/service_operations_classes.rs:113",
+        "crates/eg-rdf/tests/service_operations_classes.rs:207"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.6",
+      "title": "The parent catalog declares the IT4IT delivery data objects",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "29c97bd07041",
+        "4e3fe14320b3",
+        "5a81d61e7937"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/domain_modules_classes.rs:654",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:661",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:706"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.7",
+      "title": "The parent catalog declares a data-platform and machine-learning module aligned to DCAT, PROV-O and ML-Schema",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "29c97bd07041",
+        "5a81d61e7937",
+        "a87da41458a1"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/domain_modules_classes.rs:667",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:674",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:707"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.8",
+      "title": "The parent catalog declares a media and content module aligned to schema.org media types, EBUCore, IFLA LRM and ActivityStreams",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "29c97bd07041",
+        "5a81d61e7937"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/domain_modules_classes.rs:680",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:687",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:708"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R105.9",
+      "title": "The parent catalog declares a search, retrieval and information-source module aligned to OpenSearch, DCMI Terms and PROV-O",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "29c97bd07041",
+        "5a81d61e7937"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/domain_modules_classes.rs:693",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:700",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:709"
       ]
     },
     {
@@ -2929,6 +3101,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "4e402b2ec8bf",
+        "cfe7d38376a4",
         "dc810128a66d"
       ],
       "verified_by": [
@@ -2945,7 +3118,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0305cbd4457e",
-        "912a39a98afe"
+        "912a39a98afe",
+        "cfe7d38376a4"
       ],
       "verified_by": [
         "tests/packs/test_schema_drift_served.py:169"
@@ -2961,6 +3135,20 @@
     {
       "id": "EG-TYPED-PACKS-R713",
       "title": "Process, lifecycle, temporal and harness shape artifacts are generated: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R714",
+      "title": "Delivery-path wiring of drift classification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R715",
+      "title": "Served quarantine of a drifted delivery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3351,15 +3539,26 @@
         "EG-TYPED-PACKS-R106.3",
         "EG-TYPED-PACKS-R106.4",
         "EG-TYPED-PACKS-R106.5",
-        "EG-TYPED-PACKS-R106.6"
+        "EG-TYPED-PACKS-R106.6",
+        "EG-TYPED-PACKS-R106.7"
       ]
     },
     {
       "id": "EG-TYPED-PACKS-R106.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1274d990f940",
+        "71a2101d8088",
+        "b0d8adcaa41f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:176",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:227",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:248",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:40",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:67"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R106.2",
@@ -3392,6 +3591,13 @@
     {
       "id": "EG-TYPED-PACKS-R106.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R106.7",
+      "title": "Competency queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3585,7 +3791,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R108.16",
-      "title": "One ranked index across all asset families",
+      "title": "One ranked index across all asset families, callable from queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

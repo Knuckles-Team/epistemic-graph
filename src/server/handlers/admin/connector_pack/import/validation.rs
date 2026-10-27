@@ -10,7 +10,7 @@ use eg_types::contract::Digest256;
 use sha2::{Digest, Sha256};
 
 use crate::server::persistence::connector_pack::{
-    decode_relationship_mappings, decode_schema_mappings,
+    decode_schema_mappings, CONNECTOR_DECLARATION_URI,
 };
 
 use super::facts::uri_prefix;
@@ -261,7 +261,7 @@ impl<'a> IndexValidator<'a> {
     fn validate_body(&mut self, entry: &PackEntry, body: &[u8]) {
         self.validate_text_body(entry, body);
         self.validate_json_body(entry, body);
-        self.validate_manifest_body(entry, body);
+        self.validate_declaration_body(entry, body);
         self.validate_skill_body(entry, body);
         if let Err(detail) = super::skill_files::validate_skill_file(entry) {
             self.reject(PackViolationCode::MalformedIndex, Some(&entry.uri), detail);
@@ -292,15 +292,19 @@ impl<'a> IndexValidator<'a> {
         }
     }
 
-    fn validate_manifest_body(&mut self, entry: &PackEntry, body: &[u8]) {
-        if entry.kind != PackEntryKind::Manifest {
+    fn validate_declaration_body(&mut self, entry: &PackEntry, body: &[u8]) {
+        if entry.kind != PackEntryKind::Resource || entry.uri != CONNECTOR_DECLARATION_URI {
             return;
         }
-        if decode_schema_mappings(body).is_err() || decode_relationship_mappings(body).is_err() {
+        // An unreadable section is reported by the section checks, not here.
+        if section_bytes(self.archive, &entry.body).is_err() {
+            return;
+        }
+        if decode_schema_mappings(body).is_err() {
             self.reject(
                 PackViolationCode::MalformedBody,
                 Some(&entry.uri),
-                "connector manifest schema mappings are invalid",
+                "connector declaration schema mappings are invalid",
             );
         }
     }

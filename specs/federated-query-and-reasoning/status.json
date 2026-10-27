@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-FEDERATED-QUERY",
-  "owner_repo": "epistemic-graph",
+  "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-FEDERATED-QUERY-R001",
@@ -265,6 +265,12 @@
     "EG-FEDERATED-QUERY-R058.4.4",
     "EG-FEDERATED-QUERY-R058.4.5",
     "EG-FEDERATED-QUERY-R058.4.6",
+    "EG-FEDERATED-QUERY-R058.4.7",
+    "EG-FEDERATED-QUERY-R058.4.7.1",
+    "EG-FEDERATED-QUERY-R058.4.7.2",
+    "EG-FEDERATED-QUERY-R058.4.8",
+    "EG-FEDERATED-QUERY-R058.4.9",
+    "EG-FEDERATED-QUERY-R058.5",
     "EG-FEDERATED-QUERY-R088",
     "EG-FEDERATED-QUERY-R088.1",
     "EG-FEDERATED-QUERY-R088.2",
@@ -616,7 +622,7 @@
         "f17f47ab300f"
       ],
       "verified_by": [
-        "src/server/graph_schema/compose.rs:843"
+        "src/server/graph_schema/compose.rs:921"
       ]
     },
     {
@@ -769,7 +775,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2661",
-        "src/server/mod.rs:2093"
+        "src/server/mod.rs:2099"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R022.1"
@@ -786,7 +792,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2661",
-        "src/server/mod.rs:2093"
+        "src/server/mod.rs:2099"
       ]
     },
     {
@@ -1272,7 +1278,8 @@
         "EG-FEDERATED-QUERY-R058.1",
         "EG-FEDERATED-QUERY-R058.2",
         "EG-FEDERATED-QUERY-R058.3",
-        "EG-FEDERATED-QUERY-R058.4"
+        "EG-FEDERATED-QUERY-R058.4",
+        "EG-FEDERATED-QUERY-R058.5"
       ]
     },
     {
@@ -1303,7 +1310,7 @@
         "8710a3709c47"
       ],
       "verified_by": [
-        "crates/eg-plan/src/nl.rs:748"
+        "crates/eg-plan/src/nl.rs:863"
       ]
     },
     {
@@ -1342,9 +1349,18 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.3",
       "title": "No-cache-on-NL-text and no-mutation-reachable guarantees",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8710a3709c47",
+        "a685d96e5de3",
+        "d2cb221aa148"
+      ],
+      "verified_by": [
+        "src/server/handlers/query/nl.rs:261",
+        "src/server/handlers/query/nl.rs:267",
+        "src/server/handlers/query/nl.rs:290",
+        "src/server/tests/nl_explain.rs:108"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.3.1",
         "EG-FEDERATED-QUERY-R058.3.2"
@@ -1359,17 +1375,21 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:196",
-        "src/server/handlers/query/nl.rs:202",
-        "src/server/handlers/query/nl.rs:225"
+        "src/server/handlers/query/nl.rs:261",
+        "src/server/handlers/query/nl.rs:267",
+        "src/server/handlers/query/nl.rs:290"
       ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.3.2",
       "title": "No mutating operation is reachable from the NL surface",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a685d96e5de3"
+      ],
+      "verified_by": [
+        "src/server/tests/nl_explain.rs:108"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R059",
@@ -1519,11 +1539,11 @@
         "f948211fb8c7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:321",
-        "crates/eg-rdf/src/source_selection.rs:343",
-        "crates/eg-rdf/src/source_selection.rs:369",
-        "crates/eg-rdf/src/source_selection.rs:378",
-        "crates/eg-rdf/src/source_selection.rs:388"
+        "crates/eg-rdf/src/source_selection.rs:472",
+        "crates/eg-rdf/src/source_selection.rs:494",
+        "crates/eg-rdf/src/source_selection.rs:520",
+        "crates/eg-rdf/src/source_selection.rs:529",
+        "crates/eg-rdf/src/source_selection.rs:539"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R072.1"
@@ -1538,11 +1558,11 @@
         "f948211fb8c7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:321",
-        "crates/eg-rdf/src/source_selection.rs:343",
-        "crates/eg-rdf/src/source_selection.rs:369",
-        "crates/eg-rdf/src/source_selection.rs:378",
-        "crates/eg-rdf/src/source_selection.rs:388"
+        "crates/eg-rdf/src/source_selection.rs:472",
+        "crates/eg-rdf/src/source_selection.rs:494",
+        "crates/eg-rdf/src/source_selection.rs:520",
+        "crates/eg-rdf/src/source_selection.rs:529",
+        "crates/eg-rdf/src/source_selection.rs:539"
       ]
     },
     {
@@ -2642,7 +2662,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R085",
-      "title": "EG approves immutable source queries for bounded connector execution (rollup)",
+      "title": "Medulla approves immutable source queries for bounded connector execution (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2932,7 +2952,10 @@
         "EG-FEDERATED-QUERY-R058.4.3",
         "EG-FEDERATED-QUERY-R058.4.4",
         "EG-FEDERATED-QUERY-R058.4.5",
-        "EG-FEDERATED-QUERY-R058.4.6"
+        "EG-FEDERATED-QUERY-R058.4.6",
+        "EG-FEDERATED-QUERY-R058.4.7",
+        "EG-FEDERATED-QUERY-R058.4.8",
+        "EG-FEDERATED-QUERY-R058.4.9"
       ]
     },
     {
@@ -2976,6 +2999,74 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.7",
+      "title": "The engine grounds planner output on the graph schema before it runs (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R058.4.7.1",
+        "EG-FEDERATED-QUERY-R058.4.7.2"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.7.1",
+      "title": "Snapshot graph and authorized foreign-source grounding",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0c01d687aba9",
+        "6ee23e8e4d04"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/nl/context_tests.rs:1019",
+        "crates/eg-plan/src/nl/context_tests.rs:1044",
+        "crates/eg-plan/src/nl/context_tests.rs:1109",
+        "crates/eg-plan/src/nl/context_tests.rs:1136",
+        "crates/eg-plan/src/nl/context_tests.rs:1171"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.7.2",
+      "title": "Source-native identifier grounding",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.8",
+      "title": "The hint offers mapped connector properties under their ontology names",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-plan/src/nl/context_tests.rs:445",
+        "crates/eg-plan/src/nl/context_tests.rs:592"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.9",
+      "title": "Inline foreign adapter grounding",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.5",
+      "title": "Configurable NL planner request",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "545288fec504",
+        "8d0681dc8250",
+        "f555f9a29661"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/nl_regressions.rs:278",
+        "crates/eg-plan/src/nl_regressions.rs:290",
+        "crates/eg-plan/src/nl_regressions.rs:319",
+        "src/server/handlers/query/nl.rs:309",
+        "src/server/nl.rs:450"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R088",

@@ -1,7 +1,7 @@
 # EG-CQ-XSRC — Cross-source competency: supply chain to services
 
-Owner: epistemic-graph. Cross-repo IDs: graph-os (served intent tool, connected-source list), agent-packages connectors (operation contracts for erpnext, uptime, container-manager).
-Public provenance: program exit gate for the Graph OS refactor.
+Owner: Medulla. Cross-repo IDs: Arbora (served intent tool, connected-source list), agent-packages connectors (operation contracts for erpnext, uptime, container-manager).
+Public provenance: program exit gate for the Arbora refactor.
 
 ## Purpose and user stories
 
@@ -30,7 +30,7 @@ A question is **answered** when one query over the ontology returns a correct, p
 
 ## Scope and interfaces
 
-Owned here: the authority vocabulary, the missing supply-chain and commercial terms, the linking relations, the report model and the acceptance tests. Not owned here: the federated planner, pushdown, virtual-graph execution, entity-resolution scoring and decision-engine routing. These are cited as the mechanism: `EG-FEDERATED-QUERY-R072`, `R073`, `R046`, `R069`, `R044`; `EG-UNIFIED-DATA-PLANE-R005`, `R006`, `R030`, `R037`, `R038`; `EG-DECISION-ENGINE-R126` for capability coverage. The served tool belongs to graph-os; connector operation contracts belong to agent-packages.
+Owned here: the authority vocabulary, the missing supply-chain and commercial terms, the linking relations, the report model and the acceptance tests. Not owned here: the federated planner, pushdown, virtual-graph execution, entity-resolution scoring and decision-engine routing. These are cited as the mechanism: `EG-FEDERATED-QUERY-R072`, `R073`, `R046`, `R069`, `R044`; `EG-UNIFIED-DATA-PLANE-R005`, `R006`, `R030`, `R037`, `R038`; `EG-DECISION-ENGINE-R126` for capability coverage. The served tool belongs to Arbora; connector operation contracts belong to agent-packages.
 
 ## Traceability
 

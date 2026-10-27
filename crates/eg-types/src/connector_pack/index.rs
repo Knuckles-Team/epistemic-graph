@@ -29,7 +29,6 @@ pub enum PackEntryKind {
     Shapes,
     ModelProfile,
     A2aCard,
-    Manifest,
     // One supporting file of a skill (D11): a script, reference or asset the
     // skill's `SKILL.md` names by relative path. `name` is
     // `<skill>/<relative path>`, the URI `skill-file://<name>`, and the entry
@@ -132,4 +131,19 @@ pub struct ConnectorPackIndex {
     /// The digest of everything above, recomputed by the engine before
     /// anything is committed.
     pub pack_digest: Digest256,
+}
+
+#[cfg(test)]
+mod kind_wire_tests {
+    use super::PackEntryKind;
+
+    // spec: EG-TYPED-PACKS-R101.10
+    #[test]
+    fn the_manifest_kind_is_not_on_the_wire() {
+        assert!(serde_json::from_str::<PackEntryKind>("\"manifest\"").is_err());
+        assert_eq!(
+            serde_json::from_str::<PackEntryKind>("\"resource\"").unwrap(),
+            PackEntryKind::Resource
+        );
+    }
 }

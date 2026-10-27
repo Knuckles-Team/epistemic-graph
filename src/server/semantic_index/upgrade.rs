@@ -520,12 +520,12 @@ fn source_files_with_identities(
         .collect()
 }
 
-fn require_regular_file(path: &Path) -> Result<(), String> {
+fn require_regular_file(path: &Path, context: &str) -> Result<(), String> {
     let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
     if metadata.file_type().is_file() {
         Ok(())
     } else {
-        Err("semantic promotion candidate is not an ordinary file".to_string())
+        Err(format!("{context} is not an ordinary file"))
     }
 }
 
@@ -770,10 +770,26 @@ fn validate_directory_census(
     actual.remove(&destination);
     actual.remove(&candidate);
     actual.remove(&fence);
+    // Graceful kernel closes produce this optional sidecar; it conveys no
+    // authority to the migration, which still validates the database itself.
+    remove_clean_marker_from_census(&mut actual, &destination)?;
+    remove_clean_marker_from_census(&mut actual, &candidate)?;
     if actual != expected {
         return Err("semantic upgrade catalog does not cover every v2 owner directory".to_string());
     }
     Ok(destination)
+}
+
+fn remove_clean_marker_from_census(
+    actual: &mut BTreeSet<PathBuf>,
+    owner: &Path,
+) -> Result<(), String> {
+    let marker = owner.with_extension("redb.clean");
+    if actual.contains(&marker) {
+        require_regular_file(&marker, "semantic upgrade source")?;
+        actual.remove(&marker);
+    }
+    Ok(())
 }
 
 fn inspect_binding(
@@ -824,16 +840,16 @@ fn read_directory_paths(directory: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 fn require_single_regular_file(directory: &Path, expected: &Path) -> Result<(), String> {
-    let entries = read_directory_paths(directory)?;
-    if entries.len() != 1 || entries[0] != expected {
-        return Err("semantic upgrade source has an unexpected file".to_string());
+    let mut marker = expected.as_os_str().to_os_string();
+    marker.push(".clean");
+    let marker = PathBuf::from(marker);
+    for entry in read_directory_paths(directory)? {
+        if entry != expected && entry != marker {
+            return Err("semantic upgrade source has an unexpected file".to_string());
+        }
+        require_regular_file(&entry, "semantic upgrade source")?;
     }
-    let metadata = std::fs::symlink_metadata(expected).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_file() {
-        Ok(())
-    } else {
-        Err("semantic upgrade source is not an ordinary file".to_string())
-    }
+    require_regular_file(expected, "semantic upgrade source")
 }
 
 fn legacy_store_file_name(tenant: &str, binding: &str) -> String {
@@ -1258,6 +1274,55 @@ mod tests {
                 .unwrap();
         assert_eq!(recovered.target_evidence, promoted.target_evidence);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    // spec: EG-DURABLE-KERNEL-R006.3
+    #[test]
+    fn tenant_census_removes_only_ordinary_named_clean_markers() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("clean.redb");
+        let candidate = destination.with_extension("candidate.redb");
+        let canonical_marker = destination.with_extension("redb.clean");
+        let candidate_marker = candidate.with_extension("redb.clean");
+        let unknown = root.path().join("unknown.clean");
+        std::fs::write(&canonical_marker, b"hint").unwrap();
+        std::fs::write(&candidate_marker, b"hint").unwrap();
+        let mut census = BTreeSet::from([
+            canonical_marker.clone(),
+            candidate_marker.clone(),
+            unknown.clone(),
+        ]);
+        remove_clean_marker_from_census(&mut census, &destination).unwrap();
+        remove_clean_marker_from_census(&mut census, &candidate).unwrap();
+        assert_eq!(census, BTreeSet::from([unknown]));
+        std::fs::remove_file(&canonical_marker).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&candidate_marker, &canonical_marker).unwrap();
+            census.insert(canonical_marker);
+            assert!(remove_clean_marker_from_census(&mut census, &destination).is_err());
+        }
+    }
+
+    // spec: EG-DURABLE-KERNEL-R006.3
+    #[test]
+    fn source_census_accepts_only_ordinary_named_clean_markers() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("clean.redb");
+        let marker = root.path().join("clean.redb.clean");
+        std::fs::write(&source, b"source").unwrap();
+        std::fs::write(&marker, b"optional hint").unwrap();
+        require_single_regular_file(root.path(), &source).unwrap();
+        let extra = root.path().join("other.clean");
+        std::fs::write(&extra, b"unexpected").unwrap();
+        assert!(require_single_regular_file(root.path(), &source).is_err());
+        std::fs::remove_file(extra).unwrap();
+        std::fs::remove_file(&marker).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&source, &marker).unwrap();
+            assert!(require_single_regular_file(root.path(), &source).is_err());
+        }
     }
 
     #[test]

@@ -2,9 +2,9 @@
 
 ## Dependencies and unresolved owner contracts
 
-- `SDK-SOURCE-INGEST-R005.7-.12` is the existing source-envelope prerequisite for bookmark ingestion under `EG-MEDIA-VOCAB-R001.102`; it does not create a second EG ingestion path. `WEBUI-APPS-R001.6` owns mindmap/export presentation. GraphOS query/export adapter requirement ID remains unlinked and is a coordinator hold.
-- `WEBUI-APPS-R001.5` is the meeting summary UI consumer for `EG-MEDIA-VOCAB-R001.101`. Reviewed evidence lacks AU provider-admission and invocation-receipt producer IDs. Reserved `AU-SEMANTIC-R030` remains pending admission, retry-attempt accounting, and disabled-provider refusal. Producer contracts and served receipts remain required. Wrapper-default retries do not count as one invocation.
-- The vision extraction producer for `EG-MEDIA-VOCAB-R001.100` remains held. `EG-MEDIA-VOCAB-R002.5` defines EG receipt-bound paper facts; citation edges remain held pending the SDK reference-ID schema, identity normalization and paper-serving registration.
+- `SDK-SOURCE-INGEST-R005.7-.12` is the existing source-envelope prerequisite for bookmark ingestion under `EG-MEDIA-VOCAB-R001.102`; it does not create a second Medulla ingestion path. `WEBUI-APPS-R001.6` owns mindmap/export presentation. Arbora query/export adapter requirement ID remains unlinked and is a coordinator hold.
+- `WEBUI-APPS-R001.5` is the meeting summary UI consumer for `EG-MEDIA-VOCAB-R001.101`. Reviewed evidence lacks Meristem provider-admission and invocation-receipt producer IDs. Reserved `AU-SEMANTIC-R030` remains pending admission, retry-attempt accounting, and disabled-provider refusal. Producer contracts and served receipts remain required. Wrapper-default retries do not count as one invocation.
+- The vision extraction producer for `EG-MEDIA-VOCAB-R001.100` remains held. `EG-MEDIA-VOCAB-R002.5` defines Medulla receipt-bound paper facts; citation edges remain held pending the Graft SDK reference-ID schema, identity normalization and paper-serving registration.
 
 Governing spec: [spec.md](spec.md).
 
@@ -14,11 +14,11 @@ Governing spec: [spec.md](spec.md).
 
 - Listing: 41 files; none named for media, books, feeds, search, social posting, mailing or chat. Opened candidates: `personal-v1.ttl` (CalendarEvent, PersonalTask, VoiceMessage ⊑ `:CreativeWork`, Transcript ⊑ `:Document`, `transcribedFrom`, `transcriptionConfidence`), `core-foundation-v1.ttl` (`:CreativeWork`, `:Document`, `:Event`, `:Episode` = a discrete interaction unit, `:Person`), `documentation-v1.ttl` (documentation pages and revisions only), `orchestration-v1.ttl` (`:Session`, `:AgentMessage`, `:BusMessage` = agent traffic, not human chat), `software-v1.ttl` (`:Author` = git author, `:File` = source file), `native_source_connector-v1.ttl` (generated `:SourceDocument`), `virtual_graph-v1.ttl` (SourceConnection, MetadataContract, VirtualMapping), `company-v1.ttl` (names the qbittorrent specialist agent only). `grep -ciE "movie|album|torrent|podcast|subscriber|campaign"` finds only agent-roster labels in company-v1.ttl.
 - Result: the gap is confirmed. Reusable terms include `:Team` as well as `:CreativeWork`, `:Document`, `:Transcript`, `:VoiceMessage`, `:Event`, `:Session`, `:Person`, `:Organization`, `:Tag` are reusable.
-- New evidence: every connector package already ships a packaged vocabulary (`<pkg>/ontology/*.ttl`: arr.ttl, media.ttl, audiobookshelf.ttl, qbittorrent.ttl, rom.ttl, owncast.ttl, audio.ttl, feed.ttl, scholarx.ttl, searxng.ttl, pulselink.ttl, social.ttl, listmonk.ttl, mattermost.ttl), a `mappings/source.yaml`, and `connectors/mcp_source_presets.json`. Those declare connector-local classes in the shared `:` namespace, two of which collide with core (`:Episode` in arr.ttl vs core-foundation `:Episode`; `:Author` in jellyfin/audiobookshelf media.ttl vs software-v1 `:Author`). What is missing in EG is the shared layer they all subclass, and the cross-source identity keys.
+- New evidence: every connector package already ships a packaged vocabulary (`<pkg>/ontology/*.ttl`: arr.ttl, media.ttl, audiobookshelf.ttl, qbittorrent.ttl, rom.ttl, owncast.ttl, audio.ttl, feed.ttl, scholarx.ttl, searxng.ttl, pulselink.ttl, social.ttl, listmonk.ttl, mattermost.ttl), a `mappings/source.yaml`, and `connectors/mcp_source_presets.json`. Those declare connector-local classes in the shared `:` namespace, two of which collide with core (`:Episode` in arr.ttl vs core-foundation `:Episode`; `:Author` in jellyfin/audiobookshelf media.ttl vs software-v1 `:Author`). What is missing in Medulla is the shared layer they all subclass, and the cross-source identity keys.
 
 ## Architecture
 
-Virtual-first: EG never copies a source. The core vocabulary is the join surface. Each connector's packaged ontology and mapping declare which tool fetches which class at query time.
+Virtual-first: Medulla never copies a source. The core vocabulary is the join surface. Each connector's packaged ontology and mapping declare which tool fetches which class at query time.
 
 ```
 question
@@ -29,7 +29,7 @@ question
   -> join on identity key (mv:tmdbId / mv:infoHash / cv:canonicalUrl) -> answer with provenance, or typed abstention naming the missing operation
 ```
 
-Owners: vocabulary files and shapes: epistemic-graph (`crates/eg-core/ontology/`). Mapping rows: epistemic-graph (fixtures) consuming `vg:` terms already in `virtual_graph-v1.ttl`. Operations and connector ontologies: each connector package (agent-packages). Planning, routing, federation: existing specs, cited, not redefined. Packs/agent library: `specs/typed-packs-and-catalog`.
+Owners: vocabulary files and shapes: Medulla (`crates/eg-core/ontology/`). Mapping rows: Medulla (fixtures) consuming `vg:` terms already in `virtual_graph-v1.ttl`. Operations and connector ontologies: each connector package (agent-packages). Planning, routing, federation: existing specs, cited, not redefined. Packs/agent library: `specs/typed-packs-and-catalog`.
 
 ## Vocabulary
 
@@ -81,7 +81,7 @@ SHACL: Article/SearchResult carry exactly one normalised `canonicalUrl`; Subscri
 - Ontology files are read from `crates/eg-core/ontology/*.ttl` by the existing loader (same as `personal-v1.ttl`); shapes live beside them as `*.shapes.ttl`.
 - Mappings are `vg:VirtualMapping` rows (`vg:mapsOntologyClass`, `vg:mapsEntity`, `vg:keyField`, `vg:hasPredicateFieldPair`) validated by `virtual_graph-v1.shapes.ttl`; `vg:sourceKind` is `mcp` for all 15 connectors (the closed set is api, mcp, a2a, graphql, sql, iceberg, warehouse, sparql). `api` was the alternative; rejected because every connector already publishes tool schemas and fingerprints for MCP, and governance (default_acl quarantine, identity opaque-reference) is declared there.
 - Source selection and join planning use `specs/decision-engine` and `specs/federated-query-and-reasoning`; scopes are those the engine contract already lists.
-- Connector truth: each `<pkg>/ontology/mappings/source.yaml` and `connectors/mcp_source_presets.json` is the connector-side declaration; EG mappings must agree with them (test R-row .1).
+- Connector truth: each `<pkg>/ontology/mappings/source.yaml` and `connectors/mcp_source_presets.json` is the connector-side declaration; Medulla mappings must agree with them (test R-row .1).
 - `specs/connector-competency` vocabulary column flips from MISSING after landing (row .4 of each connector rollup).
 
 ## Connector mapping tables
@@ -333,15 +333,15 @@ Vocabulary and shapes land with `cargo test -p eg-core` ontology load and SHACL 
 
 ## Risks, alternatives, and decisions
 
-Connector ontologies already exist and may drift from the core vocabulary: mitigated by the .1 mapping tests and the collision test. Several questions are BLOCKED on connector operations; EG ships abstentions first so the questions fail honestly.
+Connector ontologies already exist and may drift from the core vocabulary: mitigated by the .1 mapping tests and the collision test. Several questions are BLOCKED on connector operations; Medulla ships abstentions first so the questions fail honestly.
 
 <!-- spec-definition-patch:owner-batch-20261012-media-and-personal-vocabulary -->
 ## Owner definition and dependency plan — 2026-10-12
 
 ### `EG-MEDIA-VOCAB-R002.5` — EG:50
 
-- **EG contract:** Reuse SDK `PaperSearchResult` → `PaperRecord`/`DocumentReceipt` → existing `SourceIngest`. Require SDK `exact_identity`, matching paper/revision, a complete authorized artifact, and per-field provenance. The artifact binds URL, media type, byte count, SHA-256, and local artifact. Assert `cv:ResearchPaper` and available DOI, arXiv ID, publication date, and citation-count facts. Bind each fact to source provenance and the receipt/document digest. Exact replay is idempotent. Missing identity or mismatched receipt/revision/digest refuses the affected paper before graph mutation. Incomplete artifacts or provenance mismatches also refuse. Preserve healthy sibling results.
-- **Explicit hold:** Current `PaperRecord`/`DocumentReceipt` lacks cited-paper IDs. The SDK plan also leaves paper-serving registration open. Citation counts cannot create citation edges. The SDK owner must define and serve reference IDs, target identity/normalization, and paper registration. EG must await those definitions before defining or claiming citation-edge construction. Do not infer providers or synthesize edges.
+- **Medulla contract:** Reuse Graft SDK `PaperSearchResult` → `PaperRecord`/`DocumentReceipt` → existing `SourceIngest`. Require Graft SDK `exact_identity`, matching paper/revision, a complete authorized artifact, and per-field provenance. The artifact binds URL, media type, byte count, SHA-256, and local artifact. Assert `cv:ResearchPaper` and available DOI, arXiv ID, publication date, and citation-count facts. Bind each fact to source provenance and the receipt/document digest. Exact replay is idempotent. Missing identity or mismatched receipt/revision/digest refuses the affected paper before graph mutation. Incomplete artifacts or provenance mismatches also refuse. Preserve healthy sibling results.
+- **Explicit hold:** Current `PaperRecord`/`DocumentReceipt` lacks cited-paper IDs. The Graft SDK plan also leaves paper-serving registration open. Citation counts cannot create citation edges. The Graft SDK owner must define and serve reference IDs, target identity/normalization, and paper registration. Medulla must await those definitions before defining or claiming citation-edge construction. Do not infer providers or synthesize edges.
 - **Acceptance:** Test a matching record and independent `SourceIngest` readback for every asserted fact/provenance. Test byte-identical replay. Test mixed identified/unidentified batches; only the unidentified paper refuses. Test receipt, revision, artifact, and field-provenance mismatches before mutation. Confirm that a count-only paper emits no edge. Citation-edge acceptance remains held; it is not a passing test.
 - **Preserve:** `EG-MEDIA-VOCAB-R002.1`, `.4`, `SDK-SOURCE-INGEST-R005.1`, `.2`, `.4`, `EG-REPO-INGEST-R002`.
 - **Source record:** `b6d12a184f1c5812c8f4fd56a0a299e48381e85ad9b18af4eb0ed19faf3d7e0b`. No runtime receipt is claimed.
@@ -355,7 +355,7 @@ Connector ontologies already exist and may drift from the core vocabulary: mitig
 
 - Preserve parent `EG-MEDIA-VOCAB-R001` and all existing clauses.
 - Define each tag assertion with `{media item/revision, taxonomy id/version, object-or-context value, confidence, evidence span/reference, opaque producer id/revision, provenance digest}`. Store each tag as a source-backed assertion attached to its media item. Do not store unqualified labels. Search returns only tags visible under caller media/item authorization. Bind matched tag IDs, media revisions, and authorization revision. Missing provenance or stale media revision refuses assertion. Unauthorized queries return no protected tag data.
-- EG owns tag storage, provenance, and authorized search. The vision extraction producer identity and contract remain held by its owner. No producer implementation or served result is claimed.
+- Medulla owns tag storage, provenance, and authorized search. The vision extraction producer identity and contract remain held by its owner. No producer implementation or served result is claimed.
 - Source record SHA-256: `38f71f6a205cf8df27631a4aa86ec3312a91f7902dfd8bfe843db2a142d1d30f`.
 - Keep status SPECIFIED until each named producer and consumer is implemented, served-tested, and independently read back.
 <!-- /spec-definition-patch -->
@@ -364,7 +364,7 @@ Connector ontologies already exist and may drift from the core vocabulary: mitig
 <!-- spec-definition-patch:owner-dispatch-20261012-plan -->
 ## Cross-owner transcript and bookmark plan — 2026-10-12
 
-- **`EG-MEDIA-VOCAB-R001.101` / WEBUI:10:** Extend `TranscriptSegment` with immutable meeting revisions, strict sequence, correction, and finalization. Add `MeetingSummaryContextV1` and `CommitMeetingSummaryV1`. Bind both to current transcript digest, admitted provider/model/policy, and AU invocation receipt. Resolve citation IDs in the final revision. EG authorizes and serves context only. AU invokes models and mints receipts. WebUI R001.5 renders. Source SHA-256 `c82a815c87428a5baf4379ef7790bafb24a5d3367d16ebd85a6c39ff9b52521d`.
-- **`EG-MEDIA-VOCAB-R001.102` / WEBUI:11:** Reuse SDK SourceIngest R005.7-.12 and the existing EG SourceIngest → ChangeEnvelope commit path. Define bounded semantic bookmark search and authorized relation reads. Bind ingestion receipt and source/index/snapshot/authorization revisions. Reuse `Method::SemanticSearch` and UQL; add no ingestion pipeline. GraphOS/WebUI R001.6 owns the served adapter, mindmap, and export. Source SHA-256 `b1708c96d6b9cadcb1c9f35cc5cb7dde4e60ed2cb1250598e55b9ce4cc66907e`.
-- Keep both SPECIFIED until EG producer readback and the named AU/GraphOS/WebUI served receipts pass. Do not claim transcript provider, live capture, or bookmark export from these definitions.
+- **`EG-MEDIA-VOCAB-R001.101` / WEBUI:10:** Extend `TranscriptSegment` with immutable meeting revisions, strict sequence, correction, and finalization. Add `MeetingSummaryContextV1` and `CommitMeetingSummaryV1`. Bind both to current transcript digest, admitted provider/model/policy, and Meristem invocation receipt. Resolve citation IDs in the final revision. Medulla authorizes and serves context only. Meristem invokes models and mints receipts. Overstory R001.5 renders. Source SHA-256 `c82a815c87428a5baf4379ef7790bafb24a5d3367d16ebd85a6c39ff9b52521d`.
+- **`EG-MEDIA-VOCAB-R001.102` / WEBUI:11:** Reuse Graft SDK SourceIngest R005.7-.12 and the existing Medulla SourceIngest → ChangeEnvelope commit path. Define bounded semantic bookmark search and authorized relation reads. Bind ingestion receipt and source/index/snapshot/authorization revisions. Reuse `Method::SemanticSearch` and UQL; add no ingestion pipeline. Arbora/Overstory R001.6 owns the served adapter, mindmap, and export. Source SHA-256 `b1708c96d6b9cadcb1c9f35cc5cb7dde4e60ed2cb1250598e55b9ce4cc66907e`.
+- Keep both SPECIFIED until Medulla producer readback and the named Meristem/Arbora/Overstory served receipts pass. Do not claim transcript provider, live capture, or bookmark export from these definitions.
 <!-- /spec-definition-patch -->

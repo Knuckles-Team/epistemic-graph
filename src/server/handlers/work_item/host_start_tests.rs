@@ -1,4 +1,3 @@
-// spec: EG-DURABLE-KERNEL-R030.1.3
 //! Signed dispatch to native provenance. These tests need the redb server build;
 //! they do not qualify deployment identity, current sessions, or host launch.
 use super::*;

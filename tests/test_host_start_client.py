@@ -1,4 +1,3 @@
-# spec: EG-DURABLE-KERNEL-R030.1.1
 """Host-start typed client transport, not issuer or live admission proof."""
 
 from __future__ import annotations

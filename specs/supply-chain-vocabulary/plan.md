@@ -14,7 +14,7 @@ Governing spec: [spec.md](spec.md).
 
 ## Architecture
 
-Owner of every term: `epistemic-graph`, `crates/eg-core/ontology/`. Sources keep their data. Each source's ontology and access contract are attached and a `vg:VirtualMapping` (`virtual_graph-v1.ttl:107`, `vg:mapsOntologyClass` line 72, `vg:approved` line 94) maps its native entity to these classes. Source choice comes from `vg:SourceAuthority` rows (`EG-CQ-XSRC-R001`), planning from `EG-FEDERATED-QUERY-R072/R073`.
+Owner of every term: `Medulla`, `crates/eg-core/ontology/`. Sources keep their data. Each source's ontology and access contract are attached and a `vg:VirtualMapping` (`virtual_graph-v1.ttl:107`, `vg:mapsOntologyClass` line 72, `vg:approved` line 94) maps its native entity to these classes. Source choice comes from `vg:SourceAuthority` rows (`EG-CQ-XSRC-R001`), planning from `EG-FEDERATED-QUERY-R072/R073`.
 
 ```
 question "how does the supply chain affect our services?"
@@ -150,7 +150,7 @@ Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions 
 **D2c. container-manager deployed workloads: CONFIRMED operation, no access contract.**
 `cm_k8s_workloads` actions `list_pods`, `list_statefulsets` (`mcp/mcp_k8s_workloads.py:372`), container tool action `list_containers` (`mcp_server.py:426`), `cm_image_operations` action `list_images` (`mcp_server.py:301`); `container.ttl:83` has `usesImage`; manifest resources `Pod`, `Deployment`, `K8sService`, `SwarmService`. No `ac:operation` access contract under `container_manager_mcp/ontology/` (row R006.1, agent-packages). A `list_deployments` action was not found in the workloads tool; Deployment-level data is reached through `list_pods` plus `managedByDeployment`. portainer-agent (`Service`, `Image`, `Container`) is the rank-2 source.
 
-**D3. `:ChangeRequest`: DECIDED not added.** `kg:Change` (`archimate-v1.ttl:33`) is the ServiceNow change request. The cross-source requirement `EG-CQ-XSRC-R008.3.1` should read `:CustomerContract` and `:coversService` only; recorded as an amendment note in `EG-SUPPLY-VOCAB-R003.5`. Alternative: `owl:equivalentClass`, rejected as a parallel name.
+**D3. `:ChangeRequest`: DECIDED not added commercially.** `kg:Change` (`archimate-v1.ttl:33`) is the ServiceNow change request and is a `:BusinessProcess`. The cross-source requirement `EG-CQ-XSRC-R008.3.1` reads `:CustomerContract` and `:coversService` only; `service_operations-v1.ttl` retains its distinct `:ChangeRequest` class for IT4IT `:touches` semantics. This amendment is recorded by `EG-SUPPLY-VOCAB-R003.6`. Alternative: `owl:equivalentClass`, rejected as a parallel name.
 
 **D4. Which sources can supply each concept (CONFIRMED from tool lists):**
 

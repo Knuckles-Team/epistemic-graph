@@ -17,8 +17,8 @@ Run against the freshly-built, folded wheel — there is NO separately published
     maturin build --release -m crates/eg-numeric/Cargo.toml --features python \
         --out numdist
     maturin build --release --features "$MATURIN_FEATURES" --out dist
-    python scripts/inject_numeric_kernel.py dist/epistemic_graph-*.whl numdist/*.whl
-    pip install dist/epistemic_graph-*.whl
+    python scripts/inject_numeric_kernel.py dist/medulla-*.whl numdist/*.whl
+    pip install dist/medulla-*.whl
     pytest crates/eg-numeric/tests/test_kernel_parity.py --noconftest -q
 
 The module is discovered ONLY as ``epistemic_graph.numeric`` (the folded-in, natively

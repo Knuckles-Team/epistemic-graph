@@ -8,16 +8,16 @@
 
 FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a /uv /bin/uv
-ARG EGS_VERSION=2.27.5
+ARG EGS_VERSION=2.27.10
 COPY docker/wheels/ /wheels/
 RUN set -eu; \
     case "${EGS_VERSION}" in ''|*[!0-9.]*) echo 'EGS_VERSION must be numeric' >&2; exit 2 ;; esac; \
     uv venv /opt/venv; \
-    wheel=$(ls /wheels/epistemic_graph_server-*.whl 2>/dev/null | head -n1 || true); \
+    wheel=$(ls /wheels/medulla_stem-*.whl 2>/dev/null | head -n1 || true); \
     if [ -n "${wheel}" ]; then \
       uv pip install --python /opt/venv/bin/python "${wheel}"; \
     else \
-      uv pip install --python /opt/venv/bin/python "epistemic-graph-server==${EGS_VERSION}"; \
+      uv pip install --python /opt/venv/bin/python "medulla-stem==${EGS_VERSION}"; \
     fi; \
     /opt/venv/bin/epistemic-graph-server --help >/dev/null; \
     cp "$(readlink -f /opt/venv/bin/epistemic-graph-server)" /epistemic-graph-server

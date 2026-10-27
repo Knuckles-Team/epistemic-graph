@@ -39,6 +39,6 @@ These bullets define future acceptance targets. None has run as a test.
 - **`EG-PLACEMENT-R001.15`:** A valid proposal within declared bounds and headroom returns `allow` bound to proposal, premise, and policy revisions.
 - Refuse stale/cross-tenant premises, invalid digests or negative measurements, inconsistent units/windows, and proposal/current-premise mismatches without mutation.
 - Refuse capacities outside bounds and increases above observed headroom with the exact `CapacityRefusalCode`.
-- GraphOS applies a valid proposal and exposes an independent readback receipt. Bind it to proposal digest, requested/applied capacity, host/resource, policy, and resulting state revision.
-- Hold GraphOS acceptance until its operation and receipt contract are defined.
+- Arbora applies a valid proposal and exposes an independent readback receipt. Bind it to proposal digest, requested/applied capacity, host/resource, policy, and resulting state revision.
+- Hold Arbora acceptance until its operation and receipt contract are defined.
 <!-- /spec-definition-patch -->

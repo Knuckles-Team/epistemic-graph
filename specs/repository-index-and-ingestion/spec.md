@@ -1,12 +1,12 @@
 # EG-REPO-INGEST — Repository index and native ingestion
 
-Status: **PROPOSED**. Delivery: **PARTIAL SOURCE PRESENT**. Acceptance: **NOT VERIFIED**. Owner: `epistemic-graph`.
+Status: **PROPOSED**. Delivery: **PARTIAL SOURCE PRESENT**. Acceptance: **NOT VERIFIED**. Owner: `Medulla`.
 
 **State legend:** `PROPOSED` means the build contract awaits review; `PARTIAL SOURCE PRESENT` means some implementation exists but this complete contract is not merged; `LANDED` requires an exact merged engine revision; `ACCEPTED` requires every applicable test and release receipt in [test-spec.md](test-spec.md). `NOT VERIFIED` means the latter receipts have not been collected. A prior row's `BUILT` label is historical source evidence, not whole-spec acceptance.
 
 ## Purpose
 
-A contributor can index a repository snapshot into a durable, queryable graph without an application-specific graph writer. A caller supplies authenticated, immutable source bytes and revision membership; the engine determines parse outcomes, resolves symbols across files, records provenance, commits the projection once, and reports enough evidence to retry failures. A query can find the exact source occurrence and revision behind an answer. This contract also defines the EG side of general source ingestion; it does not require access to any private workspace or service.
+A contributor can index a repository snapshot into a durable, queryable graph without an application-specific graph writer. A caller supplies authenticated, immutable source bytes and revision membership; the engine determines parse outcomes, resolves symbols across files, records provenance, commits the projection once, and reports enough evidence to retry failures. A query can find the exact source occurrence and revision behind an answer. This contract also defines the Medulla side of general source ingestion; it does not require access to any private workspace or service.
 
 ## Users and acceptance stories
 
@@ -28,13 +28,13 @@ A contributor can index a repository snapshot into a durable, queryable graph wi
 | RI-07 | Repository source bytes and source-relative paths are scoped to the verified tenant and repository. Graph reads and writes enforce graph ACL. Raw host identity is redacted before durable projection; code punctuation and source-relative paths are preserved. Untrusted source cannot supply policy, graph mutations, ownership, or tenant. |
 | RI-08 | An over-limit batch is refused atomically with `REPOSITORY_BATCH_TOO_LARGE` before any graph mutation. The response exposes enough bounded detail for a caller to halve and resend. The same code covers operation and durable-record byte/item ceilings; limit changes are versioned in the generated contract. |
 | RI-09 | Native rungs 0–2 (parse/AST, cross-file resolution, model-free statistics) finish without an external model call. Rungs 3–5 are represented as durable, budgeted work items with admission, lease, retry/park, completion and provenance. Underfunded or unauthorized work fails closed. Query-triggered enrichment is bounded and does not mutate an earlier revision. |
-| RI-10 | A canonical semantic bridge maps repository entities and their source/test/spec/release relationships into the engine graph without duplicate writer authority. Each edge has source evidence and a stable schema/version. A missing target becomes an unresolved relation, not an invented entity. |
-| RI-11 | `SourceIngest` accepts typed observations with manifest references, raw evidence, exact expected checkpoint, and mode (`full`, `delta`, `reconcile`). EG resolves approved mappings and commits graph changes, live-set marker, tombstones, lineage, checkpoint and receipt atomically. Empty authoritative reconciliation requires the explicit approval and capability. `SourceIngestStatus` reads the durable checkpoint after restart. |
+| RI-10 | A canonical semantic bridge maps repository entities into the engine graph. It also maps their source, test, spec and release relationships without duplicate writer authority. Each edge has source evidence and a stable schema/version. A missing target becomes an unresolved relation, not an invented entity. |
+| RI-11 | `SourceIngest` accepts typed observations with manifest references, raw evidence, exact expected checkpoint, and mode (`full`, `delta`, `reconcile`). Medulla resolves approved mappings and commits graph changes, live-set marker, tombstones, lineage, checkpoint and receipt atomically. Empty authoritative reconciliation requires the explicit approval and capability. `SourceIngestStatus` reads the durable checkpoint after restart. |
 | RI-12 | Change consumers apply source-position-idempotent graph/index/outbox updates. A Debezium-style change bridge maps an ordered source event into `ChangeEnvelope`, preserves source position and deletion semantics, and refuses unknown schema or out-of-order replay. Any accelerated read declares freshness; read-your-writes waits for the caller's committed position within a bounded timeout or reports stale. |
 
 ## Success criteria
 
-- **SC-01:** A two-ref fixture with a shared blob, divergent blob at one path, rename, deletion and restart gives exact membership and occurrence counts; a duplicate submission leaves graph version unchanged.
+- **SC-01:** A two-ref fixture with a shared blob, divergent blob at one path, rename, deletion and restart gives exact membership and occurrence counts. A duplicate submission leaves graph version unchanged.
 - **SC-02:** Each input has exactly one parse outcome. A parser upgrade reparses an earlier unsupported/error blob without duplicating a successful revision.
 - **SC-03:** A real public repository benchmark records wall time, repository size, parser distribution and p50/p95 commit latency for native rungs. The performance target is **to be set from a checked-in benchmark baseline before the performance claim is accepted**; no absolute throughput is inferred from tiny fixtures.
 - **SC-04:** Concurrent, stale, oversized, unauthorized and interrupted writes fail with stable codes and leave unchanged graph version/checkpoint. Restart reads the last committed receipt.
@@ -42,7 +42,7 @@ A contributor can index a repository snapshot into a durable, queryable graph wi
 
 ## Boundaries and interfaces
 
-EG owns `Method::IndexRepository`, `IndexRepositoryScope`, `IndexResult`, `SourceIngest`, `ChangeEnvelope`, graph projection, CAS binding, native parsing/resolution, admission, durable work and queryable lineage. The connector SDK owns provider authentication, immutable snapshot fetch, paging, checksum validation and transport; it may retry based on EG's typed outcomes but cannot mint graph facts or checkpoint authority. Agent applications may request ingestion and consume receipts but cannot bypass EG's projection. Repository tooling may discover repositories and provide authenticated source coordinates, but is not a second graph writer.
+Medulla owns `Method::IndexRepository`, `IndexRepositoryScope`, `IndexResult`, `SourceIngest`, `ChangeEnvelope`, graph projection, CAS binding, native parsing/resolution, admission, durable work and queryable lineage. The connector Graft SDK owns provider authentication, immutable snapshot fetch, paging, checksum validation and transport; it may retry based on Medulla's typed outcomes but cannot mint graph facts or checkpoint authority. Agent applications may request ingestion and consume receipts but cannot bypass Medulla's projection. Repository tooling may discover repositories and provide authenticated source coordinates, but is not a second graph writer.
 
 This feature does not require a hosted Git provider, private manifest, local service inventory, model service or running cluster for its deterministic development tests. Served multi-node and provider integration remain separate release evidence.
 

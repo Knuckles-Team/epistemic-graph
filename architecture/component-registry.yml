@@ -2430,6 +2430,7 @@ components:
     public_contract_roots: []
     test_roots:
       - "tests/sharded_startup_open_timing_d_cdx_65.rs"
+      - "tests/shard_open_budget.rs"
     generated_roots: []
     shared_roots: []
     shared_files: []
@@ -3803,8 +3804,10 @@ components:
       - "tests/audit_line_formatting.rs"
       - "tests/common"
       - "tests/conftest.py"
+      - "tests/decide"
       - "tests/_client_fixtures.py"
       - "tests/_decision_resident_fixture.py"
+      - "tests/_harness_envelope.py"
       - "tests/_method_vectors.py"
       - "tests/_script_loader.py"
       - "tests/_untyped.py"
@@ -3825,6 +3828,8 @@ components:
       - "tests/mysql_roundtrip.rs"
       - "tests/node_binding_envelope.rs"
       - "tests/occ_wire_serializable_begin_version.rs"
+      - "tests/orchestration/test_harness_components_served.py"
+      - "tests/orchestration/test_harness_lessons_served.py"
       - "tests/packs"
       - "tests/parity"
       - "tests/pgwire_roundtrip.rs"
@@ -3865,6 +3870,7 @@ components:
       - "tests/test_check_wheel_completeness.py"
       - "tests/docs/test_runtime_architecture_svg.py"
       - "tests/test_strip_wheel_executables.py"
+      - "tests/test_ontology_package.py"
       - "tests/test_check_registry_test_ownership.py"
       - "tests/test_check_registry_test_ownership_completeness.py"
       - "tests/test_check_duplication_no_suppression.py"
@@ -4023,6 +4029,7 @@ components:
       - "tests/test_scanner_distribution.py"
       - "tests/test_scanner_wrappers.py"
       - "tests/test_security_sanitizer_contract.py"
+      - "tests/test_third_party_source_policy.py"
       - "tests/test_secret_history_full_range.py"
       - "tests/test_server_registry_client.py"
       - "tests/test_service_layer.py"
@@ -4031,6 +4038,7 @@ components:
       - "tests/test_sql_source_native_client.py"
       - "tests/test_startup.py"
       - "tests/test_statespace_kernels.py"
+      - "tests/test_store_auto_migrate.py"
       - "tests/test_streaming_cdc.py"
       - "tests/test_sync_client_lifecycle.py"
       - "tests/test_transport.py"

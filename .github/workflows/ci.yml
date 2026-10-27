@@ -321,7 +321,7 @@ jobs:
       # isolated gates job; it must never enter the published wheel metadata or
       # release smoke path.
       #
-      # There is exactly ONE published package, `epistemic-graph` (CONCEPT:EG-346,
+      # There is exactly ONE published package, `medulla` (CONCEPT:EG-346,
       # see the injector under scripts/) — the numeric kernel ships INSIDE its
       # wheel as a native `epistemic_graph.numeric` extension. There is NO
       # separately published/installed `eg-numeric` package. This job used to
@@ -337,7 +337,7 @@ jobs:
       # `numeric.abi3.so`, reporting failures against operations that exist.
       #
       # So this gate now builds BOTH the numeric kernel wheel and a real
-      # `epistemic-graph` server wheel, folds the former into the latter (the
+      # `medulla` server wheel, folds the former into the latter (the
       # exact same fold the real release path performs per-platform below —
       # see "Fold primary/reproduction numeric kernel into the epistemic-graph
       # wheel") — and installs THAT into a clean throwaway venv. The parity and
@@ -363,9 +363,10 @@ jobs:
       # keeps it fast.
       - name: Build gates engine extension wheel (fold target)
         run: maturin build --release --out dist-gates
-      - name: Fold the numeric kernel into the gates epistemic-graph wheel (EG-346)
+      - name: Fold the numeric kernel into the gates medulla wheel (EG-346)
         run: |
-          python scripts/inject_numeric_kernel.py "$(ls dist-gates/epistemic_graph-*.whl)" "$(ls numdist-gates/*.whl)"
+          python scripts/inject_numeric_kernel.py "$(ls dist-gates/medulla-*.whl)" "$(ls numdist-gates/*.whl)"
+          python scripts/inject_ontology.py "$(ls dist-gates/medulla-*.whl)"
       - name: Strip console executables from the gates wheel (executable-free wheel)
         run: python scripts/strip_wheel_executables.py dist-gates/*.whl
       - name: Normalize and audit the folded gates wheel
@@ -379,18 +380,18 @@ jobs:
         run: |
           set -euo pipefail
           test ! -L dist-gates
-          set -- dist-gates/epistemic_graph-*.whl
+          set -- dist-gates/medulla-*.whl
           test "$#" -eq 1
           test -f "$1"
           test ! -L "$1"
           proof="${RUNNER_TEMP:?}/installed-eg-wheel.sha256"
           test ! -e "$proof"
           sha256sum "$1" > "$proof"
-      - name: Install the folded epistemic-graph wheel into a clean throwaway venv
+      - name: Install the folded medulla wheel into a clean throwaway venv
         run: |
           python -m venv "$EG_GATES_WHEEL_VENV"
           "$EG_GATES_WHEEL_VENV/bin/pip" install --upgrade pip
-          "$EG_GATES_WHEEL_VENV/bin/pip" install numpy pytest "$(ls dist-gates/epistemic_graph-*.whl)"
+          "$EG_GATES_WHEEL_VENV/bin/pip" install numpy pytest "$(ls dist-gates/medulla-*.whl)"
       # Run from a scratch directory, NOT the repo root. `python -m pytest` puts
       # CWD first on sys.path, so from the root `import epistemic_graph.numeric`
       # resolves the SOURCE TREE's `epistemic_graph/numeric.abi3.so` — a
@@ -457,7 +458,7 @@ jobs:
           test -f "$proof"
           test ! -L "$proof"
           sha256sum --check "$proof"
-          set -- dist-gates/epistemic_graph-*.whl
+          set -- dist-gates/medulla-*.whl
           test "$#" -eq 1
           test -f "$1"
           test ! -L "$1"
@@ -476,13 +477,13 @@ jobs:
             scripts/normalize_wheel_build_paths.py scripts/check_wheel_privacy.py \
             scripts/check_wheel_completeness.py > "$bundle/build-recipe.sha256"
           (cd "$bundle" && sha256sum source.sha source.tree build-recipe.sha256 \
-            epistemic_graph-*.whl > SHA256SUMS)
+            medulla-*.whl > SHA256SUMS)
       - name: Upload validated wheel for installed acceptance
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: validated-eg-wheel-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/validated-eg-wheel/epistemic_graph-*.whl
+            ${{ runner.temp }}/validated-eg-wheel/medulla-*.whl
             ${{ runner.temp }}/validated-eg-wheel/source.sha
             ${{ runner.temp }}/validated-eg-wheel/source.tree
             ${{ runner.temp }}/validated-eg-wheel/build-recipe.sha256
@@ -622,14 +623,12 @@ jobs:
   # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
   # link a test binary).
   gates-crates:
-    # PR budget: the per-crate narrowing sweep usually lands in minutes, but a
-    # broad or unmapped diff (e.g., a release-branch version bump touching every
-    # crate's Cargo.toml) falls back to the FULL workspace sweep, which
-    # cold-builds far past 10 minutes and was deterministically cancelled at
-    # ~10:15 elapsed on every run (release PR #666, 3/3 — a workflow timeout,
-    # not runner preemption). 45 minutes matches the sibling heavy PR jobs
-    # (gates, gates-pyo3, gates-plan-fuzz); push/tag keep the 60-minute budget.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    # PR budget 10 min. A release bump touches every crate's Cargo.toml and the
+    # lock, but pr-test-scope maps member-version-only changes to no crate
+    # (PIPE-RELEASE-R007.7), so it no longer forces the full workspace sweep.
+    # A registry-dependency lock change prints FULL; main CI then owns the full
+    # sweep under the 60-minute push budget, as for every other FULL scope.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates (workspace crates)
     needs: changes
     if: *eg-code-change
@@ -716,8 +715,7 @@ jobs:
             exit 0
           fi
           if [ "$SCOPE" = "FULL" ]; then
-            echo "pr-test-scope: unmapped Rust change (or an unreadable diff); running the full crate set"
-            python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-storage --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
+            echo "pr-test-scope: FULL (workspace-wide change); main CI owns the full crate sweep (PIPE-RELEASE-R007.5)"
             exit 0
           fi
           args=()
@@ -785,7 +783,7 @@ jobs:
   # not otherwise provide — each satisfied HERE, not by skipping the tests that
   # need them:
   #   * distribution metadata — `epistemic_graph/client_capabilities.py` calls
-  #     `importlib.metadata.version("epistemic-graph")`, which
+  #     `importlib.metadata.version("medulla")`, which
   #     `PackageNotFoundError`s against an uninstalled source checkout. Rather
   #     than a real (and, for this `bindings = "bin"` project, ~minutes-long)
   #     wheel/editable build, `maturin pep517 write-dist-info` alone produces
@@ -1702,8 +1700,8 @@ jobs:
         shell: bash
         run: |
           mkdir dist
-          cp dist-primary/epistemic_graph-*.whl dist/
-          (cd dist && sha256sum epistemic_graph-*.whl > SHA256SUMS)
+          cp dist-primary/medulla-*.whl dist/
+          (cd dist && sha256sum medulla-*.whl > SHA256SUMS)
 
       - name: Smoke test (no executables + import epistemic_graph.{numeric,engine})
         shell: bash
@@ -1718,6 +1716,6 @@ jobs:
         run: |
           notes="Rolling Linux x86_64 wheel built from main at ${SOURCE_SHA}. Not a versioned release."
           gh release delete engine-main --cleanup-tag --yes || true
-          gh release create engine-main dist/epistemic_graph-*.whl dist/SHA256SUMS \
+          gh release create engine-main dist/medulla-*.whl dist/SHA256SUMS \
             --target "$SOURCE_SHA" --prerelease --latest=false \
             --title "engine-main (${SOURCE_SHA:0:12})" --notes "$notes"

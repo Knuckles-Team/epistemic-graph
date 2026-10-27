@@ -36,7 +36,13 @@ from scripts.compare_wheel_reproducibility import main as compare_main
 # test modules (test_wheel_privacy.py, test_check_wheel_completeness.py).
 pytestmark = pytest.mark.no_engine
 
-WHEEL_NAME = "epistemic_graph-9.9.9-py3-none-any.whl"
+WHEEL_NAME = "medulla-9.9.9-py3-none-any.whl"
+
+# Fixed zip entry timestamp for every fixture wheel. ``ZipFile.writestr(name, ...)``
+# stamps the wall clock, so two fixtures built seconds apart differed in
+# ``date_time`` and the identical-wheels test flaked across a 2-second tick.
+# Pinning the timestamp is the reproducible-builds convention (SOURCE_DATE_EPOCH).
+_FIXED_DATE_TIME = (2020, 1, 1, 0, 0, 0)
 
 
 def _make_wheel(
@@ -49,13 +55,11 @@ def _make_wheel(
     wheel = directory / name
     with zipfile.ZipFile(wheel, "w", zipfile.ZIP_DEFLATED) as archive:
         for member_name, payload in sorted(members.items()):
+            info = zipfile.ZipInfo(member_name, date_time=_FIXED_DATE_TIME)
+            info.compress_type = zipfile.ZIP_DEFLATED
             if modes and member_name in modes:
-                info = zipfile.ZipInfo(member_name)
-                info.compress_type = zipfile.ZIP_DEFLATED
                 info.external_attr = modes[member_name] << 16
-                archive.writestr(info, payload)
-            else:
-                archive.writestr(member_name, payload)
+            archive.writestr(info, payload)
     return wheel
 
 
@@ -64,8 +68,7 @@ _BASE_MEMBERS = {
     "epistemic_graph/server.exe": b"\x00" * 32
     + b"NATIVE-BINARY-PAYLOAD"
     + b"\x00" * 32,
-    "epistemic_graph-9.9.9.dist-info/METADATA": b"Metadata-Version: 2.3\nName: "
-    b"epistemic-graph\n",
+    "medulla-9.9.9.dist-info/METADATA": b"Metadata-Version: 2.3\nName: medulla\n",
 }
 
 
@@ -123,12 +126,12 @@ def test_filename_mismatch_raises_the_exact_protected_message(tmp_path: Path):
     _make_wheel(
         primary_dir,
         members=_BASE_MEMBERS,
-        name="epistemic_graph-9.9.9-py3-none-any.whl",
+        name="medulla-9.9.9-py3-none-any.whl",
     )
     _make_wheel(
         reproduction_dir,
         members=_BASE_MEMBERS,
-        name="epistemic_graph-9.9.8-py3-none-any.whl",
+        name="medulla-9.9.8-py3-none-any.whl",
     )
 
     with pytest.raises(AssertionError, match="^release wheel filename mismatch$"):
