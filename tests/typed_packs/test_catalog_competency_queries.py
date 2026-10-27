@@ -11,6 +11,14 @@ does not project.
 
 from __future__ import annotations
 
+import os
+import uuid
+
+import pytest
+from conftest import request_context
+
+from epistemic_graph.client import SyncEpistemicGraphClient
+
 CATALOG = "http://knuckles.team/kg/catalog#"
 CONNECTOR_PACK = "http://knuckles.team/kg/connector-pack#"
 RDFS = "http://www.w3.org/2000/01/rdf-schema#"
@@ -116,10 +124,33 @@ def _uql_relationship(iri: str) -> str:
     return f"{quote}{iri}{quote}"
 
 
-def test_owner_lineage_term_and_class_queries_answer_from_the_graph(clean_graph):
+@pytest.fixture
+def catalog_graph():
+    """Give this served integration test a graph isolated from xdist peers."""
+
+    graph = f"eg-r1067-{uuid.uuid4().hex}"
+    client = SyncEpistemicGraphClient.connect(
+        socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
+        graph_name=graph,
+        verified_context=request_context(),
+    )
+    created = False
+    try:
+        client.tenants.create(graph, graph_type="Global")
+        created = True
+        yield client, graph
+    finally:
+        try:
+            if created:
+                client.tenants.delete(graph)
+        finally:
+            client.close()
+
+
+def test_owner_lineage_term_and_class_queries_answer_from_the_graph(catalog_graph):
     """R106.7 vectors return the same catalog entities through SPARQL and UQL."""
 
-    client = clean_graph
+    client, _graph = catalog_graph
     # RDF writes require an explicit integrity policy.  This target class is
     # absent from the fixture, so the policy permits only this test's fixture
     # without weakening the production write-time guard.
