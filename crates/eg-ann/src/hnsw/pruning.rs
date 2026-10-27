@@ -150,9 +150,9 @@ pub fn prune_hub_preserving(
     let mut candidate = index.clone();
     let hub_flags = classify_hubs(&candidate, policy, &mut work)?;
 
-    for node_idx in 0..candidate.nodes.len() {
+    for (node_idx, node_hub_flags) in hub_flags.iter().enumerate().take(candidate.nodes.len()) {
         let layer_count = candidate.nodes[node_idx].neighbors.len();
-        for layer in 0..layer_count {
+        for (layer, &is_hub) in node_hub_flags.iter().enumerate().take(layer_count) {
             work.charge(1)?;
             let source = candidate.nodes[node_idx].neighbors[layer].clone();
             work.charge(source.len())?;
@@ -162,7 +162,7 @@ pub fn prune_hub_preserving(
             } else {
                 candidate.m
             };
-            let requested_cap = if hub_flags[node_idx][layer] {
+            let requested_cap = if is_hub {
                 policy.hub_degree()
             } else {
                 policy.ordinary_degree()
@@ -322,7 +322,7 @@ impl WorkBudget {
     }
 
     fn charge(&mut self, units: usize) -> Result<(), PruneError> {
-        let required = self.used.checked_add(units).unwrap_or(usize::MAX);
+        let required = self.used.saturating_add(units);
         if required > self.budget {
             return Err(PruneError::BudgetExceeded {
                 required,
@@ -518,7 +518,8 @@ mod tests {
         assert_invalid_graph_refuses(duplicate);
 
         let mut out_of_range = fixture();
-        out_of_range.nodes[0].neighbors[0].push(out_of_range.nodes.len());
+        let out_of_range_neighbor = out_of_range.nodes.len();
+        out_of_range.nodes[0].neighbors[0].push(out_of_range_neighbor);
         assert_invalid_graph_refuses(out_of_range);
 
         let mut invalid_layer = fixture();
