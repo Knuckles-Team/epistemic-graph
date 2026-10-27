@@ -425,7 +425,7 @@
         "394f82a01e83"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:494",
+        "crates/eg-capabilities/src/contract/errors.rs:495",
         "crates/eg-capabilities/src/error_routing.rs:376",
         "crates/eg-types/src/governed_change/tests.rs:183",
         "src/server/auth.rs:2053",

@@ -15806,6 +15806,84 @@
         },
         {
           "additionalProperties": false,
+          "description": "Import or revise one connector-owned ontology source. The runtime\nhandler is introduced by R103.2; keeping the closed model here makes\nthe source identity and CAS fields explicit before that wiring lands.",
+          "properties": {
+            "connector": {
+              "type": "string"
+            },
+            "content_digest": {
+              "$ref": "#/$defs/Digest256"
+            },
+            "expected_prior_revision": {
+              "default": null,
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "ontology_iri": {
+              "type": "string"
+            },
+            "ontology_ttl": {
+              "type": "string"
+            },
+            "op": {
+              "const": "import_ontology",
+              "type": "string"
+            },
+            "shapes_ttl": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "connector",
+            "ontology_iri",
+            "version",
+            "ontology_ttl",
+            "content_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Withdraw the complete connector-owned ontology source at a known\nrevision. The runtime handler is introduced by R103.2.",
+          "properties": {
+            "connector": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "ontology_iri": {
+              "type": "string"
+            },
+            "op": {
+              "const": "withdraw_ontology",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "connector",
+            "ontology_iri",
+            "expected_revision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "properties": {
             "if_composed_digest": {
               "default": null,

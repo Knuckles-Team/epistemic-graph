@@ -1,0 +1,18 @@
+# Connector seed shapes (EG-TYPED-PACKS-R104.1).
+
+@prefix seed: <http://knuckles.team/kg/connector-seed#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+
+seed:SeedSubjectShape a sh:NodeShape ;
+    sh:targetClass seed:SeedSubject ;
+    sh:property [
+        sh:path seed:fromSeed ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class seed:SeedRevision ;
+        sh:message "A seed subject names exactly one seed revision."
+    ] .
+
+seed:SeedRevisionShape a sh:NodeShape ;
+    sh:targetClass seed:SeedRevision .

@@ -404,6 +404,8 @@ pub struct GraphSchemaSourcesView {
 closed_error_codes! {
     /// Every typed refusal the schema-source surface can answer with.
     pub enum GraphSchemaErrorCode {
+        /// Runtime ontology import is modeled but is wired by the next delivery stage.
+        OntologyImportNotWired => "ONTOLOGY_IMPORT_NOT_WIRED",
         /// The key is under a reserved importer prefix.
         SourceReserved => "SCHEMA_SOURCE_RESERVED",
         /// Two sources declare the same shape or term incompatibly.
