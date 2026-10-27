@@ -141,10 +141,7 @@ SELECT ?route ?hostname ?upstream ?source ?record ?asof WHERE {
         vec![
             ("route-admin".to_string(), "admin.example.test".to_string()),
             ("route-api".to_string(), "api.example.test".to_string()),
-            (
-                "route-api".to_string(),
-                "www.api.example.test".to_string()
-            ),
+            ("route-api".to_string(), "www.api.example.test".to_string()),
         ],
         "all site blocks for the target upstream answer: {rows:?}"
     );
