@@ -123,3 +123,4 @@ eg-modality = { path = "../eg-modality", optional = true }
 # the registered core documents with the native RDF stack. Dev-only: a default
 # build links nothing extra (the eg-plan test-target precedent).
 eg-rdf = { path = "../eg-rdf", features = ["rdf"] }
+eg-shacl = { path = "../eg-shacl" }
