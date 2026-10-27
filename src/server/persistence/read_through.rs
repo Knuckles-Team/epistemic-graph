@@ -138,3 +138,95 @@ impl eg_core::registry::GraphMaterializer for BackendGraphMaterializer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::sync::Mutex;
+
+    struct ProbeBackend {
+        reply: Result<Option<Vec<u8>>, String>,
+        calls: Mutex<Vec<(String, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl PersistenceBackend for ProbeBackend {
+        fn read_node_blocking(
+            &self,
+            graph_fname: &str,
+            node_id: &str,
+        ) -> Result<Option<Vec<u8>>, String> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((graph_fname.to_owned(), node_id.to_owned()));
+            self.reply.clone()
+        }
+
+        fn shutdown(&self) {}
+    }
+
+    #[derive(Clone, Default)]
+    struct CapturedWarnings(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for CapturedWarnings {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn backend_failure_is_not_absence_evidence() {
+        let committed_bytes = vec![0, 255, 7, 0];
+        for (reply, expected, warning) in [
+            (Err("durable read unavailable".to_owned()), None, true),
+            (Ok(None), None, false),
+            (
+                Ok(Some(committed_bytes.clone())),
+                Some(committed_bytes.clone()),
+                false,
+            ),
+        ] {
+            let backend = Arc::new(ProbeBackend {
+                reply,
+                calls: Mutex::new(Vec::new()),
+            });
+            let factory = BackendReadThroughFactory::new(backend.clone());
+            let logical_graph = "scope/alpha";
+            let node_id = "node-a";
+            let adapter = factory.for_graph(logical_graph);
+            let captured = CapturedWarnings::default();
+            let writer = captured.clone();
+            let subscriber = tracing_subscriber::fmt()
+                .with_ansi(false)
+                .without_time()
+                .with_max_level(tracing::Level::WARN)
+                .with_writer(move || writer.clone())
+                .finish();
+
+            let observed =
+                tracing::subscriber::with_default(subscriber, || adapter.read_node_blob(node_id));
+            assert_eq!(observed, expected);
+            assert_eq!(
+                *backend.calls.lock().unwrap(),
+                vec![(sanitize(logical_graph), node_id.to_owned())]
+            );
+            let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+            if warning {
+                assert!(log.contains("WARN"), "{log}");
+                assert!(log.contains("read-through miss"), "{log}");
+                assert!(log.contains("durable read unavailable"), "{log}");
+                assert!(log.contains(&sanitize(logical_graph)), "{log}");
+                assert!(log.contains(node_id), "{log}");
+            } else {
+                assert!(log.is_empty(), "unexpected warning: {log}");
+            }
+        }
+    }
+}
