@@ -820,12 +820,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R025",
       "title": "Typed parameter binding end-to-end through the Python client",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "4e0570f079f5"
+        "4e0570f079f5",
+        "73622be75cb0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_uql_client_result.py:48",
+        "tests/test_uql_client_result.py:78"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R026",
