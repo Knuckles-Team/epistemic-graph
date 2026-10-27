@@ -24,10 +24,10 @@ async fn typed_quantum_rank_handler_returns_a_quantum_result() {
 
     assert_eq!(response.id, 41);
     assert_eq!(response.error, None);
-    let Some(ResultPayload::Raw(bytes)) = response.result else {
+    let Some(ResultPayload::Json(value)) = response.result else {
         panic!("the Medulla quantum handler must return its typed result");
     };
-    let result: QuantumRankResult = rmp_serde::from_slice(&bytes).unwrap();
+    let result: QuantumRankResult = serde_json::from_value(value).unwrap();
     assert_eq!(result.operation, QuantumOperationKind::Rank);
     assert!(result.run.proposal);
     assert_eq!(result.ranked_candidates.len(), 2);
