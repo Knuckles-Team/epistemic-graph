@@ -24,7 +24,8 @@
     feature = "query",
     feature = "owl-plan",
     feature = "shacl",
-    feature = "rdf"
+    feature = "rdf",
+    feature = "sparql"
 ))]
 
 mod common;
@@ -107,6 +108,60 @@ async fn rdf_snapshot(state: &test_support::SharedState, id: u64) -> serde_json:
     .await;
     assert!(response.error.is_none(), "{:?}", response.error);
     serde_json::to_value(response.result.expect("GetRdf result")).unwrap()
+}
+
+#[tokio::test]
+async fn served_sparql_binds_each_multivalued_property_value() {
+    let state = state();
+    ok(
+        &state,
+        30,
+        Method::AddTriples {
+            turtle: "@prefix ex: <http://ex/> .\nex:person ex:age 40, 18 .\nex:other ex:age 35 ."
+                .into(),
+            ntriples: String::new(),
+        },
+    )
+    .await;
+
+    let response = test_support::dispatch(
+        &state,
+        test_support::commons_request(
+            SECRET,
+            31,
+            Method::Sparql {
+                query: "PREFIX ex: <http://ex/>\nSELECT ?age WHERE { ?subject ex:age ?age . FILTER (?age > 30) }"
+                    .into(),
+                base_iri: String::new(),
+                type_convention: String::new(),
+                explain: false,
+            },
+        ),
+    )
+    .await;
+    assert!(
+        response.error.is_none(),
+        "Sparql error: {:?}",
+        response.error
+    );
+
+    let Some(ResultPayload::Raw(bytes)) = response.result else {
+        panic!("expected raw SparqlResult");
+    };
+    let result: epistemic_graph::protocol::SparqlResult =
+        rmp_serde::from_slice(&bytes).expect("decode served SparqlResult");
+    let age_column = result
+        .vars
+        .iter()
+        .position(|name| name == "age")
+        .expect("SPARQL result must expose the filtered age variable");
+    let mut ages: Vec<String> = result
+        .rows
+        .iter()
+        .filter_map(|row| row.get(age_column).and_then(Clone::clone))
+        .collect();
+    ages.sort();
+    assert_eq!(ages, vec!["35", "40"]);
 }
 
 #[tokio::test]
