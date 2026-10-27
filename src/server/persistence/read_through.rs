@@ -25,6 +25,7 @@ mod production_wiring_tests {
     use crate::registry::GraphRegistry;
     use crate::server::persistence::redb_backend::RedbBackend;
 
+    // spec: EG-DURABLE-KERNEL-R086.4
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn production_factory_reads_durable_rows_for_existing_and_future_graphs() {
         let _env_guard = crate::crypto::acquire_test_env_read_lock().await;
