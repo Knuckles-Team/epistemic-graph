@@ -317,8 +317,8 @@
         "23ba8c7eab2a",
         "3dd56fe53283",
         "64f76c5b3209",
-        "9a7674d1bae5",
-        "b28c6e06c13a"
+        "7e1e46d27f42",
+        "9a7674d1bae5"
       ],
       "verified_by": [
         "src/server/foreign_catalog.rs:402",
@@ -700,7 +700,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3dd56fe53283",
-        "6bc4b5668ed0"
+        "6bc4b5668ed0",
+        "7e1e46d27f42"
       ],
       "verified_by": [
         "crates/eg-types/src/postgres_adapter.rs:205"
