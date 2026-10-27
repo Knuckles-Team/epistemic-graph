@@ -1,6 +1,6 @@
 //! Structured diagnostics (UQL-02): codes, spans, expected sets, multi-line carets.
 
-use crate::uql::{parse, UqlCode, ALL_CODES};
+use crate::uql::{ALL_CODES, UqlCode, parse};
 
 #[test]
 fn an_unknown_stage_names_every_alternative() {
@@ -48,6 +48,33 @@ fn lexical_errors_carry_codes() {
     assert_eq!(
         parse("MATCH () |> LIMIT $ 5").unwrap_err().code,
         UqlCode::EmptyParameterName
+    );
+}
+
+// Regression for EG-FEDERATED-QUERY-R064; native acceptance remains pending.
+#[test]
+fn lexical_errors_report_the_offending_span_and_caret() {
+    let src = "MATCH () |> LIMIT %";
+    let error = parse(src).unwrap_err();
+
+    assert_eq!(error.code, UqlCode::UnexpectedCharacter);
+    assert_eq!(&src[error.at..error.end], "%");
+    let rendered = error.render(src);
+    assert!(
+        rendered.starts_with("UQL_UNEXPECTED_CHARACTER at 1:19:"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("  1 | MATCH () |> LIMIT %\n"),
+        "{rendered}"
+    );
+    assert!(
+        rendered
+            .lines()
+            .nth(2)
+            .unwrap()
+            .ends_with("                   ^"),
+        "{rendered}"
     );
 }
 
