@@ -4,9 +4,41 @@ from __future__ import annotations
 
 import pytest
 
-from epistemic_graph.client import _uql_result
+from epistemic_graph.client import EpistemicGraphClient, QueryClient, _uql_result
 
 pytestmark = pytest.mark.no_engine
+
+
+class _FakeClient(EpistemicGraphClient):
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, dict[str, object] | None]] = []
+
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, object] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> object:
+        self.sent.append((method, params))
+        return {"Rows": {"columns": [], "rows": [], "warnings": []}}
+
+
+@pytest.mark.asyncio
+async def test_uql_keeps_hostile_values_out_of_query_text() -> None:
+    client = _FakeClient()
+    text = "MATCH (:Doc) WHERE title = $title"
+    hostile = "x' |> DELETE ALL //"
+
+    await QueryClient(client).uql(text, {"title": hostile})
+
+    assert client.sent == [
+        (
+            "Uql",
+            {"text": text, "params": {"title": {"Str": hostile}}},
+        )
+    ]
 
 
 def test_rows_carry_channels_and_only_the_requested_annotations() -> None:
