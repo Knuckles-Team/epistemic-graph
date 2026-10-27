@@ -221,7 +221,21 @@ fn validate_imports(source_id: &str, triples: &[Triple], shapes: bool) -> Result
         .iter()
         .filter(|triple| triple.predicate.as_str() == OWL_IMPORTS)
     {
-        let allowed = matches!(&triple.object, Term::NamedNode(node) if document_iris.contains(node.as_str()));
+        let allowed = match &triple.object {
+            Term::NamedNode(node) if document_iris.contains(node.as_str()) => true,
+            // ConnectorPack admission validates the parent catalog as a
+            // server-resolved authority. Preserve that edge in the tenant's
+            // composed schema while keeping generic dynamic/admin sources
+            // closed over their own declared documents.
+            Term::NamedNode(node)
+                if !shapes
+                    && source_id.starts_with("pack:")
+                    && eg_rdf::pack::is_parent_ontology_iri(node.as_str()) =>
+            {
+                true
+            }
+            _ => false,
+        };
         if !allowed {
             return Err(format!(
                 "{}: source '{source_id}' imports a document outside its own authority",
@@ -625,6 +639,44 @@ ex:Shape a sh:NodeShape ; sh:targetClass ex:Thing ;
             .attach_dynamic("admin:own".to_string(), admin("own", None, Some(own)))
             .unwrap();
         validate_and_compose(&self_import).unwrap();
+    }
+
+    #[test]
+    fn pack_parent_import_is_retained_in_composed_schema() {
+        let mut sources = GraphSchemaSources::default();
+        let ontology = r#"
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<https://example.org/connector> a owl:Ontology ;
+    owl:imports <http://knuckles.team/kg> .
+<https://example.org/connector#Ticket> a owl:Class ;
+    rdfs:subClassOf <http://knuckles.team/kg#Event> .
+"#;
+        let source = GraphSchemaSource::new(
+            SchemaSourceOrigin::Pack {
+                connector: "example".to_string(),
+                record_id: "pack:example:1".to_string(),
+            },
+            None,
+            Some(Arc::from(ontology)),
+            0,
+        )
+        .unwrap();
+        sources
+            .attach_dynamic("pack:example".to_string(), source)
+            .unwrap();
+
+        let composed = validate_and_compose(&sources).unwrap();
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == OWL_IMPORTS
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == "https://example.org/connector")
+                && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == "http://knuckles.team/kg")
+        }));
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == RDF_TYPE
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == "https://example.org/connector#Ticket")
+                && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == "http://www.w3.org/2002/07/owl#Class")
+        }));
     }
 
     #[test]
