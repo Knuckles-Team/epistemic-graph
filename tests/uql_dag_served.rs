@@ -1,5 +1,6 @@
 //! EG-FEDERATED-QUERY-R065: prove the DAG EXPLAIN/PROFILE contract through
 //! the served `Method::Uql` path, rather than only through `eg-plan`.
+// spec: EG-FEDERATED-QUERY-R065
 #![cfg(all(feature = "query", feature = "redb", feature = "security"))]
 
 mod common;
