@@ -52,7 +52,10 @@ pub use document::{
     Table, TableCell,
 };
 pub use header::content_hash;
-pub use transcript::{TranscriptRole, TranscriptToolCall, TranscriptTurn};
+pub use transcript::{
+    transcript_parser_spec, TranscriptDialect, TranscriptParserSpec, TranscriptRecordKind,
+    TranscriptRole, TranscriptToolCall, TranscriptTurn, TRANSCRIPT_PARSER_TABLE,
+};
 
 /// Governed, restartable served document runtime. Available under `serving` and
 /// backed by the universal Artifact/Occurrence/Rendition/Segment/Feature/Locus
