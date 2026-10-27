@@ -774,7 +774,7 @@
         "8451d7eecf02"
       ],
       "verified_by": [
-        "crates/eg-plan/src/exec.rs:2661",
+        "crates/eg-plan/src/exec.rs:2695",
         "src/server/mod.rs:2099"
       ],
       "rollup_of": [
@@ -791,7 +791,7 @@
         "8040b672e582"
       ],
       "verified_by": [
-        "crates/eg-plan/src/exec.rs:2661",
+        "crates/eg-plan/src/exec.rs:2695",
         "src/server/mod.rs:2099"
       ]
     },
@@ -1513,7 +1513,8 @@
         "e93f988eae07"
       ],
       "verified_by": [
-        "crates/eg-plan/src/budget.rs:73"
+        "crates/eg-plan/src/budget.rs:73",
+        "crates/eg-plan/src/exec.rs:2721"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R070.1"
