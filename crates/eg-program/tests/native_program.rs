@@ -12,6 +12,14 @@ use eg_program::{
 };
 use sha2::{Digest, Sha256};
 
+fn msgpack_round_trip<T>(value: &T) -> T
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+{
+    let bytes = rmp_serde::to_vec_named(value).expect("encode contract");
+    rmp_serde::from_slice(&bytes).expect("decode contract")
+}
+
 fn token(label: &str) -> String {
     hex::encode(Sha256::digest(label.as_bytes()))
 }
@@ -254,6 +262,49 @@ fn optimizer_names_are_thirteen_distinct_current_spellings() {
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(names.len(), 13);
     assert!(names.contains("avatar"));
+}
+
+#[test]
+fn program_contracts_round_trip_and_optimizer_catalog_is_closed() {
+    let request = request(OptimizerKind::LabeledFewShot);
+    assert_eq!(
+        msgpack_round_trip(&request.program.signature),
+        request.program.signature
+    );
+    assert_eq!(msgpack_round_trip(&request.program), request.program);
+    assert_eq!(msgpack_round_trip(&request.corpus), request.corpus);
+    let example = request
+        .corpus
+        .examples
+        .first()
+        .expect("fixture has one example per modality");
+    assert_eq!(msgpack_round_trip(example), *example);
+
+    let names = OptimizerKind::ALL
+        .into_iter()
+        .map(OptimizerKind::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(names.len(), 13);
+    assert_eq!(
+        names,
+        [
+            "avatar",
+            "better_together",
+            "bootstrap_few_shot",
+            "bootstrap_few_shot_with_random_search",
+            "bootstrap_finetune",
+            "copro",
+            "gepa",
+            "infer_rules",
+            "knn_few_shot",
+            "labeled_few_shot",
+            "mipro_v2",
+            "simba",
+            "ensemble",
+        ]
+        .into_iter()
+        .collect()
+    );
 }
 
 #[test]

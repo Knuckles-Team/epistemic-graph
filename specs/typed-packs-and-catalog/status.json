@@ -1861,12 +1861,16 @@
     {
       "id": "EG-TYPED-PACKS-R087",
       "title": "Stable error codes for auth-boundary refusals",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "18d0e152f4f3",
         "48746fc0e5ac",
+        "7aefb5a067f3",
         "90f5578ae2f4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/auth/claims.rs:184"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R088",
@@ -1895,12 +1899,16 @@
     {
       "id": "EG-TYPED-PACKS-R090",
       "title": "Canonical ontology and SHACL artifacts generated from Rust",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "080677a31fdd",
+        "2177548a24d3",
         "90f5578ae2f4"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-core/src/ontology_codegen.rs:119",
+        "crates/eg-core/src/ontology_codegen.rs:133"
+      ],
       "rollup_of": [
         "EG-TYPED-PACKS-R090.1"
       ]
@@ -1908,11 +1916,15 @@
     {
       "id": "EG-TYPED-PACKS-R090.1",
       "title": "A typed-vocabulary-to-Turtle generator reproduces checked-in output byte-for-byte",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "080677a31fdd"
+        "080677a31fdd",
+        "2177548a24d3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/ontology_codegen.rs:119",
+        "crates/eg-core/src/ontology_codegen.rs:133"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R091",
