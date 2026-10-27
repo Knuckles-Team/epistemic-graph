@@ -500,16 +500,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R006",
       "title": "Engine startup does not block on one store's lazy open",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "03670fc1f33c",
         "0c01d687aba9",
         "20c64b28144f",
-        "51d84d58e174",
-        "8dbb5bd9de53"
+        "4aefb9406e55",
+        "51d84d58e174"
       ],
       "verified_by": [
-        "src/raft/harness/resource_acceptance_test.rs:2570"
+        "crates/eg-storage/src/physical/tests.rs:1008",
+        "crates/eg-storage/src/physical/tests.rs:1023",
+        "crates/eg-storage/src/physical/tests.rs:768",
+        "crates/eg-storage/src/physical/tests.rs:782",
+        "crates/eg-storage/src/physical/tests.rs:793"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R006.1",
@@ -576,8 +580,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R006.4",
       "title": "Pre-listener boot does not block on write-lock-holding maintenance",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4aefb9406e55"
+      ],
       "verified_by": [
         "src/server/connector_pack_projection/boot_regression.rs:378"
       ]
@@ -585,8 +591,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R006.5",
       "title": "Ts startup reconciliation replays the legacy gap once, then uses the cursor fast path",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4aefb9406e55"
+      ],
       "verified_by": [
         "src/server/connector_pack_projection/boot_regression.rs:379"
       ]
