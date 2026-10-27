@@ -48,25 +48,15 @@ env:
   MATURIN_FEATURES: "full,ast-extended"
 
 jobs:
-  # Documentation-only PRs avoid unrelated builds; main, tags and manual
-  # runs retain exhaustive validation. Unknown files/history run everything.
+  # Keep the historical caller job id so every native job below retains its
+  # needs.changes.outputs.code edge. The immutable central workflow runs this
+  # scope check together with lint/architecture and spec-status; native jobs
+  # wait for all three light gates to finish before evaluating their existing
+  # conditions.
   changes:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: Change scope
-    runs-on: ubuntu-latest
-    outputs:
-      code: ${{ steps.scope.outputs.code }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - id: scope
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/ci_change_scope.py --event "$EVENT" --base "$BASE" --head "$HEAD" >> "$GITHUB_OUTPUT"
+    uses: Knuckles-Team/pipelines/.github/workflows/medulla_light_gates.yml@main
+    with:
+      runner: ${{ vars.ARBORA_TRUSTED_CI_RUNNER == 'true' && '"arbora-ci-trusted"' || '"ubuntu-latest"' }}
 
   # ── Dependency and source-history security checks. ─────────────────────
   security:
@@ -1091,81 +1081,6 @@ jobs:
         working-directory: clients/js
         run: npm test
 
-  # ── Runtime contracts. These checks guard authorization, lifecycle,
-  # modality, reasoning, release-campaign, and persisted-schema behavior.
-  # They remain blocking alongside the executable test suites.
-  lint-and-architecture:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: Lint, format and architecture (pre-commit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # spec-status reconstructs generated status from commit trailers.
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: '.python-version'
-      - name: Install manifest Rust toolchain and rustfmt
-        run: rustup toolchain install --profile minimal --component rustfmt && rustup show active-toolchain
-      - name: Install uv, pre-commit and the hooks' one third-party import
-        run: python -m pip install --disable-pip-version-check uv==0.8.17 pre-commit==4.6.2 pyyaml==6.0.3
-      # lane-guard is owned by agent-utilities and read from a sibling checkout
-      # (scripts/sibling_gate.py). They are lint policy, so they track its main.
-      - name: Check out agent-utilities gate scripts
-        run: |
-          git clone --depth 1 https://github.com/Knuckles-Team/agent-utilities "$RUNNER_TEMP/agent-utilities"
-          echo "AGENT_UTILITIES_ROOT=$RUNNER_TEMP/agent-utilities" >> "$GITHUB_ENV"
-      # The same hooks a contributor runs locally (`scripts/bootstrap.sh` installs
-      # them), so local and CI share one definition. lane-guard governs local
-      # worktree lanes and has nothing to check on a runner; cargo-deny runs in
-      # the `security` job with its pinned install.
-      - name: pre-commit (commit stage, PR diff or full publication)
-        env:
-          SKIP: lane-guard,cargo-deny-advisories
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [ "$EVENT" = pull_request ]; then
-            pre-commit run --config .config/pre-commit.yaml --from-ref "$BASE" --to-ref "$HEAD" --show-diff-on-failure
-          else
-            pre-commit run --config .config/pre-commit.yaml --all-files --show-diff-on-failure
-          fi
-      # Whole repository on every event (no compile, seconds): a formatting
-      # problem must never first appear in the tag pipeline.
-      - name: rustfmt
-        run: cargo fmt --all -- --check
-      - name: CI change-scope regression tests
-        run: |
-          python -m pip install --disable-pip-version-check pytest==9.1.1
-          python -m pytest --noconftest -o addopts='' tests/test_ci_change_scope.py
-      - name: Server package tests
-        working-directory: packaging/epistemic-graph-server
-        run: python -m pytest -o addopts='' -p no:cacheprovider tests
-
-  # ── Spec-status lifecycle gates (SPEC-STATUS-LIFECYCLE.md): the generated
-  # specs/*/status.json schema, requirement decomposition, and (PRs only) the
-  # Spec: trailer on the incoming commit range. Deliberately independent of
-  # the release path: no other job's needs: names it, and it is not a
-  # required check.
-  spec-gates:
-    timeout-minutes: 5
-    name: Spec status lifecycle gates
-    runs-on: ubuntu-latest
-    steps:
-      - *eg-history-checkout
-      - *eg-tracked-python
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-      - name: spec-status
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-status
-      - name: spec-decomposition
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-decomposition
-      - name: spec-trailers
-        if: github.event_name == 'pull_request'
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-trailers --base-ref "origin/${{ github.base_ref }}"
-
   # ── Clippy is blocking on every profile: the toolchain is pinned, so a new
   # finding comes from the change under review, not from an upgrade.
   # EH-191/EH-225: `-D warnings` across every release profile. `--all-features`
@@ -1631,7 +1546,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security, lint-and-architecture]
+    needs: [changes, gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'

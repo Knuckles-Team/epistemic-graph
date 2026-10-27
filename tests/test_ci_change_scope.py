@@ -19,6 +19,13 @@ from scripts import ci_change_scope as scope
 pytestmark = pytest.mark.no_engine
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_SETUP = "./.github/actions/native-validation-setup"
+CENTRAL_LIGHT_GATES = (
+    "Knuckles-Team/pipelines/.github/workflows/medulla_light_gates.yml@main"
+)
+CENTRAL_RUNNER = (
+    "${{ vars.ARBORA_TRUSTED_CI_RUNNER == 'true' && "
+    "'\"arbora-ci-trusted\"' || '\"ubuntu-latest\"' }}"
+)
 
 
 def native_acceptance_steps(steps: list[dict]) -> list[dict]:
@@ -146,6 +153,13 @@ def test_complete_git_diff_has_no_api_file_limit(
 
 def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    light = jobs["changes"]
+    assert light == {
+        "uses": CENTRAL_LIGHT_GATES,
+        "with": {"runner": CENTRAL_RUNNER},
+    }
+    assert "lint-and-architecture" not in jobs
+    assert "spec-gates" not in jobs
     security = {step.get("name"): step for step in jobs["security"]["steps"]}
     for name in (
         "Secret-history scan",
@@ -155,15 +169,8 @@ def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
     for name in ("Install pinned cargo-deny", "Rust dependency advisory gate"):
         assert security[name]["if"] == "needs.changes.outputs.code != 'false'"
     assert jobs["security"]["if"] == "always()"
-    assert "if" not in jobs["spec-gates"]
-    lint = {step.get("name"): step for step in jobs["lint-and-architecture"]["steps"]}
-    hooks = lint["pre-commit (commit stage, PR diff or full publication)"]
-    assert '--from-ref "$BASE" --to-ref "$HEAD"' in hooks["run"]
-    assert "--all-files" in hooks["run"]
-    assert hooks["env"]["SKIP"] == "lane-guard,cargo-deny-advisories"
-    assert lint["rustfmt"]["run"] == "cargo fmt --all -- --check"
-    assert "if" not in lint["rustfmt"]
-    assert "CI change-scope regression tests" in lint
+    assert "changes" in jobs["engine-main-wheel"]["needs"]
+    assert "lint-and-architecture" not in jobs["engine-main-wheel"]["needs"]
 
 
 def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
@@ -215,26 +222,14 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
 
 # spec: EG-CONTRACT-R031
 # spec: EG-CONTRACT-R031.1
-def test_lint_installs_manifest_rustfmt_before_all_formatting_steps() -> None:
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    steps = workflow["jobs"]["lint-and-architecture"]["steps"]
-    install = next(
-        index
-        for index, step in enumerate(steps)
-        if step.get("name") == "Install manifest Rust toolchain and rustfmt"
-    )
-    setup = steps[install]
-    assert "if" not in setup
-    assert setup["run"] == (
-        "rustup toolchain install --profile minimal --component rustfmt "
-        "&& rustup show active-toolchain"
-    )
-    for index, step in enumerate(steps):
-        command = step.get("run", "")
-        if "pre-commit run" in command or "check_rustfmt_scope.py" in command:
-            assert install < index
-    rustfmt = next(step for step in steps if step.get("name") == "rustfmt")
-    assert rustfmt["run"] == "cargo fmt --all -- --check"
+def test_light_runtime_and_spec_checks_are_centralized() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    assert jobs["changes"] == {
+        "uses": CENTRAL_LIGHT_GATES,
+        "with": {"runner": CENTRAL_RUNNER},
+    }
+    assert "lint-and-architecture" not in jobs
+    assert "spec-gates" not in jobs
 
 
 @pytest.fixture
