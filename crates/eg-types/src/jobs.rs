@@ -238,6 +238,17 @@ fn default_algorithm() -> String {
 pub struct TaskEnqueue {
     pub task_id: String,
     pub queue: String,
+    /// The worker lane that owns this task.  The generic queue is shared by
+    /// every lane; this is routing metadata, not a second queue identity.
+    #[serde(default = "default_task_lane")]
+    pub lane: String,
+    /// The stage tier used when choosing work within a lane.
+    #[serde(default)]
+    pub queue_class: TaskQueueClass,
+    /// Higher values are considered before lower values within the selected
+    /// lane.  Lane rotation always happens before this ordering.
+    #[serde(default)]
+    pub priority: u32,
     pub payload_ref: String,
     pub idempotency_key: String,
 }
@@ -253,14 +264,33 @@ impl TaskEnqueue {
         Self {
             task_id: task_id.into(),
             queue: queue.into(),
+            lane: default_task_lane(),
+            queue_class: TaskQueueClass::default(),
+            priority: 0,
             payload_ref: payload_ref.into(),
             idempotency_key: idempotency_key.into(),
         }
     }
 
+    /// Set lane-aware scheduling metadata without changing queue state.
+    pub fn with_lane(
+        mut self,
+        lane: impl Into<String>,
+        queue_class: TaskQueueClass,
+        priority: u32,
+    ) -> Self {
+        self.lane = lane.into();
+        self.queue_class = queue_class;
+        self.priority = priority;
+        self
+    }
+
     fn validate(&self) -> Result<(), TaskQueueRefusal> {
         if self.queue.trim().is_empty() {
             return Err(TaskQueueRefusal::EmptyQueueName);
+        }
+        if self.lane.trim().is_empty() {
+            return Err(TaskQueueRefusal::EmptyLaneName);
         }
         Ok(())
     }
@@ -273,6 +303,10 @@ impl TaskEnqueue {
 pub struct TaskClaim {
     pub task_id: String,
     pub queue: String,
+    #[serde(default = "default_task_lane")]
+    pub lane: String,
+    #[serde(default)]
+    pub queue_class: TaskQueueClass,
     pub worker_id: String,
     pub lease_epoch: u64,
     pub lease_ms: u64,
@@ -292,6 +326,8 @@ impl TaskClaim {
         Self {
             task_id: task_id.into(),
             queue: queue.into(),
+            lane: default_task_lane(),
+            queue_class: TaskQueueClass::default(),
             worker_id: worker_id.into(),
             lease_epoch,
             lease_ms,
@@ -299,9 +335,41 @@ impl TaskClaim {
         }
     }
 
+    /// Construct a claim with explicit lane and stage tier metadata.
+    pub fn for_lane(
+        task_id: impl Into<String>,
+        queue: impl Into<String>,
+        lane: impl Into<String>,
+        queue_class: TaskQueueClass,
+        worker_id: impl Into<String>,
+        lease_epoch: u64,
+        lease_ms: u64,
+        claimed_at_ms: u64,
+    ) -> Self {
+        Self::new(
+            task_id,
+            queue,
+            worker_id,
+            lease_epoch,
+            lease_ms,
+            claimed_at_ms,
+        )
+        .with_lane(lane, queue_class)
+    }
+
+    /// Set lane and stage tier metadata without changing lease state.
+    pub fn with_lane(mut self, lane: impl Into<String>, queue_class: TaskQueueClass) -> Self {
+        self.lane = lane.into();
+        self.queue_class = queue_class;
+        self
+    }
+
     fn validate(&self) -> Result<(), TaskQueueRefusal> {
         if self.queue.trim().is_empty() {
             return Err(TaskQueueRefusal::EmptyQueueName);
+        }
+        if self.lane.trim().is_empty() {
+            return Err(TaskQueueRefusal::EmptyLaneName);
         }
         if self.lease_ms == 0 {
             return Err(TaskQueueRefusal::ZeroLease);
@@ -330,6 +398,10 @@ impl TaskClaim {
 pub struct TaskAck {
     pub task_id: String,
     pub queue: String,
+    #[serde(default = "default_task_lane")]
+    pub lane: String,
+    #[serde(default)]
+    pub queue_class: TaskQueueClass,
     pub worker_id: String,
     pub lease_epoch: u64,
 }
@@ -345,11 +417,53 @@ impl TaskAck {
         Self {
             task_id: task_id.into(),
             queue: queue.into(),
+            lane: default_task_lane(),
+            queue_class: TaskQueueClass::default(),
             worker_id: worker_id.into(),
             lease_epoch,
         }
     }
+
+    /// Construct an acknowledgement carrying the claimed lane and tier.
+    pub fn for_lane(
+        task_id: impl Into<String>,
+        queue: impl Into<String>,
+        lane: impl Into<String>,
+        queue_class: TaskQueueClass,
+        worker_id: impl Into<String>,
+        lease_epoch: u64,
+    ) -> Self {
+        Self::new(task_id, queue, worker_id, lease_epoch).with_lane(lane, queue_class)
+    }
+
+    /// Set lane and stage tier metadata without changing lease identity.
+    pub fn with_lane(mut self, lane: impl Into<String>, queue_class: TaskQueueClass) -> Self {
+        self.lane = lane.into();
+        self.queue_class = queue_class;
+        self
+    }
 }
+
+fn default_task_lane() -> String {
+    "default".to_string()
+}
+
+/// Stage tier used by the lane-fair task queue.
+///
+/// The values match the ingest worker contract: source commits are `Fast`,
+/// projection/lexical work is `Medium`, and vector/index work is `SlowHeavy`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TaskQueueClass {
+    #[default]
+    Fast,
+    Medium,
+    SlowHeavy,
+}
+
+/// Short compatibility name for callers that use the ingest contract's term.
+pub type QueueClass = TaskQueueClass;
 
 /// Refusals that the durable task queue can determine before or at claim/ack.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -357,12 +471,15 @@ impl TaskAck {
 #[serde(rename_all = "snake_case")]
 pub enum TaskQueueRefusal {
     EmptyQueueName,
+    EmptyLaneName,
     ZeroLease,
     LeaseOverflow,
     UnknownTask,
     DuplicateTaskId,
     AlreadyClaimed,
     QueueMismatch,
+    LaneMismatch,
+    QueueClassMismatch,
     LeaseMismatch,
     UnclaimedLease,
     ExpiredLease,
@@ -377,6 +494,9 @@ pub enum TaskQueueRefusal {
 pub struct TaskQueue {
     entries: BTreeMap<String, TaskQueueEntry>,
     idempotency_keys: BTreeSet<String>,
+    /// Last lane selected by `claim_next`; the next claim starts after it in
+    /// canonical lane order.  The queue remains one shared backend.
+    last_claimed_lane: BTreeMap<(String, TaskQueueClass), String>,
 }
 
 #[derive(Clone, Debug)]
@@ -417,6 +537,12 @@ impl TaskQueue {
         if entry.request.queue != claim.queue {
             return Err(TaskQueueRefusal::QueueMismatch);
         }
+        if entry.request.lane != claim.lane {
+            return Err(TaskQueueRefusal::LaneMismatch);
+        }
+        if entry.request.queue_class != claim.queue_class {
+            return Err(TaskQueueRefusal::QueueClassMismatch);
+        }
         if let Some(current) = entry.claim.as_ref() {
             if !current.is_expired(claim.claimed_at_ms)? {
                 return Err(TaskQueueRefusal::AlreadyClaimed);
@@ -424,6 +550,108 @@ impl TaskQueue {
         }
         entry.claim = Some(claim);
         Ok(())
+    }
+
+    /// Claim the next task from one shared queue, rotating across lanes before
+    /// considering priority within a lane.  A queue class selects the stage
+    /// tier, while the lane cursor keeps workers from starving another lane.
+    pub fn claim_next(
+        &mut self,
+        queue: impl Into<String>,
+        queue_class: TaskQueueClass,
+        worker_id: impl Into<String>,
+        lease_epoch: u64,
+        lease_ms: u64,
+        claimed_at_ms: u64,
+    ) -> Result<Option<TaskClaim>, TaskQueueRefusal> {
+        let queue = queue.into();
+        if queue.trim().is_empty() {
+            return Err(TaskQueueRefusal::EmptyQueueName);
+        }
+        if lease_ms == 0 {
+            return Err(TaskQueueRefusal::ZeroLease);
+        }
+        claimed_at_ms
+            .checked_add(lease_ms)
+            .ok_or(TaskQueueRefusal::LeaseOverflow)?;
+
+        let mut lanes = BTreeSet::new();
+        for entry in self.entries.values() {
+            if entry.request.queue != queue || entry.request.queue_class != queue_class {
+                continue;
+            }
+            let available = entry
+                .claim
+                .as_ref()
+                .map(|claim| claim.is_expired(claimed_at_ms))
+                .transpose()?
+                .unwrap_or(true);
+            if available {
+                lanes.insert(entry.request.lane.clone());
+            }
+        }
+        if lanes.is_empty() {
+            return Ok(None);
+        }
+
+        let lane_order: Vec<_> = lanes.into_iter().collect();
+        let cursor_key = (queue.clone(), queue_class);
+        let start = self
+            .last_claimed_lane
+            .get(&cursor_key)
+            .and_then(|last| lane_order.iter().position(|lane| lane == last))
+            .map(|index| (index + 1) % lane_order.len())
+            .unwrap_or(0);
+
+        let mut selected: Option<(String, u32, String)> = None;
+        for offset in 0..lane_order.len() {
+            let lane = &lane_order[(start + offset) % lane_order.len()];
+            let mut lane_candidate: Option<(u32, String)> = None;
+            for (task_id, entry) in &self.entries {
+                if entry.request.queue != queue
+                    || entry.request.lane != *lane
+                    || entry.request.queue_class != queue_class
+                {
+                    continue;
+                }
+                let available = entry
+                    .claim
+                    .as_ref()
+                    .map(|claim| claim.is_expired(claimed_at_ms))
+                    .transpose()?
+                    .unwrap_or(true);
+                if !available {
+                    continue;
+                }
+                let candidate = (entry.request.priority, task_id.clone());
+                if lane_candidate.as_ref().is_none_or(|current| {
+                    candidate.0 > current.0 || (candidate.0 == current.0 && candidate.1 < current.1)
+                }) {
+                    lane_candidate = Some(candidate);
+                }
+            }
+            if let Some((priority, task_id)) = lane_candidate {
+                selected = Some((lane.clone(), priority, task_id));
+                break;
+            }
+        }
+
+        let Some((lane, _priority, task_id)) = selected else {
+            return Ok(None);
+        };
+        let claim = TaskClaim::for_lane(
+            task_id,
+            queue,
+            lane.clone(),
+            queue_class,
+            worker_id,
+            lease_epoch,
+            lease_ms,
+            claimed_at_ms,
+        );
+        self.claim(claim.clone())?;
+        self.last_claimed_lane.insert(cursor_key, lane);
+        Ok(Some(claim))
     }
 
     /// Acknowledge an unexpired claim and return its original enqueue record.
@@ -439,10 +667,16 @@ impl TaskQueue {
         if claim.is_expired(now_ms)? {
             return Err(TaskQueueRefusal::ExpiredLease);
         }
-        if entry.request.queue != ack.queue
-            || claim.worker_id != ack.worker_id
-            || claim.lease_epoch != ack.lease_epoch
-        {
+        if entry.request.queue != ack.queue {
+            return Err(TaskQueueRefusal::LeaseMismatch);
+        }
+        if entry.request.lane != ack.lane {
+            return Err(TaskQueueRefusal::LaneMismatch);
+        }
+        if entry.request.queue_class != ack.queue_class {
+            return Err(TaskQueueRefusal::QueueClassMismatch);
+        }
+        if claim.worker_id != ack.worker_id || claim.lease_epoch != ack.lease_epoch {
             return Err(TaskQueueRefusal::LeaseMismatch);
         }
         let entry = self
@@ -456,6 +690,18 @@ impl TaskQueue {
     pub fn pending_len(&self) -> usize {
         self.entries.len()
     }
+
+    /// Number of queued (not currently claimed) tasks for one lane and tier.
+    pub fn lane_depth(&self, lane: &str, queue_class: TaskQueueClass) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| {
+                entry.request.lane == lane
+                    && entry.request.queue_class == queue_class
+                    && entry.claim.is_none()
+            })
+            .count()
+    }
 }
 
 #[cfg(test)]
@@ -465,6 +711,14 @@ mod task_queue_tests {
 
     fn enqueue(task_id: &str, queue: &str, key: &str) -> TaskEnqueue {
         TaskEnqueue::new(task_id, queue, format!("payload:{task_id}"), key)
+    }
+
+    fn lane_enqueue(task_id: &str, lane: &str, priority: u32) -> TaskEnqueue {
+        enqueue(task_id, "shared", &format!("key:{task_id}")).with_lane(
+            lane,
+            TaskQueueClass::Fast,
+            priority,
+        )
     }
 
     fn claim(
@@ -558,5 +812,61 @@ mod task_queue_tests {
             .unwrap();
         assert_eq!(completed.task_id, "task-1");
         assert_eq!(queue.pending_len(), 0);
+    }
+
+    // Lane-aware queue acceptance scenario; canonical status remains unbound
+    // until managed integration and performance proof are available.
+    #[test]
+    fn lane_claim_rotates_before_priority_and_reports_depth() {
+        let mut queue = TaskQueue::default();
+        queue.enqueue(lane_enqueue("a-low", "lane-a", 1)).unwrap();
+        queue.enqueue(lane_enqueue("a-high", "lane-a", 99)).unwrap();
+        queue.enqueue(lane_enqueue("b-only", "lane-b", 1)).unwrap();
+        queue.enqueue(lane_enqueue("c-only", "lane-c", 1)).unwrap();
+
+        assert_eq!(queue.lane_depth("lane-a", TaskQueueClass::Fast), 2);
+        assert_eq!(queue.lane_depth("lane-b", TaskQueueClass::Fast), 1);
+        assert_eq!(queue.lane_depth("lane-c", TaskQueueClass::Fast), 1);
+
+        let first = queue
+            .claim_next("shared", TaskQueueClass::Fast, "worker-1", 1, 100, 10)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (first.task_id.as_str(), first.lane.as_str()),
+            ("a-high", "lane-a")
+        );
+        assert_eq!(first.queue_class, TaskQueueClass::Fast);
+        assert_eq!(queue.lane_depth("lane-a", TaskQueueClass::Fast), 1);
+
+        let second = queue
+            .claim_next("shared", TaskQueueClass::Fast, "worker-2", 1, 100, 10)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (second.task_id.as_str(), second.lane.as_str()),
+            ("b-only", "lane-b")
+        );
+        let third = queue
+            .claim_next("shared", TaskQueueClass::Fast, "worker-3", 1, 100, 10)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (third.task_id.as_str(), third.lane.as_str()),
+            ("c-only", "lane-c")
+        );
+        assert_eq!(queue.lane_depth("lane-b", TaskQueueClass::Fast), 0);
+        assert_eq!(queue.lane_depth("lane-c", TaskQueueClass::Fast), 0);
+
+        // Once the other lanes have no pending work, rotation wraps to lane-a.
+        let wrapped = queue
+            .claim_next("shared", TaskQueueClass::Fast, "worker-4", 1, 100, 10)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (wrapped.task_id.as_str(), wrapped.lane.as_str()),
+            ("a-low", "lane-a")
+        );
+        assert_eq!(queue.lane_depth("lane-a", TaskQueueClass::Fast), 0);
     }
 }
