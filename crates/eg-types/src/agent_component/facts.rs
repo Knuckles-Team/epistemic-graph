@@ -589,4 +589,13 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn zero_context_window_is_rejected() {
+        let error = validate_window(0, 1).expect_err("a zero context window is invalid");
+        assert_eq!(
+            error,
+            "agent component context_window_tokens must be non-zero"
+        );
+    }
 }
