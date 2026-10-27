@@ -638,3 +638,94 @@ async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
         other => panic!("expected Raw result, got {other:?}"),
     }
 }
+
+/// EG-FEDERATED-QUERY-R087.6: the served render entry point must expose all
+/// three declared static formats and refuse an unknown dataset reference.
+#[tokio::test]
+async fn served_render_supports_png_svg_pdf_and_refuses_unknown_dataset() {
+    let state = state();
+
+    for (request_id, format, expected_content_type) in [
+        (700, VizFormat::Png, "image/png"),
+        (701, VizFormat::Svg, "image/svg+xml"),
+        (702, VizFormat::Pdf, "application/pdf"),
+    ] {
+        let dataset_ref = format!("ds:r0876-{request_id}");
+        let render = VizRenderRequest {
+            spec_json: scatter_spec(&dataset_ref),
+            dataset: Some(VizDatasetSource::InlineColumns {
+                columns: [
+                    ("x".to_string(), VizColumnValues::F64(vec![0.0, 1.0, 2.0])),
+                    ("y".to_string(), VizColumnValues::F64(vec![2.0, 1.0, 0.0])),
+                ]
+                .into_iter()
+                .collect(),
+            }),
+            width_px: 200,
+            height_px: 150,
+            format,
+            max_primitives: 200_000,
+            max_bytes: 50_000_000,
+            dataset_ref,
+        };
+        let response = Box::pin(dispatch(
+            &state,
+            test_support::commons_request(
+                SECRET,
+                request_id,
+                Method::Viz {
+                    op: VizOp::Render(render),
+                },
+            ),
+        ))
+        .await;
+        let payload = raw_result(&response);
+
+        assert_eq!(payload.content_type, expected_content_type);
+        assert!(
+            !payload.bytes.is_empty(),
+            "{format:?} export must be non-empty"
+        );
+        match format {
+            VizFormat::Png => assert_valid_png(&payload.bytes),
+            VizFormat::Svg => assert!(
+                payload.bytes.starts_with(b"<svg"),
+                "SVG export must begin with its XML root"
+            ),
+            VizFormat::Pdf => assert!(
+                payload.bytes.starts_with(b"%PDF-1.4"),
+                "PDF export must begin with the PDF signature"
+            ),
+        }
+    }
+
+    let unknown = VizRenderRequest {
+        spec_json: scatter_spec("ds:r0876-unknown"),
+        dataset: None,
+        width_px: 200,
+        height_px: 150,
+        format: VizFormat::Png,
+        max_primitives: 200_000,
+        max_bytes: 50_000_000,
+        dataset_ref: "ds:r0876-unknown".to_string(),
+    };
+    let refusal = Box::pin(dispatch(
+        &state,
+        test_support::commons_request(
+            SECRET,
+            703,
+            Method::Viz {
+                op: VizOp::Render(unknown),
+            },
+        ),
+    ))
+    .await;
+    assert_eq!(refusal.error.as_deref(), Some("ENGINE_UNAVAILABLE"));
+    assert!(
+        refusal
+            .error_detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("unavailable")),
+        "unknown dataset must expose a typed unavailable diagnostic"
+    );
+}
