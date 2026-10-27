@@ -599,8 +599,10 @@ impl TaskQueue {
         let start = self
             .last_claimed_lane
             .get(&cursor_key)
-            .and_then(|last| lane_order.iter().position(|lane| lane == last))
-            .map(|index| (index + 1) % lane_order.len())
+            // The previous lane may have no available tasks now and therefore
+            // be absent from `lane_order`. Start at the first available lane
+            // after its canonical position, wrapping only when none follows.
+            .map(|last| lane_order.partition_point(|lane| lane <= last) % lane_order.len())
             .unwrap_or(0);
 
         let mut selected: Option<(String, u32, String)> = None;
