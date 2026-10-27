@@ -1724,8 +1724,10 @@
     {
       "id": "EG-CQ-CONN-R039.2",
       "title": "microsoft cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d8a48968fc3d"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency.rs:466"
       ]
@@ -1818,8 +1820,10 @@
     {
       "id": "EG-CQ-CONN-R042.1",
       "title": "okta single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d8a48968fc3d"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency.rs:387"
       ]
