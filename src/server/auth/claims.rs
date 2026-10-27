@@ -181,6 +181,7 @@ mod tests {
     /// The deployment-binding validator is the source of these three
     /// authorization refusals. Keep their response code stable while retaining
     /// the validator's descriptive detail (EG-TYPED-PACKS-R087).
+    // spec: EG-TYPED-PACKS-R087
     #[test]
     fn deployment_binding_refusals_publish_stable_response_codes() {
         let cases = [
