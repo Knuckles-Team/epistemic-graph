@@ -68,6 +68,7 @@ fn shex_report(response: &Response) -> eg_types::rdf_report::ShexValidationRepor
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R084.2
 #[tokio::test]
 async fn inline_and_live_data_selection() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
