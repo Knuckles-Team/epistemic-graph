@@ -462,7 +462,10 @@ impl ForeignReadSessions {
 
     fn check_expiry(&self, record: &SessionRecord) -> Result<(), String> {
         if Instant::now() >= record.expires_at {
-            return Err("FOREIGN_READ_EXPIRED: execution deadline elapsed".into());
+            return Err(format!(
+                "{}: execution deadline elapsed",
+                eg_types::contract::EngineErrorCode::EngineDeadlineExceeded.as_str()
+            ));
         }
         Ok(())
     }
@@ -541,7 +544,10 @@ impl eg_plan::federation::ForeignSource for PageBackedSource {
             .ok_or_else(|| "FOREIGN_READ_NOT_FOUND: execution handle is unknown".to_string())?;
         let record = lock(&record)?;
         if Instant::now() >= record.expires_at {
-            return Err("FOREIGN_READ_EXPIRED: execution deadline elapsed".to_string());
+            return Err(format!(
+                "{}: execution deadline elapsed",
+                eg_types::contract::EngineErrorCode::EngineDeadlineExceeded.as_str()
+            ));
         }
         if record.state != SessionState::Complete {
             return Err("FOREIGN_READ_NOT_COMPLETE: source pages are not complete".into());
@@ -558,7 +564,10 @@ impl eg_plan::federation::ForeignSource for PageBackedSource {
             .ok_or_else(|| "FOREIGN_READ_NOT_FOUND: execution handle is unknown".to_string())?;
         let record = lock(&record)?;
         if Instant::now() >= record.expires_at {
-            return Err("FOREIGN_READ_EXPIRED: execution deadline elapsed".to_string());
+            return Err(format!(
+                "{}: execution deadline elapsed",
+                eg_types::contract::EngineErrorCode::EngineDeadlineExceeded.as_str()
+            ));
         }
         if record.state != SessionState::Complete {
             return Err("FOREIGN_READ_NOT_COMPLETE: source pages are not complete".into());
@@ -979,7 +988,7 @@ mod tests {
         );
         assert!(refusal
             .expect_err("expired execution cannot complete")
-            .starts_with("FOREIGN_READ_EXPIRED:"));
+            .starts_with("ENGINE_DEADLINE_EXCEEDED:"));
     }
 
     #[test]

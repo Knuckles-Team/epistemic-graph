@@ -139,7 +139,7 @@ async fn nl_query_plan_returns_pins_without_executing_rows() {
     );
     assert_eq!(
         body.query_digest,
-        crate::server::handlers::query::planning::foreign_uql_query_digest(&body.uql, &params)
+        crate::server::handlers::query::foreign_uql_query_digest(&body.uql, &params)
             .expect("query digest")
     );
 }
