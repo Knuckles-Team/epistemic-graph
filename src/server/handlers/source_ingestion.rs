@@ -730,7 +730,6 @@ fn reconcile_relationships(
         !tombstoned_entities.contains(&relationship.source)
             && !tombstoned_entities.contains(&relationship.target)
     });
-    validate_unique_relationship_endpoints(&retained)?;
     let tombstones =
         planned_relationship_tombstones(&prior_relationships, &retained, &tombstoned_entities);
     let live_relationships: Vec<_> = retained.into_values().collect();
@@ -798,23 +797,6 @@ fn retained_relationship_state(
         }
     }
     Ok(retained)
-}
-
-#[cfg(all(feature = "redb", feature = "blob"))]
-fn validate_unique_relationship_endpoints(
-    relationships: &BTreeMap<String, SourceLiveRelationship>,
-) -> Result<(), String> {
-    let mut endpoints = BTreeSet::new();
-    if relationships.values().any(|relationship| {
-        !endpoints.insert((relationship.source.clone(), relationship.target.clone()))
-    }) {
-        Err(
-            "SOURCE_RELATIONSHIP_ENDPOINT_CONFLICT: source partition has parallel endpoint identities"
-                .into(),
-        )
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
