@@ -104,7 +104,10 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
 ];
 const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ("cluster", &["CLUSTER_", "FLEET_", "REGISTRY_", "RAFT_"]),
-    ("query", &["AST_", "SQL_OWNER_", "RESULT_TOO_LARGE"]),
+    (
+        "query",
+        &["AST_", "SQL_OWNER_", "RESULT_TOO_LARGE", "FOREIGN_READ_"],
+    ),
     (
         "transactions",
         &["CHANGE_BATCH_", "REPLAY_NONCE_", "STALE_GRAPH_"],

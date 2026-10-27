@@ -426,7 +426,7 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:494",
-        "crates/eg-capabilities/src/error_routing.rs:376",
+        "crates/eg-capabilities/src/error_routing.rs:379",
         "crates/eg-types/src/governed_change/tests.rs:183",
         "src/server/auth.rs:2053",
         "src/server/transport/tests.rs:145"
@@ -1016,7 +1016,7 @@
         "88b8c1a73156"
       ],
       "verified_by": [
-        "tests/test_build_backend.py:137",
+        "tests/test_build_backend.py:138",
         "tests/test_check_wheel_completeness.py:215",
         "tests/test_ci_change_scope.py:647",
         "tests/test_ci_change_scope.py:691",
