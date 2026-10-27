@@ -2391,8 +2391,10 @@
     {
       "id": "EG-FEDERATED-QUERY-R039.2.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "a9137f8381f0"
+      ],
       "verified_by": []
     },
     {
