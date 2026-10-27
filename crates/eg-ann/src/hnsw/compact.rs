@@ -185,6 +185,12 @@ fn invalid(message: &'static str) -> Error {
     Error::new(ErrorKind::InvalidData, message)
 }
 
+struct ProviderSearchContext<'a, P: VectorProvider> {
+    budget: SearchBudget,
+    stats: &'a mut SearchStats,
+    provider: &'a mut P,
+}
+
 impl CompactHnswIndex {
     /// Build the immutable representation from a validated mutable HNSW graph.
     pub fn from_hnsw(index: &HnswIndex) -> Result<Self> {
@@ -214,7 +220,7 @@ impl CompactHnswIndex {
         let vector_len = node_count
             .checked_mul(index.dim)
             .ok_or_else(|| invalid("compact HNSW vector length overflows"))?;
-        let stored_vector_len = store_vectors.then_some(vector_len).unwrap_or(0);
+        let stored_vector_len = if store_vectors { vector_len } else { 0 };
         let body_len = node_count
             .checked_mul(std::mem::size_of::<u64>())
             .and_then(|size| {
@@ -538,8 +544,12 @@ impl CompactHnswIndex {
         // Bound both traversal work and the initial visited allocation by the
         // immutable graph. Provider fetches are bounded separately below.
         let ef = ef.max(k).min(self.ids.len());
-        let mut found =
-            self.search_layer_with(query, entry, ef, 0, budget, &mut stats, provider)?;
+        let mut context = ProviderSearchContext {
+            budget,
+            stats: &mut stats,
+            provider,
+        };
+        let mut found = self.search_layer_with(query, entry, ef, 0, &mut context)?;
         found.sort_unstable();
         found.truncate(k);
         let results = found
@@ -635,19 +645,23 @@ impl CompactHnswIndex {
         entry: usize,
         ef: usize,
         layer: usize,
-        budget: SearchBudget,
-        stats: &mut SearchStats,
-        provider: &mut P,
+        context: &mut ProviderSearchContext<'_, P>,
     ) -> std::result::Result<Vec<CompactCandidate>, CompactSearchError> {
         let capacity = ef
             .saturating_mul(4)
             .min(self.ids.len())
-            .min(budget.max_vector_fetches);
+            .min(context.budget.max_vector_fetches);
         let mut visited = HashSet::with_capacity(capacity);
         let mut candidates = BinaryHeap::<Reverse<CompactCandidate>>::new();
         let mut kept = BinaryHeap::<CompactCandidate>::new();
         let first = CompactCandidate {
-            dist: self.fetch_distance(query, entry, budget, stats, provider)?,
+            dist: self.fetch_distance(
+                query,
+                entry,
+                context.budget,
+                &mut *context.stats,
+                &mut *context.provider,
+            )?,
             node: entry,
             id: self.ids[entry],
         };
@@ -665,7 +679,13 @@ impl CompactHnswIndex {
                     continue;
                 }
                 let next = CompactCandidate {
-                    dist: self.fetch_distance(query, neighbor, budget, stats, provider)?,
+                    dist: self.fetch_distance(
+                        query,
+                        neighbor,
+                        context.budget,
+                        &mut *context.stats,
+                        &mut *context.provider,
+                    )?,
                     node: neighbor,
                     id: self.ids[neighbor],
                 };

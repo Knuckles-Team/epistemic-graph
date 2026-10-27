@@ -398,7 +398,7 @@ fn compact_encoded_len(index: &CompactHnswIndex) -> Option<usize> {
 /// adjacency.  This is a new opt-in version; [`encode`] remains the v1 format.
 pub fn encode_compact(index: &HnswIndex) -> Result<Vec<u8>> {
     let compact = CompactHnswIndex::from_hnsw(index)?;
-    encode_compact_image_with_magic(&compact, COMPACT_MAGIC, true)
+    encode_compact_image(&compact)
 }
 
 /// Encode an opt-in vectorless graph image.  Version 3 has no embedding
@@ -423,7 +423,7 @@ fn encode_compact_image_with_magic(
             "compact HNSW vector section does not match artifact version",
         ));
     }
-    let encoded_len = compact_encoded_len(&compact)
+    let encoded_len = compact_encoded_len(compact)
         .ok_or_else(|| invalid("compact HNSW artifact length overflows"))?;
     if encoded_len > MAX_ARTIFACT_BYTES {
         return Err(invalid("compact HNSW artifact exceeds byte bound"));
