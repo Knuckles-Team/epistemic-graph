@@ -1861,12 +1861,16 @@
     {
       "id": "EG-TYPED-PACKS-R087",
       "title": "Stable error codes for auth-boundary refusals",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "18d0e152f4f3",
         "48746fc0e5ac",
+        "7aefb5a067f3",
         "90f5578ae2f4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/auth/claims.rs:184"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R088",

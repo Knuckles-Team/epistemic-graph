@@ -92,6 +92,131 @@ fn channel_departure_receipt_keeps_json_string_variant() {
 }
 
 #[test]
+fn channel_group_join_leave_rejoin_replays_each_tagged_result() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
+    let directory = tempfile::Builder::new()
+        .prefix("eg-admin-channel-rejoin-contract-")
+        .tempdir()
+        .unwrap();
+    let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
+        directory.path().to_string_lossy().into_owned(),
+        16,
+        1,
+    )
+    .unwrap();
+    let join = Method::JoinChannel {
+        channel_id: "group:rejoin".into(),
+        agent_id: "member".into(),
+    };
+    let leave = Method::LeaveChannel {
+        channel_id: "group:rejoin".into(),
+        agent_id: "member".into(),
+    };
+
+    let finish = |request_id, batch_id, method, result| {
+        let saga = begin_named_admin_saga_with_nonce(
+            &backend,
+            request_id,
+            Some("contract-test-actor"),
+            method,
+            DurabilityDomain::ControlPlane,
+            batch_id,
+            None,
+        )
+        .unwrap();
+        assert!(saga.replayed.is_none());
+        finish_admin_saga(&backend, saga.batch, saga.created_at_ms, result).unwrap()
+    };
+
+    let joined = finish(
+        1,
+        "channel-group-join",
+        &join,
+        crate::protocol::ResultPayload::scalar::<eg_types::result_contract::messaging::JoinChannel>(
+            "joined".to_string(),
+        ),
+    );
+    assert!(matches!(
+        joined,
+        crate::protocol::ResultPayload::String(ref value) if value == "joined"
+    ));
+    let join_replay = begin_named_admin_saga_with_nonce(
+        &backend,
+        2,
+        Some("contract-test-actor"),
+        &join,
+        DurabilityDomain::ControlPlane,
+        "channel-group-join",
+        None,
+    )
+    .unwrap();
+    assert!(matches!(
+        join_replay.replayed,
+        Some(crate::protocol::ResultPayload::String(ref value)) if value == "joined"
+    ));
+
+    let left = finish(
+        3,
+        "channel-group-leave",
+        &leave,
+        crate::protocol::ResultPayload::of::<eg_types::result_contract::messaging::LeaveChannel>(
+            eg_types::messaging_wire::ChannelDeparture::new(
+                None,
+                eg_types::messaging_wire::ChannelDepartureStatus::Left,
+            ),
+        )
+        .unwrap(),
+    );
+    assert!(matches!(
+        left,
+        crate::protocol::ResultPayload::Json(ref value)
+            if value == &serde_json::Value::String("left".to_string())
+    ));
+    let leave_replay = begin_named_admin_saga_with_nonce(
+        &backend,
+        4,
+        Some("contract-test-actor"),
+        &leave,
+        DurabilityDomain::ControlPlane,
+        "channel-group-leave",
+        None,
+    )
+    .unwrap();
+    assert!(matches!(
+        leave_replay.replayed,
+        Some(crate::protocol::ResultPayload::Json(ref value))
+            if value == &serde_json::Value::String("left".to_string())
+    ));
+
+    let rejoined = finish(
+        5,
+        "channel-group-rejoin",
+        &join,
+        crate::protocol::ResultPayload::scalar::<eg_types::result_contract::messaging::JoinChannel>(
+            "joined".to_string(),
+        ),
+    );
+    assert!(matches!(
+        rejoined,
+        crate::protocol::ResultPayload::String(ref value) if value == "joined"
+    ));
+    let rejoin_replay = begin_named_admin_saga_with_nonce(
+        &backend,
+        6,
+        Some("contract-test-actor"),
+        &join,
+        DurabilityDomain::ControlPlane,
+        "channel-group-rejoin",
+        None,
+    )
+    .unwrap();
+    assert!(matches!(
+        rejoin_replay.replayed,
+        Some(crate::protocol::ResultPayload::String(ref value)) if value == "joined"
+    ));
+}
+
+#[test]
 fn admin_replay_rejects_wrong_json_body_and_scalar_arm() {
     let method = Method::Reshard {
         graph: "g".into(),

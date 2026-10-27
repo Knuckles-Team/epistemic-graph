@@ -103,18 +103,24 @@ fn edge_method(edge: &ExtractedEdge) -> Result<Method, String> {
     })
 }
 
-/// Lower a scoped result to its write-set. The graph keys an edge by its
-/// endpoint pair, so the first edge of a pair (resolver order: structural and
-/// call edges before resemblance) is the one kept.
+/// Lower a scoped result to its write-set. The graph admits parallel edges
+/// between one endpoint pair when their `relationship` properties differ, so
+/// keep one method per `(source, target, relation_type)` triple. This preserves
+/// the semantic-bridge relations that repository hydration emits while still
+/// suppressing duplicate resolver output for the same triple.
 pub(crate) fn lower(result: &IndexResult) -> Result<IndexWriteSet, String> {
     let mut methods = result
         .nodes
         .iter()
         .map(node_method)
         .collect::<Result<Vec<_>, _>>()?;
-    let mut pairs = BTreeSet::new();
+    let mut edge_keys = BTreeSet::new();
     for edge in &result.edges {
-        if pairs.insert((edge.source.as_str(), edge.target.as_str())) {
+        if edge_keys.insert((
+            edge.source.as_str(),
+            edge.target.as_str(),
+            edge.edge_type.as_str(),
+        )) {
             methods.push(edge_method(edge)?);
         }
     }
