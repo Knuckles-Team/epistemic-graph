@@ -1238,12 +1238,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R029",
       "title": "Universal read-RLS gate checks the current TsScan dispatch path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0447684dce7b",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_universal_read_rls_gate.py:32"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R030",

@@ -4044,6 +4044,7 @@ components:
       - "tests/test_transport.py"
       - "tests/test_txn.py"
       - "tests/test_union_reads.py"
+      - "tests/test_universal_read_rls_gate.py"
       - "tests/test_upgrade_store_listing.py"
       - "tests/test_uql_client_result.py"
       - "tests/test_change_envelope_draft_e2e.py"
