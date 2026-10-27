@@ -670,3 +670,18 @@ fn epistemic_clauses_not_in_build() {
         );
     }
 }
+
+// Regression for EG-FEDERATED-QUERY-R024; native acceptance remains pending.
+#[test]
+fn outbound_traversal_spellings_compile_to_the_same_canonical_plan() {
+    let arrow = parse("MATCH (:N) |> TRAVERSE -[:R]->{1,2}").unwrap();
+    let shorthand = parse("MATCH (:N) |> TRAVERSE R{1..2}").unwrap();
+    let expected = Op::Traverse {
+        rel: "R".into(),
+        min: 1,
+        max: 2,
+    };
+
+    assert_eq!(arrow, shorthand);
+    assert_eq!(arrow.ops, vec![Op::Scan { label: "N".into() }, expected]);
+}
