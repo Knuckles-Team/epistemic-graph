@@ -1296,8 +1296,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.2",
       "title": "Dispatch handler and result contract disclose the typed NL→UQL model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "32248e14e747",
+        "569b1ab507d6",
+        "8710a3709c47",
+        "f9d6d793d946"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.2.1",
@@ -1318,8 +1323,12 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.2.2",
       "title": "Served NL result carries the executed UQL; plan-only is reachable",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "32248e14e747",
+        "569b1ab507d6",
+        "f9d6d793d946"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.2.2.1",
@@ -1344,11 +1353,11 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.2.2.2",
       "title": "Plan-only NL entry point",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "src/server/tests/nl_explain.rs:122"
-      ]
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "32248e14e747"
+      ],
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.3",
@@ -1363,7 +1372,7 @@
         "src/server/handlers/query/nl.rs:322",
         "src/server/handlers/query/nl.rs:328",
         "src/server/handlers/query/nl.rs:351",
-        "src/server/tests/nl_explain.rs:148"
+        "src/server/tests/nl_explain.rs:147"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.3.1",
@@ -1392,7 +1401,7 @@
         "a685d96e5de3"
       ],
       "verified_by": [
-        "src/server/tests/nl_explain.rs:148"
+        "src/server/tests/nl_explain.rs:147"
       ]
     },
     {
