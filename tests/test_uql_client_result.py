@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, QueryClient, _uql_result
+from epistemic_graph.client import (
+    EngineResponseError,
+    EpistemicGraphClient,
+    QueryClient,
+    _uql_result,
+)
 
 
 class _FakeClient(EpistemicGraphClient):
@@ -51,6 +56,31 @@ def test_uql_binds_hostile_value_from_python_client_through_engine(clean_graph) 
 
     assert result["kind"] == "rows"
     assert [row["id"] for row in result["rows"]] == ["uql-hostile-value"]
+
+
+@pytest.mark.parametrize(
+    ("text", "params", "expected_code"),
+    [
+        ("MATCH (:Doc) |> LIMIT $k", {}, "UQL_UNBOUND_PARAMETER"),
+        (
+            "MATCH (:Doc) |> LIMIT $k",
+            {"k": "five"},
+            "UQL_PARAMETER_TYPE",
+        ),
+        (
+            "MATCH (:Doc) |> LIMIT $k",
+            {"k": 1, "typo": 2},
+            "UQL_UNUSED_PARAMETER",
+        ),
+    ],
+)
+def test_uql_rejects_invalid_parameters_through_python_client(
+    clean_graph, text, params, expected_code
+) -> None:
+    with pytest.raises(EngineResponseError) as error:
+        clean_graph.query.uql(text, params)
+
+    assert error.value.code == expected_code
 
 
 @pytest.mark.no_engine
