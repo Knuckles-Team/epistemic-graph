@@ -16,6 +16,7 @@ const RDFS_SUBCLASS: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
 const CAT: &str = "http://knuckles.team/kg/catalog#";
 const CP: &str = "http://knuckles.team/kg/connector-pack#";
 const KG: &str = "http://knuckles.team/kg#";
+const SCHEMA: &str = "https://schema.org/";
 
 fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> bool {
     triples.contains(&Triple::new(
@@ -67,6 +68,7 @@ fn fixture_parses_and_is_linked_to_the_parent() {
     let parent_class = format!("{KG}WorkItem");
     let instance = "http://knuckles.team/test/connector-auto-onboard#incident-1";
     let source = "http://knuckles.team/test/connector-auto-onboard#incidents";
+    let operation = "http://knuckles.team/test/connector-auto-onboard#search-incidents";
 
     assert!(parents.contains(&parent_class));
     assert!(has_iri(
@@ -99,6 +101,24 @@ fn fixture_parses_and_is_linked_to_the_parent() {
         source,
         &format!("{CAT}hasField"),
         "http://knuckles.team/test/connector-auto-onboard#incident-id"
+    ));
+    assert!(has_iri(
+        &triples,
+        operation,
+        &format!("{CP}ofConnector"),
+        connector
+    ));
+    assert!(has_iri(
+        &triples,
+        operation,
+        &format!("{CP}servesClass"),
+        connector_class
+    ));
+    assert!(has_iri(
+        &triples,
+        operation,
+        &format!("{CAT}actionType"),
+        &format!("{SCHEMA}SearchAction")
     ));
 
     assert_eq!(
