@@ -1350,7 +1350,7 @@
         "70de3b70bbdc"
       ],
       "verified_by": [
-        "crates/eg-types/src/orchestration/mod.rs:487",
+        "crates/eg-types/src/orchestration/mod.rs:488",
         "crates/eg-types/tests/harness_components.rs:141",
         "crates/eg-types/tests/harness_components.rs:209",
         "crates/eg-types/tests/harness_components.rs:32",
@@ -1373,7 +1373,7 @@
         "70de3b70bbdc"
       ],
       "verified_by": [
-        "crates/eg-types/src/orchestration/mod.rs:487",
+        "crates/eg-types/src/orchestration/mod.rs:488",
         "crates/eg-types/tests/harness_components.rs:32"
       ]
     },

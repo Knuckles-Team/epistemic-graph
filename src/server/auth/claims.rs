@@ -150,3 +150,65 @@ fn absent_node_claim(principal: &str) -> Result<(), String> {
             .to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn claims() -> RequestContextClaims {
+        RequestContextClaims {
+            principal: "agent:planner".into(),
+            tenant: "tenant-a".into(),
+            audience: "engine".into(),
+            agent_id: "agent:planner".into(),
+            roles: vec!["planner".into()],
+            scopes: vec!["graph:read".into()],
+            policy_version: "policy-7".into(),
+            delegation: vec![],
+            node: None,
+            priority: None,
+        }
+    }
+
+    fn policy() -> RequestContextPolicy {
+        RequestContextPolicy {
+            expected_audience: "engine".into(),
+            expected_tenant: "tenant-a".into(),
+            expected_policy_version: "policy-7".into(),
+        }
+    }
+
+    /// The deployment-binding validator is the source of these three
+    /// authorization refusals. Keep their response code stable while retaining
+    /// the validator's descriptive detail (EG-TYPED-PACKS-R087).
+    // spec: EG-TYPED-PACKS-R087
+    #[test]
+    fn deployment_binding_refusals_publish_stable_response_codes() {
+        let cases = [
+            ("tenant", "tenant-b", "AUTH_TENANT_MISMATCH"),
+            ("audience", "other-service", "AUTH_AUDIENCE_MISMATCH"),
+            ("policy_version", "policy-6", "AUTH_POLICY_VERSION_MISMATCH"),
+        ];
+        for (field, value, expected_code) in cases {
+            let mut candidate = claims();
+            match field {
+                "tenant" => candidate.tenant = value.into(),
+                "audience" => candidate.audience = value.into(),
+                "policy_version" => candidate.policy_version = value.into(),
+                _ => unreachable!("all deployment-binding fields are listed above"),
+            }
+            let detail = validate_deployment_binding(&candidate, &policy())
+                .expect_err("mismatched deployment binding must refuse");
+            let response =
+                crate::protocol::Response::err(1, super::super::authentication_refusal(&detail));
+            assert_eq!(response.error.as_deref(), Some(expected_code), "{field}");
+            assert!(
+                response
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("request context")),
+                "{field} refusal lost its descriptive detail"
+            );
+        }
+    }
+}
