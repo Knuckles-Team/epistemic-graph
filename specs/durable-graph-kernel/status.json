@@ -1654,9 +1654,9 @@
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:191",
         "crates/eg-types/src/control_lease/tests.rs:225",
-        "src/redb_store/work_item/control_lease/tests.rs:424",
-        "src/redb_store/work_item/control_lease/tests.rs:452",
-        "src/redb_store/work_item/control_lease/tests.rs:477"
+        "src/redb_store/work_item/control_lease/tests.rs:439",
+        "src/redb_store/work_item/control_lease/tests.rs:467",
+        "src/redb_store/work_item/control_lease/tests.rs:492"
       ]
     },
     {
@@ -2158,11 +2158,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R066",
       "title": "Published contract metadata matches BlobRef/BlobUnref idempotent behavior",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b8814b4560d1"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_method_policy_registry.py:82"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R067",
@@ -2393,7 +2395,9 @@
       "title": "Served supersession refuses an already-closed fact and proves the atomic history transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/protocol_method_routing.rs:651"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R081",

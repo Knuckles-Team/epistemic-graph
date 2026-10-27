@@ -64,12 +64,14 @@ impl AgentLibraryStore {
             apply_source_approval(
                 write,
                 &context,
-                connector,
-                contract_iri,
-                resource_uri,
-                expected_head,
-                contract_digest,
-                staged,
+                SourceApprovalInput {
+                    connector,
+                    contract_iri,
+                    resource_uri,
+                    expected_head,
+                    contract_digest,
+                    staged,
+                },
             )
         })
     }
@@ -202,16 +204,28 @@ fn approval_operations(connector: &ResourceId, discriminator: &str) -> Vec<Mutat
     }]
 }
 
+struct SourceApprovalInput<'a> {
+    connector: &'a ResourceId,
+    contract_iri: &'a str,
+    resource_uri: &'a str,
+    expected_head: &'a PackHeadRef,
+    contract_digest: Digest256,
+    staged: &'a PackWriteStaged,
+}
+
 fn apply_source_approval(
     write: &PackOwnerWrite<'_>,
     context: &AgentLibraryMutationContext,
-    connector: &ResourceId,
-    contract_iri: &str,
-    resource_uri: &str,
-    expected_head: &PackHeadRef,
-    contract_digest: Digest256,
-    staged: &PackWriteStaged,
+    input: SourceApprovalInput<'_>,
 ) -> Result<ConnectorPackSourceApprovalResult, String> {
+    let SourceApprovalInput {
+        connector,
+        contract_iri,
+        resource_uri,
+        expected_head,
+        contract_digest,
+        staged,
+    } = input;
     let tenant = context.tenant_id.as_str();
     let head = current_head(write, tenant, connector)?;
     let current_ref = PackHeadRef {

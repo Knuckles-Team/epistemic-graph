@@ -134,7 +134,7 @@ impl ForeignReadSessions {
             .map_err(|_| "INTERNAL: foreign read admission lock poisoned".to_string())?;
         self.reap_expired();
         if self.sessions.len() >= MAX_SESSIONS {
-            return Err("RESOURCE_EXHAUSTED: too many foreign read executions".into());
+            return Err("ENGINE_RESOURCE_EXHAUSTED: too many foreign read executions".into());
         }
         let execution_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         if execution_id == 0 {
@@ -282,19 +282,19 @@ impl ForeignReadSessions {
             );
         }
         if request.rows.len() > record.limits.chunk_rows as usize {
-            return Err("RESOURCE_EXHAUSTED: foreign read chunk exceeds row limit".into());
+            return Err("ENGINE_RESOURCE_EXHAUSTED: foreign read chunk exceeds row limit".into());
         }
         let chunk_bytes = encoded_rows_bytes(&request.rows)?;
         if chunk_bytes > u64::from(record.limits.chunk_bytes) {
-            return Err("RESOURCE_EXHAUSTED: foreign read chunk exceeds byte limit".into());
+            return Err("ENGINE_RESOURCE_EXHAUSTED: foreign read chunk exceeds byte limit".into());
         }
         if record.total_rows.saturating_add(request.rows.len() as u64)
             > u64::from(record.limits.max_rows)
         {
-            return Err("RESOURCE_EXHAUSTED: foreign read exceeds max_rows".into());
+            return Err("ENGINE_RESOURCE_EXHAUSTED: foreign read exceeds max_rows".into());
         }
         if record.total_bytes.saturating_add(chunk_bytes) > record.limits.max_bytes {
-            return Err("RESOURCE_EXHAUSTED: foreign read exceeds max_bytes".into());
+            return Err("ENGINE_RESOURCE_EXHAUSTED: foreign read exceeds max_bytes".into());
         }
         for row in &request.rows {
             validate_row(row)?;
@@ -493,19 +493,21 @@ impl ForeignReadSessions {
             .budget
             .lock()
             .map_err(|_| "INTERNAL: foreign read budget lock poisoned".to_string())?;
-        let next_rows = budget
-            .rows
-            .checked_add(rows)
-            .ok_or_else(|| "RESOURCE_EXHAUSTED: foreign read row budget overflow".to_string())?;
-        let next_bytes = budget
-            .bytes
-            .checked_add(bytes)
-            .ok_or_else(|| "RESOURCE_EXHAUSTED: foreign read byte budget overflow".to_string())?;
+        let next_rows = budget.rows.checked_add(rows).ok_or_else(|| {
+            "ENGINE_RESOURCE_EXHAUSTED: foreign read row budget overflow".to_string()
+        })?;
+        let next_bytes = budget.bytes.checked_add(bytes).ok_or_else(|| {
+            "ENGINE_RESOURCE_EXHAUSTED: foreign read byte budget overflow".to_string()
+        })?;
         if next_rows > MAX_TOTAL_ROWS {
-            return Err("RESOURCE_EXHAUSTED: foreign read process row budget exceeded".into());
+            return Err(
+                "ENGINE_RESOURCE_EXHAUSTED: foreign read process row budget exceeded".into(),
+            );
         }
         if next_bytes > MAX_TOTAL_BYTES {
-            return Err("RESOURCE_EXHAUSTED: foreign read process byte budget exceeded".into());
+            return Err(
+                "ENGINE_RESOURCE_EXHAUSTED: foreign read process byte budget exceeded".into(),
+            );
         }
         budget.rows = next_rows;
         budget.bytes = next_bytes;
@@ -674,7 +676,7 @@ fn validate_row(row: &ForeignReadRow) -> Result<(), String> {
         let value_bytes = serde_json::to_vec(value)
             .map_err(|_| "INVALID_ARGUMENT: foreign read column value is not JSON")?;
         if value_bytes.len() > MAX_COLUMN_VALUE_BYTES {
-            return Err("RESOURCE_EXHAUSTED: foreign read column value is too large".into());
+            return Err("ENGINE_RESOURCE_EXHAUSTED: foreign read column value is too large".into());
         }
     }
     Ok(())

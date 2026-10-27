@@ -63,6 +63,10 @@ pub use distance::{active_backend_name, batch_distances, CpuBackend, DistanceBac
 pub use flat::{FlatIndex, Metric};
 /// Bounded, validated, versioned no-rebuild HNSW graph artifact codec.
 pub use hnsw::artifact as hnsw_artifact;
+/// Opt-in compact immutable HNSW serving representation.
+pub use hnsw::compact::{
+    CompactHnswIndex, CompactSearchError, SearchBudget, SearchStats, VectorProvider,
+};
 pub use hnsw::HnswIndex;
 pub use ivfpq::{
     merge_topk, merge_topk_stable, IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB,
