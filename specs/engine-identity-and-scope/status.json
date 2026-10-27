@@ -277,7 +277,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/identity/segment.rs:41"
+      ]
     },
     {
       "id": "EG-IDENTITY-R023.2",
