@@ -41,6 +41,7 @@ mod requests;
 mod requests_admin;
 mod requests_provision;
 mod scope;
+mod segment;
 mod sql_dump;
 mod stamp;
 mod store;
@@ -89,6 +90,7 @@ pub use requests_provision::{
     ProvisionedUser,
 };
 pub use scope::{ScopeClass, ScopeClassifier};
+pub use segment::{KnowledgeUnit, ShareScope};
 pub use sql_dump::{parse_dump, render_dump, DumpRow, MAX_DUMP_BYTES};
 pub use stamp::{IdentityActor, IdentityStamp, PasswordCheck, Secret};
 pub use store::{ApplyContext, IdentityStore, RecoveryCode, ThrottleEntry, TOUCH_GRANULARITY_MS};

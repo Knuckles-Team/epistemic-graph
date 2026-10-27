@@ -184,10 +184,7 @@ fn sparql_virtual(
     }
     // W4.11 — register each LIVE external relational source (CONCEPT:EG-KG.query.obda-predicate-pushdown).
     // The query's projection + row-level FILTERs are pushed into a real SELECT … WHERE ….
-    for ext in external_sources {
-        let src = SqlObdaSource::connect(&ext.dsn, &ext.table)?;
-        reg.register(ext.name.clone(), std::sync::Arc::new(src));
-    }
+    register_table_sources(&mut reg, external_sources)?;
 
     // Auto-detect standard R2RML Turtle (carries the `rr:` namespace) vs. the compact
     // EG-101 textual mapping form (`SOURCE`/`SUBJECT`/… directives).
@@ -214,6 +211,34 @@ fn sparql_virtual(
         rows,
         proofs: Vec::new(),
     })
+}
+
+/// Register all OBDA external sources after checking each destination.  A refused source must
+/// never enter the registry, but it must not prevent a later allowed source in the same request
+/// from being checked and registered either.  The caller still receives an error after the whole
+/// batch has been inspected, so a request containing any refused source cannot execute a query.
+#[cfg(feature = "obda")]
+fn register_table_sources(
+    registry: &mut eg_rdf::obda::ObdaSourceRegistry,
+    external_sources: &[crate::protocol::ObdaExternalSource],
+) -> Result<(), String> {
+    let mut refused = Vec::new();
+    for source in external_sources {
+        match SqlObdaSource::connect(&source.dsn, &source.table) {
+            Ok(source_impl) => {
+                registry.register(source.name.clone(), std::sync::Arc::new(source_impl));
+            }
+            Err(error) => refused.push(format!("{}: {error}", source.name)),
+        }
+    }
+    if refused.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "obda: refused external source(s): {}",
+            refused.join("; ")
+        ))
+    }
 }
 
 // ── external relational OBDA source + SPARQL→SQL predicate pushdown (W4.11) ──────────────────
@@ -635,7 +660,7 @@ impl ObdaSqlExecutor for FederationSqlExecutor {
 /// registration time, not only when `run_select` later dials out.
 #[cfg(all(test, feature = "obda", feature = "federation-sql"))]
 mod outbound_verification_tests {
-    use super::SqlObdaSource;
+    use super::{register_table_sources, SqlObdaSource};
 
     #[test]
     fn a_disallowed_obda_destination_is_refused_before_registration() {
@@ -656,6 +681,29 @@ mod outbound_verification_tests {
         // validates and stores the DSN here; it dials lazily inside `run_select`.
         SqlObdaSource::connect("postgres://u@127.0.0.1:5432/db", "people")
             .expect("an allowed OBDA destination must still connect");
+    }
+
+    #[test]
+    fn a_refused_source_does_not_skip_later_allowed_registration() {
+        let _allow = crate::test_support::FederationAllowGuard::blocking("127.0.0.1:5432");
+        let mut registry = eg_rdf::obda::ObdaSourceRegistry::new();
+        let sources = vec![
+            crate::protocol::ObdaExternalSource {
+                name: "blocked".into(),
+                dsn: "postgres://u@127.0.0.1:5433/db".into(),
+                table: "people".into(),
+            },
+            crate::protocol::ObdaExternalSource {
+                name: "allowed".into(),
+                dsn: "postgres://u@127.0.0.1:5432/db".into(),
+                table: "people".into(),
+            },
+        ];
+
+        let error = register_table_sources(&mut registry, &sources).unwrap_err();
+        assert!(error.contains("blocked"), "{error}");
+        assert!(registry.get("blocked").is_none());
+        assert!(registry.get("allowed").is_some());
     }
 }
 

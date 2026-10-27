@@ -6751,8 +6751,10 @@
     {
       "id": "EG-DECISION-ENGINE-R166.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ca1d4356dd88"
+      ],
       "verified_by": [
         "crates/eg-types/src/orchestration/workflows.rs:109",
         "crates/eg-types/src/orchestration/workflows.rs:95"
@@ -9842,12 +9844,18 @@
     {
       "id": "EG-DECISION-ENGINE-R814.1",
       "title": "Model (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "1274d990f940"
+        "1274d990f940",
+        "1ff202055fc2",
+        "b0d8adcaa41f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/metadata_catalog_classes.rs:41"
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:228",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:249",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:41",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:42",
+        "crates/eg-rdf/tests/metadata_catalog_classes.rs:68"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R814.1.1",
@@ -9871,9 +9879,13 @@
     {
       "id": "EG-DECISION-ENGINE-R814.1.2",
       "title": "Typed record",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1ff202055fc2"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/prompt_candidate.rs:58"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R814.2",

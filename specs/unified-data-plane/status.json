@@ -2887,9 +2887,9 @@
         "b3d7b62e5f61"
       ],
       "verified_by": [
-        "crates/eg-document/src/processing.rs:269",
-        "crates/eg-document/src/processing.rs:282",
-        "crates/eg-document/src/processing.rs:301",
+        "crates/eg-document/src/processing.rs:371",
+        "crates/eg-document/src/processing.rs:384",
+        "crates/eg-document/src/processing.rs:403",
         "src/server/handlers/web_ingest/embedder.rs:212",
         "src/server/handlers/web_ingest_tests.rs:44"
       ]
@@ -2918,7 +2918,7 @@
         "d715658809da"
       ],
       "verified_by": [
-        "crates/eg-document/src/processing.rs:314",
+        "crates/eg-document/src/processing.rs:416",
         "src/server/handlers/web_ingest_tests.rs:113",
         "tests/web_document_enrich_served.rs:421"
       ]
