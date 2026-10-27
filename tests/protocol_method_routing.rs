@@ -610,6 +610,123 @@ async fn t19_wildcard_fallthrough_add_node_and_get_edges() {
     );
 }
 
+fn supersede_edge_method() -> Method {
+    Method::SupersedeEdge {
+        source_id: "a".to_string(),
+        target_id: "b".to_string(),
+        properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+            "relationship": "DISLIKES",
+            "valid_from": 200,
+            "tx_from": 250,
+            "supersedes": "a:b:LIKES",
+        }))
+        .unwrap(),
+        prior_source: "a".to_string(),
+        prior_target: "b".to_string(),
+        prior_relationship: "LIKES".to_string(),
+        valid_at: 200,
+        tx_now: 250,
+    }
+}
+
+async fn edge_snapshot(
+    state: &test_support::SharedState,
+    graph: &str,
+) -> (Vec<Vec<u8>>, Vec<String>, usize) {
+    let core = state
+        .read()
+        .await
+        .registry
+        .get(graph)
+        .expect("test graph must remain resident")
+        .core
+        .clone();
+    (
+        core.get_edge_properties("a", "b"),
+        core.get_ledger(),
+        core.edge_count(),
+    )
+}
+
+// spec: EG-DURABLE-KERNEL-R080.2
+#[tokio::test]
+async fn t20_served_supersession_closes_prior_links_successor_and_refuses_replay() {
+    let state = state();
+    let graph = "cx06-r0802";
+    assert!(create_graph(&state, 1, graph).await.error.is_none());
+
+    for (id, node_id) in [(2, "a"), (3, "b")] {
+        let response = call(
+            &state,
+            id,
+            graph,
+            Method::AddNode {
+                node_id: node_id.to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+            },
+        )
+        .await;
+        assert!(response.error.is_none(), "AddNode {node_id}: {response:?}");
+    }
+
+    let prior = call(
+        &state,
+        4,
+        graph,
+        Method::AddEdge {
+            source_id: "a".to_string(),
+            target_id: "b".to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                "relationship": "LIKES",
+                "valid_from": 100,
+                "tx_from": 100,
+            }))
+            .unwrap(),
+        },
+    )
+    .await;
+    assert!(prior.error.is_none(), "AddEdge: {prior:?}");
+
+    let first = call(&state, 5, graph, supersede_edge_method()).await;
+    assert!(first.error.is_none(), "first SupersedeEdge: {first:?}");
+
+    let (history, ledger, edge_count) = edge_snapshot(&state, graph).await;
+    assert_eq!(history.len(), 2, "prior edge must remain beside successor");
+    let properties: Vec<serde_json::Value> = history
+        .iter()
+        .map(|blob| rmp_serde::from_slice(blob).expect("edge properties must decode"))
+        .collect();
+    let prior_properties = properties
+        .iter()
+        .find(|value| value["relationship"] == "LIKES")
+        .expect("closed prior relationship must remain in history");
+    assert_eq!(prior_properties["valid_until"].as_u64(), Some(200));
+    assert_eq!(prior_properties["tx_to"].as_u64(), Some(250));
+    let successor_properties = properties
+        .iter()
+        .find(|value| value["relationship"] == "DISLIKES")
+        .expect("successor relationship must be present");
+    assert_eq!(successor_properties["valid_from"].as_u64(), Some(200));
+    assert_eq!(successor_properties["tx_from"].as_u64(), Some(250));
+    assert_eq!(successor_properties["supersedes"], "a:b:LIKES");
+
+    let second = call(&state, 6, graph, supersede_edge_method()).await;
+    assert!(
+        second.error.is_some(),
+        "closed prior must be refused: {second:?}"
+    );
+    assert!(
+        second
+            .refusal_text()
+            .is_some_and(|text| text.contains("prior edge is missing or already closed")),
+        "unexpected refusal: {second:?}"
+    );
+    assert_eq!(
+        edge_snapshot(&state, graph).await,
+        (history, ledger, edge_count)
+    );
+}
+
 // ── Auth failure (before the match is ever reached) ───────────────────────
 
 #[tokio::test]

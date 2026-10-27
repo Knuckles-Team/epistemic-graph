@@ -93,6 +93,10 @@ use eg_types::result_contract::ingestion as results;
 
 use crate::protocol::{Response, ResultPayload};
 
+#[cfg(test)]
+#[path = "quantum/tests.rs"]
+mod tests;
+
 /// One qubit per candidate/node for `Rank`/`OptimizeQaoa` (the "agent never sees
 /// qubits" default path). 16 keeps a dense statevector run (`2^16` = 65536
 /// amplitudes) comfortably sub-second on any host this engine runs on, well inside
