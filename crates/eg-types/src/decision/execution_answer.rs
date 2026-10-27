@@ -104,6 +104,7 @@ mod tests {
         }
     }
 
+    // spec: EG-CQ-ORCH-R008.1
     #[test]
     fn execution_answer_round_trips_with_answer_and_abstention_parts() {
         let original = fixture();
@@ -114,6 +115,7 @@ mod tests {
         assert!(encoded.contains("\"status\":\"abstain\""));
     }
 
+    // spec: EG-CQ-ORCH-R008.1
     #[test]
     fn execution_answer_digest_matches_golden_vector() {
         assert_eq!(
