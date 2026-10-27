@@ -12,7 +12,7 @@ const MIN_ANALYTICS_POLL_MS: u64 = 50;
 const MAX_ANALYTICS_POLL_MS: u64 = 30_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct AnalyticsWorkerTiming {
+pub(super) struct AnalyticsWorkerTiming {
     lease_ms: u64,
     poll_ms: u64,
 }
