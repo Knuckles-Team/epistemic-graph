@@ -215,6 +215,7 @@ fn is_sha256_hex(value: &str) -> bool {
 #[serde(rename_all = "snake_case")]
 pub enum SchemaChangeKind {
     AddColumn,
+    ReorderColumn,
     DropColumn,
     RenameColumn,
     AlterColumnType,
@@ -248,6 +249,7 @@ pub enum SchemaCompatibility {
 pub fn classify_schema_change(kind: SchemaChangeKind) -> SchemaCompatibility {
     match kind {
         SchemaChangeKind::AddColumn => SchemaCompatibility::Additive,
+        SchemaChangeKind::ReorderColumn => SchemaCompatibility::Compatible,
         SchemaChangeKind::RenameColumn => SchemaCompatibility::Compatible,
         SchemaChangeKind::RenameTable => SchemaCompatibility::Compatible,
         // Dropping a CHECK/UNIQUE constraint only widens what future writes
@@ -261,6 +263,75 @@ pub fn classify_schema_change(kind: SchemaChangeKind) -> SchemaCompatibility {
         SchemaChangeKind::DropColumn => SchemaCompatibility::Destructive,
         SchemaChangeKind::DropTable => SchemaCompatibility::Destructive,
         SchemaChangeKind::AlterColumnType => SchemaCompatibility::Destructive,
+    }
+}
+
+/// Immutable publication metadata binding an Iceberg v2 artifact set to one
+/// committed graph version and source LSN. The lake writer may later use this
+/// value to publish a catalog entry, but this crate only owns the validated
+/// wire shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestPublication {
+    pub tenant: String,
+    pub table: String,
+    /// `None` is used at the wire boundary to represent a missing binding and
+    /// is rejected by `validate`; graph version zero remains a valid binding.
+    pub committed_graph_version: Option<u64>,
+    pub source_lsn: u64,
+    pub snapshot_id: i64,
+    pub schema_id: i32,
+    pub format_version: u32,
+    pub manifest_location: String,
+    pub manifest_list_location: String,
+    pub manifest_digest: String,
+    pub manifest_list_digest: String,
+}
+
+impl ManifestPublication {
+    pub const ICEBERG_FORMAT_VERSION: u32 = 2;
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tenant.trim().is_empty() {
+            return Err("manifest publication tenant must not be empty".to_string());
+        }
+        if self.table.trim().is_empty() {
+            return Err("manifest publication table must not be empty".to_string());
+        }
+        if self.committed_graph_version.is_none() {
+            return Err("manifest publication requires a committed graph version".to_string());
+        }
+        if self.snapshot_id < 0 {
+            return Err("manifest publication snapshot_id must be nonnegative".to_string());
+        }
+        if self.schema_id < 0 {
+            return Err("manifest publication schema_id must be nonnegative".to_string());
+        }
+        if self.format_version != Self::ICEBERG_FORMAT_VERSION {
+            return Err(format!(
+                "unsupported manifest publication format version {}",
+                self.format_version
+            ));
+        }
+        if self.manifest_location.trim().is_empty() {
+            return Err("manifest publication manifest_location must not be empty".to_string());
+        }
+        if self.manifest_list_location.trim().is_empty() {
+            return Err(
+                "manifest publication manifest_list_location must not be empty".to_string(),
+            );
+        }
+        if !is_sha256_hex(&self.manifest_digest) {
+            return Err(
+                "manifest publication manifest_digest must be a sha256 hex digest".to_string(),
+            );
+        }
+        if !is_sha256_hex(&self.manifest_list_digest) {
+            return Err(
+                "manifest publication manifest_list_digest must be a sha256 hex digest".to_string(),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -644,6 +715,10 @@ mod tests {
             SchemaCompatibility::Additive
         );
         assert_eq!(
+            classify_schema_change(SchemaChangeKind::ReorderColumn),
+            SchemaCompatibility::Compatible
+        );
+        assert_eq!(
             classify_schema_change(SchemaChangeKind::RenameColumn),
             SchemaCompatibility::Compatible
         );
@@ -741,6 +816,42 @@ mod tests {
         let mut record = change(SchemaChangeKind::AddColumn, SchemaCompatibility::Additive);
         record.to_version = 5;
         assert!(record.validate().is_err());
+    }
+
+    fn publication() -> ManifestPublication {
+        ManifestPublication {
+            tenant: "tenant-a".to_string(),
+            table: "metrics".to_string(),
+            committed_graph_version: Some(7),
+            source_lsn: 42,
+            snapshot_id: 42,
+            schema_id: 1,
+            format_version: ManifestPublication::ICEBERG_FORMAT_VERSION,
+            manifest_location: "s3://lake/metrics/metadata/manifest.avro".to_string(),
+            manifest_list_location: "s3://lake/metrics/metadata/manifest-list.avro".to_string(),
+            manifest_digest: digest(0xcc),
+            manifest_list_digest: digest(0xdd),
+        }
+    }
+
+    #[test]
+    fn manifest_publication_round_trips_and_requires_version_binding() {
+        let record = publication();
+        record.validate().unwrap();
+        assert_eq!(round_trip(&record), record);
+
+        let mut missing_version = record.clone();
+        missing_version.committed_graph_version = None;
+        let error = missing_version.validate().unwrap_err();
+        assert!(error.contains("committed graph version"));
+    }
+
+    #[test]
+    fn manifest_publication_rejects_unsupported_format_version() {
+        let mut record = publication();
+        record.format_version = 1;
+        let error = record.validate().unwrap_err();
+        assert!(error.contains("unsupported manifest publication format version"));
     }
 
     // ── manifest / partition ─────────────────────────────────────────────
