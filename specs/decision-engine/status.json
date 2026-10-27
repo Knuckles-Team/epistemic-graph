@@ -9128,9 +9128,18 @@
     {
       "id": "EG-DECISION-ENGINE-R801.8",
       "title": "Fenced committed-run usage and caller-context aggregation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "446aebcfb66c",
+        "495b5a0ee7c7",
+        "852132fc91a1",
+        "e9a15c986d24"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/run_usage.rs:141",
+        "src/redb_store/work_item/run_owner/tests.rs:773",
+        "tests/test_work_item_read_client.py:3"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R802",

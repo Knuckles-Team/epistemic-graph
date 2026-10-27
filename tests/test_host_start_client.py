@@ -1,5 +1,7 @@
 """Host-start typed client transport, not issuer or live admission proof."""
 
+# spec: EG-DURABLE-KERNEL-R030.1.1
+
 from __future__ import annotations
 
 import asyncio

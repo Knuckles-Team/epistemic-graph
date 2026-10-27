@@ -9,6 +9,7 @@ fn request() -> IssueHostStartGrantRequest {
     request
 }
 
+// spec: EG-DURABLE-KERNEL-R030.1.2
 #[test]
 fn native_writer_requires_issuer_and_stamps_immutable_top_level_provenance() {
     let temp = open("host-start-native");

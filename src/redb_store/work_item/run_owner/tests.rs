@@ -770,6 +770,7 @@ fn assert_session_measurements(
     result
 }
 
+// spec: EG-DECISION-ENGINE-R801.8
 #[test]
 fn session_inventory_uses_original_context_and_marks_missing_admission_partial() {
     let temp = open("session-inventory");

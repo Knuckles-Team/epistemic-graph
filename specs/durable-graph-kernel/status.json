@@ -4827,30 +4827,40 @@
     {
       "id": "EG-DURABLE-KERNEL-R030.1.1",
       "title": "Typed host-start assertions and client projection",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a27a7c804f9e",
-        "c0d589973a64"
+        "c0d589973a64",
+        "e9a15c986d24"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/host_start/tests.rs:8",
+        "tests/test_host_start_client.py:3"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R030.1.2",
       "title": "Durable native issuer provenance",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "a27a7c804f9e"
+        "a27a7c804f9e",
+        "e9a15c986d24"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/redb_store/work_item/control_lease/host_start/tests.rs:12"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R030.1.3",
       "title": "Signed dispatch for dedicated host-start issuance",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "a27a7c804f9e"
+        "a27a7c804f9e",
+        "e9a15c986d24"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/work_item/host_start_tests.rs:11"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R030.1.4",

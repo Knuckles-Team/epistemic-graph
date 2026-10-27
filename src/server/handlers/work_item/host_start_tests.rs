@@ -8,6 +8,7 @@ use eg_types::control_lease::ControlLeaseIssued;
 use eg_types::host_start::{HostStartBinding, HostStartInterfaces, IssueHostStartGrantRequest};
 use tokio::sync::RwLock;
 
+// spec: EG-DURABLE-KERNEL-R030.1.3
 const SECRET: &str = "host-start-contract-test-secret";
 const ISSUER: &str = "host-start-test-issuer";
 const TENANT: &str = "tenant-shared";

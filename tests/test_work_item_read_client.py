@@ -1,5 +1,7 @@
 """EH-219 typed WorkItem reads through ``EpistemicGraphClient.work_items``."""
 
+# spec: EG-DECISION-ENGINE-R801.8
+
 from __future__ import annotations
 
 import asyncio

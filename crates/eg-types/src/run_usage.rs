@@ -138,6 +138,7 @@ fn unique_session_records<'a>(
     Ok(unique)
 }
 
+// spec: EG-DECISION-ENGINE-R801.8
 #[cfg(test)]
 mod tests {
     use super::*;
