@@ -13157,6 +13157,7 @@ class MethodClaimNextParams(BaseModel):
 class MethodClaimWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    completed_text_history: bool | None = None
     request: ClaimWorkItemRequest
 
 
@@ -14438,6 +14439,7 @@ class MethodGetPredecessorsParams(BaseModel):
 class MethodGetRunWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    completed_text_history: bool | None = None
     run_id: str
     selection: RunSelectionRequest | None = None
     tenant: str

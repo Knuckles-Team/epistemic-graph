@@ -104,9 +104,14 @@ for profile reads and claims. Legacy profile reads refuse after owner validation
 Legacy profile claims refuse before lease mutation. Old claim receipts cannot
 bypass negotiation or grant execution on replay.
 
-Fourteen focused Python checks pass for legacy behavior and strict refusals.
-Two positive wrapper tests still fail because the previous generated schemas
-reject the new flag. Native generation must replace those schemas and codecs.
+Sixteen focused Python checks pass against the genuine generated opt-in schemas.
+These include the two positive wrapper tests that previously rejected the flag.
+Run `40550257423` produced engine artifact `12753804526` and codec artifact
+`12753574522` from merge tree `903639bea68bf308613e7ce0d1de17532db4aa4f`.
+All manifest file hashes and recipe inputs were checked before import.
+The run exposed a feature-gated helper and two Clippy findings, now corrected.
+Storage tests stopped at compilation. Some remaining jobs received runner shutdown signals.
+Their cancellation does not establish a native test result.
 The new native refusal and replay tests have not run in this workspace.
 The renderer source fixes the recorded STE sentence. The generated document
 still preserves the prior native output until genuine regeneration succeeds.

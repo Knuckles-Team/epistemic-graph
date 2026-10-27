@@ -294,22 +294,37 @@ fn native_record_consumption_checks_commit_time_and_preserves_expired_rows() {
             assert!(result.changed_work_item_ids.is_empty());
             assert_eq!(result.lease, Some(before.clone()));
             assert_eq!(get(&temp.shard, "tenant-a", &id), Some(before));
-            let revoked: ControlLeaseTransition = decode(with_nodes(
-                &temp.shard,
-                &format!("revoke-{index}"),
-                |nodes| {
-                    apply_transition_control_lease_row(
-                        GRAPH,
-                        &end(&id, 1, ControlLeaseTarget::Revoked),
-                        nodes,
-                        now_ms,
-                        DurableCrypto::none(),
-                    )
-                },
-            ));
+            let revoked: ControlLeaseTransition = decode(
+                native_call_at(
+                    &temp.shard,
+                    &format!("revoke-{index}"),
+                    &Method::TransitionControlLease {
+                        request: end(&id, 1, ControlLeaseTarget::Revoked),
+                    },
+                    now_ms,
+                )
+                .unwrap(),
+            );
             assert_eq!(revoked.outcome, ControlLeaseTransitionOutcome::Applied);
         }
     }
+
+    let id = "lease-expire-after-deadline";
+    issued(&temp.shard, "issue-explicit-expiry", issue(id, "tenant-a"));
+    let before = get(&temp.shard, "tenant-a", id).unwrap();
+    let expired: ControlLeaseTransition = decode(
+        native_call_at(
+            &temp.shard,
+            "expire-after-deadline",
+            &Method::TransitionControlLease {
+                request: end(id, before.revision, ControlLeaseTarget::Expired),
+            },
+            before.expires_at_ms,
+        )
+        .unwrap(),
+    );
+    assert_eq!(expired.outcome, ControlLeaseTransitionOutcome::Applied);
+    assert_eq!(expired.lease.unwrap().status, ControlLeaseStatus::Expired);
 }
 
 fn pending_fixture(shard: &Shard) -> IssueControlLeaseRequest {

@@ -241,6 +241,10 @@ fn measured_model_facts_project_ontology_names() {
         component_id: "model:measured",
         facts: &baseline,
     });
+    assert!(atoms.iter().any(|(name, args, _)| {
+        name == "eg:fact/contextWindowTokens"
+            && args == &["model:measured".to_string(), "128000".to_string()]
+    }));
     assert!(!atoms
         .iter()
         .any(|(name, _, _)| name == "eg:fact/shellProficiency"

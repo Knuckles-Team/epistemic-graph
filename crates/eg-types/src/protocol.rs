@@ -38,7 +38,6 @@ fn default_resource_stats_limit() -> usize {
 /// server's own re-serialization (`Method::canonical_body_bytes`) matches a
 /// client that never sent the key at all -- see `MineAssociate::as_claim`'s
 /// use for why this matters to the `eg2.` MAC, not just wire compactness.
-#[cfg(all(feature = "mining", feature = "epistemic"))]
 fn is_false(value: &bool) -> bool {
     !*value
 }

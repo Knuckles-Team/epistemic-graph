@@ -20145,6 +20145,9 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "completed_text_history": {
+                  "type": "boolean"
+                },
                 "request": {
                   "$ref": "#/$defs/ClaimWorkItemRequest"
                 }
@@ -36209,6 +36212,9 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "completed_text_history": {
+                  "type": "boolean"
+                },
                 "run_id": {
                   "type": "string"
                 },
@@ -56642,6 +56648,9 @@
         "params": {
           "additionalProperties": false,
           "properties": {
+            "completed_text_history": {
+              "type": "boolean"
+            },
             "request": {
               "$ref": "#/$defs/ClaimWorkItemRequest"
             }
@@ -63313,6 +63322,9 @@
         "params": {
           "additionalProperties": false,
           "properties": {
+            "completed_text_history": {
+              "type": "boolean"
+            },
             "run_id": {
               "type": "string"
             },

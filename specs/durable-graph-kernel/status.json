@@ -762,11 +762,11 @@
         "3a14159c3768"
       ],
       "verified_by": [
-        "src/raft/flake_budget.rs:105",
-        "src/raft/flake_budget.rs:112",
-        "src/raft/flake_budget.rs:120",
-        "src/raft/flake_budget.rs:128",
-        "src/raft/flake_budget.rs:85"
+        "src/raft/flake_budget.rs:164",
+        "src/raft/flake_budget.rs:170",
+        "src/raft/flake_budget.rs:177",
+        "src/raft/flake_budget.rs:184",
+        "src/raft/flake_budget.rs:191"
       ]
     },
     {
@@ -1657,9 +1657,9 @@
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:191",
         "crates/eg-types/src/control_lease/tests.rs:225",
-        "src/redb_store/work_item/control_lease/tests.rs:425",
-        "src/redb_store/work_item/control_lease/tests.rs:453",
-        "src/redb_store/work_item/control_lease/tests.rs:478"
+        "src/redb_store/work_item/control_lease/tests.rs:440",
+        "src/redb_store/work_item/control_lease/tests.rs:468",
+        "src/redb_store/work_item/control_lease/tests.rs:493"
       ]
     },
     {
@@ -2399,7 +2399,9 @@
       "title": "Served supersession refuses an already-closed fact and proves the atomic history transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/protocol_method_routing.rs:651"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R081",

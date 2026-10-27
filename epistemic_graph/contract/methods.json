@@ -10898,6 +10898,7 @@
         "READ_ONLY",
         "REDIRECTED",
         "REPLAY_NONCE_CONSUMED",
+        "RUN_ADMISSION_UNAVAILABLE",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
         "TIMEOUT"
