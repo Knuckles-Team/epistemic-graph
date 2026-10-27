@@ -108,6 +108,8 @@ pub enum QuestionKind {
     HarnessContrast,
     /// Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).
     BranchOutcome,
+    /// Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).
+    EditConcentration,
 }
 
 /// What is at stake. Exploration is permitted only for

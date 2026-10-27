@@ -1523,7 +1523,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:383"
+        "crates/eg-types/src/decision/statistical.rs:385"
       ]
     },
     {
@@ -1556,7 +1556,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:390"
+        "crates/eg-types/src/decision/statistical.rs:392"
       ]
     },
     {
@@ -3952,7 +3952,7 @@
         "c7da75413a3c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:371",
+        "crates/eg-types/src/decision/statistical.rs:373",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:57",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:98"
       ]
