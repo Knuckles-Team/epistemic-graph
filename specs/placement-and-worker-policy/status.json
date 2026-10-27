@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-PLACEMENT",
-  "owner_repo": "medulla",
+  "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-PLACEMENT-R001",

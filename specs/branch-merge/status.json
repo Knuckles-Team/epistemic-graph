@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-BRANCH-MERGE",
-  "owner_repo": "medulla",
+  "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-BRANCH-MERGE-R001",

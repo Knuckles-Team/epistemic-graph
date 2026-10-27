@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "EG-FEDERATED-QUERY",
-  "owner_repo": "medulla",
+  "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-FEDERATED-QUERY-R001",
