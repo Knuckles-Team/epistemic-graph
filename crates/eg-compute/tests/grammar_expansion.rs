@@ -242,6 +242,23 @@ fn swift_class_and_function() {
     assert_eq!(f["language"], "swift");
 }
 
+// spec: EG-REPO-INGEST-R010
+#[test]
+fn cuda_reuses_cpp_grammar_under_its_own_language_label() {
+    // CUDA uses the ABI-compatible C++ grammar for ordinary declarations;
+    // the parser still preserves the CUDA language label on extracted facts.
+    let src =
+        "struct Params { int width; int height; };\nvoid scale(int a, int b) { int c = a + b; }\n";
+    let params = sym("kernel.cu", src, "Params");
+    assert_eq!(params["symbol_type"], "Class");
+    assert_eq!(params["kind_detail"], "struct");
+    assert_eq!(params["language"], "cuda");
+
+    let function = sym("kernel.cuh", src, "scale");
+    assert_eq!(function["symbol_type"], "Function");
+    assert_eq!(function["language"], "cuda");
+}
+
 #[test]
 fn html_css_json_parse_with_zero_symbols() {
     // CONCEPT:EH-281 follow-up — registered for real (see this file's
