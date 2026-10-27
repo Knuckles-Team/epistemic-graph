@@ -1021,6 +1021,7 @@ fn a_process_killed_without_writing_keeps_the_still_true_marker() {
     );
 }
 
+// spec: EG-DURABLE-KERNEL-R038.2
 #[test]
 fn write_admission_refuses_ephemeral_before_open_and_returns_the_sync_plan() {
     use crate::kernel::StorageKernel;

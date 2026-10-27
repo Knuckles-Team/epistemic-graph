@@ -508,7 +508,7 @@
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:1009",
-        "crates/eg-storage/src/physical/tests.rs:1076",
+        "crates/eg-storage/src/physical/tests.rs:1077",
         "crates/eg-storage/src/physical/tests.rs:769",
         "crates/eg-storage/src/physical/tests.rs:783",
         "crates/eg-storage/src/physical/tests.rs:794"
@@ -530,7 +530,7 @@
         "d9fa4b417ab8"
       ],
       "verified_by": [
-        "crates/eg-storage/src/physical/tests.rs:1076",
+        "crates/eg-storage/src/physical/tests.rs:1077",
         "tests/shard_open_budget.rs:377",
         "tests/shard_open_budget.rs:412",
         "tests/shard_open_budget.rs:431",
@@ -1572,11 +1572,11 @@
         "1a1ef47cb448"
       ],
       "verified_by": [
+        "crates/eg-storage/src/physical/tests.rs:1024",
         "crates/eg-types/src/durability_class.rs:251",
         "crates/eg-types/src/durability_class.rs:259",
         "crates/eg-types/src/durability_class.rs:267",
-        "crates/eg-types/src/durability_class.rs:275",
-        "crates/eg-types/src/durability_class.rs:284"
+        "crates/eg-types/src/durability_class.rs:275"
       ]
     },
     {
