@@ -463,6 +463,44 @@ mod tests {
         );
     }
 
+    #[test]
+    fn incomplete_native_evidence_is_not_enqueued() {
+        let mut result = IndexResult::default();
+        for index in 0..2 {
+            let digest = format!("sha256:{index:064x}");
+            result.file_outcomes.push(IndexFileOutcome {
+                file_path: format!("file-{index}"),
+                status: IndexFileStatus::Success,
+                content_digest: digest.clone(),
+                parser_capability_digest: "grammar:v1".into(),
+                diagnostics: Default::default(),
+            });
+            result.native_rung_evidence.push(NativeRungEvidence {
+                content_digest: digest,
+                parser_capability_digest: "grammar:v1".into(),
+                status: IndexFileStatus::Success,
+                extracted_facts: 0,
+                inferred_facts: 0,
+                derived_facts: 0,
+                symbol_resolution_completed: index == 0,
+                statistical_completed: true,
+            });
+        }
+        let policy = Policy {
+            digest: "a".repeat(64),
+            model_digest: "b".repeat(64),
+            budget_units: 2,
+            max_total_units: 2,
+            unit_cost: 1,
+        };
+        let candidates = eligible_candidates(&result, &policy, "source-envelope").unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].unit.content_digest,
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        );
+    }
+
     #[cfg(feature = "blob")]
     #[test]
     fn worker_input_must_be_a_committed_cas_blob_ref() {
