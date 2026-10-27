@@ -3875,11 +3875,22 @@ class WorkItemClient:
             raise ValueError("negative ClaimWorkItem result carries lease state")
 
     @classmethod
-    def _claim_result(cls, result: Any) -> dict[str, Any]:
+    def _claim_result(
+        cls, result: Any, *, completed_text_history: bool = False
+    ) -> dict[str, Any]:
         """The ClaimWorkItem answer, with its claimed/reason agreement enforced."""
-        answer = _exact_mapping(
-            "ClaimWorkItem result", result, _CLAIM_WORK_ITEM_RESULT_FIELDS
-        )
+        fields = _CLAIM_WORK_ITEM_RESULT_FIELDS
+        if (
+            completed_text_history
+            and isinstance(result, dict)
+            and "fresh_execution_grant" in result
+        ):
+            fields = fields | {"fresh_execution_grant"}
+            _boolean(
+                "ClaimWorkItem result.fresh_execution_grant",
+                result["fresh_execution_grant"],
+            )
+        answer = _exact_mapping("ClaimWorkItem result", result, fields)
         if answer["schema_version"] != "1":
             raise ValueError("ClaimWorkItem result schema_version must be 1")
         claimed = _boolean("ClaimWorkItem result.claimed", answer["claimed"])
@@ -3887,6 +3898,10 @@ class WorkItemClient:
             raise ValueError("ClaimWorkItem result reason is invalid")
         if claimed != (answer["reason"] == "claimed"):
             raise ValueError("ClaimWorkItem result claim state is inconsistent")
+        if answer.get("fresh_execution_grant") is True and (
+            not claimed or answer["attempt"] != 1
+        ):
+            raise ValueError("fresh execution grant requires the first claimed attempt")
         if claimed:
             cls._claim_granted(answer)
         else:
@@ -3897,6 +3912,7 @@ class WorkItemClient:
         self,
         request: dict[str, Any],
         *,
+        completed_text_history: bool = False,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Return the authoritative claim result.
@@ -3911,16 +3927,20 @@ class WorkItemClient:
         envelope plus the normalized request.
         """
         value = self._claim_request(request)
+        _boolean("ClaimWorkItem.completed_text_history", completed_text_history)
+        parameters: dict[str, Any] = {"request": value}
+        if completed_text_history:
+            parameters["completed_text_history"] = True
         if idempotency_key is not None:
             _string("ClaimWorkItem.idempotency_key", idempotency_key)
         result = (
             await _gen.coordination.send_claim_work_item(
                 self._client,
-                {"request": value},
+                parameters,
                 idempotency_key=idempotency_key,
             )
         ).payload
-        return self._claim_result(result)
+        return self._claim_result(result, completed_text_history=completed_text_history)
 
     async def mint_capability(self, request: dict[str, Any]) -> dict[str, Any]:
         """Mint/replay an opaque capability for the caller's live WorkItem lease.
@@ -4331,7 +4351,9 @@ class WorkItemClient:
             return None
         return _work_item_view(value)
 
-    async def get_run(self, *, tenant: str, run_id: str) -> dict[str, Any] | None:
+    async def get_run(
+        self, *, tenant: str, run_id: str, completed_text_history: bool = False
+    ) -> dict[str, Any] | None:
         """Read this verified owner's immutable original run admission.
 
         Missing and foreign-owner runs return None. Historical evidence remains
@@ -4339,12 +4361,15 @@ class WorkItemClient:
         Legacy runs without original evidence refuse with RUN_ADMISSION_UNAVAILABLE;
         never recover original identity from the mutable current metadata.
         """
+        _boolean("GetRunWorkItem.completed_text_history", completed_text_history)
+        parameters: dict[str, Any] = {
+            "tenant": _string("GetRunWorkItem.tenant", tenant),
+            "run_id": _string("GetRunWorkItem.run_id", run_id),
+        }
+        if completed_text_history:
+            parameters["completed_text_history"] = True
         result = await _gen.coordination.send_get_run_work_item(
-            self._client,
-            {
-                "tenant": _string("GetRunWorkItem.tenant", tenant),
-                "run_id": _string("GetRunWorkItem.run_id", run_id),
-            },
+            self._client, parameters
         )
         try:
             _gen.coordination.decode_get_run_work_item(result)

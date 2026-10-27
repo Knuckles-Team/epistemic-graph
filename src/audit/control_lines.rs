@@ -368,7 +368,7 @@ pub(super) fn capacity_audit_line(method: &Method) -> Option<String> {
 /// Work admission and claim records share the control audit chain with capacity.
 fn work_admission_audit_line(method: &Method) -> Option<String> {
     match method {
-        Method::ClaimWorkItem { request } => {
+        Method::ClaimWorkItem { request, .. } => {
             Some(format!("CLAIM_WORK_ITEM|{}", request.tenant_ref))
         }
         Method::KgDelegate { request } => Some(format!(

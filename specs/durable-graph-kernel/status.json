@@ -614,7 +614,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:180"
+        "src/raft/command/native/tests.rs:181"
       ]
     },
     {
@@ -1217,7 +1217,7 @@
         "cd899a5c8c20"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:280"
+        "src/raft/command/native/tests.rs:281"
       ]
     },
     {
@@ -3643,7 +3643,7 @@
         "6aa2533a8865"
       ],
       "verified_by": [
-        "src/redb_store.rs:6294",
+        "src/redb_store.rs:6298",
         "src/redb_store/work_item/read/tests.rs:130",
         "src/redb_store/work_item/read/tests.rs:182",
         "src/redb_store/work_item/read/tests.rs:221",
@@ -4397,7 +4397,7 @@
       ],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:273",
-        "tests/adopt_workitem_authenticated_replay.rs:459",
+        "tests/adopt_workitem_authenticated_replay.rs:460",
         "tests/test_work_item_retry_identity.py:128",
         "tests/test_work_item_retry_identity.py:274"
       ],
@@ -4422,10 +4422,10 @@
       ],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:323",
-        "src/redb_store/work_item/run_owner/tests.rs:116",
-        "src/redb_store/work_item/run_owner/tests.rs:148",
-        "src/redb_store/work_item/run_owner/tests.rs:450",
-        "src/redb_store/work_item/run_owner/tests.rs:49"
+        "src/redb_store/work_item/run_owner/tests.rs:105",
+        "src/redb_store/work_item/run_owner/tests.rs:133",
+        "src/redb_store/work_item/run_owner/tests.rs:165",
+        "src/redb_store/work_item/run_owner/tests.rs:469"
       ]
     },
     {
@@ -4612,7 +4612,7 @@
       "landed_in": [],
       "verified_by": [
         "src/server/mutation_batch/digest.rs:319",
-        "tests/adopt_workitem_authenticated_replay.rs:588",
+        "tests/adopt_workitem_authenticated_replay.rs:589",
         "tests/decide/test_task_plan_served.py:230",
         "tests/decide/test_task_plan_served.py:351"
       ]
@@ -4636,11 +4636,11 @@
         "b286edc1b3bf"
       ],
       "verified_by": [
-        "src/redb_store/work_item/run_owner/tests.rs:202",
-        "src/redb_store/work_item/run_owner/tests.rs:227",
-        "src/redb_store/work_item/run_owner/tests.rs:251",
-        "src/redb_store/work_item/run_owner/tests.rs:329",
-        "src/redb_store/work_item/run_owner/tests.rs:450"
+        "src/redb_store/work_item/run_owner/tests.rs:220",
+        "src/redb_store/work_item/run_owner/tests.rs:245",
+        "src/redb_store/work_item/run_owner/tests.rs:269",
+        "src/redb_store/work_item/run_owner/tests.rs:347",
+        "src/redb_store/work_item/run_owner/tests.rs:469"
       ]
     },
     {
@@ -4752,7 +4752,7 @@
         "966ec29a9eae"
       ],
       "verified_by": [
-        "src/redb_store/work_item/inline_history/tests.rs:135"
+        "src/redb_store/work_item/inline_history/tests.rs:222"
       ]
     },
     {
@@ -4763,8 +4763,9 @@
         "966ec29a9eae"
       ],
       "verified_by": [
-        "src/redb_store/work_item/inline_history/tests.rs:277",
-        "src/redb_store/work_item/inline_history/tests.rs:91"
+        "src/redb_store/work_item/inline_history/tests.rs:1122",
+        "src/redb_store/work_item/inline_history/tests.rs:153",
+        "src/redb_store/work_item/inline_history/tests.rs:471"
       ]
     },
     {

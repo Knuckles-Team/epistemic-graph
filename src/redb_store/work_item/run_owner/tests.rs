@@ -15,7 +15,8 @@ fn admit(shard: &Shard) -> String {
             &mut rows.inline_history,
             &mut rows.edges,
             &mut rows.command_sequences,
-            WorkItemCommitScope { inline_history_enable_authorized: false,
+            WorkItemCommitScope {
+                inline_history_enable_authorized: false,
                 crypto: DurableCrypto::none(),
                 authoritative_now_ms: 1000,
                 admitted_actor: Some("owner"),
@@ -53,6 +54,22 @@ fn run_admission_recovery_preserves_original_request() {
     let shard = Shard::open(&path).unwrap();
     let id = admit(&shard);
     let first = read(&shard, "tenant", "run", "owner").unwrap().unwrap();
+    assert_eq!(
+        serde_json::to_value(&first).unwrap(),
+        serde_json::to_value(
+            read_admission_legacy(
+                &shard,
+                GRAPH,
+                "tenant",
+                "run",
+                "owner",
+                DurableCrypto::none()
+            )
+            .unwrap()
+            .unwrap()
+        )
+        .unwrap()
+    );
     assert_eq!(first.admission, request());
     assert_eq!(first.work_item.work_item_id, id);
     // Native execution may change the caller view, but never the original admission.
@@ -177,6 +194,7 @@ async fn run_admission_unavailable_is_a_declared_wire_refusal() {
             "tenant",
             &persistence,
             WorkItemRead::RunAdmission {
+                completed_text_history: false,
                 tenant: "tenant".into(),
                 run_id: "run".into(),
                 actor: "owner".into(),
@@ -338,6 +356,7 @@ fn ordinary_completion_native_fence_and_terminal_noop_preserve_binding() {
     let shard = Shard::open(&path).unwrap();
     let id = admit(&shard);
     let claim = Method::ClaimWorkItem {
+        completed_text_history: false,
         request: ClaimWorkItemRequest {
             schema_version: ClaimWorkItemRequestSchemaVersion::V1,
             tenant_ref: "tenant".into(),
@@ -584,7 +603,10 @@ fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
             &compile(
                 &shard,
                 "claim",
-                Method::ClaimWorkItem { request: claim },
+                Method::ClaimWorkItem {
+                    request: claim,
+                    completed_text_history: false,
+                },
                 2000,
             ),
         );

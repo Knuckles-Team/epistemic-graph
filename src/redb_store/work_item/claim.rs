@@ -181,12 +181,16 @@ pub(crate) fn classify_claim_row(
     node_id: &str,
     mut props: serde_json::Map<String, serde_json::Value>,
     now_s: f64,
+    completed_text_history: bool,
 ) -> Result<ClaimRowOutcome, String> {
     if property_string(&props, "node_type") != "WorkItem" {
         return Ok(ClaimRowOutcome::Skip);
     }
     if property_string(&props, "tenant") != request.tenant_ref.as_str() {
         return Ok(ClaimRowOutcome::Skip);
+    }
+    if request.work_item_id.as_deref() == Some(node_id) {
+        require_history_opt_in(&props, completed_text_history)?;
     }
     let status = property_string(&props, "status").to_string();
     if matches!(status.as_str(), "leased" | "running")
@@ -201,14 +205,16 @@ pub(crate) fn classify_claim_row(
     {
         return Ok(ClaimRowOutcome::Skip);
     }
-    if matches!(status.as_str(), "leased" | "running")
-        && claim_reclaim_expired_lease(&mut props, node_id, &status, now_s)?
-    {
-        return Ok(ClaimRowOutcome::Exhausted(props));
+    if matches!(status.as_str(), "leased" | "running") {
+        require_history_opt_in(&props, completed_text_history)?;
+        if claim_reclaim_expired_lease(&mut props, node_id, &status, now_s)? {
+            return Ok(ClaimRowOutcome::Exhausted(props));
+        }
     }
     if claim_candidate_is_excluded(&props, request, now_s) {
         return Ok(ClaimRowOutcome::Skip);
     }
+    require_history_opt_in(&props, completed_text_history)?;
     let deadline = claim_candidate_deadline(&props, now_s);
     Ok(ClaimRowOutcome::Candidate((
         property_u64(&props, "prio_bucket"),
@@ -227,6 +233,7 @@ pub(crate) fn scan_claim_work_item_candidates(
     now_s: f64,
     nodes: &ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
+    completed_text_history: bool,
 ) -> Result<ClaimWorkItemScan, String> {
     permit_scoped_scan(nodes.scope_key(), graph)?;
     let mut scan = ClaimWorkItemScan {
@@ -242,7 +249,7 @@ pub(crate) fn scan_claim_work_item_candidates(
         let Ok(props) = decode_durable::<serde_json::Map<String, serde_json::Value>>(&bytes) else {
             continue;
         };
-        match classify_claim_row(request, node_id, props, now_s)? {
+        match classify_claim_row(request, node_id, props, now_s, completed_text_history)? {
             ClaimRowOutcome::Skip => {}
             ClaimRowOutcome::InFlight => scan.inflight = scan.inflight.saturating_add(1),
             ClaimRowOutcome::Exhausted(props) => {
@@ -328,6 +335,7 @@ pub(crate) fn claim_grant_lease(
 }
 
 struct ClaimWorkItemApply<'args, 'table, 'crypto> {
+    completed_text_history: bool,
     admitted_actor: Option<&'args str>,
     graph: &'args str,
     request: &'args crate::epistemic_operations::ClaimWorkItemRequest,
@@ -364,6 +372,26 @@ fn select_claim_candidate(mut candidates: Vec<ClaimCandidateRow>) -> Option<Clai
     candidates.into_iter().next()
 }
 
+/// The wire extension is engine-owned, not an upstream claim-request field.
+/// Reject before any claim/reclaim write so an old strict client cannot execute
+/// a profiled run without understanding its native freshness witness.
+fn require_history_opt_in(
+    props: &serde_json::Map<String, serde_json::Value>,
+    completed_text_history: bool,
+) -> Result<(), String> {
+    let profile = props
+        .get(super::run_owner::ADMISSION_REQUEST)
+        .and_then(|admission| admission.get("conversation"))
+        .and_then(|turn| turn.get("history_profile"));
+    if !completed_text_history && profile.is_some_and(|value| !value.is_null()) {
+        return Err(format!(
+            "{}: claim requires completed_text_history opt-in",
+            eg_types::contract::ServerErrorCode::RunAdmissionUnavailable
+        ));
+    }
+    Ok(())
+}
+
 /// The immutable native admission opts into the bounded terminal-only profile.
 /// The verified claim actor must own the profile, not merely know lease fields.
 /// The marker is not a bearer credential: selection checks the owner and live
@@ -395,7 +423,10 @@ fn profile_execution_grant(
         .and_then(|turn| turn.history_profile.as_ref())
         .ok_or("missing immutable history profile")?;
     profile.validate()?;
-    let run = admission.run_id.as_deref().ok_or("missing native profile run")?;
+    let run = admission
+        .run_id
+        .as_deref()
+        .ok_or("missing native profile run")?;
     super::run_owner::validate_completion_owner(props, graph, tenant, run, node_id)?;
     let actor = admitted_actor
         .filter(|actor| !actor.is_empty())
@@ -410,6 +441,7 @@ fn apply_claimed_work_item(
     input: ClaimWorkItemApply<'_, '_, '_>,
 ) -> Result<crate::protocol::ResultPayload, String> {
     let ClaimWorkItemApply {
+        completed_text_history,
         admitted_actor,
         graph,
         request,
@@ -426,9 +458,16 @@ fn apply_claimed_work_item(
         crypto,
     } = input;
     let worker_id = &request.worker_ref;
+    require_history_opt_in(&props, completed_text_history)?;
     let (epoch, attempt) = claim_grant_lease(&mut props, worker_id, now_s, lease_until_s)?;
-    let fresh_execution_grant =
-        profile_execution_grant(graph, &request.tenant_ref, &node_id, &props, attempt, admitted_actor)?;
+    let fresh_execution_grant = profile_execution_grant(
+        graph,
+        &request.tenant_ref,
+        &node_id,
+        &props,
+        attempt,
+        admitted_actor,
+    )?;
     let kind = property_string(&props, "kind").to_string();
     let payload_ref = property_string(&props, "payload_ref").to_string();
     let max_attempts = property_u64(&props, "max_attempts").max(1);
@@ -484,6 +523,7 @@ pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
     native_work_items: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
     crypto: DurableCrypto<'crypto>,
     admitted_actor: Option<&str>,
+    completed_text_history: bool,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let tenant = &request.tenant_ref;
     let worker_id = &request.worker_ref;
@@ -505,7 +545,14 @@ pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
         candidates,
         exhausted,
         changed_work_item_ids,
-    } = scan_claim_work_item_candidates(graph, request, now_s, nodes, crypto)?;
+    } = scan_claim_work_item_candidates(
+        graph,
+        request,
+        now_s,
+        nodes,
+        crypto,
+        completed_text_history,
+    )?;
     write_exhausted_claim_rows(graph, exhausted, nodes, crypto)?;
     if inflight >= tenant_in_flight_limit {
         return Ok(Some(claim_not_claimed_payload(
@@ -522,6 +569,7 @@ pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
         )?));
     };
     Ok(Some(apply_claimed_work_item(ClaimWorkItemApply {
+        completed_text_history,
         admitted_actor,
         graph,
         request,
@@ -637,12 +685,13 @@ mod tests {
                 &claim_request(Some("another-item")),
                 "work-1",
                 props.clone(),
-                2.0
+                2.0,
+                false
             ),
             Ok(ClaimRowOutcome::Skip)
         ));
         assert!(matches!(
-            classify_claim_row(&claim_request(Some("work-1")), "work-1", props, 2.0),
+            classify_claim_row(&claim_request(Some("work-1")), "work-1", props, 2.0, false),
             Err(error) if error == "ClaimWorkItem lease fence overflow"
         ));
     }
@@ -679,12 +728,16 @@ mod tests {
         let graph = super::super::test_shard::GRAPH;
         let id = super::super::run_owner::work_item_id(graph, "tenant", "run").unwrap();
         let binding = super::super::run_owner::admit_owner(graph, &admission, Some("owner"))
-            .unwrap().unwrap();
+            .unwrap()
+            .unwrap();
         let row = serde_json::json!({
             "node_type":"WorkItem", "tenant":"tenant", "status":"ready",
             "attempt":0, "max_attempts":3, "lease_epoch":0, "fencing_token":0,
             "run_owner_binding":binding, "run_admission_request":admission
-        }).as_object().unwrap().clone();
+        })
+        .as_object()
+        .unwrap()
+        .clone();
         (id, row)
     }
 
@@ -693,21 +746,32 @@ mod tests {
         let graph = super::super::test_shard::GRAPH;
         let (id, mut row) = history_profile_row();
         let (_, first_attempt) = claim_grant_lease(&mut row, "worker", 1.0, 2.0).unwrap();
-        assert_eq!(profile_execution_grant(graph, "tenant", &id, &row, first_attempt, Some("owner")), Ok(Some(true)));
+        assert_eq!(
+            profile_execution_grant(graph, "tenant", &id, &row, first_attempt, Some("owner")),
+            Ok(Some(true))
+        );
         let mut request = claim_request(Some(&id));
         request.tenant_ref = "tenant".into();
-        assert!(matches!(classify_claim_row(&request, &id, row.clone(), 1.5), Ok(ClaimRowOutcome::InFlight)));
+        assert!(matches!(
+            classify_claim_row(&request, &id, row.clone(), 1.5, true),
+            Ok(ClaimRowOutcome::InFlight)
+        ));
         assert!(!claim_reclaim_expired_lease(&mut row, &id, "leased", 2.0).unwrap());
         let (_, next_attempt) = claim_grant_lease(&mut row, "worker", 2.0, 3.0).unwrap();
         assert_eq!(next_attempt, 2);
-        assert_eq!(profile_execution_grant(graph, "tenant", &id, &row, next_attempt, Some("owner")), Ok(Some(false)));
+        assert_eq!(
+            profile_execution_grant(graph, "tenant", &id, &row, next_attempt, Some("owner")),
+            Ok(Some(false))
+        );
     }
 
     #[test]
     fn history_profile_freshness_requires_immutable_run_binding() {
         let graph = super::super::test_shard::GRAPH;
         let (id, mut row) = history_profile_row();
-        assert!(profile_execution_grant(graph, "other-tenant", &id, &row, 1, Some("owner")).is_err());
+        assert!(
+            profile_execution_grant(graph, "other-tenant", &id, &row, 1, Some("owner")).is_err()
+        );
         for actor in [None, Some(""), Some("foreign-owner")] {
             assert!(profile_execution_grant(graph, "tenant", &id, &row, 1, actor).is_err());
         }
@@ -721,8 +785,51 @@ mod tests {
     #[test]
     fn legacy_claim_has_no_new_execution_hint() {
         let row = serde_json::json!({"node_type":"WorkItem","attempt":1})
-            .as_object().unwrap().clone();
-        assert_eq!(profile_execution_grant("graph", "tenant", "id", &row, 1, Some("owner")), Ok(None));
+            .as_object()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            profile_execution_grant("graph", "tenant", "id", &row, 1, Some("owner")),
+            Ok(None)
+        );
     }
 
+    #[test]
+    fn exact_profile_opt_out_refuses_even_live_or_terminal_rows() {
+        let (id, original) = history_profile_row();
+        let mut request = claim_request(Some(&id));
+        request.tenant_ref = "tenant".into();
+        for status in [
+            "ready",
+            "leased",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "dead_letter",
+        ] {
+            let mut row = original.clone();
+            row.insert("status".into(), status.into());
+            row.insert("lease_expires_at".into(), 10.0.into());
+            assert!(matches!(classify_claim_row(&request, &id, row, 2.0, false),
+                Err(error) if error.contains("completed_text_history opt-in")));
+        }
+    }
+
+    #[test]
+    fn queue_profile_opt_out_only_refuses_candidates_or_reclaim_mutations() {
+        let (id, mut row) = history_profile_row();
+        let mut request = claim_request(None);
+        request.tenant_ref = "tenant".into();
+        assert!(classify_claim_row(&request, &id, row.clone(), 2.0, false).is_err());
+        row.insert("status".into(), "leased".into());
+        row.insert("lease_expires_at".into(), 3.0.into());
+        assert!(matches!(
+            classify_claim_row(&request, &id, row.clone(), 2.0, false),
+            Ok(ClaimRowOutcome::InFlight)
+        ));
+        row.insert("lease_expires_at".into(), 1.0.into());
+        row.insert("attempt".into(), 3.into());
+        assert!(classify_claim_row(&request, &id, row, 2.0, false).is_err());
+    }
 }

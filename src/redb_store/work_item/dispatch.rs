@@ -63,9 +63,18 @@ pub(crate) fn apply_work_item_rows(
         crypto,
     } = request;
     match method {
-        Method::ClaimWorkItem { request } => {
-            apply_claim_work_item_row(graph, request, nodes, native_work_items, crypto, admitted_actor)
-        }
+        Method::ClaimWorkItem {
+            request,
+            completed_text_history,
+        } => apply_claim_work_item_row(
+            graph,
+            request,
+            nodes,
+            native_work_items,
+            crypto,
+            admitted_actor,
+            *completed_text_history,
+        ),
         Method::RenewWorkItemLease {
             tenant,
             work_item_id,

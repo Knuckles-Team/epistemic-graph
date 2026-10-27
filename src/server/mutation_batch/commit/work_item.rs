@@ -73,7 +73,7 @@ fn work_item_tenant_value(method: &Method) -> Result<String, String> {
     let tenant = match method {
         Method::SubmitWorkItem { request } => request.context.tenant_id.clone(),
         Method::SubmitWorkItems { request } => request.context.tenant_id.clone(),
-        Method::ClaimWorkItem { request } => request.tenant_ref.clone(),
+        Method::ClaimWorkItem { request, .. } => request.tenant_ref.clone(),
         Method::PublishCurrentPlan { request } => request.tenant.clone(),
         Method::CasWorkItemMetadata { request } => request.tenant_ref.clone(),
         Method::RenewWorkItemLease { tenant, .. }
@@ -142,10 +142,12 @@ impl<'a> WorkItemCommitRequest<'a> {
         }
     }
 
-    pub(crate) fn with_verified_history_policy(mut self,
-        context: &crate::server::auth::VerifiedRequestContext) -> Self {
-        self.inline_history_enable_authorized = self.principal == Some(context.principal())
-            && context.allows_inline_history_enable();
+    pub(crate) fn with_verified_history_policy(
+        mut self,
+        context: &crate::server::auth::VerifiedRequestContext,
+    ) -> Self {
+        self.inline_history_enable_authorized =
+            self.principal == Some(context.principal()) && context.allows_inline_history_enable();
         self
     }
 
@@ -176,6 +178,7 @@ struct WorkItemCommitPlan<'a> {
 }
 
 struct WorkItemCommitOutcome<'a> {
+    completed_text_history: bool,
     persistence: &'a Arc<dyn PersistenceBackend>,
     core: &'a Arc<GraphCore>,
     graph_fname: String,
@@ -188,6 +191,7 @@ struct WorkItemCommitOutcome<'a> {
 
 #[derive(Clone, Copy)]
 struct WorkItemOutputFlags {
+    completed_text_history: bool,
     claim: bool,
     submit: bool,
     submit_batch: bool,
@@ -198,6 +202,13 @@ fn work_item_output_flags(method: &Method) -> WorkItemOutputFlags {
     let submit_batch = matches!(method, Method::SubmitWorkItems { .. });
     let submit = submit_batch || matches!(method, Method::SubmitWorkItem { .. });
     WorkItemOutputFlags {
+        completed_text_history: matches!(
+            method,
+            Method::ClaimWorkItem {
+                completed_text_history: true,
+                ..
+            }
+        ),
         claim: matches!(method, Method::ClaimWorkItem { .. }),
         submit,
         submit_batch,
@@ -290,15 +301,21 @@ async fn commit_work_item_plan(plan: WorkItemCommitPlan<'_>) -> Result<ResultPay
         vec![method],
     )?;
     if inline_history_enable_authorized {
-        let crate::mutation_batch::MutationEnvelope::Operation(envelope) = &mut batch.envelope else {
-            return Err("inline history enablement requires authenticated operation authority".into());
+        let crate::mutation_batch::MutationEnvelope::Operation(envelope) = &mut batch.envelope
+        else {
+            return Err(
+                "inline history enablement requires authenticated operation authority".into(),
+            );
         };
-        envelope.verified_capabilities.insert(eg_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
+        envelope
+            .verified_capabilities
+            .insert(eg_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
     }
     let committed = persistence
         .commit_mutation_batch(&fname, &batch, None, created_at_ms)
         .await?;
     let outcome = WorkItemCommitOutcome {
+        completed_text_history: flags.completed_text_history,
         persistence,
         core,
         graph_fname: fname,
@@ -315,6 +332,7 @@ async fn publish_work_item_outcome(
     outcome: WorkItemCommitOutcome<'_>,
 ) -> Result<ResultPayload, String> {
     let WorkItemCommitOutcome {
+        completed_text_history,
         persistence,
         core,
         graph_fname,
@@ -333,7 +351,9 @@ async fn publish_work_item_outcome(
     )
     .await;
     match result {
-        Ok(result) if committed.replayed && claim => mark_claim_replayed(result),
+        Ok(result) if claim => {
+            project_claim_result(result, committed.replayed, completed_text_history)
+        }
         Ok(result) if committed.replayed && submit => mark_submit_replayed(result, submit_batch),
         Ok(result) => Ok(result),
         Err(error) => {
@@ -374,7 +394,11 @@ fn decode_submit_receipt<T: serde::de::DeserializeOwned>(
 /// A stored first-claim receipt is replayable evidence, not permission to start
 /// the model a second time. Override its marker from the authoritative commit's
 /// replay bit, never from request data or the stored result's original true bit.
-fn mark_claim_replayed(result: ResultPayload) -> Result<ResultPayload, String> {
+fn project_claim_result(
+    result: ResultPayload,
+    replayed: bool,
+    completed_text_history: bool,
+) -> Result<ResultPayload, String> {
     let mut body: eg_types::inline_history::NativeClaimWorkItemResult = match result {
         ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(
             &bytes,
@@ -386,7 +410,17 @@ fn mark_claim_replayed(result: ResultPayload) -> Result<ResultPayload, String> {
         _ => return Err("replayed ClaimWorkItem result has an invalid payload shape".into()),
     };
     if body.fresh_execution_grant.is_some() {
-        body.fresh_execution_grant = Some(false);
+        // Old receipts can predate the explicit wrapper flag and bypass the
+        // native row applier on replay. Never expose their witness to opt-out.
+        if !completed_text_history {
+            return Err(format!(
+                "{}: claim requires completed_text_history opt-in",
+                eg_types::contract::ServerErrorCode::RunAdmissionUnavailable
+            ));
+        }
+        if replayed {
+            body.fresh_execution_grant = Some(false);
+        }
     }
     ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(body)
 }

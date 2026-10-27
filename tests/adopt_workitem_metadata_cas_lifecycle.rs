@@ -139,6 +139,7 @@ fn add_work_item(now_ms: u64) -> Method {
 
 fn claim_request(worker: &str, now_ms: u64, lease_ms: u64) -> Method {
     Method::ClaimWorkItem {
+        completed_text_history: false,
         request: ClaimWorkItemRequest {
             schema_version: ClaimWorkItemRequestSchemaVersion::V1,
             tenant_ref: TENANT.to_string(),
@@ -247,7 +248,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     assert_eq!(add.error, None, "AddNode failed: {add:?}");
 
     let mut foreign_claim = claim_request(WORKER_A, epoch_ms + 1_000, 5_000);
-    let Method::ClaimWorkItem { request } = &mut foreign_claim else {
+    let Method::ClaimWorkItem { request, .. } = &mut foreign_claim else {
         unreachable!("claim_request constructs ClaimWorkItem")
     };
     request.tenant_ref = "other-tenant".to_string();

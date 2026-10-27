@@ -236,16 +236,24 @@ async fn route_work_item_reads(
     method: Method,
 ) -> Result<Response, Method> {
     let read = match method {
-        Method::GetRunWorkItem { tenant, run_id, selection } => {
-            handlers::work_item_read::WorkItemRead::RunAdmission {
-                selection,
+        Method::GetRunWorkItem {
+            tenant,
+            run_id,
+            selection,
+            completed_text_history,
+        } => handlers::work_item_read::WorkItemRead::RunAdmission {
+            completed_text_history,
+            selection,
+            tenant,
+            run_id,
+            actor: ctx.verified_context.principal().to_string(),
+        },
+        Method::GetConversationHead { tenant, context_id } => {
+            handlers::work_item_read::WorkItemRead::ConversationHead {
                 tenant,
-                run_id,
+                context_id,
                 actor: ctx.verified_context.principal().to_string(),
             }
-        }
-        Method::GetConversationHead { tenant, context_id } => {
-            handlers::work_item_read::WorkItemRead::ConversationHead { tenant, context_id, actor: ctx.verified_context.principal().to_string() }
         }
         Method::GetCurrentPlan { tenant, run_id } => {
             handlers::work_item_read::WorkItemRead::CurrentPlan {
@@ -701,7 +709,7 @@ async fn route_graph_audit_and_modality(
                 node_id,
                 anchor_seq,
             )
-            .await)
+            .await);
         }
         method => method,
     };
@@ -729,7 +737,7 @@ async fn route_graph_audit_and_modality(
                 },
                 op,
             )
-            .await)
+            .await);
         }
         method => method,
     };

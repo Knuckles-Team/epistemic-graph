@@ -207,7 +207,8 @@ pub const GRAPH_SHARD_BEFORE_INLINE_HISTORY: LayoutPredecessor = LayoutPredecess
     layout: OwnerLayout::GraphShard,
     label: "graph shard before private inline conversation history",
     owner_tables: GRAPH_SHARD_TABLES_BEFORE_INLINE_HISTORY,
-    data_lost: "none after the explicit offline inline-history layout upgrade. Normal open refuses this predecessor.",
+    data_lost:
+        "none after the offline inline-history upgrade. Normal open refuses this predecessor.",
     file_name: "graph-*.redb",
 };
 

@@ -172,25 +172,66 @@ impl RedbBackend {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn read_run_work_item(
-        &self, graph_fname: &str, tenant: &str, run_id: &str, actor: &str,
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        run_id: &str,
+        actor: &str,
         selection: Option<Box<eg_types::inline_history::RunSelectionRequest>>,
+        completed_text_history: bool,
     ) -> Result<Option<eg_types::work_item_read::RunWorkItemView>, String> {
+        if selection.is_some() && !completed_text_history {
+            return Err("RUN_ADMISSION_UNAVAILABLE: completed-text history opt-in required".into());
+        }
         if let Some(selection) = selection {
-            let (graph, tenant, run_id, actor) = (graph_fname.to_owned(), tenant.to_owned(), run_id.to_owned(), actor.to_owned());
+            let (graph, tenant, run_id, actor) = (
+                graph_fname.to_owned(),
+                tenant.to_owned(),
+                run_id.to_owned(),
+                actor.to_owned(),
+            );
             self.read_snapshot(graph_fname, move |shard, crypto| {
-                crate::redb_store::work_item::history_selection::read_selection(shard, &graph, &tenant, &run_id, &actor, &selection, crypto, crate::server::dispatch::authoritative_now_ms())
-            }).await
+                crate::redb_store::work_item::history_selection::read_selection(
+                    shard,
+                    &graph,
+                    &tenant,
+                    &run_id,
+                    &actor,
+                    &selection,
+                    crypto,
+                    crate::server::dispatch::authoritative_now_ms(),
+                )
+            })
+            .await
         } else {
-            self.owner_point_read(graph_fname, tenant, run_id, actor, crate::redb_store::work_item::read_run_admission).await
+            let read: OwnerPointRead<Option<eg_types::work_item_read::RunWorkItemView>> =
+                if completed_text_history {
+                    crate::redb_store::work_item::read_run_admission
+                } else {
+                    crate::redb_store::work_item::read_run_admission_legacy
+                };
+            self.owner_point_read(graph_fname, tenant, run_id, actor, read)
+                .await
         }
     }
 
     pub(crate) async fn read_conversation_head(
-        &self, graph_fname: &str, tenant: &str, context_id: &str, actor: &str,
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        context_id: &str,
+        actor: &str,
     ) -> Result<Option<eg_types::inline_history::ConversationHeadView>, String> {
-        self.owner_point_read(graph_fname, tenant, context_id, actor,
-            crate::redb_store::work_item::history_selection::read_head).await
+        self.owner_point_read(
+            graph_fname,
+            tenant,
+            context_id,
+            actor,
+            crate::redb_store::work_item::history_selection::read_head,
+        )
+        .await
     }
 
     pub(crate) async fn current_plan_owner(

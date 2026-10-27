@@ -9,6 +9,8 @@ $($variants)*
     /// owner. Missing and foreign rows return null; missing original admission
     /// evidence refuses explicitly. Independent of current lease or terminal state.
     GetRunWorkItem {
+        #[serde(default, skip_serializing_if = "is_false")]
+        completed_text_history: bool,
         tenant: String, run_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         selection: Option<Box<crate::inline_history::RunSelectionRequest>>,

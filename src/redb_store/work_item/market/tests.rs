@@ -62,6 +62,7 @@ fn upserted(shard: &Shard, tag: &str, method: Method, now_ms: u64) -> GapUpserte
 
 fn claim(shard: &Shard, tag: &str, work_item_id: &str, worker: &str) -> ClaimWorkItemResult {
     let method = Method::ClaimWorkItem {
+        completed_text_history: false,
         request: ClaimWorkItemRequest {
             schema_version: ClaimWorkItemRequestSchemaVersion::V1,
             tenant_ref: "tenant-a".into(),

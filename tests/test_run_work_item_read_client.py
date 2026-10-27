@@ -65,3 +65,39 @@ def test_owner_run_read_refuses_wrong_binding(field: str, value: str) -> None:
     result["admission"][field] = value
     with pytest.raises(RuntimeError):
         read(CapturingEngine(result))
+
+
+@pytest.mark.parametrize("value", ["true", 1, None])
+def test_history_read_opt_in_requires_boolean(value: Any) -> None:
+    engine = CapturingEngine(None)
+    client = WorkItemClient(cast(EpistemicGraphClient, engine))
+    with pytest.raises(TypeError):
+        asyncio.run(
+            client.get_run(
+                tenant="tenant-fixture", run_id="run", completed_text_history=value
+            )
+        )
+    assert engine.sent == []
+
+
+def test_history_read_opt_in_is_a_wrapper_parameter() -> None:
+    engine = CapturingEngine(None)
+    client = WorkItemClient(cast(EpistemicGraphClient, engine))
+    assert (
+        asyncio.run(
+            client.get_run(
+                tenant="tenant-fixture", run_id="run", completed_text_history=True
+            )
+        )
+        is None
+    )
+    assert engine.sent == [
+        (
+            "GetRunWorkItem",
+            {
+                "tenant": "tenant-fixture",
+                "run_id": "run",
+                "completed_text_history": True,
+            },
+        )
+    ]

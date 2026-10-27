@@ -1201,6 +1201,7 @@ mod tests {
             .expect("read mutation graph version");
         let batch = sealed_work_item_batch(
             Method::ClaimWorkItem {
+                completed_text_history: false,
                 request: crate::epistemic_operations::ClaimWorkItemRequest {
                     schema_version:
                         crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,

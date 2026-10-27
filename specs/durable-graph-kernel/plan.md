@@ -998,3 +998,18 @@ serialized envelopes with forged capability fields. The trusted in-process Rust
 persistence ABI is not a boundary against hostile code inside the engine process.
 Graft validation checks the private marker under the source write lock before
 fencing. Refusal uses the existing authenticated destination-reservation cleanup.
+
+### Explicit completed-text response negotiation
+
+`GetRunWorkItem` and `ClaimWorkItem` use a wrapper-level
+`completed_text_history` boolean. It defaults to false and false is omitted
+from serialized legacy requests. It is not part of `ClaimWorkItemRequest`.
+Profile selection and historical completed-text display require true.
+An owner-bound profile read without true refuses before private text projection.
+Foreign and missing rows remain indistinguishable. Legacy records retain their
+old response shape. A profile claim without true refuses before lease changes.
+A replayed claim cannot supply a fresh execution grant, including old receipts.
+The Python `work_items.get_run` and `work_items.claim` helpers expose this
+keyword explicitly. Invalid non-boolean values refuse before transport.
+Generate request models, strict response decoders and the native codec
+from the corresponding source before enabling the profile.

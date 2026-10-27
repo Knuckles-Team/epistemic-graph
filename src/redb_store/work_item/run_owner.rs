@@ -82,9 +82,41 @@ pub(crate) fn read_admission(
     read_admission_in(&snapshot, graph, tenant, run_id, actor, crypto)
 }
 
+/// Legacy response negotiation refuses profiled rows after the owner check.
+pub(crate) fn read_admission_legacy(
+    shard: &Shard,
+    graph: &str,
+    tenant: &str,
+    run_id: &str,
+    actor: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<eg_types::work_item_read::RunWorkItemView>, String> {
+    eg_types::work_item_read::validate_work_item_get(tenant, run_id)?;
+    let handle = shard.graph(graph)?;
+    let snapshot = shard.read(&handle)?;
+    read_admission_with_profile(&snapshot, graph, tenant, run_id, actor, crypto, false)
+}
+
 pub(super) fn read_admission_in(
     snapshot: &eg_storage::ScopedRead<'_, eg_storage::GraphShardOwner>,
-    graph: &str, tenant: &str, run_id: &str, actor: &str, crypto: DurableCrypto<'_>,
+    graph: &str,
+    tenant: &str,
+    run_id: &str,
+    actor: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<eg_types::work_item_read::RunWorkItemView>, String> {
+    read_admission_with_profile(snapshot, graph, tenant, run_id, actor, crypto, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn read_admission_with_profile(
+    snapshot: &eg_storage::ScopedRead<'_, eg_storage::GraphShardOwner>,
+    graph: &str,
+    tenant: &str,
+    run_id: &str,
+    actor: &str,
+    crypto: DurableCrypto<'_>,
+    completed_text_history: bool,
 ) -> Result<Option<eg_types::work_item_read::RunWorkItemView>, String> {
     use eg_types::native_control::SubmitWorkItemRequest;
     use eg_types::work_item_read::{RunWorkItemView, WorkItemView};
@@ -115,6 +147,14 @@ pub(super) fn read_admission_in(
         || admission.work_item_id.is_some()
     {
         return Err(unavailable.into());
+    }
+    if !completed_text_history
+        && admission
+            .conversation
+            .as_ref()
+            .is_some_and(|c| c.history_profile.is_some())
+    {
+        return Err("RUN_ADMISSION_UNAVAILABLE: completed-text history opt-in required".into());
     }
     let work_item = WorkItemView::from_tenant_row(&id, &row, tenant)?.ok_or(unavailable)?;
     let run_completion = match (
@@ -149,10 +189,17 @@ pub(super) fn read_admission_in(
         work_item,
         admission,
     };
-    let profiled = view.admission.conversation.as_ref().is_some_and(|c| c.history_profile.is_some());
+    let profiled = view
+        .admission
+        .conversation
+        .as_ref()
+        .is_some_and(|c| c.history_profile.is_some());
     if profiled && view.work_item.status == eg_types::work_item_read::WorkItemStatus::Succeeded {
-        let (envelope, _) = super::history_selection::completed_turn(snapshot, graph, tenant, actor, &view, crypto)?;
-        view.completed_checkpoint = Some(serde_json::to_string(&envelope).map_err(|e| e.to_string())?);
+        let (envelope, _) = super::history_selection::completed_turn(
+            snapshot, graph, tenant, actor, &view, crypto,
+        )?;
+        view.completed_checkpoint =
+            Some(serde_json::to_string(&envelope).map_err(|e| e.to_string())?);
     }
     Ok(Some(view))
 }

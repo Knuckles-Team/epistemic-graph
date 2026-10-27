@@ -1608,6 +1608,7 @@ async fn seed_public_work_item_claim(cluster: &Cluster, leader: NodeId) {
         leader,
         11,
         Method::ClaimWorkItem {
+            completed_text_history: false,
             request: ClaimWorkItemRequest {
                 schema_version: ClaimWorkItemRequestSchemaVersion::V1,
                 tenant_ref: TENANT.to_string(),

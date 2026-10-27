@@ -87,6 +87,7 @@ fn work_item_mutations() -> Vec<Method> {
 
     vec![
         Method::ClaimWorkItem {
+            completed_text_history: false,
             request: ClaimWorkItemRequest {
                 schema_version: ClaimWorkItemRequestSchemaVersion::V1,
                 tenant_ref: "tenant-ref".to_string(),

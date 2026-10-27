@@ -67,7 +67,8 @@ is claimed. Those operations need a reviewed catalog-incarnation binding first.
 ## Generated consumer handoff
 
 Native generation must include `GetConversationHead`, optional
-`GetRunWorkItem.selection`, private owner-only `completed_checkpoint`, and
+`GetRunWorkItem.selection`, the explicit `completed_text_history` wrapper flag,
+private owner-only `completed_checkpoint`, and
 `NativeClaimWorkItemResult.fresh_execution_grant`. Regenerate the Arbora operation
 registry from that actual artifact before enabling the profile. An old generated
 client or registry must refuse the enabled path, not infer a successful empty
@@ -95,3 +96,17 @@ Enabling the consumer configuration does not grant this native authority.
 Public carriers reject nested WorkItem writes even if their serialized envelope
 contains a forged internal capability. Trusted in-process Rust persistence calls
 remain an engine authority boundary, not protection from hostile engine code.
+
+## Compatibility revision qualification
+
+The native methods now require explicit `completed_text_history` negotiation
+for profile reads and claims. Legacy profile reads refuse after owner validation.
+Legacy profile claims refuse before lease mutation. Old claim receipts cannot
+bypass negotiation or grant execution on replay.
+
+Fourteen focused Python checks pass for legacy behavior and strict refusals.
+Two positive wrapper tests still fail because the previous generated schemas
+reject the new flag. Native generation must replace those schemas and codecs.
+The new native refusal and replay tests have not run in this workspace.
+The renderer source fixes the recorded STE sentence. The generated document
+still preserves the prior native output until genuine regeneration succeeds.

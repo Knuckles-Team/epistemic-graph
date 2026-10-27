@@ -17,8 +17,13 @@ pub struct CompletedTextAdmission {
 }
 impl CompletedTextAdmission {
     pub fn validate(&self) -> Result<(), String> {
-        if self.version != 1 || self.user_text_digest.len() != 64
-            || !self.user_text_digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        if self.version != 1
+            || self.user_text_digest.len() != 64
+            || !self
+                .user_text_digest
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
             return Err("invalid completed-text admission profile".into());
         }
         Ok(())
@@ -52,29 +57,52 @@ pub struct CompletedTextEnvelope {
 impl CompletedTextInput {
     pub fn content(&self, run_id: &str) -> Result<String, String> {
         serde_json::to_string(&CompletedTextEnvelope {
-            version: 1, phase: "completed".into(), run_id: run_id.into(),
-            messages: vec![TextMessage { role: "user".into(), text: self.user_text.clone() },
-                TextMessage { role: "assistant".into(), text: self.assistant_text.clone() }],
-        }).map_err(|e| e.to_string())
+            version: 1,
+            phase: "completed".into(),
+            run_id: run_id.into(),
+            messages: vec![
+                TextMessage {
+                    role: "user".into(),
+                    text: self.user_text.clone(),
+                },
+                TextMessage {
+                    role: "assistant".into(),
+                    text: self.assistant_text.clone(),
+                },
+            ],
+        })
+        .map_err(|e| e.to_string())
     }
     pub fn validate(&self, run_id: &str) -> Result<(), String> {
-        if self.version != 1 || run_id.trim().is_empty() || run_id.len() > 512
+        if self.version != 1
+            || run_id.trim().is_empty()
+            || run_id.len() > 512
             || self.user_text.len() > MAX_INLINE_HISTORY_BYTES
             || self.assistant_text.len() > MAX_INLINE_HISTORY_BYTES
-            || self.user_text.len().saturating_add(self.assistant_text.len()) > MAX_INLINE_HISTORY_BYTES
-            || self.user_text.trim().is_empty() || self.assistant_text.trim().is_empty() {
+            || self
+                .user_text
+                .len()
+                .saturating_add(self.assistant_text.len())
+                > MAX_INLINE_HISTORY_BYTES
+            || self.user_text.trim().is_empty()
+            || self.assistant_text.trim().is_empty()
+        {
             return Err("invalid completed-text checkpoint".into());
         }
         let content = self.content(run_id)?;
         if content.len() > MAX_INLINE_HISTORY_BYTES
-            || self.content_digest != content_digest(&content) {
+            || self.content_digest != content_digest(&content)
+        {
             return Err("invalid completed-text checkpoint".into());
         }
         Ok(())
     }
     pub fn checkpoint_ref(&self, work_item_id: &str) -> InlineCheckpointRef {
-        InlineCheckpointRef { document_id: format!("inline-checkpoint:{work_item_id}"),
-            revision: 1, content_digest: self.content_digest.clone() }
+        InlineCheckpointRef {
+            document_id: format!("inline-checkpoint:{work_item_id}"),
+            revision: 1,
+            content_digest: self.content_digest.clone(),
+        }
     }
 }
 pub fn content_digest(content: &str) -> String {
@@ -127,10 +155,17 @@ mod tests {
     use super::*;
     #[test]
     fn exact_utf8_envelope_and_digest() {
-        let mut input = CompletedTextInput { version: 1, user_text: "héllo".into(),
-            assistant_text: "yes".into(), content_digest: String::new() };
+        let mut input = CompletedTextInput {
+            version: 1,
+            user_text: "héllo".into(),
+            assistant_text: "yes".into(),
+            content_digest: String::new(),
+        };
         let content = input.content("r").unwrap();
-        assert_eq!(content, r#"{"version":1,"phase":"completed","run_id":"r","messages":[{"role":"user","text":"héllo"},{"role":"assistant","text":"yes"}]}"#);
+        assert_eq!(
+            content,
+            r#"{"version":1,"phase":"completed","run_id":"r","messages":[{"role":"user","text":"héllo"},{"role":"assistant","text":"yes"}]}"#
+        );
         input.content_digest = content_digest(&content);
         input.validate("r").unwrap();
         assert!(input.validate("other-run").is_err());
@@ -139,22 +174,76 @@ mod tests {
     }
     #[test]
     fn cross_language_escaping_golden() {
-        let mut input = CompletedTextInput { version: 1,
-            user_text: "héllo \"quote\"\n/".into(), assistant_text: "紫 yes\\end".into(),
-            content_digest: String::new() };
+        let mut input = CompletedTextInput {
+            version: 1,
+            user_text: "héllo \"quote\"\n/".into(),
+            assistant_text: "紫 yes\\end".into(),
+            content_digest: String::new(),
+        };
         input.content_digest = content_digest(&input.content("r/1").unwrap());
-        assert_eq!(input.content_digest, "5fe52081485464c774065089358c1881dfdc2ff6beabfeba40023e5b7c7ea563");
-        assert_eq!(content_digest(&input.user_text), "f6e9ed20f03bcdb43411d0c4b84f63b10957445776ce5952026e0a4c36ad0f52");
+        assert_eq!(
+            input.content_digest,
+            "5fe52081485464c774065089358c1881dfdc2ff6beabfeba40023e5b7c7ea563"
+        );
+        assert_eq!(
+            content_digest(&input.user_text),
+            "f6e9ed20f03bcdb43411d0c4b84f63b10957445776ce5952026e0a4c36ad0f52"
+        );
         input.validate("r/1").unwrap();
     }
     #[test]
     fn admission_is_digest_only_and_closed() {
-        let profile = CompletedTextAdmission { version: 1, user_text_digest: content_digest("private") };
+        let profile = CompletedTextAdmission {
+            version: 1,
+            user_text_digest: content_digest("private"),
+        };
         profile.validate().unwrap();
         let wire = serde_json::to_string(&profile).unwrap();
         assert!(!wire.contains("private"));
-        assert!(serde_json::from_str::<CompletedTextAdmission>(r#"{"version":1,"user_text":"secret"}"#).is_err());
-        assert!(CompletedTextAdmission { version: 2, ..profile }.validate().is_err());
+        assert!(serde_json::from_str::<CompletedTextAdmission>(
+            r#"{"version":1,"user_text":"secret"}"#
+        )
+        .is_err());
+        assert!(CompletedTextAdmission {
+            version: 2,
+            ..profile
+        }
+        .validate()
+        .is_err());
     }
 
+    #[test]
+    fn history_read_wire_opt_in_is_strict_and_defaults_off() {
+        use crate::protocol::Method;
+        let legacy = serde_json::json!({"method":"GetRunWorkItem", "params": {"tenant":"tenant", "run_id":"run"}});
+        let method: Method = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(matches!(
+            method,
+            Method::GetRunWorkItem {
+                completed_text_history: false,
+                ..
+            }
+        ));
+        assert_eq!(serde_json::to_value(method).unwrap(), legacy);
+        for bad in [
+            serde_json::json!("true"),
+            serde_json::json!(1),
+            serde_json::Value::Null,
+        ] {
+            let mut value = legacy.clone();
+            value["params"]["completed_text_history"] = bad;
+            assert!(serde_json::from_value::<Method>(value).is_err());
+        }
+        let mut opted = legacy;
+        opted["params"]["completed_text_history"] = true.into();
+        let method: Method = serde_json::from_value(opted.clone()).unwrap();
+        assert!(matches!(
+            method,
+            Method::GetRunWorkItem {
+                completed_text_history: true,
+                ..
+            }
+        ));
+        assert_eq!(serde_json::to_value(method).unwrap(), opted);
+    }
 }

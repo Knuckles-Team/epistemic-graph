@@ -70,17 +70,19 @@ mod claim;
 mod commit;
 mod control_lease;
 mod conversation;
-pub(crate) mod inline_history;
-pub(crate) mod history_selection;
 pub(crate) mod current_plan;
 mod dispatch;
+pub(crate) mod history_selection;
+pub(crate) mod inline_history;
 mod lease;
 mod market;
 mod policy_record;
 mod read;
 mod row_guard;
 mod run_owner;
-pub(crate) use run_owner::read_admission as read_run_admission;
+pub(crate) use run_owner::{
+    read_admission as read_run_admission, read_admission_legacy as read_run_admission_legacy,
+};
 mod sealed_record;
 mod submit;
 #[cfg(test)]

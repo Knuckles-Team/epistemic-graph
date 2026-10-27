@@ -230,6 +230,8 @@ macro_rules! __eg_method_chunk_0 {
     /// ordered. A negative result is authoritative and must not trigger another
     /// claim path.
     ClaimWorkItem {
+        #[serde(default, skip_serializing_if = "is_false")]
+        completed_text_history: bool,
         request: crate::epistemic_operations::ClaimWorkItemRequest,
     },
 

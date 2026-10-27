@@ -161,7 +161,10 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
     ("CypherQuery", &["REPLAY_NONCE_CONSUMED"]),
     ("GraphQl", &["REPLAY_NONCE_CONSUMED"]),
     ("SubmitWorkItem", &["REPLAY_NONCE_CONSUMED"]),
-    ("ClaimWorkItem", &["REPLAY_NONCE_CONSUMED"]),
+    (
+        "ClaimWorkItem",
+        &["REPLAY_NONCE_CONSUMED", "RUN_ADMISSION_UNAVAILABLE"],
+    ),
     ("TsListSeries", &["REPLAY_NONCE_CONSUMED"]),
     // delegation/validation.rs refuses a retired Agent Library head or entry.
     (

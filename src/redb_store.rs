@@ -1547,6 +1547,7 @@ mod mutation_batch_tests {
             surface: MutationSurface::Transaction,
             domain: DurabilityDomain::GraphRows,
             method: Method::ClaimWorkItem {
+                completed_text_history: false,
                 request: crate::epistemic_operations::ClaimWorkItemRequest {
                     schema_version:
                         crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
@@ -3244,6 +3245,7 @@ mod mutation_batch_tests {
             surface: MutationSurface::Transaction,
             domain: DurabilityDomain::GraphRows,
             method: Method::ClaimWorkItem {
+                completed_text_history: false,
                 request: crate::epistemic_operations::ClaimWorkItemRequest {
                     schema_version:
                         crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
@@ -3336,6 +3338,7 @@ mod mutation_batch_tests {
             surface: MutationSurface::Transaction,
             domain: DurabilityDomain::GraphRows,
             method: Method::ClaimWorkItem {
+                completed_text_history: false,
                 request: ClaimWorkItemRequest {
                     schema_version: ClaimWorkItemRequestSchemaVersion::V1,
                     tenant_ref: "tenant-a".into(),
@@ -4299,6 +4302,7 @@ mod mutation_batch_tests {
                 surface: MutationSurface::Transaction,
                 domain: DurabilityDomain::GraphRows,
                 method: Method::ClaimWorkItem {
+                    completed_text_history: false,
                     request: ClaimWorkItemRequest {
                         schema_version: ClaimWorkItemRequestSchemaVersion::V1,
                         tenant_ref: "tenant-a".into(),
