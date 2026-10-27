@@ -531,10 +531,10 @@
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:1023",
-        "tests/shard_open_budget.rs:377",
-        "tests/shard_open_budget.rs:412",
-        "tests/shard_open_budget.rs:431",
-        "tests/shard_open_budget.rs:452"
+        "tests/shard_open_budget.rs:388",
+        "tests/shard_open_budget.rs:423",
+        "tests/shard_open_budget.rs:442",
+        "tests/shard_open_budget.rs:463"
       ]
     },
     {
@@ -549,9 +549,9 @@
         "d22dec0c32ed"
       ],
       "verified_by": [
-        "tests/shard_open_budget.rs:359",
-        "tests/shard_open_budget.rs:369",
-        "tests/shard_open_budget.rs:479"
+        "tests/shard_open_budget.rs:370",
+        "tests/shard_open_budget.rs:380",
+        "tests/shard_open_budget.rs:490"
       ]
     },
     {
