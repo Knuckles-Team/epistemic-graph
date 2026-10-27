@@ -507,11 +507,11 @@
         "8dbb5bd9de53"
       ],
       "verified_by": [
-        "crates/eg-storage/src/physical/tests.rs:1008",
-        "crates/eg-storage/src/physical/tests.rs:1023",
-        "crates/eg-storage/src/physical/tests.rs:768",
-        "crates/eg-storage/src/physical/tests.rs:782",
-        "crates/eg-storage/src/physical/tests.rs:793"
+        "crates/eg-storage/src/physical/tests.rs:1009",
+        "crates/eg-storage/src/physical/tests.rs:1076",
+        "crates/eg-storage/src/physical/tests.rs:769",
+        "crates/eg-storage/src/physical/tests.rs:783",
+        "crates/eg-storage/src/physical/tests.rs:794"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R006.1",
@@ -530,7 +530,7 @@
         "d9fa4b417ab8"
       ],
       "verified_by": [
-        "crates/eg-storage/src/physical/tests.rs:1023",
+        "crates/eg-storage/src/physical/tests.rs:1076",
         "tests/shard_open_budget.rs:377",
         "tests/shard_open_budget.rs:412",
         "tests/shard_open_budget.rs:431",
@@ -566,11 +566,11 @@
         "cdf5f87230de"
       ],
       "verified_by": [
-        "crates/eg-storage/src/physical/tests.rs:1008",
-        "crates/eg-storage/src/physical/tests.rs:768",
-        "crates/eg-storage/src/physical/tests.rs:782",
-        "crates/eg-storage/src/physical/tests.rs:793",
-        "crates/eg-storage/src/physical/tests.rs:821"
+        "crates/eg-storage/src/physical/tests.rs:1009",
+        "crates/eg-storage/src/physical/tests.rs:769",
+        "crates/eg-storage/src/physical/tests.rs:783",
+        "crates/eg-storage/src/physical/tests.rs:794",
+        "crates/eg-storage/src/physical/tests.rs:822"
       ]
     },
     {

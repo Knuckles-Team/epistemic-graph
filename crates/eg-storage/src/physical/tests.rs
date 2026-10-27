@@ -24,6 +24,7 @@ use crate::recovery::evidence::strict_recovery_evidence;
 use crate::recovery::evidence::{backup_strict_recovery_store_of, strict_evidence_of};
 use crate::recovery::validate::{validate_live_recovery_store, validate_recovery_store_read_only};
 use crate::tables::{OWNER_MANIFEST, SCOPE_BINDINGS, STORE_ROOT, VERSIONS};
+use eg_types::durability_class::{DurabilityClass, DurabilityWritePlan};
 use eg_types::mutation_batch::{DurabilityDomain, IncarnationId, LogicalName, ScopeTenantId};
 use eg_types::MutationScopeIdentity;
 use redb::{
@@ -1018,6 +1019,58 @@ fn a_process_killed_without_writing_keeps_the_still_true_marker() {
             .open_report()
             .recovery_scan_skipped
     );
+}
+
+#[test]
+fn write_admission_refuses_ephemeral_before_open_and_returns_the_sync_plan() {
+    use crate::kernel::StorageKernel;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("durability-admission.redb");
+    let identity = kv_identity("tenant-a", "incarnation:durability-admission");
+    let physical = PhysicalStoreIdentity::new("physical:durability-admission").unwrap();
+    let kernel = StorageKernel::create_owner_bound::<KvOwner>(
+        &path,
+        physical,
+        None,
+        &[(identity.clone(), 0)],
+    )
+    .unwrap();
+    let principal =
+        "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let verifier = TestScopeVerifier {
+        tenant: "tenant-a",
+        principal,
+        layout: OwnerLayout::Kv,
+    };
+    let grant = kernel
+        .authenticate_scope::<KvOwner>(&verifier, identity, principal.to_string(), b"verified")
+        .unwrap();
+    let owner = kernel.resolve_bound_scope(grant).unwrap().unwrap();
+    let (_kernel, authority) = kernel.into_read_and_mutation_authority().unwrap();
+
+    let refusal =
+        match authority.write_capability_with_durability(&owner, DurabilityClass::Ephemeral) {
+            Err(error) => error,
+            Ok(_capability) => panic!("ephemeral writes must be refused before durable admission"),
+        };
+    assert!(refusal.contains("ephemeral-class namespace"));
+
+    let (capability, plan) = authority
+        .write_capability_with_durability(&owner, DurabilityClass::Sync)
+        .unwrap();
+    assert_eq!(
+        plan,
+        DurabilityWritePlan {
+            wait_for_own_durable_commit: true,
+            max_batch_delay_ms: None,
+        }
+    );
+    drop(capability);
+
+    // Existing callers retain the same synchronous default through the legacy
+    // entry point.
+    drop(authority.write_capability(&owner).unwrap());
 }
 
 // spec: EG-DURABLE-KERNEL-R006.1
