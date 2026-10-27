@@ -215,7 +215,6 @@ mod tests {
         assert_eq!(budget.backoff_for(5).unwrap(), 100);
     }
 
-    // spec: EG-DURABLE-KERNEL-R014.3.2
     #[test]
     fn diagnostic_retry_log_preserves_failures_before_a_later_success() {
         let budget = FlakeBudget::new(2, 10, 100).unwrap();
@@ -252,7 +251,6 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R014.3.2
     #[test]
     fn diagnostic_retry_log_refuses_after_terminal_failure() {
         let budget = FlakeBudget::new(1, 10, 100).unwrap();

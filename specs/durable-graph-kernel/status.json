@@ -811,10 +811,7 @@
       "title": "Bounded diagnostic retry integration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "src/raft/flake_budget.rs:218",
-        "src/raft/flake_budget.rs:255"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R014.4",
