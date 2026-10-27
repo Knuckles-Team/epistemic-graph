@@ -485,6 +485,7 @@ mod tests {
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
     }
 
+    // spec: EG-FEDERATED-QUERY-R040.5
     #[test]
     fn semantic_store_regeneration_uses_batched_provider_and_reuses_exact_binding() {
         let provider = TestProvider::new(ProviderOutput::Valid);

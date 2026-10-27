@@ -2758,7 +2758,9 @@
       "title": "Low-storage ANN memory admission and selective recomputation (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-core/src/compute/semantic_embedding_batch.rs:488"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R040.5.1",
         "EG-FEDERATED-QUERY-R040.5.2",
