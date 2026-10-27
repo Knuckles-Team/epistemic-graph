@@ -35,12 +35,14 @@ fn central_blocks_stay_hot_and_neighbors_prefetch() {
     assert!(hub_score > leaf_score);
 
     // The graph-important hub stays HOT while the graph neighbour is pushed to
-    // COLD. A hit on the hub then brings that known neighbour back before the
-    // caller needs it.
-    let mut cache: TieredCache<String, Block> = TieredCache::new(40, 1, 10_000);
-    cache.apply_importance_scores(scores);
+    // COLD. The HOT window is large enough for the hub and its prefetched
+    // neighbour to coexist after the page-in; a third equal block supplies the
+    // initial pressure so the neighbor is genuinely cold before the request.
+    let mut cache: TieredCache<String, Block> = TieredCache::new(80, 1, 10_000);
+    cache.apply_importance_scores(scores.iter().filter(|(id, _)| id == "hub").cloned());
     cache.put("hub".to_owned(), payload(10));
     cache.put("leaf".to_owned(), payload(20));
+    cache.put("peripheral".to_owned(), payload(30));
     assert_eq!(cache.tier_of(&"hub".to_owned()), Some(Tier::Hot));
     assert_eq!(cache.tier_of(&"leaf".to_owned()), Some(Tier::Cold));
 
@@ -50,5 +52,6 @@ fn central_blocks_stay_hot_and_neighbors_prefetch() {
     );
     assert_eq!(cache.tier_of(&"hub".to_owned()), Some(Tier::Hot));
     assert_eq!(cache.tier_of(&"leaf".to_owned()), Some(Tier::Hot));
+    assert_eq!(cache.tier_of(&"peripheral".to_owned()), Some(Tier::Cold));
     assert_eq!(cache.get(&"leaf".to_owned()), Some(payload(20)));
 }
