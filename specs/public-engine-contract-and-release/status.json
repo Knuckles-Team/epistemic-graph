@@ -786,7 +786,8 @@
       "title": "Contract receipt freshness is checked before merge",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2688cddd2f7f"
+        "2688cddd2f7f",
+        "a7ae55a60495"
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract.rs:704"
