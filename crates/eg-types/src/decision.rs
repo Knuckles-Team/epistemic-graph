@@ -39,6 +39,7 @@ pub mod rapid_r056;
 pub mod record;
 pub mod replay;
 pub mod request;
+pub mod skill_upgrade;
 pub mod statistical;
 pub mod task_plan;
 pub mod topology;
