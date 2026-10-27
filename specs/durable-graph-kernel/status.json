@@ -2160,6 +2160,7 @@
       "title": "Published contract metadata matches BlobRef/BlobUnref idempotent behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "595c6e12f16a",
         "b8814b4560d1"
       ],
       "verified_by": [
