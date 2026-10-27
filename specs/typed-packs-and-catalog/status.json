@@ -2326,7 +2326,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/tests/connector_pack_vocabulary.rs:22"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R101.2",
