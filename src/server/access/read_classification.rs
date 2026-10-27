@@ -138,6 +138,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "MinimumSpanningTree",
     "NlQuery",
     "NlQueryExplain",
+    "NlQueryPlan",
     "NodeCount",
     "NodeIds",
     "ObserveScreen",

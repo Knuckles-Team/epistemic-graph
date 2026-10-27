@@ -417,6 +417,16 @@ $($variants)*
         #[serde(default)]
         graph: String,
     },
+    /// Plan a natural-language request without executing it
+    /// (EG-FEDERATED-QUERY-R058.2.2.2). The result contains the exact
+    /// exact UQL and plan/query pins that a caller must carry into a later
+    /// `Uql` request. Plan-only does not read graph data or establish source
+    /// authority; those checks belong to the later exact-UQL admission path.
+    NlQueryPlan {
+        text: String,
+        #[serde(default)]
+        graph: String,
+    },
 
 
     // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────

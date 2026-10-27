@@ -13380,7 +13380,6 @@
       "type": "object"
     },
     "ForeignReadExecutionRef": {
-      "additionalProperties": false,
       "description": "Server-issued opaque execution handle plus the query digest it is allowed to\nanswer.  The digest is recomputed from the correlated query by the server.",
       "properties": {
         "execution_id": {
@@ -13399,7 +13398,6 @@
       "type": "object"
     },
     "ForeignReadLimits": {
-      "additionalProperties": false,
       "description": "The finite limits accepted for one host-driven foreign read.",
       "properties": {
         "chunk_bytes": {
@@ -13474,7 +13472,6 @@
       "type": "object"
     },
     "ForeignReadRow": {
-      "additionalProperties": false,
       "description": "A bounded row supplied by the already-authorized host adapter.",
       "properties": {
         "columns": {
@@ -31083,6 +31080,37 @@
           "properties": {
             "method": {
               "const": "NlQueryExplain",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "graph": {
+                  "default": "",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plan a natural-language request without executing it\n(EG-FEDERATED-QUERY-R058.2.2.2). The result contains the exact\nexact UQL and plan/query pins that a caller must carry into a later\n`Uql` request. Plan-only does not read graph data or establish source\nauthority; those checks belong to the later exact-UQL admission path.",
+          "properties": {
+            "method": {
+              "const": "NlQueryPlan",
               "type": "string"
             },
             "params": {
@@ -67115,6 +67143,37 @@
       "properties": {
         "method": {
           "const": "NlQueryExplain",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "graph": {
+              "default": "",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "NlQueryPlan": {
+      "additionalProperties": false,
+      "description": "Plan a natural-language request without executing it\n(EG-FEDERATED-QUERY-R058.2.2.2). The result contains the exact\nexact UQL and plan/query pins that a caller must carry into a later\n`Uql` request. Plan-only does not read graph data or establish source\nauthority; those checks belong to the later exact-UQL admission path.",
+      "properties": {
+        "method": {
+          "const": "NlQueryPlan",
           "type": "string"
         },
         "params": {

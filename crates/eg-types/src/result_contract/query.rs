@@ -78,6 +78,8 @@ method_results! {
     NlQuery(NlQuery) => Raw<Vec<(String, Option<f32>)>>;
     // The executed UQL text alongside the same `[node id, score | nil]` rows as `NlQuery`.
     NlQueryExplain(NlQueryExplain) => Raw<crate::nl_query::NlQueryExplainResult>;
+    // The unexecuted UQL candidate and its pins for the exact empty-parameter text.
+    NlQueryPlan(NlQueryPlan) => Raw<crate::nl_query::NlQueryPlanResult>;
     TxnUnifiedQuery(TxnUnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;
     // A UQL statement's result inside a transaction (EH-434).
     #[cfg(feature = "query")]

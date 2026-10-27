@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     RankByProvenanceRequest = _models.MethodRankByProvenanceParams
     NlQueryRequest = _models.MethodNlQueryParams
     NlQueryExplainRequest = _models.MethodNlQueryExplainParams
+    NlQueryPlanRequest = _models.MethodNlQueryPlanParams
     TxnUnifiedQueryRequest = _models.MethodTxnUnifiedQueryParams
     TxnUqlRequest = _models.MethodTxnUqlParams
     EdgeSearchRequest = _models.MethodEdgeSearchParams
@@ -1417,6 +1418,47 @@ def decode_nl_query_explain(result: OpaqueResult) -> _models.NlQueryExplainResul
     return decode_result("NlQueryExplain", models().NlQueryExplainResult, result)
 
 
+async def send_nl_query_plan(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        NlQueryPlan
+    Authorization:
+        query:nl
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/NlQueryPlan
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodNlQueryPlanParams.model_validate(params or {})
+    payload = await client._send(
+        "NlQueryPlan",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("NlQueryPlan", payload)
+
+
+def decode_nl_query_plan(result: OpaqueResult) -> _models.NlQueryPlanResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("NlQueryPlan", models().NlQueryPlanResult, result)
+
+
 async def send_txn_unified_query(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1706,6 +1748,7 @@ _REQUEST_METHODS = frozenset(
         "RankByProvenance",
         "NlQuery",
         "NlQueryExplain",
+        "NlQueryPlan",
         "TxnUnifiedQuery",
         "TxnUql",
         "EdgeSearch",

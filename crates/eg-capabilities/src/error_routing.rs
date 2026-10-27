@@ -295,7 +295,10 @@ fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
 
 fn add_typed_handler_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
     let id = d.id.as_str();
-    if matches!(id, "Uql" | "NlQuery" | "NlQueryExplain" | "KnowledgeStream") {
+    if matches!(
+        id,
+        "Uql" | "NlQuery" | "NlQueryExplain" | "NlQueryPlan" | "KnowledgeStream"
+    ) {
         codes.extend(typed_codes(UqlCode::ALL, UqlCode::as_str));
     }
     if id.starts_with("Decision") || id.starts_with("Decide") {

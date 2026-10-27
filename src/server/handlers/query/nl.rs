@@ -186,6 +186,67 @@ pub(crate) async fn handle_nl_query_explain(
     })
 }
 
+/// `Method::NlQueryPlan` (EG-FEDERATED-QUERY-R058.2.2.2): expose the typed
+/// `eg_plan::nl::plan_only` candidate and pins without taking a graph view,
+/// resolving served legs, or executing a query/source read. Schema and source
+/// authority are deliberately deferred to the later exact-UQL/foreign-read
+/// admission path; plan-only itself has no data context by construction.
+#[cfg(feature = "nl-query")]
+pub(crate) async fn handle_nl_query_plan_only(
+    ctx: &QueryHandlerCtx<'_>,
+    text: String,
+    graph: String,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let _ = graph;
+    let planner = crate::server::nl::resolve_planner()
+        .map_err(|e| Response::err(req_id, nl_config_refusal(&e)))?
+        .ok_or_else(|| {
+            Response::err(
+                req_id,
+                "ENGINE_UNAVAILABLE: NlQuery: no NL planner configured — set an OpenAI-compatible \
+                     endpoint in agent-utilities config.json (or \
+                     EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
+                     server::set_nl_planner"
+                    .to_string(),
+            )
+        })?;
+    let (uql, plan) = plan_nl_only(planner.as_ref(), &text, req_id)?;
+    let plan_digest = crate::server::foreign_read::canonical_plan_digest(&plan)
+        .map_err(|error| Response::err(req_id, error))?;
+    let query_digest = super::planning::foreign_uql_query_digest(&uql, &UqlParams::default())
+        .map_err(|error| Response::err(req_id, error))?;
+    Ok(result_response::<query_results::NlQueryPlan>(
+        req_id,
+        &eg_types::nl_query::NlQueryPlanResult {
+            uql,
+            plan_digest,
+            query_digest,
+        },
+    ))
+}
+
+/// Plan one NL request through the typed plan-only seam. The empty schema hint
+/// is intentional: [`eg_plan::nl::plan_only`] has no graph view or `PlanCtx`,
+/// so this helper cannot read data or claim graph/source authority. The exact
+/// UQL is parsed through the existing served statement/binding path a second
+/// time only to obtain the canonical pin input used by `Uql prepare=true`.
+#[cfg(feature = "nl-query")]
+fn plan_nl_only(
+    planner: &dyn eg_plan::NlPlanner,
+    text: &str,
+    req_id: u64,
+) -> Result<(String, eg_plan::Plan), Response> {
+    let candidate =
+        eg_plan::nl::plan_only(planner, text, "", eg_plan::nl::NlQueryBudget::default())
+            .map_err(|e| Response::err(req_id, nl_refusal(&e)))?;
+    let params = UqlParams::default();
+    let statement = eg_plan::uql::parse_statement(&candidate.uql, &params)
+        .map_err(|e| Response::err(req_id, format!("{}: {}", e.code, e.render(&candidate.uql))))?;
+    let plan = eg_plan::uql::serve::binding_plan(&statement);
+    Ok((candidate.uql, plan))
+}
+
 /// The one NL run both NL handlers share: plan `text` to UQL, then run it on the
 /// caller's RLS-filtered snapshot. Answers the planner's exact UQL and the rows, or the
 /// refusal response.
@@ -316,5 +377,28 @@ mod nl_config_refusal_tests {
             "model".into(),
         ));
         assert!(msg.contains("extra_body") && msg.contains("model"), "{msg}");
+    }
+}
+
+#[cfg(all(test, feature = "nl-query"))]
+mod nl_plan_only_tests {
+    struct PurePlanner;
+
+    impl eg_plan::NlPlanner for PurePlanner {
+        fn plan(&self, nl: &str, schema_hint: &str) -> Result<String, String> {
+            assert!(
+                schema_hint.is_empty(),
+                "plan-only must not derive a graph hint"
+            );
+            Ok(nl.to_string())
+        }
+    }
+
+    // spec: EG-FEDERATED-QUERY-R058.1
+    #[test]
+    fn served_plan_helper_uses_the_view_free_typed_seam() {
+        let (uql, plan) = super::plan_nl_only(&PurePlanner, "MATCH (:Doc)", 1).expect("plan");
+        assert_eq!(uql, "MATCH (:Doc)");
+        assert_eq!(plan.ops.len(), 1);
     }
 }

@@ -11311,6 +11311,13 @@ class MethodNlQueryExplain(BaseModel):
     params: MethodNlQueryExplainParams
 
 
+class MethodNlQueryPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["NlQueryPlan"]
+    params: MethodNlQueryPlanParams
+
+
 class MethodRegisterForeignSource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12707,6 +12714,7 @@ Method = Annotated[
     | MethodRankByProvenance
     | MethodNlQuery
     | MethodNlQueryExplain
+    | MethodNlQueryPlan
     | MethodRegisterForeignSource
     | MethodQueryForeignColumns
     | MethodForeignReadOpen
@@ -15190,6 +15198,13 @@ class MethodNlQueryParams(BaseModel):
     text: str
 
 
+class MethodNlQueryPlanParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph: str | None = None
+    text: str
+
+
 class MethodObserveDevelopmentLaneParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16637,6 +16652,14 @@ class NlQueryExplainResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     rows: list[NlQueryExplainResultRowsItem]
+    uql: str
+
+
+class NlQueryPlanResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    plan_digest: Digest256
+    query_digest: Digest256
     uql: str
 
 
@@ -28035,6 +28058,8 @@ __all__ = [
     "MethodNlQueryExplain",
     "MethodNlQueryExplainParams",
     "MethodNlQueryParams",
+    "MethodNlQueryPlan",
+    "MethodNlQueryPlanParams",
     "MethodNodeCount",
     "MethodNodeIds",
     "MethodObserveDevelopmentLane",
@@ -28398,6 +28423,7 @@ __all__ = [
     "NlChoiceSourceLlmProposal",
     "NlQueryExplainResult",
     "NlQueryExplainResultRowsItem",
+    "NlQueryPlanResult",
     "NlQueryResult",
     "NlQueryResultValueItem",
     "NlTarget",

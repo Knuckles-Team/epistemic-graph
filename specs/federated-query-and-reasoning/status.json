@@ -746,7 +746,7 @@
         "c3b87d31ac11"
       ],
       "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:228"
+        "crates/eg-capabilities/tests/contract_registry.rs:229"
       ]
     },
     {
@@ -1285,11 +1285,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.1",
       "title": "Typed NL→UQL disclosure model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3da71fa8e9b7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/query/nl.rs:397"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.2",
@@ -1333,9 +1335,9 @@
         "f9d6d793d946"
       ],
       "verified_by": [
-        "crates/eg-types/src/nl_query.rs:26",
-        "src/server/tests/nl_explain.rs:54",
-        "src/server/tests/nl_explain.rs:81",
+        "crates/eg-types/src/nl_query.rs:43",
+        "src/server/tests/nl_explain.rs:68",
+        "src/server/tests/nl_explain.rs:95",
         "tests/test_pb_clients.py:88"
       ]
     },
@@ -1344,7 +1346,9 @@
       "title": "Plan-only NL entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/tests/nl_explain.rs:122"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.3",
@@ -1356,10 +1360,10 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:261",
-        "src/server/handlers/query/nl.rs:267",
-        "src/server/handlers/query/nl.rs:290",
-        "src/server/tests/nl_explain.rs:108"
+        "src/server/handlers/query/nl.rs:322",
+        "src/server/handlers/query/nl.rs:328",
+        "src/server/handlers/query/nl.rs:351",
+        "src/server/tests/nl_explain.rs:148"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.3.1",
@@ -1375,9 +1379,9 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:261",
-        "src/server/handlers/query/nl.rs:267",
-        "src/server/handlers/query/nl.rs:290"
+        "src/server/handlers/query/nl.rs:322",
+        "src/server/handlers/query/nl.rs:328",
+        "src/server/handlers/query/nl.rs:351"
       ]
     },
     {
@@ -1388,7 +1392,7 @@
         "a685d96e5de3"
       ],
       "verified_by": [
-        "src/server/tests/nl_explain.rs:108"
+        "src/server/tests/nl_explain.rs:148"
       ]
     },
     {
@@ -3064,7 +3068,7 @@
         "crates/eg-plan/src/nl_regressions.rs:278",
         "crates/eg-plan/src/nl_regressions.rs:290",
         "crates/eg-plan/src/nl_regressions.rs:319",
-        "src/server/handlers/query/nl.rs:309",
+        "src/server/handlers/query/nl.rs:370",
         "src/server/nl.rs:450"
       ]
     },
