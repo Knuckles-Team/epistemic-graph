@@ -4760,6 +4760,7 @@
       "title": "Select completed prior text under one native snapshot",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "17107ea03740",
         "966ec29a9eae"
       ],
       "verified_by": [
@@ -4773,6 +4774,7 @@
       "title": "A fresh claim is not replay permission",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "17107ea03740",
         "966ec29a9eae"
       ],
       "verified_by": [

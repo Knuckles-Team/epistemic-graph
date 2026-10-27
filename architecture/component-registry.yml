@@ -4055,6 +4055,7 @@ components:
       - "tests/test_work_item_capability_client.py"
       - "tests/test_work_item_read_client.py"
       - "tests/test_run_work_item_read_client.py"
+      - "tests/test_history_claim_opt_in_client.py"
       - "tests/decide/test_run_work_item_served.py"
       - "tests/test_work_item_retry_identity.py"
       - "tests/test_work_market_client.py"
