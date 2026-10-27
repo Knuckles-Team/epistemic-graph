@@ -2326,7 +2326,8 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5518276883bf"
+        "5518276883bf",
+        "f01ca93a7a6c"
       ],
       "verified_by": [
         "crates/eg-core/tests/connector_pack_vocabulary.rs:22"
