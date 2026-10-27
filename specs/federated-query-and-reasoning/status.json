@@ -1568,9 +1568,11 @@
     {
       "id": "EG-FEDERATED-QUERY-R073",
       "title": "Operation-bound virtual mappings federate API, MCP, A2A and GraphQL sources",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "62c450561948",
+        "6c11520aebfc",
+        "ac63555fa5b3",
         "bfd84b2ccbcb",
         "f948211fb8c7"
       ],
@@ -1598,8 +1600,10 @@
     {
       "id": "EG-FEDERATED-QUERY-R073.2",
       "title": "Connection-protocol pushdown matrix",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "ac63555fa5b3"
+      ],
       "verified_by": []
     },
     {
