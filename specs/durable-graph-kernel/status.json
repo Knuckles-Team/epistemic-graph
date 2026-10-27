@@ -2158,11 +2158,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R066",
       "title": "Published contract metadata matches BlobRef/BlobUnref idempotent behavior",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b8814b4560d1"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_method_policy_registry.py:82"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R067",
