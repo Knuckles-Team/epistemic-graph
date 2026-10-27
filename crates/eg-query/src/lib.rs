@@ -20,6 +20,10 @@
 //! no modality VALUE type of their own — `ModalityContract` may simply not apply, which
 //! is a legitimate outcome, not a gap", this crate is a documented SKIP.
 
+pub mod plan_scope;
+
+pub use plan_scope::{PlanScope, PlanScopeError, ScopePredicate};
+
 #[cfg(feature = "sql")]
 pub mod sql;
 
