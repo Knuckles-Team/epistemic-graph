@@ -4747,22 +4747,28 @@
     {
       "id": "EG-DURABLE-KERNEL-R028.4.5",
       "title": "Bounded terminal-only text continuation profile",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "966ec29a9eae"
+      ],
       "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.4.6",
       "title": "Select completed prior text under one native snapshot",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "966ec29a9eae"
+      ],
       "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.4.7",
       "title": "A fresh claim is not replay permission",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "966ec29a9eae"
+      ],
       "verified_by": []
     }
   ]
