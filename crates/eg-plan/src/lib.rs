@@ -246,7 +246,9 @@ pub use cost::{CostModel, Order, Stats};
 #[cfg(feature = "query")]
 pub use cost::{Cardinality, CostEstimate};
 pub use leanrag::{
-    flat_top_k, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever, RetrievalParams, Scored,
+    flat_top_k, retrieve_vector_free, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever,
+    RetrievalParams, Scored, SectionGranularity, SectionRecord, SectionSpan, SectionTopology,
+    TraversalLimit, VectorFreeError, VectorFreeLimits, VectorFreeResult,
 };
 pub use rowset::RowSet;
 
