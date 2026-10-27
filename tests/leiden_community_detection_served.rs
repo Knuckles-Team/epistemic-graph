@@ -79,7 +79,6 @@ async fn call_quality(
 }
 
 #[tokio::test]
-// spec: EG-FEDERATED-QUERY-R060
 async fn served_cpm_differs_from_modularity_on_the_same_graph() {
     common::configure_authority();
     let state = test_support::durable_state(SECRET, common::current_isolation());
