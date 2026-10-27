@@ -1667,6 +1667,7 @@ jobs:
   # jobs through changes.outputs.code and must still have a successful security
   # job and central light-gate result.
   ci-required:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: CI required
     needs:
       - changes
