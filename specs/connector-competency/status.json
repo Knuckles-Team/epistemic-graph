@@ -1418,7 +1418,9 @@
       "title": "keycloak single-source question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_p12.rs:72"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R030.2",
