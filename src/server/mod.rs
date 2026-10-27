@@ -2695,6 +2695,9 @@ mod tests {
     // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
     #[cfg(feature = "wasm-udf")]
     mod udf_tenancy;
+    // Served ShEx data-selection proof for EG-FEDERATED-QUERY-R084.2.
+    #[cfg(feature = "shex")]
+    mod shex_served;
 
     // ── Cypher query surface (CONCEPT:EG-KG.query.dep-free-behind) ─────────────────────────
 
