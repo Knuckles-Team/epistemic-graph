@@ -1176,12 +1176,11 @@ fn admit_relationships(
             properties_msgpack: rmp_serde::to_vec_named(&marker)
                 .map_err(|error| format!("source relationship marker encoding failed: {error}"))?,
         });
-        admitted.methods.push(Method::AddEdge {
-            source_id: source_id.clone(),
-            target_id: target_id.clone(),
-            properties_msgpack: rmp_serde::to_vec_named(&properties)
-                .map_err(|error| format!("mapped source relationship encoding failed: {error}"))?,
-        });
+        admitted.methods.push(source_relationship_edge_method(
+            source_id.clone(),
+            target_id.clone(),
+            &properties,
+        )?);
         admitted.policies.push(policy(
             &marker_id,
             ctx.tenant_scope,
@@ -1207,6 +1206,34 @@ fn admit_relationships(
             });
     }
     Ok(())
+}
+
+/// Project a resolved source relation onto the graph's typed-edge convention.
+/// `Method::AddEdge` carries the property blob; its canonical `relationship`
+/// field is the relation type used by `GraphCore::typed_edges_between`. Keeping
+/// this conversion at the ingestion boundary prevents callers from flattening
+/// two ontology relations over the same endpoints into one untyped edge.
+#[cfg(all(feature = "redb", feature = "blob"))]
+fn source_relationship_edge_method(
+    source_id: String,
+    target_id: String,
+    properties: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Method, String> {
+    let relation_type = properties
+        .get("relationship")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "SOURCE_RELATIONSHIP_SCHEMA_INVALID: missing relation type".to_string())?;
+    let properties_msgpack = rmp_serde::to_vec_named(properties)
+        .map_err(|error| format!("mapped source relationship encoding failed: {error}"))?;
+    // The durable edge key is (source, target, relation_type). The relation
+    // stays in the canonical property field consumed by that key's readers.
+    debug_assert!(!relation_type.is_empty());
+    Ok(Method::AddEdge {
+        source_id,
+        target_id,
+        properties_msgpack,
+    })
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
@@ -2190,7 +2217,7 @@ fn validate_xsd_value(
         _ => {
             return Err(format!(
                 "CONNECTOR_SCHEMA_MAPPING_INVALID: unknown datatype {datatype}"
-            ))
+            ));
         }
     };
     if valid {
@@ -2336,6 +2363,7 @@ fn policy_with_operation(
 #[cfg(all(test, feature = "redb", feature = "blob"))]
 mod tests {
     use super::*;
+    use eg_types::connector_pack::McpCatalogSnapshotBinding;
     use eg_types::contract::ResourceId;
     use eg_types::source_ingestion::{SourceJson, SourceRecord, SourceRecordProvenance};
 
@@ -2457,5 +2485,212 @@ mod tests {
         )
         .unwrap_err()
         .contains("SOURCE_MAPPING_SELECTOR_MISMATCH"));
+    }
+
+    /// Hydration can carry more than one ontology relation over the same
+    /// endpoints. The source projection must retain each relation in the edge
+    /// identity field so callers can read either relation independently.
+    #[test]
+    fn hydration_projects_parallel_relations_as_independent_typed_edges() {
+        use eg_types::connector_pack::{ConnectorRelationshipMapping, ConnectorSchemaMapping};
+        use eg_types::source_ingestion::{
+            SourceEntityRef, SourceIngestionRequest, SourceRelationship,
+        };
+
+        struct NoReadPersistence;
+        impl crate::server::persistence::PersistenceBackend for NoReadPersistence {
+            fn shutdown(&self) {}
+        }
+
+        let core = crate::graph::GraphCore::new();
+        let source_node =
+            source_node_id("tenant-shared", "demo-connector", "items", "source").unwrap();
+        let target_node =
+            source_node_id("tenant-shared", "demo-connector", "items", "target").unwrap();
+        core.add_node(
+            source_node.clone(),
+            rmp_serde::to_vec_named(&serde_json::json!({"type":"Document"})).unwrap(),
+        );
+        core.add_node(
+            target_node.clone(),
+            rmp_serde::to_vec_named(&serde_json::json!({"type":"Document"})).unwrap(),
+        );
+        let mut batch = eg_types::test_support::source_ingestion::request()
+            .as_batch()
+            .clone();
+        batch.expected_previous_checkpoint = None;
+        let mut records = batch.records.as_slice().to_vec();
+        records[0].record_id = "source".into();
+        let mut target_record = records[0].clone();
+        target_record.record_id = "target".into();
+        records.push(target_record);
+        batch.records = eg_types::contract::BoundedVec::new(records).unwrap();
+        let relation_types = [
+            "declares",
+            "calls",
+            "inherits",
+            "realizes",
+            "depends_on",
+            "definedBy",
+            "testedBy",
+            "specifiedBy",
+            "releasedIn",
+        ];
+        let source = SourceEntityRef {
+            stream: ResourceId::new("items").unwrap(),
+            record_id: "source".into(),
+        };
+        let target = SourceEntityRef {
+            stream: ResourceId::new("items").unwrap(),
+            record_id: "target".into(),
+        };
+        let provenance = batch.records[0].provenance.clone();
+        let relationships: Vec<_> = relation_types
+            .iter()
+            .map(|relation_type| SourceRelationship {
+                source: source.clone(),
+                target: target.clone(),
+                relation_reference: format!(
+                    "connector:demo-connector#relations/Document/{relation_type}"
+                ),
+                properties: None,
+                provenance: provenance.clone(),
+            })
+            .collect();
+        batch.relationships =
+            eg_types::source_ingestion::SourceRelationships::new(relationships).unwrap();
+        let request = SourceIngestionRequest::new(batch).unwrap();
+        let batch = request.as_batch();
+        let catalog = McpCatalogSnapshotBinding {
+            configuration_revision: 1,
+            catalog_generation: 1,
+            snapshot_digest: Digest256::from_bytes([4; 32]),
+            child_connection_generation: 1,
+            authorization_scope_digest: Digest256::from_bytes([5; 32]),
+        };
+
+        let mut resolved = ResolvedIngestionMappings {
+            entities: BTreeMap::from([(
+                "connector:demo-connector#mappings/item".into(),
+                crate::server::persistence::connector_pack::ResolvedConnectorSchemaMapping {
+                    mapping_reference: "connector:demo-connector#mappings/item".into(),
+                    schema_mapping: ConnectorSchemaMapping {
+                        ontology_class: "Document".into(),
+                        fields: BTreeMap::new(),
+                    },
+                    body_sha256: Digest256::from_bytes([8; 32]),
+                    entry_revision: 1,
+                    pack_digest: Digest256::from_bytes([9; 32]),
+                    catalog: catalog.clone(),
+                },
+            )]),
+            relationships: BTreeMap::new(),
+            receipts: Vec::new(),
+            entry_revision: Some(1),
+        };
+        for relation_type in relation_types {
+            let resolved =
+                crate::server::persistence::connector_pack::ResolvedConnectorRelationshipMapping {
+                    relation_reference: format!(
+                        "connector:demo-connector#relations/Document/{relation_type}"
+                    ),
+                    relation: ConnectorRelationshipMapping {
+                        source_resource: "Document".into(),
+                        relationship: relation_type.into(),
+                        target_resource: "Document".into(),
+                        lpg_rel_type: relation_type.into(),
+                    },
+                    body_sha256: Digest256::from_bytes([6; 32]),
+                    entry_revision: 1,
+                    pack_digest: Digest256::from_bytes([7; 32]),
+                    catalog: catalog.clone(),
+                };
+            resolved
+                .relationships
+                .insert(resolved.relation_reference.clone(), resolved);
+        }
+
+        let verified =
+            crate::server::authority_context::VerifiedRequestContext::verified_for_test_with_scopes(
+                "source-ingest-r0092",
+                "tenant-shared",
+                &["source:ingest", "blob:write", "kg:read", "kg:write"],
+            );
+        let authority = crate::server::access::CarrierAuthority::from_verified(&verified).unwrap();
+        let state = Arc::new(RwLock::new(crate::server::ServerState::new_for_test(
+            "source-ingest-r0092",
+            crate::server::ServerState::test_isolation("source-ingest-r0092"),
+        )));
+        let context = PrepareContext {
+            state: &state,
+            request_id: 17,
+            graph_name: "r0092",
+            tenant_scope: "tenant-shared",
+            verified: &verified,
+            graph_version: 0,
+            placement_epoch: 0,
+            fencing_token: None,
+        };
+        let blob_dir = tempfile::tempdir().unwrap();
+        let blob =
+            crate::server::handlers::blob::cursors_for_test(blob_dir.path().to_str().unwrap());
+        let persistence = NoReadPersistence;
+        let mut admitted = AdmittedRecords {
+            raw_admissions: Vec::new(),
+            relationship_raw_admissions: Vec::new(),
+            blobs: BTreeMap::new(),
+            methods: Vec::new(),
+            lineage: Vec::new(),
+            policies: Vec::new(),
+            tombstone_count: 0,
+        };
+        admit_relationships(
+            RelationshipAdmissionContext {
+                ctx: &context,
+                batch,
+                authority: &authority,
+                blob: &blob,
+                resolved: &resolved,
+                policy_subject: "agent:source-ingest-r0092",
+                persistence: &persistence,
+                graph_fname: "r0092",
+            },
+            &mut admitted,
+        )
+        .unwrap();
+        for method in admitted.methods {
+            if let Method::AddEdge {
+                source_id,
+                target_id,
+                properties_msgpack,
+            } = method
+            {
+                core.add_edge(source_id, target_id, properties_msgpack)
+                    .unwrap();
+            }
+        }
+
+        let edges = core.typed_edges_between(&source_node, &target_node);
+        let relation_types: Vec<_> = edges.iter().map(|(kind, _)| kind.as_str()).collect();
+        let expected = [
+            "declares",
+            "calls",
+            "inherits",
+            "realizes",
+            "depends_on",
+            "definedBy",
+            "testedBy",
+            "specifiedBy",
+            "releasedIn",
+        ];
+        assert_eq!(relation_types, expected);
+        for expected in expected {
+            let (_, properties) = edges
+                .iter()
+                .find(|(kind, _)| kind == expected)
+                .expect("each relation must be independently readable");
+            let decoded = eg_types::msgpack::decode_property_value(properties).unwrap();
+            assert_eq!(decoded["relationship"], expected);
+        }
     }
 }
