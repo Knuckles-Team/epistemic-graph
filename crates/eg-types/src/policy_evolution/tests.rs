@@ -73,6 +73,14 @@ fn capture(completion: CaptureCompletion, evidence: Option<RewardEvidenceSource>
     }
 }
 
+fn msgpack_round_trip<T>(value: &T) -> T
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+{
+    let bytes = rmp_serde::to_vec_named(value).expect("encode policy-evolution contract");
+    rmp_serde::from_slice(&bytes).expect("decode policy-evolution contract")
+}
+
 #[test]
 fn record_identity_is_content_addressed_and_immutable() {
     let record = PolicyEvolutionRecord::Capability {
@@ -217,6 +225,125 @@ fn ops_carry_their_authz_action_and_wire_tag() {
         PolicyRecordKind::Capability
     );
     assert!(get.into_record().is_err());
+}
+
+#[test]
+fn every_policy_operation_and_receipt_round_trips() {
+    let version = ModelPolicyVersion {
+        checkpoint_digest: digest(10),
+        adapter_digest: Some(digest(11)),
+        tokenizer_digest: digest(12),
+        artifact_ref: id("artifacts:policy-v2"),
+        parent_version_id: Some(id("polver:base")),
+        origin: VersionOrigin::Trained {
+            training_run_id: id("poltrain:1"),
+        },
+    };
+    let training_run = TrainingRun {
+        capability_id: id("polcap:1"),
+        work_item_id: id("work:1"),
+        base_version_id: id("polver:base"),
+        input_capture_ids: crate::contract::BoundedVec::new(vec![id("polcapture:1")]).unwrap(),
+        method: TrainingMethod::Klpo {
+            estimator: KlEstimator::SampledToken,
+        },
+        adapter: AdapterSpec::Lora { rank: 8 },
+        trainer_image_digest: digest(13),
+        hyperparameters_digest: digest(14),
+        resources: ResourceObservation {
+            wall_ms: 100,
+            gpu_seconds: 2,
+            peak_memory_bytes: 4096,
+        },
+        status: TrainingRunStatus::Succeeded {
+            output: TrainingOutput {
+                artifact_digest: digest(15),
+                artifact_ref: id("artifacts:policy-v2"),
+            },
+        },
+        log: None,
+    };
+    let evaluation = PolicyEvaluation {
+        version_id: id("polver:policy-v2"),
+        baseline_version_id: Some(id("polver:base")),
+        evaluation_set_digest: digest(16),
+        evaluator_digest: digest(17),
+        metrics: EvaluationMetrics {
+            task_success_ppm: 900_000,
+            baseline_task_success_ppm: 850_000,
+            cost_micros: 12,
+            latency_p50_ms: 4,
+            latency_p95_ms: 9,
+            gpu_seconds: 2,
+            trace_completeness_ppm: 1_000_000,
+            unsupported_replay_mass_ppm: 0,
+        },
+        safety: SafetyOutcome::Passed,
+        verdict: EvaluationVerdict::Accepted,
+        report: None,
+    };
+    let operations = [
+        PolicyEvolutionOp::PutCapability {
+            request: capability(true, true),
+        },
+        PolicyEvolutionOp::CommitCapture {
+            request: capture(
+                CaptureCompletion::Terminal,
+                Some(RewardEvidenceSource::IndependentVerifier),
+            ),
+        },
+        PolicyEvolutionOp::RegisterModelPolicyVersion { request: version },
+        PolicyEvolutionOp::CommitTrainingRun {
+            request: training_run,
+        },
+        PolicyEvolutionOp::CommitPolicyEvaluation {
+            request: evaluation,
+        },
+        PolicyEvolutionOp::Get {
+            request: PolicyRecordGetRequest {
+                record_id: id("polver:policy-v2"),
+            },
+        },
+    ];
+    for operation in operations {
+        assert_eq!(msgpack_round_trip(&operation), operation);
+    }
+
+    let record = PolicyEvolutionRecord::Capability {
+        record: capability(true, true),
+    };
+    let record_id = record.record_id("tenant-a").unwrap();
+    let receipt = PolicyRecordReceipt {
+        record_id: record_id.clone(),
+        kind: PolicyRecordKind::Capability,
+        disposition: PolicyWriteDisposition::Written,
+        eligibility: Some(CaptureEligibility::Eligible),
+        observed_at_ms: 42,
+    };
+    assert_eq!(msgpack_round_trip(&receipt), receipt);
+
+    let view = PolicyRecordView {
+        record_id: record_id.clone(),
+        recorded_by: "actor:policy".into(),
+        recorded_at_ms: 42,
+        record: record.clone(),
+    };
+    assert_eq!(msgpack_round_trip(&view), view);
+
+    let stored = StoredPolicyRecord {
+        record_id,
+        tenant_id: "tenant-a".into(),
+        recorded_by: "actor:policy".into(),
+        recorded_at_ms: 42,
+        record,
+    };
+    assert_eq!(msgpack_round_trip(&stored), stored);
+
+    let stored_result = PolicyRecordStored {
+        created: true,
+        changed_work_item_ids: vec!["work:1".into()],
+    };
+    assert_eq!(msgpack_round_trip(&stored_result), stored_result);
 }
 
 #[test]

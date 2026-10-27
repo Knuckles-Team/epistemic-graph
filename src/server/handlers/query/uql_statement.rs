@@ -120,6 +120,19 @@ mod served_tests {
         assert!(r.error.is_none(), "AddNode failed: {:?}", r.error);
     }
 
+    async fn add_cites_edge(state: &Arc<RwLock<ServerState>>, id: u64, source: &str, target: &str) {
+        let method = Method::AddEdge {
+            source_id: source.into(),
+            target_id: target.into(),
+            properties_msgpack: rmp_serde::to_vec_named(
+                &serde_json::json!({ "relationship": "CITES" }),
+            )
+            .unwrap(),
+        };
+        let r = dispatch_on_heap(state, req(id, method)).await;
+        assert!(r.error.is_none(), "AddEdge failed: {:?}", r.error);
+    }
+
     async fn uql(
         state: &Arc<RwLock<ServerState>>,
         id: u64,
@@ -174,5 +187,34 @@ mod served_tests {
             .error_detail
             .as_deref()
             .is_some_and(|detail| detail.contains("UQL_UNBOUND_PARAMETER")));
+    }
+
+    // EG-FEDERATED-QUERY-R067 served acceptance; native qualification remains pending.
+    #[tokio::test]
+    async fn score_channels_survive_the_served_uql_path() {
+        let state = state();
+        add_doc(&state, 10, "d1", 2020).await;
+        add_doc(&state, 11, "d2", 2021).await;
+        add_doc(&state, 12, "d3", 2022).await;
+        add_cites_edge(&state, 13, "d1", "d2").await;
+        add_cites_edge(&state, 14, "d2", "d3").await;
+
+        let response = uql(
+            &state,
+            15,
+            "MATCH (:Doc) |> RERANK NODE_DISTANCE FROM 'd1' |> RERANK MENTIONS \
+             |> RETURN node_distance, mentions",
+            &[],
+        )
+        .await;
+        let UqlResult::Rows { columns, rows, .. } = body(&response) else {
+            panic!("served UQL rows expected")
+        };
+
+        assert_eq!(columns, vec!["node_distance", "mentions"]);
+        let d2 = rows.iter().find(|row| row.id == "d2").expect("d2 row");
+        assert_eq!(d2.channels.len(), columns.len());
+        assert!(d2.channels.iter().all(Option::is_some), "{d2:?}");
+        assert_eq!(d2.channels[1], Some(1.0));
     }
 }
