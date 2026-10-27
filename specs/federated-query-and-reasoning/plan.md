@@ -976,9 +976,9 @@ Every Medulla fixture must pin all three inputs independently:
   digest. The ANN artifact stores the reference and digest, not a second copy of source text.
 - **Embedding model:** the complete `EmbeddingSpaceRef` identity (model id/revision,
   tokenizer/preprocessing digest, dimension and normalization), plus the exact embedder
-  implementation/configuration digest. The LEANN example's `facebook/contriever` default is
-  not a Medulla default; a test chooses and records an actual model or the existing explicit
-  deterministic test embedder.
+  implementation/configuration digest. LEANN's `facebook/contriever` default does not apply to
+  Medulla. Each test chooses and records an actual model or uses the existing deterministic test
+  embedder.
 - **Build space:** a lane-private build workspace identity and measured scratch peak, graph
   policy, codebook/quantizer policy, source snapshot and model/space digests. Scratch bytes
   count toward the build peak but never become an unaccounted resident artifact.
@@ -987,11 +987,11 @@ Every Medulla fixture must pin all three inputs independently:
 
 | Concern | Already wired and reused | R040.5 addition (new work) |
 |---|---|---|
-| Space and encoding identity | `EmbeddingSpaceRef` (`crates/eg-types/src/embedding.rs`), `DocumentEncodingPolicy` obligation R039.2.1, `EmbeddingVersionStore` promotion tags | A source-text reference carrying source revision/digest; refuse absent identity rather than assuming a content hash exists |
-| Graph/index | `crates/eg-ann/src/hnsw.rs`, filtered HNSW search and `hnsw/artifact.rs`; `ivfpq.rs` and `persist.rs` codebooks/SQ8/compact (including `durable_codes`); existing `recall.rs` and eg-ann footprint/recall benches; `SemanticStore` incremental mutations and `GenerationStamp` | Compact low-storage manifest/artifact mode with bounded adjacency/codes/metadata and explicit accounting; preserve current non-compact compatibility and reuse the existing recall/footprint measurement path |
+| Space and encoding identity | `EmbeddingSpaceRef` (`crates/eg-types/src/embedding.rs`), `DocumentEncodingPolicy` obligation R039.2.1, `EmbeddingVersionStore` promotion tags | Require a source-text reference with source revision and digest. Refuse missing identity; do not assume a content hash. |
+| Graph/index | `crates/eg-ann/src/hnsw.rs`, filtered HNSW search and `hnsw/artifact.rs`; `ivfpq.rs` and `persist.rs` codebooks/SQ8/compact (including `durable_codes`); existing `recall.rs` and eg-ann footprint/recall benches; `SemanticStore` incremental mutations and `GenerationStamp`. | Add a compact low-storage manifest and artifact mode. Bound adjacency, codes, and metadata. Account for each. Preserve non-compact compatibility. Reuse the existing recall/footprint measurement path. |
 | Lifecycle/fences | R059 semantic index lifecycle; semantic-index worker/dispatch; R040.3 generation check; existing restart fallback and `EmbeddingVersionStore` gate | Selective invalidation/regeneration receipt and atomic replacement generation; no mixed source/model/policy rows |
-| Query/embedding seam | `UnifiedQuery` → `run_unified_with` → `PlanCtx`; `eg_plan::TextEmbedder` remains the query-text resolver; facade `uql_text_embedder`/`run_unified_bind_embedder`; SQL `EmbeddingBinding` R077 | Core-owned `EmbeddingProvider` plus `regenerate_eligible` for write-side source rows, a bounded multi-source batch wrapper/cache, and an explicit query exact-rescore adapter; `eg-core` does not depend on `eg-plan` |
-| Cache | Existing row-norm/embedding arena caches in semantic stores; `eg-kvcache` is model KV only; R017/R018 freshness | New cache metadata/key/eviction behavior only inside the existing ANN owner; no durable cache or second store |
+| Query/embedding seam | `UnifiedQuery` → `run_unified_with` → `PlanCtx`; `eg_plan::TextEmbedder` remains the query-text resolver; facade `uql_text_embedder`/`run_unified_bind_embedder`; SQL `EmbeddingBinding` R077 | Add core-owned `EmbeddingProvider` and `regenerate_eligible` for write-side source rows. Add bounded multi-source batching/cache and an explicit query exact-rescore adapter. Keep `eg-core` independent of `eg-plan`. |
+| Cache | Existing row-norm/embedding arena caches in semantic stores; `eg-kvcache` is model KV only; R017/R018 freshness. | Keep new cache metadata, keys, and eviction behavior inside the existing ANN owner. Add no durable cache or second store. |
 | Pruning | Existing HNSW neighbor selection and bounded degree controls | Disabled-by-default, revision-bound hub-preserving policy with deterministic ties and connectivity refusal |
 | Serving | Existing authenticated query and source/index generation contracts; no new ANN endpoint | Receipt/evidence fields on existing query/readback path; no MCP/server/harness authority |
 
@@ -1008,18 +1008,18 @@ fetch/rescore budget. The existing `TextEmbedder` remains the query-text resolve
 vector carries complete space identity and source digest before admission or rescore. Existing
 tenant/RLS predicates run before candidate truncation.
 
-The manifest is non-authoritative derived state. Source text, graph records, model bindings and
-embedding-space revisions remain authoritative in their current owners. A build or replacement
-must use the existing semantic-index fences and generation promotion; a cache miss, model
-unavailability or compact-artifact failure never creates a new source or silently serves a stale
-index. This is the contract workers must implement; no new directory or framework is authorized.
+The manifest is non-authoritative derived state. Source text, graph records, model bindings, and
+embedding-space revisions remain authoritative in their current owners. Use existing semantic-index
+fences and generation promotion for every build or replacement. A cache miss, unavailable model, or
+compact-artifact failure must not create a source or serve stale index data. Workers must follow this
+contract. Add no directory or framework.
 
 ### Bounded implementation order
 
 1. Add the typed manifest/accounting/refusal model in `eg-ann` and bind source revision,
    `EmbeddingSpaceRef`, `DocumentEncodingPolicy`, build workspace and finite ceilings.
-2. Add compact graph artifact behavior by reusing HNSW/IVF-PQ traversal and codecs; compare
-   compact candidates with the exact oracle without deleting the compatibility path.
+2. Add compact graph artifact behavior by reusing HNSW/IVF-PQ traversal and codecs. Compare compact
+   candidates with the exact oracle and preserve the compatibility path.
 3. Add the write-side `EmbeddingProvider::regenerate_eligible` foundation and source-revision
    invalidation under the existing semantic generation/fence path. Add a separate query exact-
    rescore adapter that fetches only selected candidates under strict source/fetch budgets; compact
@@ -1033,12 +1033,13 @@ index. This is the contract workers must implement; no new directory or framewor
 
 ### Budget and benchmark policy
 
-Budgets are explicit policy fields and must be checked before work: max persisted bytes, max
-build-scratch peak, max resident bytes, max graph degree, max candidates/visits, max rescore
-items, max embedding calls, max batch items/bytes, max cache entries/bytes and max elapsed query
-work. The benchmark reports those limits alongside actual bytes, rows, visits, p50/p99,
-re-embedding count, cache hit/miss count and recall@k against an exact full-scan oracle at fixed
-corpus sizes and query-selectivity levels. No percentage storage reduction, universal recall,
-model quality, or paper result is promoted to a Medulla guarantee from this definition.
+Set explicit budgets and check them before work. Bound persisted bytes, build-scratch peak, resident
+bytes, and graph degree. Also bound candidates/visits, rescore items, embedding calls, batch
+items/bytes, cache entries/bytes, and elapsed query work.
+
+Report declared limits and measured values. Include bytes, rows, visits, p50/p99, re-embedding
+count, cache hit/miss count, and recall@k against an exact full-scan oracle. Fix corpus sizes and
+query-selectivity levels. This definition makes no Medulla guarantee about storage-reduction
+percentage, universal recall, model quality, or paper results.
 
 <!-- /spec-definition-patch -->
