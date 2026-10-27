@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "medulla-stem"
-version = "2.27.9"
+version = "2.27.10"
 description = "The native epistemic-graph-server executable, built from the epistemic-graph source at the same version"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -97,6 +97,11 @@ include = [
     { path = "crates/eg-viz-graph-tiles/**/*", format = "sdist" },
     { path = "crates/eg-viz-kernels/**/*", format = "sdist" },
     { path = "crates/eg-wasm/**/*", format = "sdist" },
+    # The root manifest patches crates.io with these vendored RustSec repairs.
+    # Cargo loads every patched manifest during the isolated sdist rebuild, even
+    # when the selected feature set does not compile every patched crate.
+    { path = "vendor/zstd-parent-patches/**/*", format = "sdist" },
+    { path = "vendor/security-patches/**/*", format = "sdist" },
 ]
 exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
 

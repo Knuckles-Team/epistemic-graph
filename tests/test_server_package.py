@@ -246,8 +246,8 @@ def test_sdist_carries_every_path_crate_cargo_needs_to_load_the_manifest() -> No
     """maturin drops path crates reached only through unselected optional features,
     but `cargo metadata` still loads their manifests, so the isolated rebuild fails
     unless each crate tree is an explicit sdist include. maturin rejects `..` in
-    include patterns, so the package dir carries a `crates` symlink to the workspace
-    crates and the patterns are relative to it."""
+    include patterns, so the package dir carries `crates` and `vendor` symlinks to
+    workspace trees and the patterns are relative to them."""
     seen: dict[Path, None] = {}
     _path_crates(ROOT, seen)
     members = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
@@ -258,6 +258,12 @@ def test_sdist_carries_every_path_crate_cargo_needs_to_load_the_manifest() -> No
     included = {i["path"].removesuffix("/**/*") for i in includes}
     link = PACKAGE / "crates"
     assert link.is_symlink() and link.resolve() == ROOT / "crates"
+    vendor = PACKAGE / "vendor"
+    assert vendor.is_symlink() and vendor.resolve() == ROOT / "vendor"
     assert expected - included == set(), "crates missing from the sdist include list"
     assert "crates/eg-asr-whisper" in included
     assert "crates/eg-tts-piper" in included
+    assert {
+        "vendor/zstd-parent-patches",
+        "vendor/security-patches",
+    } <= included
