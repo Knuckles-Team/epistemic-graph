@@ -1298,7 +1298,6 @@
       "title": "Dispatch handler and result contract disclose the typed NL→UQL model",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2c08f5669413",
         "32248e14e747",
         "569b1ab507d6",
         "8710a3709c47",
@@ -1326,7 +1325,6 @@
       "title": "Served NL result carries the executed UQL; plan-only is reachable",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2c08f5669413",
         "32248e14e747",
         "569b1ab507d6",
         "f9d6d793d946"
@@ -1357,7 +1355,6 @@
       "title": "Plan-only NL entry point",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2c08f5669413",
         "32248e14e747"
       ],
       "verified_by": []
