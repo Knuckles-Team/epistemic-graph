@@ -49,6 +49,8 @@ const OTHER_VALUE_SCHEMA: &str = r#"{
 
 const INLINE_PERSON_GRAPH: &str =
     r#"<http://example.org/alice> <http://example.org/name> "Inline Alice" ."#;
+const LIVE_OTHER_GRAPH: &str =
+    r#"<http://example.org/alice> <http://example.org/other> "live-only" ."#;
 const ALICE_SHAPE_MAP: [[&str; 2]; 1] =
     [["http://example.org/alice", "http://example.org/PersonShape"]];
 const ALICE_OTHER_SHAPE_MAP: [[&str; 2]; 1] =
@@ -71,16 +73,16 @@ async fn inline_and_live_data_selection() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let state = test_state();
 
-    // Seed only the live graph's non-matching predicate through the normal
-    // AddNode gateway.  The inline document below supplies the matching name.
-    let live_node = Method::AddNode {
-        node_id: "<http://example.org/alice>".into(),
-        properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-            "http://example.org/other": "live-only"
-        }))
-        .expect("encode live fixture properties"),
+    // Seed a genuine RDF literal through the RDF write surface. A plain AddNode
+    // string property is not a typed RDF literal cell and is intentionally not
+    // emitted by the live RDF exporter.
+    #[cfg(feature = "shacl")]
+    super::configure_icv_enforce(&state, 0, "__commons__").await;
+    let live_seed = Method::AddTriples {
+        turtle: LIVE_OTHER_GRAPH.into(),
+        ntriples: String::new(),
     };
-    assert_ok(&dispatch_on_heap(&state, request(1, "__commons__", None, live_node)).await);
+    assert_ok(&dispatch_on_heap(&state, request(1, "__commons__", None, live_seed)).await);
 
     let inline = dispatch_on_heap(
         &state,
