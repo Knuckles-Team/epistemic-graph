@@ -712,9 +712,17 @@
     {
       "id": "EG-REPO-INGEST-R800.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "126caba49a2f"
+      ],
+      "verified_by": [
+        "crates/eg-document/src/runtime.rs:169",
+        "crates/eg-document/src/runtime.rs:183",
+        "crates/eg-document/src/runtime.rs:346",
+        "crates/eg-document/src/runtime.rs:369",
+        "crates/eg-document/src/runtime.rs:39"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R800.3",
