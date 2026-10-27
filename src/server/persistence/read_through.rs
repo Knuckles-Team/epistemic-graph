@@ -18,6 +18,82 @@ use eg_core::read_through::{ReadThrough, ReadThroughFactory};
 use super::PersistenceBackend;
 use crate::persist::sanitize;
 
+#[cfg(all(test, feature = "redb"))]
+mod production_wiring_tests {
+    use super::*;
+    use crate::protocol::{GraphType, Method};
+    use crate::registry::GraphRegistry;
+    use crate::server::persistence::redb_backend::RedbBackend;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn production_factory_reads_durable_rows_for_existing_and_future_graphs() {
+        let _env_guard = crate::crypto::acquire_test_env_read_lock().await;
+        let directory = tempfile::tempdir().expect("temporary durable store");
+        let backend = Arc::new(
+            RedbBackend::open_with_shards(directory.path().to_string_lossy().into_owned(), 64, 1)
+                .expect("open production backend"),
+        );
+        let graphs = ["__commons__", "recovered:graph", "future:graph"];
+        for (index, graph) in graphs.iter().enumerate() {
+            let graph_key = sanitize(graph);
+            backend
+                .register_graph(
+                    &graph_key,
+                    graph,
+                    if *graph == "__commons__" {
+                        GraphType::Commons
+                    } else {
+                        GraphType::Global
+                    },
+                )
+                .await
+                .expect("register durable graph");
+            backend
+                .record_durable(
+                    &graph_key,
+                    &Method::AddNode {
+                        node_id: "shared-node".to_owned(),
+                        properties_msgpack: vec![index as u8, 0, 255],
+                    },
+                )
+                .await
+                .expect("acknowledged durable node write");
+        }
+
+        let mut registry = GraphRegistry::new();
+        registry
+            .create_graph("recovered:graph", GraphType::Global, None)
+            .unwrap();
+        registry
+            .set_read_through_factory(Arc::new(BackendReadThroughFactory::new(backend.clone())));
+        registry
+            .create_graph("future:graph", GraphType::Global, None)
+            .unwrap();
+
+        for (index, graph) in graphs.iter().enumerate() {
+            let core = &registry.get(graph).expect("registered graph").core;
+            let expected = vec![index as u8, 0, 255];
+            core.add_node("shared-node".to_owned(), expected.clone());
+            assert_eq!(core.evict_resident_nodes(&["shared-node".to_owned()]), 1);
+            assert!(core.get_nodes_arc().is_empty());
+            assert_eq!(
+                core.get_node_properties("shared-node"),
+                Some(expected.clone())
+            );
+            assert!(core.get_nodes_arc().is_empty());
+            assert_eq!(
+                backend
+                    .read_node_blocking(&sanitize(graph), "shared-node")
+                    .unwrap(),
+                Some(expected)
+            );
+            assert_eq!(core.get_node_properties("absent"), None);
+        }
+        drop(registry);
+        backend.shutdown();
+    }
+}
+
 /// A per-graph read-through bound to one graph's sanitized durable key.
 struct BackendReadThrough {
     backend: Arc<dyn PersistenceBackend>,
