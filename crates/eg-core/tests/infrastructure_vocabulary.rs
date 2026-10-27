@@ -4,7 +4,7 @@ use eg_core::graph::GraphSchemaSources;
 use eg_rdf::mapping::parse_turtle;
 
 #[allow(non_snake_case)]
-mod ontology_audit_infrastructure_v1 {
+mod ontology_audit_infrastructure {
     use super::*;
 
     // EG-CQ-CONN-R068.1: the companion is registered and parseable even before
