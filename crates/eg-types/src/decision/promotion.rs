@@ -2,19 +2,19 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::contract::OpaqueRef;
+use crate::contract::OpaqueId;
 
 /// The active revision for one agent and task class.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ChampionPointer {
-    pub agent_ref: OpaqueRef,
+    pub agent_ref: OpaqueId,
     pub task_class: String,
-    pub revision_ref: OpaqueRef,
+    pub revision_ref: OpaqueId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_ref: Option<OpaqueRef>,
-    pub promoted_by_decision: OpaqueRef,
+    pub parent_ref: Option<OpaqueId>,
+    pub promoted_by_decision: OpaqueId,
 }
 
 /// A decision to move a champion from one revision to another.
@@ -23,28 +23,21 @@ pub struct ChampionPointer {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RollbackDecision {
     pub pointer: ChampionPointer,
-    pub from_ref: OpaqueRef,
-    pub to_ref: OpaqueRef,
+    pub from_ref: OpaqueId,
+    pub to_ref: OpaqueId,
     pub reason: String,
-    pub evidence_refs: Vec<OpaqueRef>,
+    pub evidence_refs: Vec<OpaqueId>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn reference(namespace: &str, value: &str) -> OpaqueRef {
-        let mut token = value
-            .as_bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        while token.len() < 16 {
-            token.push('0');
-        }
-        OpaqueRef::scoped(namespace, &token).expect("valid opaque reference")
+    fn reference(namespace: &str, value: &str) -> OpaqueId {
+        OpaqueId::new(format!("{namespace}:{value}")).expect("valid opaque id")
     }
 
+    // spec: EG-DECISION-ENGINE-R805.1
     #[test]
     fn records_round_trip() {
         let pointer = ChampionPointer {
