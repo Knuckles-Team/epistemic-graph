@@ -73,6 +73,11 @@ pub mod federation_capabilities;
 // EG-UNIFIED-DATA-PLANE-R011 — typed freshness route and a bounded
 // read-your-writes wait, refusing an unbounded (zero-timeout) wait.
 pub mod freshness_router;
+// EG-FEDERATED-QUERY-R654.2 bounded source slice: deterministic hub ranking
+// over an already-resolved code subgraph. Anchor resolution, bounded expansion,
+// operations diagnosis and served CodeContext wiring remain later slices.
+#[cfg(feature = "query")]
+pub mod code_context;
 
 /// Structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill) — the LeanRAG method as a
 /// library API over the EG-220 summary tier: retrieve at the summary/abstraction
