@@ -416,7 +416,7 @@ mod tests {
         assert!(wrapper
             .embed_batch(&[oversized_source.as_str()])
             .unwrap_err()
-            .contains("byte budget"));
+            .contains("byte call budget"));
         assert_eq!(provider.calls.load(Ordering::SeqCst), 3);
     }
 
