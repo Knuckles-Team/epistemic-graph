@@ -48,25 +48,15 @@ env:
   MATURIN_FEATURES: "full,ast-extended"
 
 jobs:
-  # Documentation-only PRs avoid unrelated builds; main, tags and manual
-  # runs retain exhaustive validation. Unknown files/history run everything.
+  # Keep the historical caller job id so every native job below retains its
+  # needs.changes.outputs.code edge. The immutable central workflow runs this
+  # scope check together with lint/architecture and spec-status; native jobs
+  # wait for all three light gates to finish before evaluating their existing
+  # conditions.
   changes:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: Change scope
-    runs-on: ubuntu-latest
-    outputs:
-      code: ${{ steps.scope.outputs.code }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - id: scope
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/ci_change_scope.py --event "$EVENT" --base "$BASE" --head "$HEAD" >> "$GITHUB_OUTPUT"
+    uses: Knuckles-Team/pipelines/.github/workflows/medulla_light_gates.yml@main
+    with:
+      runner: ${{ vars.ARBORA_TRUSTED_CI_RUNNER == 'true' && '"arbora-ci-trusted"' || '"ubuntu-latest"' }}
 
   # ── Dependency and source-history security checks. ─────────────────────
   security:
@@ -107,15 +97,66 @@ jobs:
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
-      - name: Install pinned cargo-deny
+      - name: Resolve pinned cargo-deny cache key
+        id: cargo-deny-cache-key
         if: needs.changes.outputs.code != 'false'
+        shell: bash
         run: |
           set -euo pipefail
           version="$(PYTHONPATH=scripts python -c 'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)')"
+          runtime_fingerprint="$({ rustc -vV; ldd --version; } | sha256sum | cut -d' ' -f1)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'key=eg-cargo-deny-v1-%s-%s-%s-runtime-%s\n' \
+            "$RUNNER_OS" "$RUNNER_ARCH" "$version" "$runtime_fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Restore pinned cargo-deny
+        id: cargo-deny-cache
+        if: needs.changes.outputs.code != 'false'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/epistemic-graph-cargo-deny
+          key: ${{ steps.cargo-deny-cache-key.outputs.key }}
+      - name: Install pinned cargo-deny
+        if: needs.changes.outputs.code != 'false'
+        env:
+          CARGO_DENY_VERSION: ${{ steps.cargo-deny-cache-key.outputs.version }}
+        run: |
+          set -euo pipefail
+          version="$CARGO_DENY_VERSION"
           root="$RUNNER_TEMP/epistemic-graph-cargo-deny"
-          cargo install --locked --version "$version" --root "$root" cargo-deny
+          binary="$root/bin/cargo-deny"
+          valid=false
+          if [ -x "$binary" ]; then
+            actual="$("$binary" --version || true)"
+            if [ "$actual" = "cargo-deny $version" ]; then
+              valid=true
+            fi
+          fi
+          if [ "$valid" != true ]; then
+            rm -rf "$root"
+            cargo install --locked --version "$version" --root "$root" cargo-deny
+          fi
           echo "$root/bin" >> "$GITHUB_PATH"
-          test "$("$root/bin/cargo-deny" --version)" = "cargo-deny $version"
+      - name: Verify pinned cargo-deny
+        id: cargo-deny-verified
+        if: needs.changes.outputs.code != 'false'
+        env:
+          CARGO_DENY_VERSION: ${{ steps.cargo-deny-cache-key.outputs.version }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/epistemic-graph-cargo-deny"
+          test "$("$root/bin/cargo-deny" --version)" = "cargo-deny $CARGO_DENY_VERSION"
+          echo 'verified=true' >> "$GITHUB_OUTPUT"
+      - name: Save pinned cargo-deny
+        if: >-
+          needs.changes.outputs.code != 'false' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          steps.cargo-deny-cache.outputs.cache-hit != 'true' &&
+          steps.cargo-deny-verified.outputs.verified == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/epistemic-graph-cargo-deny
+          key: ${{ steps.cargo-deny-cache.outputs.cache-primary-key }}
       - name: Rust dependency advisory gate
         if: needs.changes.outputs.code != 'false'
         run: bash scripts/check_cargo_advisories.sh
@@ -888,33 +929,6 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  backward-python:
-    # The one backward-support leg (pipelines reference/gate-standard.md
-    # "Python version"): CI runs on .python-version (3.14); the abi3 kernels
-    # built there must still import on the 3.12 interpreter.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: backward-python (3.12)
-    needs: [changes, python-kernels]
-    if: *eg-code-change
-    runs-on: *eg-native-validation-runner
-    steps:
-      - *eg-python-checkout
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: '0.11.7'
-          python-version: '3.12'
-          activate-environment: true
-      - *eg-gates-pydeps
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: python-kernels-${{ github.sha }}
-          path: ${{ runner.temp }}/python-kernels/
-      - name: Import the abi3 kernels on the 3.12 floor
-        run: |
-          set -euo pipefail
-          bash scripts/python_suite_artifact.sh unpack kernels
-          python -c "import sys, epistemic_graph.engine as e, epistemic_graph.numeric; assert sys.version_info[:2] == (3, 12), sys.version; assert e.__engine__ == 'eg-pyengine', e.__engine__; print(sys.version, e.__file__)"
-
   python-suite:
     # The full root pytest suite leaves no headroom under the short PR budget
     # (9m29s suite leg on run 38500023697); align with the full engine jobs.
@@ -1117,81 +1131,6 @@ jobs:
       - name: JavaScript client tests (method-body vectors + unit tests)
         working-directory: clients/js
         run: npm test
-
-  # ── Runtime contracts. These checks guard authorization, lifecycle,
-  # modality, reasoning, release-campaign, and persisted-schema behavior.
-  # They remain blocking alongside the executable test suites.
-  lint-and-architecture:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: Lint, format and architecture (pre-commit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # spec-status reconstructs generated status from commit trailers.
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: '.python-version'
-      - name: Install manifest Rust toolchain and rustfmt
-        run: rustup toolchain install --profile minimal --component rustfmt && rustup show active-toolchain
-      - name: Install uv, pre-commit and the hooks' one third-party import
-        run: python -m pip install --disable-pip-version-check uv==0.8.17 pre-commit==4.6.2 pyyaml==6.0.3
-      # lane-guard is owned by agent-utilities and read from a sibling checkout
-      # (scripts/sibling_gate.py). They are lint policy, so they track its main.
-      - name: Check out agent-utilities gate scripts
-        run: |
-          git clone --depth 1 https://github.com/Knuckles-Team/agent-utilities "$RUNNER_TEMP/agent-utilities"
-          echo "AGENT_UTILITIES_ROOT=$RUNNER_TEMP/agent-utilities" >> "$GITHUB_ENV"
-      # The same hooks a contributor runs locally (`scripts/bootstrap.sh` installs
-      # them), so local and CI share one definition. lane-guard governs local
-      # worktree lanes and has nothing to check on a runner; cargo-deny runs in
-      # the `security` job with its pinned install.
-      - name: pre-commit (commit stage, PR diff or full publication)
-        env:
-          SKIP: lane-guard,cargo-deny-advisories
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [ "$EVENT" = pull_request ]; then
-            pre-commit run --config .config/pre-commit.yaml --from-ref "$BASE" --to-ref "$HEAD" --show-diff-on-failure
-          else
-            pre-commit run --config .config/pre-commit.yaml --all-files --show-diff-on-failure
-          fi
-      # Whole repository on every event (no compile, seconds): a formatting
-      # problem must never first appear in the tag pipeline.
-      - name: rustfmt
-        run: cargo fmt --all -- --check
-      - name: CI change-scope regression tests
-        run: |
-          python -m pip install --disable-pip-version-check pytest==9.1.1
-          python -m pytest --noconftest -o addopts='' tests/test_ci_change_scope.py
-      - name: Server package tests
-        working-directory: packaging/epistemic-graph-server
-        run: python -m pytest -o addopts='' -p no:cacheprovider tests
-
-  # ── Spec-status lifecycle gates (SPEC-STATUS-LIFECYCLE.md): the generated
-  # specs/*/status.json schema, requirement decomposition, and (PRs only) the
-  # Spec: trailer on the incoming commit range. Deliberately independent of
-  # the release path: no other job's needs: names it, and it is not a
-  # required check.
-  spec-gates:
-    timeout-minutes: 5
-    name: Spec status lifecycle gates
-    runs-on: ubuntu-latest
-    steps:
-      - *eg-history-checkout
-      - *eg-tracked-python
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-      - name: spec-status
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-status
-      - name: spec-decomposition
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-decomposition
-      - name: spec-trailers
-        if: github.event_name == 'pull_request'
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-trailers --base-ref "origin/${{ github.base_ref }}"
 
   # ── Clippy is blocking on every profile: the toolchain is pinned, so a new
   # finding comes from the change under review, not from an upgrade.
@@ -1658,7 +1597,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security, lint-and-architecture]
+    needs: [changes, gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -1719,3 +1658,114 @@ jobs:
           gh release create engine-main dist/medulla-*.whl dist/SHA256SUMS \
             --target "$SOURCE_SHA" --prerelease --latest=false \
             --title "engine-main (${SOURCE_SHA:0:12})" --notes "$notes"
+
+  # Stable branch-protection surface for pull requests and main pushes. Keep
+  # this aggregate fail-closed: a failed, cancelled, missing, or unexpectedly
+  # skipped blocking job must make the one required check fail. The variants
+  # are intentionally absent on pull requests, so their scope-specific skip is
+  # the only code-path exemption. Documentation-only changes skip the native
+  # jobs through changes.outputs.code and must still have a successful security
+  # job and central light-gate result.
+  ci-required:
+    name: CI required
+    needs:
+      - changes
+      - security
+      - gates
+      - gates-contract
+      - gates-plan-fuzz
+      - gates-wheel
+      - gates-facade
+      - gates-whisper
+      - gates-variants
+      - gates-crates
+      - gates-storage
+      - gates-pyo3
+      - python-kernels
+      - python-server
+      - python-suite
+      - tts-piper-inference
+      - language-clients
+      - quality-advisory
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every blocking CI result
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CODE_SCOPE: ${{ needs.changes.outputs.code }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          GATES_RESULT: ${{ needs.gates.result }}
+          GATES_CONTRACT_RESULT: ${{ needs.gates-contract.result }}
+          GATES_PLAN_FUZZ_RESULT: ${{ needs.gates-plan-fuzz.result }}
+          GATES_WHEEL_RESULT: ${{ needs.gates-wheel.result }}
+          GATES_FACADE_RESULT: ${{ needs.gates-facade.result }}
+          GATES_WHISPER_RESULT: ${{ needs.gates-whisper.result }}
+          GATES_VARIANTS_RESULT: ${{ needs.gates-variants.result }}
+          GATES_CRATES_RESULT: ${{ needs.gates-crates.result }}
+          GATES_STORAGE_RESULT: ${{ needs.gates-storage.result }}
+          GATES_PYO3_RESULT: ${{ needs.gates-pyo3.result }}
+          PYTHON_KERNELS_RESULT: ${{ needs.python-kernels.result }}
+          PYTHON_SERVER_RESULT: ${{ needs.python-server.result }}
+          PYTHON_SUITE_RESULT: ${{ needs.python-suite.result }}
+          TTS_PIPER_INFERENCE_RESULT: ${{ needs.tts-piper-inference.result }}
+          LANGUAGE_CLIENTS_RESULT: ${{ needs.language-clients.result }}
+          QUALITY_ADVISORY_RESULT: ${{ needs.quality-advisory.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$CODE_SCOPE" != true && "$CODE_SCOPE" != false ]]; then
+            echo "changes.outputs.code is missing or invalid: ${CODE_SCOPE:-<empty>}" >&2
+            exit 1
+          fi
+
+          results=(
+            "changes=$CHANGES_RESULT"
+            "security=$SECURITY_RESULT"
+            "gates=$GATES_RESULT"
+            "gates-contract=$GATES_CONTRACT_RESULT"
+            "gates-plan-fuzz=$GATES_PLAN_FUZZ_RESULT"
+            "gates-wheel=$GATES_WHEEL_RESULT"
+            "gates-facade=$GATES_FACADE_RESULT"
+            "gates-whisper=$GATES_WHISPER_RESULT"
+            "gates-variants=$GATES_VARIANTS_RESULT"
+            "gates-crates=$GATES_CRATES_RESULT"
+            "gates-storage=$GATES_STORAGE_RESULT"
+            "gates-pyo3=$GATES_PYO3_RESULT"
+            "python-kernels=$PYTHON_KERNELS_RESULT"
+            "python-server=$PYTHON_SERVER_RESULT"
+            "python-suite=$PYTHON_SUITE_RESULT"
+            "tts-piper-inference=$TTS_PIPER_INFERENCE_RESULT"
+            "language-clients=$LANGUAGE_CLIENTS_RESULT"
+            "quality-advisory=$QUALITY_ADVISORY_RESULT"
+          )
+          failures=()
+          for entry in "${results[@]}"; do
+            job="${entry%%=*}"
+            result="${entry#*=}"
+            result="${result:-MISSING}"
+
+            if [[ "$job" == changes || "$job" == security ]]; then
+              [[ "$result" == success ]] || failures+=("$job=$result")
+              continue
+            fi
+
+            if [[ "$CODE_SCOPE" == false ]]; then
+              [[ "$result" == skipped ]] || failures+=("$job=$result (expected skipped for documentation-only scope)")
+              continue
+            fi
+
+            if [[ "$job" == gates-variants && "$EVENT_NAME" == pull_request && "$result" == skipped ]]; then
+              echo "accepted scope skip: $job (pull_request)"
+              continue
+            fi
+            [[ "$result" == success ]] || failures+=("$job=$result")
+          done
+
+          if ((${#failures[@]})); then
+            printf 'blocking CI result failure:\n- %s\n' "${failures[@]}" >&2
+            exit 1
+          fi
+          echo "all blocking CI results passed for code_scope=$CODE_SCOPE"
