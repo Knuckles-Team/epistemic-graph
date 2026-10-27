@@ -189,7 +189,10 @@ def _assert_security_and_build_jobs(jobs):
         for step in security["steps"]
         if step.get("name") == "Install pinned cargo-deny"
     )
-    assert "load_contract().cargo_deny_version" in deny_install["run"]
+    assert deny_install["env"]["CARGO_DENY_VERSION"] == (
+        "${{ steps.cargo-deny-cache-key.outputs.version }}"
+    )
+    assert 'version="$CARGO_DENY_VERSION"' in deny_install["run"]
     advisory_steps = [
         step
         for step in security["steps"]
