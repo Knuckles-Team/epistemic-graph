@@ -42,6 +42,8 @@ pub mod asr_wire;
 pub mod capacity_lease;
 // EG-DURABLE-KERNEL-R076.1 — authoritative scheduler policy data and validation.
 pub mod scheduler_config;
+// EG-TYPED-PACKS-R803.1 — typed sensitive-data detector and detection records.
+pub mod sensitive_detect;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
