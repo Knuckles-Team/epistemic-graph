@@ -6,8 +6,8 @@
 
 use eg_types::agent_library::AgentLibraryMutationContext;
 use eg_types::connector_pack::{
-    CONNECTOR_PACK_SCHEMA_VERSION, ConnectorPackSourceApprovalResult, PackHeadRef,
-    PackSourceApproval,
+    ConnectorPackSourceApprovalResult, PackHeadRef, PackSourceApproval,
+    CONNECTOR_PACK_SCHEMA_VERSION,
 };
 use eg_types::contract::{Digest256, ResourceId};
 use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
