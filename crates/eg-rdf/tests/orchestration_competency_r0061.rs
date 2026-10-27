@@ -27,7 +27,6 @@ fn iri_triple(subject: &str, predicate: &str, object: &str) -> Triple {
     )
 }
 
-// spec: EG-CQ-ORCH-R006.1
 #[test]
 fn task_step_handoff_resolves_and_reasoner_accepts_it() {
     let mut triples = documents();

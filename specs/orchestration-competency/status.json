@@ -359,11 +359,11 @@
     {
       "id": "EG-CQ-ORCH-R006.1",
       "title": "Q6 Ontology gap: handoff",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_competency_r0061.rs:30"
-      ]
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "9c3a6802ebfb"
+      ],
+      "verified_by": []
     },
     {
       "id": "EG-CQ-ORCH-R006.2",
