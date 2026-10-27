@@ -278,8 +278,9 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
                 "r722-four-phase:register",
                 crate::protocol::Method::RegisterForeignSource {
                     name: source_name.clone(),
-                    source: eg_types::wire::ForeignSourceSpec::Api {
-                        operation: "list_suppliers".to_string(),
+                    source: eg_types::wire::ForeignSourceSpec::Mcp {
+                        server: connector.to_string(),
+                        tool: "list_suppliers".to_string(),
                         capabilities: Default::default(),
                     },
                 },
@@ -449,14 +450,27 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
         &crate::server::auth::VerifiedRequestContext::verified_for_test(ADMIN),
     )
     .unwrap();
-    let spec = eg_types::wire::ForeignSourceSpec::Api {
-        operation: "list_suppliers".to_string(),
+    let spec = eg_types::wire::ForeignSourceSpec::Mcp {
+        server: connector.to_string(),
+        tool: "list_suppliers".to_string(),
         capabilities: Default::default(),
     };
     let catalog = crate::server::foreign_catalog::ForeignSourceCatalog::default();
     catalog
         .register(&caller, registration.source_id.clone(), spec.clone())
         .unwrap();
+    catalog
+        .attach_pack_binding(
+            &caller,
+            &registration.source_id,
+            &spec,
+            crate::server::foreign_catalog::ForeignSourcePackBinding {
+                head: approved.head.clone(),
+                registration: approved.registration.clone(),
+                contract_digest: approved.contract_digest,
+            },
+        )
+        .expect("owner catalog binds the durable source tuple");
     let descriptor = crate::server::foreign_catalog::ForeignSourceBindingDescriptor {
         name: registration.source_id.clone(),
         spec,
@@ -479,6 +493,41 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
         vec!["bound-row"]
     );
     drop(store);
+
+    for (field, value) in [
+        ("class", "urn:OtherClass"),
+        ("entity", "OtherEntity"),
+        ("key", "other_id"),
+    ] {
+        let mut mismatched_registration = approved.clone();
+        match field {
+            "class" => mismatched_registration.registration.class_iri = value.to_string(),
+            "entity" => mismatched_registration.registration.entity = value.to_string(),
+            "key" => mismatched_registration.registration.key_field = value.to_string(),
+            _ => unreachable!(),
+        }
+        let mismatch_refusal = match catalog.bind_registered_for(
+            &caller,
+            served
+                .state
+                .write()
+                .await
+                .ensure_agent_library()
+                .unwrap()
+                .as_ref(),
+            &crate::isolation::IsolationLayer::new(),
+            &mismatched_registration,
+            &registration.source_id,
+            Arc::new(BoundRows),
+        ) {
+            Ok(_) => panic!("a receipt for catalog B ({field}) must not bind catalog A"),
+            Err(error) => error,
+        };
+        assert!(
+            mismatch_refusal.contains("SOURCE_BINDING_MISMATCH"),
+            "{field}: {mismatch_refusal}"
+        );
+    }
 
     let mut held_receipt = approved.clone();
     held_receipt.registration.approval = PackSourceApproval::Held;
@@ -504,30 +553,6 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
     assert!(
         held_refusal.contains("SOURCE_APPROVAL_NOT_ADMITTED"),
         "{held_refusal}"
-    );
-
-    let mut stale_receipt = approved.clone();
-    stale_receipt.head.binding_revision += 1;
-    let stale_refusal = match catalog.bind_for(
-        &caller,
-        served
-            .state
-            .write()
-            .await
-            .ensure_agent_library()
-            .unwrap()
-            .as_ref(),
-        &crate::isolation::IsolationLayer::new(),
-        &stale_receipt,
-        &descriptor,
-        Arc::new(BoundRows),
-    ) {
-        Ok(_) => panic!("a stale head receipt must not bind"),
-        Err(error) => error,
-    };
-    assert!(
-        stale_refusal.contains("PACK_HEAD_CONFLICT"),
-        "{stale_refusal}"
     );
 
     let mut changed_body = approved.clone();
@@ -557,8 +582,9 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
     );
 
     let mut changed_spec = descriptor.clone();
-    changed_spec.spec = eg_types::wire::ForeignSourceSpec::Api {
-        operation: "different_operation".to_string(),
+    changed_spec.spec = eg_types::wire::ForeignSourceSpec::Mcp {
+        server: connector.to_string(),
+        tool: "different_operation".to_string(),
         capabilities: Default::default(),
     };
     let spec_refusal = match catalog.bind_for(
@@ -634,4 +660,61 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
         Err(error) => error,
     };
     assert!(tenant_refusal.contains("ACCESS_DENIED"), "{tenant_refusal}");
+
+    // A new published head with the same source body/tuple is a distinct
+    // catalog binding. Approve that current head so the durable verifier
+    // passes; the unchanged in-memory H1 catalog must still refuse H2 before
+    // installing the driver.
+    let second = build_pack(
+        connector,
+        &[
+            tool(connector, "a", "A."),
+            tool(connector, "b", "B."),
+            ontology(connector, CONTRACT.to_string()),
+        ],
+    );
+    let second_head = imported(&served, &second, Some(head_of(&first))).await;
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    let second_member = store
+        .connector_pack_members(TENANT, &connector_id)
+        .unwrap()
+        .into_iter()
+        .find(|member| !member.source_registrations.is_empty())
+        .expect("same source registration remains on H2");
+    let second_digest = second_member.body_sha256;
+    drop(store);
+    let approved_h2: eg_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
+        "approve same source on H2",
+        approve_source(
+            &served,
+            connector,
+            &registration.contract_iri,
+            &registration.resource_uri,
+            head_of(&second_head),
+            second_digest,
+        )
+        .await,
+    );
+    assert_eq!(approved_h2.contract_digest, approved.contract_digest);
+    let h2_refusal = match catalog.bind_registered_for(
+        &caller,
+        served
+            .state
+            .write()
+            .await
+            .ensure_agent_library()
+            .unwrap()
+            .as_ref(),
+        &crate::isolation::IsolationLayer::new(),
+        &approved_h2,
+        &registration.source_id,
+        Arc::new(BoundRows),
+    ) {
+        Ok(_) => panic!("H1 catalog must not bind an approved H2 receipt"),
+        Err(error) => error,
+    };
+    assert!(
+        h2_refusal.contains("SOURCE_BINDING_MISMATCH"),
+        "{h2_refusal}"
+    );
 }

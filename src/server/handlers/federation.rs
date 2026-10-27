@@ -39,6 +39,20 @@ pub(crate) async fn try_handle(
             // EH-378: provision the source's share role (assigned to nobody) under the
             // same write lock as the registration, so a registered source always has one.
             let mut s = call.state.write().await;
+            let pack_binding = match s.agent_library.as_deref() {
+                Some(store) => {
+                    match crate::server::foreign_catalog::ForeignSourceCatalog::current_pack_binding(
+                        store,
+                        owner.log_owner().0,
+                        &name,
+                        &source,
+                    ) {
+                        Ok(binding) => binding,
+                        Err(error) => return Ok(Response::err(req_id, error)),
+                    }
+                }
+                None => None,
+            };
             if let Err(error) = crate::server::foreign_share::provision_share_role(
                 &mut s.isolation,
                 owner.agent_id(),
@@ -46,8 +60,19 @@ pub(crate) async fn try_handle(
             ) {
                 return Ok(Response::err(req_id, error));
             }
-            if let Err(error) = s.foreign_sources.register(&owner, name.clone(), source) {
+            if let Err(error) = s
+                .foreign_sources
+                .register(&owner, name.clone(), source.clone())
+            {
                 return Ok(Response::err(req_id, error));
+            }
+            if let Some(binding) = pack_binding {
+                if let Err(error) = s
+                    .foreign_sources
+                    .attach_pack_binding(&owner, &name, &source, binding)
+                {
+                    return Ok(Response::err(req_id, error));
+                }
             }
             Ok(Response::ok(
                 req_id,

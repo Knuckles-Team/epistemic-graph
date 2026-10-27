@@ -58,7 +58,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use eg_plan::federation::{ForeignSourceRegistry, SharedForeignSource};
 use eg_types::connector_pack::{
-    ConnectorPackSourceApprovalResult, PackSourceApproval, PackSourceRegistration,
+    ConnectorPackSourceApprovalResult, PackHeadRef, PackSourceApproval, PackSourceRegistration,
 };
 use eg_types::contract::Digest256;
 use eg_types::wire::ForeignSourceSpec;
@@ -67,6 +67,7 @@ use tokio::sync::RwLock;
 use super::access::{CarrierAuthority, GraphReadAuthority};
 use super::foreign_share::{may_use_shared, share_resource, shared_name};
 use super::persistence::agent_library::AgentLibraryStore;
+use super::persistence::connector_pack::CurrentConnectorSourceBinding;
 use super::state::ServerState;
 use crate::isolation::IsolationLayer;
 
@@ -82,6 +83,17 @@ struct CatalogKey {
 struct OwnedSpec {
     owner_agent: String,
     spec: ForeignSourceSpec,
+    pack_binding: Option<ForeignSourcePackBinding>,
+}
+
+/// The trusted owner-catalog identity for a connector-pack source.  It is
+/// populated only from the current durable pack head/member rows; a wire
+/// registration or approval receipt cannot manufacture this tuple.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ForeignSourcePackBinding {
+    pub(crate) head: PackHeadRef,
+    pub(crate) registration: PackSourceRegistration,
+    pub(crate) contract_digest: Digest256,
 }
 
 /// Host-derived identity for one request-scoped foreign-driver binding.
@@ -160,7 +172,86 @@ impl ForeignSourceCatalog {
             name,
         };
         let owner_agent = owner.agent_id().to_string();
-        self.entries.insert(key, OwnedSpec { owner_agent, spec });
+        self.entries.insert(
+            key,
+            OwnedSpec {
+                owner_agent,
+                spec,
+                pack_binding: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Resolve and attach the current durable pack registration to an already
+    /// registered wire source.  The generic `RegisterForeignSource` payload
+    /// remains unchanged; only the owner-catalog projection can supply this
+    /// exact tuple.  Zero candidates keeps a legacy source generic, while an
+    /// ambiguous or incompatible pack candidate refuses closed before a
+    /// foreign driver can be installed.
+    pub(crate) fn current_pack_binding(
+        store: &AgentLibraryStore,
+        tenant_id: &str,
+        name: &str,
+        spec: &ForeignSourceSpec,
+    ) -> Result<Option<ForeignSourcePackBinding>, String> {
+        let candidates = store.current_connector_source_bindings(tenant_id, name)?;
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let compatible = candidates
+            .into_iter()
+            .filter(|candidate| spec_matches_registration(spec, &candidate.registration))
+            .collect::<Vec<_>>();
+        if compatible.is_empty() {
+            return Err(
+                "SOURCE_BINDING_MISMATCH: catalog source kind or operation differs from current pack registration"
+                    .to_string(),
+            );
+        }
+        if compatible.len() != 1 {
+            return Err(
+                "SOURCE_BINDING_AMBIGUOUS: source id maps to multiple current pack registrations"
+                    .to_string(),
+            );
+        }
+        Ok(Some(pack_binding_from_current(
+            compatible.into_iter().next().unwrap(),
+        )))
+    }
+
+    /// Attach a previously resolved durable mapping to the caller's catalog
+    /// entry.  This is an internal owner-context handoff, not a public raw
+    /// callback registration.
+    pub(crate) fn attach_pack_binding(
+        &self,
+        owner: &CarrierAuthority,
+        name: &str,
+        spec: &ForeignSourceSpec,
+        binding: ForeignSourcePackBinding,
+    ) -> Result<(), String> {
+        if binding.registration.source_id != name {
+            return Err(
+                "SOURCE_BINDING_MISMATCH: registration source id differs from catalog name".into(),
+            );
+        }
+        if !spec_matches_registration(spec, &binding.registration) {
+            return Err(
+                "SOURCE_BINDING_MISMATCH: catalog source kind or operation differs from registration"
+                    .into(),
+            );
+        }
+        let key = CatalogKey {
+            owner_scope: owner.owner_scope().to_string(),
+            name: name.to_string(),
+        };
+        let mut entry = self.entries.get_mut(&key).ok_or_else(|| {
+            "SOURCE_BINDING_NOT_REGISTERED: source is absent from the caller catalog".to_string()
+        })?;
+        if entry.spec != *spec {
+            return Err("SOURCE_BINDING_MISMATCH: descriptor differs from owner catalog".into());
+        }
+        entry.pack_binding = Some(binding);
         Ok(())
     }
 
@@ -242,7 +333,7 @@ impl ForeignSourceCatalog {
         receipt: &ConnectorPackSourceApprovalResult,
         name: &str,
     ) -> Result<(), String> {
-        let descriptor = self.registered_descriptor(caller, receipt, name)?;
+        let descriptor = self.registered_descriptor(caller, name)?;
         self.verify_binding(caller, store, receipt, &descriptor)
     }
 
@@ -269,10 +360,22 @@ impl ForeignSourceCatalog {
         if descriptor.name.is_empty() {
             return Err("SOURCE_BINDING_INVALID: source name is empty".to_string());
         }
+        if descriptor.registration.source_id != descriptor.name {
+            return Err(
+                "SOURCE_BINDING_MISMATCH: registration source id differs from catalog name"
+                    .to_string(),
+            );
+        }
+        if !spec_matches_registration(&descriptor.spec, &descriptor.registration) {
+            return Err(
+                "SOURCE_BINDING_MISMATCH: source kind or operation differs from registration"
+                    .to_string(),
+            );
+        }
         if receipt.registration.approval != PackSourceApproval::Approved {
             return Err("SOURCE_APPROVAL_NOT_ADMITTED: registration is not approved".to_string());
         }
-        if descriptor.registration != receipt.registration
+        if !registration_identity_matches(&descriptor.registration, &receipt.registration)
             || descriptor.contract_digest != receipt.contract_digest
         {
             return Err(
@@ -297,6 +400,21 @@ impl ForeignSourceCatalog {
                 "SOURCE_BINDING_MISMATCH: descriptor differs from owner catalog".to_string(),
             );
         }
+        let Some(binding) = entry.value().pack_binding.as_ref() else {
+            return Err(
+                "SOURCE_BINDING_UNVERIFIED: catalog source has no durable pack registration"
+                    .to_string(),
+            );
+        };
+        if binding.head != receipt.head
+            || !registration_identity_matches(&binding.registration, &descriptor.registration)
+            || binding.contract_digest != descriptor.contract_digest
+        {
+            return Err(
+                "SOURCE_BINDING_MISMATCH: descriptor differs from durable catalog head or registration"
+                    .to_string(),
+            );
+        }
         Ok(())
     }
 
@@ -314,33 +432,31 @@ impl ForeignSourceCatalog {
         name: &str,
         driver: SharedForeignSource,
     ) -> Result<OwnedForeignRegistry, String> {
-        let descriptor = self.registered_descriptor(caller, receipt, name)?;
+        let descriptor = self.registered_descriptor(caller, name)?;
         self.bind_for(caller, store, isolation, receipt, &descriptor, driver)
     }
 
     fn registered_descriptor(
         &self,
         caller: &CarrierAuthority,
-        receipt: &ConnectorPackSourceApprovalResult,
         name: &str,
     ) -> Result<ForeignSourceBindingDescriptor, String> {
         let key = CatalogKey {
             owner_scope: caller.owner_scope().to_string(),
             name: name.to_string(),
         };
-        let spec = self
-            .entries
-            .get(&key)
-            .map(|entry| entry.value().spec.clone())
-            .ok_or_else(|| {
-                "SOURCE_BINDING_NOT_REGISTERED: source is absent from the caller catalog"
-                    .to_string()
-            })?;
+        let entry = self.entries.get(&key).ok_or_else(|| {
+            "SOURCE_BINDING_NOT_REGISTERED: source is absent from the caller catalog".to_string()
+        })?;
+        let spec = entry.value().spec.clone();
+        let binding = entry.value().pack_binding.clone().ok_or_else(|| {
+            "SOURCE_BINDING_UNVERIFIED: catalog source has no durable pack registration".to_string()
+        })?;
         let descriptor = ForeignSourceBindingDescriptor {
             name: name.to_string(),
             spec,
-            registration: receipt.registration.clone(),
-            contract_digest: receipt.contract_digest,
+            registration: binding.registration,
+            contract_digest: binding.contract_digest,
         };
         Ok(descriptor)
     }
@@ -387,6 +503,53 @@ impl ForeignSourceCatalog {
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+}
+
+fn pack_binding_from_current(binding: CurrentConnectorSourceBinding) -> ForeignSourcePackBinding {
+    ForeignSourcePackBinding {
+        head: binding.head,
+        registration: binding.registration,
+        contract_digest: binding.contract_digest,
+    }
+}
+
+/// Match only the operation-bearing wire variants whose access kind is
+/// represented by the connector-pack source registration.  Entity/class/key
+/// identity stays in the durable catalog binding, rather than being reduced to
+/// the operation string.
+fn spec_matches_registration(
+    spec: &ForeignSourceSpec,
+    registration: &PackSourceRegistration,
+) -> bool {
+    let (kind, operation) = match spec {
+        ForeignSourceSpec::Api { operation, .. } => ("api", Some(operation.as_str())),
+        ForeignSourceSpec::Mcp { tool, .. } => ("mcp", Some(tool.as_str())),
+        ForeignSourceSpec::A2a { skill, .. } => ("a2a", Some(skill.as_str())),
+        ForeignSourceSpec::GraphQl { operation, .. } => ("graphql", Some(operation.as_str())),
+        ForeignSourceSpec::Named { .. } => ("named", None),
+        _ => ("", None),
+    };
+    registration.source_kind.foreign_kind() == kind
+        && operation.is_none_or(|operation| operation == registration.operation)
+}
+
+/// Approval state is a lifecycle bit and is rechecked separately.  The
+/// catalog binding compares the complete source identity tuple so a held
+/// registration can become approved without weakening class/entity/key
+/// matching.
+fn registration_identity_matches(
+    left: &PackSourceRegistration,
+    right: &PackSourceRegistration,
+) -> bool {
+    left.connector == right.connector
+        && left.contract_iri == right.contract_iri
+        && left.resource_uri == right.resource_uri
+        && left.source_kind == right.source_kind
+        && left.class_iri == right.class_iri
+        && left.source_id == right.source_id
+        && left.operation == right.operation
+        && left.entity == right.entity
+        && left.key_field == right.key_field
 }
 
 /// [`ForeignSourceCatalog::resolve_for_plan`] against the server's catalog for a served

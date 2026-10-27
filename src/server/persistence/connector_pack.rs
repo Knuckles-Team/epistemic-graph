@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use eg_types::agent_library::AgentLibraryLifecycle;
 use eg_types::connector_pack::{
     ConnectorPackStatus, ConnectorRelationshipMapping, ConnectorSchemaMapping,
-    McpCatalogSnapshotBinding, PackEntryKind, PackHeadView, PackImportReceipt, PackMemberCounts,
-    PackProjectionState,
+    McpCatalogSnapshotBinding, PackEntryKind, PackHeadRef, PackHeadView, PackImportReceipt,
+    PackMemberCounts, PackProjectionState, PackSourceRegistration,
 };
 use eg_types::contract::{BoundedVec, Digest256, ResourceId};
 
@@ -71,6 +71,19 @@ pub(crate) struct ConnectorPackMemberRow {
     /// Authoritative live-read claims; old rows contain none and stay unbound.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_registrations: Vec<eg_types::connector_pack::PackSourceRegistration>,
+}
+
+/// One source registration from the current published connector-pack head.
+///
+/// This is an owner-catalog input, never a caller-supplied binding.  The
+/// connector/head/member/body identity is read together so a foreign-source
+/// catalog can pin its tuple before a request-scoped driver is installed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CurrentConnectorSourceBinding {
+    pub connector: ResourceId,
+    pub head: PackHeadRef,
+    pub registration: PackSourceRegistration,
+    pub contract_digest: Digest256,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +157,70 @@ pub struct ConnectorPackContentPointer {
 }
 
 impl AgentLibraryStore {
+    /// Find source registrations by their authoritative `source_id` across
+    /// current published connector-pack heads.  A source id is not globally
+    /// unique, so callers must reject more than one compatible candidate.
+    pub(crate) fn current_connector_source_bindings(
+        &self,
+        tenant_id: &str,
+        source_id: &str,
+    ) -> Result<Vec<CurrentConnectorSourceBinding>, String> {
+        eg_types::agent_library::validate_key(tenant_id, "source-binding-lookup")?;
+        if source_id.is_empty() {
+            return Err("SOURCE_BINDING_INVALID: source id is empty".to_string());
+        }
+        let read = self.read()?;
+        let heads = read.open_owner_table(eg_storage::CONNECTOR_PACK_HEADS)?;
+        let members = read.open_owner_table(eg_storage::CONNECTOR_PACK_MEMBERS)?;
+        let mut bindings = Vec::new();
+        for row in heads
+            .range((tenant_id, "")..)
+            .map_err(|error| error.to_string())?
+        {
+            let (key, value) = row.map_err(|error| error.to_string())?;
+            let (row_tenant, connector_name) = key.value();
+            if row_tenant != tenant_id {
+                break;
+            }
+            let head: ConnectorPackHeadRow =
+                super::agent_row::decode(value.value(), "connector pack head")?;
+            for member_row in members
+                .range((tenant_id, connector_name, "")..)
+                .map_err(|error| error.to_string())?
+            {
+                let (member_key, member_value) = member_row.map_err(|error| error.to_string())?;
+                let (member_tenant, member_connector, _uri) = member_key.value();
+                if member_tenant != tenant_id || member_connector != connector_name {
+                    break;
+                }
+                let member: ConnectorPackMemberRow =
+                    super::agent_row::decode(member_value.value(), "connector pack member")?;
+                if member.lifecycle != AgentLibraryLifecycle::Published
+                    || member.last_record_id != head.head.record_id
+                {
+                    continue;
+                }
+                for registration in member.source_registrations {
+                    if registration.source_id == source_id
+                        && registration.connector.as_str() == connector_name
+                        && registration.resource_uri == member.uri
+                    {
+                        bindings.push(CurrentConnectorSourceBinding {
+                            connector: registration.connector.clone(),
+                            head: PackHeadRef {
+                                binding_revision: head.head.binding_revision,
+                                pack_digest: head.head.pack_digest,
+                            },
+                            registration,
+                            contract_digest: member.body_sha256,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(bindings)
+    }
+
     /// Resolve the current published Manifest revision for a checkpoint-only
     /// source observation. Even an empty poll stays bound to a live,
     /// tenant-owned connector authority without inventing a mapping receipt.
