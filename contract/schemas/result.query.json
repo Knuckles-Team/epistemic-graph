@@ -27613,6 +27613,13 @@
                   },
                   "type": "array"
                 },
+                "quality_policy_ref": {
+                  "description": "Optional retrieval-quality policy identity.  The model-only slice\ncarries this reference; policy lookup and verdict computation are\nserved by the later R089 children.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "query_embedding": {
                   "items": {
                     "format": "float",
