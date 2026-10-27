@@ -490,6 +490,8 @@ mod task_queue_tests {
         serde_json::from_slice(&encoded).expect("decode task wire type")
     }
 
+    // The managed native qualification covers this pure model; served queue
+    // integration remains the separate EG-DURABLE-KERNEL-R072 requirement.
     // spec: EG-DURABLE-KERNEL-R071
     #[test]
     fn task_wire_types_round_trip() {
