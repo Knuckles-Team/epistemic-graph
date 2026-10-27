@@ -410,7 +410,8 @@
       "title": "Q7 Ontology gap: slot edge",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "023a8b2e3e46"
+        "023a8b2e3e46",
+        "7a9a5569e16b"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_competency_r0071.rs:19"
