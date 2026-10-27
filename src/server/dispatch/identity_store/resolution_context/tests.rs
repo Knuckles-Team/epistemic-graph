@@ -781,6 +781,7 @@ async fn reference_renewal_rechecks_boundary_and_global_revision() {
 // spec: EG-TYPED-PACKS-R085.4.3
 #[tokio::test]
 async fn served_reference_renewal_refuses_scope_mismatch_without_touching_authority() {
+    use eg_types::identity::IDENTITY_SELF_SCOPE;
     let state = ready_engine().await;
     let resolution = resolved(&send_op(&state, live_broker(), session_request()).await);
     let record = resolution.session_record.unwrap();
