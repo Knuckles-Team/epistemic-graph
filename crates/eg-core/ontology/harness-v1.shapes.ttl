@@ -20,12 +20,14 @@
     ] ;
     sh:property [
         sh:path :shellProficiency ;
+        sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:node :ShellProficiencyFactShape ;
         sh:message "shellProficiency is a measured fact with a closed value vocabulary and evaluationRun."
     ] ;
     sh:property [
         sh:path :stoppingBehaviour ;
+        sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:node :StoppingBehaviourFactShape ;
         sh:message "stoppingBehaviour is a measured fact with a closed value vocabulary and evaluationRun."

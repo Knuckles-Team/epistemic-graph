@@ -38,6 +38,45 @@ fn model_fact_shapes_accept_measured_facts() {
 }
 
 #[test]
+fn model_fact_shapes_reject_missing_required_facts() {
+    for (missing_fact, facts) in [
+        (
+            "shellProficiency",
+            r#"ex:model a eg:ModelProfile ;
+    eg:contextWindowTokens "128000"^^xsd:integer ;
+    eg:stoppingBehaviour [
+        eg:value "balanced" ;
+        eg:evaluationRun ex:stopping-evaluation
+    ] ."#,
+        ),
+        (
+            "stoppingBehaviour",
+            r#"ex:model a eg:ModelProfile ;
+    eg:contextWindowTokens "128000"^^xsd:integer ;
+    eg:shellProficiency [
+        eg:value "high" ;
+        eg:evaluationRun ex:shell-evaluation
+    ] ."#,
+        ),
+    ] {
+        let result = report(facts);
+        assert!(
+            !result.conforms,
+            "a ModelProfile missing required {missing_fact} must fail"
+        );
+        let expected_path = format!("<http://knuckles.team/kg#{missing_fact}>");
+        assert!(
+            result
+                .results
+                .iter()
+                .any(|violation| violation.path.as_deref() == Some(expected_path.as_str())),
+            "the missing {missing_fact} property must be the reported violation: {:?}",
+            result.results
+        );
+    }
+}
+
+#[test]
 fn model_fact_shapes_reject_missing_run() {
     let result = report(
         r#"ex:model a eg:ModelProfile ;
