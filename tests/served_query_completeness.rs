@@ -23,7 +23,8 @@ use serde_json::json;
 use tokio::sync::RwLock;
 
 use eg_plan::{Op, Plan};
-use epistemic_graph::protocol::Method;
+use eg_types::wire::UqlResult;
+use epistemic_graph::protocol::{Method, Response, ResultPayload};
 use epistemic_graph::server::{dispatch, ServerState};
 
 const SECRET: &str = "served-query-completeness-secret";
@@ -250,6 +251,56 @@ async fn add_doc(
     assert!(r.error.is_none(), "AddNode {id}: {:?}", r.error);
 }
 
+async fn add_edge(state: &Arc<RwLock<ServerState>>, request: u64, source: &str, target: &str) {
+    let r = Box::pin(dispatch(
+        state,
+        test_support::commons_request(
+            SECRET,
+            request,
+            Method::AddEdge {
+                source_id: source.to_string(),
+                target_id: target.to_string(),
+                properties_msgpack: test_support::edge_properties("CITES"),
+            },
+        ),
+    ))
+    .await;
+    assert!(
+        r.error.is_none(),
+        "AddEdge {source}->{target}: {:?}",
+        r.error
+    );
+}
+
+async fn served_uql(state: &Arc<RwLock<ServerState>>, request: u64, text: &str) -> Response {
+    dispatch(
+        state,
+        test_support::commons_request(
+            SECRET,
+            request,
+            Method::Uql {
+                text: text.to_string(),
+                params: Default::default(),
+            },
+        ),
+    )
+    .await
+}
+
+fn uql_body(response: &Response) -> UqlResult {
+    assert!(
+        response.error.is_none(),
+        "UQL dispatch failed: {:?}",
+        response.error
+    );
+    match &response.result {
+        Some(ResultPayload::Raw(bytes)) => {
+            rmp_serde::from_slice(bytes).expect("decode served UQL result")
+        }
+        other => panic!("expected raw UQL result, got {other:?}"),
+    }
+}
+
 /// EH-532 on the SERVED path: a filtered `RankText` over the MAINTAINED persistent index
 /// returns every candidate that matches, even when 300 non-candidates outscore them all.
 /// The prior executor fetched a global top-`n` and intersected it with the candidates;
@@ -320,4 +371,63 @@ async fn served_filtered_ranktext_returns_every_matching_candidate() {
         scores.windows(2).all(|pair| pair[0] >= pair[1]),
         "BM25 descending: {scores:?}"
     );
+}
+
+/// EG-FEDERATED-QUERY-R027 candidate evidence: the Method::Uql route must preserve the
+/// plan-level multi-stage EXPLAIN/PROFILE/RETURN contract, rather than proving it only
+/// through `eg_plan::uql::serve::run_statement`.
+#[tokio::test]
+async fn served_multistage_uql_explain_profile_and_return_channels() {
+    const PROGRAM: &str = "LET docs = MATCH (:Doc); LET cited = FROM docs |> TRAVERSE CITES; \
+                           JOIN docs, cited |> RERANK MENTIONS |> RETURN mentions";
+    let state = state();
+    for (request, (id, year)) in [(1, ("d1", 2020)), (2, ("d2", 2021)), (3, ("d3", 2022))] {
+        add_doc(&state, request, id, json!({ "type": "Doc", "year": year })).await;
+    }
+    add_edge(&state, 4, "d1", "d2").await;
+    add_edge(&state, 5, "d2", "d3").await;
+
+    let explain = uql_body(&served_uql(&state, 6, &format!("EXPLAIN {PROGRAM}")).await);
+    let UqlResult::Explain {
+        canonical,
+        optimized,
+        stages,
+        ..
+    } = explain
+    else {
+        panic!("multi-stage EXPLAIN expected");
+    };
+    assert_eq!(canonical, optimized, "served program runs as written");
+    assert_eq!(stages.len(), 4, "every DAG node has an EXPLAIN stage");
+    assert!(stages
+        .iter()
+        .all(|stage| stage.rows.is_none() && stage.micros.is_none()));
+
+    let profile = uql_body(&served_uql(&state, 7, &format!("PROFILE {PROGRAM}")).await);
+    let UqlResult::Profile {
+        columns,
+        rows: profile_rows,
+        stages,
+        ..
+    } = profile
+    else {
+        panic!("multi-stage PROFILE expected");
+    };
+    assert_eq!(columns, vec!["mentions"]);
+    assert_eq!(stages.len(), 4, "every DAG node has a PROFILE stage");
+    assert!(stages
+        .iter()
+        .all(|stage| stage.rows.is_some() && stage.micros.is_some()));
+
+    let run = uql_body(&served_uql(&state, 8, PROGRAM).await);
+    let UqlResult::Rows {
+        columns: run_columns,
+        rows: run_rows,
+        ..
+    } = run
+    else {
+        panic!("multi-stage RETURN expected");
+    };
+    assert_eq!(run_columns, columns);
+    assert_eq!(run_rows, profile_rows, "PROFILE preserves RETURN channels");
 }
