@@ -1,6 +1,6 @@
 //! Round-trip coverage for the architecture-view wire model.
 
-use eg_types::{ArchitectureView, ViewContainer, ViewEdge};
+use eg_types::architecture_view::{ArchitectureView, ViewContainer, ViewEdge};
 
 #[test]
 fn view_types_round_trip() {
