@@ -205,7 +205,7 @@ mod mine_associate_submission_tests {
     #[test]
     fn mine_associate_accepts_thirty_one_distinct_items_and_refuses_thirty_two() {
         for count in [31, 32] {
-            let transactions = vec![(0..count).map(|i| format!("eg:item:{i}")).collect()];
+            let transactions = vec![(0..count).map(|i| format!("item:{i}")).collect()];
             let outcome = govern(JobKind::MineAssociate {
                 transactions,
                 min_support: 0.1,
@@ -217,6 +217,9 @@ mod mine_associate_submission_tests {
                 match kind {
                     JobKind::MineAssociate { transactions, .. } => {
                         assert_eq!(transactions[0].len(), 31);
+                        assert!(transactions[0]
+                            .iter()
+                            .all(|item| item.starts_with("eg:analytics_item:")));
                         assert_eq!(
                             transactions
                                 .iter()
@@ -242,25 +245,26 @@ mod mine_associate_submission_tests {
         }
     }
 
-    // The source item must already be an opaque reference before Submit hashes
-    // it into the durable worker payload.  This deliberately has no spec
-    // marker: managed proof/status binding is a separate step.
+    // spec: EG-PLACEMENT-R003.5
     #[test]
-    fn mine_associate_rejects_non_opaque_item_references() {
-        let response = govern(JobKind::MineAssociate {
+    fn mine_associate_accepts_plain_item_references_and_stores_opaque_refs() {
+        let (kind, _, _, _) = govern(JobKind::MineAssociate {
             transactions: vec![vec!["raw-label".into()]],
             min_support: 0.1,
             min_confidence: 0.5,
             algorithm: "fpgrowth".into(),
         })
-        .expect_err("raw item labels must be refused before pseudonymization");
-        assert_eq!(response.id, 82);
-        assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
-        assert_eq!(
-            response.error_detail.as_deref(),
-            Some("association items must be opaque references")
-        );
-        assert!(response.result.is_none());
+        .expect("plain item labels are mapped before durable submission");
+        match kind {
+            JobKind::MineAssociate { transactions, .. } => {
+                assert_eq!(transactions.len(), 1);
+                assert_eq!(transactions[0].len(), 1);
+                assert!(transactions[0][0].starts_with("eg:analytics_item:"));
+                assert_ne!(transactions[0][0], "raw-label");
+            }
+            #[cfg(feature = "program-optimization")]
+            JobKind::ProgramOptimize { .. } => panic!("expected association job"),
+        }
     }
 
     // spec: EG-DURABLE-KERNEL-R082.2
