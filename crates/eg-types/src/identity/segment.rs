@@ -36,9 +36,8 @@ pub struct KnowledgeUnit {
 mod tests {
     use super::*;
 
-    // Native qualification is intentionally supplied by the managed lane.
-    // The exact test is covered by the managed 1,246-test receipt.
-    // spec: EG-IDENTITY-R023.1
+    // Native qualification is intentionally supplied by the managed lane; the
+    // exact proving test remains unbound until that run passes.
     #[test]
     fn unit_round_trips() {
         let unit = KnowledgeUnit {
