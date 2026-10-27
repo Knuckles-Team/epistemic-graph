@@ -408,14 +408,12 @@
     {
       "id": "EG-CQ-ORCH-R007.1",
       "title": "Q7 Ontology gap: slot edge",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "023a8b2e3e46",
         "7a9a5569e16b"
       ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_competency_r0071.rs:19"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CQ-ORCH-R007.2",
