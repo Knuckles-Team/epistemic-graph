@@ -8967,7 +8967,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-program/tests/optimize_front.rs:14",
+        "crates/eg-program/tests/optimize_front.rs:28"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R800.2",
