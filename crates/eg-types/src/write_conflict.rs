@@ -10,21 +10,16 @@ use serde::{Deserialize, Serialize};
 ///
 /// This enum is intentionally closed: adding a strategy changes the durable
 /// conflict contract and must be reviewed with its resolution semantics.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeStrategy {
     /// Reject the write without changing the stored state.
+    #[default]
     Refuse,
     /// Prefer the incoming value when the scope policy allows it.
     PreferNewer,
     /// Merge non-overlapping fields under the scope policy.
     FieldUnion,
-}
-
-impl Default for MergeStrategy {
-    fn default() -> Self {
-        Self::Refuse
-    }
 }
 
 /// The version mismatch a durable writer must resolve before committing.
