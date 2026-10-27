@@ -26,6 +26,7 @@ pub mod ops;
 pub mod rapid_r075;
 pub mod record;
 pub mod result;
+pub mod seed_graph;
 pub mod self_served_catalog;
 
 /// Format identity (RF-ADR-006) of [`index::ConnectorPackIndex`].
@@ -107,6 +108,7 @@ pub use result::{
     PackProjectionState, PackRetireResult, PackViolation, PackViolationCode, PackWarning,
     PackWarningCode, PackWriteErrorCode, MAX_PROJECTION_FAILURE_DETAIL_BYTES,
 };
+pub use seed_graph::{SeedGraphImport, SeedPart, SeedPartKey};
 pub use self_served_catalog::{
     check_self_served_import, self_served_candidate, self_served_component_revision,
     McpSelfServedCatalogAttestRequest, SelfServedAttester,

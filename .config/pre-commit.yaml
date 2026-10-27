@@ -423,8 +423,12 @@ repos:
     name: Every tracked tests/ file is owned in the component registry
     entry: python3 scripts/check_registry_test_ownership.py
     language: system
+    # The scanner's complete input universe is the tracked tests/ tree, the
+    # registry/tool configuration it reads, and the scanner itself. A new test
+    # under tests/ still selects it, while unrelated Rust/docs changes do not
+    # spend a full pass.
+    files: ^(tests/|architecture/component-registry\.yml$|scripts/check_registry_test_ownership\.py$|\.config/pre-commit\.yaml$|pyproject\.toml$|uv\.lock$|\.python-version$)
     pass_filenames: false
-    always_run: true
     stages: [pre-commit, pre-push, manual]
   - id: contract-method-reachability
     name: Every contract method reaches a dispatch arm, and its digests round-trip
@@ -489,8 +493,13 @@ repos:
     name: Every pinned cross-record reference has a production resolver
     entry: python3 scripts/check_pinned_reference_resolution.py
     language: system
+    # The gate reads exactly the server module tree, durable-layer registry,
+    # five contract declarations, parser/gate helpers, and execution/tool
+    # configuration below. Keep this regex aligned with that read set so
+    # resolver/declaration changes select the gate and unrelated files do not
+    # trigger a repository-wide parse.
+    files: ^(src/server/|crates/eg-storage/src/owner/registry\.rs$|crates/eg-types/src/(agent_component|agent_library|agent_graph|agent_template|delegation)\.rs$|scripts/(check_pinned_reference_resolution|rust_lexer|rust_module_tree)\.py$|\.config/pre-commit\.yaml$|pyproject\.toml$|uv\.lock$|\.python-version$)
     pass_filenames: false
-    always_run: true
     stages: [pre-commit, pre-push, manual]
   # RF-RULING-003: the engine contract replaced the `protocol-parity` pytest gate
   # and its `tests/protocol_unbound_baseline.txt` ratchet. `gen_contract --check`
