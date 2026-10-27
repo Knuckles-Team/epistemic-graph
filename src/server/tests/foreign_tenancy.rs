@@ -90,9 +90,30 @@ fn uql(text: impl Into<String>) -> Method {
     }
 }
 
-/// Principal B naming principal A's source is refused by the owner-scoped catalog before the
-/// executor can bind A's credential. Unknown names retain their typed not-found response, but a
-/// known source outside the caller's scope has the stable authorization code required by R013.
+/// Principal B naming principal A's source without an explicit share grant is concealed exactly
+/// like an unknown name, so the response cannot reveal another principal's registration.
+fn assert_not_registered_for_caller(resp: &crate::protocol::Response, surface: &str) {
+    let err = resp
+        .error_detail
+        .as_deref()
+        .unwrap_or_else(|| panic!("{surface}: principal B must not resolve principal A's source"));
+    assert!(
+        err.contains("no foreign source registered under name 'remote_docs' (registered: [])"),
+        "{surface}: cross-principal name must look unregistered, got: {err}"
+    );
+    assert!(
+        !err.contains("ACCESS_DENIED"),
+        "{surface}: existence oracle: {err}"
+    );
+    assert!(
+        !err.contains("does not match graph tenant"),
+        "{surface}: refused at the envelope, not by the foreign catalog: {err}"
+    );
+}
+
+/// A caller with an exact share grant has independently visible source identity. Naming that
+/// source through its unqualified plain name is the one refusal that may use stable ACCESS_DENIED;
+/// the caller must use the qualified shared name.
 fn assert_access_denied_for_caller(resp: &crate::protocol::Response, surface: &str) {
     assert_eq!(
         resp.error.as_deref(),
@@ -106,8 +127,8 @@ fn assert_access_denied_for_caller(resp: &crate::protocol::Response, surface: &s
     );
 }
 
-/// A registers `remote_docs`; A's queries succeed on every surface and B's are refused.
-/// A queries FIRST with the identical plan, so B's refusal also proves the result cache
+/// A registers `remote_docs`; A's queries succeed on every surface and B's ungranted names are
+/// concealed. A queries FIRST with the identical plan, so B's refusal also proves the result cache
 /// is keyed by the foreign owner (B is never served A's cached foreign rows).
 #[tokio::test]
 async fn foreign_source_resolves_only_for_the_registering_principal() {
@@ -122,14 +143,14 @@ async fn foreign_source_resolves_only_for_the_registering_principal() {
         "local Docs joined with the remote set"
     );
     let b = dispatch_as(&local, 902, OTHER_B, named_scan_plan()).await;
-    assert_access_denied_for_caller(&b, "Named ForeignScan");
+    assert_not_registered_for_caller(&b, "Named ForeignScan");
 
     let text = || uql(FOREIGN_UQL);
     let a = dispatch_as(&local, 903, OWNER_A, text()).await;
     assert_ok(&a);
     assert_eq!(sorted_uql_ids(&a), vec!["d2", "d3", "d4"]);
     let b = dispatch_as(&local, 904, OTHER_B, text()).await;
-    assert_access_denied_for_caller(&b, "UQL FOREIGN marker");
+    assert_not_registered_for_caller(&b, "UQL FOREIGN marker");
 }
 
 /// The column read uses the same owner boundary as UQL and rejects an unmapped
@@ -462,6 +483,11 @@ async fn shared_source_needs_an_explicit_grant() {
         sorted_uql_ids(&used),
         vec!["d2", "d3", "d4"],
         "grantee uses the source"
+    );
+    let wrong_plain_name = dispatch_as(&local, 944, OTHER_B, uql(FOREIGN_UQL)).await;
+    assert_access_denied_for_caller(
+        &wrong_plain_name,
+        "granted principal using an unqualified source name",
     );
 
     set_other_roles(original).await;
