@@ -1,0 +1,8 @@
+# SHACL companion for the infrastructure-v1 ontology.
+#
+# The companion is intentionally empty until the infrastructure term rows add
+# their NodeShapes. Keeping it as a registered, parseable graph establishes the
+# same extension point used by the finance and commercial modules.
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix : <http://knuckles.team/kg/infrastructure#> .
