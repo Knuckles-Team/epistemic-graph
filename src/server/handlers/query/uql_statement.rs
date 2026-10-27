@@ -110,7 +110,11 @@ mod served_tests {
     }
 
     async fn add_doc(state: &Arc<RwLock<ServerState>>, id: u64, node: &str, year: i64) {
-        let props = serde_json::json!({ "type": "Doc", "year": year });
+        let props = serde_json::json!({
+            "type": "Doc",
+            "node_type": "Doc",
+            "year": year,
+        });
         let bytes = rmp_serde::to_vec_named(&props).unwrap();
         let method = Method::AddNode {
             node_id: node.into(),

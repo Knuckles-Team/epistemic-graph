@@ -773,10 +773,7 @@
         "8040b672e582",
         "8451d7eecf02"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/exec.rs:2661",
-        "src/server/mod.rs:2099"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R022.1"
       ]
@@ -857,10 +854,11 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "681de5cb1968"
+        "681de5cb1968",
+        "c2181ef46a26"
       ],
       "verified_by": [
-        "src/server/handlers/query/uql_statement.rs:179"
+        "src/server/handlers/query/uql_statement.rs:183"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R028.1"
@@ -1131,12 +1129,7 @@
         "6c11520aebfc",
         "f708d6e7728f"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation_stats.rs:166",
-        "crates/eg-plan/src/federation_stats.rs:174",
-        "crates/eg-plan/src/federation_stats.rs:185",
-        "crates/eg-plan/src/federation_stats.rs:209"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R048.1"
       ]
@@ -1357,12 +1350,7 @@
         "a685d96e5de3",
         "d2cb221aa148"
       ],
-      "verified_by": [
-        "src/server/handlers/query/nl.rs:261",
-        "src/server/handlers/query/nl.rs:267",
-        "src/server/handlers/query/nl.rs:290",
-        "src/server/tests/nl_explain.rs:108"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.3.1",
         "EG-FEDERATED-QUERY-R058.3.2"
@@ -1540,13 +1528,7 @@
         "6c11520aebfc",
         "f948211fb8c7"
       ],
-      "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:472",
-        "crates/eg-rdf/src/source_selection.rs:494",
-        "crates/eg-rdf/src/source_selection.rs:520",
-        "crates/eg-rdf/src/source_selection.rs:529",
-        "crates/eg-rdf/src/source_selection.rs:539"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R072.1"
       ]
