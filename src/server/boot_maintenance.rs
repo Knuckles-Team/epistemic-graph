@@ -16,6 +16,11 @@
 //! again be invisible in the log.
 
 use std::sync::Arc;
+#[cfg(any(
+    feature = "compute-dist",
+    feature = "matview",
+    all(feature = "redb", feature = "tsdb"),
+))]
 use std::time::Instant;
 
 use tokio::sync::RwLock;

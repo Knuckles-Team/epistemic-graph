@@ -748,12 +748,10 @@ pub async fn serve_tcp_listener(
     listener: TcpListener,
     state: Arc<RwLock<ServerState>>,
     coord: Arc<ShutdownCoordinator>,
-    tls: Option<PreparedTcpTls>,
+    _tls: Option<PreparedTcpTls>,
 ) -> std::io::Result<()> {
     #[cfg(feature = "server-tls")]
-    let acceptor = tls.as_ref().map(|value| value.acceptor.clone());
-    #[cfg(not(feature = "server-tls"))]
-    let acceptor = None::<()>;
+    let acceptor = _tls.as_ref().map(|value| value.acceptor.clone());
 
     loop {
         if coord.is_requested() {
