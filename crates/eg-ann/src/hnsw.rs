@@ -31,6 +31,8 @@ use crate::ivfpq::SearchResult;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 pub mod artifact;
+/// Compact, immutable adjacency representation for opt-in no-rebuild serving.
+pub mod compact;
 mod search;
 
 /// One graph node: its external id, its full vector, and its per-layer adjacency
