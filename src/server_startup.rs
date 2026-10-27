@@ -625,6 +625,11 @@ pub(super) struct Transports {
 
 /// UDS is the primary transport on unix, with an optional secondary TCP
 /// listener. Returns when the shutdown signal fires.
+///
+/// The bind is split from the accept loop precisely so the post-bind
+/// maintenance (matview reload, time-series startup reconciliation —
+/// EG-DURABLE-KERNEL-R006.4) starts only once the listener is up: it must
+/// run in the background AFTER serving begins, never before it.
 #[cfg(unix)]
 pub(super) async fn serve_transports(
     transports: Transports,
@@ -635,7 +640,15 @@ pub(super) async fn serve_transports(
         let addr = transports
             .tcp_addr
             .ok_or("TCP-only mode requires --tcp-addr")?;
-        server::serve_tcp(&addr, state.clone(), shutdown.clone(), transports.tcp_tls).await?;
+        let listener = server::bind_tcp(&addr, &transports.tcp_tls).await?;
+        server::spawn_post_bind_maintenance(state.clone()).await;
+        server::serve_tcp_listener(
+            listener,
+            state.clone(),
+            shutdown.clone(),
+            transports.tcp_tls,
+        )
+        .await?;
         return Ok(());
     }
     if let Some(addr) = transports.tcp_addr {
@@ -648,13 +661,9 @@ pub(super) async fn serve_transports(
             }
         });
     }
-    server::serve_uds(
-        &transports.socket_path,
-        transports.socket_mode,
-        state.clone(),
-        shutdown.clone(),
-    )
-    .await?;
+    let listener = server::bind_uds(&transports.socket_path, transports.socket_mode).await?;
+    server::spawn_post_bind_maintenance(state.clone()).await;
+    server::serve_uds_listener(listener, state.clone(), shutdown.clone()).await?;
     Ok(())
 }
 
@@ -676,7 +685,15 @@ pub(super) async fn serve_transports(
         .tcp_addr
         .unwrap_or_else(|| "127.0.0.1:8765".to_string());
     info!("AF_UNIX unavailable; using the configured native TCP transport");
-    server::serve_tcp(&addr, state.clone(), shutdown.clone(), transports.tcp_tls).await?;
+    let listener = server::bind_tcp(&addr, &transports.tcp_tls).await?;
+    server::spawn_post_bind_maintenance(state.clone()).await;
+    server::serve_tcp_listener(
+        listener,
+        state.clone(),
+        shutdown.clone(),
+        transports.tcp_tls,
+    )
+    .await?;
     Ok(())
 }
 

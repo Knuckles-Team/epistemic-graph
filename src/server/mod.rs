@@ -301,8 +301,13 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
 // server. It went unnoticed because this repo has not pushed in a long time,
 // so CI never ran that feature-matrix row. Restoring the attribute here is
 // the fix (AGENTS.md "Feature-gating gates three sites").
+// Post-bind boot maintenance (EG-DURABLE-KERNEL-R006.4): the background
+// materialized-view reload + time-series startup reconciliation that run
+// AFTER the primary listeners bind — never on the pre-listener critical
+// path. Both tasks are feature-gated inside; without either, a no-op.
 #[cfg(feature = "blob")]
 pub mod blob;
+pub mod boot_maintenance;
 // Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface). Self-routing (NOT graph-
 // scoped) like blob/tsdb, behind the `kv` cargo feature. A build without it compiles
 // none of it; the Kv* methods then fall to the dispatch "not available" catch-all.
@@ -801,6 +806,9 @@ pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
 // calls this on startup to repopulate the in-RAM matview index from redb.
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub use handlers::dist_compute::reload_matviews;
+// Post-bind maintenance hook (EG-DURABLE-KERNEL-R006.4): the binary calls this
+// from `serve_transports` right after the listeners bind.
+pub use boot_maintenance::spawn_post_bind_maintenance;
 pub use persistence::PersistenceBackend;
 pub use state::{txn_limits_from_env, ServerState, MAX_BATCH_IDS};
 
@@ -857,14 +865,14 @@ pub(crate) fn test_state_with_services(
 
 pub use request_replay::seal_request_replay_ledger;
 pub use transport::{
-    handle_connection, prepare_tcp_tls, run_idle_watcher, serve_tcp, PreparedTcpTls,
-    ShutdownCoordinator, TcpTlsConfig,
+    bind_tcp, handle_connection, prepare_tcp_tls, run_idle_watcher, serve_tcp, serve_tcp_listener,
+    PreparedTcpTls, ShutdownCoordinator, TcpTlsConfig,
 };
 // serve_uds is Unix-only (UnixListener); on Windows the server uses serve_tcp,
 // so gate the re-export to keep the windows-msvc wheel building (main.rs already
 // guards its serve_uds call with #[cfg(unix)]).
 #[cfg(unix)]
-pub use transport::serve_uds;
+pub use transport::{bind_uds, serve_uds, serve_uds_listener};
 // parse_unix_socket_mode is pure parsing/validation (no fs calls) and is exported
 // unconditionally so main.rs can validate --socket-mode/GRAPH_SERVICE_SOCKET_MODE
 // up front on every platform, even though the mode itself is only applied by

@@ -775,7 +775,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2661",
-        "src/server/mod.rs:2099"
+        "src/server/mod.rs:2107"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R022.1"
@@ -792,7 +792,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2661",
-        "src/server/mod.rs:2099"
+        "src/server/mod.rs:2107"
       ]
     },
     {

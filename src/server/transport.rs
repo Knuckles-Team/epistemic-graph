@@ -635,6 +635,16 @@ pub async fn serve_uds(
     state: Arc<RwLock<ServerState>>,
     coord: Arc<ShutdownCoordinator>,
 ) -> std::io::Result<()> {
+    let listener = bind_uds(socket_path, mode).await?;
+    serve_uds_listener(listener, state, coord).await
+}
+
+/// Bind the private UDS listener WITHOUT accepting — the startup-ordering
+/// hook (EG-DURABLE-KERNEL-R006.4): the post-bind maintenance tasks are
+/// spawned between this and the accept loop, so the listener is already up
+/// when they start.
+#[cfg(unix)]
+pub async fn bind_uds(socket_path: &str, mode: u32) -> std::io::Result<UnixListener> {
     let owned_socket_path = socket_path.to_owned();
     let listener = ::tokio::task::spawn_blocking(move || {
         use std::os::unix::fs::PermissionsExt;
@@ -652,7 +662,17 @@ pub async fn serve_uds(
     let listener = UnixListener::from_std(listener)?;
     let mode_octal = format!("{mode:#o}");
     info!(mode = %mode_octal, "Listening on a private Unix domain socket");
+    Ok(listener)
+}
 
+/// The accept loop on an already-bound UDS listener (the body of the old
+/// one-piece `serve_uds`).
+#[cfg(unix)]
+pub async fn serve_uds_listener(
+    listener: UnixListener,
+    state: Arc<RwLock<ServerState>>,
+    coord: Arc<ShutdownCoordinator>,
+) -> std::io::Result<()> {
     loop {
         // Latch check at the TOP catches a trigger() that fired between iterations
         // (the Notify edge below only wakes a currently-parked accept).
@@ -696,6 +716,13 @@ pub async fn serve_tcp(
     coord: Arc<ShutdownCoordinator>,
     tls: Option<PreparedTcpTls>,
 ) -> std::io::Result<()> {
+    let listener = bind_tcp(addr, &tls).await?;
+    serve_tcp_listener(listener, state, coord, tls).await
+}
+
+/// Bind the native TCP listener WITHOUT accepting — the startup-ordering
+/// hook (EG-DURABLE-KERNEL-R006.4), the TCP half of [`bind_uds`].
+pub async fn bind_tcp(addr: &str, tls: &Option<PreparedTcpTls>) -> std::io::Result<TcpListener> {
     #[cfg(feature = "server-tls")]
     let acceptor = tls.as_ref().map(|value| value.acceptor.clone());
     #[cfg(not(feature = "server-tls"))]
@@ -712,6 +739,21 @@ pub async fn serve_tcp(
         acceptor.is_some(),
         tls.as_ref().map(|value| value.mutual_tls).unwrap_or(false)
     );
+    Ok(listener)
+}
+
+/// The accept loop on an already-bound TCP listener (the body of the old
+/// one-piece `serve_tcp`).
+pub async fn serve_tcp_listener(
+    listener: TcpListener,
+    state: Arc<RwLock<ServerState>>,
+    coord: Arc<ShutdownCoordinator>,
+    tls: Option<PreparedTcpTls>,
+) -> std::io::Result<()> {
+    #[cfg(feature = "server-tls")]
+    let acceptor = tls.as_ref().map(|value| value.acceptor.clone());
+    #[cfg(not(feature = "server-tls"))]
+    let acceptor = None::<()>;
 
     loop {
         if coord.is_requested() {
