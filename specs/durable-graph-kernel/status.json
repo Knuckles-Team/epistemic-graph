@@ -768,11 +768,11 @@
         "3a14159c3768"
       ],
       "verified_by": [
-        "src/raft/flake_budget.rs:105",
-        "src/raft/flake_budget.rs:112",
-        "src/raft/flake_budget.rs:120",
-        "src/raft/flake_budget.rs:128",
-        "src/raft/flake_budget.rs:85"
+        "src/raft/flake_budget.rs:164",
+        "src/raft/flake_budget.rs:170",
+        "src/raft/flake_budget.rs:177",
+        "src/raft/flake_budget.rs:184",
+        "src/raft/flake_budget.rs:191"
       ]
     },
     {
