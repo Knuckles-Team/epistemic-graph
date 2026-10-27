@@ -26,11 +26,10 @@
 //!
 //! Sharing is explicit (EH-378, `server::foreign_share`): an administrator assigns the
 //! engine-provisioned `foreign-source-use:<owner agent>/<name>` role, and the grantee then
-//! addresses the source as `<owner agent>/<name>`; without that exact grant a name another
-//! owner registered resolves exactly like a name nobody registered: the eg-plan
-//! registry's "no foreign source registered under name" error, listing only the
-//! caller's own names. It is deliberately NOT `ACCESS_DENIED`, which
-//! would tell a caller that some other principal uses that name.
+//! addresses the source as `<owner agent>/<name>`. A plain name another owner registered
+//! is refused at this catalog boundary with the stable `ACCESS_DENIED` code; an entirely
+//! unknown name continues to reach the executor's typed not-found error. The qualified
+//! shared name is the only path that can use an explicit grant.
 //!
 //! **Foreign rows are not RLS-filtered.** A foreign source's rows come from outside
 //! the local snapshot, so the row-level visibility filter that governs local graph
@@ -205,7 +204,50 @@ impl ForeignSourceCatalog {
                     .to_string(),
             );
         };
-        Ok(Some(self.registry_for(caller, isolation)))
+        let registry = self.registry_for(caller, isolation);
+        if self.plan_names_another_owners_source(ops, caller) {
+            crate::metrics::access_denied();
+            return Err(
+                "ACCESS_DENIED: foreign source is outside the caller's owner scope".to_string(),
+            );
+        }
+        Ok(Some(registry))
+    }
+
+    /// Return whether a plan names a plain source registered by another owner. An owner can
+    /// still use its own source under the same name, and an explicitly granted source must use
+    /// its qualified `<owner agent>/<name>` key; neither path is rejected here. Unknown names
+    /// are left to the executor's existing typed not-found error.
+    fn plan_names_another_owners_source(
+        &self,
+        ops: &[eg_plan::Op],
+        caller: &CarrierAuthority,
+    ) -> bool {
+        ops.iter().any(|op| match op {
+            eg_plan::Op::Foreign { name } => self.name_belongs_to_another_owner(name, caller),
+            eg_plan::Op::ForeignScan { source, .. } => match source.as_ref() {
+                eg_types::wire::ForeignSourceSpec::Named { name } => {
+                    self.name_belongs_to_another_owner(name, caller)
+                }
+                _ => false,
+            },
+            #[cfg(feature = "text")]
+            eg_plan::Op::FuseRrf { branches, .. } => branches
+                .iter()
+                .any(|branch| self.plan_names_another_owners_source(branch, caller)),
+            _ => false,
+        })
+    }
+
+    fn name_belongs_to_another_owner(&self, name: &str, caller: &CarrierAuthority) -> bool {
+        let own_key = CatalogKey {
+            owner_scope: caller.owner_scope().to_string(),
+            name: name.to_string(),
+        };
+        !self.entries.contains_key(&own_key)
+            && self.entries.iter().any(|entry| {
+                entry.key().name == name && entry.key().owner_scope != caller.owner_scope()
+            })
     }
 
     /// The spec `owner` registered under `name`, if any.
@@ -343,29 +385,40 @@ mod tests {
     }
 
     #[test]
-    fn another_owners_name_resolves_as_not_registered() {
+    fn another_owners_name_is_refused_with_access_denied() {
         let (a, b) = (carrier("agent-a"), carrier("agent-b"));
         let catalog = ForeignSourceCatalog::default();
         catalog
             .register(&a, "secret_src".into(), http_spec("http://a.invalid/"))
             .expect("http sources are not outbound-gated here");
+        let refused = catalog.resolve_for_plan(
+            &foreign_plan("secret_src"),
+            Some(&b),
+            &IsolationLayer::new(),
+        );
+        assert!(matches!(
+            refused,
+            Err(ref err) if err == "ACCESS_DENIED: foreign source is outside the caller's owner scope"
+        ));
+    }
+
+    #[test]
+    fn unknown_name_keeps_typed_not_found_error() {
+        let catalog = ForeignSourceCatalog::default();
+        let caller = carrier("agent-a");
         let scoped = catalog
             .resolve_for_plan(
-                &foreign_plan("secret_src"),
-                Some(&b),
+                &foreign_plan("unknown_src"),
+                Some(&caller),
                 &IsolationLayer::new(),
             )
-            .expect("a verified caller is never refused outright")
+            .expect("unknown names still bind the caller's empty registry")
             .expect("a FOREIGN plan binds a registry");
-        assert!(scoped.registry().is_empty());
-        let err = match scoped.registry().resolve("secret_src") {
-            Ok(_) => panic!("principal B must not resolve principal A's source"),
-            Err(err) => err,
-        };
-        assert!(
-            err.contains("no foreign source registered") && !err.contains("ACCESS_DENIED"),
-            "cross-owner resolution must look exactly like an unregistered name: {err}"
-        );
+        let err = scoped
+            .registry()
+            .resolve("unknown_src")
+            .expect_err("unknown source must remain a typed not-found refusal");
+        assert!(err.contains("no foreign source registered under name 'unknown_src'"));
     }
 
     #[test]
