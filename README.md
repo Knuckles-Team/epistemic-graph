@@ -17,7 +17,7 @@ The repository is `medulla`. Package, CLI and API identifiers remain unchanged.
 [![PyPI - Version](https://img.shields.io/pypi/v/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-526cff)](https://knuckles-team.github.io/medulla/)
 [![GitHub license](https://img.shields.io/github/license/Knuckles-Team/medulla)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.27.9-blue)](https://github.com/Knuckles-Team/medulla/releases)
+[![Version](https://img.shields.io/badge/version-2.27.10-blue)](https://github.com/Knuckles-Team/medulla/releases)
 [![Build](https://github.com/Knuckles-Team/medulla/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Knuckles-Team/medulla/actions/workflows/ci.yml)
 [![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla/forks)

@@ -1007,9 +1007,21 @@
     {
       "id": "EG-CONTRACT-R053",
       "title": "Split distribution: one server executable, an executable-free wheel (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "18f4fd3521ed",
+        "42376299456f",
+        "701e8e498e07",
+        "805fce6204d9",
+        "88b8c1a73156"
+      ],
+      "verified_by": [
+        "tests/test_build_backend.py:137",
+        "tests/test_check_wheel_completeness.py:215",
+        "tests/test_ci_change_scope.py:647",
+        "tests/test_ci_change_scope.py:691",
+        "tests/test_ci_change_scope.py:820"
+      ],
       "rollup_of": [
         "EG-CONTRACT-R053.1",
         "EG-CONTRACT-R053.2",
@@ -1029,8 +1041,10 @@
     {
       "id": "EG-CONTRACT-R053.1",
       "title": "One executable with subcommands",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "90b88cb49f58"
+      ],
       "verified_by": [
         "tests/test_server_split.py:23"
       ]
@@ -1038,8 +1052,10 @@
     {
       "id": "EG-CONTRACT-R053.2",
       "title": "The wheel carries no executables",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "90b88cb49f58"
+      ],
       "verified_by": [
         "tests/test_build_backend.py:138",
         "tests/test_check_wheel_completeness.py:215"
@@ -1048,8 +1064,10 @@
     {
       "id": "EG-CONTRACT-R053.3",
       "title": "The `server` extra pins the server package in lockstep",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "90b88cb49f58"
+      ],
       "verified_by": [
         "tests/test_server_split.py:38"
       ]
@@ -1057,8 +1075,10 @@
     {
       "id": "EG-CONTRACT-R053.4",
       "title": "Server binary lookup names the install hint",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "90b88cb49f58"
+      ],
       "verified_by": [
         "tests/test_server_split.py:49"
       ]
@@ -1066,8 +1086,10 @@
     {
       "id": "EG-CONTRACT-R053.5",
       "title": "The `release-server` profile sizes the standalone server",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "90b88cb49f58"
+      ],
       "verified_by": [
         "tests/test_server_split.py:66"
       ]
@@ -1075,8 +1097,10 @@
     {
       "id": "EG-CONTRACT-R053.6",
       "title": "Callers of the old binary names use the subcommands",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "90b88cb49f58"
+      ],
       "verified_by": [
         "tests/test_server_split.py:79"
       ]
@@ -1084,8 +1108,10 @@
     {
       "id": "EG-CONTRACT-R053.7",
       "title": "A tag publishes only a commit main CI already passed",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "805fce6204d9"
+      ],
       "verified_by": [
         "tests/test_release_full_wheel_contract.py:798"
       ]
@@ -1095,6 +1121,7 @@
       "title": "The public wheel compiles only the extension modules; each platform publishes independently",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "b1ff94d34fcc",
         "d969ffcfaaad"
       ],
       "verified_by": [
@@ -1109,8 +1136,10 @@
       "title": "The server wheel builds and publishes from this repository",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "18f4fd3521ed",
         "baf9a680a4c4",
-        "dede203bdd50"
+        "dede203bdd50",
+        "eda05facb9ee"
       ],
       "verified_by": [
         "tests/test_server_package.py:190",
@@ -1123,8 +1152,10 @@
     {
       "id": "EG-CONTRACT-R053.10",
       "title": "`binary_path()` locates the installed executable",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eda05facb9ee"
+      ],
       "verified_by": [
         "tests/test_server_package.py:107"
       ]
@@ -1132,8 +1163,10 @@
     {
       "id": "EG-CONTRACT-R053.11",
       "title": "The server image is built from the server wheel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eda05facb9ee"
+      ],
       "verified_by": [
         "tests/test_server_package.py:117"
       ]
@@ -1141,8 +1174,10 @@
     {
       "id": "EG-CONTRACT-R053.12",
       "title": "The server version moves with the engine and a tagged version can be packaged later",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eda05facb9ee"
+      ],
       "verified_by": [
         "tests/test_server_package.py:139",
         "tests/test_server_package.py:157"

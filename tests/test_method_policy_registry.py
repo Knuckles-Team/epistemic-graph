@@ -79,6 +79,27 @@ def test_generated_ledger_uses_registry_order_and_policy_values() -> None:
         ]
 
 
+# spec: EG-DURABLE-KERNEL-R066
+def test_blob_holder_idempotency_matches_published_contract() -> None:
+    """Keep the public policy aligned with the Rust registry and holder tests.
+
+    Runtime behavior is covered by
+    ``src/server/blob/store/tests.rs::a_named_holder_acquire_and_release_are_idempotent_across_distinct_operations``
+    and ``owner_acquire_and_release_are_the_named_holder_path``.
+    """
+    rows = {row.name: row for row in _rows()}
+    methods = json.loads((ROOT / "contract/methods.json").read_text(encoding="utf-8"))[
+        "methods"
+    ]
+    contract = {method["id"]: method for method in methods}
+
+    for name in ("BlobRef", "BlobUnref"):
+        assert name in rows
+        assert name in contract
+        assert rows[name].idempotent is True
+        assert contract[name]["policy"]["idempotent"] is rows[name].idempotent
+
+
 def test_duplicate_domain_declaration_fails_closed() -> None:
     source = load_capability_sources(ROOT)
     duplicate = source.replace(
