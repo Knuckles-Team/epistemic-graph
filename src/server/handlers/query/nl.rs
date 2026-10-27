@@ -199,23 +199,33 @@ pub(crate) async fn handle_nl_query_plan_only(
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
     let _ = graph;
-    let planner = crate::server::nl::resolve_planner()
-        .map_err(|e| Response::err(req_id, nl_config_refusal(&e)))?
-        .ok_or_else(|| {
-            Response::err(
+    let planner = match crate::server::nl::resolve_planner() {
+        Ok(Some(planner)) => planner,
+        Ok(None) => {
+            return Ok(Response::err(
                 req_id,
                 "ENGINE_UNAVAILABLE: NlQuery: no NL planner configured — set an OpenAI-compatible \
                      endpoint in agent-utilities config.json (or \
                      EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
                      server::set_nl_planner"
                     .to_string(),
-            )
-        })?;
-    let (uql, plan) = plan_nl_only(planner.as_ref(), &text, req_id)?;
-    let plan_digest = crate::server::foreign_read::canonical_plan_digest(&plan)
-        .map_err(|error| Response::err(req_id, error))?;
-    let query_digest = super::planning::foreign_uql_query_digest(&uql, &UqlParams::default())
-        .map_err(|error| Response::err(req_id, error))?;
+            ));
+        }
+        Err(error) => return Ok(Response::err(req_id, nl_config_refusal(&error))),
+    };
+    let (uql, plan) = match plan_nl_only(planner.as_ref(), &text, req_id) {
+        Ok(value) => value,
+        Err(response) => return Ok(response),
+    };
+    let plan_digest = match crate::server::foreign_read::canonical_plan_digest(&plan) {
+        Ok(digest) => digest,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let query_digest = match super::planning::foreign_uql_query_digest(&uql, &UqlParams::default())
+    {
+        Ok(digest) => digest,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
     Ok(result_response::<query_results::NlQueryPlan>(
         req_id,
         &eg_types::nl_query::NlQueryPlanResult {

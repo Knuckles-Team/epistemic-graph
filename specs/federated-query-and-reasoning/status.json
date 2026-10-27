@@ -1290,7 +1290,7 @@
         "3da71fa8e9b7"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:397"
+        "src/server/handlers/query/nl.rs:407"
       ]
     },
     {
@@ -1298,6 +1298,7 @@
       "title": "Dispatch handler and result contract disclose the typed NL→UQL model",
       "delivery_state": "LANDED",
       "landed_in": [
+        "2c08f5669413",
         "32248e14e747",
         "569b1ab507d6",
         "8710a3709c47",
@@ -1325,6 +1326,7 @@
       "title": "Served NL result carries the executed UQL; plan-only is reachable",
       "delivery_state": "LANDED",
       "landed_in": [
+        "2c08f5669413",
         "32248e14e747",
         "569b1ab507d6",
         "f9d6d793d946"
@@ -1355,6 +1357,7 @@
       "title": "Plan-only NL entry point",
       "delivery_state": "LANDED",
       "landed_in": [
+        "2c08f5669413",
         "32248e14e747"
       ],
       "verified_by": []
@@ -1369,9 +1372,9 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:322",
-        "src/server/handlers/query/nl.rs:328",
-        "src/server/handlers/query/nl.rs:351",
+        "src/server/handlers/query/nl.rs:332",
+        "src/server/handlers/query/nl.rs:338",
+        "src/server/handlers/query/nl.rs:361",
         "src/server/tests/nl_explain.rs:147"
       ],
       "rollup_of": [
@@ -1388,9 +1391,9 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:322",
-        "src/server/handlers/query/nl.rs:328",
-        "src/server/handlers/query/nl.rs:351"
+        "src/server/handlers/query/nl.rs:332",
+        "src/server/handlers/query/nl.rs:338",
+        "src/server/handlers/query/nl.rs:361"
       ]
     },
     {
@@ -3077,7 +3080,7 @@
         "crates/eg-plan/src/nl_regressions.rs:278",
         "crates/eg-plan/src/nl_regressions.rs:290",
         "crates/eg-plan/src/nl_regressions.rs:319",
-        "src/server/handlers/query/nl.rs:370",
+        "src/server/handlers/query/nl.rs:380",
         "src/server/nl.rs:450"
       ]
     },
