@@ -44425,6 +44425,11 @@
           "const": "harness_contrast",
           "description": "The contrastive harness composition decision (EG-DECISION-ENGINE-R803):\ntwo to eight candidate component versions probed against the same\nbaseline under identical conditions; the engine adopts a candidate only\nwhen its measured `eval_score_delta` is positive and unbeaten, with\ncost as the tie-break, and abstains keeping the current harness when no\ncandidate improves. See `decision::harness_contrast`.",
           "type": "string"
+        },
+        {
+          "const": "branch_outcome",
+          "description": "Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).",
+          "type": "string"
         }
       ]
     },
