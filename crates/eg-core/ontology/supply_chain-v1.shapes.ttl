@@ -1,0 +1,26 @@
+# Supply-chain shapes (EG-SUPPLY-VOCAB-R001.4).
+#
+# SHACL Core only (DECIDE §4.8): the supply-chain module ships its shapes as a
+# standalone companion document; further supply-chain shapes land beside
+# these, never replacing them.
+
+@prefix kg:   <http://knuckles.team/kg#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+
+kg:SupplierShape a sh:NodeShape ;
+    sh:targetClass kg:Supplier ;
+    sh:property [
+        sh:path rdfs:label ; sh:minCount 1 ;
+        sh:message "A Supplier carries a label."
+    ] ;
+    sh:message "A supplier is named." .
+
+kg:SupplyChainItemShape a sh:NodeShape ;
+    sh:targetClass kg:SupplyChainItem ;
+    sh:property [
+        sh:path rdfs:label ; sh:minCount 1 ;
+        sh:message "A SupplyChainItem carries a label."
+    ] ;
+    sh:message "A supply-chain item is named." .

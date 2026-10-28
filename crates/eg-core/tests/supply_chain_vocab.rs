@@ -44,6 +44,25 @@ fn load_supply_chain() -> Vec<Triple> {
         .expect("the supply-chain vocabulary parses")
 }
 
+const SHACL: &str = "http://www.w3.org/ns/shacl#";
+
+const SUPPLY_SHAPES: &str = include_str!("../ontology/supply_chain-v1.shapes.ttl");
+
+const SUPPLY_SHAPE_DATA_PREFIX: &str = r#"
+@prefix kg:   <http://knuckles.team/kg#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:   <http://knuckles.team/test/supply-chain#> .
+"#;
+
+fn shape_violation_path(report: &eg_shacl::ValidationReport, predicate: &str) -> bool {
+    report.results.iter().any(|result| {
+        result
+            .path
+            .as_deref()
+            .is_some_and(|path| path.ends_with(predicate))
+    })
+}
+
 // The TBox the physical chain closes across: the shared foundation, the TRM
 // vendor/asset classes, the infrastructure runtime and the supply-chain module
 // itself (the EG-CQ-XSRC-R002 document set).
@@ -229,4 +248,47 @@ fn container_only_runs_on_neither_infers_nor_retires() {
         eg_rdf::owl::instances_of(&classification, &asserted, &service).is_empty(),
         "a container-only or pod-only runsOn path must not retype its endpoint as a Service"
     );
+}
+
+// spec: EG-SUPPLY-VOCAB-R001.4
+#[test]
+fn supplier_and_item_shapes_require_a_label() {
+    // The companion parses and declares both shapes as node shapes.
+    let shape_triples =
+        parse_turtle(SUPPLY_SHAPES).expect("the supply-chain shapes parse");
+    for shape in ["SupplierShape", "SupplyChainItemShape"] {
+        assert!(
+            has_iri(
+                &shape_triples,
+                &format!("{KG}{shape}"),
+                &format!("{RDF}type"),
+                &format!("{SHACL}NodeShape")
+            ),
+            "{shape} is a node shape"
+        );
+    }
+    // A labelled supplier and item are accepted.
+    let valid = format!(
+        "{SUPPLY_SHAPE_DATA_PREFIX}\nex:namedSupplier a kg:Supplier ;\n    rdfs:label \"Acme Corp\" .\nex:namedItem a kg:SupplyChainItem ;\n    rdfs:label \"Power supply unit\" ."
+    );
+    let report =
+        eg_shacl::validate_turtle(SUPPLY_SHAPES, &valid).expect("valid fixture parses");
+    assert!(report.conforms, "named supplier and item: {:?}", report.results);
+    // A nameless supplier and a nameless item are each refused on the label.
+    for (class, message) in [
+        ("kg:Supplier", "a nameless supplier"),
+        ("kg:SupplyChainItem", "a nameless item"),
+    ] {
+        let nameless = format!(
+            "{SUPPLY_SHAPE_DATA_PREFIX}\nex:nameless a {class} ."
+        );
+        let report =
+            eg_shacl::validate_turtle(SUPPLY_SHAPES, &nameless).expect("fixture parses");
+        assert!(!report.conforms, "{message} must be refused");
+        assert!(
+            shape_violation_path(&report, "<http://www.w3.org/2000/01/rdf-schema#label>"),
+            "{message} is refused on the missing label: {:?}",
+            report.results
+        );
+    }
 }
