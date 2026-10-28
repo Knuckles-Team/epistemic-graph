@@ -457,9 +457,15 @@
     {
       "id": "EG-CQ-ORCH-R008.1",
       "title": "Composed Envelope type",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6a8d04a75171",
+        "8b4193663dd5"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/execution_answer.rs:107",
+        "crates/eg-types/src/decision/execution_answer.rs:118"
+      ]
     },
     {
       "id": "EG-CQ-ORCH-R008.2",
