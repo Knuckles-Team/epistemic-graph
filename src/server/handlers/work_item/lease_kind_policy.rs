@@ -45,6 +45,9 @@ enum LeaseTarget<'a> {
 
 fn lease_target(method: &Method) -> Option<LeaseTarget<'_>> {
     match method {
+        Method::IssueHostStartGrant { .. } => {
+            Some(LeaseTarget::Kind(eg_types::host_start::HOST_START_KIND))
+        }
         Method::IssueControlLease { request } => Some(LeaseTarget::Kind(&request.kind)),
         Method::TransitionControlLease { request } => Some(LeaseTarget::Stored {
             tenant: &request.tenant,
@@ -131,6 +134,13 @@ pub(super) async fn refuse_unpermitted_lease_kind(
     ctx: &HandleContext<'_>,
     method: &Method,
 ) -> Option<Response> {
+    if matches!(method, Method::IssueHostStartGrant { .. }) {
+        if let Some(refusal) =
+            refusal_response(ctx.req_id, require_host_start_issuer(ctx.verified_context))
+        {
+            return Some(refusal);
+        }
+    }
     if let Some(refusal) = refuse_paired_plan(ctx.req_id, method) {
         return Some(refusal);
     }
@@ -140,6 +150,21 @@ pub(super) async fn refuse_unpermitted_lease_kind(
         Err(error) => Err(format!("ACCESS_DENIED: {error}")),
     };
     refusal_response(ctx.req_id, outcome)
+}
+
+// A generic aggregate, wildcard, or lease-writing grant cannot mint issuer records.
+fn require_host_start_issuer(
+    verified: &crate::server::auth::VerifiedRequestContext,
+) -> Result<(), String> {
+    if !verified
+        .claims()
+        .scopes
+        .iter()
+        .any(|scope| scope == eg_types::host_start::HOST_START_ISSUE_SCOPE)
+    {
+        return Err("ACCESS_DENIED: host-start issuance requires exact host:issue-start".into());
+    }
+    Ok(())
 }
 
 fn refusal_response(req_id: u64, outcome: Result<(), String>) -> Option<Response> {
@@ -152,6 +177,25 @@ fn refusal_response(req_id: u64, outcome: Result<(), String>) -> Option<Response
 #[cfg(test)]
 mod tests {
     use super::load_policy;
+
+    #[test]
+    fn host_issuer_requires_dedicated_scope_not_generic_or_wildcard_authority() {
+        use crate::server::auth::VerifiedRequestContext;
+        for scope in ["lease:write", "kg:write", "kg:admin", "host:*", "*"] {
+            let verified = VerifiedRequestContext::verified_for_test_with_scopes(
+                "issuer",
+                "tenant-a",
+                &[scope],
+            );
+            assert!(super::require_host_start_issuer(&verified).is_err());
+        }
+        let verified = VerifiedRequestContext::verified_for_test_with_scopes(
+            "issuer",
+            "tenant-a",
+            &["host:issue-start"],
+        );
+        assert!(super::require_host_start_issuer(&verified).is_ok());
+    }
 
     #[test]
     fn an_unset_policy_restricts_nobody_and_a_malformed_one_fails_closed() {

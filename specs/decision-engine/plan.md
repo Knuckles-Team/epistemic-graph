@@ -7,7 +7,7 @@
 3. **Qualify pack fact admission.** Consume validated component revisions only. Preserve claim provenance, reject decision-owned pack kinds, exclude withdrawn entries and refuse stale projection facts. Gate: E.
 4. **Complete statistical boundary.** Reuse `eg-numeric/decision`, decision jobs, and record v2; make visible-only features, exact propensity logging, independent-outcome admission, calibration, replay and receipt-bound promotion testable. Gate: C–D.
 5. **Add question adapters.** Implement typed retrieval, routing, enrichment, entity-resolution, schema mapping, topology and informational recommendation questions through the same ladder. No adapter owns a second policy or decision store. Gate: D and question-specific negative tests.
-6. **Publish evidence.** Run quality and hosted checks on the exact branch head, land on main, rerun or cite hosted main checks, and update each requirement's delivery and acceptance states. A branch green status is not a main acceptance verdict.
+6. **Publish evidence.** Run quality and hosted checks on the exact branch head, then land on main. Rerun or cite hosted main checks. Update each requirement's delivery and acceptance states. A branch green status is not a main acceptance verdict.
 
 ## Task-plan facts
 
@@ -637,7 +637,7 @@ Types: `RunTraceRecord`, `RuntimeQuota`, `QuotaDefaults`, `QuestionKind::Runtime
 
 Existing code: `crates/eg-types/src/outcome_bundle.rs:56`, `crates/eg-durable/src/project.rs:68`, `crates/eg-core/ontology/orchestration-v1.ttl:250`, `crates/eg-types/src/decision/topology.rs:75`. Reachable today: the fenced terminal outcome extension and receipt writes already exist. RuntimeQuota dispatch, RunTraceRecord adaptation, and produced-link materialization are new work. The end-to-end fixture queries Decide first, commits the summary through CommitWorkItemResult second, then queries the persisted produced link; it also proves invalid fences write neither trace nor link. Search terms used with no match: `quota`, `wall_time`, `process_limit`, `memory_limit`, `RuntimeQuota`. Moves from Meristem: none named.
 
-Decision: the engine fixes the numbers and the harness enforces them, so a tenant policy changes limits without a harness release. Rejected alternative: constants in the harness, because they cannot differ per tenant or task class.
+Decision: the engine fixes the numbers and the harness enforces them. A tenant policy changes limits without a harness release. Rejected alternative: constants in the harness, because they cannot differ per tenant or task class.
 
 Cross-repository: `AU-CONTROL-R041` receives `RuntimeQuota` and enforces it; `AU-CONTROL-R040` emits the run events that become the trace.
 
@@ -2147,6 +2147,19 @@ R036 retains selected-profile authority and atomic decision/task admission.
 A media-specific selected-profile/run snapshot, owner-issued authority binding,
 consumer enforcement, and successful served PNG journey remain open. Do not
 infer them from catalog visibility, supports_vision, model identity, transport,
-or a successful producer fixture. Preserve TUI104's honest refusal until separate
-consumer, admission, and served evidence exists. This amendment changes no
-terminal or admission behavior. It does not close the end-to-end gap.
+or a successful producer fixture. Preserve TUI104's honest refusal until the
+separate consumer/admission/served evidence exists; this amendment changes no
+terminal or admission behavior and does not close that end-to-end gap.
+
+## 2026-10-23: identity-main union for R050
+
+The producer source run passed 2,385 native facade tests. Pack round trips,
+nonvision refusal without mutation, and restart isolation passed. Genuine
+source-matched exports then passed local consumer and JavaScript checks.
+The final artifact run passed hosted canonical parity and client replay.
+
+Main now includes the qualified identity producer from PR 695. This union
+preserves both source implementations. All canonical outputs and codec pins
+retain exact main bytes as temporary placeholders. They do not qualify the
+combined media and identity schemas. Fresh hosted exports and final native
+checks remain required. R050.3 benchmarks and R036 served admission stay open.

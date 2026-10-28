@@ -64,7 +64,7 @@
 | `ResolveCandidates` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `ClusterHierarchyRefresh` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1 hierarchical Leiden clustering for million-node graph visualization: (re)computes and durably caches the cluster hierarchy in its own non-authoritative store (server::persistence::cluster_hierarchy_store), never as graph nodes/edges -- see ClusterHierarchyClusters/ClusterHierarchyExpand |
 | `ClusterHierarchyClusters` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1: GET clusters(graph, level, parent_cluster_id?) from the cached hierarchy |
-| `ClusterHierarchyExpand` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1: GET expand(graph, cluster_id) -- a level-1 cluster's member nodes/edges read live off the graph |
+| `ClusterHierarchyExpand` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1: GET expand(graph, cluster_id). Read the level-1 cluster members directly from the graph |
 | `Vf2SubgraphMatch` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `MatchOntologyTerms` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `BatchL2Normalize` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
@@ -199,11 +199,15 @@
 | `DeferWorkItem` | true | GraphRedb | `work:write` | true | true | false | Atomic | fenced lease release schedules retry without consuming an attempt |
 | `CasWorkItemMetadata` | true | GraphRedb | `work:write` | true | true | false | Atomic | BUG-111: atomic single-field CAS on non-authority scheduling metadata (checkpoint_id/metadata/prio_bucket); status/lease/tenant are fenced but never written |
 | `PublishCurrentPlan` | true | GraphRedb | `work:write` | true | true | false | Atomic | immutable owner and live fence bind revisioned current-plan publication |
+| `PublishRunCheckpoint` | true | GraphRedb | `work:write` | true | true | false | Atomic | owner and live fence atomically bind an immutable private checkpoint and WorkItem head |
+| `GetRunCheckpoint` | false | None | `work:read` | true | false | false | Snapshot | private owner-bound checkpoint and same-snapshot WorkItem view |
 | `GetCurrentPlan` | false | None | `work:read` | true | false | false | Snapshot | authoritative owner-bound current plan and live lease snapshot |
 | `GetRunWorkItem` | false | None | `work:read` | true | false | false | Snapshot | owner-bound immutable run admission and current caller-safe WorkItem snapshot |
+| `GetSessionUsage` | false | None | `usage:read` | true | false | false | Snapshot | bounded caller-context committed usage |
 | `GetWorkItem` | false | None | `work:read` | true | false | false | Snapshot | tenant-bound native WorkItem row view; lease owner/epoch/fencing token never projected |
 | `ListWorkItems` | false | None | `work:read` | true | false | false | Snapshot | bounded tenant-bound WorkItem page; limit/scan/byte bounds each resume through an opaque tenant-bound cursor |
 | `GetWorkItemOutcome` | false | None | `work:read` | true | false | false | Snapshot | tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-verified |
+| `IssueHostStartGrant` | true | GraphRedb | `host:issue-start` | true | true | false | Atomic | bounded immutable host-start assertions with native issuer provenance; application session/execution admission remains with Arbora |
 | `IssueControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | tenant-bound immutable grant record in the WorkItem MutationBatch; an existing id is a collision, never an overwrite |
 | `TransitionControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | one-way active to revoked/expired, CAS on the read revision |
 | `ListControlLeases` | false | None | `lease:read` | true | false | false | Snapshot | bounded tenant-bound control-lease page filtered by kind/status/grant pairs |

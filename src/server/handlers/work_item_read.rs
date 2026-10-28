@@ -25,6 +25,15 @@ use crate::server::persistence::PersistenceBackend;
 
 /// One decoded WorkItem read.
 pub(crate) enum WorkItemRead {
+    SessionUsage {
+        tenant: String,
+        context_id: String,
+        actor: String,
+    },
+    Checkpoint {
+        request: eg_types::run_checkpoint::GetRunCheckpointRequest,
+        actor: String,
+    },
     RunAdmission {
         tenant: String,
         run_id: String,
@@ -64,8 +73,15 @@ pub(crate) enum WorkItemRead {
 impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
-            Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
-            Self::CurrentPlan { tenant, .. } | Self::RunAdmission { tenant, .. } => tenant,
+            Self::Checkpoint {
+                request: eg_types::run_checkpoint::GetRunCheckpointRequest { tenant, .. },
+                ..
+            }
+            | Self::Get { tenant, .. }
+            | Self::Outcome { tenant, .. } => tenant,
+            Self::CurrentPlan { tenant, .. }
+            | Self::RunAdmission { tenant, .. }
+            | Self::SessionUsage { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLeases(request) => &request.tenant,
             Self::ControlLease { tenant, .. } | Self::Gap { tenant, .. } => tenant,
@@ -89,17 +105,20 @@ pub(crate) async fn answer(
         return Response::err(req_id, denied);
     }
     let graph = crate::persist::sanitize(graph_name);
+    let checkpoint = matches!(&read, WorkItemRead::Checkpoint { .. });
     match serve_native(&graph, persistence, read).await {
         Ok(payload) => Response::ok(req_id, payload),
-        Err(error)
-            if error.split_once(": ").is_some_and(|(code, _)| {
-                code == eg_types::contract::ServerErrorCode::RunAdmissionUnavailable.as_str()
-            }) =>
-        {
-            Response::err(req_id, error)
-        }
+        Err(error) if preserves_native_refusal(&error, checkpoint) => Response::err(req_id, error),
         Err(error) => Response::err(req_id, format!("WorkItem read failed: {error}")),
     }
+}
+
+/// Keep checkpoint claim conflicts typed without widening other read contracts.
+fn preserves_native_refusal(error: &str, checkpoint: bool) -> bool {
+    error.split_once(": ").is_some_and(|(code, _)| {
+        code == eg_types::contract::ServerErrorCode::RunAdmissionUnavailable.as_str()
+            || (checkpoint && code == eg_types::contract::EngineErrorCode::Conflict.as_str())
+    })
 }
 
 async fn serve_native(
@@ -126,6 +145,24 @@ async fn serve_native(
                 backend
                     .read_run_work_item(graph, &tenant, &run_id, &actor)
                     .await?,
+            )
+        }
+        WorkItemRead::SessionUsage {
+            tenant,
+            context_id,
+            actor,
+        } => {
+            let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetSessionUsage>(
+                backend
+                    .read_session_usage(graph, &tenant, &context_id, &actor)
+                    .await?,
+            )
+        }
+        WorkItemRead::Checkpoint { request, actor } => {
+            let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetRunCheckpoint>(
+                backend.read_run_checkpoint(graph, request, &actor).await?,
             )
         }
         WorkItemRead::CurrentPlan {

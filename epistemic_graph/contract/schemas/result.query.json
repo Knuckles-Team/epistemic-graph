@@ -6310,6 +6310,82 @@
         }
       ]
     },
+    "CheckpointClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "worker_id",
+        "lease_epoch",
+        "fencing_token"
+      ],
+      "type": "object"
+    },
+    "CheckpointContent": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "long_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "short_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "content",
+        "payload_digest",
+        "short_term",
+        "long_term"
+      ],
+      "type": "object"
+    },
+    "CheckpointMemoryRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "revision",
+        "digest"
+      ],
+      "type": "object"
+    },
     "ClaimAuthor": {
       "description": "Who made a claim. Either way it is a claim, never a fact.",
       "enum": [
@@ -15923,6 +15999,41 @@
       ],
       "type": "object"
     },
+    "GetRunCheckpointRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "current_claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckpointClaim"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "work_item_id",
+        "run_id",
+        "context_id"
+      ],
+      "type": "object"
+    },
     "GovernedActor": {
       "additionalProperties": false,
       "description": "Who acted, stamped from the verified request context at the boundary.",
@@ -17075,6 +17186,57 @@
         "encoding"
       ],
       "type": "object"
+    },
+    "HostStartBinding": {
+      "additionalProperties": false,
+      "description": "Immutable assertions from the access owner, not evidence of session liveness.",
+      "properties": {
+        "configuration_digest": {
+          "type": "string"
+        },
+        "interfaces": {
+          "$ref": "#/$defs/HostStartInterfaces"
+        },
+        "policy_revision": {
+          "type": "string"
+        },
+        "principal_ref": {
+          "type": "string"
+        },
+        "session_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_ref": {
+          "type": "string"
+        },
+        "web_logs": {
+          "type": "boolean"
+        },
+        "workspace_ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal_ref",
+        "session_ref",
+        "workspace_ref",
+        "configuration_digest",
+        "interfaces",
+        "web_logs",
+        "policy_revision",
+        "session_expires_at_ms"
+      ],
+      "type": "object"
+    },
+    "HostStartInterfaces": {
+      "enum": [
+        "terminal",
+        "web",
+        "both"
+      ],
+      "type": "string"
     },
     "HttpFieldMap": {
       "description": "Which JSON element fields become a RowSet row's id / score (for\n[`ForeignSourceSpec::HttpJson`]).",
@@ -19108,6 +19270,36 @@
         "issued_at_ms",
         "expires_at_ms",
         "hard_expires_at_ms",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "IssueHostStartGrantRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/HostStartBinding"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "lease_id": {
+          "type": "string"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "lease_id",
+        "binding",
+        "expires_at_ms",
         "idempotency_key"
       ],
       "type": "object"
@@ -38418,6 +38610,58 @@
           "additionalProperties": false,
           "properties": {
             "method": {
+              "const": "PublishRunCheckpoint",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/PublishRunCheckpointRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "GetRunCheckpoint",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/GetRunCheckpointRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
               "const": "PublishCurrentPlan",
               "type": "string"
             },
@@ -38460,6 +38704,37 @@
               "required": [
                 "tenant",
                 "run_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Caller-owned committed measurements from one bounded snapshot.",
+          "properties": {
+            "method": {
+              "const": "GetSessionUsage",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "context_id": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tenant",
+                "context_id"
               ],
               "type": "object"
             }
@@ -38621,7 +38896,33 @@
         },
         {
           "additionalProperties": false,
-          "description": "Issue one active control lease: an immutable, time-boxed grant record.\nA row already holding the id answers `collision` and is left untouched.\n`request.tenant` must equal the verified request tenant. See\n[`crate::control_lease`].",
+          "description": "Issue one active control lease: an immutable, time-boxed grant record.\nA row already holding the id answers `collision` and is left untouched.\n`request.tenant` must equal the verified request tenant. See\n[`crate::control_lease`].\nPersist a grant from an explicitly authorized host-start issuer.",
+          "properties": {
+            "method": {
+              "const": "IssueHostStartGrant",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/IssueHostStartGrantRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "properties": {
             "method": {
               "const": "IssueControlLease",
@@ -44916,6 +45217,62 @@
         "worker_id",
         "lease_epoch",
         "fencing_token",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "PublishRunCheckpointRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/CheckpointContent"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "work_item_id",
+        "run_id",
+        "context_id",
+        "worker_id",
+        "lease_epoch",
+        "fencing_token",
+        "snapshot",
         "idempotency_key"
       ],
       "type": "object"

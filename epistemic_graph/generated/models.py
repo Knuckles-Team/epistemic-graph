@@ -2516,6 +2516,31 @@ class ChannelType(str, Enum):
     GROUP = "Group"
 
 
+class CheckpointClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fencing_token: Annotated[int, Field(ge=0)]
+    lease_epoch: Annotated[int, Field(ge=0)]
+    worker_id: str
+
+
+class CheckpointContent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content: str
+    long_term: list[CheckpointMemoryRef]
+    payload_digest: str
+    short_term: list[CheckpointMemoryRef]
+
+
+class CheckpointMemoryRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    document_id: str
+    revision: Annotated[int, Field(ge=0)]
+
+
 class ClaimAuthor(str, Enum):
     AGENT = "agent"
     PERSON = "person"
@@ -3073,6 +3098,7 @@ class ControlLeaseView(BaseModel):
     expires_at_ms: Annotated[int, Field(ge=0)]
     grant: dict[str, Any]
     hard_expires_at_ms: Annotated[int, Field(ge=0)]
+    host_start_provenance: HostStartProvenance | None = None
     issued_at_ms: Annotated[int, Field(ge=0)]
     kind: str
     lease_id: str
@@ -6408,6 +6434,16 @@ class GenerationReceipt(BaseModel):
     wins: Annotated[int, Field(ge=0)]
 
 
+class GetRunCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    current_claim: CheckpointClaim | None = None
+    run_id: str
+    tenant: str
+    work_item_id: str
+
+
 class GovernedActor(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -6914,6 +6950,32 @@ class HealthReport(BaseModel):
     status: str
     uptime_s: Annotated[int, Field(ge=0)]
     version: str
+
+
+class HostStartBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    configuration_digest: str
+    interfaces: HostStartInterfaces
+    policy_revision: str
+    principal_ref: str
+    session_expires_at_ms: Annotated[int, Field(ge=0)]
+    session_ref: str
+    web_logs: bool
+    workspace_ref: str
+
+
+class HostStartInterfaces(str, Enum):
+    TERMINAL = "terminal"
+    WEB = "web"
+    BOTH = "both"
+
+
+class HostStartProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    issuer_ref: str
+    schema_version: Annotated[int, Field(ge=0)]
 
 
 class HttpFieldMap(BaseModel):
@@ -8092,6 +8154,16 @@ class IssueControlLeaseRequest(BaseModel):
     kind: str
     lease_id: str
     pending_call_registration: PendingCallRegistration | None = None
+    tenant: str
+
+
+class IssueHostStartGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding: HostStartBinding
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_id: str
     tenant: str
 
 
@@ -12218,6 +12290,20 @@ class MethodEdgeSearch(BaseModel):
     params: MethodEdgeSearchParams
 
 
+class MethodPublishRunCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PublishRunCheckpoint"]
+    params: MethodPublishRunCheckpointParams
+
+
+class MethodGetRunCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetRunCheckpoint"]
+    params: MethodGetRunCheckpointParams
+
+
 class MethodPublishCurrentPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12230,6 +12316,13 @@ class MethodGetCurrentPlan(BaseModel):
 
     method: Literal["GetCurrentPlan"]
     params: MethodGetCurrentPlanParams
+
+
+class MethodGetSessionUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetSessionUsage"]
+    params: MethodGetSessionUsageParams
 
 
 class MethodGetRunWorkItem(BaseModel):
@@ -12258,6 +12351,13 @@ class MethodGetWorkItemOutcome(BaseModel):
 
     method: Literal["GetWorkItemOutcome"]
     params: MethodGetWorkItemOutcomeParams
+
+
+class MethodIssueHostStartGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["IssueHostStartGrant"]
+    params: MethodIssueHostStartGrantParams
 
 
 class MethodIssueControlLease(BaseModel):
@@ -12846,12 +12946,16 @@ Method = Annotated[
     | MethodMutationOutbox
     | MethodEdgeIndex
     | MethodEdgeSearch
+    | MethodPublishRunCheckpoint
+    | MethodGetRunCheckpoint
     | MethodPublishCurrentPlan
     | MethodGetCurrentPlan
+    | MethodGetSessionUsage
     | MethodGetRunWorkItem
     | MethodGetWorkItem
     | MethodListWorkItems
     | MethodGetWorkItemOutcome
+    | MethodIssueHostStartGrant
     | MethodIssueControlLease
     | MethodTransitionControlLease
     | MethodGetControlLease
@@ -14595,10 +14699,23 @@ class MethodGetPredecessorsParams(BaseModel):
     node_id: str
 
 
+class MethodGetRunCheckpointParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: GetRunCheckpointRequest
+
+
 class MethodGetRunWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     run_id: str
+    tenant: str
+
+
+class MethodGetSessionUsageParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
     tenant: str
 
 
@@ -14756,6 +14873,12 @@ class MethodIssueControlLeaseParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: IssueControlLeaseRequest
+
+
+class MethodIssueHostStartGrantParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: IssueHostStartGrantRequest
 
 
 class MethodJoinChannelParams(BaseModel):
@@ -15395,6 +15518,12 @@ class MethodPublishParams(BaseModel):
     exchange: str
     payload: _EgOctets
     routing_key: str
+
+
+class MethodPublishRunCheckpointParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: PublishRunCheckpointRequest
 
 
 class MethodQuantumParams(BaseModel):
@@ -18522,6 +18651,21 @@ class PublishCurrentPlanRequest(BaseModel):
     worker_id: str
 
 
+class PublishRunCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    expected_revision: Annotated[int, Field(ge=0)] | None = None
+    fencing_token: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_epoch: Annotated[int, Field(ge=0)]
+    run_id: str
+    snapshot: CheckpointContent
+    tenant: str
+    work_item_id: str
+    worker_id: str
+
+
 class QuantumExpectationResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19874,6 +20018,30 @@ class RuleReasonResponse(BaseModel):
     facts: list[RuleFact]
     registered_rules: list[str]
     same_as: list[RuleReasonResponseSameAsItem]
+
+
+class RunCheckpointPublished(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    context_id: str
+    payload_digest: str
+    replayed: bool
+    revision: Annotated[int, Field(ge=0)]
+    run_id: str
+    work_item_id: str
+
+
+class RunCheckpointRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content: str
+    context_id: str
+    long_term: list[CheckpointMemoryRef]
+    payload_digest: str
+    revision: Annotated[int, Field(ge=0)]
+    short_term: list[CheckpointMemoryRef]
+    work_item: WorkItemView
 
 
 class RunCompletionInput(BaseModel):
@@ -22112,6 +22280,18 @@ class SessionTouch(BaseModel):
     code: Secret | None = None
     refresh: bool | None = None
     session_token: Secret
+
+
+class SessionUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    count_coverage: dict[str, Annotated[int, Field(ge=0)]]
+    counts: dict[str, Annotated[int, Field(ge=0)]]
+    expected_runs: Annotated[int, Field(ge=0)]
+    inventory_complete: bool
+    missing_runs: Annotated[int, Field(ge=0)]
+    recorded_runs: Annotated[int, Field(ge=0)]
 
 
 class SessionView(BaseModel):
@@ -25137,6 +25317,9 @@ GetNodePropertiesBatchResult = list[GetNodePropertiesBatchResultValueItem]
 GetRdfResult = str
 
 
+GetRunCheckpointResult = RunCheckpointRead | None
+
+
 GetRunWorkItemResult = RunWorkItemView | None
 
 
@@ -26383,6 +26566,9 @@ __all__ = [
     "ChannelMessage",
     "ChannelSummary",
     "ChannelType",
+    "CheckpointClaim",
+    "CheckpointContent",
+    "CheckpointMemoryRef",
     "ClaimAuthor",
     "ClaimNextResult",
     "ClaimNextResultValue",
@@ -27040,6 +27226,8 @@ __all__ = [
     "GetNodePropertiesBatchResult",
     "GetNodePropertiesBatchResultValueItem",
     "GetRdfResult",
+    "GetRunCheckpointRequest",
+    "GetRunCheckpointResult",
     "GetRunWorkItemResult",
     "GetShortestPathResult",
     "GetWorkItemOutcomeResult",
@@ -27122,6 +27310,9 @@ __all__ = [
     "HeadKind",
     "HealthReport",
     "HeldBlobRef",
+    "HostStartBinding",
+    "HostStartInterfaces",
+    "HostStartProvenance",
     "HttpFieldMap",
     "IdempotentPublish",
     "IdentityActor",
@@ -27272,6 +27463,7 @@ __all__ = [
     "InvalidationEvent",
     "InvalidationScope",
     "IssueControlLeaseRequest",
+    "IssueHostStartGrantRequest",
     "ItemLabel",
     "ItemLabelGold",
     "ItemLabelLogged",
@@ -27921,8 +28113,12 @@ __all__ = [
     "MethodGetPredecessors",
     "MethodGetPredecessorsParams",
     "MethodGetRdf",
+    "MethodGetRunCheckpoint",
+    "MethodGetRunCheckpointParams",
     "MethodGetRunWorkItem",
     "MethodGetRunWorkItemParams",
+    "MethodGetSessionUsage",
+    "MethodGetSessionUsageParams",
     "MethodGetShortestPath",
     "MethodGetShortestPathParams",
     "MethodGetSubgraph",
@@ -27971,6 +28167,8 @@ __all__ = [
     "MethodInvalidateEdgeParams",
     "MethodIssueControlLease",
     "MethodIssueControlLeaseParams",
+    "MethodIssueHostStartGrant",
+    "MethodIssueHostStartGrantParams",
     "MethodJoinChannel",
     "MethodJoinChannelParams",
     "MethodKgDelegate",
@@ -28121,6 +28319,8 @@ __all__ = [
     "MethodPublishIdempotent",
     "MethodPublishIdempotentParams",
     "MethodPublishParams",
+    "MethodPublishRunCheckpoint",
+    "MethodPublishRunCheckpointParams",
     "MethodQuantum",
     "MethodQuantumParams",
     "MethodQueryDevelopmentLane",
@@ -28788,6 +28988,7 @@ __all__ = [
     "ProvisionedUser",
     "PruneStats",
     "PublishCurrentPlanRequest",
+    "PublishRunCheckpointRequest",
     "QuantScaleTag",
     "QuantisedValue",
     "QuantumExpectationResult",
@@ -28949,6 +29150,8 @@ __all__ = [
     "RuleProofNode",
     "RuleReasonResponse",
     "RuleReasonResponseSameAsItem",
+    "RunCheckpointPublished",
+    "RunCheckpointRead",
     "RunCompletionInput",
     "RunCompletionPayload",
     "RunEvent",
@@ -29203,6 +29406,7 @@ __all__ = [
     "ServerTransport",
     "SessionRecordProjection",
     "SessionTouch",
+    "SessionUsage",
     "SessionView",
     "Sha256Digest",
     "ShaclSeverity",

@@ -113,7 +113,8 @@ fn the_canonical_bootstrap_matches_the_declared_shard_census() {
     // 58 -> 59: the tenant-scoped operation audit-append idempotency index
     // `audit_requests`.
     // 59 -> 60: the private current-plan snapshot table `work_item_current_plans`.
-    assert_eq!(declared.len(), 60);
+    // 60 -> 61: the private checkpoint table `work_item_run_checkpoints`.
+    assert_eq!(declared.len(), 61);
 
     for retired in [
         "mutation_batches",

@@ -3,8 +3,14 @@ macro_rules! __eg_method_chunk_11 {
         __eg_method_finish!(@acc [
 $($variants)*
 
+    PublishRunCheckpoint { request: crate::run_checkpoint::PublishRunCheckpointRequest },
+    GetRunCheckpoint { request: crate::run_checkpoint::GetRunCheckpointRequest },
+
+
     PublishCurrentPlan { request: crate::current_plan::PublishCurrentPlanRequest },
     GetCurrentPlan { tenant: String, run_id: String },
+    /// Caller-owned committed measurements from one bounded snapshot.
+    GetSessionUsage { tenant: String, context_id: String },
     /// Historical native run admission, visible only to its verified immutable
     /// owner. Missing and foreign rows return null; missing original admission
     /// evidence refuses explicitly. Independent of current lease or terminal state.
@@ -52,6 +58,8 @@ $($variants)*
     /// A row already holding the id answers `collision` and is left untouched.
     /// `request.tenant` must equal the verified request tenant. See
     /// [`crate::control_lease`].
+    /// Persist a grant from an explicitly authorized host-start issuer.
+    IssueHostStartGrant { request: crate::host_start::IssueHostStartGrantRequest },
     IssueControlLease {
         request: crate::control_lease::IssueControlLeaseRequest,
     },
