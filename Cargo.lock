@@ -2864,6 +2864,7 @@ dependencies = [
 name = "eg-durable"
 version = "0.1.0"
 dependencies = [
+ "rmp-serde",
  "serde",
  "serde_json",
 ]

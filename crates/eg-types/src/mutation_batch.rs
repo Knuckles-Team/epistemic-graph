@@ -4,11 +4,13 @@
 //! semantics. Persistence commits authoritative rows, receipt, idempotency, OCC,
 //! fencing, and outbox state atomically before serving projections are published.
 
+mod fanout;
 mod fault;
 mod model;
 mod validation;
 pub use validation::MAX_MUTATION_OPERATIONS;
 
+pub use fanout::{ShardFanoutOutcome, ShardFanoutReport, MAX_FANOUT_SUB_BATCHES};
 pub use fault::apply_certification_fault;
 pub use model::*;
 
