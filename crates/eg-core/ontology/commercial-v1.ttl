@@ -22,6 +22,24 @@ at least one service; the contract-to-service link is source-mapped, and until a
 source names it the report abstains Uncovered.""" ;
     rdfs:subClassOf bfo:0000031 .
 
+:contractCustomer a owl:ObjectProperty ;
+    rdfs:label "contract customer" ;
+    rdfs:comment "Links a CustomerContract to the Customer that holds it: exactly one." ;
+    rdfs:domain :CustomerContract ;
+    rdfs:range :Customer .
+
+:contractStatus a owl:DatatypeProperty ;
+    rdfs:label "contract status" ;
+    rdfs:comment "The lifecycle status of a CustomerContract (for example draft, active or closed)." ;
+    rdfs:domain :CustomerContract ;
+    rdfs:range xsd:string .
+
+:contractEnd a owl:DatatypeProperty ;
+    rdfs:label "contract end" ;
+    rdfs:comment "The date a CustomerContract ends or has ended." ;
+    rdfs:domain :CustomerContract ;
+    rdfs:range xsd:dateTime .
+
 :coversService a owl:ObjectProperty ;
     rdfs:label "covers service" ;
     rdfs:comment "Links a CustomerContract to each Service the contract covers." ;
@@ -44,3 +62,14 @@ source names it the report abstains Uncovered.""" ;
     rdfs:comment "The date an Opportunity is expected to close, or has closed." ;
     rdfs:domain :Opportunity ;
     rdfs:range xsd:dateTime .
+
+:supportsCapability a owl:ObjectProperty ;
+    rdfs:label "supports capability" ;
+    rdfs:comment "Links a Service to the BusinessCapability it supports (decision D1, recorded by EG-SUPPLY-VOCAB-R003.4). The shared kg:supports Evidence-to-claim property is deliberately not reused." ;
+    rdfs:domain infra:Service ;
+    rdfs:range :BusinessCapability .
+
+:PurchaseOrder a owl:Class ;
+    rdfs:label "Purchase Order" ;
+    rdfs:comment "A purchase order a customer raises against a supplier; its line items are kg:suppliesItem edges from the order to each kg:SupplyChainItem. Reuses the ERPNext Purchase Order IRI." ;
+    rdfs:subClassOf bfo:0000031 .

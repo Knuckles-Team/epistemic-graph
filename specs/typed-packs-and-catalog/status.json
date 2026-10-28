@@ -2338,7 +2338,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/tests/connector_pack_vocabulary.rs:51"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R101.2",
@@ -2455,7 +2457,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/tests/connector_pack_vocabulary.rs:221",
+        "crates/eg-shacl/tests/connector_pack_shapes.rs:45"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R102.2",

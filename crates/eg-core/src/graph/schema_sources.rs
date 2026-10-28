@@ -25,8 +25,9 @@ use super::LegacyIntegrityPolicy;
 /// data-platform vocabulary plus the data-platform, IT4IT-delivery, media and
 /// retrieval domain modules (51, EG-DATAPLAT-VOCAB-R001.1 and
 /// EG-TYPED-PACKS-R105.6 to R105.9), the commercial module with its shapes
-/// companion (52, EG-SUPPLY-VOCAB-R003.13), and the supply-chain vocabulary
-/// (53, EG-SUPPLY-VOCAB-R001.1.2).
+/// companion (52, EG-SUPPLY-VOCAB-R003.13), the supply-chain vocabulary
+/// (53, EG-SUPPLY-VOCAB-R001.1.2), and the connector-pack vocabulary with its
+/// shapes companion (54, EG-TYPED-PACKS-R101.1 to R102.1).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -901,6 +902,16 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/supply_chain-v1.ttl")),
         },
+        // EG-TYPED-PACKS-R101.1/R102.1: the connector-pack ingest-contract and
+        // surface vocabulary, registered once, with its shapes companion wired
+        // into the same CoreSpec shapes field (the commercial pattern,
+        // EG-SUPPLY-VOCAB-R003.13/R003.14).
+        CoreSpec {
+            module: "connector-pack",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/connector_pack-v1.shapes.ttl")),
+            ontology: Some(include_str!("../../ontology/connector_pack-v1.ttl")),
+        },
     ];
     SPECS
 }
@@ -975,7 +986,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 53);
+        assert_eq!(sources.core.len(), 54);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1262,7 +1273,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "10305673e8685d7880c4e8ed40921eeadb3e3380b2094f66a7038cbf8fe28546",
+                "7f4f7ac47c6a76c88052877a1915c7227643c632590db8e2d7081544a61dc744",
             ),
             (
                 "company",
@@ -1447,11 +1458,18 @@ mod tests {
             // shapes companion) joins the catalog; the pin follows the ontology.
             (
                 "commercial",
-                "2faf2564a0a8715030cd64f4ca342312db5f71a4f654cd05b5761eb3d18ac53d",
+                "6659980a41cf3d4702e31d34942d6f45d32dbbece5cabfc327118145963e5a2a",
             ),
             (
                 "supply_chain",
                 "640999e7f89656c1e599c82ee240faf5d434480526fa6b6aeaf6a03eef4a2007",
+            ),
+            // EG-TYPED-PACKS-R101.1/R102.1: the connector-pack module (ontology
+            // plus its surface shapes companion) joins the catalog; the pin
+            // follows the ontology.
+            (
+                "connector-pack",
+                "129b2707c8bbd818bfd71d2678d0352152a5aacadc0704e27d5951e5a00f2fae",
             ),
         ];
         let catalog = current_core_catalog();
