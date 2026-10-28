@@ -576,3 +576,67 @@ fn secret_metadata_terms_present() {
     assert_domain_range(&triples, "grantPath", "PolicyPathGrant", "SecretPath");
     assert_domain_range(&triples, "grantsCapability", "PolicyPathGrant", "xsd:string");
 }
+
+// spec: EG-DATAPLAT-VOCAB-R005.2
+#[test]
+fn secret_path_with_extra_property_rejected() {
+    // A clean secret path — its name plus the store link, nothing else — conforms.
+    let clean = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:engine a dp:SecretEngine .
+
+ex:path a dp:SecretPath ;
+    dp:pathName "secret/data/production/db" ;
+    dp:inStore ex:engine .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, clean).expect("the clean secret path parses before validation");
+    assert!(
+        report.conforms,
+        "a secret path carrying only its name and store link must conform: {:?}",
+        report.results
+    );
+
+    // The same path with one extra property — a pasted value — is a violation:
+    // the closed shape names exactly the properties a secret path may carry.
+    let extra = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:engine a dp:SecretEngine .
+
+ex:path a dp:SecretPath ;
+    dp:pathName "secret/data/production/db" ;
+    dp:inStore ex:engine ;
+    ex:secret "c2VjcmV0IHZhbHVl" .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, extra).expect("the extra-property document parses before validation");
+    assert!(
+        !report.conforms,
+        "a secret path with any extra property must be rejected: {:?}",
+        report.results
+    );
+
+    // Closed holds for the other secret classes too: an access policy is the
+    // name and the store link — never a rule body.
+    let policy_with_rules = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:engine a dp:SecretEngine .
+
+ex:policy a dp:AccessPolicy ;
+    dp:inStore ex:engine ;
+    ex:rules "path \"secret/production/*\" { capability \"read\" }" .
+"#;
+    let report = validate_turtle(DP_SHAPES, policy_with_rules)
+        .expect("the rule-body document parses before validation");
+    assert!(
+        !report.conforms,
+        "an access policy carrying a rule body must be rejected: {:?}",
+        report.results
+    );
+}

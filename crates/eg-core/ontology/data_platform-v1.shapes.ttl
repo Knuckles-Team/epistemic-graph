@@ -66,3 +66,70 @@ dp:PartitionLagShape a sh:NodeShape ;
         sh:datatype xsd:dateTime ;
         sh:message "A partition lag names exactly one asOf observation time."
     ] .
+
+# Secret metadata: `sh:closed true` with the same technique as `vg:EndpointRefShape` —
+# the shape names exactly the metadata properties a node may carry (plus the
+# applicable shared store/provenance links), so any other property — a value,
+# `data`, `token`, `password`, `rules`, `ciphertext` — is itself the violation.
+
+dp:SecretEngineShape a sh:NodeShape ;
+    sh:targetClass dp:SecretEngine ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:viaConnection ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A secret engine carries only its shared store/provenance metadata — never a secret value, token, password, ciphertext or rule body." .
+
+dp:SecretPathShape a sh:NodeShape ;
+    sh:targetClass dp:SecretPath ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:pathName ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:hasRotationState ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A secret path name must not contain '=' or a base64-looking run longer than 64 characters — that is a value pasted into a path." ;
+        sh:prefixes dp:DataPlatformPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this dp:pathName ?path .
+                FILTER(contains(?path, "=") || regex(?path, "[A-Za-z0-9+/]{65,}"))
+            }
+        """ ;
+    ] ;
+    sh:message "A secret path carries only its name and rotation metadata — never a value, token, password, ciphertext or rule body." .
+
+dp:AccessPolicyShape a sh:NodeShape ;
+    sh:targetClass dp:AccessPolicy ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "An access policy carries only its shared store/provenance metadata — the name only; the rule body is never modelled." .
+
+dp:RotationStateShape a sh:NodeShape ;
+    sh:targetClass dp:RotationState ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:lastRotatedAt ] ;
+    sh:property [ sh:path dp:currentVersion ] ;
+    sh:property [ sh:path dp:leaseExpiresAt ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A rotation state carries only version/rotation metadata — never a secret value, token, password or ciphertext." .
+
+dp:PolicyPathGrantShape a sh:NodeShape ;
+    sh:targetClass dp:PolicyPathGrant ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:grantPolicy ] ;
+    sh:property [ sh:path dp:grantPath ] ;
+    sh:property [ sh:path dp:grantsCapability ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A policy-path grant carries only its policy/path/capability metadata — permissions are scoped to that pair, never flattened onto the policy." .
+
+dp:DataPlatformPrefixes a owl:Ontology ;
+    sh:declare [ sh:prefix "dp" ; sh:namespace "http://knuckles.team/kg/data-platform#"^^xsd:anyURI ] .
