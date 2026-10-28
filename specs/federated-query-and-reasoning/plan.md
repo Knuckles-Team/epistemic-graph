@@ -722,7 +722,10 @@ Preserve `EG-FEDERATED-QUERY-R001, EG-FEDERATED-QUERY-R011, EG-DECISION-ENGINE-R
 
 ### `EG-FEDERATED-QUERY-R040.5`
 
-**Definition hold — no parameter-free memory admission/encoding owner exists.** Existing lifecycle and filter-aware query operators do not specify persistent memory admission or preservation of earlier knowledge. They also do not define cross-document relation encoding. The source leaves the memory owner, admitted record/source identity, relation vocabulary, update/retention policy, and selectivity-versus-corpus benchmark target undecided. Those fields and an authorized producer/consumer operation are prerequisites. R017.4 filtered scans remain separate coverage and cannot replace memory admission. Do not claim model weights change or that a no-forgetting property follows from ordinary graph writes.
+The earlier generic definition hold is superseded by the 2026-10-26 LEANN-inspired low-storage ANN
+definition patch below. R040.5 remains SPECIFIED: no implementation or evidence follows from this
+plan alone. The patch preserves the existing source record and obligations and binds the new work
+to the current semantic-index, embedding-identity and query authorities.
 
 Preserve `EG-FEDERATED-QUERY-R007, EG-FEDERATED-QUERY-R040, EG-FEDERATED-QUERY-R040.4, EG-FEDERATED-QUERY-R008`. Source record `EG:20` SHA-256 `07df52b453f0f1b7be7aec7bf790f087c3fc5e13500915011382a9fcd8d9d41a`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
@@ -962,3 +965,94 @@ adds named stored queries with materialized results. R709 adds the GeoSPARQL fun
 ## One plan and one RowSet algebra (R720, R721)
 
 `crates/eg-plan/src/rowset.rs` defines `RowSet`, the one currency between plan operators. `crates/eg-modality/src/rowset.rs` defines `RowSetShape` for each modality. The UQL grammar already holds the `CONFIDENCE`, `BELIEF AS OF`, `CONTRADICTS` and `EVIDENCE FOR` stages. R720 adds the `DECAY` and `CLUSTER BY EMBEDDING` stages and the epistemic row fields. `CLUSTER BY EMBEDDING` reuses `crates/eg-compute/src/mining/cluster.rs`. R721 binds every modality to the contract, the planner and the redb store registry.
+
+<!-- spec-definition-patch:leann-low-storage-ann-plan-20261026 -->
+## EG-FEDERATED-QUERY-R040.5 — LEANN-inspired low-storage ANN integration plan
+
+This is a definition and integration plan. It does not claim native, served, deployed or
+benchmark evidence. The owner remains Medulla (`EG-FEDERATED-QUERY`); the existing semantic
+index lifecycle, filtered ANN contract and source authority remain the only authorities.
+
+### Reference pin and measurement boundary
+
+The reference source is [StarTrail-org/LEANN](https://github.com/StarTrail-org/LEANN) at
+source commit `b51ddc0b1f8085eefe6d4c3209d5cdb71ddecba1`. Its checked-in README describes
+graph-based selective recomputation, high-degree-preserving pruning, compact/CSR graph
+storage, and configurable `hnsw`/`diskann` builds. The paper pin is [LEANN: A Low-Storage
+Vector Index, arXiv:2506.08276](https://arxiv.org/abs/2506.08276). Those claims are research
+inputs only. The README's 97% storage statement is not an EG target, acceptance threshold or
+release claim.
+
+Every Medulla fixture must pin all three inputs independently:
+
+- **Source text:** an authorized source snapshot, stable source id, source revision and text
+  digest. The ANN artifact stores the reference and digest, not a second copy of source text.
+- **Embedding model:** the complete `EmbeddingSpaceRef` identity (model id/revision,
+  tokenizer/preprocessing digest, dimension and normalization), plus the exact embedder
+  implementation/configuration digest. LEANN's `facebook/contriever` default does not apply to
+  Medulla. Each test chooses and records an actual model or uses the existing deterministic test
+  embedder.
+- **Build space:** a lane-private build workspace identity and measured scratch peak, graph
+  policy, codebook/quantizer policy, source snapshot and model/space digests. Scratch bytes
+  count toward the build peak but never become an unaccounted resident artifact.
+
+### Existing authority and proposed additions
+
+| Concern | Already wired and reused | R040.5 addition (new work) |
+|---|---|---|
+| Space and encoding identity | `EmbeddingSpaceRef` (`crates/eg-types/src/embedding.rs`), `DocumentEncodingPolicy` obligation R039.2.1, `EmbeddingVersionStore` promotion tags | Require a source-text reference with source revision and digest. Refuse missing identity; do not assume a content hash. |
+| Graph/index | `crates/eg-ann/src/hnsw.rs`, filtered HNSW search and `hnsw/artifact.rs`; `ivfpq.rs` and `persist.rs` codebooks/SQ8/compact (including `durable_codes`); existing `recall.rs` and eg-ann footprint/recall benches; `SemanticStore` incremental mutations and `GenerationStamp`. | Add a compact low-storage manifest and artifact mode. Bound adjacency, codes, and metadata. Account for each. Preserve non-compact compatibility. Reuse the existing recall/footprint measurement path. |
+| Lifecycle/fences | R059 semantic index lifecycle; semantic-index worker/dispatch; R040.3 generation check; existing restart fallback and `EmbeddingVersionStore` gate | Selective invalidation/regeneration receipt and atomic replacement generation; no mixed source/model/policy rows |
+| Query/embedding seam | `UnifiedQuery` → `run_unified_with` → `PlanCtx`; `eg_plan::TextEmbedder` remains the query-text resolver; facade `uql_text_embedder`/`run_unified_bind_embedder`; SQL `EmbeddingBinding` R077 | Add core-owned `EmbeddingProvider` and `regenerate_eligible` for write-side source rows. Add bounded multi-source batching/cache and an explicit query exact-rescore adapter. Keep `eg-core` independent of `eg-plan`. |
+| Cache | Existing row-norm/embedding arena caches in semantic stores; `eg-kvcache` is model KV only; R017/R018 freshness. | Keep new cache metadata, keys, and eviction behavior inside the existing ANN owner. Add no durable cache or second store. |
+| Pruning | Existing HNSW neighbor selection and bounded degree controls | Disabled-by-default, revision-bound hub-preserving policy with deterministic ties and connectivity refusal |
+| Serving | Existing authenticated query and source/index generation contracts; no new ANN endpoint | Receipt/evidence fields on existing query/readback path; no MCP/server/harness authority |
+
+### Proposed producer/consumer boundary
+
+The build producer consumes authorized `(SourceTextRef, EmbeddingSpaceRef,
+DocumentEncodingPolicy, index-generation policy)` rows and emits a content-addressed
+`LowStorageAnnManifest` plus graph artifact and `StorageAccounting`. Write-side source changes
+go through the core-owned `EmbeddingProvider::regenerate_eligible` path, which may batch rows from
+multiple sources under one bounded policy. The query consumer presents the manifest to existing
+`PlanCtx`/semantic-index ranking. Compact traversal itself fetches no source text; only an explicit
+exact-rescore adapter may fetch authorized selected rows, invoke the provider and spend its strict
+fetch/rescore budget. The existing `TextEmbedder` remains the query-text resolver. Every returned
+vector carries complete space identity and source digest before admission or rescore. Existing
+tenant/RLS predicates run before candidate truncation.
+
+The manifest is non-authoritative derived state. Source text, graph records, model bindings, and
+embedding-space revisions remain authoritative in their current owners. Use existing semantic-index
+fences and generation promotion for every build or replacement. A cache miss, unavailable model, or
+compact-artifact failure must not create a source or serve stale index data. Workers must follow this
+contract. Add no directory or framework.
+
+### Bounded implementation order
+
+1. Add the typed manifest/accounting/refusal model in `eg-ann` and bind source revision,
+   `EmbeddingSpaceRef`, `DocumentEncodingPolicy`, build workspace and finite ceilings.
+2. Add compact graph artifact behavior by reusing HNSW/IVF-PQ traversal and codecs. Compare compact
+   candidates with the exact oracle and preserve the compatibility path.
+3. Add the write-side `EmbeddingProvider::regenerate_eligible` foundation and source-revision
+   invalidation under the existing semantic generation/fence path. Add a separate query exact-
+   rescore adapter that fetches only selected candidates under strict source/fetch budgets; compact
+   graph traversal must remain embeddingless.
+4. Add bounded multi-source provider batching and the bounded exact-key in-process cache; retain the
+   existing query-text `TextEmbedder` unchanged and record provider call/batch counters.
+5. Add disabled-by-default hub pruning with deterministic policy and connectivity checks.
+6. Attach the result to `run_unified_with`/`PlanCtx`, then run the exact native and authenticated
+   integration cases in the test specification. Keep each requirement SPECIFIED until its own
+   receipt and qualified native check exists.
+
+### Budget and benchmark policy
+
+Set explicit budgets and check them before work. Bound persisted bytes, build-scratch peak, resident
+bytes, and graph degree. Also bound candidates/visits, rescore items, embedding calls, batch
+items/bytes, cache entries/bytes, and elapsed query work.
+
+Report declared limits and measured values. Include bytes, rows, visits, p50/p99, re-embedding
+count, cache hit/miss count, and recall@k against an exact full-scan oracle. Fix corpus sizes and
+query-selectivity levels. This definition makes no Medulla guarantee about storage-reduction
+percentage, universal recall, model quality, or paper results.
+
+<!-- /spec-definition-patch -->
