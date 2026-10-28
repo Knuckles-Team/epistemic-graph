@@ -143,7 +143,7 @@ impl ArgumentMap {
         for node in &self.nodes {
             let id = node.node_id.as_str();
             let scheme = kinds.get(id).is_some_and(|k| k.is_scheme());
-            if scheme && (incoming.get(id).is_none() || outgoing.get(id).is_none()) {
+            if scheme && (!incoming.contains_key(id) || !outgoing.contains_key(id)) {
                 return Err(refuse(AIF_MALFORMED, id));
             }
         }

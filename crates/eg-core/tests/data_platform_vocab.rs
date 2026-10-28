@@ -209,10 +209,9 @@ fn assert_domain_range(triples: &[Triple], local: &str, domain: &str, range: &st
         ),
         "{local} domain is {domain}"
     );
-    let range_iri = if range.starts_with("xsd:") {
-        format!("{XSD}{}", &range[4..])
-    } else {
-        format!("{DP}{range}")
+    let range_iri = match range.strip_prefix("xsd:") {
+        Some(local_name) => format!("{XSD}{local_name}"),
+        None => format!("{DP}{range}"),
     };
     assert!(
         has_iri(

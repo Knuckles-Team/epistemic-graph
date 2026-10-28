@@ -931,9 +931,15 @@ mod tests {
         for access in [ProjectionAccess::ReadOnly, ProjectionAccess::Authoritative] {
             assert_eq!(round_trip(&access), access);
             let json = serde_json::to_string(&access).unwrap();
-            assert_eq!(serde_json::from_str::<ProjectionAccess>(&json).unwrap(), access);
+            assert_eq!(
+                serde_json::from_str::<ProjectionAccess>(&json).unwrap(),
+                access
+            );
         }
-        assert_eq!(serde_json::to_string(&ProjectionAccess::ReadOnly).unwrap(), "\"read_only\"");
+        assert_eq!(
+            serde_json::to_string(&ProjectionAccess::ReadOnly).unwrap(),
+            "\"read_only\""
+        );
         assert_eq!(ProjectionAccess::default(), ProjectionAccess::ReadOnly);
         assert!(serde_json::from_str::<ProjectionAccess>("\"read_write\"").is_err());
     }

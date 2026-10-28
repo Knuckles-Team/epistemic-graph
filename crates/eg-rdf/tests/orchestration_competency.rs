@@ -163,11 +163,7 @@ fn messages(shapes: &str, shape: &str, data: &str) -> Vec<String> {
             result.source_shape.contains(shape)
                 || (shapes == SHAPES && result.source_shape.starts_with("_:"))
         })
-        .map(|result| {
-            result
-                .message
-                .unwrap_or_else(|| result.constraint_component)
-        })
+        .map(|result| result.message.unwrap_or(result.constraint_component))
         .collect()
 }
 

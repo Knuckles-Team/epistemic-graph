@@ -62,8 +62,8 @@ pub mod authority;
 // EG-SRC-AUTH-R007.1 — typed audit entries for source selection evidence.
 pub mod authority_audit;
 // EG-REPO-INGEST-R700 — code-health findings from a bounded reachability sweep.
-pub mod code_health;
 pub mod change_envelope;
+pub mod code_health;
 // EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and
 // change-stream capture are later children.
