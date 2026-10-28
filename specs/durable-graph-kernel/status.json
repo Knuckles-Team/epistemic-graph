@@ -650,8 +650,8 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "tests/test_jscpd_per_commit_gate.py:30",
-        "tests/test_jscpd_per_commit_gate.py:40"
+        "tests/test_jscpd_per_commit_gate.py:29",
+        "tests/test_jscpd_per_commit_gate.py:39"
       ]
     },
     {
@@ -665,7 +665,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:217"
+        "tests/test_release_feature_matrix.py:233"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R011.1",
@@ -728,8 +728,8 @@
         "c73eeb01d917"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:218",
-        "tests/test_release_feature_matrix.py:257"
+        "tests/test_release_feature_matrix.py:234",
+        "tests/test_release_feature_matrix.py:288"
       ]
     },
     {
@@ -2580,9 +2580,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R083.2",
       "title": "Version-mismatch refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8823db907adf",
+        "c13fbabaca53"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/tests/version_mismatch.rs:3"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.3",
