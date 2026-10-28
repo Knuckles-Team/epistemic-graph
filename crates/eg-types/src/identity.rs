@@ -90,7 +90,10 @@ pub use requests_provision::{
     ProvisionedUser,
 };
 pub use scope::{ScopeClass, ScopeClassifier};
-pub use segment::{KnowledgeUnit, ShareScope};
+pub use segment::{
+    highest_version, owner_or_matching_scope, visible_units, visible_units_with, KnowledgeUnit,
+    ShareScope, UnitPrincipal, VisibilityRules, DEFAULT_VISIBILITY_RULES,
+};
 pub use sql_dump::{parse_dump, render_dump, DumpRow, MAX_DUMP_BYTES};
 pub use stamp::{IdentityActor, IdentityStamp, PasswordCheck, Secret};
 pub use store::{ApplyContext, IdentityStore, RecoveryCode, ThrottleEntry, TOUCH_GRANULARITY_MS};

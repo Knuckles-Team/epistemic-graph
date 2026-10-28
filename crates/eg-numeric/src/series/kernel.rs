@@ -60,7 +60,7 @@ impl State {
         match self {
             State::Shift(s) => s.step(x?),
             State::Rolling(s) => s.step(x?),
-            State::Ewma(s) => Some(s.step(x?)),
+            State::Ewma(s) => s.step(x?),
             State::Map(map) => Some(map_value(*map, x?)),
             State::Arith(op) => arith(*op, x?, y?),
             State::Pair(s) => s.step(x?, y?),
@@ -193,6 +193,9 @@ fn moment_stat(op: Rolling, m: &Moments, x: f64) -> Option<f64> {
 
 fn zscore(m: &Moments, x: f64) -> Option<f64> {
     let std = m.population_std();
+    if !x.is_finite() || !m.mean.is_finite() || !std.is_finite() {
+        return None;
+    }
     Some(if std > STD_FLOOR {
         (x - m.mean) / std
     } else {
@@ -216,13 +219,18 @@ impl EwmaState {
         Self { alpha, last: None }
     }
 
-    fn step(&mut self, x: f64) -> f64 {
+    /// A non-finite observation is undefined: it yields no output and leaves the
+    /// recursion untouched rather than poisoning every later value.
+    fn step(&mut self, x: f64) -> Option<f64> {
+        if !x.is_finite() {
+            return None;
+        }
         let next = match self.last {
             Some(prev) => self.alpha * x + (1.0 - self.alpha) * prev,
             None => x,
         };
         self.last = Some(next);
-        next
+        Some(next)
     }
 }
 
@@ -261,5 +269,66 @@ impl PairState {
             PairStat::RankCorr => pearson(&ranks(&xs), &ranks(&ys)),
             PairStat::WeightedSum => Some(xs.iter().zip(&ys).fold(0.0, |acc, (x, w)| acc + x * w)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::series::{apply, MAX_WINDOW};
+
+    // spec: EG-FINANCE-PRIMITIVES-R002.1.1
+    #[test]
+    fn rolling_z_score_independent_vectors() {
+        // Window 3, population standard deviation, worked by hand:
+        // [1,2,4]: mean 7/3, variance 14/9, z(4) = 5/sqrt(14);
+        // [2,4,7]: mean 13/3, variance 38/9, z(7) = 8/sqrt(38).
+        let z = apply(Spec::Rolling(Rolling::Zscore, 3), &[1.0, 2.0, 4.0, 7.0]).unwrap();
+        assert_eq!(&z[..2], &[None, None]);
+        assert!((z[2].unwrap() - 1.336_306_209_562_121_9).abs() < 1e-12);
+        assert!((z[3].unwrap() - 1.297_771_369_046_100_4).abs() < 1e-12);
+        // A series shorter than the window is all warm-up, never a fabricated score.
+        let short = apply(Spec::Rolling(Rolling::Zscore, 3), &[1.0, 2.0]).unwrap();
+        assert_eq!(short, vec![None, None]);
+        // A window holding a non-finite observation is undefined, never a fabricated
+        // zero, and scoring resumes once it has slid past.
+        let gapped = apply(
+            Spec::Rolling(Rolling::Zscore, 2),
+            &[1.0, f64::NAN, 3.0, 5.0],
+        )
+        .unwrap();
+        assert_eq!(&gapped[..3], &[None, None, None]);
+        assert!((gapped[3].unwrap() - 1.0).abs() < 1e-12);
+        // Malformed windows refuse.
+        assert!(State::new(Spec::Rolling(Rolling::Zscore, 0)).is_err());
+        assert!(State::new(Spec::Rolling(Rolling::Zscore, MAX_WINDOW + 1)).is_err());
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R002.1.2
+    #[test]
+    fn ewma_independent_vectors() {
+        // Span 4: alpha = 2/(4+1) = 0.4, seeded with the first value.
+        // 10; 0.4*20 + 0.6*10 = 14; 0.4*40 + 0.6*14 = 24.4.
+        let span = apply(Spec::Ewma(Smoothing::Span(4.0)), &[10.0, 20.0, 40.0]).unwrap();
+        assert_eq!(span[0], Some(10.0));
+        assert!((span[1].unwrap() - 14.0).abs() < 1e-12);
+        assert!((span[2].unwrap() - 24.4).abs() < 1e-12);
+        // Half-life 1: alpha = 1 - 2^-1 = 0.5; 8; 0.5*4 + 0.5*8 = 6; 0.5*2 + 0.5*6 = 4.
+        let half = apply(Spec::Ewma(Smoothing::HalfLife(1.0)), &[8.0, 4.0, 2.0]).unwrap();
+        assert_eq!(half, vec![Some(8.0), Some(6.0), Some(4.0)]);
+        // A non-finite observation is undefined and does not poison the recursion.
+        let gapped = apply(
+            Spec::Ewma(Smoothing::HalfLife(1.0)),
+            &[8.0, f64::NAN, 4.0, f64::INFINITY, 2.0],
+        )
+        .unwrap();
+        assert_eq!(gapped, vec![Some(8.0), None, Some(6.0), None, Some(4.0)]);
+        // An empty series has no output; malformed parameters refuse.
+        assert!(apply(Spec::Ewma(Smoothing::Span(4.0)), &[])
+            .unwrap()
+            .is_empty());
+        assert!(State::new(Spec::Ewma(Smoothing::Span(0.5))).is_err());
+        assert!(State::new(Spec::Ewma(Smoothing::HalfLife(0.0))).is_err());
+        assert!(State::new(Spec::Ewma(Smoothing::HalfLife(f64::NAN))).is_err());
     }
 }

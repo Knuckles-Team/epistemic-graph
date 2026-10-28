@@ -1,0 +1,14 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# Each assigned step names its agent, skill, model and prompt.
+:TaskXYZ :hasStep :y1, :y2 .
+:y1 a :TaskStep ; :needsSkill :skillApply ; :stepAssignedAgent :agentApply ; dc:source <urn:source:assembly> .
+:y2 a :TaskStep ; :needsSkill :skillVerify ; :stepAssignedAgent :agentCheck ; dc:source <urn:source:assembly> .
+:agentApply a :Agent ; :hasSkill :skillApply ; :usesModel :profileLocal ; :hasPrompt :promptApply .
+:agentCheck a :Agent ; :hasSkill :skillVerify ; :usesModel :profileLocal ; :hasPrompt :promptCheck .
+:skillApply a :Skill . :skillVerify a :Skill .
+:promptApply a :Prompt . :promptCheck a :Prompt .
+:profileLocal a :ModelProfile ; :contextWindow 32768 .

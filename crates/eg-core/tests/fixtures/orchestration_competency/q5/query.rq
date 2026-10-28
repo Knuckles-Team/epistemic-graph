@@ -1,0 +1,6 @@
+PREFIX : <http://knuckles.team/kg#>
+PREFIX dc: <http://purl.org/dc/terms/>
+SELECT ?step ?agent ?skill ?model ?prompt ?source WHERE {
+  ?step :stepAssignedAgent ?agent ; dc:source ?source .
+  ?agent :hasSkill ?skill ; :usesModel ?model ; :hasPrompt ?prompt .
+}

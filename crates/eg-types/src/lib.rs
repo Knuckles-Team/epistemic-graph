@@ -44,6 +44,20 @@ pub mod asr_wire;
 pub mod capacity_lease;
 // EG-DURABLE-KERNEL-R076.1 — authoritative scheduler policy data and validation.
 pub mod scheduler_config;
+// EG-INGEST-WORKER-R001.1/.2/.3/.7/.8 — ingest job envelope, lanes, partition key, retry.
+pub mod ingest_job;
+// EG-INGEST-WORKER-R002.1/.2 — induced ontology proposals and admission scores.
+pub mod ontology_proposal;
+// EG-INGEST-WORKER-R003.1 — typed knowledge atoms with mandatory provenance.
+pub mod knowledge_atom;
+// EG-INGEST-WORKER-R701.1 — extracted facts, candidate claims and evidence spans.
+pub mod extracted_fact;
+// EG-INGEST-WORKER-R900.1/R902.1/R903.1/R904.1 — source governance records.
+pub mod source_governance;
+// EG-INGEST-WORKER-R003.7 — normalized documents and accepted/quarantined outcomes.
+pub mod source_document;
+// EG-INGEST-WORKER-R003.13 — source transcript threads and messages.
+pub mod source_transcript;
 // EG-TYPED-PACKS-R803.1 — typed sensitive-data detector and detection records.
 pub mod sensitive_detect;
 // EG-TYPED-PACKS-R804.1 — ontology revision difference and impact records.
@@ -53,7 +67,9 @@ pub mod ontology_diff;
 pub mod authority;
 // EG-SRC-AUTH-R007.1 — typed audit entries for source selection evidence.
 pub mod authority_audit;
+// EG-REPO-INGEST-R700 — code-health findings from a bounded reachability sweep.
 pub mod change_envelope;
+pub mod code_health;
 // EG-DURABLE-KERNEL-R087.1 — typed semantic changeset-review model. The
 // authenticated producer/consumer route is a later R087.2 concern.
 pub mod changeset_review;
@@ -148,6 +164,30 @@ pub mod gramps_cutover_gate;
 // read. Pure data; real discovery, the copy pipeline, and EXPLAIN's
 // per-fragment reporting are later children.
 pub mod metadata_acceleration;
+// EG-UNIFIED-DATA-PLANE-R040.1/.2 — per-modality embedding promotion gate.
+pub mod embedding_promotion;
+// EG-UNIFIED-DATA-PLANE-R038.6.1 — read-only property-graph view over mappings.
+pub mod virtual_graph_view;
+// EG-UNIFIED-DATA-PLANE-R761.1 — column profile record.
+pub mod profile;
+// EG-UNIFIED-DATA-PLANE-R762.1 — quality rules and scores.
+pub mod quality;
+// EG-UNIFIED-DATA-PLANE-R702 and R763.1 — dataset and column lineage.
+pub mod lineage;
+// EG-UNIFIED-DATA-PLANE-R764.1/.2 — asset usage and catalog search hits.
+pub mod asset_usage;
+// EG-ENGINE-PARITY-R020.1 — relational engine capability report.
+pub mod engine_capabilities;
+// EG-UNIFIED-DATA-PLANE-R700 — governed action specs and runs.
+pub mod action_spec;
+// EG-UNIFIED-DATA-PLANE-R701 — standards, cohorts, drift and consolidation.
+pub mod standards_drift;
+// EG-UNIFIED-DATA-PLANE-R030.2/.3/.700 — blocking, Fellegi-Sunter scoring,
+// approval and identity evidence over entity link proposals.
+pub mod entity_resolution;
+// EG-UNIFIED-DATA-PLANE-R750.750-752 — run audit rows, tool calls and the
+// scoped conversation-history step store.
+pub mod run_history;
 // EG-UNIFIED-DATA-PLANE-R027.1 — typed Postgres compatibility-feature
 // inventory and fix-proof shape, refusing a fix recorded without a complete
 // captured-traffic/failing-test/passing-test proof. Pure data;
@@ -242,9 +282,6 @@ pub mod embedding;
 // EG-FEDERATED-QUERY-R083.1 — typed prior/retrieved candidates and the closed
 // arbitration verdict value; support classification and policy live above.
 pub mod retrieval_arbitration;
-// EG-FEDERATED-QUERY-R081.9.7.1 — typed hierarchy policy, section nodes and
-// stage evidence. Traversal and serving remain above this pure-data crate.
-pub mod retrieval_verdict;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
@@ -380,6 +417,12 @@ pub mod result_contract;
 // storage, queues, handlers, and surface projections live in crates above this
 // bottom-of-DAG owner and must consume these exact operation and identity DTOs.
 pub mod semantic_index;
+// EG-SDLC — release, deployment, defect, derived status and lifecycle trace records.
+pub mod lifecycle;
+// EG-SCM-R002 — the source changeset record and its structured trailers.
+pub mod source_changeset;
+// EG-SCM-R013 — graph-native symbol edits.
+pub mod source_symbol_edit;
 // RF-ADR-009 — raw connector records, exact manifest mapping reference, cursor
 // CAS and the terminal native ingestion receipt. Runtime authority lives in the
 // server; these are bounded pure wire types.
@@ -408,6 +451,8 @@ pub mod work_item_command_log;
 // the caller's row view, its three-bound page scan, and its cursor family.
 pub mod run_completion;
 pub mod work_item_read;
+// EG-IDENTITY-R610 — tenant parent chains, secured reads and ownership claims.
+pub mod tenancy;
 // The opaque tenant-bound keyset cursor shared by every paged read
 // (`AgentComponent.Search`, `ListWorkItems`).
 pub mod tenant_cursor;
@@ -499,6 +544,17 @@ pub mod wire;
 // RF-ADR-009 D18 — EG-owned versioned source change sets and append-only
 // write-back/reconciliation receipts. Connector transports remain in the SDK.
 pub mod write_back;
+// EG-FEDERATED-QUERY-R700 — AIF argument maps and their Dung projection.
+pub mod argument_map;
+// EG-FEDERATED-QUERY-R701 — live artifacts re-derived from a query source.
+pub mod live_artifact;
+// EG-FEDERATED-QUERY-R702 — search-task records and shortcut-risk reports.
+pub mod search_task;
+// EG-FEDERATED-QUERY-R081 — retrieval sufficiency, selection, feedback and
+// hierarchy contracts (incl. the R081.9.7.1 section hierarchy policy); the deciding functions live in `eg_plan::retrieval_verdict`.
+pub mod retrieval_verdict;
+// EG-FEDERATED-QUERY-R085.1 — approved, read-only source query records.
+pub mod source_query;
 
 // CONCEPT:EG-KG.query.compound-predicate-decode — the serializable compound-WHERE predicate AST lives at the
 // bottom of the DAG so `eg-core` can evaluate it; `eg-query` decodes SQL into it.

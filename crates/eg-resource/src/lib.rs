@@ -19,6 +19,7 @@
 //! single scheduler lane; they are still bounded by the quota's floor rather than
 //! rounded up to a second lane.
 
+pub mod admission;
 mod cgroup;
 use cgroup::{
     finite_cpu_limit, read_cgroup_file, read_cgroup_metadata, read_cpu_v1_pair,

@@ -129,5 +129,154 @@ vg:VirtualMappingShape a sh:NodeShape ;
         """ ;
     ] .
 
+vg:SourceAuthorityShape a sh:NodeShape ;
+    sh:targetClass vg:SourceAuthority ;
+    sh:property [
+        sh:path vg:authoritativeSource ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "A SourceAuthority names exactly one authoritativeSource."
+    ] ;
+    sh:property [
+        sh:path vg:authorityFor ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "A SourceAuthority names exactly one authorityFor class."
+    ] ;
+    sh:property [
+        sh:path vg:authorityMapping ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "A SourceAuthority names exactly one authorityMapping."
+    ] ;
+    sh:property [
+        sh:path vg:authorityRank ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:integer ; sh:minInclusive 1 ;
+        sh:message "A SourceAuthority names exactly one positive integer authorityRank."
+    ] ;
+    sh:property [
+        sh:path vg:authorityContract ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:in ( "api" "mcp" "a2a" "virtual-graph" "document" ) ;
+        sh:message "authorityContract is api, mcp, a2a, virtual-graph or document."
+    ] ;
+    sh:property [
+        sh:path vg:authorityFacet ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "A SourceAuthority names at most one authorityFacet."
+    ] ;
+    sh:property [ sh:path vg:scopeTenant ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path vg:scopePartition ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path vg:freshnessMaxAgeSeconds ; sh:maxCount 1 ; sh:datatype xsd:nonNegativeInteger ] ;
+    sh:property [ sh:path vg:allowFallback ; sh:maxCount 1 ; sh:datatype xsd:boolean ] ;
+    sh:property [
+        sh:path vg:materialisation ; sh:maxCount 1 ; sh:in ( "virtual" "accelerated" ) ;
+        sh:message "materialisation is virtual or accelerated."
+    ] ;
+    sh:property [ sh:path vg:materialisationReason ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The authorityMapping must belong to a contract discovered from the authoritativeSource." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:authoritativeSource ?src ; vg:authorityMapping ?mapping .
+                OPTIONAL { ?mapping vg:mapsContract ?contract . ?contract vg:contractSource ?owner . FILTER(?owner = ?src) }
+                FILTER(!BOUND(?owner))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The authorityMapping must map the authorityFor class." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:authorityFor ?cls ; vg:authorityMapping ?mapping .
+                OPTIONAL { ?mapping vg:mapsOntologyClass ?mapped . FILTER(?mapped = ?cls) }
+                FILTER(!BOUND(?mapped))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An authorityFacet must be projected by a predicate-field pair of the authorityMapping." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:authorityFacet ?facet ; vg:authorityMapping ?mapping .
+                OPTIONAL { ?mapping vg:hasPredicateFieldPair ?pair . ?pair vg:predicate ?projected . FILTER(?projected = ?facet) }
+                FILTER(!BOUND(?projected))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "authorityContract must agree with the connection's sourceKind (api: api or graphql; mcp: mcp; a2a: a2a; virtual-graph: sql, iceberg, warehouse, sparql or graphql; document: document)." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:authorityContract ?contractKind ; vg:authoritativeSource ?src .
+                ?src vg:sourceKind ?kind .
+                FILTER(!(
+                    (?contractKind = "api" && ?kind IN ("api", "graphql"))
+                    || (?contractKind = "mcp" && ?kind = "mcp")
+                    || (?contractKind = "a2a" && ?kind = "a2a")
+                    || (?contractKind = "virtual-graph" && ?kind IN ("sql", "iceberg", "warehouse", "sparql", "graphql"))
+                    || (?contractKind = "document" && ?kind = "document")
+                ))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An accelerated SourceAuthority needs a materialisationReason." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:materialisation "accelerated" .
+                OPTIONAL { $this vg:materialisationReason ?reason }
+                FILTER(!BOUND(?reason))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An accelerated SourceAuthority needs a freshnessMaxAgeSeconds bound." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:materialisation "accelerated" .
+                OPTIONAL { $this vg:freshnessMaxAgeSeconds ?maxAge }
+                FILTER(!BOUND(?maxAge))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An accelerated SourceAuthority needs a connection that declares the copy capability." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:materialisation "accelerated" ; vg:authoritativeSource ?src .
+                OPTIONAL { ?src vg:declaredCapability ?cap . FILTER(?cap = "copy") }
+                FILTER(!BOUND(?cap))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Two sources claim one (class, facet, scope) at an equal authorityRank." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:authorityFor ?cls ; vg:authorityRank ?rank ; vg:authoritativeSource ?src .
+                ?other vg:authorityFor ?cls ; vg:authorityRank ?otherRank ; vg:authoritativeSource ?otherSrc .
+                OPTIONAL { $this vg:authorityFacet ?facet }
+                OPTIONAL { ?other vg:authorityFacet ?otherFacet }
+                OPTIONAL { $this vg:scopeTenant ?tenant }
+                OPTIONAL { ?other vg:scopeTenant ?otherTenant }
+                OPTIONAL { $this vg:scopePartition ?partition }
+                OPTIONAL { ?other vg:scopePartition ?otherPartition }
+                FILTER(?other != $this && ?otherSrc != ?src && ?otherRank = ?rank
+                    && sameTerm(?facet, ?otherFacet)
+                    && sameTerm(?tenant, ?otherTenant)
+                    && sameTerm(?partition, ?otherPartition))
+            }
+        """ ;
+    ] .
+
 vg:VirtualGraphPrefixes a owl:Ontology ;
     sh:declare [ sh:prefix "vg" ; sh:namespace "http://knuckles.team/kg/virtual-graph#"^^xsd:anyURI ] .

@@ -61,6 +61,9 @@ pub mod claim;
 pub mod intent;
 pub mod model;
 pub mod result;
+// EG-PLACEMENT-R751 — unified schedule ticks, fenced daemon leadership and
+// cost-bounded allocation slices.
+pub mod schedule;
 pub mod store;
 
 // Development/test composition root for the store's scope grant (see the module

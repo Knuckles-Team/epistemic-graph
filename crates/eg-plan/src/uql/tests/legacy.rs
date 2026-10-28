@@ -709,9 +709,10 @@ fn wildcard_and_edge_predicate_traversals_compile_to_expand() {
             dir: EdgeDir::Out,
             min: 1,
             max: 1,
-            edge_preds: vec![Pred::GtNum {
+            edge_preds: vec![Pred::Cmp {
                 prop: "weight".into(),
-                n: 0.5,
+                op: eg_types::wire::CmpOp::Ge,
+                value: eg_types::wire::PredLiteral::Num(0.5),
             }],
         }
     );

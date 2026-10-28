@@ -226,3 +226,20 @@ the spec↔ticket link flow (CONCEPT:KG-2.9).""" ;
     rdfs:subPropertyOf :specifies ;
     rdfs:domain :Specification ;
     rdfs:range :SoftwareFeature .
+
+:SourceContainer a owl:Class ;
+    rdfs:label "Source Container" ;
+    rdfs:comment "A provider-owned container in a source's hierarchy, such as a space, folder or channel. Containers nest through containedIn; source records link to their container through inContainer." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:containedIn a owl:ObjectProperty ;
+    rdfs:label "contained in" ;
+    rdfs:comment "Links a SourceContainer to its parent SourceContainer." ;
+    rdfs:domain :SourceContainer ;
+    rdfs:range :SourceContainer .
+
+:inContainer a owl:ObjectProperty ;
+    rdfs:label "in container" ;
+    rdfs:comment "Links a SourceRecord to the SourceContainer that holds it." ;
+    rdfs:domain :SourceRecord ;
+    rdfs:range :SourceContainer .

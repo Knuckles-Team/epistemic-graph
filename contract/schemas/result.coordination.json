@@ -8084,6 +8084,11 @@
           "type": "string"
         },
         {
+          "const": "placement",
+          "description": "Evaluate-only deployment placement over the fixed target registry\n(EG-PLACEMENT-R001.2): `Decide` names the cheapest feasible target and\nwhy every other target was not chosen; it acquires no capacity and\ndeploys nothing. See `statistical::placement`.",
+          "type": "string"
+        },
+        {
           "const": "branch_outcome",
           "description": "Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).",
           "type": "string"

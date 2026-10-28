@@ -1,0 +1,17 @@
+[package]
+name = "eg-enrich"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Typed code enrichment for indexed repositories: entities, history, links and fingerprints."
+license = "MIT"
+
+[lib]
+name = "eg_enrich"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+serde_json = "1"

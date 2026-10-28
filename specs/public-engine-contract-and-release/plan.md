@@ -237,7 +237,7 @@ Each group below describes responsibility; it does not declare a new deployable 
 | Composition, listeners, policy, persistence adapters | Root `src/` and its `Medulla` library and executable targets |
 | Shared records, policies, codecs, resources | `eg-types`, `eg-capabilities`, `eg-method-codec`, `eg-resource` |
 | Physical storage, mutation authority, graph state | `eg-storage`, `eg-transaction`, `eg-core`, `eg-durable`, `eg-sqlite-format` |
-| Query and semantic processing | `eg-query`, `eg-plan`, `eg-rdf`, `eg-shacl`, `eg-shex`, `eg-graphql`, `eg-epistemic` |
+| Query and semantic processing | `eg-query`, `eg-plan`, `eg-rdf`, `eg-shacl`, `eg-shex`, `eg-graphql`, `eg-epistemic`, `eg-enrich` |
 | Compute and indexed data | `eg-compute`, `eg-numeric`, `eg-ann`, `eg-geo`, `eg-tensor`, `eg-stream`, `eg-tsdb`, `eg-text`, `eg-kvcache`, `eg-lake` |
 | Governed media contracts and processing | `eg-modality`, `eg-document`, `eg-image`, `eg-audio`, `eg-video`, `eg-alignment`, `eg-asr-whisper`, `eg-tts-piper` |
 | Jobs, programs, state machines, extensions | `eg-jobs`, `eg-program`, `eg-statechart`, `eg-wasm`, `eg-pyengine` |
@@ -263,7 +263,7 @@ The converged-engine design remains owned by [EG-UNIFIED-DATA-PLANE-R001](../uni
 | Cargo selection | Root `default` includes `full`; `full` includes native visualization. Quantum remains optional. | Old comments excluding visualization do not override feature values. |
 | Optional layers | `cluster` extends `full`; `full-extras` extends `full` for additional integrations. | Compilation does not prove listener activation or a deployed cluster. |
 | Server executable | The server has a separate no-Python-extension dependency check. | That boundary does not prohibit extensions elsewhere in the wheel. |
-| Release wheel | [folded-wheel/action.yml](../../.github/actions/folded-wheel/action.yml) builds the server, `eg-numeric/python`, and `eg-pyengine/python,security`. | The recipe requires both kernels through `check_wheel_completeness.py --require-engine-kernel`. |
+| Release wheel | [folded-wheel/action.yml](../../.github/actions/folded-wheel/action.yml) builds `eg-pyengine/python,security` (the `[tool.maturin]` manifest) and folds in `eg-numeric/python`; it compiles no server crate or executable. | The recipe requires both kernels through `check_wheel_completeness.py --require-engine-kernel`. |
 | Source-build backend | [build_backend.py](../../build_backend.py), `_compose`, folds the numeric kernel at the reviewed revision. | It does not establish parity with the release action's engine-kernel composition. |
 | Python extras | [pyproject.toml](../../pyproject.toml) defines `full = []` and `numeric = []`. | These aliases neither change the compiled engine nor select a deployment shape. |
 | Runtime shape | A served engine and the embedded binding expose distinct process boundaries. | Configuration, identity, persistence, and runtime checks determine usable capabilities. |
@@ -281,7 +281,7 @@ The source-backend composition difference belongs to that existing packaging acc
 | Epistemic provenance | `eg-epistemic` operates on graph claims and provenance; `eg-plan` exposes `KnowledgeSet` and knowledge batches. | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md) reasoning and retrieval requirements |
 | Physical ownership and mutation | `eg-storage` owns physical access; `eg-transaction::MutationKernel` owns admission, ordering, replay, and commit capabilities. | [EG-DURABLE-KERNEL](../durable-graph-kernel/requirements.md), including R019, R021, and R034 |
 | Served mutation | `src/server/mutation.rs:136` exports `commit_mutation`; conditional and coalesced routes retain their own entry paths. | [EG-DURABLE-KERNEL](../durable-graph-kernel/spec.md); EG-C-02 error projection |
-| Planned query | `src/server/handlers/query/planning.rs:424`, `run_unified_with`, binds execution through the existing planner. | [FQR-03/04/06](../federated-query-and-reasoning/spec.md), R038–R055 |
+| Planned query | `src/server/handlers/query/planning.rs:436`, `run_unified_with`, binds execution through the existing planner. | [FQR-03/04/06](../federated-query-and-reasoning/spec.md), R038–R055 |
 | Direct native access | [engine.md](../../docs/architecture/engine.md) shows dispatch reaching graph state both directly and through planning. | [EG-DURABLE-KERNEL-R032/R037](../durable-graph-kernel/requirements.md) |
 
 Repository scope is not RBAC scope: `engine-identity-and-scope` owns authorization identity.

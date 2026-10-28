@@ -1,0 +1,13 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# An existing template and an external A2A agent both provide the capability task XYZ needs.
+:TaskXYZ :requiresCapability :RolloutCapability .
+:RolloutCapability a :ServiceCapability .
+:libXYZ a :AgentLibrary .
+:rolloutTemplate a :AgentTemplate ; :memberOfLibrary :libXYZ ;
+    :providesCapability :RolloutCapability ; dc:source <urn:source:agent-library> .
+:remoteRollout a :A2AAgentCard ; :memberOfLibrary :libXYZ ;
+    :providesCapability :RolloutCapability ; dc:source <urn:source:agent-library> .

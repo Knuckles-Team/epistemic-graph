@@ -622,7 +622,7 @@
         "f17f47ab300f"
       ],
       "verified_by": [
-        "src/server/graph_schema/compose.rs:984"
+        "src/server/graph_schema/compose.rs:990"
       ]
     },
     {
@@ -1580,11 +1580,11 @@
         "f948211fb8c7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:472",
-        "crates/eg-rdf/src/source_selection.rs:494",
-        "crates/eg-rdf/src/source_selection.rs:520",
-        "crates/eg-rdf/src/source_selection.rs:529",
-        "crates/eg-rdf/src/source_selection.rs:539"
+        "crates/eg-rdf/src/source_selection/tests.rs:115",
+        "crates/eg-rdf/src/source_selection/tests.rs:137",
+        "crates/eg-rdf/src/source_selection/tests.rs:163",
+        "crates/eg-rdf/src/source_selection/tests.rs:172",
+        "crates/eg-rdf/src/source_selection/tests.rs:181"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R072.1"
@@ -1599,11 +1599,11 @@
         "f948211fb8c7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:472",
-        "crates/eg-rdf/src/source_selection.rs:494",
-        "crates/eg-rdf/src/source_selection.rs:520",
-        "crates/eg-rdf/src/source_selection.rs:529",
-        "crates/eg-rdf/src/source_selection.rs:539"
+        "crates/eg-rdf/src/source_selection/tests.rs:115",
+        "crates/eg-rdf/src/source_selection/tests.rs:137",
+        "crates/eg-rdf/src/source_selection/tests.rs:163",
+        "crates/eg-rdf/src/source_selection/tests.rs:172",
+        "crates/eg-rdf/src/source_selection/tests.rs:181"
       ]
     },
     {
@@ -1612,7 +1612,6 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "62c450561948",
-        "6c11520aebfc",
         "bfd84b2ccbcb",
         "f948211fb8c7"
       ],
@@ -1796,9 +1795,9 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/lake_catalog.rs:669",
-        "crates/eg-types/src/lake_catalog.rs:677",
-        "crates/eg-types/src/lake_catalog.rs:691"
+        "crates/eg-types/src/lake_catalog.rs:683",
+        "crates/eg-types/src/lake_catalog.rs:691",
+        "crates/eg-types/src/lake_catalog.rs:705"
       ]
     },
     {
@@ -1854,16 +1853,25 @@
     {
       "id": "EG-FEDERATED-QUERY-R080.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b00522c831be"
+      ],
+      "verified_by": [
+        "crates/eg-lake/src/catalog.rs:410",
+        "crates/eg-types/src/lake_catalog.rs:1056"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R080.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b00522c831be"
+      ],
+      "verified_by": [
+        "crates/eg-lake/src/catalog.rs:420"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R080.3",
@@ -1919,16 +1927,24 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/retrieval_verdict.rs:1150"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/retrieval_verdict_tests.rs:26"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.3",
@@ -1940,9 +1956,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/retrieval_verdict_tests.rs:68"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.5",
@@ -1976,16 +1996,24 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.7.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/retrieval_verdict.rs:1195"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.7.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/retrieval_verdict_tests.rs:116"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.7.3",
@@ -1997,9 +2025,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.7.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/retrieval_verdict_tests.rs:182"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.7.5",
@@ -2092,16 +2124,24 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.9.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/retrieval_verdict.rs:1357"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.9.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/retrieval_verdict_tests.rs:321"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.9.3",
@@ -2113,9 +2153,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.9.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/retrieval_verdict_tests.rs:364"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.9.5",
@@ -2741,9 +2785,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R085.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_query.rs:359"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R085.2",
@@ -3855,16 +3903,24 @@
     {
       "id": "EG-FEDERATED-QUERY-R700.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/argument_map.rs:422"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R700.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/argument_map.rs:449"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R700.3",
@@ -3876,9 +3932,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R700.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/argument_map.rs:482"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R700.5",
@@ -3912,16 +3972,24 @@
     {
       "id": "EG-FEDERATED-QUERY-R701.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/live_artifact.rs:263"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R701.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/live_artifact.rs:293"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R701.3",
@@ -3933,9 +4001,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R701.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/live_artifact.rs:322"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R701.5",
@@ -3969,9 +4041,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R702.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/search_task.rs:283"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R702.2",
@@ -3990,9 +4066,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R702.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1e270b926ac7"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/search_task.rs:320"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R702.5",
@@ -4054,16 +4134,24 @@
     {
       "id": "EG-FEDERATED-QUERY-R703.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/access_check.rs:187"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R703.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/access_check.rs:253"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R703.3",
@@ -4111,16 +4199,24 @@
     {
       "id": "EG-FEDERATED-QUERY-R704.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/knowledge_scope.rs:93"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R704.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/knowledge_scope.rs:116"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R704.3",
@@ -4168,16 +4264,24 @@
     {
       "id": "EG-FEDERATED-QUERY-R705.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/feedback_boost.rs:100"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R705.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/feedback_boost.rs:123"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R705.3",
@@ -4225,9 +4329,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R706.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/policy_mask.rs:38"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R706.2",
@@ -4340,9 +4448,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R708.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a21954646d05"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/stored_query.rs:92"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R708.2",
