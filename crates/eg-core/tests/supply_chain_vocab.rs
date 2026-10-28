@@ -39,6 +39,14 @@ fn object_key(triple: &Triple) -> Option<String> {
     }
 }
 
+/// The lexical value of a literal object term; panics on a non-literal.
+fn literal_value(term: &Term) -> &str {
+    match term {
+        Term::Literal(l) => l.value(),
+        other => panic!("expected a literal, found {other:?}"),
+    }
+}
+
 fn load_supply_chain() -> Vec<Triple> {
     parse_turtle(include_str!("../ontology/supply_chain-v1.ttl"))
         .expect("the supply-chain vocabulary parses")
@@ -1117,4 +1125,88 @@ fn declared_capacity_thresholds_pass_the_host_limit_shape() {
         "the declared capacity thresholds pass HostLimitShape: {:?}",
         report.results
     );
+}
+
+const VG: &str = "http://knuckles.team/kg/virtual-graph#";
+
+const VM_ERPNEXT: &str = "http://knuckles.team/test/vm-erpnext#";
+
+const VIRTUAL_SHAPES: &str = include_str!("../ontology/virtual_graph-v1.shapes.ttl");
+
+// spec: EG-SUPPLY-VOCAB-R005.1
+#[test]
+fn erpnext_supplier_mapping_fixture_passes_the_virtual_shapes() {
+    let fixture = include_str!("fixtures/vm_erpnext_supplier.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the erpnext Supplier mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // The Supplier doctype projects onto the shared kg:Supplier class.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_ERPNEXT}supplierMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}Supplier")
+        ),
+        "the mapping maps the erpnext Supplier doctype to kg:Supplier"
+    );
+    // Rows are keyed by `name`, with the label read from `supplier_name`.
+    let mapping_key = format!("<{VM_ERPNEXT}supplierMapping>");
+    let key_field = triples
+        .iter()
+        .find(|triple| {
+            subject_key(triple) == mapping_key
+                && triple.predicate.as_str().ends_with("keyField")
+        })
+        .expect("the mapping names its keyField");
+    assert_eq!(literal_value(&key_field.object), "name");
+    let pair = triples
+        .iter()
+        .find(|triple| {
+            subject_key(triple) == mapping_key
+                && triple.predicate.as_str().ends_with("hasPredicateFieldPair")
+        })
+        .and_then(object_key)
+        .expect("the mapping declares a predicate-field pair");
+    assert!(
+        triples.iter().any(|triple| {
+            subject_key(triple) == pair
+                && triple.predicate.as_str().ends_with("predicate")
+                && matches!(&triple.object, Term::NamedNode(n) if n.as_str() == format!("{RDFS}label"))
+        }),
+        "the pair reads the label predicate"
+    );
+    let pair_field = triples
+        .iter()
+        .find(|triple| subject_key(triple) == pair && triple.predicate.as_str().ends_with("field"))
+        .expect("the predicate-field pair names its field");
+    assert_eq!(
+        literal_value(&pair_field.object),
+        "supplier_name",
+        "the label is read from `supplier_name`"
+    );
+    // The mapping rides the supplierAccess access contract, whose recorded
+    // operation is erpnext's list_documents.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_ERPNEXT}supplierMapping"),
+            &format!("{VG}mapsContract"),
+            &format!("{VM_ERPNEXT}supplierAccess")
+        ),
+        "the mapping rides the supplierAccess contract"
+    );
+    let operation = triples
+        .iter()
+        .find(|triple| {
+            subject_key(triple) == format!("<{VM_ERPNEXT}supplierAccess>")
+                && triple.predicate.as_str().ends_with("discoveredOperation")
+        })
+        .expect("the contract records its discovered operation");
+    assert_eq!(literal_value(&operation.object), "list_documents");
 }
