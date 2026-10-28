@@ -56,6 +56,7 @@ fn float(response: &Response) -> f64 {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+// spec: EG-FINANCE-PRIMITIVES-R900.3
 async fn position_size_runs_the_sizing_kernel_through_dispatch() {
     // p=0.6, b=2 -> full Kelly 0.4; quarter Kelly 0.1; capped at 0.05.
     let capped = call(position(0.6, 2.0, Some(0.25), Some(0.05))).await;
@@ -71,6 +72,7 @@ async fn position_size_runs_the_sizing_kernel_through_dispatch() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+// spec: EG-FINANCE-PRIMITIVES-R900.3
 async fn position_size_refuses_an_invalid_accuracy_with_the_kernel_code() {
     let refused = call(position(1.5, 2.0, None, None)).await;
     assert!(refused.result.is_none());
@@ -82,6 +84,7 @@ async fn position_size_refuses_an_invalid_accuracy_with_the_kernel_code() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+// spec: EG-FINANCE-PRIMITIVES-R900.3
 async fn distribution_shift_runs_the_ks_kernel_through_dispatch() {
     let reference: Vec<f64> = (0..200).map(|i| i as f64 / 200.0).collect();
     let moved: Vec<f64> = reference.iter().map(|v| v + 5.0).collect();
