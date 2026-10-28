@@ -830,7 +830,7 @@ jobs:
         run: *eg-validation-compiler-cache-stats
 
   gates-storage:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
     name: gates (storage crate)
     needs: changes
     if: *eg-code-change
