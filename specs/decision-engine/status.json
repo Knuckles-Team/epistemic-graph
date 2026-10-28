@@ -6751,10 +6751,8 @@
     {
       "id": "EG-DECISION-ENGINE-R166.1",
       "title": "Model",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "ca1d4356dd88"
-      ],
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": [
         "crates/eg-types/src/orchestration/workflows.rs:109",
         "crates/eg-types/src/orchestration/workflows.rs:95"

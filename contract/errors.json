@@ -1136,6 +1136,12 @@
       "retryable": false
     },
     {
+      "class": "availability",
+      "code": "ONTOLOGY_IMPORT_NOT_WIRED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "schema",
       "code": "ONTOLOGY_INCONSISTENT",
       "http_status_hint": 400,

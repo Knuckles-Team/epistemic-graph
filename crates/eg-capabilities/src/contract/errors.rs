@@ -87,6 +87,7 @@ const CODE_CLASSES: &[(&str, &str)] = &[
     ("CANCELLED", "availability"),
     ("TELEMETRY_UNAVAILABLE", "availability"),
     ("CAPACITY_UNAVAILABLE", "availability"),
+    ("ONTOLOGY_IMPORT_NOT_WIRED", "availability"),
     ("DECISIONS", "availability"),
     ("CONFLICT", "conflict"),
     ("STALE_OUTBOX_LEASE", "conflict"),
