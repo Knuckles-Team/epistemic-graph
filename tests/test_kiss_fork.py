@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -38,13 +37,6 @@ def _fake(tmp_path: Path, body: str) -> str:
     return str(binary)
 
 
-def _scanner_steps() -> dict[str, dict]:
-    workflow = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text())
-    return {
-        step.get("name"): step for step in workflow["jobs"]["scanner-quality"]["steps"]
-    }
-
-
 def test_probe_rejects_the_upstream_build(tmp_path: Path) -> None:
     with pytest.raises(kiss_fork.NotForkBuild, match="not the pinned kiss fork"):
         kiss_fork.require_fork_build(_fake(tmp_path, UPSTREAM))
@@ -57,17 +49,12 @@ def test_probe_accepts_a_build_that_resolves_the_inline_module(tmp_path: Path) -
     assert kiss_fork.main([_fake(tmp_path, FORK)]) == 0
 
 
-def test_ci_installs_and_probes_exactly_the_pinned_fork_rev() -> None:
-    steps = _scanner_steps()
-    assert (
-        "scripts/install_scanners.sh"
-        in steps["Provision pinned scanner toolchain"]["run"]
-    )
+def test_installer_and_gates_probe_exactly_the_pinned_fork_rev() -> None:
     install = (REPO / "scripts" / "install_scanners.sh").read_text(encoding="utf-8")
     assert f"--git {kiss_fork.KISS_FORK_GIT} --rev {kiss_fork.KISS_FORK_REV}" in install
     assert "--version 0.4.12" not in install
-    verify = steps["Verify scanner versions"]["run"]
-    assert 'python3 scripts/kiss_fork.py "$(command -v kiss)"' in verify
-    # Both installer pins and fork validation changes invalidate the cache.
-    key = steps["Restore pinned scanner toolchain"]["with"]["key"]
-    assert "hashFiles('scripts/install_scanners.sh', 'scripts/kiss_fork.py')" in key
+    assert 'kiss_fork.py" "$root/$name/bin/$bin"' in install
+    census = (REPO / "scripts" / "check_kiss_census.py").read_text(encoding="utf-8")
+    assert "require_fork_build" in census
+    staged = (REPO / "scripts" / "check_kiss_staged.sh").read_text(encoding="utf-8")
+    assert "scripts/kiss_fork.py" in staged
