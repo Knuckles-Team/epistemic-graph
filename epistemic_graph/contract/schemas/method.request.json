@@ -674,6 +674,17 @@
               ],
               "default": null
             },
+            "declared_by": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ToolFactDeclarer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Who declared the effect facts. Absent reads as `connector`."
+            },
             "destructive_hint": {
               "default": null,
               "type": [
@@ -743,12 +754,36 @@
                 "null"
               ]
             },
+            "read_only_unproven": {
+              "description": "`true` when `read_only_hint` came from an uncertified MCP hint, so\nno decision may treat it as a proven read-only fact.",
+              "type": "boolean"
+            },
             "required_scopes": {
               "description": "Authz actions a caller must hold. An agent that cannot hold them\ncannot be given this tool.",
               "items": {
                 "type": "string"
               },
               "type": "array"
+            },
+            "schema_tokens": {
+              "description": "Declared schema size in tokens. Absent is unknown, never zero.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "side_effects": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ToolSideEffects"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Declared side effects. Absent is unknown, read as `external_write`."
             }
           },
           "required": [
@@ -41129,6 +41164,17 @@
           ],
           "default": null
         },
+        "declared_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolFactDeclarer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Who declared the effect facts. Absent reads as `connector`."
+        },
         "destructive_hint": {
           "default": null,
           "type": [
@@ -41199,6 +41245,15 @@
           "$ref": "#/$defs/BoundedVec_string_64",
           "default": []
         },
+        "schema_tokens": {
+          "description": "The tool schema's size in tokens. Absent is unknown, never zero.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "sdk_contract_pin": {
           "default": null,
           "description": "The SDK contract the publisher pinned. Stored as a claim ATTRIBUTE\nrather than a typed fact: the engine cannot recompute the SDK's own\nnormalization, so it can record the string and must not pretend to have\nchecked it.",
@@ -41206,6 +41261,17 @@
             "string",
             "null"
           ]
+        },
+        "side_effects": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolSideEffects"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the tool may change. Absent is unknown; see\n[`PackAnnotations::effective_side_effects`]."
         },
         "tool_mode": {
           "anyOf": [
@@ -44250,6 +44316,41 @@
         {
           "const": "placement",
           "description": "Evaluate-only deployment placement over the fixed target registry\n(EG-PLACEMENT-R001.2): `Decide` names the cheapest feasible target and\nwhy every other target was not chosen; it acquires no capacity and\ndeploys nothing. See `statistical::placement`.",
+          "type": "string"
+        },
+        {
+          "const": "context_budget",
+          "description": "Whether a prompt passes its window share and the bounded recursive\nsplit that makes it fit (EG-DECISION-ENGINE-R137). Evaluate-only. See\n`decision::context_budget`.",
+          "type": "string"
+        },
+        {
+          "const": "round_verdict",
+          "description": "Whether an evolution round's observed flips verify or falsify its\ndeclaration (EG-DECISION-ENGINE-R136). See `decision::evolution_round`.",
+          "type": "string"
+        },
+        {
+          "const": "stage_allocation",
+          "description": "Which model each evolution stage runs on (EG-DECISION-ENGINE-R136).",
+          "type": "string"
+        },
+        {
+          "const": "probe_verdict",
+          "description": "The verdict of one red-team probe (EG-DECISION-ENGINE-R138). See\n`decision::red_team`.",
+          "type": "string"
+        },
+        {
+          "const": "item_recommendation",
+          "description": "Catalog items for a query and a history (EG-DECISION-ENGINE-R175). See\n`decision::recommend`.",
+          "type": "string"
+        },
+        {
+          "const": "load_set",
+          "description": "The tools, skills and agents one job needs (EG-DECISION-ENGINE-R176).\nSee `decision::load_set`.",
+          "type": "string"
+        },
+        {
+          "const": "usage_guidance",
+          "description": "How and when to use one connector for one job (EG-DECISION-ENGINE-R177).\nSee `decision::usage_guidance`.",
           "type": "string"
         },
         {
@@ -52884,6 +52985,25 @@
       ],
       "type": "object"
     },
+    "TaskPlanCall": {
+      "additionalProperties": false,
+      "description": "One deterministic tool call. `arguments` is a JSON object whose values are\nliterals or `{\"$ref\": \"steps.<task_id>.output.<json.path>\"}` bindings.",
+      "properties": {
+        "arguments": true,
+        "server": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "server",
+        "tool",
+        "arguments"
+      ],
+      "type": "object"
+    },
     "TaskPlanProposal": {
       "additionalProperties": false,
       "properties": {
@@ -52916,8 +53036,18 @@
     },
     "TaskPlanTask": {
       "additionalProperties": false,
-      "description": "A task uses the host's already-bound agent. It cannot select credentials,\ntools, models or a different principal.",
+      "description": "A prompt step uses the host's already-bound agent. It cannot select\ncredentials, models or a different principal. A task with `call` is a tool\nstep: no model runs it and `prompt` is only its label. The call is a caller\nclaim and grants no authority to invoke the tool.",
       "properties": {
+        "call": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskPlanCall"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "depends_on": {
           "$ref": "#/$defs/BoundedVec_string_64",
           "default": []
@@ -53477,6 +53607,36 @@
       "enum": [
         "read",
         "write"
+      ],
+      "type": "string"
+    },
+    "ToolFactDeclarer": {
+      "description": "Who asserted a tool's effect facts. Absent reads as\n[`ToolFactDeclarer::Connector`].",
+      "oneOf": [
+        {
+          "const": "connector",
+          "description": "The connector author declared it.",
+          "type": "string"
+        },
+        {
+          "const": "mcp_hint",
+          "description": "Copied from an MCP `ToolAnnotations` hint, which the MCP specification\nsays must not be trusted.",
+          "type": "string"
+        },
+        {
+          "const": "certified",
+          "description": "An evaluation certified it.",
+          "type": "string"
+        }
+      ]
+    },
+    "ToolSideEffects": {
+      "description": "What a tool may change beyond returning a value. Absent reads as\n[`ToolSideEffects::ExternalWrite`], the least permissive answer.",
+      "enum": [
+        "none",
+        "workspace_write",
+        "external_write",
+        "network"
       ],
       "type": "string"
     },

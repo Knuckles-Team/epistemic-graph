@@ -581,6 +581,17 @@
               ],
               "default": null
             },
+            "declared_by": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ToolFactDeclarer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Who declared the effect facts. Absent reads as `connector`."
+            },
             "destructive_hint": {
               "default": null,
               "type": [
@@ -650,12 +661,36 @@
                 "null"
               ]
             },
+            "read_only_unproven": {
+              "description": "`true` when `read_only_hint` came from an uncertified MCP hint, so\nno decision may treat it as a proven read-only fact.",
+              "type": "boolean"
+            },
             "required_scopes": {
               "description": "Authz actions a caller must hold. An agent that cannot hold them\ncannot be given this tool.",
               "items": {
                 "type": "string"
               },
               "type": "array"
+            },
+            "schema_tokens": {
+              "description": "Declared schema size in tokens. Absent is unknown, never zero.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "side_effects": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ToolSideEffects"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Declared side effects. Absent is unknown, read as `external_write`."
             }
           },
           "required": [
@@ -7302,6 +7337,36 @@
       "enum": [
         "read",
         "write"
+      ],
+      "type": "string"
+    },
+    "ToolFactDeclarer": {
+      "description": "Who asserted a tool's effect facts. Absent reads as\n[`ToolFactDeclarer::Connector`].",
+      "oneOf": [
+        {
+          "const": "connector",
+          "description": "The connector author declared it.",
+          "type": "string"
+        },
+        {
+          "const": "mcp_hint",
+          "description": "Copied from an MCP `ToolAnnotations` hint, which the MCP specification\nsays must not be trusted.",
+          "type": "string"
+        },
+        {
+          "const": "certified",
+          "description": "An evaluation certified it.",
+          "type": "string"
+        }
+      ]
+    },
+    "ToolSideEffects": {
+      "description": "What a tool may change beyond returning a value. Absent reads as\n[`ToolSideEffects::ExternalWrite`], the least permissive answer.",
+      "enum": [
+        "none",
+        "workspace_write",
+        "external_write",
+        "network"
       ],
       "type": "string"
     },

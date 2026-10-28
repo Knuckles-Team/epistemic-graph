@@ -1430,6 +1430,12 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "REPOSITORY_BATCH_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "connector",
       "code": "RESERVED_COMPONENT_ID",
       "http_status_hint": 400,
