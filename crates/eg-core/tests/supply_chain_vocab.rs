@@ -1210,3 +1210,92 @@ fn erpnext_supplier_mapping_fixture_passes_the_virtual_shapes() {
         .expect("the contract records its discovered operation");
     assert_eq!(literal_value(&operation.object), "list_documents");
 }
+
+// spec: EG-SUPPLY-VOCAB-R005.2
+#[test]
+fn erpnext_item_and_po_mapping_declares_the_lines_child_fetch() {
+    let fixture = include_str!("fixtures/vm_erpnext_item_po.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the erpnext Item/Purchase Order fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // Item projects onto kg:SupplyChainItem.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_ERPNEXT}itemMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}SupplyChainItem")
+        ),
+        "the Item doctype maps to kg:SupplyChainItem"
+    );
+    // Purchase Order projects onto kg:PurchaseOrder with exactly the two
+    // derivation edges suppliesItem is built from (Decision D5): suppliedBy
+    // from `supplier`, contains from the `items` lines.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_ERPNEXT}purchaseOrderMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}PurchaseOrder")
+        ),
+        "the Purchase Order doctype maps to kg:PurchaseOrder"
+    );
+    let po_key = format!("<{VM_ERPNEXT}purchaseOrderMapping>");
+    let mut pairs: Vec<(String, String)> = triples
+        .iter()
+        .filter(|triple| {
+            subject_key(triple) == po_key
+                && triple.predicate.as_str().ends_with("hasPredicateFieldPair")
+        })
+        .filter_map(object_key)
+        .filter_map(|pair| {
+            let predicate = triples
+                .iter()
+                .find(|triple| {
+                    subject_key(triple) == pair
+                        && triple.predicate.as_str().ends_with("#predicate")
+                })
+                .and_then(object_key)?;
+            let field = triples
+                .iter()
+                .find(|triple| {
+                    subject_key(triple) == pair
+                        && triple.predicate.as_str().ends_with("#field")
+                })
+                .map(|triple| literal_value(&triple.object).to_string())?;
+            Some((predicate.trim_matches(['<', '>']).rsplit('#').next().unwrap().to_string(), field))
+        })
+        .collect();
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("contains".to_string(), "items".to_string()),
+            ("suppliedBy".to_string(), "supplier".to_string()),
+        ],
+        "the PO mapping projects exactly the two suppliesItem derivation edges"
+    );
+    // The `items` lines are child records: `list_documents` does not return
+    // them, so the purchaseOrderAccess contract declares the per-order
+    // get_document child fetch (Decision D2).
+    let po_contract = format!("<{VM_ERPNEXT}purchaseOrderAccess>");
+    for (predicate, expected) in [
+        ("discoveredOperation", "get_document"),
+        ("discoveredField", "items"),
+        ("discoveredRelationship", "items"),
+    ] {
+        assert!(
+            triples.iter().any(|triple| {
+                subject_key(triple) == po_contract
+                    && triple.predicate.as_str().ends_with(predicate)
+                    && literal_value(&triple.object) == expected
+            }),
+            "the PO contract declares {predicate} `{expected}`"
+        );
+    }
+}
