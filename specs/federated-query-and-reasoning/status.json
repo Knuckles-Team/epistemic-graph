@@ -1404,13 +1404,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R060",
       "title": "Leiden community detection supports a Constant Potts Model quality function",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "62c450561948",
         "ba4384295331"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/leiden_community_detection_served.rs:82"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R061",
@@ -2403,11 +2405,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R039.2.1",
       "title": "Model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a9137f8381f0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/embedding.rs:333",
+        "crates/eg-types/src/embedding.rs:348"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R039.2.2",
