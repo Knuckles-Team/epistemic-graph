@@ -58,7 +58,7 @@ Kafka compatibility, the analytics worker, the job bodies' parsing and LLM logic
 
 ## EG-INGEST-WORKER-R002 ontology induction with admission tests
 
-Data flow: served ingest queue claim → runner → `ingest_document` body → induction → `score_proposal` (creates the call site in `crates/eg-capabilities/src/ingest_queue.rs`) → `Admitted` or `Draft` → instance population.
+Data flow: served ingest queue claim → runner → `ingest_document` body → induction → `score_proposal` (creates the call site in `src/server/handlers/source_ingestion.rs`) → `Admitted` or `Draft` → instance population.
 Types: `OntologyProposal` in `crates/eg-types/src/ontology_proposal.rs`.
 Attach point: the job body after induction. The production caller is the runner of R001.14.
 Failure: a failing score keeps the draft and populates nothing.
@@ -69,7 +69,7 @@ That Graft SDK row remains `SPECIFIED`; it does not establish a live worker runt
 
 ## EG-INGEST-WORKER-R003 knowledge atoms
 
-Data flow: claim → `ingest_document` body (`crates/eg-capabilities/src/ingest_queue.rs`, created by R002.3) → `decompose` → atom store; query → `select_atoms` → context.
+Data flow: claim → `ingest_document` body (`src/server/handlers/source_ingestion.rs`, created by R002.3) → `decompose` → atom store; query → `select_atoms` → context.
 Types: `KnowledgeAtom{atom_id, kind, text, provenance_key, tenant}` in `crates/eg-types/src/knowledge_atom.rs`.
 Attach point: the document job body and the context query path. Production caller: the runner of R001.14. No production caller exists today.
 Failure: an atom without provenance is refused and not stored.

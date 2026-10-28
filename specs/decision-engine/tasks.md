@@ -122,7 +122,7 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [x] **EG-DECISION-ENGINE-R056:** Statistical-path release of the exact solver (rollup)
 - [x] **EG-DECISION-ENGINE-R083:** Options encode structured facts, not option-label text (rollup)
 - [x] **EG-DECISION-ENGINE-R085:** Legal option sets are derived from the ontology, never received as-is
-- [ ] **EG-DECISION-ENGINE-R090:** Resident native decision-scorer head in eg-decision
+- [ ] **EG-DECISION-ENGINE-R090:** Resident native decision-scorer head in eg-numeric
 - [x] **EG-DECISION-ENGINE-R090.1:** Typed resident-scorer budget (producer-first split of R090)
 - [ ] **EG-DECISION-ENGINE-R093:** Resident scorer is trained from the served synthetic-episode generator
 - [x] **EG-DECISION-ENGINE-R093.1:** Typed served-path provenance and ground-truth verification
@@ -195,7 +195,7 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R128.13.2:** Implement and run complete answer re-derivation, changed-premise and forged-answer refusals, and independent committed-record readback.
 - [ ] **EG-DECISION-ENGINE-R128.13.2.1:** Implement and run complete answer re-derivation, changed-premise and forged-answer refusals, and independent committed-record readback.
 - [ ] **EG-DECISION-ENGINE-R128.13.2.2:** Define persisted-replay workloads and resource limits. Implement the planned replay/readback benchmark and retain exact-source measurements.
-- [ ] **EG-DECISION-ENGINE-R128.14:** The generated contract and clients carry the kind. `gen_contract` must be rerun so `contract/schemas/method.request.json` and the `result.*.json` schemas list `harness_config` beside `tool_subset`. The Python DTO in `crates/eg-capabilities/src/contract/python/dto.rs` and the JS and Go codecs under `clients/` must regenerate. The `gen_contract --check` step at `.github/workflows/release.yml:210` must pass. Test: `crates/eg-capabilities/tests/contract_schema.rs::question_kind_lists_harness_config`.
+- [ ] **EG-DECISION-ENGINE-R128.14:** The generated contract and clients carry the kind. `gen_contract` must be rerun so `contract/schemas/method.request.json` and the `result.*.json` schemas list `harness_config` beside `tool_subset`. The Python DTO in `crates/eg-capabilities/src/contract/python/dto.rs` and the JS and Go codecs under `clients/` must regenerate. The `gen_contract --check` step at `.github/workflows/release.yml:210` must pass. Test: `crates/eg-capabilities/tests/contract_generated.rs::question_kind_lists_harness_config`.
 - [ ] **EG-DECISION-ENGINE-R128.15:** End-to-end proof uses the served path. A served test must publish a model profile with measured facts, submit `Method::Decide` for `harness_config` over the wire, and assert the answer, premises and the unchanged tool-subset result. A second case must submit a profile without `shellProficiency` and assert the `tool_set` abstention. Test: `tests/decide/test_harness_config_served.py::test_harness_config_end_to_end`.
 
 - [x] **EG-DECISION-ENGINE-R127.2.3:** Qualify the generated guardrail client against a compiled server and a real published rule set. Native dispatcher acceptance and the hosted real-engine generated-client fixture pass. The fixture exercises the generated sender, typed decoder and request/response schemas against published rules. Cases include subclass/exact matching and foreign-tenant refusal. Exact source and run evidence: `evidence/gr1080-native-20261011/guardrail-results.json`.

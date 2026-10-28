@@ -2920,7 +2920,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R090",
-      "title": "Resident native decision-scorer head in eg-decision",
+      "title": "Resident native decision-scorer head in eg-numeric",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "010477d72b7f",
