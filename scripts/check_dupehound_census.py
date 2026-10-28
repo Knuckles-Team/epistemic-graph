@@ -42,7 +42,7 @@ import scanner_contract
 
 ROOT = Path(__file__).resolve().parent.parent
 
-REPOSITORY = "agent-packages/epistemic-graph"
+REPOSITORY = "agent-packages/medulla"
 PROFILE_ID = "dupehound-full-tree-v1:epistemic-graph"
 EXPECTED_UNIVERSE_ID = "dupehound-source-universe-v1:epistemic-graph"
 STAGE_POLICY_ID = "scanner-stage:release-full-census-advisory-v1"
