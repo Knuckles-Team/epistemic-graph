@@ -893,3 +893,18 @@ fn mapping_fixture_sql_validates() {
         ],
     );
 }
+
+// spec: EG-DATAPLAT-VOCAB-R006.2
+#[test]
+fn mapping_fixture_documentdb_validates() {
+    let triples = validate_fixture(include_str!(
+        "../ontology/fixtures/data_platform/documentdb.ttl"
+    ));
+    assert_via_operations(
+        &triples,
+        &[
+            "documentdb_collections:list_collections",
+            "documentdb_analysis:aggregate",
+        ],
+    );
+}
