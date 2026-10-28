@@ -383,3 +383,215 @@ SELECT ?m1 ?m2 ?attendee WHERE {
         assert_eq!(local(&row[i_attendee]), "attendee-alice", "{rows:?}");
     }
 }
+
+// spec: EG-CQ-CONN-R042.1
+#[test]
+fn okta_assignment_through_group_answers() {
+    // "Which users hold a given application assignment through which group?" —
+    // answered from the okta connector alone (Vocabulary: identity-v1.ttl:
+    // IdentityUser, IdentityGroup, memberOfGroup, assignedApp). Frozen as-of:
+    // 2026-01-03T00:00:00Z.
+    let fixture = r#"
+@prefix : <http://knuckles.team/kg#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f: <urn:eg-cq-conn:okta:fixture/> .
+
+# The given application and the two groups holding assignments.
+f:app-portal rdfs:label "Portal" .
+f:app-mail rdfs:label "Mail" .
+f:group-portal a :IdentityGroup ;
+    :assignedApp f:app-portal .
+f:group-mail a :IdentityGroup ;
+    :assignedApp f:app-mail .
+
+# alice: okta user in group-portal — holds the portal assignment, the row.
+f:alice a :IdentityUser ;
+    :memberOfGroup f:group-portal ;
+    dc:source "okta" ;
+    dc:identifier "okta:rec:alice" ;
+    dc:date "2026-01-03T00:00:00Z"^^xsd:dateTime .
+
+# bob: okta user in group-mail — the assignment is for a different app, no row.
+f:bob a :IdentityUser ;
+    :memberOfGroup f:group-mail ;
+    dc:source "okta" ;
+    dc:identifier "okta:rec:bob" ;
+    dc:date "2026-01-03T00:00:00Z"^^xsd:dateTime .
+
+# carol: okta user with no group membership — no row.
+f:carol a :IdentityUser ;
+    dc:source "okta" ;
+    dc:identifier "okta:rec:carol" ;
+    dc:date "2026-01-03T00:00:00Z"^^xsd:dateTime .
+"#;
+    let view = graph(
+        &[include_str!("../../eg-core/ontology/identity-v1.ttl")],
+        fixture,
+    );
+    let (vars, rows) = select(
+        &view,
+        r#"
+PREFIX : <http://knuckles.team/kg#>
+PREFIX dc: <http://purl.org/dc/terms/>
+SELECT ?user ?group ?app ?source ?record ?asof WHERE {
+  ?user a :IdentityUser ; :memberOfGroup ?group .
+  ?group a :IdentityGroup ; :assignedApp ?app .
+  FILTER(?app = <urn:eg-cq-conn:okta:fixture/app-portal>)
+  ?user dc:source ?source ; dc:identifier ?record ; dc:date ?asof .
+}"#,
+    );
+    let idx = |col: &str| vars.iter().position(|v| v == col).unwrap();
+    let i_user = idx("user");
+    let i_group = idx("group");
+    let i_app = idx("app");
+    let i_source = idx("source");
+    let i_record = idx("record");
+    let i_asof = idx("asof");
+    assert_eq!(rows.len(), 1, "exactly one user answers: {rows:?}");
+    let row = &rows[0];
+    assert_eq!(local(&row[i_user]), "alice");
+    assert_eq!(local(&row[i_group]), "group-portal");
+    assert_eq!(
+        row[i_app], "<urn:eg-cq-conn:okta:fixture/app-portal>",
+        "the assignment is for the given application: {row:?}"
+    );
+    // Provenance: source, record id, as-of all carry on the answer row.
+    assert_eq!(row[i_source], "okta");
+    assert_eq!(row[i_record], "okta:rec:alice");
+    assert_eq!(row[i_asof], "2026-01-03T00:00:00Z");
+}
+
+// spec: EG-CQ-CONN-R039.2
+#[test]
+fn microsoft_attendees_without_idp_or_mattermost_answer() {
+    // "Which attendees of an upcoming meeting have no identity-provider account
+    // or Mattermost presence?" — federated fixture over the microsoft calendar
+    // (Vocabulary: calendar-v1.ttl; Person from the imported core module, the
+    // link concept) with the okta and mattermost sides carried on the shared
+    // person entity: an okta account is an IdentityUser (an identity-v1 Person
+    // subclass) and a Mattermost presence is a Person record sourced from
+    // mattermost. Both sides are provenance-carrying records, so each answer
+    // row reports the missing half. Frozen as-of: 2026-01-05T00:00:00Z, so
+    // "upcoming" is 2026-01-05 or later (day-granular window: the ordering
+    // comparator parses operands as f64, so the window uses DAY() accessors).
+    let fixture = r#"
+@prefix : <http://knuckles.team/kg#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f: <urn:eg-cq-conn:microsoft:fixture/> .
+
+# alice: okta identity-provider account — attends the standup, has an idp
+# account, no row.
+f:alice a :Person, :IdentityUser ;
+    dc:source "okta" ;
+    dc:identifier "okta:rec:alice" ;
+    dc:date "2026-01-05T00:00:00Z"^^xsd:dateTime .
+
+# bob: Mattermost presence — attends the planning meeting, no row.
+f:bob a :Person ;
+    dc:source "mattermost" ;
+    dc:identifier "mm:rec:bob" ;
+    dc:date "2026-01-05T00:00:00Z"^^xsd:dateTime .
+
+# carol and dave: plain persons with no idp account and no Mattermost
+# presence — the answer rows.
+f:carol a :Person .
+f:dave a :Person .
+
+# erin: plain person, but attends a meeting that already happened — outside
+# the "upcoming" window.
+f:erin a :Person .
+
+# Upcoming meetings, fetched from the microsoft connector at query time.
+f:meeting-standup a :CalendarEvent ;
+    :scheduledStart "2026-01-06T09:00:00Z"^^xsd:dateTime ;
+    :scheduledEnd "2026-01-06T10:00:00Z"^^xsd:dateTime ;
+    :attendedBy f:alice, f:carol ;
+    dc:source "microsoft" ;
+    dc:identifier "ms:rec:meeting-standup" ;
+    dc:date "2026-01-05T00:00:00Z"^^xsd:dateTime .
+f:meeting-planning a :CalendarEvent ;
+    :scheduledStart "2026-01-07T14:00:00Z"^^xsd:dateTime ;
+    :scheduledEnd "2026-01-07T15:00:00Z"^^xsd:dateTime ;
+    :attendedBy f:bob, f:dave ;
+    dc:source "microsoft" ;
+    dc:identifier "ms:rec:meeting-planning" ;
+    dc:date "2026-01-05T00:00:00Z"^^xsd:dateTime .
+
+# Yesterday's sync — already past the frozen as-of, no row.
+f:meeting-sync a :CalendarEvent ;
+    :scheduledStart "2026-01-04T16:00:00Z"^^xsd:dateTime ;
+    :scheduledEnd "2026-01-04T17:00:00Z"^^xsd:dateTime ;
+    :attendedBy f:erin ;
+    dc:source "microsoft" ;
+    dc:identifier "ms:rec:meeting-sync" ;
+    dc:date "2026-01-05T00:00:00Z"^^xsd:dateTime .
+"#;
+    let view = graph(
+        &[
+            include_str!("../../eg-core/ontology/calendar-v1.ttl"),
+            include_str!("../../eg-core/ontology/core-foundation-v1.ttl"),
+            include_str!("../../eg-core/ontology/identity-v1.ttl"),
+        ],
+        fixture,
+    );
+    let (vars, rows) = select(
+        &view,
+        r#"
+PREFIX : <http://knuckles.team/kg#>
+PREFIX dc: <http://purl.org/dc/terms/>
+SELECT ?attendee ?meeting ?source ?record ?asof WHERE {
+  ?meeting a :CalendarEvent ;
+           :scheduledStart ?s ;
+           :attendedBy ?attendee ;
+           dc:source ?source ;
+           dc:identifier ?record ;
+           dc:date ?asof .
+  FILTER(?source = "microsoft")
+  FILTER(YEAR(?s) = 2026 && MONTH(?s) = 1 && DAY(?s) >= 5)
+  # The absence halves of the question: no identity-provider account and no
+  # Mattermost presence on the shared person entity.
+  FILTER NOT EXISTS { ?attendee a :IdentityUser }
+  FILTER NOT EXISTS { ?attendee dc:source "mattermost" }
+}"#,
+    );
+    let idx = |col: &str| vars.iter().position(|v| v == col).unwrap();
+    let i_attendee = idx("attendee");
+    let i_meeting = idx("meeting");
+    let i_source = idx("source");
+    let i_record = idx("record");
+    let i_asof = idx("asof");
+    assert_eq!(rows.len(), 2, "exactly two attendees answer: {rows:?}");
+    let pairs: Vec<(String, String)> = rows
+        .iter()
+        .map(|row| {
+            (
+                local(&row[i_attendee]).to_string(),
+                local(&row[i_meeting]).to_string(),
+            )
+        })
+        .collect();
+    let mut sorted = pairs.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec![
+            ("carol".to_string(), "meeting-standup".to_string()),
+            ("dave".to_string(), "meeting-planning".to_string()),
+        ],
+        "only the unconnected attendees answer: {rows:?}"
+    );
+    // Provenance: every answer row carries the microsoft meeting record's
+    // source, record id and as-of from the virtual mapping.
+    for row in &rows {
+        assert_eq!(row[i_source], "microsoft", "{rows:?}");
+        assert_eq!(row[i_asof], "2026-01-05T00:00:00Z", "{rows:?}");
+        let record = row[i_record].as_str();
+        assert!(
+            record == "ms:rec:meeting-standup" || record == "ms:rec:meeting-planning",
+            "unexpected record id {record:?}: {rows:?}"
+        );
+    }
+}
