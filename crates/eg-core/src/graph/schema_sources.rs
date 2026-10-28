@@ -1447,7 +1447,7 @@ mod tests {
             // shapes companion) joins the catalog; the pin follows the ontology.
             (
                 "commercial",
-                "4719c1d18d5ce425e60972b368057f947f879a8be1eecbf64cfba06325bfb792",
+                "9eae5e3094bb606dbbaa971be84054b4116246355f555c7713ac28b2a16843b6",
             ),
             (
                 "supply_chain",

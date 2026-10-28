@@ -629,6 +629,7 @@ fn commercial_shapes() -> std::sync::Arc<str> {
 const COMMERCE_DATA_PREFIX: &str = r#"
 @prefix kg:    <http://knuckles.team/kg#> .
 @prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
 @prefix ex:    <http://knuckles.team/test/commercial#> .
 "#;
 
@@ -860,5 +861,59 @@ fn contact_of_declared_with_no_contact_class() {
     assert_eq!(
         contact_classes, 0,
         "no :Contact class is declared; :Person is reused for contacts"
+    );
+}
+
+// spec: EG-SUPPLY-VOCAB-R003.12
+#[test]
+fn last_activity_at_declared_and_datatyped() {
+    let triples = load_commercial();
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}lastActivityAt"),
+            &format!("{RDF}type"),
+            &format!("{OWL}DatatypeProperty")
+        ),
+        "lastActivityAt is a datatype property"
+    );
+    assert_domain_range(&triples, "lastActivityAt", "Customer", "xsd:dateTime");
+    let shapes = commercial_shapes();
+    // A dateTime last activity is accepted.
+    let valid = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:acmeCustomer a kg:Customer ;
+    kg:lastActivityAt \"2026-10-01T09:30:00\"^^xsd:dateTime ."
+    );
+    let report =
+        eg_shacl::validate_turtle(&shapes, &valid).expect("valid fixture parses");
+    assert!(
+        report.conforms,
+        "a dateTime last activity is accepted: {:?}",
+        report.results
+    );
+    // A plain string is refused on the datatype.
+    let plain_string = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:acmeCustomer a kg:Customer ;
+    kg:lastActivityAt \"yesterday\" ."
+    );
+    let report =
+        eg_shacl::validate_turtle(&shapes, &plain_string).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "a non-dateTime last activity must be refused: {:?}",
+        report.results
+    );
+    assert!(
+        report.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("#lastActivityAt>"))
+                && result.constraint_component.ends_with("DatatypeConstraintComponent")
+        }),
+        "the refusal lands on the lastActivityAt datatype: {:?}",
+        report.results
     );
 }

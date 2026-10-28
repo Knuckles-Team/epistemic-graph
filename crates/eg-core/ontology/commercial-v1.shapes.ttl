@@ -10,6 +10,7 @@
 @prefix infra: <http://knuckles.team/kg/infrastructure#> .
 @prefix sh:  <http://www.w3.org/ns/shacl#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 kg:CustomerContractShape a sh:NodeShape ;
     sh:targetClass kg:CustomerContract ;
@@ -32,3 +33,11 @@ kg:SupportsCapabilityShape a sh:NodeShape ;
         sh:message "A capability link points from a service to a BusinessCapability."
     ] ;
     sh:message "Only a service carries a capability link -- a link from a non-service is refused." .
+
+kg:LastActivityShape a sh:NodeShape ;
+    sh:targetSubjectsOf kg:lastActivityAt ;
+    sh:property [
+        sh:path kg:lastActivityAt ; sh:datatype xsd:dateTime ;
+        sh:message "lastActivityAt is a dateTime value."
+    ] ;
+    sh:message "A customer's last activity is a dateTime value." .
