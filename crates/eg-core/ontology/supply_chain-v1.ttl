@@ -39,6 +39,33 @@
     rdfs:domain :AssetInstance ;
     rdfs:range infra:Host .
 
+infra:serviceRunsOn a owl:ObjectProperty ;
+    rdfs:label "service runs on" ;
+    rdfs:comment """The service-only form of infra:runsOn: links an independently
+typed infra:Service to the infra:Host it runs on, mapped only from
+independently typed Service records. A bare container or pod runsOn triple
+never maps to it, so the physical supply chain can only close through a
+Service.""" ;
+    rdfs:domain infra:Service ;
+    rdfs:range infra:Host ;
+    rdfs:subPropertyOf infra:runsOn .
+
+:suppliesService a owl:ObjectProperty ;
+    rdfs:label "supplies service" ;
+    rdfs:comment """Derived: a supplier supplies a service when an item it
+supplies is realized by an asset hosted on a host the service runs on. The
+physical chain (suppliesItem, realizedByAsset, assetHost, inverse
+serviceRunsOn) is asserted as the property-chain axiom on this property.""" ;
+    rdfs:domain :Supplier ;
+    rdfs:range infra:Service ;
+    owl:propertyChainAxiom (
+        :suppliesItem
+        :realizedByAsset
+        :assetHost
+        [ a owl:ObjectProperty ;
+            owl:inverseOf infra:serviceRunsOn ]
+    ) .
+
 :SoftwareComponent a owl:Class ;
     rdfs:label "Software Component" ;
     rdfs:comment "A library, package or base image supplied into a deployment (a registry namespace, a repository package, a system package). The shared IRI is also declared by the SDD module; its generically dependent parent lets container images specialize it without crossing the core disjointness axiom." ;
