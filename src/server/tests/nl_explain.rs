@@ -119,6 +119,7 @@ async fn nl_query_explain_refuses_exactly_like_nl_query() {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R058.2.2.2
 #[tokio::test]
 async fn nl_query_plan_returns_pins_without_executing_rows() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
