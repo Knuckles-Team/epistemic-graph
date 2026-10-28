@@ -48,3 +48,21 @@ dp:VectorCollectionShape a sh:NodeShape ;
         sh:node dp:EmbeddingSpaceShape ;
         sh:message "A vector collection uses exactly one embedding space."
     ] .
+
+dp:PartitionLagShape a sh:NodeShape ;
+    sh:targetClass dp:PartitionLag ;
+    sh:property [
+        sh:path dp:lag ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 0 ;
+        sh:message "A partition lag carries exactly one non-negative integer lag."
+    ] ;
+    sh:property [
+        sh:path dp:asOf ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:dateTime ;
+        sh:message "A partition lag names exactly one asOf observation time."
+    ] .

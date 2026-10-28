@@ -353,6 +353,62 @@ ex:space a dp:EmbeddingSpace ;
     );
 }
 
+// spec: EG-DATAPLAT-VOCAB-R004.2
+#[test]
+fn negative_lag_rejected() {
+    // A negative lag is refused: lag is an integer >= 0.
+    let negative = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:lag a dp:PartitionLag ;
+    dp:lag -3 ;
+    dp:asOf "2026-10-28T00:00:00Z"^^xsd:dateTime .
+"#;
+    let report = validate_turtle(DP_SHAPES, negative)
+        .expect("the negative-lag document parses before validation");
+    assert!(
+        !report.conforms,
+        "a negative lag must be rejected: {:?}",
+        report.results
+    );
+
+    // A lag without its observation time is refused too.
+    let no_asof = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:lag a dp:PartitionLag ;
+    dp:lag 42 .
+"#;
+    let report = validate_turtle(DP_SHAPES, no_asof)
+        .expect("the missing-asOf document parses before validation");
+    assert!(
+        !report.conforms,
+        "a partition lag without asOf must be rejected: {:?}",
+        report.results
+    );
+
+    // A zero lag with an observation time conforms (boundary of [0, +inf)).
+    let good = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:lag a dp:PartitionLag ;
+    dp:lag 0 ;
+    dp:asOf "2026-10-28T00:00:00Z"^^xsd:dateTime .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, good).expect("the conforming document parses before validation");
+    assert!(
+        report.conforms,
+        "a zero lag with asOf must conform: {:?}",
+        report.results
+    );
+}
+
 // spec: EG-DATAPLAT-VOCAB-R002.1
 #[test]
 fn relational_classes_present() {
