@@ -1879,3 +1879,226 @@ fn media_vocab_jellyfin_vocabulary_docs_truth() {
         "the jellyfin Vocabulary cell names media-v1, not MISSING"
     );
 }
+
+// spec: EG-MEDIA-VOCAB-R007.1
+#[test]
+fn media_vocab_audiobookshelf_mapping_rows_resolve_existing_terms() {
+    let document = include_str!("fixtures/media_vocab/audiobookshelf_mapping.ttl");
+    let (kind, _endpoint, only_url) = connection_of(document);
+    assert_eq!(kind, "mcp", "vg:sourceKind is mcp");
+    assert!(only_url, "the endpoint reference carries only its url");
+    let (entities, fields, _operations) = contract_of(document);
+    let rows = mapping_rows(document);
+    assert_eq!(rows.len(), 6, "the plan.md table rows are all mapped");
+    let universe = vocabulary_universe();
+    for row in &rows {
+        assert!(
+            entities.contains(&row.entity),
+            "mapsEntity {} is a discovered entity",
+            row.entity
+        );
+        assert!(
+            fields.contains(&row.key_field),
+            "keyField {} is a discovered field",
+            row.key_field
+        );
+        assert!(
+            universe.get(&row.class).map(|(kind, _)| *kind) == Some(TermKind::Class),
+            "row class {} is a declared class",
+            row.class
+        );
+        for pair in &row.pairs {
+            assert!(
+                fields.contains(&pair.field),
+                "pair field {} is a discovered field",
+                pair.field
+            );
+            assert!(
+                universe.contains_key(&pair.predicate),
+                "row predicate {} is declared vocabulary",
+                pair.predicate
+            );
+        }
+    }
+    // Coverage of the plan.md audiobookshelf table: entity -> class. The
+    // author maps to :Person (role author); the connector :Author alias is
+    // never redeclared.
+    let bound: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .map(|r| (
+            r.entity.as_str(),
+            r.class.strip_prefix(KG).unwrap_or(&r.class),
+        ))
+        .collect();
+    for (entity, class) in [
+        ("Library", "MediaLibrary"),
+        ("Item", "Audiobook"),
+        ("Series", "BookSeries"),
+        ("Author", "Person"),
+        ("PodcastShow", "PodcastShow"),
+        ("PodcastEpisode", "PodcastEpisode"),
+    ] {
+        assert!(
+            bound.contains(&(entity, class)),
+            "the plan.md table row {entity} -> {class} is mapped"
+        );
+    }
+}
+
+// spec: EG-MEDIA-VOCAB-R007.2
+#[test]
+fn media_vocab_audiobookshelf_response_round_trips_through_mapping() {
+    let document = include_str!("fixtures/media_vocab/audiobookshelf_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/audiobookshelf_response.json"))
+            .expect("the recorded response parses");
+    let mapped = apply_mapping(&rows, &response, "audiobookshelf", &universe);
+    // Seven records, no minted reference nodes: the series and author values
+    // are URN references into the mapped nodes.
+    let nodes = node_subjects(&mapped);
+    assert_eq!(nodes.len(), 7, "every record becomes exactly one node: {nodes:?}");
+    for t in &mapped {
+        let predicate = t.predicate.as_str();
+        if predicate == format!("{RDF}type")
+            || predicate == format!("{DC}source")
+            || predicate == format!("{DC}identifier")
+            || predicate == format!("{DC}date")
+        {
+            continue;
+        }
+        assert!(
+            universe.contains_key(predicate),
+            "the mapped triple uses declared vocabulary: {predicate}"
+        );
+    }
+    // The book links to its series node, carries its sequence and ISBN, and
+    // names its author person.
+    assert_eq!(
+        iri_of(
+            &mapped,
+            "urn:eg-media-vocab:audiobookshelf:Item:it1",
+            format!("{KG}partOfBookSeries").as_str()
+        ),
+        Some("urn:eg-media-vocab:audiobookshelf:Series:s1".to_string())
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:audiobookshelf:Item:it1",
+            format!("{KG}seriesSequence").as_str()
+        ),
+        vec!["1".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:audiobookshelf:Item:it1",
+            format!("{KG}isbn").as_str()
+        ),
+        vec!["978-0-14-032855-1".to_string()]
+    );
+    assert_eq!(
+        iri_of(
+            &mapped,
+            "urn:eg-media-vocab:audiobookshelf:Item:it1",
+            format!("{KG}contributor").as_str()
+        ),
+        Some("urn:eg-media-vocab:audiobookshelf:Author:a1".to_string())
+    );
+    // The series is a :BookSeries under the series-work root; the author is
+    // a :Person.
+    assert!(
+        subclass_path(
+            &load(MEDIA),
+            &format!("{KG}BookSeries"),
+            &format!("{KG}SeriesWork")
+        ),
+        ":BookSeries is under :SeriesWork"
+    );
+    assert!(
+        subclass_path(
+            &load(MEDIA),
+            &format!("{KG}TelevisionSeries"),
+            &format!("{KG}SeriesWork")
+        ),
+        ":TelevisionSeries is a :SeriesWork sibling"
+    );
+    assert_eq!(
+        values_of(&mapped, "urn:eg-media-vocab:audiobookshelf:Author:a1", format!("{RDF}type").as_str()),
+        vec![format!("{KG}Person")]
+    );
+    assert_eq!(
+        values_of(&mapped, "urn:eg-media-vocab:audiobookshelf:Author:a1", format!("{KG}title").as_str()),
+        vec!["Ada Lovelace".to_string()]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R007.3
+#[test]
+fn media_vocab_audiobookshelf_single() {
+    // "Which audiobook series have a book with listening progress stopped
+    // partway, and for which user?" — BLOCKED: the connector's api client
+    // exposes libraries, items, series and authors only; there is no
+    // per-user listening-progress operation, so the question cannot be
+    // answered. The test verifies the mapped data carries no progress to
+    // answer from and returns the typed abstention naming the missing
+    // operation and its owner.
+    let document = include_str!("fixtures/media_vocab/audiobookshelf_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/audiobookshelf_response.json"))
+            .unwrap();
+    let mapped = apply_mapping(&rows, &response, "audiobookshelf", &universe);
+
+    // No progress information anywhere in the mapped data.
+    for property in ["progressFraction", "playbackPositionSeconds", "playCount", "lastPlayedAt", "progressOf"] {
+        assert!(
+            mapped
+                .iter()
+                .all(|t| t.predicate.as_str() != format!("{KG}{property}")),
+            "the mapped data carries no {property}"
+        );
+    }
+    assert!(
+        subjects_typed(&mapped, &["PlaybackSession", "PlaybackProgress"]).is_empty(),
+        "no playback or progress nodes are mapped"
+    );
+    // The discovered operations contain no progress operation.
+    let (_entities, _fields, operations) = contract_of(document);
+    assert!(
+        operations
+            .iter()
+            .all(|operation| !operation.contains("progress")),
+        "no progress operation is discovered: {operations:?}"
+    );
+
+    // The typed abstention names the missing operation and the owner who
+    // must add it.
+    let abstention = TypedAbstention {
+        connector: "audiobookshelf",
+        missing_operation: "library_operations/get_media_progress (per-user listening progress)",
+        owner: "audiobookshelf-mcp",
+    };
+    assert_eq!(abstention.connector, "audiobookshelf");
+    assert!(
+        abstention.missing_operation.contains("media_progress"),
+        "the abstention names the missing progress operation: {}",
+        abstention.missing_operation
+    );
+    assert_eq!(abstention.owner, "audiobookshelf-mcp");
+}
+
+// spec: EG-MEDIA-VOCAB-R007.4
+#[test]
+fn media_vocab_audiobookshelf_vocabulary_docs_truth() {
+    let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
+        .expect("the connector-competency plan reads");
+    assert_eq!(
+        connector_competency_vocab_cell(&plan, "R007"),
+        "media-v1",
+        "the audiobookshelf Vocabulary cell names media-v1, not MISSING"
+    );
+}

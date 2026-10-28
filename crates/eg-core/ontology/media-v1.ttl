@@ -838,3 +838,33 @@
     rdfs:comment "How many items of one kind the library holds (Jellyfin per-type item counts)." ;
     rdfs:domain :MediaLibrary ;
     rdfs:range xsd:nonNegativeInteger .
+
+# R007.1: audiobookshelf mapping terms. The table row `series_operations/...
+# -> mv:BookSeries (mv:TelevisionSeries sibling under mv:SeriesWork);
+# mv:seriesSequence` needs the series-work root both series kinds share, the
+# audiobook series class and the book's position within it.
+
+:SeriesWork a owl:Class ;
+    rdfs:label "Series Work" ;
+    rdfs:comment "A work serialized across ordered installments (a television series or an audiobook series); the root both series kinds share." ;
+    rdfs:subClassOf :MediaWork .
+
+:BookSeries a owl:Class ;
+    rdfs:label "Book Series" ;
+    rdfs:comment "A series of books (Audiobookshelf series); its books carry their sequence position." ;
+    rdfs:subClassOf :SeriesWork .
+
+:TelevisionSeries rdfs:subClassOf :SeriesWork .
+
+:seriesSequence a owl:DatatypeProperty ;
+    rdfs:label "series sequence" ;
+    rdfs:comment "The book's position within its series (Audiobookshelf item series sort order)." ;
+    rdfs:domain :Audiobook ;
+    rdfs:range xsd:nonNegativeInteger .
+
+:partOfBookSeries a owl:ObjectProperty ;
+    rdfs:label "part of book series" ;
+    rdfs:comment "Links an audiobook to the book series it belongs to." ;
+    rdfs:domain :Audiobook ;
+    rdfs:range :BookSeries ;
+    rdfs:subPropertyOf :partOf .
