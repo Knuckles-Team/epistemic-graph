@@ -168,9 +168,6 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R085.10 acceptance:** Acceptance covers durable readback, scope/revocation redaction, stale conflict retention and capacity refusal. Meristem must define capture trigger, kind mapping, relevance/staleness and conflict presentation before transparent reuse is accepted.
 - [ ] **EG-DURABLE-KERNEL-R085.10 status:** Keep SPECIFIED. No automatic capture/reuse behavior is claimed.
 
-- [ ] **EG-DURABLE-KERNEL-R084.7:** Hold cross-backend coordination until owners decide allowed writable targets, registry/coordinator owner and ordering key. They must also define atomic-versus-eventual semantics and failure/retry/idempotency/receipt behavior. Preserve one-graph R084.1-.6 and R039 as sole durability authority. Never infer writes to R024.1 sources from mirror cursors.
-- [ ] **EG-DURABLE-KERNEL-R084.7 acceptance:** Existing one-graph two-writer test only. Define multi-target tests after the owner decisions. This row is not closed by R084.6.
-- [ ] **EG-DURABLE-KERNEL-R084.7 status:** Keep SPECIFIED and explicitly held.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->
