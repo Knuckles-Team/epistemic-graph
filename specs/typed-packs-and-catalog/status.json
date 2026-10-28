@@ -2517,11 +2517,13 @@
     {
       "id": "EG-TYPED-PACKS-R103.1",
       "title": "Model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "c4ea2dc5bdfa"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/graph_schema.rs:502"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R103.2",
