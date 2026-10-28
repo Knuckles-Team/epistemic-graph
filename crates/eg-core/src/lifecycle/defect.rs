@@ -11,9 +11,10 @@ fn is_hex_address(token: &str) -> bool {
 }
 
 fn is_temp_path(token: &str) -> bool {
-    ["/tmp/", "/var/tmp/", "/var/folders/"]
-        .iter()
-        .any(|prefix| token.contains(prefix))
+    token.contains('/')
+        && token
+            .split('/')
+            .any(|part| matches!(part, "tmp" | "folders"))
 }
 
 /// Drop trailing `:line` and `:line:col` suffixes from a path-like token.
