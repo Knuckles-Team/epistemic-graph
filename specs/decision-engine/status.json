@@ -245,7 +245,11 @@
     "EG-DECISION-ENGINE-R128.12",
     "EG-DECISION-ENGINE-R128.13",
     "EG-DECISION-ENGINE-R128.13.1",
+    "EG-DECISION-ENGINE-R128.13.1.1",
+    "EG-DECISION-ENGINE-R128.13.1.2",
     "EG-DECISION-ENGINE-R128.13.2",
+    "EG-DECISION-ENGINE-R128.13.2.1",
+    "EG-DECISION-ENGINE-R128.13.2.2",
     "EG-DECISION-ENGINE-R128.14",
     "EG-DECISION-ENGINE-R128.15",
     "EG-DECISION-ENGINE-R129",
@@ -1523,7 +1527,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:386"
+        "crates/eg-types/src/decision/statistical.rs:390"
       ]
     },
     {
@@ -1556,7 +1560,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:393"
+        "crates/eg-types/src/decision/statistical.rs:397"
       ]
     },
     {
@@ -1835,7 +1839,7 @@
         "crates/eg-types/src/decision/statistical/tool_subset.rs:161",
         "crates/eg-types/src/decision/statistical/tool_subset.rs:189",
         "crates/eg-types/src/decision/statistical/tool_subset.rs:203",
-        "src/server/handlers/decide/stat_tests/tool_subset_tests.rs:58"
+        "src/server/handlers/decide/stat_tests/tool_subset_tests.rs:68"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R045.1",
@@ -1867,7 +1871,7 @@
         "e8eaaf916a40"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/tool_subset_tests.rs:58"
+        "src/server/handlers/decide/stat_tests/tool_subset_tests.rs:68"
       ]
     },
     {
@@ -1952,7 +1956,9 @@
       "title": "Digest-bound model input declaration source",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "134ec29d095e"
+        "134ec29d095e",
+        "85a51f886e90",
+        "e21a42b2f88c"
       ],
       "verified_by": [
         "crates/eg-types/src/agent_component.rs:1618",
@@ -1967,7 +1973,10 @@
       "title": "Generated media-facts consumer contract",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "80f0bdb35769"
+        "80f0bdb35769",
+        "85a51f886e90",
+        "d3b84bc1c0ce",
+        "e21a42b2f88c"
       ],
       "verified_by": [
         "tests/test_generated_model_input_capabilities.py:13"
@@ -2423,7 +2432,7 @@
         "a0743ba9b542"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:367",
+        "crates/eg-capabilities/src/error_routing.rs:375",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:29",
@@ -2495,7 +2504,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:367",
+        "crates/eg-capabilities/src/error_routing.rs:375",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:45"
@@ -2593,7 +2602,7 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract.rs:637",
-        "crates/eg-capabilities/src/contract.rs:665"
+        "crates/eg-capabilities/src/contract.rs:667"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R078.1",
@@ -2610,7 +2619,7 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract.rs:637",
-        "crates/eg-capabilities/src/contract.rs:665"
+        "crates/eg-capabilities/src/contract.rs:667"
       ]
     },
     {
@@ -2623,7 +2632,7 @@
         "e8aaa8ae5ccd"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:665"
+        "crates/eg-capabilities/src/contract.rs:667"
       ]
     },
     {
@@ -3952,7 +3961,7 @@
         "c7da75413a3c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:374",
+        "crates/eg-types/src/decision/statistical.rs:378",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:57",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:98"
       ]
@@ -4079,7 +4088,7 @@
     {
       "id": "EG-DECISION-ENGINE-R128.13.1",
       "title": "Typed harness evaluation evidence is part of sealed statistical inputs",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "8134c07ff0b9",
         "cfe7d38376a4"
@@ -4088,11 +4097,47 @@
         "crates/eg-types/src/decision/statistical/harness_config.rs:682",
         "crates/eg-types/src/decision/statistical/harness_config.rs:694",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:99"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R128.13.1.1",
+        "EG-DECISION-ENGINE-R128.13.1.2"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.1.1",
+      "title": "Evidence codec and commit-refusal functional acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.1.2",
+      "title": "Evidence codec and refusal resource qualification remains pending",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R128.13.2",
       "title": "Re-derive and persist the complete HarnessConfig answer",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R128.13.2.1",
+        "EG-DECISION-ENGINE-R128.13.2.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.2.1",
+      "title": "Successful HarnessConfig replay and readback functional acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.2.2",
+      "title": "Persisted HarnessConfig replay resource qualification remains pending",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -8970,9 +9015,16 @@
     {
       "id": "EG-DECISION-ENGINE-R800.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09f35497acd2",
+        "eef40ee82ca2"
+      ],
+      "verified_by": [
+        "crates/eg-program/tests/optimize_front.rs:14",
+        "crates/eg-program/tests/optimize_front.rs:28",
+        "crates/eg-program/tests/optimize_front.rs:37"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R800.2",
@@ -9083,9 +9135,18 @@
     {
       "id": "EG-DECISION-ENGINE-R801.8",
       "title": "Fenced committed-run usage and caller-context aggregation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "446aebcfb66c",
+        "495b5a0ee7c7",
+        "6cd74b05f9a5",
+        "852132fc91a1"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/run_usage.rs:141",
+        "src/redb_store/work_item/run_owner/tests.rs:773",
+        "tests/test_work_item_read_client.py:3"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R802",
@@ -9624,9 +9685,13 @@
     {
       "id": "EG-DECISION-ENGINE-R805.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "550e623002fa"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/promotion.rs:40"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R805.2",

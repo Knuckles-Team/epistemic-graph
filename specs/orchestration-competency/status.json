@@ -487,7 +487,9 @@
       "title": "Q6: \"What workflow do the agents need to follow?\" (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "617d470e4048"
+        "617d470e4048",
+        "91a2103adde1",
+        "9c3a6802ebfb"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_competency.rs:460",
@@ -509,10 +511,13 @@
       "title": "Q6 Ontology gap: handoff",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "617d470e4048"
+        "617d470e4048",
+        "91a2103adde1",
+        "9c3a6802ebfb"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/orchestration_competency.rs:460"
+        "crates/eg-rdf/tests/orchestration_competency.rs:460",
+        "crates/eg-rdf/tests/orchestration_competency_r0061.rs:30"
       ]
     },
     {
@@ -564,7 +569,9 @@
       "title": "Q7: \"What does the agent graph shape (DAG) look like?\" (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "617d470e4048"
+        "023a8b2e3e46",
+        "617d470e4048",
+        "7a9a5569e16b"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/orchestration_competency.rs:501",
@@ -586,10 +593,13 @@
       "title": "Q7 Ontology gap: slot edge",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "617d470e4048"
+        "023a8b2e3e46",
+        "617d470e4048",
+        "7a9a5569e16b"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/orchestration_competency.rs:501"
+        "crates/eg-rdf/tests/orchestration_competency.rs:501",
+        "crates/eg-rdf/tests/orchestration_competency_r0071.rs:19"
       ]
     },
     {
@@ -653,9 +663,15 @@
     {
       "id": "EG-CQ-ORCH-R008.1",
       "title": "Composed Envelope type",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6a8d04a75171",
+        "8b4193663dd5"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/execution_answer.rs:107",
+        "crates/eg-types/src/decision/execution_answer.rs:118"
+      ]
     },
     {
       "id": "EG-CQ-ORCH-R008.2",
