@@ -245,10 +245,12 @@ async fn adapt_query_vector(ctx: &GraphOpsContext<'_>, method: Method) -> Method
             keywords,
             query_embedding,
             k,
+            quality_policy_ref,
         } => Method::Discover {
             keywords,
             query_embedding: adapted_query(ctx.state, tenant, served, query_embedding).await,
             k,
+            quality_policy_ref,
         },
         other => other,
     }
@@ -294,6 +296,7 @@ pub(super) async fn try_handle_semantic_compute(
             keywords,
             query_embedding,
             k,
+            ..
         } => discover(core, &keywords, &query_embedding, k, req_id),
         // CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — kernel-backed in-engine batch L2-normalize (compute-near-data).
         // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, no Python-extension FFI);

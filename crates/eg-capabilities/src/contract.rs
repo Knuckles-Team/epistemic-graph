@@ -661,6 +661,8 @@ mod decide_feature_freeze_tests {
 #[cfg(test)]
 mod package_projection_tests {
     use super::*;
+    use std::fs;
+    use tempfile::TempDir;
 
     // spec: EG-DECISION-ENGINE-R078.2, EG-DECISION-ENGINE-R078.1
     #[test]
@@ -697,6 +699,79 @@ mod package_projection_tests {
             by_path["contract/receipt.json"],
             by_path["epistemic_graph/contract/receipt.json"]
         );
+    }
+
+    // spec: EG-CONTRACT-R038
+    #[test]
+    fn receipt_check_rejects_python_client_and_new_schema_identity_drift() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        for relative in [
+            "epistemic_graph/client.py",
+            "epistemic_graph/connector_pack.py",
+        ] {
+            let destination = root.join(relative);
+            fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            fs::copy(source.join(relative), destination).unwrap();
+        }
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("crates/eg-types/src")).unwrap();
+        fs::write(
+            root.join("crates/eg-types/src/receipt_fixture.rs"),
+            b"const EXISTING_SCHEMA_VERSION: u16 = 1;\n",
+        )
+        .unwrap();
+        let artifacts = render_all(root);
+        let committed = artifacts
+            .iter()
+            .find(|artifact| artifact.path == "contract/receipt.json")
+            .unwrap();
+        for artifact in &artifacts {
+            let path = root.join(&artifact.path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, &artifact.bytes).unwrap();
+        }
+        assert!(
+            check(root).is_ok(),
+            "fresh generated receipt must check clean"
+        );
+
+        let client = root.join("epistemic_graph/client.py");
+        fs::write(&client, b"# changed client fixture\n").unwrap();
+        let client_drift = check(root).unwrap_err();
+        assert!(
+            client_drift
+                .iter()
+                .any(|finding| finding.contains("contract/receipt.json")),
+            "Python client edit must make the full receipt stale: {client_drift:?}"
+        );
+        fs::copy(source.join("epistemic_graph/client.py"), &client).unwrap();
+
+        let rust_source = root.join("crates/eg-types/src/receipt_fixture.rs");
+        let mut changed = fs::read(&rust_source).unwrap();
+        changed.extend_from_slice(b"\nconst R038_FIXTURE_SCHEMA_VERSION: u16 = 1;\n");
+        fs::write(rust_source, changed).unwrap();
+
+        let schema_drift = check(root).unwrap_err();
+        assert!(
+            schema_drift
+                .iter()
+                .any(|finding| finding.contains("contract/receipt.json")),
+            "new SCHEMA_VERSION identity must make the full receipt stale: {schema_drift:?}"
+        );
+        let generated_receipt: serde_json::Value =
+            serde_json::from_slice(&committed.bytes).unwrap();
+        let identity_sites = generated_receipt["format_identities"]["EXISTING_SCHEMA_VERSION"]
+            .as_array()
+            .expect("format identities are arrays of declared sites");
+        assert_eq!(identity_sites.len(), 1);
+        assert_eq!(
+            identity_sites[0]["file"],
+            "crates/eg-types/src/receipt_fixture.rs"
+        );
+        assert_eq!(identity_sites[0]["value"], "1");
     }
 
     #[test]

@@ -202,7 +202,7 @@ where
     // registry (EH-373): an in-txn `FOREIGN "<name>"` / `Named` `ForeignScan` leg
     // resolves only sources the caller (tenant+principal) registered.
     #[cfg(feature = "federation")]
-    let foreign = served_foreign_leg(state, &plan, read_authority)
+    let foreign = served_foreign_leg(state, &plan, read_authority, None)
         .await
         .map_err(|denied| Response::err(req_id, denied))?;
     // CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`

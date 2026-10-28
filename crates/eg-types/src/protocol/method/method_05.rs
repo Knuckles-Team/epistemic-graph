@@ -94,6 +94,9 @@ $($variants)*
     #[cfg(feature = "query")]
     UnifiedQuery {
         plan: crate::wire::Plan,
+        /// Optional host-driven foreign-read execution bound to this exact plan.
+        #[serde(default)]
+        foreign_execution: Option<crate::foreign_read::ForeignReadExecutionRef>,
     },
 
 
@@ -113,6 +116,15 @@ $($variants)*
         text: String,
         #[serde(default)]
         params: std::collections::BTreeMap<String, crate::wire::UqlParam>,
+        /// Plan the exact executable text and return server-owned foreign-read
+        /// pins without executing it. The later ordinary UQL request must use
+        /// the same text and typed parameters when presenting the execution ref.
+        #[serde(default, skip_serializing_if = "is_false")]
+        prepare: bool,
+        /// Optional host-driven foreign-read execution bound to this exact text
+        /// and parameter map.
+        #[serde(default)]
+        foreign_execution: Option<crate::foreign_read::ForeignReadExecutionRef>,
     },
 
 
@@ -405,6 +417,16 @@ $($variants)*
         #[serde(default)]
         graph: String,
     },
+    /// Plan a natural-language request without executing it
+    /// (EG-FEDERATED-QUERY-R058.2.2.2). The result contains the exact
+    /// exact UQL and plan/query pins that a caller must carry into a later
+    /// `Uql` request. Plan-only does not read graph data or establish source
+    /// authority; those checks belong to the later exact-UQL admission path.
+    NlQueryPlan {
+        text: String,
+        #[serde(default)]
+        graph: String,
+    },
 
 
     // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────
@@ -433,6 +455,31 @@ $($variants)*
         columns: Vec<String>,
         #[serde(default)]
         predicates: Vec<crate::wire::ForeignColumnPredicate>,
+    },
+
+    /// Open one approved, host-driven bounded foreign read. The source driver
+    /// stays in the authenticated host; the server rechecks this receipt.
+    #[cfg(feature = "federation")]
+    ForeignReadOpen {
+        request: crate::foreign_read::ForeignReadOpenRequest,
+    },
+
+    /// Append one bounded page to a previously opened foreign read.
+    #[cfg(feature = "federation")]
+    ForeignReadChunk {
+        request: crate::foreign_read::ForeignReadChunkRequest,
+    },
+
+    /// Close a foreign read successfully before its correlated query runs.
+    #[cfg(feature = "federation")]
+    ForeignReadComplete {
+        request: crate::foreign_read::ForeignReadCompleteRequest,
+    },
+
+    /// Close a foreign read without making its rows queryable.
+    #[cfg(feature = "federation")]
+    ForeignReadAbort {
+        request: crate::foreign_read::ForeignReadAbortRequest,
     },
 
 

@@ -11,6 +11,10 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._shared import (
+    Digest256,
+)
+
 
 class FieldContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
@@ -58,6 +62,28 @@ class GraphSchemaOpAttachPack(BaseModel):
     op: Literal["attach_pack"]
 
 
+class GraphSchemaOpImportOntology(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    connector: str
+    content_digest: Digest256
+    expected_prior_revision: Annotated[int, Field(ge=0)] | None = None
+    ontology_iri: str
+    ontology_ttl: str
+    op: Literal["import_ontology"]
+    shapes_ttl: str | None = None
+    version: str
+
+
+class GraphSchemaOpWithdrawOntology(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    connector: str
+    expected_revision: Annotated[int, Field(ge=0)]
+    ontology_iri: str
+    op: Literal["withdraw_ontology"]
+
+
 class GraphSchemaOpDetach(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -88,6 +114,8 @@ class GraphSchemaOpValidateRepair(BaseModel):
 GraphSchemaOp = Annotated[
     GraphSchemaOpAttach
     | GraphSchemaOpAttachPack
+    | GraphSchemaOpImportOntology
+    | GraphSchemaOpWithdrawOntology
     | GraphSchemaOpDetach
     | GraphSchemaOpAttachApproved
     | GraphSchemaOpValidateRepair,
@@ -241,6 +269,10 @@ GraphSchemaOpAttach.model_rebuild()
 
 GraphSchemaOpAttachPack.model_rebuild()
 
+GraphSchemaOpImportOntology.model_rebuild()
+
+GraphSchemaOpWithdrawOntology.model_rebuild()
+
 GraphSchemaOpDetach.model_rebuild()
 
 GraphSchemaOpAttachApproved.model_rebuild()
@@ -272,6 +304,7 @@ __all__ = [
     "BoundedVec_GraphSchemaSourceView_32",
     "BoundedVec_GraphSchemaSourceView_64",
     "BoundedVec_GraphSchemaTermView_1000",
+    "Digest256",
     "FieldContract",
     "GraphSchemaClassesView",
     "GraphSchemaCommitted",
@@ -280,7 +313,9 @@ __all__ = [
     "GraphSchemaOpAttachApproved",
     "GraphSchemaOpAttachPack",
     "GraphSchemaOpDetach",
+    "GraphSchemaOpImportOntology",
     "GraphSchemaOpValidateRepair",
+    "GraphSchemaOpWithdrawOntology",
     "GraphSchemaSourceView",
     "GraphSchemaSourcesView",
     "GraphSchemaTermKind",

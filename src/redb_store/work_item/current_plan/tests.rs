@@ -1,3 +1,4 @@
+use super::super::test_shard::run_fixture::{seed_claim, with_rows};
 use super::super::test_shard::{open, with_nodes, GRAPH};
 use super::*;
 
@@ -22,15 +23,9 @@ fn request(revision: u64) -> PublishCurrentPlanRequest {
     }
 }
 fn seed(shard: &Shard) {
-    let id = run_owner::work_item_id(GRAPH, "tenant", "run").unwrap();
-    super::super::test_shard::with_write(shard, "seed", 1000, |admitted| {
-        let member = admitted.graph(GRAPH)?;
-        let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
-        let mut row = serde_json::json!({"node_type":"WorkItem", "tenant":"tenant", "status":"running", "lease_owner":"worker", "lease_epoch":1, "fencing_token":2, "lease_expires_at":10.0, "run_owner_binding":{"graph":GRAPH,"tenant":"tenant","run_id":"run","work_item_id":id,"principal":"owner"}}).as_object().unwrap().clone();
-        work_item_capability::record_native_claim_in_wtx(&mut rows.native_work_items, GRAPH, &id, &row, 1000, DurableCrypto::none())?;
-        write_work_item_props(&mut rows.nodes, GRAPH, &id, &mut row, DurableCrypto::none())
-    }).unwrap();
+    seed_claim(shard, |_| {});
 }
+
 fn apply(
     shard: &Shard,
     tag: &str,
@@ -38,17 +33,8 @@ fn apply(
     actor: &str,
     now: u64,
 ) -> Result<CurrentPlanPublished, String> {
-    super::super::test_shard::with_write(shard, tag, now, |admitted| {
-        let member = admitted.graph(GRAPH)?;
-        let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
-        publish(
-            GRAPH,
-            req,
-            Some(actor),
-            &mut rows,
-            DurableCrypto::none(),
-            now,
-        )
+    with_rows(shard, tag, now, |rows| {
+        publish(GRAPH, req, Some(actor), rows, DurableCrypto::none(), now)
     })
 }
 fn read(shard: &Shard, actor: &str, now: u64) -> Option<CurrentPlanSnapshot> {

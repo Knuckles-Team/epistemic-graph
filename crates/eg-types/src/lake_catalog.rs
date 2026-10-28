@@ -217,11 +217,86 @@ pub enum SchemaChangeKind {
     AddColumn,
     DropColumn,
     RenameColumn,
+    ReorderColumn,
     AlterColumnType,
     RenameTable,
     DropTable,
     AddConstraint,
     DropConstraint,
+}
+
+/// Iceberg manifest publication format supported by the engine-owned writer.
+pub const ICEBERG_FORMAT_VERSION_V2: u32 = 2;
+
+/// Version-bound metadata for one engine-owned Iceberg v2 publication.
+///
+/// This is deliberately a pure value type. The publication writer and catalog
+/// path attach it only after the graph commit and referenced artifacts are
+/// durable. `Option` is used for the two commit bindings so an unbound value is
+/// representable for fail-closed validation instead of being mistaken for a
+/// valid zero version. Schema evolution keeps Iceberg field IDs in the schema
+/// history; renames and reorders must not allocate new IDs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestPublication {
+    pub tenant: String,
+    pub table: String,
+    pub committed_graph_version: Option<u64>,
+    pub source_lsn: Option<u64>,
+    pub snapshot_id: String,
+    pub schema_id: i32,
+    pub format_version: u32,
+    pub manifest_location: String,
+    pub manifest_list_location: String,
+    pub artifact_digests: Vec<String>,
+}
+
+impl ManifestPublication {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tenant.trim().is_empty() {
+            return Err("manifest publication tenant must not be empty".to_string());
+        }
+        if self.table.trim().is_empty() {
+            return Err("manifest publication table must not be empty".to_string());
+        }
+        if self.committed_graph_version.is_none() {
+            return Err("manifest publication requires a committed graph version".to_string());
+        }
+        if self.source_lsn.is_none() {
+            return Err("manifest publication requires a source LSN".to_string());
+        }
+        if self.snapshot_id.trim().is_empty() {
+            return Err("manifest publication snapshot_id must not be empty".to_string());
+        }
+        if self.schema_id < 0 {
+            return Err("manifest publication schema_id must not be negative".to_string());
+        }
+        if self.format_version != ICEBERG_FORMAT_VERSION_V2 {
+            return Err(format!(
+                "unsupported manifest publication format version {}; expected {}",
+                self.format_version, ICEBERG_FORMAT_VERSION_V2
+            ));
+        }
+        if self.manifest_location.trim().is_empty() {
+            return Err("manifest publication manifest_location must not be empty".to_string());
+        }
+        if self.manifest_list_location.trim().is_empty() {
+            return Err(
+                "manifest publication manifest_list_location must not be empty".to_string(),
+            );
+        }
+        if self.artifact_digests.is_empty() {
+            return Err("manifest publication requires artifact digests".to_string());
+        }
+        for digest in &self.artifact_digests {
+            if !is_sha256_hex(digest) {
+                return Err(
+                    "manifest publication artifact digests must be sha256 hex digests".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// GOC-10 invariant 6's three-way compatibility classification.
@@ -249,6 +324,9 @@ pub fn classify_schema_change(kind: SchemaChangeKind) -> SchemaCompatibility {
     match kind {
         SchemaChangeKind::AddColumn => SchemaCompatibility::Additive,
         SchemaChangeKind::RenameColumn => SchemaCompatibility::Compatible,
+        // Reordering preserves the existing field IDs and therefore remains
+        // readable by consumers that resolve columns by ID.
+        SchemaChangeKind::ReorderColumn => SchemaCompatibility::Compatible,
         SchemaChangeKind::RenameTable => SchemaCompatibility::Compatible,
         // Dropping a CHECK/UNIQUE constraint only widens what future writes
         // accept; it cannot destroy already-durable data.
@@ -572,6 +650,52 @@ mod tests {
         [byte; 32].iter().map(|b| format!("{b:02x}")).collect()
     }
 
+    fn publication() -> ManifestPublication {
+        ManifestPublication {
+            tenant: "tenant-a".to_string(),
+            table: "metrics".to_string(),
+            committed_graph_version: Some(17),
+            source_lsn: Some(42),
+            snapshot_id: "snap-17".to_string(),
+            schema_id: 3,
+            format_version: ICEBERG_FORMAT_VERSION_V2,
+            manifest_location: "s3://lakehouse/metrics/manifest.avro".to_string(),
+            manifest_list_location: "s3://lakehouse/metrics/manifest-list.avro".to_string(),
+            artifact_digests: vec![digest(0x11), digest(0x22)],
+        }
+    }
+
+    #[test]
+    // spec: EG-FEDERATED-QUERY-R079.1
+    fn manifest_publication_round_trips_every_field() {
+        let record = publication();
+        record.validate().unwrap();
+        assert_eq!(round_trip(&record), record);
+    }
+
+    #[test]
+    // spec: EG-FEDERATED-QUERY-R079.1
+    fn manifest_publication_rejects_missing_version_binding() {
+        let mut record = publication();
+        record.committed_graph_version = None;
+        let error = record.validate().unwrap_err();
+        assert!(error.contains("committed graph version"));
+
+        let mut record = publication();
+        record.source_lsn = None;
+        let error = record.validate().unwrap_err();
+        assert!(error.contains("source LSN"));
+    }
+
+    #[test]
+    // spec: EG-FEDERATED-QUERY-R079.1
+    fn manifest_publication_rejects_unsupported_format() {
+        let mut record = publication();
+        record.format_version = ICEBERG_FORMAT_VERSION_V2 + 1;
+        let error = record.validate().unwrap_err();
+        assert!(error.contains("unsupported") && error.contains("version"));
+    }
+
     // ── schema version ────────────────────────────────────────────────────
 
     #[test]
@@ -645,6 +769,10 @@ mod tests {
         );
         assert_eq!(
             classify_schema_change(SchemaChangeKind::RenameColumn),
+            SchemaCompatibility::Compatible
+        );
+        assert_eq!(
+            classify_schema_change(SchemaChangeKind::ReorderColumn),
             SchemaCompatibility::Compatible
         );
         assert_eq!(

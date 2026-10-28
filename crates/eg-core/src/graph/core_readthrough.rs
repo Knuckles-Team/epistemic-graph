@@ -66,3 +66,76 @@ impl GraphCore {
 
     // ── Edge CRUD ────────────────────────────────────────────────────────
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, Weak};
+
+    #[derive(Debug)]
+    struct LockCheckingStore {
+        core: Weak<GraphCore>,
+        calls: Mutex<Vec<String>>,
+    }
+
+    impl crate::read_through::ReadThrough for LockCheckingStore {
+        fn read_node_blob(&self, node_id: &str) -> Option<Vec<u8>> {
+            let core = self.core.upgrade().expect("graph remains alive");
+            assert!(
+                core.read_through.try_write().is_some(),
+                "the seam lock must be released before durable access"
+            );
+            self.calls.lock().unwrap().push(node_id.to_owned());
+            match node_id {
+                "cold" => Some(vec![0, 255, 7]),
+                "not-yet-loaded" => Some(vec![9, 0, 128]),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn evicted_reads_release_the_seam_and_never_repopulate_residency() {
+        let core = Arc::new(GraphCore::new());
+        core.add_node("hot".to_owned(), vec![1, 2]);
+        core.add_node("cold".to_owned(), vec![0, 255, 7]);
+        let store = Arc::new(LockCheckingStore {
+            core: Arc::downgrade(&core),
+            calls: Mutex::new(Vec::new()),
+        });
+        core.set_read_through(store.clone());
+        assert_eq!(core.get_node_properties("hot"), Some(vec![1, 2]));
+        assert!(store.calls.lock().unwrap().is_empty());
+
+        assert_eq!(core.evict_resident_nodes(&["cold".to_owned()]), 1);
+        let resident_count = core.node_properties.len();
+        assert_eq!(resident_count, 1);
+        for _ in 0..3 {
+            assert_eq!(core.get_node_properties("cold"), Some(vec![0, 255, 7]));
+            assert_eq!(core.node_properties.len(), resident_count);
+            assert!(!core.node_properties.contains_key("cold"));
+        }
+
+        // An incomplete identity set cannot suppress a durable read for a node
+        // not yet added to the Bloom filter during paged recovery.
+        assert_eq!(
+            core.get_node_properties("not-yet-loaded"),
+            Some(vec![9, 0, 128])
+        );
+        assert_eq!(core.node_properties.len(), resident_count);
+        assert_eq!(core.get_node_properties("absent"), None);
+        // Recovery now accounts for the remaining durable identity before
+        // declaring the Bloom set complete; the projection stays evicted.
+        core.add_node("not-yet-loaded".to_owned(), vec![9, 0, 128]);
+        assert_eq!(core.evict_resident_nodes(&["not-yet-loaded".to_owned()]), 1);
+        assert_eq!(core.node_properties.len(), resident_count);
+        core.mark_bloom_complete();
+        assert_eq!(core.get_node_properties("cold"), Some(vec![0, 255, 7]));
+        assert_eq!(core.get_node_properties("absent"), None);
+        assert_eq!(core.node_properties.len(), resident_count);
+        assert_eq!(
+            *store.calls.lock().unwrap(),
+            ["cold", "cold", "cold", "not-yet-loaded", "absent", "cold"]
+        );
+    }
+}

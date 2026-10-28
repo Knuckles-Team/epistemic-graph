@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::connector_pack::McpCatalogSnapshotBinding;
+use crate::connector_pack::{McpCatalogSnapshotBinding, PackHeadRef, PackSourceRegistration};
 use crate::contract::{closed_error_codes, BoundedVec, Digest256, ResourceId};
 
 /// Why a pack was rejected. Screaming-snake on the wire, so the code a caller
@@ -233,6 +233,21 @@ pub struct ConnectorPackBindingResult {
     pub committed_version: u64,
 }
 
+/// What approving one held source declaration committed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ConnectorPackSourceApprovalResult {
+    pub schema_version: u16,
+    pub tenant_id: String,
+    pub connector: ResourceId,
+    pub head: PackHeadRef,
+    pub registration: PackSourceRegistration,
+    pub contract_digest: Digest256,
+    pub batch_id: String,
+    pub committed_version: u64,
+}
+
 /// What a retire committed, entry by entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -277,5 +292,9 @@ closed_error_codes! {
         ReservedComponentId => "RESERVED_COMPONENT_ID",
         /// The same idempotency key was reused for different content.
         IdempotencyConflict => "IDEMPOTENCY_CONFLICT",
+        /// The requested source declaration is absent from the current pack head.
+        SourceRegistrationNotFound => "SOURCE_REGISTRATION_NOT_FOUND",
+        /// The request's source body digest does not match the current member.
+        SourceContractMismatch => "SOURCE_CONTRACT_MISMATCH",
     }
 }

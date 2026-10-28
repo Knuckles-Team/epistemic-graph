@@ -387,6 +387,28 @@ pub fn broader_chain(iri: &str, ancestor: &str) -> Option<Vec<(&'static str, &'s
     None
 }
 
+/// Read the optional `swarm:shellCentric` fact for a task, inheriting the
+/// nearest declared ancestor fact when the task has no own value.
+///
+/// The caller supplies the fact reader because the property can come from a
+/// composed schema source.  `None` is preserved as an unknown fact: an absent
+/// value is never converted to `false`.  The chain is the native ontology's
+/// [`broader_chain`] so a caller cannot accidentally infer across an unknown
+/// or unrelated class.
+pub fn shell_centric_for_task<F>(task_iri: &str, mut read_fact: F) -> Option<bool>
+where
+    F: FnMut(&str) -> Option<bool>,
+{
+    if let Some(value) = read_fact(task_iri) {
+        return Some(value);
+    }
+
+    let chain = broader_chain(task_iri, TASK_ROOT)?;
+    chain
+        .into_iter()
+        .find_map(|(_, ancestor)| read_fact(ancestor))
+}
+
 /// Whether `broader` is the declared immediate parent of `narrower`.
 pub fn is_direct_broader(narrower: &str, broader: &str) -> bool {
     term(narrower).and_then(|entry| entry.broader) == Some(broader)
@@ -619,6 +641,30 @@ mod tests {
             }
         }
         assert!(broader_chain("acme:x", CAPABILITY_ROOT).is_none());
+    }
+
+    #[test]
+    fn shell_centric_prefers_own_fact_then_inherits_from_task_ancestor() {
+        let mut facts = std::collections::BTreeMap::from([(TASK_ROOT.to_string(), false)]);
+        let read = |iri: &str| facts.get(iri).copied();
+        assert_eq!(
+            shell_centric_for_task("eg:task/research", read),
+            Some(false)
+        );
+
+        facts.insert("eg:task/research".to_string(), true);
+        let read = |iri: &str| facts.get(iri).copied();
+        assert_eq!(shell_centric_for_task("eg:task/research", read), Some(true));
+    }
+
+    #[test]
+    fn shell_centric_keeps_unstated_and_unknown_tasks_absent() {
+        let facts = std::collections::BTreeMap::<String, bool>::new();
+        let read = |iri: &str| facts.get(iri).copied();
+        assert_eq!(shell_centric_for_task("eg:task/research", read), None);
+
+        let read = |iri: &str| facts.get(iri).copied();
+        assert_eq!(shell_centric_for_task("acme:task/research", read), None);
     }
 
     #[test]

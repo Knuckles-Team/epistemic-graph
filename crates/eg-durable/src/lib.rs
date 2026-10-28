@@ -74,6 +74,7 @@
 // a durable, replayable framework"). No CdcHub, durable position storage, or
 // replay here — see `change_envelope`'s module doc for exact scope.
 pub mod change_envelope;
+pub mod hydration;
 pub mod mirror;
 pub mod project;
 pub mod route;
@@ -82,6 +83,10 @@ pub mod route;
 pub mod idempotent_consumer;
 
 pub use change_envelope::{ChangeEnvelope, ChangeOp, InvalidChangeEnvelope};
+pub use hydration::{
+    BaselinePlan, CoverageReport, DeltaManifest, DeltaManifestEntry, DeltaManifestKey, FileClass,
+    HydrationModelError, RepoSplitPlan, StagedStage, HYDRATION_MODEL_VERSION,
+};
 pub use mirror::DurableExecutionUnitMirror;
 pub use project::{project, unit_node_id, KgEdge, KgNode, KgProjection};
 pub use route::{

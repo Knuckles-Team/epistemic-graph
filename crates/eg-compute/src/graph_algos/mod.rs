@@ -58,6 +58,7 @@ pub mod kcore;
 pub mod label_propagation;
 pub mod leiden;
 pub mod louvain;
+pub mod mincut;
 pub mod pagerank;
 pub mod random_walk;
 pub mod shortest_path;
@@ -82,6 +83,7 @@ pub use leiden::{
     QualityFunction,
 };
 pub use louvain::{louvain, LouvainConfig, LouvainResult};
+pub use mincut::{stoer_wagner, MincutPartition};
 pub use pagerank::{pagerank, PageRankConfig, PageRankResult};
 pub use random_walk::{random_walk, RandomWalkConfig};
 pub use shortest_path::{all_pairs_shortest_paths, dijkstra, shortest_path, DijkstraResult};

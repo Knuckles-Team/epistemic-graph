@@ -41,6 +41,20 @@ pub fn spawn(state: Arc<RwLock<ServerState>>) {
 ))]
 mod grant;
 
+// G9 boot regression (EG-DURABLE-KERNEL-R006.4/.5): listener bound before the
+// projection drain completes, post-bind reconcile/reload, cursor fast path.
+#[cfg(all(
+    test,
+    unix,
+    feature = "redb",
+    feature = "tsdb",
+    feature = "blob",
+    feature = "shacl",
+    feature = "security",
+    feature = "matview"
+))]
+mod boot_regression;
+
 #[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]
 pub(crate) mod worker {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -106,7 +120,7 @@ pub(crate) mod worker {
                 .expected_tenant
                 .clone()
         };
-        let store = state.write().await.ensure_agent_library()?;
+        let store = open_agent_library(state).await?;
         if !subscribed.load(Ordering::Acquire) {
             let (store, tenant) = (Arc::clone(&store), tenant.clone());
             crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
@@ -115,13 +129,57 @@ pub(crate) mod worker {
             .await?;
             subscribed.store(true, Ordering::Release);
         }
+        let drain_started = std::time::Instant::now();
         let outcome = claim(&store, &tenant).await?;
         report(&outcome);
-        let progressed = !outcome.claims.is_empty();
+        let claimed = outcome.claims.len();
+        let progressed = claimed > 0;
+        let mut committed_graphs = 0usize;
         for lease in outcome.claims {
-            settle(state, &store, &tenant, lease).await?;
+            if settle(state, &store, &tenant, lease).await? {
+                committed_graphs += 1;
+            }
+        }
+        if progressed {
+            // Bounded cadence: one INFO per non-empty sweep (a sweep claims at
+            // most CLAIM_LIMIT rows), so a multi-minute drain is never silent
+            // in the log (EG-DURABLE-KERNEL-R006.4).
+            tracing::info!(
+                rows_claimed = claimed,
+                committed_graphs,
+                elapsed_ms = drain_started.elapsed().as_millis() as u64,
+                "connector pack projection: drained one sweep of the import outbox"
+            );
         }
         Ok(progressed)
+    }
+
+    /// Open/ensure the Agent Library store OUTSIDE the global write lock
+    /// (EG-DURABLE-KERNEL-R006.4). The open is slow on a large store, and pre-G9
+    /// the first sweep held the `ServerState` write lock across it — queueing
+    /// the pre-listener critical path (matview reload, listener bind) behind
+    /// the whole drain. A read lock adopts an already-ensured handle; the open
+    /// itself runs unlocked, and only the publish takes a short write —
+    /// re-checked so a concurrent `ensure_agent_library` winner is adopted
+    /// rather than shadowed by a second open.
+    async fn open_agent_library(
+        state: &Arc<RwLock<ServerState>>,
+    ) -> Result<Arc<AgentLibraryStore>, String> {
+        if let Some(store) = state.read().await.agent_library.clone() {
+            return Ok(store);
+        }
+        let persist_dir =
+            state.read().await.persist_dir.clone().ok_or_else(|| {
+                "Agent Library requires a configured persist directory".to_string()
+            })?;
+        let opened = Arc::new(AgentLibraryStore::open(&persist_dir)?);
+        let mut guard = state.write().await;
+        if let Some(existing) = guard.agent_library.as_ref() {
+            return Ok(Arc::clone(existing));
+        }
+        guard.agent_library = Some(Arc::clone(&opened));
+        tracing::info!("connector pack projection: opened the Agent Library store");
+        Ok(opened)
     }
 
     async fn claim(
@@ -157,19 +215,21 @@ pub(crate) mod worker {
     }
 
     /// Project one leased import's connector and resolve the lease: ack on
-    /// success, reject on a failed projection or an unreadable row.
+    /// success, reject on a failed projection or an unreadable row. Returns
+    /// whether the projection's graph commit ran (the sweep's drain log counts
+    /// it — EG-DURABLE-KERNEL-R006.4).
     async fn settle(
         state: &Arc<RwLock<ServerState>>,
         store: &Arc<AgentLibraryStore>,
         tenant: &str,
         lease: MutationOutboxLease,
-    ) -> Result<(), String> {
-        let decoded =
-            eg_storage::decode_ledger_record::<PackImportRecord>(&lease.record.intent.payload);
-        let reason = match decoded {
-            Err(_) => Some(OutboxRejectReason::InvalidEvent),
+    ) -> Result<bool, String> {
+        let (reason, projected) = match eg_storage::decode_ledger_record::<PackImportRecord>(
+            &lease.record.intent.payload,
+        ) {
+            Err(_) => (Some(OutboxRejectReason::InvalidEvent), false),
             Ok(record) => match project(state, store, tenant, &record).await {
-                Ok(()) => None,
+                Ok(projected) => (None, projected),
                 Err(error) => {
                     tracing::warn!(
                         code = "CONNECTOR_PACK_PROJECTION_FAILED",
@@ -177,11 +237,12 @@ pub(crate) mod worker {
                         %error,
                         "connector pack projection failed; the head stays dark until re-driven"
                     );
-                    Some(OutboxRejectReason::ProjectionFailed)
+                    (Some(OutboxRejectReason::ProjectionFailed), false)
                 }
             },
         };
-        resolve(store, tenant, lease, reason).await
+        resolve(store, tenant, lease, reason).await?;
+        Ok(projected)
     }
 
     async fn resolve(
@@ -225,18 +286,20 @@ pub(crate) mod worker {
     }
 
     /// Project the connector's CURRENT head, unless it is already visible.
+    /// Returns whether the projection's graph commit ran (a dark head that
+    /// projects for the first time commits; an already-visible head does not).
     async fn project(
         state: &Arc<RwLock<ServerState>>,
         store: &Arc<AgentLibraryStore>,
         tenant: &str,
         record: &PackImportRecord,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let status = store.connector_pack_status(tenant, &record.connector)?;
         let Some(head) = status.head else {
-            return Ok(());
+            return Ok(false);
         };
         if head.visible_record_id.as_deref() == Some(head.record_id.as_str()) {
-            return Ok(());
+            return Ok(false);
         }
         let anonymous = state.read().await.local_anonymous;
         if !anonymous {
@@ -260,7 +323,7 @@ pub(crate) mod worker {
             state, 0, &verified, store, context, &plan,
         )
         .await
-        .map(drop)
+        .map(|_| true)
     }
 
     /// Let the projection actor write exactly this row's pack graph. A build

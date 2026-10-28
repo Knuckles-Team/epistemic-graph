@@ -240,6 +240,38 @@ fn relationships_are_top_level_typed_observations() {
 }
 
 #[test]
+fn rejects_an_exact_duplicate_relationship_identity() {
+    let mut batch = request();
+    batch.records = BoundedVec::new(vec![
+        batch.records.as_slice()[0].clone(),
+        SourceRecord {
+            record_id: "item-2".into(),
+            payload: SourceJson::new(json!({"name": "two", "id": 2})).unwrap(),
+            ..batch.records.as_slice()[0].clone()
+        },
+    ])
+    .unwrap();
+    let relationship = SourceRelationship {
+        source: SourceEntityRef {
+            stream: ResourceId::new("items").unwrap(),
+            record_id: "item-1".into(),
+        },
+        target: SourceEntityRef {
+            stream: ResourceId::new("items").unwrap(),
+            record_id: "item-2".into(),
+        },
+        relation_reference: "connector:demo-connector#relations/Item/contains".into(),
+        properties: None,
+        provenance: batch.records.as_slice()[0].provenance.clone(),
+    };
+    batch.relationships = BoundedVec::new(vec![relationship.clone(), relationship]).unwrap();
+
+    assert!(SourceIngestionRequest::new(batch)
+        .unwrap_err()
+        .contains("duplicate relationship identity"));
+}
+
+#[test]
 fn reconcile_relationship_endpoints_must_belong_to_the_authoritative_live_set() {
     let mut batch = request();
     let first = SourceEntityRef {

@@ -31,6 +31,103 @@ pub const MAX_EMBEDDING_DIMENSIONS: usize = 16_384;
 /// intentionally never allocates ANN state.
 pub const MAX_MAINTAINED_ANN_DIMENSIONS: usize = 4_096;
 
+/// The supported wire revision for a document chunk encoding recipe.
+pub const DOCUMENT_ENCODING_POLICY_REVISION: u16 = 1;
+
+/// Whether each document chunk starts its position ids again or retains the
+/// document-wide offset of its first token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum DocumentPositionMode {
+    LocalReset,
+    AbsoluteOffset,
+}
+
+/// The deterministic reduction used to turn independently encoded chunks into
+/// the document vector used by retrieval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum DocumentAggregation {
+    MeanChunks,
+}
+
+/// The pinned recipe for encoding one document into independently processed
+/// chunks. This is data only: the ingestion worker owns execution, while this
+/// type prevents a worker and query path from silently selecting different
+/// chunk boundaries or model revisions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DocumentEncodingPolicy {
+    /// The closed policy schema revision understood by the worker.
+    pub policy_revision: u16,
+    /// The tokenizer identity used to produce the token ids.
+    pub tokenizer: String,
+    /// Maximum number of token ids in one independently encoded chunk.
+    pub chunk_size: usize,
+    /// Number of token ids shared by adjacent chunks.
+    pub overlap: usize,
+    /// Position numbering supplied to each chunk encoder.
+    pub position_mode: DocumentPositionMode,
+    /// Reduction used after every chunk has been encoded.
+    pub aggregation: DocumentAggregation,
+    /// The model revision that must encode every chunk in this policy.
+    pub model_revision: String,
+}
+
+impl DocumentEncodingPolicy {
+    /// Construct the currently served policy revision and validate its bounds.
+    pub fn new(
+        tokenizer: impl Into<String>,
+        chunk_size: usize,
+        overlap: usize,
+        position_mode: DocumentPositionMode,
+        aggregation: DocumentAggregation,
+        model_revision: impl Into<String>,
+    ) -> Result<Self, String> {
+        let policy = Self {
+            policy_revision: DOCUMENT_ENCODING_POLICY_REVISION,
+            tokenizer: tokenizer.into(),
+            chunk_size,
+            overlap,
+            position_mode,
+            aggregation,
+            model_revision: model_revision.into(),
+        };
+        policy.validate()?;
+        Ok(policy)
+    }
+
+    /// Validate the closed policy revision and the chunk recipe's structural
+    /// bounds before a worker may execute it.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.policy_revision != DOCUMENT_ENCODING_POLICY_REVISION {
+            return Err(format!(
+                "document encoding policy revision {} is not served",
+                self.policy_revision
+            ));
+        }
+        if self.tokenizer.is_empty() {
+            return Err("document encoding tokenizer must not be empty".to_string());
+        }
+        if self.model_revision.is_empty() {
+            return Err("document encoding model revision must not be empty".to_string());
+        }
+        if self.chunk_size == 0 {
+            return Err("document encoding chunk size must not be zero".to_string());
+        }
+        if self.overlap >= self.chunk_size {
+            return Err(format!(
+                "document encoding overlap {} must be less than chunk size {}",
+                self.overlap, self.chunk_size
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// A pinned identity for the coordinate space an embedding model produces:
 /// which model, which revision, what preprocessing, at what width, and
 /// whether vectors are L2-normalized before comparison. Two embedding
@@ -219,6 +316,82 @@ impl StampedVector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn encoding_policy(position_mode: DocumentPositionMode) -> DocumentEncodingPolicy {
+        DocumentEncodingPolicy::new(
+            "tokenizer-v1",
+            128,
+            32,
+            position_mode,
+            DocumentAggregation::MeanChunks,
+            "model-v7",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    // spec: EG-FEDERATED-QUERY-R039.2.1
+    fn document_encoding_policy_round_trips_position_modes() {
+        for mode in [
+            DocumentPositionMode::LocalReset,
+            DocumentPositionMode::AbsoluteOffset,
+        ] {
+            let policy = encoding_policy(mode);
+            let wire = serde_json::to_string(&policy).unwrap();
+            let decoded: DocumentEncodingPolicy = serde_json::from_str(&wire).unwrap();
+            assert_eq!(decoded, policy);
+            assert_eq!(decoded.validate(), Ok(()));
+        }
+    }
+
+    #[test]
+    // spec: EG-FEDERATED-QUERY-R039.2.1
+    fn document_encoding_policy_rejects_invalid_bounds_and_revision() {
+        assert!(DocumentEncodingPolicy::new(
+            "tokenizer-v1",
+            0,
+            0,
+            DocumentPositionMode::LocalReset,
+            DocumentAggregation::MeanChunks,
+            "model-v7",
+        )
+        .is_err());
+        assert!(DocumentEncodingPolicy::new(
+            "tokenizer-v1",
+            128,
+            128,
+            DocumentPositionMode::LocalReset,
+            DocumentAggregation::MeanChunks,
+            "model-v7",
+        )
+        .is_err());
+
+        let mut unsupported = encoding_policy(DocumentPositionMode::LocalReset);
+        unsupported.policy_revision = DOCUMENT_ENCODING_POLICY_REVISION + 1;
+        assert!(unsupported.validate().is_err());
+    }
+
+    #[test]
+    fn document_encoding_policy_requires_tokenizer_and_model_revision() {
+        assert!(DocumentEncodingPolicy::new(
+            "",
+            128,
+            32,
+            DocumentPositionMode::LocalReset,
+            DocumentAggregation::MeanChunks,
+            "model-v7",
+        )
+        .is_err());
+        assert!(DocumentEncodingPolicy::new(
+            "tokenizer-v1",
+            128,
+            32,
+            DocumentPositionMode::LocalReset,
+            DocumentAggregation::MeanChunks,
+            "",
+        )
+        .is_err());
+    }
 
     fn space(dimensions: usize) -> EmbeddingSpaceRef {
         EmbeddingSpaceRef::pinned(

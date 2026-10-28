@@ -777,3 +777,63 @@ async fn reference_renewal_rechecks_boundary_and_global_revision() {
     assert_eq!(after.tenant, record.tenant);
     assert_eq!(after.mfa_at_ms, record.mfa_at_ms);
 }
+
+// spec: EG-TYPED-PACKS-R085.4.3
+#[tokio::test]
+async fn served_reference_renewal_refuses_scope_mismatch_without_touching_authority() {
+    use eg_types::identity::IDENTITY_SELF_SCOPE;
+    let state = ready_engine().await;
+    let resolution = resolved(&send_op(&state, live_broker(), session_request()).await);
+    let record = resolution.session_record.unwrap();
+    let owner = || verified(BOOTSTRAP_PRINCIPAL, &[IDENTITY_SELF_SCOPE], &[]);
+    let inspect = IdentityOp::Session(SessionOp::InspectReference {
+        session_ref: record.session_ref.clone(),
+        tenant: record.tenant.clone(),
+    });
+    let IdentityReply::SessionAuthority {
+        scopes,
+        authority_revision,
+        ..
+    } = session_authority(&send_op(&state, owner(), inspect).await)
+    else {
+        unreachable!()
+    };
+    let mut mismatched_scopes = scopes.clone();
+    assert!(mismatched_scopes.insert("identity:scope-not-issued".into()));
+    let before = {
+        let guard = state.read().await;
+        guard
+            .isolation
+            .policy_store()
+            .unwrap()
+            .authority_snapshot()
+            .unwrap()
+            .revision()
+    };
+    assert_eq!(before, authority_revision);
+
+    let response = send_op(
+        &state,
+        owner(),
+        IdentityOp::Session(SessionOp::RenewReference {
+            session_ref: record.session_ref,
+            tenant: record.tenant,
+            expected_authority_revision: authority_revision,
+            expected_scopes: mismatched_scopes,
+        }),
+    )
+    .await;
+    assert_refusal(&response, IdentityRefusal::PreconditionFailed);
+
+    let after = {
+        let guard = state.read().await;
+        guard
+            .isolation
+            .policy_store()
+            .unwrap()
+            .authority_snapshot()
+            .unwrap()
+            .revision()
+    };
+    assert_eq!(after, before);
+}
