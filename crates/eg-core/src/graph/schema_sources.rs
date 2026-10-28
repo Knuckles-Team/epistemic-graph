@@ -1411,13 +1411,14 @@ mod tests {
             // R004.1 and R004.2.1/.2 added the asset-class migration and portfolio
             // records; semantic acceptance/refusal fixtures live in
             // src/server/graph_schema/finance_tests.rs. Pin both updated artifacts.
+            // R004.2.3-R004.2.6 added the portfolio-group, strategy and leverage records.
             (
                 "finance",
-                "cea770e406de84a6366aa23607594e98bf96ebfac229f30230bef0c63ff35ff9",
+                "f56efd6b98b4ccbd707311231adc83068f0db1c4385bfa8aed7d263c9535eabd",
             ),
             (
                 "finance-shapes",
-                "77c33f7959115828a21b5f3a161de10bc8e24eeeee039abca6557681d1b9925c",
+                "a978edea07c44826abe07d10de2c0812cfdf63b5462f44787da70ea019720710",
             ),
             (
                 "worldview",
