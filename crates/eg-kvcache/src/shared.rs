@@ -35,7 +35,38 @@ use std::sync::Arc;
 
 use crate::hash::content_hash;
 use crate::value::Block;
-use crate::version::DataVersion;
+use crate::version::{DataVersion, KvBlockKey};
+
+/// A model KV block was requested under a model revision different from the one
+/// that produced the stored bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelVersionMismatch {
+    /// Model identity shared by the stored and requested key.
+    pub model_id: String,
+    /// Prefix identity shared by the stored and requested key.
+    pub token_prefix_hash: String,
+    /// Model revision recorded when the block was inserted.
+    pub stored_version: String,
+    /// Model revision supplied by the reader.
+    pub requested_version: String,
+}
+
+impl std::fmt::Display for ModelVersionMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "KV block for model {:?} prefix {:?} was stored at revision {:?}, requested {:?}",
+            self.model_id, self.token_prefix_hash, self.stored_version, self.requested_version
+        )
+    }
+}
+
+impl std::error::Error for ModelVersionMismatch {}
+
+struct ModelBlockEntry {
+    model_version: String,
+    data: Arc<Vec<u8>>,
+}
 
 /// The backend seam an external vLLM/LMCache connector calls to share KV blocks by
 /// content hash (CONCEPT:EG-KG.enrichment.content-address-separation), with data-version invalidation layered on top
@@ -206,6 +237,10 @@ impl SharedStats {
 #[derive(Default)]
 pub struct SharedKvIndex {
     blocks: HashMap<String, SharedEntry>,
+    /// Model KV pages are addressed by model + token prefix, while their model revision
+    /// is retained as a checked attribute. Keeping the revision outside the address lets
+    /// reads detect and refuse a stale revision instead of silently treating it as a miss.
+    model_blocks: HashMap<(String, String), ModelBlockEntry>,
     /// The store's current data version (CONCEPT:EG-KG.storage.content-addressed-put). Defaults to
     /// [`DataVersion::Agnostic`] — version-tracking is INACTIVE until a
     /// [`SharedKvIndex::set_data_version`] call, so a store used purely for
@@ -247,6 +282,55 @@ impl SharedKvIndex {
         self.current_version
     }
 
+    /// Store a model KV page under its model and token-prefix identity. Repeating the
+    /// same revision is an idempotent dedup hit; attempting to replace it with another
+    /// model revision returns a typed refusal and preserves the original block.
+    pub fn put_model_block(
+        &mut self,
+        key: &KvBlockKey,
+        block: Block,
+    ) -> Result<bool, ModelVersionMismatch> {
+        let identity = (key.model_id.clone(), key.token_prefix_hash.clone());
+        if let Some(existing) = self.model_blocks.get(&identity) {
+            if existing.model_version != key.model_version {
+                return Err(ModelVersionMismatch {
+                    model_id: key.model_id.clone(),
+                    token_prefix_hash: key.token_prefix_hash.clone(),
+                    stored_version: existing.model_version.clone(),
+                    requested_version: key.model_version.clone(),
+                });
+            }
+            return Ok(false);
+        }
+
+        self.model_blocks.insert(
+            identity,
+            ModelBlockEntry {
+                model_version: key.model_version.clone(),
+                data: Arc::new(block),
+            },
+        );
+        Ok(true)
+    }
+
+    /// Read a model KV page only when the stored and requested model revisions match.
+    /// A mismatch is a typed refusal, never a cache miss or a stale byte response.
+    pub fn get_model_block(&self, key: &KvBlockKey) -> Result<Option<Block>, ModelVersionMismatch> {
+        let identity = (key.model_id.clone(), key.token_prefix_hash.clone());
+        let Some(existing) = self.model_blocks.get(&identity) else {
+            return Ok(None);
+        };
+        if existing.model_version != key.model_version {
+            return Err(ModelVersionMismatch {
+                model_id: key.model_id.clone(),
+                token_prefix_hash: key.token_prefix_hash.clone(),
+                stored_version: existing.model_version.clone(),
+                requested_version: key.model_version.clone(),
+            });
+        }
+        Ok(Some((*existing.data).clone()))
+    }
+
     /// Decrement the ref-count for `hash`; the block's bytes are freed when it reaches
     /// zero. Returns the REMAINING ref-count (`0` once dropped, `None` if unknown).
     pub fn release(&mut self, hash: &str) -> Option<usize> {
@@ -278,8 +362,13 @@ impl SharedKvIndex {
             logical_bytes += e.data.len() * e.refcount;
             total_refs += e.refcount;
         }
+        for e in self.model_blocks.values() {
+            resident_bytes += e.data.len();
+            logical_bytes += e.data.len();
+            total_refs += 1;
+        }
         SharedStats {
-            unique_blocks: self.blocks.len(),
+            unique_blocks: self.blocks.len() + self.model_blocks.len(),
             total_refs,
             resident_bytes,
             logical_bytes,

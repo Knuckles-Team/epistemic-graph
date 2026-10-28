@@ -74,7 +74,7 @@ pub use shared::{
 };
 pub use tiered::{CacheStats, Tier, TieredCache};
 pub use value::{Block, CacheValue};
-pub use version::DataVersion;
+pub use version::{DataVersion, KvBlockKey};
 
 #[cfg(feature = "durable")]
 pub use cold::{ColdKey, RedbColdStore};
