@@ -38,7 +38,9 @@ mod live;
 mod trust;
 
 #[cfg(feature = "rdf")]
-pub use live::{authority_rows_from_turtle, fixture_from_schema_sources};
+pub use live::{
+    authority_rows_from_turtle, connected_sources_from_turtle, fixture_from_schema_sources,
+};
 pub use trust::{
     change_trust_mark, mark_for_origin, ContentOrigin, DefaultTrustMarkPolicy, StoredTrustMark,
     TrustMark, TrustMarkPolicy, TrustMarkRefusal, TRUST_MARK_DOWNGRADE_REFUSED,
@@ -1137,6 +1139,47 @@ impl Premise {
     pub fn render(&self) -> String {
         format!("{self:?}")
     }
+}
+
+/// The typed abstention of a question whose required sources are not all
+/// connected: each `(source, concept)` pair the question reads is selected
+/// through the same engine as any other coverage verdict, with the sources
+/// outside `connected` declared absent from the foreign catalog. Returns `None`
+/// when every required source is connected (the question can be answered);
+/// otherwise the [`AuthorityAudit`] whose `not_used` entries name each
+/// unconnected source with the closed reason `Unconnected` and whose `used`
+/// list is empty — never an empty success.
+pub fn question_abstention(
+    required: &[(&str, &str)],
+    connected: &BTreeSet<String>,
+) -> Option<AuthorityAudit> {
+    let verdicts: Vec<CoverageResult> = required
+        .iter()
+        .filter(|(source, _)| !connected.contains(*source))
+        .map(|(source, concept)| {
+            let fixture = CoverageFixture::new()
+                .with_authority(concept, &format!("{source}-{concept}"), source, 1, 1)
+                .with_unconnected_source(source);
+            let verdict = select_sources(&fixture, &[concept.to_string()], 0)
+                .into_iter()
+                .find(|verdict| verdict.class() == *concept)
+                .expect("the question's concept is in the selection universe");
+            debug_assert!(matches!(
+                verdict,
+                CoverageResult::Abstained {
+                    reason: NotUsedReason::Unconnected,
+                    ..
+                }
+            ));
+            verdict
+        })
+        .collect();
+    if verdicts.is_empty() {
+        return None;
+    }
+    let mut audit = audit_from(&verdicts);
+    audit.used.clear();
+    Some(audit)
 }
 
 /// Build the authority audit from verdicts and their premises only

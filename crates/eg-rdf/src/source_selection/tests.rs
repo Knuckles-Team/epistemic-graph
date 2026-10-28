@@ -787,3 +787,39 @@ fn mark_carries_rule_and_generation() {
     let read: StoredTrustMark = serde_json::from_value(wire).unwrap();
     assert_eq!(read, stored);
 }
+
+#[test]
+fn a_question_over_an_unconnected_source_abstains_naming_it() {
+    let connected: BTreeSet<String> = ["radarr".to_string()].into();
+    assert!(question_abstention(&[("radarr", "Video")], &connected).is_none());
+    let audit = question_abstention(
+        &[("radarr", "Video"), ("qbittorrent", "Torrent")],
+        &connected,
+    )
+    .expect("an unconnected required source abstains");
+    audit.validate().unwrap();
+    assert!(audit.used.is_empty());
+    assert_eq!(audit.not_used.len(), 1);
+    assert_eq!(audit.not_used[0].source, "qbittorrent");
+    assert_eq!(audit.not_used[0].concept, "Torrent");
+    assert_eq!(audit.not_used[0].reason, Some(NotUsedReason::Unconnected));
+}
+
+#[cfg(feature = "rdf")]
+#[test]
+fn connected_sources_need_an_approved_mapping() {
+    let document = r#"
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix k: <urn:t:> .
+k:a a vg:SourceConnection ; dc:identifier "a" .
+k:ca a vg:MetadataContract ; vg:contractSource k:a .
+k:ma a vg:VirtualMapping ; vg:mapsContract k:ca ; vg:approved true .
+k:b a vg:SourceConnection ; dc:identifier "b" .
+k:cb a vg:MetadataContract ; vg:contractSource k:b .
+k:mb a vg:VirtualMapping ; vg:mapsContract k:cb ; vg:approved false .
+k:c a vg:SourceConnection ; dc:identifier "c" .
+"#;
+    let connected = connected_sources_from_turtle(&[document]).unwrap();
+    assert_eq!(connected, BTreeSet::from(["a".to_string()]));
+}

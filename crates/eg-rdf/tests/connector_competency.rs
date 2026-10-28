@@ -19,7 +19,7 @@
 
 mod common;
 
-use common::parse_all;
+use common::{connection_fixture, parse_all};
 use eg_core::graph::{GraphCore, GraphView};
 use eg_rdf::mapping::{load_triples, parse_turtle, IriStore};
 use eg_rdf::sparql::{execute, Dataset, Projection, QueryOutcome};
@@ -41,34 +41,6 @@ fn graph_with(schema: &[&str], fixtures: &[&str]) -> GraphView {
         load_triples(&core, &mut iris, &source, parse_turtle(fixture).unwrap()).unwrap();
     }
     core.analysis_snapshot()
-}
-
-/// A fixture declaring each connector's access contract in the virtual-graph
-/// vocabulary: one MCP `vg:SourceConnection` per source with a discovered
-/// `vg:MetadataContract` and an approved `vg:VirtualMapping` per mapped class.
-fn connection_fixture(connections: &[(&str, &[&str])]) -> String {
-    let mut ttl = String::from(
-        "@prefix vg: <http://knuckles.team/kg/virtual-graph#> .\n\
-         @prefix dc: <http://purl.org/dc/terms/> .\n\
-         @prefix k: <urn:eg-cq-conn:contract/> .\n",
-    );
-    for (source, classes) in connections {
-        ttl.push_str(&format!(
-            "k:conn-{source} a vg:SourceConnection ; dc:identifier \"{source}\" ; \
-             vg:sourceKind \"mcp\" ; vg:endpointRef k:ep-{source} ; vg:declaredCapability \"read\" .\n\
-             k:ep-{source} a vg:EndpointRef ; vg:url \"mcp://{source}\" .\n\
-             k:contract-{source} a vg:MetadataContract ; vg:contractSource k:conn-{source} ; \
-             vg:discoveredEntity \"records\" .\n"
-        ));
-        for (index, class) in classes.iter().enumerate() {
-            ttl.push_str(&format!(
-                "k:map-{source}-{index} a vg:VirtualMapping ; vg:mapsContract k:contract-{source} ; \
-                 vg:mapsEntity \"records\" ; vg:keyField \"id\" ; vg:approved true ; \
-                 vg:mapsOntologyClass <{class}> .\n"
-            ));
-        }
-    }
-    ttl
 }
 
 /// The `(source, class IRI)` pairs the graph declares as connected: a source
