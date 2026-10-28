@@ -82,9 +82,17 @@
     {
       "id": "EG-SRC-AUTH-R001",
       "title": "Authority vocabulary (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/source_authority_vocab.rs:101",
+        "crates/eg-core/tests/source_authority_vocab.rs:48",
+        "crates/eg-core/tests/source_authority_vocab.rs:59",
+        "crates/eg-core/tests/source_authority_vocab.rs:73",
+        "crates/eg-core/tests/source_authority_vocab.rs:83"
+      ],
       "rollup_of": [
         "EG-SRC-AUTH-R001.1",
         "EG-SRC-AUTH-R001.2",
@@ -97,51 +105,83 @@
     {
       "id": "EG-SRC-AUTH-R001.1",
       "title": "Add class `vg:SourceAuthority` with `vg:authoritativeSource`, `vg:authorityFor`, `vg:authorityRank`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/source_authority_vocab.rs:48"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R001.2",
       "title": "Add `vg:authorityFacet` and `vg:authorityMapping`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/source_authority_vocab.rs:59"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R001.3",
       "title": "Add `vg:scopeTenant`, `vg:scopePartition`, `vg:freshnessMaxAgeSeconds`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/source_authority_vocab.rs:73"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R001.4",
       "title": "Add `vg:authorityContract` and `vg:allowFallback`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/source_authority_vocab.rs:83"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R001.5",
       "title": "Add `vg:materialisation` and `vg:materialisationReason`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/source_authority_vocab.rs:92"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R001.6",
       "title": "Add `vg:foreignSourceName` on `vg:SourceConnection`; widen the domain of `vg:approved` to `vg:SourceAuthority`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/source_authority_vocab.rs:101"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R002",
       "title": "Authority shapes (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-shacl/tests/source_authority_shapes.rs:112",
+        "crates/eg-shacl/tests/source_authority_shapes.rs:122",
+        "crates/eg-shacl/tests/source_authority_shapes.rs:134",
+        "crates/eg-shacl/tests/source_authority_shapes.rs:167",
+        "crates/eg-shacl/tests/source_authority_shapes.rs:69"
+      ],
       "rollup_of": [
         "EG-SRC-AUTH-R002.1",
         "EG-SRC-AUTH-R002.2",
@@ -154,44 +194,68 @@
     {
       "id": "EG-SRC-AUTH-R002.1",
       "title": "Shape: required cardinalities and node kinds",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-shacl/tests/source_authority_shapes.rs:69"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R002.2",
       "title": "Shape: mapping belongs to the named source and maps the named class",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-shacl/tests/source_authority_shapes.rs:99"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R002.3",
       "title": "Shape: a facet must be projected by the mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-shacl/tests/source_authority_shapes.rs:112"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R002.4",
       "title": "Shape: contract kind agrees with the connection's source kind",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-shacl/tests/source_authority_shapes.rs:122"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R002.5",
       "title": "Shape: accelerated materialisation needs reason, freshness bound and connection capability `copy`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-shacl/tests/source_authority_shapes.rs:134"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R002.6",
       "title": "Shape: equal-rank claims by different sources on one (class, facet, scope) are refused inside one graph",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-shacl/tests/source_authority_shapes.rs:167"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R003",
@@ -231,16 +295,24 @@
     {
       "id": "EG-SRC-AUTH-R003.4",
       "title": "Planner derives effectiveness from origin, not from the flag",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:193"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R003.5",
       "title": "Proposed rows are listed, never selected",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:206"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R004",
@@ -261,37 +333,57 @@
     {
       "id": "EG-SRC-AUTH-R004.1",
       "title": "Add `AuthorityRow` and `with_authority` to `CoverageFixture`; replace the silent `insert` overwrite by a list per class",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:229"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R004.2",
       "title": "`Premise::Authority` with row, source, class, facet, rank, scope, origin, generation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:239"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R004.3",
       "title": "`Covered` gains `alternates`; order candidates by rank",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:264"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R004.4",
       "title": "Superclass authority is inherited; a subclass row overrides it",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:284"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R004.5",
       "title": "Live read: parse authority rows from the composed graph schema sources",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/source_authority_fixture.rs:99"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R004.6",
@@ -303,16 +395,27 @@
     {
       "id": "EG-SRC-AUTH-R004.7",
       "title": "Facet-aware selection: a question reading property `p` uses the facet row for `p` before the class row",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:310"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R005",
       "title": "Tie-breaking (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:337",
+        "crates/eg-rdf/src/source_selection/tests.rs:369",
+        "crates/eg-rdf/src/source_selection/tests.rs:393",
+        "crates/eg-rdf/src/source_selection/tests.rs:413"
+      ],
       "rollup_of": [
         "EG-SRC-AUTH-R005.1",
         "EG-SRC-AUTH-R005.2",
@@ -323,37 +426,61 @@
     {
       "id": "EG-SRC-AUTH-R005.1",
       "title": "Order: facet over class over nearest superclass",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:337"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R005.2",
       "title": "Scope specificity: matching tenant and partition beat unscoped",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:369"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R005.3",
       "title": "Equal everything, different sources: `Abstained::Ambiguous` listing both rows; never choose by name",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:393"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R005.4",
       "title": "`Premise::Tiebreak { winner, loser, rule }` records the deciding step",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:413"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R006",
       "title": "Typed abstention (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:434",
+        "crates/eg-rdf/src/source_selection/tests.rs:489",
+        "crates/eg-rdf/src/source_selection/tests.rs:503",
+        "crates/eg-rdf/src/source_selection/tests.rs:532",
+        "crates/eg-rdf/src/source_selection/tests.rs:548"
+      ],
       "rollup_of": [
         "EG-SRC-AUTH-R006.1",
         "EG-SRC-AUTH-R006.2",
@@ -365,37 +492,57 @@
     {
       "id": "EG-SRC-AUTH-R006.1",
       "title": "Add `CoverageResult::Abstained { class, facet, reason, source, premises }` and the reason enum `Unconnected | UnapprovedMapping | Stale | ContractMismatch | Ambiguous`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:434"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R006.2",
       "title": "Unconnected rank-1 authority abstains naming source and concept",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:489"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R006.3",
       "title": "`allowFallback` tries the next ordered alternate and records `FallbackFrom`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:503"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R006.4",
       "title": "Freshness: a stale copy falls back to live; stale and no live route abstains `Stale`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:532"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R006.5",
       "title": "No authority row: one approved mapping serves with `Premise::Implicit`; several abstain `Ambiguous`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:548"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R007",
@@ -429,16 +576,24 @@
     {
       "id": "EG-SRC-AUTH-R007.2",
       "title": "Build the audit from verdicts and premises only",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:565"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R007.3",
       "title": "Audit lists `not_used` rows with reason (including `Proposed`)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:589"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R007.4",
@@ -457,9 +612,14 @@
     {
       "id": "EG-SRC-AUTH-R008",
       "title": "Materialisation policy (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:611",
+        "crates/eg-rdf/src/source_selection/tests.rs:626"
+      ],
       "rollup_of": [
         "EG-SRC-AUTH-R008.1",
         "EG-SRC-AUTH-R008.2"
@@ -468,16 +628,24 @@
     {
       "id": "EG-SRC-AUTH-R008.1",
       "title": "Selection reports `mode: live` for a `virtual` row and refuses a copy route for it",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:611"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R008.2",
       "title": "An `accelerated` row resolves through `AccelerationPolicy` and carries its reason into the audit",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:626"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R009",
@@ -494,16 +662,24 @@
     {
       "id": "EG-SRC-AUTH-R009.1",
       "title": "Fixture: ServiceNow rank 1 and PagerDuty rank 2 for `:Incident`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/source_authority_fixture.rs:54"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R009.2",
       "title": "Decisive test: swapping two ranks changes `sources_used` with equal query text",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/source_authority_fixture.rs:76"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R009.3",
@@ -530,16 +706,25 @@
     {
       "id": "EG-SRC-AUTH-R010.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/source_authority_vocab.rs:118",
+        "crates/eg-rdf/src/source_selection/tests.rs:637"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R010.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:663"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R010.3",
@@ -551,16 +736,24 @@
     {
       "id": "EG-SRC-AUTH-R010.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:682"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R010.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:700"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R010.6",
@@ -587,16 +780,25 @@
     {
       "id": "EG-SRC-AUTH-R011.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/source_authority_vocab.rs:126",
+        "crates/eg-rdf/src/source_selection/tests.rs:720"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R011.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:730"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R011.3",
@@ -608,16 +810,24 @@
     {
       "id": "EG-SRC-AUTH-R011.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:758"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R011.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cca8dd4ba0d9"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection/tests.rs:775"
+      ]
     },
     {
       "id": "EG-SRC-AUTH-R011.6",

@@ -73,9 +73,13 @@
     {
       "id": "EG-SDLC-R001.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e93f418c3966"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/lifecycle_derive.rs:80"
+      ]
     },
     {
       "id": "EG-SDLC-R001.3",
@@ -87,16 +91,24 @@
     {
       "id": "EG-SDLC-R001.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e93f418c3966"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/lifecycle_derive.rs:160"
+      ]
     },
     {
       "id": "EG-SDLC-R001.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e93f418c3966"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/lifecycle_derive.rs:192"
+      ]
     },
     {
       "id": "EG-SDLC-R001.6",
@@ -123,16 +135,24 @@
     {
       "id": "EG-SDLC-R002.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34a85d665c7d"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/lifecycle_records.rs:31"
+      ]
     },
     {
       "id": "EG-SDLC-R002.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34a85d665c7d"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/lifecycle_records.rs:47"
+      ]
     },
     {
       "id": "EG-SDLC-R002.3",
@@ -180,16 +200,24 @@
     {
       "id": "EG-SDLC-R003.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34a85d665c7d"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/lifecycle_records.rs:75"
+      ]
     },
     {
       "id": "EG-SDLC-R003.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e93f418c3966"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/defect_intake.rs:15"
+      ]
     },
     {
       "id": "EG-SDLC-R003.3",
@@ -237,16 +265,24 @@
     {
       "id": "EG-SDLC-R004.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34a85d665c7d"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/defect_triage.rs:126"
+      ]
     },
     {
       "id": "EG-SDLC-R004.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34a85d665c7d"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/defect_triage.rs:179"
+      ]
     },
     {
       "id": "EG-SDLC-R004.3",
@@ -294,16 +330,24 @@
     {
       "id": "EG-SDLC-R005.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34a85d665c7d"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/lifecycle_records.rs:101"
+      ]
     },
     {
       "id": "EG-SDLC-R005.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e93f418c3966"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/spec_status_derive.rs:40"
+      ]
     },
     {
       "id": "EG-SDLC-R005.3",
@@ -351,16 +395,24 @@
     {
       "id": "EG-SDLC-R006.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34a85d665c7d"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/lifecycle_records.rs:125"
+      ]
     },
     {
       "id": "EG-SDLC-R006.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e93f418c3966"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/lifecycle_trace.rs:25"
+      ]
     },
     {
       "id": "EG-SDLC-R006.3",

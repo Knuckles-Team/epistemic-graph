@@ -135,23 +135,35 @@
     {
       "id": "EG-DATAPLAT-VOCAB-R002.1",
       "title": "Add `dp:Database`, `dp:Schema`, `dp:Table`, `dp:View`, `dp:Column`, `dp:ForeignKey`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4f816faa7f1e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:232"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R002.2",
       "title": "Add `dp:inSchema`, `dp:hasColumn`, `dp:referencesTable`, `dp:isPrimaryKey`, `dp:sqlDialect` with domain/range. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R002.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4f816faa7f1e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:248"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R002.3",
       "title": "Add `dp:Collection`, `dp:DocumentField`, `dp:fieldPath`, `dp:fieldType`, `dp:presenceRatio`, `dp:documentCount`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4f816faa7f1e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:259"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R002.4",
@@ -175,16 +187,24 @@
     {
       "id": "EG-DATAPLAT-VOCAB-R003.1",
       "title": "Add `dp:Bucket`, `dp:StoredObject`, `dp:objectKey`, `dp:byteSize`, `dp:lastModified`; no content property. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4f816faa7f1e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:271"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R003.2",
       "title": "Add `dp:VectorCollection`, `dp:EmbeddingSpace`, `dp:embeddingModel`, `dp:dimensions`, `dp:distanceMetric`, `dp:usesEmbeddingSpace`, `dp:vectorCount`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4f816faa7f1e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:293"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R003.3",
@@ -209,9 +229,13 @@
     {
       "id": "EG-DATAPLAT-VOCAB-R004.1",
       "title": "Add `dp:Topic`, `dp:Partition`, `dp:ConsumerGroup`, `dp:PartitionLag`, `dp:partitionOf`, `dp:subscribesTo`, `dp:lag`, `dp:groupState`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4f816faa7f1e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:310"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R004.2",
@@ -223,16 +247,24 @@
     {
       "id": "EG-DATAPLAT-VOCAB-R004.3",
       "title": "Add `dp:AnalyticsSite`, `dp:BehaviorMetric`, `dp:metricName`, `dp:metricValue`, `dp:windowDays`, `dp:dimensionName`, `dp:dimensionValue`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4f816faa7f1e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:323"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R004.4",
       "title": "Add `dp:Dataset` as a subclass of the existing core `:Dataset`, `dp:Model` as a general trained-model class (not equivalent to the narrower LLM/embedding `:Model`), `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4f816faa7f1e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:340"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R005",

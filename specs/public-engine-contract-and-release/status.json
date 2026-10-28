@@ -965,23 +965,35 @@
     {
       "id": "EG-CONTRACT-R052.1",
       "title": "Module ownership model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7ccde542bbaa"
+      ],
+      "verified_by": [
+        "tests/docs/test_architecture_map.py:39"
+      ]
     },
     {
       "id": "EG-CONTRACT-R052.2",
       "title": "Build, package, and deployment behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7ccde542bbaa"
+      ],
+      "verified_by": [
+        "tests/docs/test_architecture_map.py:76"
+      ]
     },
     {
       "id": "EG-CONTRACT-R052.3",
       "title": "Shared-contract wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7ccde542bbaa"
+      ],
+      "verified_by": [
+        "tests/docs/test_architecture_map.py:120"
+      ]
     },
     {
       "id": "EG-CONTRACT-R052.4",
