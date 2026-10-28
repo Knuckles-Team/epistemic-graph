@@ -261,7 +261,7 @@ mod tests {
         };
         split.validate().unwrap();
         let coverage = CoverageReport {
-            tenant_id: plan.tenant_id,
+            tenant_id: plan.tenant_id.clone(),
             files_by_class: BTreeMap::from([(FileClass::Source, 1), (FileClass::Test, 1)]),
             expected_sources: 2,
             observed_sources: 1,
