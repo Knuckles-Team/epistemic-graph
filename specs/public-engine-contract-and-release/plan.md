@@ -51,6 +51,23 @@ Run Go commands from `clients/go` and npm commands from `clients/js`. If a named
 
 ## Amendments
 
+### 2026-10-28: slim pull-request CI
+
+EG-CONTRACT-R053.7 keeps the tag guard on a passing main run. The
+pull-request set now targets twenty minutes of wall time and one runner-hour.
+A pull request runs lint, spec status, security and workspace Clippy. It also
+runs the affected-crate tests, the Python suite and contract parity. The
+affected-crate tests now include the lower crates.
+`scripts/ci_change_scope.py --path-gates` selects the narrow jobs. Language
+clients, Whisper, Piper, pyo3 and the installed wheel run only when their
+paths change. Main pushes, a nightly schedule and dispatch run the remaining
+jobs. Those jobs are the lower-crate gate, the facade suite, plan fuzz, the
+release Clippy profiles and the build variants. Native jobs read scope from a
+local job and skip the wait for the central pre-commit leg. This change
+removes the advisory hosted scanner job. Its scanners stay in the manual
+pre-commit stage that `scripts/ci_parity.sh` runs. `CI required` needs only
+the jobs that a pull request runs.
+
 ### 2026-10-11: reconcile the native suite contract census
 
 EG-CONTRACT-R009 and EG-CONTRACT-R015 retain one current method authority. The

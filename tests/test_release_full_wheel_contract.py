@@ -394,8 +394,12 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "python-server",
             "python-suite",
             "gates-pyo3",
+            "clippy-release-profiles",
         }:
-            expected = {("ci.yml", "gates-facade"): 60}.get(
+            expected = {
+                ("ci.yml", "gates-facade"): 60,
+                ("ci.yml", "clippy-release-profiles"): 60,
+            }.get(
                 (workflow.name, name),
                 "${{ github.event_name == 'pull_request' && 45 || 60 }}",
             )
@@ -407,9 +411,7 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
 def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
     pr_scoped = {
         ("ci.yml", "quality-advisory"): (
-            "${{ github.event_name == 'pull_request' && "
-            "(matrix.profile.name == 'workspace-all-features' "
-            "&& 15 || 10) || 60 }}"
+            "${{ github.event_name == 'pull_request' && 15 || 60 }}"
         )
     }.get(
         (workflow.name, name),
@@ -447,11 +449,7 @@ def test_workspace_clippy_budget_cannot_expand_other_jobs(
     workflow: str, name: str
 ) -> None:
     """EG-CONTRACT-R031: the matrix budget is not a general runner exception."""
-    budget = (
-        "${{ github.event_name == 'pull_request' && "
-        "(matrix.profile.name == 'workspace-all-features' "
-        "&& 15 || 10) || 60 }}"
-    )
+    budget = "${{ github.event_name == 'pull_request' && 15 || 60 }}"
     with pytest.raises(AssertionError):
         _assert_runner_budget(Path(workflow), name, {"timeout-minutes": budget})
 
@@ -827,7 +825,12 @@ def test_tag_pipeline_builds_checks_and_publishes_only() -> None:
     # Every gate, feature build and benchmark lives in ci.yml.
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     ci_triggers = ci[True] if True in ci else ci["on"]
-    assert set(ci_triggers) == {"push", "pull_request", "workflow_dispatch"}
+    assert set(ci_triggers) == {
+        "push",
+        "pull_request",
+        "schedule",
+        "workflow_dispatch",
+    }
     assert ci_triggers["push"] == {"branches": ["main"]}
     assert {"gates", "feature-matrix", "benchmarks", "engine-main-wheel"} <= set(
         ci["jobs"]

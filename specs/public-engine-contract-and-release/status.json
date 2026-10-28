@@ -337,8 +337,8 @@
         "tests/test_release_python_suite_contract.py:104",
         "tests/test_release_python_suite_contract.py:121",
         "tests/test_release_python_suite_contract.py:132",
-        "tests/test_release_python_suite_contract.py:360",
-        "tests/test_release_python_suite_contract.py:379"
+        "tests/test_release_python_suite_contract.py:355",
+        "tests/test_release_python_suite_contract.py:374"
       ]
     },
     {
@@ -397,7 +397,7 @@
         "8baee8a94894"
       ],
       "verified_by": [
-        "tests/test_kiss_fork.py:54"
+        "tests/test_kiss_fork.py:46"
       ]
     },
     {
@@ -514,7 +514,7 @@
         "d556e4d0895e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:266",
+        "tests/test_release_feature_matrix.py:297",
         "tests/test_release_feature_matrix.py:87"
       ]
     },
@@ -644,7 +644,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:768"
+        "tests/test_release_python_suite_contract.py:763"
       ]
     },
     {
@@ -680,7 +680,7 @@
         "cd7bf0364ebd"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:223"
+        "tests/test_ci_change_scope.py:274"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -695,7 +695,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:224"
+        "tests/test_ci_change_scope.py:275"
       ]
     },
     {
@@ -714,7 +714,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:329"
+        "tests/test_release_feature_matrix.py:364"
       ]
     },
     {
@@ -749,8 +749,8 @@
         "66e652687765"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:555",
-        "tests/test_ci_change_scope.py:902",
+        "tests/test_ci_change_scope.py:606",
+        "tests/test_ci_change_scope.py:958",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -778,7 +778,7 @@
         "cbad9fe59fba"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:219"
+        "tests/test_release_feature_matrix.py:235"
       ]
     },
     {
@@ -888,7 +888,7 @@
         "5bf5b719de7e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:308"
+        "tests/test_release_feature_matrix.py:343"
       ]
     },
     {
@@ -1013,17 +1013,17 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "18f4fd3521ed",
+        "323a909b78f0",
         "42376299456f",
         "701e8e498e07",
-        "805fce6204d9",
-        "88b8c1a73156"
+        "805fce6204d9"
       ],
       "verified_by": [
         "tests/test_build_backend.py:138",
         "tests/test_check_wheel_completeness.py:215",
-        "tests/test_ci_change_scope.py:705",
-        "tests/test_ci_change_scope.py:749",
-        "tests/test_ci_change_scope.py:878"
+        "tests/test_ci_change_scope.py:761",
+        "tests/test_ci_change_scope.py:805",
+        "tests/test_ci_change_scope.py:934"
       ],
       "rollup_of": [
         "EG-CONTRACT-R053.1",
@@ -1113,10 +1113,11 @@
       "title": "A tag publishes only a commit main CI already passed",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "323a909b78f0",
         "805fce6204d9"
       ],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:798"
+        "tests/test_release_full_wheel_contract.py:796"
       ]
     },
     {
@@ -1213,9 +1214,9 @@
         "be072c1cf996"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:705",
-        "tests/test_ci_change_scope.py:749",
-        "tests/test_ci_change_scope.py:878"
+        "tests/test_ci_change_scope.py:761",
+        "tests/test_ci_change_scope.py:805",
+        "tests/test_ci_change_scope.py:934"
       ]
     }
   ]
