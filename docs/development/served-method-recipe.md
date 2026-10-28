@@ -3,8 +3,7 @@
 A `.3` row says "the typed model and kernel exist; serve them". This recipe turns one
 kernel function into a served method. The method has a generated contract, generated
 clients and a served integration test. It was proven on `EG-FINANCE-PRIMITIVES-R900.3`
-(`FinancePositionSize`, `FinanceDistributionShift`) and repeated for R901.3, R613.3 and
-R018.3 (`src/server/handlers/finance/numeric_kernels.rs`).
+and repeated for the banking, execution and factor-rank rows.
 
 Do not hand-edit anything generated. Do not run `git add -A`; stage explicit paths.
 
@@ -26,7 +25,7 @@ The handlers live in the root crate (`src/server/handlers/...`). It reaches `eg_
 only through `eg-compute`:
 
 - `crates/eg-compute/Cargo.toml`: the `finance` feature already lists `dep:eg-numeric`. Add
-  any kernel feature it needs (R900 needed `eg-numeric/analytics` for `ks_2samp`).
+  any kernel feature it needs (R900 needed the numeric crate's analytics feature).
 - `crates/eg-compute/src/finance/mod.rs`: `pub use eg_numeric::{banking, execution, sizing};`
   The handler then calls `crate::finance::sizing::...`. (`crate::finance` is
   `eg_compute::finance` when the root `finance` feature is on.)
@@ -132,7 +131,7 @@ cargo test --locked --features "server,security,finance" --test finance_served_<
 - Stage explicit paths only: `contract/`, `epistemic_graph/`, `crates/`, `src/server`,
   `tests/<file>`, `clients/*/eg_method_codec.wasm`, `.config/generated-artifacts.toml`,
   `docs/capabilities.generated.md`, the spec file. Commit with a `Spec: <ROW-ID>` trailer.
-  Delete `target-isolated/` when you stop.
+  Delete `target-isolated/` at the end of the lane.
 
 ## Rows this recipe does not fit
 
@@ -145,5 +144,5 @@ first. The federated rows are of this kind:
 - `EG-FEDERATED-QUERY-R705.3` adds `RetrievalFeedbackRecord`, a write that needs a durable
   feedback store, a rate limit and a read-permission check.
 
-Their typed models (`.1`, `.2`) must first be wired into the retrieval executor, and their
+The retrieval executor must first wire their typed models (`.1`, `.2`). Their
 tests are Python tests against a running arbora. They are not a pure wire method.
