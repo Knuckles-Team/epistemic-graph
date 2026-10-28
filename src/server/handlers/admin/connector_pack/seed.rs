@@ -136,7 +136,7 @@ pub(crate) fn prepare_seed_import(
 /// Compute the digest expected in [`SeedPart::digest`] from a Turtle body.
 /// This is exposed to the focused handler test and keeps the exact digest rule
 /// in one production function used by validation.
-pub(crate) fn canonical_digest(turtle: &str) -> Result<Digest256, String> {
+pub(crate) fn seed_turtle_digest(turtle: &str) -> Result<Digest256, String> {
     let triples = eg_rdf::mapping::parse_turtle_bounded(turtle, MAX_SEED_TRIPLES)
         .map_err(|error| format!("SEED_TURTLE_INVALID: {error}"))?;
     let canonical = canonical_nquads(&triples)?;

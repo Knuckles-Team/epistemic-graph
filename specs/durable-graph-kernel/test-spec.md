@@ -495,7 +495,7 @@ qualification remain required; broader R028.1/R085/R751 remain open.
   admission enables the retained graph; later valid owners can submit normally.
 - Forged public carrier capabilities cannot dispatch native profile admission.
 - Graft validation under the source write lock orders against profile admission.
-  Refusal leaves no maximum fence or destination reservation; prior graft fencing
+  Refusal leaves no maximum fence or destination reservation. Prior graft fencing
   prevents a later admission from creating a private profile marker.
 
 - **EG-DURABLE-KERNEL-R030.1:** Typed host-start tests cover bounded bindings,

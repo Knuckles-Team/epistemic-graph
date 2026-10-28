@@ -701,18 +701,28 @@ fn wildcard_and_edge_predicate_traversals_compile_to_expand() {
         }
     );
 
-    let filtered = parse("MATCH (:N) |> TRAVERSE -[:R WHERE weight >= 0.5]->").unwrap();
-    assert_eq!(
-        filtered.ops[1],
-        Op::Expand {
-            rel: Some("R".into()),
-            dir: EdgeDir::Out,
-            min: 1,
-            max: 1,
-            edge_preds: vec![Pred::GtNum {
-                prop: "weight".into(),
-                n: 0.5,
-            }],
-        }
-    );
+    for (operator, comparison) in [
+        (">=", eg_types::wire::CmpOp::Ge),
+        ("<=", eg_types::wire::CmpOp::Le),
+        ("!=", eg_types::wire::CmpOp::Ne),
+    ] {
+        let filtered = parse(&format!(
+            "MATCH (:N) |> TRAVERSE -[:R WHERE weight {operator} 0.5]->"
+        ))
+        .unwrap();
+        assert_eq!(
+            filtered.ops[1],
+            Op::Expand {
+                rel: Some("R".into()),
+                dir: EdgeDir::Out,
+                min: 1,
+                max: 1,
+                edge_preds: vec![Pred::Cmp {
+                    prop: "weight".into(),
+                    op: comparison,
+                    value: eg_types::wire::PredLiteral::Num(0.5),
+                }],
+            }
+        );
+    }
 }

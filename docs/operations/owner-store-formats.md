@@ -23,7 +23,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `tenant_catalog` | `01b945d16fa187e69ca3dd5777a27066310b64a8b351380af1ba810f5dcd57aa` | none |
 | `node_info` | `02e5ca262822f4de0a1507780b2e908e605655d3a758e78c2a75f205ffa80347` | none |
 | `cluster_hierarchy` | `0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431` | none |
-| `graph_shard` | `3d32d052bba344a00ecdb4bd0aededaadf6d55e86fe0d1e43575e1705c78fc51` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
+| `graph_shard` | `e284deb12d859092004e840013a5b5dcc49f7a250e0e40015253377e890ea818` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
 | `agent_library` | `e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
 
 ## `BLOB_FORMAT_UPGRADE_REQUIRED`: blob store from before holder-scoped references
@@ -98,6 +98,14 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Tables: Same table set as **graph shard before private current-plan snapshots** above. Added tables: `work_item_current_plans`.
 - Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
+## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before private inline conversation history
+
+- Store file: `graph-*.redb`
+- Refused generation: graph shard before private inline conversation history
+- Data lost: none after the offline inline-history upgrade. Normal open refuses this predecessor.
+- Tables: Same table set as **graph shard before private run checkpoints** above. Added tables: `work_item_run_checkpoints`.
+- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+
 ## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before connector packs and governed write-back
 
 - Store file: `agent_library.redb`
@@ -129,6 +137,7 @@ The last output line of both verbs is one JSON object with the outcome, the exit
 
 | Store | Predecessor generation | Store file |
 |---|---|---|
+| `graph_shard` | graph shard before private inline conversation history | `graph-*.redb` |
 | `graph_shard` | graph shard before private run checkpoints | `graph-*.redb` |
 | `graph_shard` | graph shard before private current-plan snapshots | `graph-*.redb` |
 | `sql` | SQL catalog store before durable source checkpoints | `sql.redb` |

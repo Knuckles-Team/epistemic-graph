@@ -361,7 +361,19 @@ pub(super) const REASON_FRESHNESS_METADATA: &str =
 pub(super) const REASON_FOREIGN_SOURCE_OWNER_SCOPED: &str =
     "QueryForeignColumns resolves a named source from the caller's own owner-scoped (verified tenant+principal) ForeignSourceCatalog behind kg:read and returns rows fetched from that external source -- never a GraphView/core.analysis_snapshot() row read";
 
+// Foreign-read lifecycle sessions hold externally supplied pages, not local graph rows.
+// handlers::federation requires OwnerScopedCall's verified owner and kg:read.
+// ForeignReadSessions::record_for binds owner, effective actor, delegation,
+// authority and query digests plus expiry; revalidate_phase checks the current
+// durable approval and owner-scoped catalog before append/complete/abort.
+pub(super) const REASON_FOREIGN_READ_OWNER_SESSION: &str =
+    "handlers::federation binds external-page lifecycle sessions to the verified tenant+principal behind kg:read; ForeignReadSessions checks effective actor, delegation, authority, query digest and expiry, and revalidates durable approval plus the owner-scoped catalog -- never a GraphView/core.analysis_snapshot() row read";
+
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
+    ("ForeignReadOpen", REASON_FOREIGN_READ_OWNER_SESSION),
+    ("ForeignReadChunk", REASON_FOREIGN_READ_OWNER_SESSION),
+    ("ForeignReadComplete", REASON_FOREIGN_READ_OWNER_SESSION),
+    ("ForeignReadAbort", REASON_FOREIGN_READ_OWNER_SESSION),
     // REASON_FOREIGN_SOURCE_OWNER_SCOPED (EH-572)
     ("QueryForeignColumns", REASON_FOREIGN_SOURCE_OWNER_SCOPED),
     // REASON_DECIDE_LIBRARY_SNAPSHOT

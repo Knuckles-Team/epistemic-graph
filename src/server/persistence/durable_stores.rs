@@ -301,6 +301,10 @@ mod tests {
     /// unclassified new store and fail.
     const NOT_A_PERSIST_DIR_STORE: &[(&str, &str)] = &[
         (
+            "durability-admission.redb",
+            "eg-storage physical write-admission unit-test fixture (tempdir): checks ephemeral refusal and the synchronous durability plan",
+        ),
+        (
             "candidate.redb",
             "extension suffix of the transient semantic-tenant upgrade candidate \
              (`<tenant store>.candidate.redb`), renamed over its destination or removed",

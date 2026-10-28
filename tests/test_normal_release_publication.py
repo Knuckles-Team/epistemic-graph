@@ -133,13 +133,15 @@ class ReleasePublication(unittest.TestCase):
                 self.assertEqual(
                     step["if"],
                     "github.job == 'gates-crates' && "
-                    "github.event_name == 'pull_request'",
+                    "github.event_name == 'pull_request' && "
+                    "needs.changes.outputs.full_native != 'true'",
                 )
             elif step.get("run") == workspace:
                 self.assertEqual(
                     step["if"],
                     "github.job == 'gates-crates' && "
-                    "github.event_name != 'pull_request'",
+                    "(github.event_name != 'pull_request' || "
+                    "needs.changes.outputs.full_native == 'true')",
                 )
         self.assertIn("gates-storage", jobs["engine-main-wheel"]["needs"])
 

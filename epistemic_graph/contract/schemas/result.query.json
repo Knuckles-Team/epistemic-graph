@@ -6911,6 +6911,50 @@
       ],
       "type": "string"
     },
+    "CompletedTextAdmission": {
+      "additionalProperties": false,
+      "properties": {
+        "user_text_digest": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "user_text_digest"
+      ],
+      "type": "object"
+    },
+    "CompletedTextInput": {
+      "additionalProperties": false,
+      "properties": {
+        "assistant_text": {
+          "type": "string"
+        },
+        "content_digest": {
+          "type": "string"
+        },
+        "user_text": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "user_text",
+        "assistant_text",
+        "content_digest"
+      ],
+      "type": "object"
+    },
     "ComponentDependency": {
       "additionalProperties": false,
       "description": "One pinned requirement of a component.\n\nThe `kind` is carried alongside the id so a dependency can be type-checked\nwithout resolving it: a [`AgentComponentKind::Tool`] whose input schema\npoints at a [`AgentComponentKind::ModelProfile`] is rejected structurally,\nnot at run time. The `definition_digest` pins the exact revision, so a\ndependency cannot silently change under a component that was reviewed\nagainst it.",
@@ -7956,6 +8000,16 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "history_profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompletedTextAdmission"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "predecessor_run_id": {
           "type": [
@@ -16793,7 +16847,7 @@
     },
     "HarnessContrast": {
       "additionalProperties": false,
-      "description": "The measured behavioral contrast of two probe runs of one task\n(R802.1/R802.2). Every delta is B minus A on the Q32 fixed-point scale:\nsigned counts as `count << 32`, fractions as their Q32 numerator.",
+      "description": "The measured behavioral contrast of two probe runs of one task\n(EG-ORCH-VOCAB-R802.1/EG-ORCH-VOCAB-R802.2). Every delta is B minus A on the Q32 fixed-point scale:\nsigned counts as `count << 32`, fractions as their Q32 numerator.",
       "properties": {
         "conditions_digest": {
           "description": "The digest of the identical probe conditions (task, seed, model,\nbudget); both runs and the engine agree on it or the contrast refuses.",
@@ -16845,7 +16899,7 @@
       "type": "object"
     },
     "HarnessContrastAbstainReason": {
-      "description": "The closed abstain reasons of one contrast decision (R803.1).",
+      "description": "The closed abstain reasons of one contrast decision (EG-DECISION-ENGINE-R803.1).",
       "oneOf": [
         {
           "const": "no_improvement",
@@ -16866,7 +16920,7 @@
     },
     "HarnessContrastDecision": {
       "additionalProperties": false,
-      "description": "One contrast decision, recorded (R803.1).",
+      "description": "One contrast decision, recorded (EG-DECISION-ENGINE-R803.1).",
       "properties": {
         "abstain_reason": {
           "anyOf": [
@@ -22435,6 +22489,9 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "completed_text_history": {
+                  "type": "boolean"
+                },
                 "request": {
                   "$ref": "#/$defs/ClaimWorkItemRequest"
                 }
@@ -38756,8 +38813,21 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "completed_text_history": {
+                  "type": "boolean"
+                },
                 "run_id": {
                   "type": "string"
+                },
+                "selection": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/RunSelectionRequest"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "tenant": {
                   "type": "string"
@@ -38766,6 +38836,36 @@
               "required": [
                 "tenant",
                 "run_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "GetConversationHead",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "context_id": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tenant",
+                "context_id"
               ],
               "type": "object"
             }
@@ -39906,6 +40006,11 @@
         {
           "const": "unversioned_system_mutation",
           "description": "Reserved for authenticated first-boot/system-recovery operations.",
+          "type": "string"
+        },
+        {
+          "const": "enable_inline_history_profile",
+          "description": "Authenticated operator consent to the bounded stable-graph history policy.",
           "type": "string"
         }
       ]
@@ -47623,6 +47728,16 @@
     "RunCompletionInput": {
       "additionalProperties": false,
       "properties": {
+        "completed_checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompletedTextInput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "run_id": {
           "type": "string"
         },
@@ -47777,6 +47892,36 @@
         "timestamp_ms",
         "cursor_token",
         "carrier_digest"
+      ],
+      "type": "object"
+    },
+    "RunSelectionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "worker_id",
+        "lease_epoch",
+        "fencing_token"
       ],
       "type": "object"
     },

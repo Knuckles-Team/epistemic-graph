@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use eg_types::connector_pack::{SeedGraphImport, SeedPart, SeedPartKey};
 use eg_types::contract::{Digest256, ResourceId};
 
-use super::seed::{canonical_digest, prepare_seed_import, SeedImportOutcome, MAX_SEED_TRIPLES};
+use super::seed::{prepare_seed_import, seed_turtle_digest, SeedImportOutcome, MAX_SEED_TRIPLES};
 
 const SEED_NS: &str = "http://knuckles.team/kg/connector-seed#";
 
@@ -26,7 +26,7 @@ fn part(key: SeedPartKey, turtle: &str) -> SeedPart {
     SeedPart {
         key,
         turtle: turtle.to_string(),
-        digest: canonical_digest(turtle).expect("canonical seed digest"),
+        digest: seed_turtle_digest(turtle).expect("canonical seed digest"),
     }
 }
 
@@ -114,8 +114,8 @@ fn equal_content_digest_is_a_noop_after_the_existing_state_is_known() {
 }
 
 #[test]
-fn canonical_digest_ignores_statement_order() {
+fn seed_turtle_digest_ignores_statement_order() {
     let first = "<urn:s> <urn:p> <urn:o> .\n<urn:s> <urn:q> \"value\" .";
     let second = "<urn:s> <urn:q> \"value\" .\n<urn:s> <urn:p> <urn:o> .";
-    assert_eq!(canonical_digest(first), canonical_digest(second));
+    assert_eq!(seed_turtle_digest(first), seed_turtle_digest(second));
 }

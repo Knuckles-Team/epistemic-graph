@@ -113,7 +113,26 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
         &["CHANGE_BATCH_", "REPLAY_NONCE_", "STALE_GRAPH_"],
     ),
 ];
+// These phases and execution methods call the same verified approval/catalog boundary.
+const FOREIGN_SOURCE_BINDING_ERRORS: &[&str] = &[
+    "SOURCE_APPROVAL_MISMATCH",
+    "SOURCE_APPROVAL_NOT_ADMITTED",
+    "SOURCE_APPROVAL_SCHEMA_MISMATCH",
+    "SOURCE_APPROVAL_STORE_UNAVAILABLE",
+    "SOURCE_BINDING_INVALID",
+    "SOURCE_BINDING_MISMATCH",
+    "SOURCE_BINDING_NOT_REGISTERED",
+];
+
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    ("ForeignReadOpen", FOREIGN_SOURCE_BINDING_ERRORS),
+    ("ForeignReadChunk", FOREIGN_SOURCE_BINDING_ERRORS),
+    ("ForeignReadComplete", FOREIGN_SOURCE_BINDING_ERRORS),
+    ("ForeignReadAbort", FOREIGN_SOURCE_BINDING_ERRORS),
+    ("Uql", FOREIGN_SOURCE_BINDING_ERRORS),
+    ("UnifiedQuery", FOREIGN_SOURCE_BINDING_ERRORS),
+    // jobs::resolve_job_store refuses invalid operator worker timing.
+    ("AnalyticsJob", &["INVALID_CONFIGURATION"]),
     ("GetRunWorkItem", &["RUN_ADMISSION_UNAVAILABLE"]),
     ("GetConversationHead", &["RUN_ADMISSION_UNAVAILABLE"]),
     (

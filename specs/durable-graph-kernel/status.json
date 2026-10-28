@@ -2034,7 +2034,7 @@
         "c143146d7855"
       ],
       "verified_by": [
-        "src/server/persistence/durable_stores.rs:671"
+        "src/server/persistence/durable_stores.rs:675"
       ]
     },
     {
@@ -3372,7 +3372,7 @@
         "a0357cb95dc8"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:452",
+        "crates/eg-capabilities/src/error_routing.rs:471",
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:355",
         "crates/eg-storage/src/owner/lineage_tests.rs:224",
         "crates/eg-storage/src/owner/lineage_tests.rs:245",

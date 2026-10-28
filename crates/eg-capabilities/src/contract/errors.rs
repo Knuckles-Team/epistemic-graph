@@ -96,6 +96,14 @@ const CODE_CLASSES: &[(&str, &str)] = &[
     ("AUTHENTICATION_REQUIRED", "auth"),
     ("BUSY", "capacity"),
     ("INTERNAL", "internal"),
+    ("INVALID_CONFIGURATION", "internal"),
+    ("SOURCE_APPROVAL_MISMATCH", "validation"),
+    ("SOURCE_APPROVAL_NOT_ADMITTED", "policy"),
+    ("SOURCE_APPROVAL_SCHEMA_MISMATCH", "validation"),
+    ("SOURCE_APPROVAL_STORE_UNAVAILABLE", "availability"),
+    ("SOURCE_BINDING_INVALID", "validation"),
+    ("SOURCE_BINDING_MISMATCH", "validation"),
+    ("SOURCE_BINDING_NOT_REGISTERED", "validation"),
     ("ELEVATION_ACTOR_UNSTAMPED", "internal"),
     ("GOVERNED_ACTOR_UNSTAMPED", "internal"),
     ("SCHEMA_INCONSISTENT", "schema"),
@@ -126,6 +134,7 @@ fn retryable(code: &str) -> bool {
     matches!(
         code,
         "REDIRECTED"
+            | "SOURCE_APPROVAL_STORE_UNAVAILABLE"
             | "ENGINE_UNAVAILABLE"
             | "ENGINE_DEADLINE_EXCEEDED"
             | "ENGINE_RESOURCE_EXHAUSTED"
@@ -167,6 +176,14 @@ const HTTP_HINTS: &[(&str, u16)] = &[
     ("BUSY", 429),
     ("TIMEOUT", 504),
     ("INTERNAL", 500),
+    ("INVALID_CONFIGURATION", 500),
+    ("SOURCE_APPROVAL_MISMATCH", 400),
+    ("SOURCE_APPROVAL_NOT_ADMITTED", 403),
+    ("SOURCE_APPROVAL_SCHEMA_MISMATCH", 400),
+    ("SOURCE_APPROVAL_STORE_UNAVAILABLE", 503),
+    ("SOURCE_BINDING_INVALID", 400),
+    ("SOURCE_BINDING_MISMATCH", 400),
+    ("SOURCE_BINDING_NOT_REGISTERED", 400),
     ("CANCELLED", 408),
     ("TELEMETRY_UNAVAILABLE", 503),
     ("CAPACITY_UNAVAILABLE", 503),
@@ -522,6 +539,60 @@ mod tests {
             assert_eq!(http_status_hint(code), 401, "{code}");
             assert_eq!(class(code, "engine"), "auth", "{code}");
         }
+    }
+
+    #[test]
+    fn foreign_source_refusals_follow_the_bound_execution_methods() {
+        let codes = [
+            "SOURCE_APPROVAL_MISMATCH",
+            "SOURCE_APPROVAL_NOT_ADMITTED",
+            "SOURCE_APPROVAL_SCHEMA_MISMATCH",
+            "SOURCE_APPROVAL_STORE_UNAVAILABLE",
+            "SOURCE_BINDING_INVALID",
+            "SOURCE_BINDING_MISMATCH",
+            "SOURCE_BINDING_NOT_REGISTERED",
+        ];
+        for method in [
+            "ForeignReadOpen",
+            "ForeignReadChunk",
+            "ForeignReadComplete",
+            "ForeignReadAbort",
+            "Uql",
+            "UnifiedQuery",
+        ] {
+            for code in codes {
+                assert!(
+                    crate::error_routing::method_allows_error(method, code),
+                    "{method}: {code}"
+                );
+            }
+        }
+        for method in ["GetNodes", "AnalyticsJob", "RegisterIdentity"] {
+            for code in codes {
+                assert!(
+                    !crate::error_routing::method_allows_error(method, code),
+                    "{method}: {code}"
+                );
+            }
+        }
+        assert_eq!(http_status_hint("SOURCE_APPROVAL_NOT_ADMITTED"), 403);
+        assert!(!retryable("SOURCE_APPROVAL_NOT_ADMITTED"));
+        assert_eq!(http_status_hint("SOURCE_APPROVAL_STORE_UNAVAILABLE"), 503);
+        assert!(retryable("SOURCE_APPROVAL_STORE_UNAVAILABLE"));
+    }
+
+    #[test]
+    fn invalid_worker_configuration_is_published_only_for_analytics_jobs() {
+        let code = ServerErrorCode::InvalidConfiguration.as_str();
+        assert_eq!(code, "INVALID_CONFIGURATION");
+        assert_eq!(class(code, "server"), "internal");
+        assert_eq!(http_status_hint(code), 500);
+        assert!(!retryable(code));
+        let routes: BTreeSet<_> = crate::method_descriptors()
+            .filter(|method| method_error_set(method).contains(&code))
+            .map(|method| method.id.as_str())
+            .collect();
+        assert_eq!(routes, BTreeSet::from(["AnalyticsJob"]));
     }
 
     #[test]

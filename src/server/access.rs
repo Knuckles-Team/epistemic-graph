@@ -2064,6 +2064,25 @@ mod read_rls_coverage_tests {
     use super::*;
     use std::collections::{BTreeSet, HashMap};
 
+    #[test]
+    fn foreign_read_phases_name_the_verified_owner_session_boundary() {
+        for method in [
+            "ForeignReadOpen",
+            "ForeignReadChunk",
+            "ForeignReadComplete",
+            "ForeignReadAbort",
+        ] {
+            let reason = NON_ROW_SCOPED
+                .iter()
+                .find_map(|(name, reason)| (*name == method).then_some(*reason));
+            assert_eq!(
+                reason,
+                Some(read_classification::REASON_FOREIGN_READ_OWNER_SESSION),
+                "{method} must retain its audited owner-session classification"
+            );
+        }
+    }
+
     /// Every non-mutating (`mutates == false`) protocol method routes through
     /// the audited RLS primitive, or is a documented, named exception. `UNDOCUMENTED`
     /// (a method whose name matches none of `RLS_ROUTED`/`NON_ROW_SCOPED`/
