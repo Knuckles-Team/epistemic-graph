@@ -395,10 +395,12 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "python-suite",
             "gates-pyo3",
             "clippy-release-profiles",
+            "dupehound-census",
         }:
             expected = {
                 ("ci.yml", "gates-facade"): 60,
                 ("ci.yml", "clippy-release-profiles"): 60,
+                ("ci.yml", "dupehound-census"): 60,
             }.get(
                 (workflow.name, name),
                 "${{ github.event_name == 'pull_request' && 45 || 60 }}",
@@ -412,12 +414,18 @@ def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
     pr_scoped = {
         ("ci.yml", "quality-advisory"): (
             "${{ github.event_name == 'pull_request' && 15 || 60 }}"
-        )
+        ),
+        ("ci.yml", "gates-crates"): (
+            "${{ github.event_name == 'pull_request' && 15 || 60 }}"
+        ),
     }.get(
         (workflow.name, name),
         "${{ github.event_name == 'pull_request' && 10 || 60 }}",
     )
-    if (workflow.name, name) == ("ci.yml", "quality-advisory"):
+    if (workflow.name, name) in {
+        ("ci.yml", "quality-advisory"),
+        ("ci.yml", "gates-crates"),
+    }:
         assert job.get("timeout-minutes") == pr_scoped
     else:
         assert job.get("timeout-minutes") in (360, 5, pr_scoped), (

@@ -36,17 +36,31 @@ def _pull_request() -> dict[str, Any]:
     }
 
 
+def _ci_run(
+    *,
+    run_id: int = 1,
+    conclusion: str | None = "success",
+    status: str = "completed",
+    head_sha: str = SHA,
+) -> dict[str, Any]:
+    return {
+        "id": run_id,
+        "name": "CI required",
+        "status": status,
+        "conclusion": conclusion,
+        "head_sha": head_sha,
+    }
+
+
+CHECK_RUNS_PATH = (
+    f"/repos/{REPO_NAME}/commits/{SHA}/check-runs?check_name=CI%20required&per_page=100"
+)
+
+
 class ApiMock:
-    def __init__(
-        self,
-        *,
-        statuses: list[dict[str, Any]],
-        required: Any,
-        status_sha: str = SHA,
-    ):
-        self.statuses = statuses
+    def __init__(self, *, check_runs: list[dict[str, Any]], required: Any):
+        self.check_runs = check_runs
         self.required = required
-        self.status_sha = status_sha
         self.calls: list[str] = []
 
     def __call__(self, path: str) -> Any:
@@ -62,56 +76,83 @@ class ApiMock:
                     "required_status_checks": self.required,
                 },
             }
-        if path == f"/repos/{REPO_NAME}/commits/{SHA}/status?per_page=100":
-            return {"sha": self.status_sha, "statuses": self.statuses}
+        if path == CHECK_RUNS_PATH:
+            return {"total_count": len(self.check_runs), "check_runs": self.check_runs}
         if path == f"/repos/{REPO_NAME}/commits/{SHA}/pulls?per_page=100":
             return [_pull_request()]
         raise AssertionError(f"unexpected API path: {path}")
 
 
-def test_pull_request_trigger_requires_rule_and_exact_source_receipt():
-    module = _module()
-    api = ApiMock(
-        statuses=[
-            {
-                "context": "Source review",
-                "state": "success",
-                "updated_at": "2026-10-27T17:00:00Z",
-            }
-        ],
-        required={
-            "enforcement_level": "non_admins",
-            "contexts": ["CI required", "Source review"],
-        },
-    )
+REQUIRED = {"enforcement_level": "non_admins", "contexts": ["CI required"]}
+
+
+def _gate(module, api, *, event_name="pull_request_target", event=None):
     merges: list[tuple[int, str]] = []
     logs: list[str] = []
-
     module.run_gate(
-        event_name="pull_request_target",
-        event={"number": 42},
+        event_name=event_name,
+        event={"number": 42} if event is None else event,
         repo=REPO_NAME,
         api_get=api,
         merge=lambda number, sha: merges.append((number, sha)),
         log=logs.append,
     )
+    return merges, logs
+
+
+def test_pull_request_trigger_requires_rule_and_ci_required_success():
+    module = _module()
+    api = ApiMock(check_runs=[_ci_run()], required=REQUIRED)
+
+    merges, logs = _gate(module, api)
 
     assert merges == [(42, SHA)]
     assert api.calls == [
         f"/repos/{REPO_NAME}/pulls/42",
         f"/repos/{REPO_NAME}/branches/main",
-        f"/repos/{REPO_NAME}/commits/{SHA}/status?per_page=100",
+        CHECK_RUNS_PATH,
     ]
     assert any("required status-check contexts" in line for line in logs)
-    assert any("Source review success receipt" in line for line in logs)
+    assert any("CI required success" in line for line in logs)
+
+
+def test_source_review_is_not_required():
+    module = _module()
+    assert module.REQUIRED_CONTEXTS == {"CI required"}
+    api = ApiMock(check_runs=[_ci_run()], required=REQUIRED)
+
+    merges, _ = _gate(module, api)
+
+    assert merges == [(42, SHA)]
 
 
 def test_missing_required_rule_fails_closed_without_merge():
     module = _module()
     api = ApiMock(
-        statuses=[],
-        required={"enforcement_level": "non_admins", "contexts": ["CI required"]},
+        check_runs=[],
+        required={"enforcement_level": "non_admins", "contexts": ["Other"]},
     )
+
+    with pytest.raises(module.GateNotReady):
+        _gate(module, api)
+    assert api.calls == [
+        f"/repos/{REPO_NAME}/pulls/42",
+        f"/repos/{REPO_NAME}/branches/main",
+    ]
+
+
+@pytest.mark.parametrize(
+    "runs",
+    [
+        [],
+        [_ci_run(conclusion="failure")],
+        [_ci_run(status="in_progress", conclusion=None)],
+        [_ci_run(head_sha="b" * 40)],
+    ],
+)
+def test_ci_required_not_green_for_this_head_does_not_arm(runs):
+    module = _module()
+    api = ApiMock(check_runs=runs, required=REQUIRED)
     merges: list[tuple[int, str]] = []
 
     with pytest.raises(module.GateNotReady):
@@ -123,78 +164,50 @@ def test_missing_required_rule_fails_closed_without_merge():
             merge=lambda number, sha: merges.append((number, sha)),
         )
     assert merges == []
-    assert api.calls == [
-        f"/repos/{REPO_NAME}/pulls/42",
-        f"/repos/{REPO_NAME}/branches/main",
-    ]
 
 
-def test_status_event_and_receipt_must_match_same_head():
+def test_latest_check_run_decides():
     module = _module()
-    wrong_sha = "b" * 40
     api = ApiMock(
-        statuses=[
-            {
-                "context": "Source review",
-                "state": "success",
-                "updated_at": "2026-10-27T17:00:00Z",
-            }
-        ],
-        required={
-            "enforcement_level": "non_admins",
-            "checks": [
-                {"context": "CI required", "app_id": -1},
-                {"context": "Source review", "app_id": -1},
-            ],
-        },
-        status_sha=wrong_sha,
+        check_runs=[_ci_run(run_id=20, conclusion="failure"), _ci_run(run_id=21)],
+        required=REQUIRED,
     )
-    merges: list[tuple[int, str]] = []
+    assert _gate(module, api)[0] == [(42, SHA)]
 
+    api = ApiMock(
+        check_runs=[_ci_run(run_id=20), _ci_run(run_id=21, conclusion="failure")],
+        required=REQUIRED,
+    )
     with pytest.raises(module.GateNotReady):
-        module.run_gate(
-            event_name="status",
-            event={"context": "Source review", "state": "success", "sha": SHA},
-            repo=REPO_NAME,
-            api_get=api,
-            merge=lambda number, sha: merges.append((number, sha)),
-        )
-    assert merges == []
+        _gate(module, api)
 
 
-def test_same_timestamp_uses_newest_first_api_status():
+def test_check_run_event_arms_the_matching_open_pr():
     module = _module()
-    api = ApiMock(
-        statuses=[
-            {
-                "id": 20,
-                "context": "Source review",
-                "state": "success",
-                "updated_at": "2026-10-27T17:00:00Z",
-            },
-            {
-                "id": 19,
-                "context": "Source review",
-                "state": "failure",
-                "updated_at": "2026-10-27T17:00:00Z",
-            },
-        ],
-        required={
-            "enforcement_level": "non_admins",
-            "contexts": ["CI required", "Source review"],
-        },
-    )
-    merges: list[tuple[int, str]] = []
+    api = ApiMock(check_runs=[_ci_run()], required=REQUIRED)
+    event = {
+        "check_run": {"name": "CI required", "conclusion": "success", "head_sha": SHA}
+    }
 
-    module.run_gate(
-        event_name="pull_request_target",
-        event={"number": 42},
-        repo=REPO_NAME,
-        api_get=api,
-        merge=lambda number, sha: merges.append((number, sha)),
-    )
+    merges, _ = _gate(module, api, event_name="check_run", event=event)
 
     assert merges == [(42, SHA)]
+
+
+@pytest.mark.parametrize(
+    "check_run",
+    [
+        {"name": "Source review", "conclusion": "success", "head_sha": SHA},
+        {"name": "CI required", "conclusion": "failure", "head_sha": SHA},
+    ],
+)
+def test_check_run_event_ignores_other_or_failed_runs(check_run):
+    module = _module()
+    api = ApiMock(check_runs=[_ci_run()], required=REQUIRED)
+
+    with pytest.raises(module.GateNotReady):
+        _gate(module, api, event_name="check_run", event={"check_run": check_run})
+    assert api.calls == []
 
 
 def test_merge_command_is_head_pinned(monkeypatch):
@@ -243,7 +256,9 @@ def test_workflow_uses_trusted_events_without_checkout():
         "synchronize",
     }
     assert "main" in events["pull_request_target"]["branches"]
-    assert "status" in events
+    assert events["check_run"]["types"] == ["completed"]
+    assert "status" not in events
+    assert "Source review" not in source
     assert "actions/checkout@" not in source
     assert "github.event.pull_request.head.ref" not in source
     assert "github.event.pull_request.base.ref" not in source
@@ -251,7 +266,7 @@ def test_workflow_uses_trusted_events_without_checkout():
     assert "github.workflow_sha" in source
     assert "contents: write" in source
     assert "pull-requests: write" in source
-    assert "statuses: read" in source
+    assert "checks: read" in source
     assert "MERGE_TOKEN: ${{ secrets.GIT_TOKEN }}" in source
     script = (REPO / "scripts" / "auto_merge.py").read_text()
     assert 'token=os.environ["GITHUB_TOKEN"]' in script

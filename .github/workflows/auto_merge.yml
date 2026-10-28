@@ -1,16 +1,17 @@
-name: Auto-merge reviewed green PRs
+name: Auto-merge green PRs
 
 on:
   # Preserve both triggers: GIT_TOKEN merges can emit downstream main-CI/pages events.
   pull_request_target:
     branches: [main]
     types: [opened, reopened, ready_for_review, synchronize]
-  status:
+  check_run:
+    types: [completed]
 
 permissions:
   contents: write
   pull-requests: write
-  statuses: read
+  checks: read
 
 concurrency:
   group: auto-merge-${{ github.event.pull_request.number || github.event.sha || github.run_id }}
@@ -18,12 +19,12 @@ concurrency:
 
 jobs:
   arm:
-    name: Arm reviewed green auto-merge
+    name: Arm green auto-merge
     if: >-
       github.event_name == 'pull_request_target' ||
-      (github.event_name == 'status' &&
-      github.event.context == 'Source review' &&
-      github.event.state == 'success')
+      (github.event_name == 'check_run' &&
+      github.event.check_run.name == 'CI required' &&
+      github.event.check_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
