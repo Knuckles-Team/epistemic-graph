@@ -1732,3 +1732,101 @@ fn uptime_monitor_resolves_to_service_by_url_host_key() {
         );
     }
 }
+
+const VM_DOCKERHUB: &str = "http://knuckles.team/test/vm-dockerhub#";
+
+// spec: EG-SUPPLY-VOCAB-R006.5
+#[test]
+fn dockerhub_image_sbom_and_cves_map_components_and_vulnerabilities() {
+    let fixture = include_str!("fixtures/vm_dockerhub.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the dockerhub mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // The image record carries both child fetches: the SBOM projects onto
+    // kg:containsComponent, the CVE list onto kg:hasVulnerability.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_DOCKERHUB}imageMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{INFRA}ContainerImage")
+        ),
+        "the dockerhub image maps to infra:ContainerImage"
+    );
+    let mut pairs = pair_fields(&triples, &format!("<{VM_DOCKERHUB}imageMapping>"));
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("containsComponent".to_string(), "sbom".to_string()),
+            ("hasVulnerability".to_string(), "cves".to_string()),
+            ("label".to_string(), "name".to_string()),
+        ],
+        "the image mapping declares the sbom and cves child fetches"
+    );
+    // Each SBOM row is a component version.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_DOCKERHUB}componentVersionMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}ComponentVersion")
+        ),
+        "the SBOM row maps to kg:ComponentVersion"
+    );
+    let mut pairs = pair_fields(
+        &triples,
+        &format!("<{VM_DOCKERHUB}componentVersionMapping>"),
+    );
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![("versionString".to_string(), "version".to_string())],
+        "the SBOM row projects its version string"
+    );
+    // Each Scout CVE row is a vulnerability affecting a component.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_DOCKERHUB}vulnerabilityMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}Vulnerability")
+        ),
+        "the Scout CVE row maps to kg:Vulnerability"
+    );
+    let mut pairs = pair_fields(
+        &triples,
+        &format!("<{VM_DOCKERHUB}vulnerabilityMapping>"),
+    );
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("affectsComponent".to_string(), "component".to_string()),
+            ("cveId".to_string(), "cve".to_string()),
+            ("severity".to_string(), "severity".to_string()),
+        ],
+        "the CVE row projects id, severity and its affected component"
+    );
+    // The hub_scout actions are the confirmed operations.
+    for (contract, operation) in [
+        ("hubScoutSummary", "summary"),
+        ("hubScoutSbom", "sbom"),
+        ("hubScoutCves", "cves"),
+    ] {
+        let node = format!("<{VM_DOCKERHUB}{contract}>");
+        assert!(
+            triples.iter().any(|triple| {
+                subject_key(triple) == node
+                    && triple.predicate.as_str().ends_with("discoveredOperation")
+                    && literal_value(&triple.object) == operation
+            }),
+            "the {contract} contract declares {operation}"
+        );
+    }
+}
