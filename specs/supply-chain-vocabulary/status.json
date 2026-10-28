@@ -185,7 +185,7 @@
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:197",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:79"
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:117"
       ]
     },
     {
@@ -230,7 +230,7 @@
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:351",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:54"
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:92"
       ]
     },
     {
@@ -241,7 +241,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:385"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:467"
       ]
     },
     {

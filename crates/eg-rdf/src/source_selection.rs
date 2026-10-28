@@ -16,8 +16,13 @@
 //! proves it against a small two-source fixture covering all four verification
 //! cases: a direct mapping, a subclass mapping serving its superclass, an uncovered
 //! class, and a disconnected pair.
+//!
+//! An unconnected rank-1 source is a typed abstention, never a silent fallback
+//! (EG-CQ-XSRC-R005.4): the result names the source and the class it was supposed
+//! to serve, and a lower-ranked alternate wins only when the rank-1 row's
+//! `vg:allowFallback` permits it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A single justifying fact behind a coverage verdict. Every [`CoverageResult`]
 /// carries the premises that led to it, so the selection is auditable rather than
@@ -99,6 +104,15 @@ pub enum CoverageResult {
     /// `class` has no object-property path to any queried root within the hop
     /// budget — it is not merely unmapped, it was never reached.
     Disconnected { class: String },
+    /// `class` has an authority row, but its rank-1 source is not connected and
+    /// the row does not permit fallback. The abstention names the source and the
+    /// class, so the caller reports it instead of serving from a lower-ranked
+    /// source silently (EG-CQ-XSRC-R005.4).
+    Unconnected {
+        class: String,
+        source: String,
+        premises: Vec<Premise>,
+    },
 }
 
 /// One ontology `vg:SourceAuthority` row in the fixture-backed selection
@@ -116,6 +130,9 @@ pub struct AuthorityRow {
     pub scope: Option<String>,
     pub origin: String,
     pub generation: u64,
+    /// `vg:allowFallback`: whether a lower-ranked row may serve the class when
+    /// this row's source is not connected (EG-CQ-XSRC-R005.4).
+    pub allow_fallback: bool,
 }
 
 impl CoverageResult {
@@ -123,7 +140,8 @@ impl CoverageResult {
         match self {
             CoverageResult::Covered { class, .. }
             | CoverageResult::Uncovered { class, .. }
-            | CoverageResult::Disconnected { class } => class,
+            | CoverageResult::Disconnected { class }
+            | CoverageResult::Unconnected { class, .. } => class,
         }
     }
 }
@@ -140,6 +158,9 @@ pub struct CoverageFixture {
     /// class -> all authority rows (the previous implementation kept one
     /// tuple here and silently discarded earlier candidates).
     mappings: BTreeMap<String, Vec<AuthorityRow>>,
+    /// Sources the fixture declares not connected (EG-CQ-XSRC-R005.4). Empty
+    /// by default: every source is connected.
+    unconnected_sources: BTreeSet<String>,
 }
 
 impl CoverageFixture {
@@ -179,7 +200,39 @@ impl CoverageFixture {
             scope: None,
             origin: "fixture".to_string(),
             generation,
+            allow_fallback: false,
         });
+        self
+    }
+
+    /// Add a ranked `vg:SourceAuthority` candidate that permits fallback to a
+    /// lower-ranked connected source when its own source is not connected.
+    pub fn with_authority_allow_fallback(
+        mut self,
+        class: &str,
+        mapping_name: &str,
+        source: &str,
+        generation: u64,
+        rank: u64,
+    ) -> Self {
+        self.push_mapping(AuthorityRow {
+            row: format!("{class}::{mapping_name}"),
+            source: source.to_string(),
+            class: class.to_string(),
+            mapping_name: mapping_name.to_string(),
+            facet: None,
+            rank,
+            scope: None,
+            origin: "fixture".to_string(),
+            generation,
+            allow_fallback: true,
+        });
+        self
+    }
+
+    /// Declare `source` not connected (EG-CQ-XSRC-R005.4).
+    pub fn with_unconnected_source(mut self, source: &str) -> Self {
+        self.unconnected_sources.insert(source.to_string());
         self
     }
 
@@ -206,6 +259,7 @@ impl CoverageFixture {
             scope: None,
             origin: "fixture".to_string(),
             generation,
+            allow_fallback: false,
         });
         self
     }
@@ -372,8 +426,33 @@ fn classify_class(
                     .then_with(|| left.row.cmp(&right.row))
             });
             let source_mapping = &candidates[0];
-            let mut premises = fixture.mapping_premises(source_mapping);
-            premises.push(CoverageFixture::authority_premise(source_mapping));
+            // An unconnected rank-1 source is a typed abstention unless its row
+            // permits fallback; a fallback names the row it came from in the
+            // premises so the report says so (EG-CQ-XSRC-R005.4).
+            let used = if fixture.unconnected_sources.contains(&source_mapping.source) {
+                match candidates
+                    .iter()
+                    .find(|candidate| !fixture.unconnected_sources.contains(&candidate.source))
+                {
+                    Some(alternate) if source_mapping.allow_fallback => alternate,
+                    _ => {
+                        let mut premises = fixture.mapping_premises(source_mapping);
+                        premises.push(CoverageFixture::authority_premise(source_mapping));
+                        return CoverageResult::Unconnected {
+                            class,
+                            source: source_mapping.source.clone(),
+                            premises,
+                        };
+                    }
+                }
+            } else {
+                source_mapping
+            };
+            let mut premises = fixture.mapping_premises(used);
+            if used.row != source_mapping.row {
+                premises.push(CoverageFixture::authority_premise(source_mapping));
+            }
+            premises.push(CoverageFixture::authority_premise(used));
             if ancestor != class {
                 premises.push(Premise::Subclass {
                     sub_class: class.clone(),
@@ -382,11 +461,11 @@ fn classify_class(
             }
             premises.push(Premise::Mapping {
                 served_class: ancestor.clone(),
-                mapping_name: source_mapping.mapping_name.clone(),
+                mapping_name: used.mapping_name.clone(),
             });
             let alternates = candidates
                 .iter()
-                .skip(1)
+                .filter(|candidate| candidate.row != used.row)
                 .map(|candidate| {
                     premises.push(CoverageFixture::authority_premise(candidate));
                     candidate.mapping_name.clone()
@@ -394,7 +473,7 @@ fn classify_class(
                 .collect();
             return CoverageResult::Covered {
                 class,
-                mapping_name: source_mapping.mapping_name.clone(),
+                mapping_name: used.mapping_name.clone(),
                 alternates,
                 path: path.clone(),
                 premises,
@@ -410,6 +489,8 @@ fn classify_class(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const KG: &str = "http://knuckles.team/kg#";
 
     /// Two-source fixture: `Invoice` is mapped directly by `source-a`. `Contractor`
     /// is a subclass of `Person`, which is mapped by `source-b` — proving a
@@ -549,6 +630,102 @@ mod tests {
             if let CoverageResult::Covered { mapping_name, .. } = result {
                 assert!(!mapping_name.is_empty());
             }
+        }
+    }
+
+    /// The row's scenario: `:Supplier` to erpnext (rank 1) with leanix (rank 2),
+    /// erpnext not connected.
+    fn supplier_fixture(allow_fallback: bool) -> CoverageFixture {
+        let supplier = format!("{KG}Supplier");
+        let fixture = if allow_fallback {
+            CoverageFixture::new().with_authority_allow_fallback(
+                &supplier,
+                "erpnext-suppliers",
+                "erpnext-mcp",
+                5,
+                1,
+            )
+        } else {
+            CoverageFixture::new().with_authority(
+                &supplier,
+                "erpnext-suppliers",
+                "erpnext-mcp",
+                5,
+                1,
+            )
+        };
+        fixture
+            .with_authority(&supplier, "leanix-suppliers", "leanix-mcp", 4, 2)
+            .with_unconnected_source("erpnext-mcp")
+    }
+
+    // spec: EG-CQ-XSRC-R005.4
+    #[test]
+    fn unconnected_rank_one_source_is_a_typed_abstention() {
+        let fixture = supplier_fixture(false);
+        let results = select_sources(&fixture, &[format!("{KG}Supplier")], 1);
+        let supplier = results
+            .iter()
+            .find(|r| r.class() == format!("{KG}Supplier"))
+            .unwrap();
+        match supplier {
+            CoverageResult::Unconnected {
+                class,
+                source,
+                premises,
+            } => {
+                assert_eq!(class, &format!("{KG}Supplier"));
+                assert_eq!(source, "erpnext-mcp");
+                assert!(premises.contains(&Premise::Authority {
+                    row: format!("{KG}Supplier::erpnext-suppliers"),
+                    source: "erpnext-mcp".to_string(),
+                    class: format!("{KG}Supplier"),
+                    facet: None,
+                    rank: 1,
+                    scope: None,
+                    origin: "fixture".to_string(),
+                    generation: 5,
+                }));
+            }
+            other => panic!("expected the typed Unconnected abstention, got {other:?}"),
+        }
+    }
+
+    // spec: EG-CQ-XSRC-R005.4
+    #[test]
+    fn fallback_uses_the_lower_ranked_alternate_only_when_permitted() {
+        let fixture = supplier_fixture(true);
+        let results = select_sources(&fixture, &[format!("{KG}Supplier")], 1);
+        let supplier = results
+            .iter()
+            .find(|r| r.class() == format!("{KG}Supplier"))
+            .unwrap();
+        match supplier {
+            CoverageResult::Covered {
+                mapping_name,
+                alternates,
+                premises,
+                ..
+            } => {
+                assert_eq!(mapping_name, "leanix-suppliers");
+                assert_eq!(alternates, &["erpnext-suppliers".to_string()]);
+                // The report can say so: the rank-1 row is named in the premises.
+                assert!(premises.contains(&Premise::Authority {
+                    row: format!("{KG}Supplier::erpnext-suppliers"),
+                    source: "erpnext-mcp".to_string(),
+                    class: format!("{KG}Supplier"),
+                    facet: None,
+                    rank: 1,
+                    scope: None,
+                    origin: "fixture".to_string(),
+                    generation: 5,
+                }));
+                assert!(premises.contains(&Premise::Mapping {
+                    served_class: format!("{KG}Supplier"),
+                    mapping_name: "leanix-suppliers".to_string(),
+                }));
+            }
+            other => panic!("expected fallback Covered via leanix, got {other:?}"),
         }
     }
 }

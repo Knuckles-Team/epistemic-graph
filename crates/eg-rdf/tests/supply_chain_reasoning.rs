@@ -51,6 +51,44 @@ fn container_image_entails_software_component_under_the_native_reasoner() {
     ));
 }
 
+// spec: EG-CQ-XSRC-R004.1
+#[test]
+fn supplies_service_infers_the_supplier_end_of_the_runtime_chain() {
+    let mut triples = documents();
+    triples.extend(
+        parse_turtle(include_str!(
+            "../../eg-core/tests/fixtures/supply_chain_runtime_chain.ttl"
+        ))
+        .unwrap(),
+    );
+    // The fixture asserts the shared `versionOf` link; the `suppliesService`
+    // chain needs the supply-chain module property between version and
+    // component, so the test asserts it alongside.
+    triples.extend(
+        parse_turtle(
+            r#"
+            @prefix : <http://knuckles.team/kg#> .
+            @prefix ex: <http://knuckles.team/test/supply-chain#> .
+
+            ex:openssl111k :supplyChainVersionOf ex:openssl .
+            "#,
+        )
+        .unwrap(),
+    );
+    let service = format!("<{EX}checkoutService>");
+    let supplier = format!("<{EX}opensslSupplier>");
+    let chain = format!("<{KG}suppliesService>");
+    let entailed = saturate_object_properties(&triples);
+    let derived = entailed
+        .iter()
+        .find(|fact| fact.subject == service && fact.predicate == chain && fact.object == supplier);
+    let Some(derived) = derived else {
+        panic!("the runtime chain must derive {service} {chain} {supplier}");
+    };
+    assert!(!derived.asserted, "the edge is inferred, not asserted");
+    assert_eq!(derived.rule, "RL-propertyChain");
+}
+
 // spec: EG-SUPPLY-VOCAB-R002.5
 #[test]
 fn uses_component_chain_infers_the_runtime_path() {

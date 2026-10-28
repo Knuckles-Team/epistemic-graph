@@ -161,6 +161,11 @@ pub mod nl_query;
 // non-Match classification. Pure data; blocking, field-similarity scoring
 // and the real Fellegi-Sunter model are later children.
 pub mod entity_link_proposal;
+// EG-CQ-XSRC-R006.1/R006.4 — the typed supply-chain impact report (one
+// report: impact per service, the items behind each, the sources used and
+// why, and typed abstentions) and its pure, deterministic assembly from the
+// planned query's rows and premises.
+pub mod supply_chain_report;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
