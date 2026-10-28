@@ -1437,11 +1437,11 @@ mod tests {
             ),
             (
                 "virtual-graph",
-                "16d5934a22a256fc6eaa86ff33b47bd7d815e2f81bea7b1d1022327cf92b8a2b",
+                "24f74c48928f0edde9fe80c903028ea90eb9093e29685ca3619c64284d1b39d3",
             ),
             (
                 "virtual-graph-shapes",
-                "313fdb8ea2d27847dc860a9a36ff18dee7b97ba0eb4d132dc161b8f88decc956",
+                "96af31e002d61552f35d86e352505ffa6513da805b3186f4190804893b0b306c",
             ),
             // EG-SUPPLY-VOCAB-R003.13: the commercial module (ontology plus its
             // shapes companion) joins the catalog; the pin follows the ontology.
