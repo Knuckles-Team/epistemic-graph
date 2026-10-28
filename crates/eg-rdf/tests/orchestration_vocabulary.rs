@@ -425,7 +425,10 @@ mod vocabulary {
         let cycle = ":t :hasStep :a, :b . :a a :TaskStep ; :precedes :b . \
                      :b a :TaskStep ; :precedes :a .";
         let found = violations(SHAPES, "TaskStepShape", cycle);
-        assert!(found.iter().any(|m| m.contains("precedes itself")), "{found:?}");
+        assert!(
+            found.iter().any(|m| m.contains("precedes itself")),
+            "{found:?}"
+        );
         let ownerless = ":a a :TaskStep .";
         assert!(violations(SHAPES, "TaskStepShape", ownerless)
             .iter()
@@ -481,7 +484,13 @@ mod vocabulary {
     #[test]
     fn has_agent_kind_resolves() {
         let view = view_of("");
-        declared(&view, ":hasAgentKind", "owl:ObjectProperty", Some(":Agent"), ":AgentKind");
+        declared(
+            &view,
+            ":hasAgentKind",
+            "owl:ObjectProperty",
+            Some(":Agent"),
+            ":AgentKind",
+        );
     }
 
     // spec: EG-ORCH-VOCAB-R002.3
@@ -507,7 +516,9 @@ mod vocabulary {
         assert!(swarm.contains(&"<http://knuckles.team/kg/orchestration>".to_string()));
         // The import closure has no cycle: orchestration imports nothing back.
         assert!(imports(ORCHESTRATION).is_empty());
-        eg_core::graph::GraphSchemaSources::default().validate().unwrap();
+        eg_core::graph::GraphSchemaSources::default()
+            .validate()
+            .unwrap();
         consistent_with(FIXTURE);
     }
 
@@ -534,9 +545,11 @@ mod vocabulary {
         assert!(class_failures(&slot("swarm:requiresAgentKind :notKind"))
             .iter()
             .any(|c| c.ends_with("ClassConstraintComponent")));
-        assert!(class_failures(&slot("swarm:requiresAgentKind :kindA, :kindB"))
-            .iter()
-            .any(|c| c.ends_with("MaxCountConstraintComponent")));
+        assert!(
+            class_failures(&slot("swarm:requiresAgentKind :kindA, :kindB"))
+                .iter()
+                .any(|c| c.ends_with("MaxCountConstraintComponent"))
+        );
     }
 
     // spec: EG-ORCH-VOCAB-R002.5
@@ -583,7 +596,10 @@ mod vocabulary {
             &format!("<{SWARM_NS}TopologyTemplate>")
         ));
         // :hasSkill and :usesModel are agent-domain properties: the template takes both.
-        assert!(ask(&view_of(FIXTURE), ":agentContainerOps a :AgentTemplate ; :hasSkill ?s ; :usesModel ?m"));
+        assert!(ask(
+            &view_of(FIXTURE),
+            ":agentContainerOps a :AgentTemplate ; :hasSkill ?s ; :usesModel ?m"
+        ));
         assert!(ask(&view, ":hasSkill rdfs:domain :Agent"));
         assert!(ask(&view, ":usesModel rdfs:domain :Agent"));
     }
@@ -661,8 +677,7 @@ mod vocabulary {
             "owl:Class",
         );
         let classification = consistent_with(FIXTURE);
-        assert!(classification
-            .entails_subclass(&kg("BestPractice"), &kg("DevelopmentStandard")));
+        assert!(classification.entails_subclass(&kg("BestPractice"), &kg("DevelopmentStandard")));
     }
 
     // spec: EG-ORCH-VOCAB-R004.3
@@ -674,7 +689,10 @@ mod vocabulary {
             ":rule a :BestPractice ; :appliesToTaskClass swarm:A, swarm:B .",
             ":rule a :BestPractice ; :appliesToTaskClass \"a class\" .",
         ] {
-            assert!(!violations(SHAPES, "RuleScopeShape", bad).is_empty(), "{bad}");
+            assert!(
+                !violations(SHAPES, "RuleScopeShape", bad).is_empty(),
+                "{bad}"
+            );
         }
     }
 
@@ -692,7 +710,10 @@ mod vocabulary {
         .into_iter()
         .map(|row| {
             let strip = |cell: &Option<String>| {
-                cell.as_deref().unwrap().trim_matches(['<', '>']).to_string()
+                cell.as_deref()
+                    .unwrap()
+                    .trim_matches(['<', '>'])
+                    .to_string()
             };
             GuardrailRule {
                 rule_id: strip(&row[0]),
@@ -718,7 +739,10 @@ mod vocabulary {
         let classification = consistent_with(FIXTURE);
         assert!(classification.entails_subclass(&kg("ModelProfile"), &kg("Model")));
         assert!(ask(&view, ":contextWindow rdfs:domain :Model"));
-        assert!(ask(&view_of(FIXTURE), ":profileLocal a :ModelProfile ; :contextWindow 32768"));
+        assert!(ask(
+            &view_of(FIXTURE),
+            ":profileLocal a :ModelProfile ; :contextWindow 32768"
+        ));
     }
 
     // spec: EG-ORCH-VOCAB-R005.2
@@ -737,7 +761,10 @@ mod vocabulary {
     #[test]
     fn step_assigned_agent_resolves() {
         let view = view_of("");
-        assert!(ask(&view, ":stepAssignedAgent a owl:ObjectProperty ; rdfs:domain :TaskStep"));
+        assert!(ask(
+            &view,
+            ":stepAssignedAgent a owl:ObjectProperty ; rdfs:domain :TaskStep"
+        ));
         assert!(!ask(&view, ":stepAssignedAgent rdfs:range ?range"));
         // The existing :assignedAgent keeps its A2A-card range and is left alone.
         assert!(ask(&view, ":assignedAgent rdfs:range :A2AAgentCard"));
@@ -768,7 +795,10 @@ mod vocabulary {
         ];
         for (data, expected) in cases {
             let found = violations(SHAPES, "StepBindingShape", &data);
-            assert!(found.iter().any(|m| m.contains(expected)), "{expected}: {found:?}");
+            assert!(
+                found.iter().any(|m| m.contains(expected)),
+                "{expected}: {found:?}"
+            );
         }
     }
 
@@ -812,7 +842,13 @@ mod vocabulary {
     #[test]
     fn hands_off_to_implies_precedes() {
         let view = view_of("");
-        declared(&view, ":handsOffTo", "owl:ObjectProperty", Some(":TaskStep"), ":TaskStep");
+        declared(
+            &view,
+            ":handsOffTo",
+            "owl:ObjectProperty",
+            Some(":TaskStep"),
+            ":TaskStep",
+        );
         assert!(ask(&view, ":handsOffTo rdfs:subPropertyOf :precedes"));
         let mut triples = schema();
         triples.extend(
@@ -893,7 +929,10 @@ mod vocabulary {
     #[test]
     fn q7_returns_dag_adjacency() {
         let view = view_of(FIXTURE);
-        let nodes = table(&view, "SELECT ?slot WHERE { :tmplPipeline swarm:hasSlot ?slot }");
+        let nodes = table(
+            &view,
+            "SELECT ?slot WHERE { :tmplPipeline swarm:hasSlot ?slot }",
+        );
         assert_eq!(nodes, cells(&[&[Some("slotA")], &[Some("slotB")]]));
         let edges = table(
             &view,
@@ -914,8 +953,13 @@ mod vocabulary {
             Some(":RunTrace"),
             ":Decision",
         );
-        let linked = view_of(":trace a :RunTrace ; :appliedHarnessConfig :decision . :decision a :Decision .");
-        assert!(ask(&linked, ":trace :appliedHarnessConfig ?d . ?d a :Decision"));
+        let linked = view_of(
+            ":trace a :RunTrace ; :appliedHarnessConfig :decision . :decision a :Decision .",
+        );
+        assert!(ask(
+            &linked,
+            ":trace :appliedHarnessConfig ?d . ?d a :Decision"
+        ));
     }
 
     // spec: EG-ORCH-VOCAB-R009.10
@@ -1013,8 +1057,20 @@ mod vocabulary {
     #[test]
     fn fact_of_model_and_measured_property_declared() {
         let view = view_of("");
-        declared(&view, ":factOfModel", "owl:ObjectProperty", Some(":MeasuredModelFact"), ":ModelProfile");
-        declared(&view, ":measuredProperty", "owl:DatatypeProperty", Some(":MeasuredModelFact"), "xsd:string");
+        declared(
+            &view,
+            ":factOfModel",
+            "owl:ObjectProperty",
+            Some(":MeasuredModelFact"),
+            ":ModelProfile",
+        );
+        declared(
+            &view,
+            ":measuredProperty",
+            "owl:DatatypeProperty",
+            Some(":MeasuredModelFact"),
+            "xsd:string",
+        );
     }
 
     // spec: EG-ORCH-VOCAB-R011.4
@@ -1046,9 +1102,7 @@ mod vocabulary {
     fn measured_fact_shape_rejects_missing_evidence() {
         let shape = "MeasuredModelFactShape";
         let fact = |extra: &str| {
-            format!(
-                ":fact a :MeasuredModelFact ; :factOfModel :profileLocal {extra} ."
-            )
+            format!(":fact a :MeasuredModelFact ; :factOfModel :profileLocal {extra} .")
         };
         for good in [
             "; :evidencedByRun :run ; :measuredProperty \"shellProficiency\" ; :measuredValue \"high\"",

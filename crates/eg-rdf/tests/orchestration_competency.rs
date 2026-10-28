@@ -163,7 +163,11 @@ fn messages(shapes: &str, shape: &str, data: &str) -> Vec<String> {
             result.source_shape.contains(shape)
                 || (shapes == SHAPES && result.source_shape.starts_with("_:"))
         })
-        .map(|result| result.message.unwrap_or_else(|| result.constraint_component))
+        .map(|result| {
+            result
+                .message
+                .unwrap_or_else(|| result.constraint_component)
+        })
         .collect()
 }
 
@@ -262,7 +266,9 @@ fn q1_ontology_terms_resolve() {
     declared(&view, ":TaskStep", "owl:Class");
     declared(&view, ":hasStep", "owl:ObjectProperty");
     assert!(ask(&view, ":precedes rdfs:domain ?d ; rdfs:range ?r"));
-    consistent(&format!("{TURTLE_PREFIXES}:a a :TaskStep ; :precedes :b . :b a :TaskStep ."));
+    consistent(&format!(
+        "{TURTLE_PREFIXES}:a a :TaskStep ; :precedes :b . :b a :TaskStep ."
+    ));
 }
 
 // spec: EG-CQ-ORCH-R001.2
@@ -270,7 +276,9 @@ fn q1_ontology_terms_resolve() {
 fn q1_shape_accepts_fixture_and_rejects_a_cycle() {
     let fixture = q(1).fixture;
     assert!(messages(SHAPES, "TaskStepShape", fixture).is_empty());
-    let cycle = planted(":t :hasStep :a, :b . :a a :TaskStep ; :precedes :b . :b a :TaskStep ; :precedes :a .");
+    let cycle = planted(
+        ":t :hasStep :a, :b . :a a :TaskStep ; :precedes :b . :b a :TaskStep ; :precedes :a .",
+    );
     assert!(!messages(SHAPES, "TaskStepShape", &cycle).is_empty());
 }
 
@@ -300,7 +308,9 @@ fn q2_ontology_terms_resolve() {
     declared(&view, ":hasAgentKind", "owl:ObjectProperty");
     declared(&view, "swarm:requiresAgentKind", "owl:ObjectProperty");
     assert!(ask(&view, ":agentKindVerifier a :AgentKind"));
-    consistent(&format!("{TURTLE_PREFIXES}:s a swarm:Slot ; swarm:requiresAgentKind :agentKindVerifier ."));
+    consistent(&format!(
+        "{TURTLE_PREFIXES}:s a swarm:Slot ; swarm:requiresAgentKind :agentKindVerifier ."
+    ));
 }
 
 // spec: EG-CQ-ORCH-R002.2
@@ -309,10 +319,16 @@ fn q2_shape_accepts_fixture_and_rejects_bad_width() {
     let fixture = q(2).fixture;
     let report = validate_turtle(SWARM_SHAPES, fixture).unwrap();
     assert!(report.conforms, "{:?}", report.results);
-    let inverted = fixture.replace("swarm:minWidth 1 ; swarm:maxWidth 2", "swarm:minWidth 3 ; swarm:maxWidth 2");
+    let inverted = fixture.replace(
+        "swarm:minWidth 1 ; swarm:maxWidth 2",
+        "swarm:minWidth 3 ; swarm:maxWidth 2",
+    );
     assert_ne!(inverted, fixture);
     assert!(!validate_turtle(SWARM_SHAPES, &inverted).unwrap().conforms);
-    let unbounded = fixture.replace("swarm:minWidth 1 ; swarm:maxWidth 2", "swarm:minWidth 1 ; swarm:maxWidth 99");
+    let unbounded = fixture.replace(
+        "swarm:minWidth 1 ; swarm:maxWidth 2",
+        "swarm:minWidth 1 ; swarm:maxWidth 99",
+    );
     assert!(!validate_turtle(SWARM_SHAPES, &unbounded).unwrap().conforms);
 }
 
@@ -376,7 +392,10 @@ fn q4_ontology_terms_resolve() {
     let view = view_of("");
     declared(&view, ":BestPractice", "owl:Class");
     declared(&view, ":appliesToTaskClass", "owl:ObjectProperty");
-    assert!(ask(&view, ":BestPractice rdfs:subClassOf :DevelopmentStandard"));
+    assert!(ask(
+        &view,
+        ":BestPractice rdfs:subClassOf :DevelopmentStandard"
+    ));
     consistent(q(4).fixture);
 }
 
@@ -488,7 +507,10 @@ fn q6_answers_with_provenance() {
 fn q7_ontology_terms_resolve() {
     let view = view_of("");
     declared(&view, "swarm:feeds", "owl:ObjectProperty");
-    assert!(ask(&view, "swarm:feeds rdfs:domain swarm:Slot ; rdfs:range swarm:Slot"));
+    assert!(ask(
+        &view,
+        "swarm:feeds rdfs:domain swarm:Slot ; rdfs:range swarm:Slot"
+    ));
     consistent(q(7).fixture);
 }
 
@@ -499,10 +521,16 @@ fn q7_shape_accepts_fixture_and_rejects_a_cycle_or_a_second_root() {
     for shape in ["FeedsAcyclicShape", "FeedsSingleRootShape"] {
         assert!(messages(SWARM_SHAPES, shape, fixture).is_empty(), "{shape}");
     }
-    let cyclic = fixture.replace(":dLeaf a swarm:Slot .", ":dLeaf a swarm:Slot ; swarm:feeds :dRoot .");
+    let cyclic = fixture.replace(
+        ":dLeaf a swarm:Slot .",
+        ":dLeaf a swarm:Slot ; swarm:feeds :dRoot .",
+    );
     assert_ne!(cyclic, fixture);
     assert!(!messages(SWARM_SHAPES, "FeedsAcyclicShape", &cyclic).is_empty());
-    let two_roots = fixture.replace(":dMid a swarm:Slot ; swarm:feeds :dLeaf .", ":dMid a swarm:Slot .");
+    let two_roots = fixture.replace(
+        ":dMid a swarm:Slot ; swarm:feeds :dLeaf .",
+        ":dMid a swarm:Slot .",
+    );
     assert_ne!(two_roots, fixture);
     assert!(!messages(SWARM_SHAPES, "FeedsSingleRootShape", &two_roots).is_empty());
 }
