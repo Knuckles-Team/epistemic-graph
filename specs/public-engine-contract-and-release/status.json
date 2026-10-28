@@ -241,8 +241,8 @@
         "2b8dd458b459",
         "79c49c6fc412",
         "7e09becc533e",
-        "a32000c55c4e",
-        "b6d6bdedcd35"
+        "a27a7c804f9e",
+        "a32000c55c4e"
       ],
       "verified_by": [
         "tests/test_build_method_codec_wasm.py:248",
@@ -425,8 +425,8 @@
         "394f82a01e83"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:494",
-        "crates/eg-capabilities/src/error_routing.rs:376",
+        "crates/eg-capabilities/src/contract/errors.rs:495",
+        "crates/eg-capabilities/src/error_routing.rs:384",
         "crates/eg-types/src/governed_change/tests.rs:183",
         "src/server/auth.rs:2053",
         "src/server/transport/tests.rs:145"
@@ -539,7 +539,7 @@
         "f2398cefb06c"
       ],
       "verified_by": [
-        "tests/test_no_version_suffixes.py:185"
+        "tests/test_no_version_suffixes.py:197"
       ]
     },
     {
@@ -784,11 +784,14 @@
     {
       "id": "EG-CONTRACT-R038",
       "title": "Contract receipt freshness is checked before merge",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2688cddd2f7f"
+        "2688cddd2f7f",
+        "a7ae55a60495"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/src/contract.rs:704"
+      ]
     },
     {
       "id": "EG-CONTRACT-R039",
@@ -1028,7 +1031,7 @@
         "805fce6204d9"
       ],
       "verified_by": [
-        "tests/test_build_backend.py:137",
+        "tests/test_build_backend.py:138",
         "tests/test_check_wheel_completeness.py:215",
         "tests/test_ci_change_scope.py:761",
         "tests/test_ci_change_scope.py:805",
@@ -1069,7 +1072,7 @@
         "90b88cb49f58"
       ],
       "verified_by": [
-        "tests/test_build_backend.py:137",
+        "tests/test_build_backend.py:138",
         "tests/test_check_wheel_completeness.py:215"
       ]
     },
@@ -1126,7 +1129,7 @@
         "805fce6204d9"
       ],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:748"
+        "tests/test_release_full_wheel_contract.py:796"
       ]
     },
     {

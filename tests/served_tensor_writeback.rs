@@ -118,7 +118,14 @@ async fn served_tensor_elementwise_writeback_repeatable_across_requests() {
     for req_id in [200, 201] {
         let resp = Box::pin(dispatch(
             &state,
-            test_support::commons_request(SECRET, req_id, Method::UnifiedQuery { plan: plan() }),
+            test_support::commons_request(
+                SECRET,
+                req_id,
+                Method::UnifiedQuery {
+                    plan: plan(),
+                    foreign_execution: None,
+                },
+            ),
         ))
         .await;
         let rows = test_support::raw_rows(&resp);

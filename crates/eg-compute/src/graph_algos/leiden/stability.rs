@@ -258,6 +258,39 @@ mod tests {
     }
 
     #[test]
+    fn distinct_resolutions_keep_known_persistent_communities() {
+        let g = bridged_four_cliques();
+        let cfg = LeidenConfig {
+            budget: Duration::from_secs(5),
+            ..LeidenConfig::default()
+        };
+        let stable = resolution_sweep(&g, &[0.9, 1.0, 1.1], &cfg);
+
+        // The bridge is too weak to merge either 4-clique throughout this
+        // small resolution band. The same member sets therefore recur at
+        // distinct resolutions, rather than merely repeating one input value.
+        for expected in [vec!["a", "b", "c", "d"], vec!["w", "x", "y", "z"]] {
+            let occurrences: Vec<&StableCommunity<&str>> = stable
+                .iter()
+                .filter(|community| community.members == expected)
+                .collect();
+            assert!(
+                occurrences.len() >= 2,
+                "expected {expected:?} at multiple resolutions: {stable:?}"
+            );
+            let resolutions: std::collections::BTreeSet<u64> = occurrences
+                .iter()
+                .map(|community| community.resolution.to_bits())
+                .collect();
+            assert!(
+                resolutions.len() >= 2,
+                "expected {expected:?} at distinct resolutions: {stable:?}"
+            );
+            assert!(occurrences.iter().all(|community| community.support > 0));
+        }
+    }
+
+    #[test]
     fn names_the_highest_degree_member_of_each_community() {
         // "b" is connected to every other member (degree 3); the rest have
         // degree 2 or less. "b" must be the name regardless of position.
@@ -270,6 +303,27 @@ mod tests {
         let named = name_communities(&g, vec![vec!["a", "b", "c", "d"]]);
         assert_eq!(named.len(), 1);
         assert_eq!(named[0].name, "b");
+    }
+
+    #[test]
+    fn highest_degree_names_are_stable_across_repeated_runs() {
+        let g = bridged_four_cliques();
+        let cfg = LeidenConfig {
+            seed: Some(42),
+            budget: Duration::from_secs(5),
+            ..LeidenConfig::default()
+        };
+        let first = name_communities(&g, leiden(&g, &cfg).communities);
+        let mut repeated_partition = leiden(&g, &cfg).communities;
+        repeated_partition.reverse();
+        let mut repeated = name_communities(&g, repeated_partition);
+
+        let first_names: Vec<&str> = first.iter().map(|community| community.name).collect();
+        repeated.sort_by(|left, right| left.name.cmp(right.name));
+        let repeated_names: Vec<&str> = repeated.iter().map(|community| community.name).collect();
+
+        assert_eq!(first_names, vec!["d", "w"]);
+        assert_eq!(repeated_names, first_names);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! The pre-UQL-01 UQL surface tests, kept as the compatibility contract.
 
 use crate::uql::{parse, UqlCode};
-use eg_types::wire::{Op, Plan, Pred, TimeAxis};
+use eg_types::wire::{EdgeDir, Op, Plan, Pred, TimeAxis};
 
 /// THE faithfulness proof: the documented pipeline query parses to the BYTE-
 /// IDENTICAL Plan a hand-built test constructs — the same AST the oracle test in
@@ -684,4 +684,35 @@ fn outbound_traversal_spellings_compile_to_the_same_canonical_plan() {
 
     assert_eq!(arrow, shorthand);
     assert_eq!(arrow.ops, vec![Op::Scan { label: "N".into() }, expected]);
+}
+
+// Regression coverage for EG-FEDERATED-QUERY-R024; managed native acceptance remains pending.
+#[test]
+fn wildcard_and_edge_predicate_traversals_compile_to_expand() {
+    let wildcard = parse("MATCH (:N) |> TRAVERSE -[*]->{1,2}").unwrap();
+    assert_eq!(
+        wildcard.ops[1],
+        Op::Expand {
+            rel: None,
+            dir: EdgeDir::Out,
+            min: 1,
+            max: 2,
+            edge_preds: Vec::new(),
+        }
+    );
+
+    let filtered = parse("MATCH (:N) |> TRAVERSE -[:R WHERE weight >= 0.5]->").unwrap();
+    assert_eq!(
+        filtered.ops[1],
+        Op::Expand {
+            rel: Some("R".into()),
+            dir: EdgeDir::Out,
+            min: 1,
+            max: 1,
+            edge_preds: vec![Pred::GtNum {
+                prop: "weight".into(),
+                n: 0.5,
+            }],
+        }
+    );
 }

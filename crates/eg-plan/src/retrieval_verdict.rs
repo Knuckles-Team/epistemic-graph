@@ -13,8 +13,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use eg_types::retrieval_verdict::{
-    ChunkScorePair, ChunkSelection, FallbackPolicy, HierarchyCommunity, HierarchyRetrievalPolicy,
-    HierarchyStage, HierarchyStageReceipt, HierarchyVisit, RepairStep, RetrievalRefusal,
+    ChunkScorePair, ChunkSelection, FallbackPolicy, HierarchyCommunity, DescentPolicy,
+    DescentStage, DescentReceipt, HierarchyVisit, RepairStep, RetrievalRefusal,
     ScoreNormalization, ScoreRegion, SelectionPolicy, SelectionReceipt, SufficiencyVerdict,
     Verdict, RETRIEVAL_BUDGET_EXCEEDED, RETRIEVAL_HIERARCHY_INVALID,
     RETRIEVAL_NORMALIZATION_INVALID, RETRIEVAL_POLICY_UNVERIFIED, RETRIEVAL_ROUND_LIMIT_REQUIRED,
@@ -284,7 +284,7 @@ pub struct StageScore {
 /// The reads and scoring a descent is allowed to make.
 pub trait HierarchySource {
     /// Score `id` at `stage` against the query.
-    fn score(&mut self, stage: HierarchyStage, id: &str) -> StageScore;
+    fn score(&mut self, stage: DescentStage, id: &str) -> StageScore;
     /// The tenant an entity belongs to; `None` when the entity does not exist.
     fn entity_tenant(&self, entity_id: &str) -> Option<String>;
 }
@@ -293,15 +293,15 @@ pub trait HierarchySource {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DescentRefusal {
     pub refusal: RetrievalRefusal,
-    pub partial: HierarchyStageReceipt,
+    pub partial: DescentReceipt,
 }
 
 struct Descent<'a> {
-    policy: &'a HierarchyRetrievalPolicy,
+    policy: &'a DescentPolicy,
     tenant: &'a str,
     children: BTreeMap<Option<&'a str>, Vec<&'a HierarchyCommunity>>,
     tokens: u64,
-    receipt: HierarchyStageReceipt,
+    receipt: DescentReceipt,
 }
 
 impl<'a> Descent<'a> {
@@ -316,7 +316,7 @@ impl<'a> Descent<'a> {
     fn charge(
         &mut self,
         source: &mut dyn HierarchySource,
-        stage: HierarchyStage,
+        stage: DescentStage,
         id: &str,
     ) -> Result<f64, Box<DescentRefusal>> {
         if self.receipt.reranker_calls >= self.policy.max_reranker_calls {
@@ -339,7 +339,7 @@ impl<'a> Descent<'a> {
     fn level(
         &mut self,
         source: &mut dyn HierarchySource,
-        stage: HierarchyStage,
+        stage: DescentStage,
         frontier: Vec<(&'a HierarchyCommunity, Vec<String>)>,
     ) -> Result<Vec<(&'a HierarchyCommunity, Vec<String>)>, Box<DescentRefusal>> {
         let mut scored = Vec::with_capacity(frontier.len());
@@ -411,7 +411,7 @@ impl<'a> Descent<'a> {
                 return Err(self.refuse(RETRIEVAL_BUDGET_EXCEEDED, "depth".into()));
             }
             self.receipt.depth += 1;
-            kept = self.level(source, HierarchyStage::Community, frontier)?;
+            kept = self.level(source, DescentStage::Community, frontier)?;
         }
         Ok(leaves)
     }
@@ -449,9 +449,9 @@ impl<'a> Descent<'a> {
                 return Err(self.refuse(RETRIEVAL_BUDGET_EXCEEDED, "entity candidates".into()));
             }
             self.receipt.entity_candidates += 1;
-            let score = self.charge(source, HierarchyStage::Entity, &entity)?;
+            let score = self.charge(source, DescentStage::Entity, &entity)?;
             scored.push(HierarchyVisit {
-                stage: HierarchyStage::Entity,
+                stage: DescentStage::Entity,
                 id: entity,
                 score,
                 score_provenance: "entity_rerank".into(),
@@ -475,17 +475,17 @@ impl<'a> Descent<'a> {
 /// scores or truncates, and every bound refuses with the completed stages
 /// rather than falling back to global retrieval (R081.9.4).
 pub fn descend_hierarchy(
-    policy: &HierarchyRetrievalPolicy,
+    policy: &DescentPolicy,
     tenant: &str,
     communities: &[HierarchyCommunity],
     source: &mut dyn HierarchySource,
-) -> Result<HierarchyStageReceipt, Box<DescentRefusal>> {
+) -> Result<DescentReceipt, Box<DescentRefusal>> {
     let mut descent = Descent {
         policy,
         tenant,
         children: BTreeMap::new(),
         tokens: 0,
-        receipt: HierarchyStageReceipt {
+        receipt: DescentReceipt {
             hierarchy_revision: policy.hierarchy_revision.clone(),
             policy_revision: policy.policy_revision.clone(),
             beam_width: policy.beam_width,
@@ -521,7 +521,7 @@ pub fn descend_hierarchy(
         .filter(|c| c.tenant == tenant)
         .map(|c| (c, vec![c.community_id.clone()]))
         .collect();
-    let kept = descent.level(source, HierarchyStage::Summary, roots)?;
+    let kept = descent.level(source, DescentStage::Summary, roots)?;
     let leaves = descent.refine(source, kept)?;
     descent.entities(source, leaves)?;
     Ok(descent.receipt)

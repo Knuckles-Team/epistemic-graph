@@ -110,12 +110,15 @@
     {
       "id": "EG-REPO-INGEST-R001",
       "title": "Reconcile mode re-admits stranded semantic intents",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "06a13bef2738",
+        "173804d141e3",
         "ac5638477288"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs:230"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R002",
@@ -381,11 +384,14 @@
     {
       "id": "EG-REPO-INGEST-R010",
       "title": "Tree-sitter grammar coverage expands to 18 more languages",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "97239d459287"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/tests/grammar_expansion.rs:206"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R011",
@@ -770,16 +776,30 @@
     {
       "id": "EG-REPO-INGEST-R800.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "052265feef24"
+      ],
+      "verified_by": [
+        "crates/eg-document/src/transcript.rs:152",
+        "crates/eg-document/src/transcript.rs:227",
+        "crates/eg-document/src/transcript.rs:249"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R800.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "126caba49a2f"
+      ],
+      "verified_by": [
+        "crates/eg-document/src/runtime.rs:169",
+        "crates/eg-document/src/runtime.rs:183",
+        "crates/eg-document/src/runtime.rs:346",
+        "crates/eg-document/src/runtime.rs:369",
+        "crates/eg-document/src/runtime.rs:39"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R800.3",
@@ -829,7 +849,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-durable/src/hydration.rs:230",
+        "crates/eg-durable/src/hydration.rs:279"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R650.2",

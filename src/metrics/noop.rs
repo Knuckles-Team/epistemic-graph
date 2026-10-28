@@ -29,6 +29,7 @@ pub fn budget_hibernated() {}
 pub fn slow_query() {}
 pub fn drop_graph(_graph: &str) {}
 pub fn checkpoint_completed(_seconds: f64) {}
+pub fn store_open(_phases: &[(&str, f64)], _outcome: &str) {}
 pub fn set_analytics_job_counts(_ready: i64, _active: i64, _publishing: i64) {}
 pub fn auth_failure() {}
 pub fn access_denied() {}

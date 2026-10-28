@@ -643,6 +643,54 @@ pub fn is_embeddable(ty: ColumnType) -> bool {
     matches!(ty, ColumnType::Text | ColumnType::Json)
 }
 
+/// Bounded statistics for one already-admitted text column.
+///
+/// The recommendation policy consumes observations only; it does not inspect
+/// schemas, create bindings, or mutate the embedding catalog. Callers that
+/// collect these values must perform type admission with [`is_embeddable`]
+/// before constructing the input.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextColumnStats {
+    pub column: String,
+    pub average_length: f64,
+    pub distinct_ratio: f64,
+}
+
+/// A ranked, read-only suggestion to consider vectorizing a text column.
+///
+/// Keeping the observed features on the result makes the ranking auditable
+/// while deliberately carrying no [`EmbeddingBinding`] or binding request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorizationRecommendation {
+    pub column: String,
+    pub average_length: f64,
+    pub distinct_ratio: f64,
+}
+
+/// Rank text columns by average text length, then distinct-value ratio.
+///
+/// This is intentionally a pure projection and sort: it never creates,
+/// enables, or changes an [`EmbeddingBinding`]. Ties use the stable column
+/// identifier so repeated observations produce deterministic advice.
+pub fn recommend_vectorization(columns: &[TextColumnStats]) -> Vec<VectorizationRecommendation> {
+    let mut recommendations: Vec<_> = columns
+        .iter()
+        .map(|column| VectorizationRecommendation {
+            column: column.column.clone(),
+            average_length: column.average_length,
+            distinct_ratio: column.distinct_ratio,
+        })
+        .collect();
+    recommendations.sort_by(|left, right| {
+        right
+            .average_length
+            .total_cmp(&left.average_length)
+            .then_with(|| right.distinct_ratio.total_cmp(&left.distinct_ratio))
+            .then_with(|| left.column.cmp(&right.column))
+    });
+    recommendations
+}
+
 fn validate_identifier(value: &str, kind: &str) -> Result<(), String> {
     validate_bounded_text(value, kind, MAX_EMBEDDING_NAME_BYTES)
 }
@@ -688,6 +736,40 @@ mod embedding_binding_tests {
         let schema = items_schema();
         let binding = EmbeddingBinding::bind(SCOPE, request(), &schema).unwrap();
         (binding, schema)
+    }
+
+    #[test]
+    fn r0774_ranks_three_text_columns_without_changing_bindings() {
+        let (binding, _schema) = bound();
+        let binding_before = binding.clone();
+        let stats = vec![
+            TextColumnStats {
+                column: "summary".to_string(),
+                average_length: 12.0,
+                distinct_ratio: 0.95,
+            },
+            TextColumnStats {
+                column: "body".to_string(),
+                average_length: 48.0,
+                distinct_ratio: 0.35,
+            },
+            TextColumnStats {
+                column: "title".to_string(),
+                average_length: 48.0,
+                distinct_ratio: 0.90,
+            },
+        ];
+        let recommendations = recommend_vectorization(&stats);
+
+        assert_eq!(
+            recommendations
+                .iter()
+                .map(|recommendation| recommendation.column.as_str())
+                .collect::<Vec<_>>(),
+            ["title", "body", "summary"]
+        );
+        assert_eq!(stats[0].column, "summary");
+        assert_eq!(binding, binding_before);
     }
 
     /// Wire-First: the catalog object is reached from the REAL durable store's

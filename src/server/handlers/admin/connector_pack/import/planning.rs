@@ -319,6 +319,9 @@ impl<'a> PlanCollector<'a> {
             prior.map(|member| (member.engine_manifest_digest.clone(), member.body_length));
         let (schema_mappings, relationship_mappings) =
             declaration_projections(entry, &wanted.body, &self.relations)?;
+        let mut source_registrations =
+            declared_sources(entry, &wanted.body, &self.request.index.connector)?;
+        preserve_source_approvals(&mut source_registrations, prior, entry.body.sha256);
         self.members.push(ConnectorPackMemberRow {
             uri: entry.uri.clone(),
             kind: entry.kind,
@@ -335,6 +338,7 @@ impl<'a> PlanCollector<'a> {
             last_record_id: self.record_id.clone(),
             schema_mappings,
             relationship_mappings,
+            source_registrations,
         });
         Ok(())
     }
@@ -491,6 +495,46 @@ impl<'a> PlanCollector<'a> {
     }
 }
 
+/// Carry approval across a new pack head only when the source contract itself
+/// is unchanged. Unrelated member updates must not silently suspend a live
+/// source; changed body bytes or any source-contract field return it to held.
+fn preserve_source_approvals(
+    current: &mut [eg_types::connector_pack::PackSourceRegistration],
+    prior: Option<&ConnectorPackMemberRow>,
+    body_sha256: Digest256,
+) {
+    let Some(prior) = prior else { return };
+    if prior.lifecycle != eg_types::agent_library::AgentLibraryLifecycle::Published
+        || prior.body_sha256 != body_sha256
+    {
+        return;
+    }
+    for registration in current {
+        if let Some(previous) = prior
+            .source_registrations
+            .iter()
+            .find(|previous| same_source_contract(previous, registration))
+        {
+            registration.approval = previous.approval;
+        }
+    }
+}
+
+fn same_source_contract(
+    left: &eg_types::connector_pack::PackSourceRegistration,
+    right: &eg_types::connector_pack::PackSourceRegistration,
+) -> bool {
+    left.connector == right.connector
+        && left.contract_iri == right.contract_iri
+        && left.resource_uri == right.resource_uri
+        && left.source_kind == right.source_kind
+        && left.class_iri == right.class_iri
+        && left.source_id == right.source_id
+        && left.operation == right.operation
+        && left.entity == right.entity
+        && left.key_field == right.key_field
+}
+
 fn pack_record_id(request: &ConnectorPackImportRequest) -> String {
     format!(
         "pack:{}:{}:{}",
@@ -619,4 +663,26 @@ fn rejected(
         violations: BoundedVec::new(violations)?,
         budget_exhausted: exhausted,
     }))
+}
+
+/// The same admitted ontology bytes already validated by the pack pipeline.
+fn declared_sources(
+    entry: &PackEntry,
+    body: &[u8],
+    connector: &eg_types::contract::ResourceId,
+) -> Result<Vec<eg_types::connector_pack::PackSourceRegistration>, String> {
+    if entry.kind != PackEntryKind::Ontology {
+        return Ok(Vec::new());
+    }
+    #[cfg(feature = "rdf")]
+    {
+        let text = std::str::from_utf8(body)
+            .map_err(|_| "MALFORMED_BODY: ontology is not UTF-8".to_string())?;
+        eg_rdf::pack::declared_sources(connector, &entry.uri, text)
+    }
+    #[cfg(not(feature = "rdf"))]
+    {
+        let _ = (body, connector);
+        Ok(Vec::new())
+    }
 }

@@ -47,8 +47,14 @@ pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
 pub const WORK_ITEM_EVENT_BATCH: &str = "terminal_event_batch";
 pub const WORK_ITEM_EVENT_DIGEST: &str = "terminal_event_digest";
 pub const RUN_ADMISSION_REQUEST: &str = "run_admission_request";
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 12] = [
+pub const WORK_ITEM_CHECKPOINT_REF: &str = "run_checkpoint_ref";
+pub const WORK_ITEM_CHECKPOINT_REVISION: &str = "run_checkpoint_revision";
+pub const WORK_ITEM_CHECKPOINT_DIGEST: &str = "run_checkpoint_digest";
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 15] = [
     RUN_ADMISSION_REQUEST,
+    WORK_ITEM_CHECKPOINT_REF,
+    WORK_ITEM_CHECKPOINT_REVISION,
+    WORK_ITEM_CHECKPOINT_DIGEST,
     crate::run_completion::RUN_COMPLETION_BATCH,
     crate::run_completion::RUN_COMPLETION_DIGEST,
     "run_owner_binding",

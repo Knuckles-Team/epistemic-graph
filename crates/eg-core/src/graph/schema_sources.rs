@@ -25,8 +25,9 @@ use super::LegacyIntegrityPolicy;
 /// data-platform vocabulary plus the data-platform, IT4IT-delivery, media and
 /// retrieval domain modules (51, EG-DATAPLAT-VOCAB-R001.1 and
 /// EG-TYPED-PACKS-R105.6 to R105.9), the commercial module with its shapes
-/// companion (52, EG-SUPPLY-VOCAB-R003.13), and the supply-chain vocabulary
-/// (53, EG-SUPPLY-VOCAB-R001.1.2).
+/// companion (52, EG-SUPPLY-VOCAB-R003.13), the supply-chain vocabulary
+/// (53, EG-SUPPLY-VOCAB-R001.1.2), and the connector-pack ingest vocabulary
+/// (54, EG-TYPED-PACKS-R101.1).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -668,7 +669,7 @@ fn core_specs() -> &'static [CoreSpec] {
         CoreSpec {
             module: "harness",
             version: 1,
-            shapes: None,
+            shapes: Some(include_str!("../../ontology/harness-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/harness-v1.ttl")),
         },
         CoreSpec {
@@ -686,7 +687,7 @@ fn core_specs() -> &'static [CoreSpec] {
         CoreSpec {
             module: "infrastructure",
             version: 1,
-            shapes: None,
+            shapes: Some(include_str!("../../ontology/infrastructure-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/infrastructure-v1.ttl")),
         },
         CoreSpec {
@@ -872,6 +873,13 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/virtual_graph-v1.ttl")),
         },
+        // EG-TYPED-PACKS-R101.1: connector pack ingest contracts and mappings.
+        CoreSpec {
+            module: "connector-pack",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/connector_pack-v1.ttl")),
+        },
         // EG-DATAPLAT-VOCAB-R001.4: shared data-platform terms are one immutable
         // core source and import the virtual-graph attachment vocabulary.
         CoreSpec {
@@ -975,7 +983,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 53);
+        assert_eq!(sources.core.len(), 54);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1262,7 +1270,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "10305673e8685d7880c4e8ed40921eeadb3e3380b2094f66a7038cbf8fe28546",
+                "92871242d053d76f04c997f08c736a584ff69171e7089958bd39da7642710c1a",
             ),
             (
                 "company",
@@ -1271,6 +1279,10 @@ mod tests {
             (
                 "company_infra",
                 "416c839ba3cc5e53631cc7b601c8542cbe3d12fd78587c31cd62b8d2662ce1d3",
+            ),
+            (
+                "connector-pack",
+                "1b98e4cded3986fcfec509cce5dd5362c4aa92d1c14d1c5e9b4275a8b82bc278",
             ),
             (
                 "concepts",
@@ -1314,7 +1326,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "9b86de53197e7c294fba6f7fb28efc9f32f95eb69d52d2d117316a23fb22426a",
+                "8fac3d843e19599d54c7a7bf2bb8e814444626b816b3dea59abaa42cc60023bf",
             ),
             (
                 "medical",
@@ -1370,7 +1382,7 @@ mod tests {
             ),
             (
                 "sdlc_lifecycle",
-                "a3acaecdc8df53c2fda939b643a63a1cc2c9a040c8a26062c9c47c52bc3428d2",
+                "4ab13d77447cd3d0daae61cdbfd884a0d3ec67ea7d165b8c689f79b7eda4de98",
             ),
             (
                 "software",

@@ -16,6 +16,8 @@ pub mod agent_graph;
 pub mod agent_library;
 pub mod agent_ontology;
 pub mod agent_template;
+// EG-CQ-ORCH-R010.1 — pure data model for graph-derived architecture views.
+pub mod architecture_view;
 // EG-UNIFIED-DATA-PLANE-R012.1 — typed model for governed attached-source write-back.
 pub mod attached_source_governance;
 // EG-UNIFIED-DATA-PLANE-R014.1 — typed model distinguishing the MySQL and
@@ -56,6 +58,10 @@ pub mod source_governance;
 pub mod source_document;
 // EG-INGEST-WORKER-R003.13 — source transcript threads and messages.
 pub mod source_transcript;
+// EG-TYPED-PACKS-R803.1 — typed sensitive-data detector and detection records.
+pub mod sensitive_detect;
+// EG-TYPED-PACKS-R804.1 — ontology revision difference and impact records.
+pub mod ontology_diff;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
@@ -64,6 +70,9 @@ pub mod authority_audit;
 // EG-REPO-INGEST-R700 — code-health findings from a bounded reachability sweep.
 pub mod change_envelope;
 pub mod code_health;
+// EG-DURABLE-KERNEL-R087.1 — typed semantic changeset-review model. The
+// authenticated producer/consumer route is a later R087.2 concern.
+pub mod changeset_review;
 // EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and
 // change-stream capture are later children.
@@ -230,6 +239,8 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
+// EG-FEDERATED-QUERY-R722.3 — host-driven bounded foreign-read lifecycle DTOs.
+pub mod foreign_read;
 // EG-DURABLE-KERNEL-R032 — the native primary-key fast-path routing decision
 // (pgwire/MySQL/MSSQL point operations that bypass DataFusion planning).
 // Pure serde, no dep.
@@ -268,12 +279,20 @@ pub mod postgres_adapter;
 // `row_predicate`, since `eg-core` needs it on both sides of its backend `#[cfg]`
 // split.
 pub mod embedding;
+// EG-FEDERATED-QUERY-R083.1 — typed prior/retrieved candidates and the closed
+// arbitration verdict value; support classification and policy live above.
+pub mod retrieval_arbitration;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
 // EG-DURABLE-KERNEL-R038 — the declared durability class (ephemeral/async/sync)
 // a KV namespace or table carries. Pure serde, no dep.
 pub mod durability_class;
+// EG-DURABLE-KERNEL-R084.1 — typed optimistic-write conflict and the closed
+// set of scope-level merge strategies. Resolution and served wiring live above
+// this pure-data crate.
+pub mod write_conflict;
+pub use write_conflict::{MergeStrategy, WriteConflict};
 // EG-DURABLE-KERNEL-R037 — the workload classification (point/structure/sql)
 // every wire listener routes an operation by. Pure, no dep.
 pub mod workload_class;
@@ -383,6 +402,9 @@ pub mod ontology_inspection;
 // F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
 pub mod rdf_report;
 pub mod row_predicate;
+// EG-FEDERATED-QUERY-R082.1 — typed calibration, bounded limits and closed
+// stop-verdict vocabulary; decision precedence lives in eg-plan.
+pub mod retrieval_stop;
 pub mod runtime_limit;
 // EH-558 — sealed record classes: content-addressed rows generic writes may not change.
 pub mod sealed_record;
@@ -417,6 +439,7 @@ pub mod types;
 // `result_contract::compute`; gated per compute family like `wire`.
 pub mod compute_result;
 pub mod current_plan;
+pub mod run_checkpoint;
 // GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
 // idempotency replay + per-authority fencing), built on GOC-03's
 // `commit_descriptor::CommitDescriptor` currency. Unconditional, pure
@@ -438,6 +461,7 @@ pub mod keyset_page;
 // graph-os EG-2 — native control leases: a tenant-bound, time-boxed grant with
 // a one-way active -> revoked|expired lifecycle (not a capacity admission).
 pub mod control_lease;
+pub mod host_start;
 // The engine-owned identity store: principals, credentials,
 // sessions, roles/groups/IdPs, the auth-mode singleton and scope classes.
 pub mod identity;
@@ -512,6 +536,7 @@ pub mod immich_pilot_phase;
 // (`src/server/handlers/viz.rs`, facade feature `viz-static-export`) is the one
 // place that parses `VizRenderRequest::spec_json` into a real
 // `eg_viz_core::ViewSpec` and resolves it.
+pub mod run_usage;
 pub mod usage;
 #[cfg(feature = "viz")]
 pub mod viz;
@@ -526,7 +551,7 @@ pub mod live_artifact;
 // EG-FEDERATED-QUERY-R702 — search-task records and shortcut-risk reports.
 pub mod search_task;
 // EG-FEDERATED-QUERY-R081 — retrieval sufficiency, selection, feedback and
-// hierarchy contracts; the deciding functions live in `eg_plan::retrieval_verdict`.
+// hierarchy contracts (incl. the R081.9.7.1 section hierarchy policy); the deciding functions live in `eg_plan::retrieval_verdict`.
 pub mod retrieval_verdict;
 // EG-FEDERATED-QUERY-R085.1 — approved, read-only source query records.
 pub mod source_query;

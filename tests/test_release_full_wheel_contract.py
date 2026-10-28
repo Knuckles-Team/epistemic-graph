@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import re
+import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
 import pytest
 import tomllib
 import yaml
-from check_sdist_completeness import required_sources, validate
+from check_sdist_completeness import _backend_sources, required_sources, validate
 
 pytestmark = pytest.mark.no_engine
 
@@ -639,10 +642,55 @@ def test_extensions_only_sdist_inputs_are_the_real_build_inputs():
     assert not any(name.startswith(("benches/", ".cargo/")) for name in required)
     assert {
         "build_backend.py",
+        "scripts/configure_rust_path_remap.py",
         "scripts/inject_numeric_kernel.py",
+        "scripts/normalize_wheel_build_paths.py",
+        "scripts/normalize_wheel_sbom.py",
         "scripts/strip_wheel_executables.py",
         "crates/eg-pyengine/Cargo.toml",
     } <= required
+
+
+def test_sdist_backend_imports_from_declared_isolated_source_tree(tmp_path):
+    """The in-tree PEP 517 backend must import from the files shipped in sdist.
+
+    This deliberately imports only the backend and its Python helper closure;
+    it does not invoke maturin or compile native code.  Keeping the source tree
+    limited to the explicit sdist entries catches a missing transitive helper
+    before an isolated build reaches maturin.
+    """
+    project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    includes = {
+        entry["path"]
+        for entry in project["tool"]["maturin"]["include"]
+        if isinstance(entry, dict) and entry.get("format") == "sdist"
+    }
+    closure = _backend_sources(REPO)
+    assert closure <= includes
+
+    isolated = tmp_path / "sdist"
+    for relative in sorted(closure):
+        source = REPO / relative
+        destination = isolated / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import build_backend; print(build_backend.PROJECT_NAME)",
+        ],
+        cwd=isolated,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "medulla"
 
 
 def test_server_wheel_build_adds_swap_and_thin_links_aarch64():

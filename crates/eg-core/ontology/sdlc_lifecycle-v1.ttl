@@ -225,3 +225,73 @@ BFO:Process — it unfolds through open→ack→resolved over time.""" ;
     rdfs:comment "A worker that picks up and executes Jobs (a CI runner, an agent worker)." ;
     skos:altLabel "CI Runner", "Job Worker" ;
     rdfs:subClassOf bfo:0000004 .
+
+:PipelineJob a owl:Class ;
+    rdfs:label "Pipeline Job" ;
+    rdfs:comment "One job inside a :PipelineRun (a GitLab CI job) — the unit whose status decides the run; reached from the run through :pipelineJobOf. Distinct from the generic worker-unit :Job: this is the CI-system node the gitlab mapping writes." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Worktree a owl:Class ;
+    rdfs:label "Worktree" ;
+    rdfs:comment "A linked git worktree of a :Repository — an additional checkout directory sharing the repository's object store, tracking a :Branch through :tracksBranch." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:branchOf a owl:ObjectProperty ;
+    rdfs:label "branch of" ;
+    rdfs:comment "The :Repository a :Branch is a movable line of development inside (canonical :Branch from the registered software module)." ;
+    rdfs:domain :Branch ;
+    rdfs:range :Repository .
+
+:headCommit a owl:ObjectProperty ;
+    rdfs:label "head commit" ;
+    rdfs:comment "The canonical software :Commit a :Branch currently points at — its head." ;
+    rdfs:domain :Branch ;
+    rdfs:range :Commit .
+
+:isDefaultBranch a owl:DatatypeProperty ;
+    rdfs:label "is default branch" ;
+    rdfs:comment "Whether a :Branch is the repository's default branch (main/master)." ;
+    rdfs:domain :Branch ;
+    rdfs:range xsd:boolean .
+
+:closesTicket a owl:ObjectProperty ;
+    rdfs:label "closes ticket" ;
+    rdfs:comment "The :Ticket a :CodeChangeProposal closes on merge (closes/fixes/resolves in the PR body) — the work-item side of the CI loop." ;
+    rdfs:domain :CodeChangeProposal ;
+    rdfs:range :Ticket .
+
+:proposalState a owl:DatatypeProperty ;
+    rdfs:label "proposal state" ;
+    rdfs:comment "The state of a :CodeChangeProposal: open, merged or closed (closed vocabulary — see sdlc_lifecycle-v1.shapes.ttl)." ;
+    rdfs:domain :CodeChangeProposal ;
+    rdfs:range xsd:string .
+
+:requestedReviewer a owl:ObjectProperty ;
+    rdfs:label "requested reviewer" ;
+    rdfs:comment "A :Person (canonical core-foundation) review was requested on the :CodeChangeProposal." ;
+    rdfs:domain :CodeChangeProposal ;
+    rdfs:range :Person .
+
+:pipelineJobOf a owl:ObjectProperty ;
+    rdfs:label "pipeline job of" ;
+    rdfs:comment "Links a :PipelineJob to the :PipelineRun it is one job inside." ;
+    rdfs:domain :PipelineJob ;
+    rdfs:range :PipelineRun .
+
+:worktreeState a owl:DatatypeProperty ;
+    rdfs:label "worktree state" ;
+    rdfs:comment "The state of a :Worktree: active, stale, dangling or merged (closed vocabulary — see sdlc_lifecycle-v1.shapes.ttl)." ;
+    rdfs:domain :Worktree ;
+    rdfs:range xsd:string .
+
+:tracksBranch a owl:ObjectProperty ;
+    rdfs:label "tracks branch" ;
+    rdfs:comment "The :Branch (canonical software) a :Worktree tracks." ;
+    rdfs:domain :Worktree ;
+    rdfs:range :Branch .
+
+:proposalBranch a owl:ObjectProperty ;
+    rdfs:label "proposal branch" ;
+    rdfs:comment "The :Branch (canonical software) a :CodeChangeProposal's change lives on." ;
+    rdfs:domain :CodeChangeProposal ;
+    rdfs:range :Branch .

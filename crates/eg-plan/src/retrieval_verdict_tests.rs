@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use eg_types::retrieval_verdict::{
-    ChunkScorePair, FallbackPolicy, HierarchyCommunity, HierarchyRetrievalPolicy, HierarchyStage,
+    ChunkScorePair, FallbackPolicy, HierarchyCommunity, DescentPolicy, DescentStage,
     RepairStep, ScoreNormalization, ScoreRegion, SelectionPolicy, Verdict,
     RETRIEVAL_BUDGET_EXCEEDED, RETRIEVAL_HIERARCHY_INVALID, RETRIEVAL_NORMALIZATION_INVALID,
     RETRIEVAL_POLICY_UNVERIFIED, RETRIEVAL_ROUND_LIMIT_REQUIRED, RETRIEVAL_SCORE_PAIR_REQUIRED,
@@ -225,11 +225,11 @@ fn selection_refusals_fail_before_answer_assembly() {
 struct Fixture {
     scores: BTreeMap<String, f64>,
     tenants: BTreeMap<String, String>,
-    calls: Vec<(HierarchyStage, String)>,
+    calls: Vec<(DescentStage, String)>,
 }
 
 impl HierarchySource for Fixture {
-    fn score(&mut self, stage: HierarchyStage, id: &str) -> StageScore {
+    fn score(&mut self, stage: DescentStage, id: &str) -> StageScore {
         self.calls.push((stage, id.to_string()));
         StageScore {
             score: self.scores.get(id).copied().unwrap_or(0.0),
@@ -304,8 +304,8 @@ fn fixture() -> Fixture {
     }
 }
 
-fn hpolicy(beam: u32) -> HierarchyRetrievalPolicy {
-    HierarchyRetrievalPolicy {
+fn hpolicy(beam: u32) -> DescentPolicy {
+    DescentPolicy {
         hierarchy_revision: "h1".into(),
         policy_revision: "p1".into(),
         beam_width: beam,
@@ -331,12 +331,12 @@ fn hierarchy_descent_has_exact_stages_paths_and_entities() {
     assert_eq!(
         stages,
         vec![
-            (HierarchyStage::Summary, "s-A"),
-            (HierarchyStage::Summary, "s-B"),
-            (HierarchyStage::Community, "s-A1"),
-            (HierarchyStage::Community, "s-A2"),
-            (HierarchyStage::Entity, "e1"),
-            (HierarchyStage::Entity, "e2"),
+            (DescentStage::Summary, "s-A"),
+            (DescentStage::Summary, "s-B"),
+            (DescentStage::Community, "s-A1"),
+            (DescentStage::Community, "s-A2"),
+            (DescentStage::Entity, "e1"),
+            (DescentStage::Entity, "e2"),
         ]
     );
     let entity_ids: Vec<_> = receipt.entities.iter().map(|v| v.id.as_str()).collect();

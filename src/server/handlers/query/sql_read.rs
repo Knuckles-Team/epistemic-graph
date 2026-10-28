@@ -305,14 +305,36 @@ where
 pub(crate) async fn handle_unified_query(
     ctx: &QueryHandlerCtx<'_>,
     plan: eg_plan::Plan,
+    foreign_execution: Option<eg_types::foreign_read::ForeignReadExecutionRef>,
 ) -> Result<Response, Method> {
     let state = ctx.state;
     let req_id = ctx.req_id;
     let core = ctx.core.clone();
+    if let Some(execution) = foreign_execution.as_ref() {
+        let bytes = match rmp_serde::to_vec_named(&plan) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return Ok(Response::err(
+                    req_id,
+                    format!("INTERNAL: plan digest serialization failed: {error}"),
+                ));
+            }
+        };
+        let expected = eg_types::contract::Digest256::sha256(&bytes);
+        if execution.query_digest != expected {
+            return Ok(Response::err(
+                req_id,
+                "FOREIGN_READ_QUERY_MISMATCH: query digest differs",
+            ));
+        }
+    }
     #[cfg(feature = "security")]
     let rls = ctx.rls;
     // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
-    let legs = match ctx.served_legs(&plan).await {
+    let legs = match ctx
+        .served_legs_with_foreign_execution(&plan, foreign_execution.as_ref())
+        .await
+    {
         Ok(legs) => legs,
         Err(refusal) => return Ok(refusal),
     };

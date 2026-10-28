@@ -111,6 +111,10 @@ pub enum QuestionKind {
     /// why every other target was not chosen; it acquires no capacity and
     /// deploys nothing. See `statistical::placement`.
     Placement,
+    /// Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).
+    BranchOutcome,
+    /// Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).
+    EditConcentration,
 }
 
 /// What is at stake. Exploration is permitted only for

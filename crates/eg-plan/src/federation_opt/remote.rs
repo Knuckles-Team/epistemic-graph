@@ -131,6 +131,14 @@ pub(crate) fn resolve_named<'a>(
     name: &'a str,
     registry: &'a ForeignSourceRegistry,
 ) -> Option<Box<dyn RemoteFetch + 'a>> {
+    if let Some((spec, source)) = registry.bound_entry(name) {
+        return Some(Box::new(Opaque {
+            source: OpaqueSource::Registered(source),
+            // The callback is the effective source, but the retained spec remains the
+            // canonical identity/fingerprint used by traces and cache keys.
+            identity: Identity::of_spec(spec, Some(name)),
+        }));
+    }
     if let Some(spec) = registry.spec(name) {
         return Some(from_spec(spec, Some(name)));
     }
@@ -174,5 +182,72 @@ fn from_spec<'a>(spec: &'a ForeignSourceSpec, name: Option<&'a str>) -> Box<dyn 
             source: OpaqueSource::Spec(crate::federation::source_for(other)),
             identity,
         }),
+    }
+}
+
+#[cfg(test)]
+mod bound_driver_tests {
+    use super::{resolve_named, Identity, RemoteRequest};
+    use crate::federation::{ForeignSource, ForeignSourceRegistry};
+    use crate::rowset::RowSet;
+    use eg_types::wire::{ForeignOperationCapabilities, ForeignSourceSpec};
+    use std::sync::Arc;
+
+    struct BoundRows;
+
+    impl ForeignSource for BoundRows {
+        fn fetch(&self) -> Result<RowSet, String> {
+            Ok(RowSet::from_ids(["bound-row".to_string()]))
+        }
+    }
+
+    fn spec() -> ForeignSourceSpec {
+        ForeignSourceSpec::Api {
+            operation: "list_objects".into(),
+            capabilities: ForeignOperationCapabilities::default(),
+        }
+    }
+
+    /// EG-FEDERATED-QUERY-R722.3 — optimized resolution prefers the bound callback while
+    /// retaining the spec-derived identity rather than the generic registered identity.
+    #[test]
+    fn bound_driver_precedes_spec_and_preserves_identity() {
+        let spec = spec();
+        let expected = Identity::of_spec(&spec, Some("objects"));
+        let mut registry = ForeignSourceRegistry::new();
+        registry.register_bound("objects", spec, Arc::new(BoundRows));
+
+        let naive = registry
+            .resolve("objects")
+            .expect("bound source resolves naively");
+        let remote = resolve_named("objects", &registry).expect("bound source resolves");
+        assert_eq!(remote.identity().fingerprint, expected.fingerprint);
+        assert_eq!(
+            remote.capabilities(),
+            super::super::capability::SourceCapabilities::fetch_only(),
+            "a bound callback must not advertise pushdown before it has effective capabilities"
+        );
+        assert_eq!(
+            remote.fetch(&RemoteRequest::full()).unwrap().ids(),
+            naive.ids(),
+            "naive and optimized resolution must drive the same bound source"
+        );
+    }
+
+    /// EG-FEDERATED-QUERY-R722.4 — optimizer resolution keeps unbound operation specs on the
+    /// typed refusing source instead of manufacturing a network callback.
+    #[test]
+    fn unbound_operation_spec_stays_fail_closed_in_optimized_path() {
+        let mut registry = ForeignSourceRegistry::new();
+        registry.register_spec("objects", spec());
+
+        let remote = resolve_named("objects", &registry).expect("spec resolves to refusal source");
+        let error = remote
+            .fetch(&RemoteRequest::full())
+            .expect_err("unbound operation must refuse");
+        assert!(
+            error.contains("requires a verified registration and bound driver"),
+            "unexpected unbound refusal: {error}"
+        );
     }
 }
