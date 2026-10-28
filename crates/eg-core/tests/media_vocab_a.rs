@@ -20,10 +20,13 @@ const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
 const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 
 const MEDIA: &str = include_str!("../ontology/media-v1.ttl");
+const MEDIA_SHAPES: &str = include_str!("../ontology/media-v1.shapes.ttl");
 const CONTENT: &str = include_str!("../ontology/content-v1.ttl");
+const CONTENT_SHAPES: &str = include_str!("../ontology/content-v1.shapes.ttl");
 const PERSONAL: &str = include_str!("../ontology/personal-v1.ttl");
 const RETRIEVAL: &str = include_str!("../ontology/retrieval-v1.ttl");
 const DATAPLATFORM: &str = include_str!("../ontology/dataplatform-v1.ttl");
+const SHACL: &str = "http://www.w3.org/ns/shacl#";
 
 fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> bool {
     triples.contains(&Triple::new(
@@ -783,6 +786,169 @@ fn subscriber_identity_is_a_keyed_hash_never_a_raw_address() {
             "a raw-address property {local} must not exist in content-v1"
         );
     }
+}
+
+// spec: EG-MEDIA-VOCAB-R004.1
+#[test]
+fn media_work_key_shape_is_declared_and_aggregate_free() {
+    let shapes = load(MEDIA_SHAPES);
+    assert_shape(&shapes, "ConnectorSourcedWorkShape");
+    // The constraint targets the two connector-sourced work classes.
+    for class in ["Film", "TelevisionSeries"] {
+        assert_shape_targets(&shapes, "ConnectorSourcedWorkShape", class);
+    }
+    // The key constraint is the aggregate-free OPTIONAL/FILTER(!BOUND) form.
+    assert_shape_sparql_message(
+        &shapes,
+        "ConnectorSourcedWorkShape",
+        "carries at least one of tmdbId, tvdbId, imdbId",
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R004.2
+#[test]
+fn download_transfer_info_hash_shape_is_declared() {
+    let shapes = load(MEDIA_SHAPES);
+    assert_shape(&shapes, "DownloadTransferInfoHashShape");
+    assert_shape_targets(&shapes, "DownloadTransferInfoHashShape", "DownloadTransfer");
+    // Exactly one infoHash, lower-case hex of 40 or 64 characters.
+    assert_shape_property_path(&shapes, "DownloadTransferInfoHashShape", "infoHash");
+    assert_shape_pattern(&shapes, "^[0-9a-f]{40}$");
+    assert_shape_pattern(&shapes, "^[0-9a-f]{64}$");
+}
+
+// spec: EG-MEDIA-VOCAB-R004.3
+#[test]
+fn download_request_state_shape_is_declared() {
+    let shapes = load(MEDIA_SHAPES);
+    assert_shape(&shapes, "DownloadRequestStateShape");
+    assert_shape_targets(&shapes, "DownloadRequestStateShape", "DownloadRequest");
+    assert_shape_property_path(&shapes, "DownloadRequestStateShape", "downloadRequestState");
+    for state in ["requested", "wanted", "grabbed", "importing", "imported", "failed"] {
+        assert_shape_in_value(&shapes, state);
+    }
+}
+
+// spec: EG-MEDIA-VOCAB-R004.4
+#[test]
+fn content_shapes_carry_one_canonical_url_and_are_aggregate_free() {
+    let shapes = load(CONTENT_SHAPES);
+    assert_shape(&shapes, "CanonicalUrlShape");
+    for class in ["Article", "SearchResult"] {
+        assert_shape_targets(&shapes, "CanonicalUrlShape", class);
+    }
+    assert_shape_property_path(&shapes, "CanonicalUrlShape", "canonicalUrl");
+    // Aggregate-free: the content shapes use SHACL Core only, no sh:sparql.
+    assert!(
+        shapes
+            .iter()
+            .all(|t| t.predicate.as_str() != format!("{SHACL}sparql")),
+        "content-v1.shapes.ttl stays aggregate-free (SHACL Core only)"
+    );
+}
+
+/// A referenceable object term: IRI or blank-node label.
+fn object_ref(term: &Term) -> Option<String> {
+    match term {
+        Term::NamedNode(node) => Some(node.as_str().to_string()),
+        Term::BlankNode(label) => Some(format!("_:{}", label.as_str())),
+        _ => None,
+    }
+}
+
+/// A referenceable subject node: IRI or blank-node label.
+fn subject_ref(node: &eg_rdf::oxrdf::NamedOrBlankNode) -> Option<String> {
+    match node {
+        eg_rdf::oxrdf::NamedOrBlankNode::NamedNode(iri) => Some(iri.as_str().to_string()),
+        eg_rdf::oxrdf::NamedOrBlankNode::BlankNode(label) => Some(format!("_:{}", label.as_str())),
+        _ => None,
+    }
+}
+
+fn assert_shape(triples: &[Triple], local: &str) {
+    assert!(
+        has_iri(
+            triples,
+            &format!("{KG}{local}"),
+            &format!("{RDF}type"),
+            &format!("{SHACL}NodeShape")
+        ),
+        "{local} is a sh:NodeShape"
+    );
+}
+
+fn assert_shape_targets(triples: &[Triple], local: &str, class: &str) {
+    assert!(
+        has_iri(
+            triples,
+            &format!("{KG}{local}"),
+            &format!("{SHACL}targetClass"),
+            &format!("{KG}{class}")
+        ),
+        "{local} targets {class}"
+    );
+}
+
+fn assert_shape_property_path(triples: &[Triple], local: &str, property: &str) {
+    // The shape declares a sh:property whose sh:path is the named property.
+    let properties: Vec<String> = triples
+        .iter()
+        .filter(|t| {
+            t.predicate.as_str() == format!("{SHACL}property")
+                && subject_str(&t.subject) == Some(&format!("{KG}{local}"))
+        })
+        .filter_map(|t| object_ref(&t.object))
+        .collect();
+    assert!(
+        properties.iter().any(|prop| {
+            triples
+                .iter()
+                .any(|t| {
+                    subject_ref(&t.subject).as_deref() == Some(prop.as_str())
+                        && t.predicate.as_str() == format!("{SHACL}path")
+                        && object_iri(&t.object) == Some(&format!("{KG}{property}"))
+                })
+        }),
+        "{local} constrains {property}"
+    );
+}
+
+fn assert_shape_pattern(triples: &[Triple], pattern: &str) {
+    assert!(
+        triples
+            .iter()
+            .any(|t| {
+                t.predicate.as_str() == format!("{SHACL}pattern")
+                    && object_str(&t.object) == Some(pattern)
+            }),
+        "the shapes declare the pattern {pattern}"
+    );
+}
+
+fn assert_shape_in_value(triples: &[Triple], value: &str) {
+    // `sh:in ( ... )` parses as an RDF list, so the members ride rdf:first.
+    assert!(
+        triples
+            .iter()
+            .any(|t| {
+                t.predicate.as_str() == format!("{RDF}first")
+                    && object_str(&t.object) == Some(value)
+            }),
+        "the closed set names {value}"
+    );
+}
+
+fn assert_shape_sparql_message(triples: &[Triple], _local: &str, fragment: &str) {
+    // The shape's one sh:SPARQLConstraint carries the documented message.
+    let messages: Vec<String> = triples
+        .iter()
+        .filter(|t| t.predicate.as_str() == format!("{SHACL}message"))
+        .filter_map(|t| object_str(&t.object).map(|m| m.to_string()))
+        .collect();
+    assert!(
+        messages.iter().any(|m| m.contains(fragment)),
+        "the shape message names the rule: {fragment}"
+    );
 }
 
 // spec: EG-MEDIA-VOCAB-R002.4
