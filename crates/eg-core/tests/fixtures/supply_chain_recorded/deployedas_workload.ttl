@@ -1,0 +1,14 @@
+# Recorded response (D4 row deployedAs (workload)): container-manager
+# `list_pods` and `list_containers` are rank 1; portainer `Service`/`Stack`
+# are rank 2. The edge is resolved by entity resolution between the service
+# and its workload (plan.md entity-resolution table). Projected by the
+# approved mapping (vm_container_manager.ttl).
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:srv-001 a infra:Service ;
+    kg:deployedAs ex:deploy-001 .
+
+ex:deploy-001 a infra:Workload .

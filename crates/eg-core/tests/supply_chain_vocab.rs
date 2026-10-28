@@ -2244,3 +2244,100 @@ fn impact_query_is_class_only_and_parses() {
         "the query selects over infra:Service"
     );
 }
+
+/// The D4 table rows from plan.md: (concept, rank 1, rank 2, operation,
+/// not-available note), markdown stripped.
+fn d4_rows() -> Vec<(String, String, String, String, String)> {
+    let plan = include_str!("../../../specs/supply-chain-vocabulary/plan.md");
+    let section = plan
+        .split_once("**D4.")
+        .expect("plan.md carries the D4 table")
+        .1
+        .split("\n**D5")
+        .next()
+        .expect("the D4 table ends before D5");
+    let mut rows = Vec::new();
+    for line in section.lines() {
+        let line = line.trim();
+        if !line.starts_with('|') || line.starts_with("|---") {
+            continue;
+        }
+        let cells: Vec<String> = line
+            .trim_matches('|')
+            .split('|')
+            .map(|cell| cell.trim().to_string())
+            .collect();
+        if cells.len() != 5 || cells[0] == "Concept" {
+            continue;
+        }
+        rows.push((
+            cells[0].replace('`', ""),
+            cells[1].clone(),
+            cells[2].clone(),
+            cells[3].clone(),
+            cells[4].clone(),
+        ));
+    }
+    rows
+}
+
+/// The recorded-response file name a D4 concept maps to.
+fn concept_file(concept: &str) -> String {
+    let lower = concept.to_lowercase();
+    let mut out = String::new();
+    for c in lower.chars() {
+        out.push(if c.is_alphanumeric() { c } else { '_' });
+    }
+    while out.contains("__") {
+        out = out.replace("__", "_");
+    }
+    out.trim_matches('_').to_string()
+}
+
+fn recorded_files() -> Vec<String> {
+    let mut files = Vec::new();
+    for entry in
+        std::fs::read_dir("tests/fixtures/supply_chain_recorded")
+            .expect("the recorded-response directory is present")
+    {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.ends_with(".ttl") {
+            files.push(name);
+        }
+    }
+    files
+}
+
+// spec: EG-SUPPLY-VOCAB-R008.2
+#[test]
+fn recorded_response_set_covers_every_available_d4_row() {
+    // Every recorded file parses and records at least one row.
+    let files = recorded_files();
+    assert!(!files.is_empty(), "the recorded-response set is not empty");
+    for name in &files {
+        let document =
+            std::fs::read_to_string(format!("tests/fixtures/supply_chain_recorded/{name}"))
+                .unwrap_or_else(|err| panic!("{name} reads: {err}"));
+        let parsed =
+            parse_turtle(&document).unwrap_or_else(|err| panic!("{name} parses: {err}"));
+        assert!(!parsed.is_empty(), "{name} records at least one triple");
+    }
+    // The set covers every D4 row that is not marked not available -- and
+    // no row that is.
+    for (concept, rank1, rank2, _operation, not_available) in d4_rows() {
+        let available = !rank1.is_empty() || !rank2.is_empty();
+        let file = format!("{}.ttl", concept_file(&concept));
+        if available {
+            assert!(
+                files.contains(&file),
+                "the available D4 row {concept} has a recorded response ({not_available})"
+            );
+        } else {
+            assert!(
+                !files.contains(&file),
+                "the not-available D4 row {concept} carries no recorded response"
+            );
+        }
+    }
+}

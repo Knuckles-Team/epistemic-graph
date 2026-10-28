@@ -1,0 +1,13 @@
+# Recorded response (D4 row ContainerImage/usesImage): container-manager
+# `cm_image_operations list_images` and container `list_containers` are rank
+# 1; portainer `Image`/`Container` are rank 2. Projected by the approved
+# mappings (vm_container_manager.ttl).
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:deploy-001 a infra:Workload ;
+    kg:usesImage ex:image-001 .
+
+ex:image-001 a infra:ContainerImage .
