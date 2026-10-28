@@ -24,8 +24,10 @@
 //!
 //!  1. **(a) retrieve at the summary level** — [`AnnIndex::search`] restricted to
 //!     summary-labelled nodes for the top-`k` summaries by embedding similarity. If
-//!     the graph has no summary tier yet we fall back to an unrestricted search so
-//!     the retriever degrades gracefully to flat behaviour.
+//!     the graph has no summary tier the retriever returns
+//!     [`VectorFreeError::SummaryTierAbsent`] (`RETRIEVAL_HIERARCHY_INVALID`,
+//!     `EG-FEDERATED-QUERY-R081.9.4`); it never replaces a failed descent with an
+//!     unrestricted global search. [`flat_top_k`] is the explicit flat baseline.
 //!  2. **(b) drill down** — from each retrieved summary, a bounded BFS over
 //!     `SUMMARIZES`/`CONSOLIDATES` children (at most `drill_depth` levels, keeping
 //!     the `drill_breadth` most query-relevant children per node) collects the
@@ -189,6 +191,9 @@ pub enum VectorFreeError {
     DuplicateOrCycle(String),
     TraversalLimitExceeded(TraversalLimit),
     NoMatchingGranularity(SectionGranularity),
+    /// The retriever found no summary-tier node, so the hierarchical descent has no
+    /// start. Wire code `RETRIEVAL_HIERARCHY_INVALID` (`EG-FEDERATED-QUERY-R081.9.4`).
+    SummaryTierAbsent,
 }
 
 fn validate_section_record(record: &SectionRecord) -> Result<(), VectorFreeError> {
@@ -495,32 +500,37 @@ impl<'a> HierarchicalRetriever<'a> {
     /// The full hierarchical retrieve (CONCEPT:EG-KG.retrieval.bounded-drill): summary-level retrieval →
     /// bounded provenance drill-down → de-duplicated, relevance-ordered multi-level
     /// context. See the module docs for the three steps.
-    pub fn retrieve(&self, query: &[f32], params: RetrievalParams) -> HierResult {
+    pub fn retrieve(
+        &self,
+        query: &[f32],
+        params: RetrievalParams,
+    ) -> Result<HierResult, VectorFreeError> {
         // (a) Summary-level retrieval.
-        let summaries = self.retrieve_summaries(query, params.k);
+        let summaries = self.retrieve_summaries(query, params.k)?;
         // (b) Bounded provenance drill-down + de-duplicated leaf merge.
         let summary_ids: HashSet<String> = summaries.iter().map(|s| s.id.clone()).collect();
         let leaves = self.merge_drilled_leaves(query, &summaries, &summary_ids, params);
         // (c) Flattened, de-duplicated, relevance-ordered context.
         let context = flatten_context(&summaries, &leaves);
 
-        HierResult {
+        Ok(HierResult {
             summaries,
             leaves,
             context,
-        }
+        })
     }
 
     /// Step (a): retrieve at the summary / abstraction level. If the tier is absent the
-    /// allow-filter returns nothing, so fall back to an unrestricted search — the
-    /// retriever degrades to flat rather than returning empty.
-    fn retrieve_summaries(&self, query: &[f32], k: usize) -> Vec<Scored> {
+    /// allow-filter returns nothing and the walk refuses with
+    /// [`VectorFreeError::SummaryTierAbsent`]; it never falls back to an unrestricted
+    /// search (`EG-FEDERATED-QUERY-R081.9.4`).
+    fn retrieve_summaries(&self, query: &[f32], k: usize) -> Result<Vec<Scored>, VectorFreeError> {
         let is_summary = |id: &str| self.is_summary(id);
         let summaries = self.ann.search(query, k, Some(&is_summary));
         if summaries.is_empty() {
-            self.ann.search(query, k, None)
+            Err(VectorFreeError::SummaryTierAbsent)
         } else {
-            summaries
+            Ok(summaries)
         }
     }
 
@@ -1186,7 +1196,7 @@ mod tests {
                 drill_breadth: 2,
                 leaf_budget: 6,
             },
-        );
+        ).unwrap();
 
         // (a) top-3 retrieved nodes are the three SUMMARIES, all summary-labelled.
         assert_eq!(res.summaries.len(), 3, "expected the 3 summary nodes");
@@ -1232,7 +1242,7 @@ mod tests {
                 drill_breadth: 5,
                 leaf_budget: 12,
             },
-        );
+        ).unwrap();
 
         let shared_in_leaves = res.leaves.iter().filter(|s| s.id == "L_shared").count();
         assert_eq!(
@@ -1278,7 +1288,7 @@ mod tests {
                 drill_breadth: 1,
                 leaf_budget: budget.saturating_sub(3),
             },
-        );
+        ).unwrap();
         let hier_topics = distinct_topics(&res.context_ids());
 
         assert!(
@@ -1314,7 +1324,7 @@ mod tests {
                 drill_breadth: 1,
                 leaf_budget: 10,
             },
-        );
+        ).unwrap();
         assert_eq!(res.summaries.len(), 1);
         assert!(
             res.leaves.len() <= 1,
@@ -1323,20 +1333,17 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-KG.retrieval.bounded-drill — graceful degradation: with NO summary tier the retriever
-    /// falls back to an unrestricted search rather than returning empty.
+    // spec: EG-FEDERATED-QUERY-R081.9.4
+    /// CONCEPT:EG-KG.retrieval.bounded-drill — with NO summary tier the retriever refuses with a
+    /// typed error instead of silently replacing the descent with a flat global search.
     #[test]
-    fn eg195_falls_back_when_no_summary_tier() {
+    fn eg195_refuses_when_no_summary_tier() {
         let mut f = Fixture::default();
         // Only leaves, no :SummaryNode labels anywhere.
         f.node("A", None, vec![1.0, 0.0]);
         f.node("B", None, vec![0.0, 1.0]);
         let r = HierarchicalRetriever::new(&f, &f);
         let res = r.retrieve(&[1.0, 0.1], RetrievalParams::default());
-        assert!(
-            !res.summaries.is_empty(),
-            "must fall back to a flat unrestricted search when the summary tier is absent"
-        );
-        assert_eq!(res.summaries[0].id, "A", "nearest node should lead");
+        assert_eq!(res.unwrap_err(), VectorFreeError::SummaryTierAbsent);
     }
 }
