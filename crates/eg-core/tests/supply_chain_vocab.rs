@@ -1579,3 +1579,92 @@ fn twenty_company_maps_to_customer_rank_two_without_a_contract_mapping() {
         "the fixture declares no CustomerContract mapping"
     );
 }
+
+const VM_CONTAINER_MANAGER: &str = "http://knuckles.team/test/vm-container-manager#";
+
+// spec: EG-SUPPLY-VOCAB-R006.3
+#[test]
+fn container_manager_workload_and_image_map_deployed_as_and_uses_image() {
+    let fixture = include_str!("fixtures/vm_container_manager.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the container-manager mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // The Deployment projects onto the workload the service is deployed as,
+    // with its image field projecting onto kg:usesImage.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_CONTAINER_MANAGER}deploymentMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{INFRA}Workload")
+        ),
+        "the Deployment maps to infra:Workload"
+    );
+    let mut pairs = pair_fields(
+        &triples,
+        &format!("<{VM_CONTAINER_MANAGER}deploymentMapping>"),
+    );
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("label".to_string(), "name".to_string()),
+            ("usesImage".to_string(), "image".to_string()),
+        ],
+        "the deployment mapping projects its image onto usesImage"
+    );
+    // The K8sService record's workload reference projects onto kg:deployedAs
+    // (entity resolution between the service and its workload).
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_CONTAINER_MANAGER}k8sServiceMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{INFRA}Service")
+        ),
+        "the K8sService maps to infra:Service"
+    );
+    let mut pairs = pair_fields(
+        &triples,
+        &format!("<{VM_CONTAINER_MANAGER}k8sServiceMapping>"),
+    );
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("deployedAs".to_string(), "workload".to_string()),
+            ("label".to_string(), "name".to_string()),
+        ],
+        "the K8sService mapping projects its workload onto deployedAs"
+    );
+    // The image entity projects onto the container image class.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_CONTAINER_MANAGER}imageMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{INFRA}ContainerImage")
+        ),
+        "the Image maps to infra:ContainerImage"
+    );
+    // Both contracts ride the confirmed operations.
+    for (contract, operation) in [
+        ("cmWorkloadsAccess", "list_pods"),
+        ("cmImagesAccess", "list_images"),
+    ] {
+        let node = format!("<{VM_CONTAINER_MANAGER}{contract}>");
+        assert!(
+            triples.iter().any(|triple| {
+                subject_key(triple) == node
+                    && triple.predicate.as_str().ends_with("discoveredOperation")
+                    && literal_value(&triple.object) == operation
+            }),
+            "the {contract} contract declares {operation}"
+        );
+    }
+}
