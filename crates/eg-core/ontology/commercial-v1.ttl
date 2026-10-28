@@ -46,6 +46,12 @@ source names it the report abstains Uncovered.""" ;
     rdfs:domain :CustomerContract ;
     rdfs:range infra:Service .
 
+:supportsCapability a owl:ObjectProperty ;
+    rdfs:label "supports capability" ;
+    rdfs:comment "Links a Service to the BusinessCapability it supports. Chosen as the service-to-capability relation: the epistemic :supports (core-foundation) links evidence to claims and no archimate relation carries service to capability, while the commercial shapes already target this IRI (plan.md decision D6, EG-CQ-XSRC-R008.2.3)." ;
+    rdfs:domain infra:Service ;
+    rdfs:range :BusinessCapability .
+
 :Opportunity a owl:Class ;
     rdfs:label "Opportunity" ;
     rdfs:comment "An open commercial opportunity with one customer and an expected close date." ;

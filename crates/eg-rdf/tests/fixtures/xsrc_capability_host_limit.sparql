@@ -1,0 +1,19 @@
+# Which business capabilities depend on a host that is over its temperature
+# limit? Classes only (EG-CQ-XSRC-R008.2.3): the limit is stated as data on
+# the host, never hard-coded, and no source, endpoint or connector is named
+# here. The service-to-capability link is :supportsCapability (plan.md
+# decision D6).
+PREFIX : <http://knuckles.team/kg#>
+PREFIX infra: <http://knuckles.team/kg/infrastructure#>
+
+SELECT ?capability ?service ?workload ?host ?reading ?limit WHERE {
+  ?capability a :BusinessCapability .
+  ?workload a infra:Workload .
+  ?host a infra:Host ;
+        infra:temperatureCelsius ?reading ;
+        infra:temperatureLimitCelsius ?limit .
+  ?service :supportsCapability ?capability ;
+           :deployedAs ?workload .
+  ?workload infra:runsOn ?host .
+  FILTER(?reading > ?limit)
+}

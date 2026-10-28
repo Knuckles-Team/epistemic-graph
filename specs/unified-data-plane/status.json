@@ -1971,11 +1971,11 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/entity_link_proposal.rs:109",
-        "crates/eg-types/src/entity_link_proposal.rs:116",
-        "crates/eg-types/src/entity_link_proposal.rs:123",
-        "crates/eg-types/src/entity_link_proposal.rs:130",
-        "crates/eg-types/src/entity_link_proposal.rs:137"
+        "crates/eg-types/src/entity_link_proposal.rs:129",
+        "crates/eg-types/src/entity_link_proposal.rs:136",
+        "crates/eg-types/src/entity_link_proposal.rs:143",
+        "crates/eg-types/src/entity_link_proposal.rs:150",
+        "crates/eg-types/src/entity_link_proposal.rs:157"
       ]
     },
     {

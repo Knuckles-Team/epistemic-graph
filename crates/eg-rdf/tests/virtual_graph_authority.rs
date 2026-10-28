@@ -51,3 +51,28 @@ fn source_authority_vocabulary_declared_with_domain_and_range() {
         assert!(has_iri(&triples, &subject, &range, &range_iri));
     }
 }
+
+// spec: EG-CQ-XSRC-R005.4
+#[test]
+fn allow_fallback_is_declared_on_the_authority_vocabulary() {
+    let triples = parse_turtle(DOCUMENT).unwrap();
+    let subject = format!("{VG}allowFallback");
+    assert!(has_iri(
+        &triples,
+        &subject,
+        RDF_TYPE,
+        &format!("{OWL}DatatypeProperty")
+    ));
+    assert!(has_iri(
+        &triples,
+        &subject,
+        &format!("{RDFS}domain"),
+        &format!("{VG}SourceAuthority")
+    ));
+    assert!(has_iri(
+        &triples,
+        &subject,
+        &format!("{RDFS}range"),
+        &format!("{XSD}boolean")
+    ));
+}
