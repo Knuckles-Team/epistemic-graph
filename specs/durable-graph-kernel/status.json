@@ -3388,7 +3388,7 @@
         "a0357cb95dc8"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:450",
+        "crates/eg-capabilities/src/error_routing.rs:457",
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:353",
         "crates/eg-storage/src/owner/lineage_tests.rs:224",
         "crates/eg-storage/src/owner/lineage_tests.rs:245",

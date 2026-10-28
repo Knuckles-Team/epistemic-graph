@@ -426,7 +426,7 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:495",
-        "crates/eg-capabilities/src/error_routing.rs:386",
+        "crates/eg-capabilities/src/error_routing.rs:393",
         "crates/eg-types/src/governed_change/tests.rs:196",
         "src/server/auth.rs:2053",
         "src/server/transport/tests.rs:145"
