@@ -52,7 +52,7 @@ R106_6_FIXTURE = f"""
 @prefix skos: <{SKOS}> .
 
 {CONNECTOR} rdf:type cp:Connector .
-{SERVER} rdf:type cat:ToolAsset .
+{SERVER} rdf:type cp:Server .
 
 cat:ToolAsset rdfs:subClassOf cat:Asset .
 cat:SkillAsset rdfs:subClassOf cat:Asset .
@@ -69,6 +69,10 @@ cat:Field rdfs:subClassOf cat:Asset .
 <{EXAMPLE}field-customer-id> rdf:type cat:Field ; cp:ofConnector {CONNECTOR} .
 <{EXAMPLE}field-order-id> rdf:type cat:Field ; cp:ofConnector {CONNECTOR} .
 
+<{EXAMPLE}resource-customers> cp:servesClass <{EXAMPLE}Customer> .
+<{EXAMPLE}resource-orders> cp:servesClass <{EXAMPLE}Order> .
+{FIELD} cp:servesProperty <{EXAMPLE}customerId> .
+<{EXAMPLE}field-order-id> cp:servesProperty <{EXAMPLE}orderId> .
 <{EXAMPLE}resource-customers> cat:hasField {FIELD} .
 <{EXAMPLE}resource-orders> cat:hasField <{EXAMPLE}field-order-id> .
 
@@ -80,6 +84,7 @@ cat:owner rdf:type cat:StewardshipRole .
 
 <{EXAMPLE}term-customer-reader> rdf:type cat:GlossaryTerm ;
     cat:definesAsset {TOOL} ;
+    cat:definesClass <{EXAMPLE}Customer> ;
     skos:prefLabel "Read customer records" .
 
 {CONNECTOR} cat:lineageTo {SERVER} .
@@ -169,7 +174,7 @@ def test_owner_lineage_term_and_class_queries_answer_from_the_graph(catalog_grap
 
     owner_sparql = prefix + (
         f"SELECT ?principal ?role WHERE {{ ?s cat:assignedTo {TOOL} ; "
-        "cat:principal ?principal ; cat:role ?role }}"
+        "cat:principal ?principal ; cat:role ?role }"
     )
     assert _sparql_rows(client, owner_sparql, "principal", "role") == {
         (OWNER, OWNER_ROLE)
@@ -205,7 +210,7 @@ def test_owner_lineage_term_and_class_queries_answer_from_the_graph(catalog_grap
 
     glossary_sparql = prefix + (
         f"SELECT ?term ?label WHERE {{ ?term cat:definesAsset {TOOL} ; "
-        "skos:prefLabel ?label }}"
+        "skos:prefLabel ?label }"
     )
     assert _sparql_rows(client, glossary_sparql, "term", "label") == {
         (f"<{EXAMPLE}term-customer-reader>", "Read customer records")
