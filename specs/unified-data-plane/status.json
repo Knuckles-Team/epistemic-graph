@@ -321,8 +321,8 @@
         "9a7674d1bae5"
       ],
       "verified_by": [
-        "src/server/foreign_catalog.rs:767",
-        "src/server/foreign_catalog.rs:791"
+        "src/server/foreign_catalog.rs:769",
+        "src/server/foreign_catalog.rs:793"
       ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R002.1",
@@ -341,8 +341,8 @@
         "d603182af742"
       ],
       "verified_by": [
-        "src/server/foreign_catalog.rs:768",
-        "src/server/foreign_catalog.rs:792"
+        "src/server/foreign_catalog.rs:770",
+        "src/server/foreign_catalog.rs:794"
       ]
     },
     {

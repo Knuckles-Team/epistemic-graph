@@ -528,9 +528,11 @@ pub(crate) async fn served_foreign_leg(
                 executions,
                 plan,
                 plan_digest,
-                &s.foreign_sources,
-                store,
-                &s.isolation,
+                crate::server::foreign_read::ForeignBindingContext {
+                    catalog: &s.foreign_sources,
+                    store,
+                    isolation: &s.isolation,
+                },
             )
             .map(Some);
     }

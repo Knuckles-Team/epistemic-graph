@@ -27,6 +27,13 @@ use super::foreign_catalog::{ForeignSourceCatalog, OwnedForeignRegistry};
 use super::persistence::agent_library::AgentLibraryStore;
 use crate::isolation::IsolationLayer;
 
+/// Owner-controlled dependencies used to revalidate and bind completed reads.
+pub(crate) struct ForeignBindingContext<'a> {
+    pub(crate) catalog: &'a ForeignSourceCatalog,
+    pub(crate) store: &'a AgentLibraryStore,
+    pub(crate) isolation: &'a IsolationLayer,
+}
+
 /// The canonical plan pin shared by ExplainPlan and the foreign-read query
 /// binder. Keeping this byte contract in one server module prevents a client
 /// from having to reproduce planner serialization and prevents the two server
@@ -413,9 +420,7 @@ impl ForeignReadSessions {
         executions: &[ForeignReadExecutionRef],
         plan: &eg_plan::Plan,
         plan_digest: Digest256,
-        catalog: &ForeignSourceCatalog,
-        store: &AgentLibraryStore,
-        isolation: &IsolationLayer,
+        binding: ForeignBindingContext<'_>,
     ) -> Result<OwnedForeignRegistry, String> {
         if executions.is_empty() || executions.len() > 16 {
             return Err("INVALID_ARGUMENT: foreign execution count is out of bounds".into());
@@ -469,7 +474,12 @@ impl ForeignReadSessions {
             });
             sources.push((record.approval.clone(), record.source_name.clone(), driver));
         }
-        let registry = catalog.bind_registered_many(caller, store, isolation, &sources)?;
+        let registry = binding.catalog.bind_registered_many(
+            caller,
+            binding.store,
+            binding.isolation,
+            &sources,
+        )?;
         for record in &mut records {
             record.consumed = true;
         }
