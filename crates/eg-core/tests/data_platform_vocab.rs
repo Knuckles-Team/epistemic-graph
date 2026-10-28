@@ -1123,3 +1123,58 @@ ex:mapping a dp:StoreMapping ;
         report.results
     );
 }
+
+// spec: EG-DATAPLAT-VOCAB-R007.3
+#[test]
+fn no_second_discovery_path() {
+    let documents: &[&str] = &[
+        include_str!("../ontology/data_platform-v1.ttl"),
+        include_str!("../ontology/data_platform-v1.shapes.ttl"),
+        include_str!("../ontology/fixtures/data_platform/sql.ttl"),
+        include_str!("../ontology/fixtures/data_platform/documentdb.ttl"),
+        include_str!("../ontology/fixtures/data_platform/objectstore.ttl"),
+        include_str!("../ontology/fixtures/data_platform/vector.ttl"),
+        include_str!("../ontology/fixtures/data_platform/kafka.ttl"),
+        include_str!("../ontology/fixtures/data_platform/openbao.ttl"),
+        include_str!("../ontology/fixtures/data_platform/clarity.ttl"),
+        include_str!("../ontology/fixtures/data_platform/data-science.ttl"),
+    ];
+
+    // No dp: term or mapping fixture declares a discovery operation: a
+    // vg:discoveredOperation triple does not exist anywhere — relational and
+    // document entries come from the vg:MetadataContract only.
+    let discovered_operation =
+        NamedNode::new(&format!("{VG}discoveredOperation")).unwrap();
+    for document in documents {
+        let triples = parse_turtle(document).expect("the document parses");
+        assert!(
+            triples
+                .iter()
+                .all(|triple| triple.predicate != discovered_operation),
+            "no dp: document may declare a vg:discoveredOperation triple"
+        );
+    }
+
+    // Every mapping's mapsContract names a MetadataContract node declared in
+    // the same fixture — the contract is the only discovery entry point.
+    for document in documents.iter().skip(2) {
+        let triples = parse_turtle(document).expect("the fixture parses");
+        let rdf_type = NamedNode::new(&format!("{RDF}type")).unwrap();
+        let metadata_contract =
+            eg_rdf::oxrdf::Term::NamedNode(NamedNode::new(&format!("{VG}MetadataContract")).unwrap());
+        let contract_iris: Vec<String> = triples
+            .iter()
+            .filter(|triple| {
+                triple.predicate == rdf_type && triple.object == metadata_contract
+            })
+            .map(|triple| triple.subject.to_string())
+            .collect();
+        let maps_contract = NamedNode::new(&format!("{VG}mapsContract")).unwrap();
+        for triple in triples.iter().filter(|t| t.predicate == maps_contract) {
+            assert!(
+                contract_iris.contains(&triple.object.to_string()),
+                "every vg:mapsContract must name a vg:MetadataContract node in the same fixture"
+            );
+        }
+    }
+}
