@@ -22,6 +22,7 @@
 //! lives above this module. These are data types and their bounds.
 
 pub mod coverage;
+pub mod defect_triage;
 pub mod derivation;
 pub mod digest;
 pub mod errors;

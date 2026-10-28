@@ -355,6 +355,12 @@ pub mod result_contract;
 // storage, queues, handlers, and surface projections live in crates above this
 // bottom-of-DAG owner and must consume these exact operation and identity DTOs.
 pub mod semantic_index;
+// EG-SDLC — release, deployment, defect, derived status and lifecycle trace records.
+pub mod lifecycle;
+// EG-SCM-R002 — the source changeset record and its structured trailers.
+pub mod source_changeset;
+// EG-SCM-R013 — graph-native symbol edits.
+pub mod source_symbol_edit;
 // RF-ADR-009 — raw connector records, exact manifest mapping reference, cursor
 // CAS and the terminal native ingestion receipt. Runtime authority lives in the
 // server; these are bounded pure wire types.
