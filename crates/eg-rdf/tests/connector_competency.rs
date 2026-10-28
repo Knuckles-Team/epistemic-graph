@@ -534,6 +534,79 @@ f:meeting-sync a :CalendarEvent ;
             include_str!("../../eg-core/ontology/calendar-v1.ttl"),
             include_str!("../../eg-core/ontology/core-foundation-v1.ttl"),
             include_str!("../../eg-core/ontology/identity-v1.ttl"),
+// Atlassian R006.1 criterion body; keep unbound until the native Rust test runs.
+#[test]
+fn atlassian_blocked_unassigned_issues_answer() {
+    // "Which Jira issues in a project are blocked and unassigned, and by which
+    // linked issue?" — answered from the Atlassian connector alone. The
+    // project's membership edge reuses core :partOf; the lifecycle predicates
+    // are the canonical :blockedBy/:assignedTo/:ticketStatus terms. Frozen
+    // as-of: 2026-01-03T00:00:00Z.
+    let fixture = r#"
+@prefix : <http://knuckles.team/kg#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix f: <urn:eg-cq-conn:atlassian:fixture/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+f:project-alpha a :SoftwareProject .
+f:project-beta a :SoftwareProject .
+
+# The only answer: blocked, open, unassigned, and in the requested project.
+f:issue-eng-101 a :JiraIssue, :Ticket ;
+    :partOf f:project-alpha ;
+    :blockedBy f:issue-eng-099 ;
+    :ticketStatus "open" ;
+    dc:source "atlassian" ;
+    dc:identifier "jira:ENG-101" ;
+    dc:date "2026-01-03T00:00:00Z"^^xsd:dateTime .
+f:issue-eng-099 a :JiraIssue, :Ticket ;
+    :partOf f:project-alpha ;
+    :ticketStatus "open" .
+
+# Same project and blocked, but assigned — must be excluded.
+f:issue-eng-102 a :JiraIssue, :Ticket ;
+    :partOf f:project-alpha ;
+    :blockedBy f:issue-eng-099 ;
+    :assignedTo f:person-alice ;
+    :ticketStatus "open" ;
+    dc:source "atlassian" ;
+    dc:identifier "jira:ENG-102" ;
+    dc:date "2026-01-03T00:00:00Z"^^xsd:dateTime .
+
+# Same project and unassigned, but not blocked — must be excluded.
+f:issue-eng-103 a :JiraIssue, :Ticket ;
+    :partOf f:project-alpha ;
+    :ticketStatus "open" ;
+    dc:source "atlassian" ;
+    dc:identifier "jira:ENG-103" ;
+    dc:date "2026-01-03T00:00:00Z"^^xsd:dateTime .
+
+# Blocked and unassigned, but in another project — must be excluded.
+f:issue-eng-201 a :JiraIssue, :Ticket ;
+    :partOf f:project-beta ;
+    :blockedBy f:issue-eng-199 ;
+    :ticketStatus "open" ;
+    dc:source "atlassian" ;
+    dc:identifier "jira:OPS-201" ;
+    dc:date "2026-01-03T00:00:00Z"^^xsd:dateTime .
+f:issue-eng-199 a :JiraIssue, :Ticket ;
+    :partOf f:project-beta ;
+    :ticketStatus "open" .
+
+# The requested project and relationship are present, but the issue is closed.
+f:issue-eng-104 a :JiraIssue, :Ticket ;
+    :partOf f:project-alpha ;
+    :blockedBy f:issue-eng-099 ;
+    :ticketStatus "closed" ;
+    dc:source "atlassian" ;
+    dc:identifier "jira:ENG-104" ;
+    dc:date "2026-01-03T00:00:00Z"^^xsd:dateTime .
+"#;
+    let view = graph(
+        &[
+            include_str!("../../eg-core/ontology/sdlc_lifecycle-v1.ttl"),
+            include_str!("../../eg-core/ontology/software-v1.ttl"),
+            include_str!("../../eg-core/ontology/core-foundation-v1.ttl"),
         ],
         fixture,
     );
@@ -594,4 +667,34 @@ SELECT ?attendee ?meeting ?source ?record ?asof WHERE {
             "unexpected record id {record:?}: {rows:?}"
         );
     }
+PREFIX f: <urn:eg-cq-conn:atlassian:fixture/>
+SELECT ?issue ?project ?blockedBy ?source ?record ?asof WHERE {
+  ?issue a :JiraIssue, :Ticket ;
+         :partOf ?project ;
+         :blockedBy ?blockedBy ;
+         :ticketStatus "open" ;
+         dc:source ?source ;
+         dc:identifier ?record ;
+         dc:date ?asof .
+  FILTER(?project = f:project-alpha)
+  OPTIONAL { ?issue :assignedTo ?assignee }
+  FILTER(!BOUND(?assignee))
+}"#,
+    );
+    let idx = |col: &str| vars.iter().position(|v| v == col).unwrap();
+    let i_issue = idx("issue");
+    let i_project = idx("project");
+    let i_blocked_by = idx("blockedBy");
+    let i_source = idx("source");
+    let i_record = idx("record");
+    let i_asof = idx("asof");
+    assert_eq!(rows.len(), 1, "exactly one Jira issue answers: {rows:?}");
+    let row = &rows[0];
+    assert_eq!(local(&row[i_issue]), "issue-eng-101");
+    assert_eq!(local(&row[i_project]), "project-alpha");
+    assert_eq!(local(&row[i_blocked_by]), "issue-eng-099");
+    // Provenance: source, record id, and as-of all carry on the answer row.
+    assert_eq!(row[i_source], "atlassian");
+    assert_eq!(row[i_record], "jira:ENG-101");
+    assert_eq!(row[i_asof], "2026-01-03T00:00:00Z");
 }
