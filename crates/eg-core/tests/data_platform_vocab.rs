@@ -917,3 +917,14 @@ fn mapping_fixture_objectstore_validates() {
     ));
     assert_via_operations(&triples, &["buckets:list", "objects:list", "objects:head"]);
 }
+
+// spec: EG-DATAPLAT-VOCAB-R006.4
+#[test]
+fn mapping_fixture_vector_validates() {
+    let triples =
+        validate_fixture(include_str!("../ontology/fixtures/data_platform/vector.ttl"));
+    assert_via_operations(
+        &triples,
+        &["vector_collection_management:list_collections"],
+    );
+}
