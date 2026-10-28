@@ -1755,7 +1755,11 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/lake_catalog.rs:669",
+        "crates/eg-types/src/lake_catalog.rs:677",
+        "crates/eg-types/src/lake_catalog.rs:691"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R079.2",
