@@ -1264,7 +1264,9 @@
         "97106a96b7ab",
         "a676823d2b54"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/adopt_workitem_metadata_cas_lifecycle.rs:224"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.1",
         "EG-DURABLE-KERNEL-R028.2",

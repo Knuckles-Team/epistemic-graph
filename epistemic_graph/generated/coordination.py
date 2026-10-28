@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     GetRunCheckpointRequest = _models.MethodGetRunCheckpointParams
     GetCurrentPlanRequest = _models.MethodGetCurrentPlanParams
     GetRunWorkItemRequest = _models.MethodGetRunWorkItemParams
+    GetConversationHeadRequest = _models.MethodGetConversationHeadParams
     GetSessionUsageRequest = _models.MethodGetSessionUsageParams
     GetWorkItemRequest = _models.MethodGetWorkItemParams
     ListWorkItemsRequest = _models.MethodListWorkItemsParams
@@ -167,9 +168,9 @@ async def send_claim_work_item(
     return OpaqueResult("ClaimWorkItem", payload)
 
 
-def decode_claim_work_item(result: OpaqueResult) -> _models.ClaimWorkItemResult:
+def decode_claim_work_item(result: OpaqueResult) -> _models.NativeClaimWorkItemResult:
     """Validate this method's result against its contract model."""
-    return decode_result("ClaimWorkItem", models().ClaimWorkItemResult, result)
+    return decode_result("ClaimWorkItem", models().NativeClaimWorkItemResult, result)
 
 
 async def send_acquire_capacity(
@@ -1217,6 +1218,51 @@ async def send_get_run_work_item(
 def decode_get_run_work_item(result: OpaqueResult) -> _models.GetRunWorkItemResult:
     """Validate this method's result against its contract model."""
     return decode_result("GetRunWorkItem", models().GetRunWorkItemResult, result)
+
+
+async def send_get_conversation_head(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GetConversationHead
+    Authorization:
+        work:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GetConversationHead
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodGetConversationHeadParams.model_validate(params or {})
+    payload = await client._send(
+        "GetConversationHead",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GetConversationHead", payload)
+
+
+def decode_get_conversation_head(
+    result: OpaqueResult,
+) -> _models.GetConversationHeadResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "GetConversationHead", models().GetConversationHeadResult, result
+    )
 
 
 async def send_get_session_usage(
@@ -2887,6 +2933,7 @@ _REQUEST_METHODS = frozenset(
         "GetRunCheckpoint",
         "GetCurrentPlan",
         "GetRunWorkItem",
+        "GetConversationHead",
         "GetSessionUsage",
         "GetWorkItem",
         "ListWorkItems",

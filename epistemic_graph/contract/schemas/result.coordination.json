@@ -1782,105 +1782,6 @@
       ],
       "type": "object"
     },
-    "ClaimWorkItemResult": {
-      "additionalProperties": false,
-      "properties": {
-        "attempt": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "changed_work_item_ids": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "claimed": {
-          "type": "boolean"
-        },
-        "fencing_token": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "kind": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "lease_epoch": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "lease_expires_at_ms": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "lease_holder_ref": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "max_attempts": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "payload_ref": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "reason": {
-          "$ref": "#/$defs/ClaimWorkItemResultReason"
-        },
-        "schema_version": {
-          "$ref": "#/$defs/ClaimWorkItemResultSchemaVersion"
-        },
-        "tenant_in_flight": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "work_item_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "schema_version",
-        "claimed",
-        "reason",
-        "changed_work_item_ids"
-      ],
-      "type": "object"
-    },
     "ClaimWorkItemResultReason": {
       "enum": [
         "claimed",
@@ -2114,6 +2015,50 @@
         "commit_sequence",
         "ordinal",
         "payload_digest"
+      ],
+      "type": "object"
+    },
+    "CompletedTextAdmission": {
+      "additionalProperties": false,
+      "properties": {
+        "user_text_digest": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "user_text_digest"
+      ],
+      "type": "object"
+    },
+    "CompletedTextInput": {
+      "additionalProperties": false,
+      "properties": {
+        "assistant_text": {
+          "type": "string"
+        },
+        "content_digest": {
+          "type": "string"
+        },
+        "user_text": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "user_text",
+        "assistant_text",
+        "content_digest"
       ],
       "type": "object"
     },
@@ -2367,6 +2312,38 @@
       ],
       "type": "object"
     },
+    "ConversationHeadView": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/MutationScopeIdentity"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "context_id",
+        "revision",
+        "run_id",
+        "scope"
+      ],
+      "type": "object"
+    },
     "ConversationTurnAdmission": {
       "additionalProperties": false,
       "description": "Expected conversation head for one newly admitted run. Revision zero creates\na context; later turns name the exact preceding successful run. A host must\nseparately validate its completed model history before executing the run.",
@@ -2378,6 +2355,16 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "history_profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompletedTextAdmission"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "predecessor_run_id": {
           "type": [
@@ -5595,7 +5582,7 @@
     },
     "HarnessContrast": {
       "additionalProperties": false,
-      "description": "The measured behavioral contrast of two probe runs of one task\n(R802.1/R802.2). Every delta is B minus A on the Q32 fixed-point scale:\nsigned counts as `count << 32`, fractions as their Q32 numerator.",
+      "description": "The measured behavioral contrast of two probe runs of one task\n(EG-ORCH-VOCAB-R802.1/EG-ORCH-VOCAB-R802.2). Every delta is B minus A on the Q32 fixed-point scale:\nsigned counts as `count << 32`, fractions as their Q32 numerator.",
       "properties": {
         "conditions_digest": {
           "description": "The digest of the identical probe conditions (task, seed, model,\nbudget); both runs and the engine agree on it or the contrast refuses.",
@@ -5647,7 +5634,7 @@
       "type": "object"
     },
     "HarnessContrastAbstainReason": {
-      "description": "The closed abstain reasons of one contrast decision (R803.1).",
+      "description": "The closed abstain reasons of one contrast decision (EG-DECISION-ENGINE-R803.1).",
       "oneOf": [
         {
           "const": "no_improvement",
@@ -5668,7 +5655,7 @@
     },
     "HarnessContrastDecision": {
       "additionalProperties": false,
-      "description": "One contrast decision, recorded (R803.1).",
+      "description": "One contrast decision, recorded (EG-DECISION-ENGINE-R803.1).",
       "properties": {
         "abstain_reason": {
           "anyOf": [
@@ -6046,6 +6033,28 @@
     "IncarnationId": {
       "description": "Opaque logical-generation identity. It is never derived from a resource name.",
       "type": "string"
+    },
+    "InlineCheckpointRef": {
+      "additionalProperties": false,
+      "properties": {
+        "content_digest": {
+          "type": "string"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "revision",
+        "content_digest"
+      ],
+      "type": "object"
     },
     "InputsBlob": {
       "additionalProperties": false,
@@ -7053,6 +7062,112 @@
         "scope",
         "incarnation_id",
         "identity_digest"
+      ],
+      "type": "object"
+    },
+    "NativeClaimWorkItemResult": {
+      "additionalProperties": false,
+      "description": "Engine-owned extension. The flattened upstream fields remain unchanged.\nFreshness is not a bearer credential and cannot replace caller/fence checks.",
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "claimed": {
+          "type": "boolean"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fresh_execution_grant": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_holder_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_attempts": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "payload_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/ClaimWorkItemResultReason"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/ClaimWorkItemResultSchemaVersion"
+        },
+        "tenant_in_flight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "claimed",
+        "reason",
+        "changed_work_item_ids"
       ],
       "type": "object"
     },
@@ -9969,9 +10084,80 @@
       ],
       "type": "object"
     },
+    "RunCheckpointSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "admission_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "checkpoints": {
+          "items": {
+            "$ref": "#/$defs/InlineCheckpointRef"
+          },
+          "type": "array"
+        },
+        "completed_history": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "context_id": {
+          "type": "string"
+        },
+        "current_run_checkpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/MutationScopeIdentity"
+        },
+        "snapshot_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "run_id",
+        "work_item_id",
+        "context_id",
+        "admission_revision",
+        "scope",
+        "snapshot_version",
+        "checkpoints"
+      ],
+      "type": "object"
+    },
     "RunCompletionInput": {
       "additionalProperties": false,
       "properties": {
+        "completed_checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompletedTextInput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "run_id": {
           "type": "string"
         },
@@ -10002,6 +10188,16 @@
       "properties": {
         "batch_id": {
           "type": "string"
+        },
+        "completed_checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InlineCheckpointRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "completion": {
           "$ref": "#/$defs/RunCompletionInput"
@@ -10089,6 +10285,23 @@
       "properties": {
         "admission": {
           "$ref": "#/$defs/SubmitWorkItemRequest"
+        },
+        "checkpoint_selection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunCheckpointSelection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "completed_checkpoint": {
+          "description": "Owner-only completed own-turn text for display; never an execution grant.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "run_completion": {
           "anyOf": [
@@ -12827,7 +13040,7 @@
           "dynamic": null,
           "encoding": "Raw",
           "schema": {
-            "$ref": "#/$defs/ClaimWorkItemResult"
+            "$ref": "#/$defs/NativeClaimWorkItemResult"
           }
         }
       },
@@ -13117,6 +13330,25 @@
             "anyOf": [
               {
                 "$ref": "#/$defs/ControlLeaseView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetConversationHead": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ConversationHeadView"
               },
               {
                 "type": "null"
