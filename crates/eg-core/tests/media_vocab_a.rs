@@ -3025,3 +3025,242 @@ fn media_vocab_media_downloader_vocabulary_docs_truth() {
         "the media-downloader Vocabulary cell names media-v1, not MISSING"
     );
 }
+
+// spec: EG-MEDIA-VOCAB-R012.1
+#[test]
+fn media_vocab_audio_transcriber_mapping_rows_resolve_existing_terms() {
+    let document = include_str!("fixtures/media_vocab/audio-transcriber_mapping.ttl");
+    let (kind, _endpoint, only_url) = connection_of(document);
+    assert_eq!(kind, "mcp", "vg:sourceKind is mcp");
+    assert!(only_url, "the endpoint reference carries only its url");
+    let (entities, fields, _operations) = contract_of(document);
+    let rows = mapping_rows(document);
+    assert_eq!(rows.len(), 3, "the plan.md table rows are all mapped");
+    let universe = vocabulary_universe();
+    for row in &rows {
+        assert!(
+            entities.contains(&row.entity),
+            "mapsEntity {} is a discovered entity",
+            row.entity
+        );
+        assert!(
+            fields.contains(&row.key_field),
+            "keyField {} is a discovered field",
+            row.key_field
+        );
+        assert!(
+            universe.get(&row.class).map(|(kind, _)| *kind) == Some(TermKind::Class),
+            "row class {} is a declared class",
+            row.class
+        );
+        for pair in &row.pairs {
+            assert!(
+                fields.contains(&pair.field),
+                "pair field {} is a discovered field",
+                pair.field
+            );
+            assert!(
+                universe.contains_key(&pair.predicate),
+                "row predicate {} is declared vocabulary",
+                pair.predicate
+            );
+        }
+    }
+    // Coverage of the plan.md audio-transcriber table: entity -> class. The
+    // transcript terms are reused from personal-v1, never redeclared.
+    let bound: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .map(|r| (
+            r.entity.as_str(),
+            r.class.strip_prefix(KG).unwrap_or(&r.class),
+        ))
+        .collect();
+    for (entity, class) in [
+        ("Transcript", "Transcript"),
+        ("Segment", "TranscriptSegment"),
+        ("IngestedTranscript", "Transcript"),
+    ] {
+        assert!(
+            bound.contains(&(entity, class)),
+            "the plan.md table row {entity} -> {class} is mapped"
+        );
+    }
+    assert!(
+        !declared_classes(&load(MEDIA)).contains(&format!("{KG}Transcript"))
+            && !declared_classes(&load(MEDIA)).contains(&format!("{KG}TranscriptSegment")),
+        "media-v1 redeclares the personal transcript terms"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R012.2
+#[test]
+fn media_vocab_audio_transcriber_response_round_trips_through_mapping() {
+    let document = include_str!("fixtures/media_vocab/audio-transcriber_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/audio-transcriber_response.json"))
+            .expect("the recorded response parses");
+    let mapped = apply_mapping(&rows, &response, "audio-transcriber", &universe);
+    // Four records plus three minted reference nodes (two recordings the
+    // transcripts derive from, the audio blob the ingested transcript
+    // carries).
+    let nodes = node_subjects(&mapped);
+    assert_eq!(nodes.len(), 7, "every record becomes exactly one node: {nodes:?}");
+    for t in &mapped {
+        let predicate = t.predicate.as_str();
+        if predicate == format!("{RDF}type")
+            || predicate == format!("{DC}source")
+            || predicate == format!("{DC}identifier")
+            || predicate == format!("{DC}date")
+        {
+            continue;
+        }
+        assert!(
+            universe.contains_key(predicate),
+            "the mapped triple uses declared vocabulary: {predicate}"
+        );
+    }
+    // The segment carries its span and text, and belongs to the transcript
+    // node.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:audio-transcriber:Segment:t1s1",
+            format!("{KG}segmentStart").as_str()
+        ),
+        vec!["1.2".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:audio-transcriber:Segment:t1s1",
+            format!("{KG}text").as_str()
+        ),
+        vec!["the quarterly figgers".to_string()]
+    );
+    assert_eq!(
+        iri_of(
+            &mapped,
+            "urn:eg-media-vocab:audio-transcriber:Segment:t1s1",
+            format!("{KG}segmentOf").as_str()
+        ),
+        Some("urn:eg-media-vocab:audio-transcriber:Transcript:t1".to_string())
+    );
+    // The transcript derives from the recording reference (typed by the
+    // personal-v1 range); the ingested transcript carries its audio blob.
+    let recording = iri_of(
+        &mapped,
+        "urn:eg-media-vocab:audio-transcriber:Transcript:t1",
+        format!("{KG}transcribedFrom").as_str(),
+    )
+    .expect("the transcript names its recording");
+    assert_eq!(
+        values_of(&mapped, &recording, format!("{RDF}type").as_str()),
+        vec![format!("{KG}VoiceMessage")]
+    );
+    let blob = iri_of(
+        &mapped,
+        "urn:eg-media-vocab:audio-transcriber:IngestedTranscript:ing1",
+        format!("{KG}hasBlob").as_str(),
+    )
+    .expect("the ingested transcript names its blob");
+    assert_eq!(
+        values_of(&mapped, &blob, format!("{RDF}type").as_str()),
+        vec![format!("{KG}Blob")]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R012.3
+#[test]
+fn media_vocab_audio_transcriber_single() {
+    // "Which recordings were transcribed with a low-confidence segment, and
+    // what text was affected?" — DECIDED interim: low confidence :=
+    // noSpeechProb above a threshold (0.5), because the connector's segments
+    // carry noSpeechProb but not avg_logprob / confidence (kg_ingest.py
+    // segment dict); the proxy is labelled, not presented as a verdict. The
+    // connector transcribes on demand and has no list/get operation for
+    // past transcripts, so a complete answer across recordings is the typed
+    // abstention naming the missing operation and its owner.
+    const LOW_CONFIDENCE_NO_SPEECH_PROB: f64 = 0.5;
+    let document = include_str!("fixtures/media_vocab/audio-transcriber_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/audio-transcriber_response.json"))
+            .unwrap();
+    let mapped = apply_mapping(&rows, &response, "audio-transcriber", &universe);
+
+    // The low-confidence segment of the recorded transcript: noSpeechProb
+    // above the DECIDED proxy threshold.
+    let segments = subjects_typed(&mapped, &["TranscriptSegment"]);
+    let affected: BTreeSet<(String, String)> = segments
+        .iter()
+        .filter_map(|segment| {
+            let prob = values_of(&mapped, segment, format!("{KG}noSpeechProb").as_str())
+                .pop()?
+                .parse::<f64>()
+                .ok()?;
+            if prob > LOW_CONFIDENCE_NO_SPEECH_PROB {
+                Some((
+                    segment.to_string(),
+                    values_of(&mapped, segment, format!("{KG}text").as_str()).pop()?,
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        affected.len(),
+        1,
+        "one segment is low-confidence (proxy): {affected:?}"
+    );
+    let (segment, text) = affected.into_iter().next().unwrap();
+    assert_eq!(segment, "urn:eg-media-vocab:audio-transcriber:Segment:t1s1");
+    assert_eq!(text, "the quarterly figgers");
+    let transcript = iri_of(&mapped, &segment, format!("{KG}segmentOf").as_str())
+        .expect("the segment names its transcript");
+    assert_eq!(transcript, "urn:eg-media-vocab:audio-transcriber:Transcript:t1");
+
+    // The verdict is a proxy: no true-confidence field exists in the
+    // contract, and the connector transcribes on demand (no list/get
+    // operation for past transcripts).
+    let (_entities, fields, operations) = contract_of(document);
+    assert!(
+        fields
+            .iter()
+            .all(|field| !field.to_lowercase().contains("logprob") && field != "confidence"),
+        "no true-confidence field is discovered: {fields:?}"
+    );
+    assert!(
+        operations
+            .iter()
+            .all(|operation| !operation.contains("list") && !operation.contains("get_")),
+        "no list/get transcript operation is discovered: {operations:?}"
+    );
+    let abstention = TypedAbstention {
+        connector: "audio-transcriber",
+        missing_operation: "list/get transcript by recording id and date",
+        owner: "audio-transcriber",
+    };
+    assert_eq!(abstention.connector, "audio-transcriber");
+    assert!(
+        abstention.missing_operation.contains("list/get transcript"),
+        "the abstention names the missing list/get operation: {}",
+        abstention.missing_operation
+    );
+    assert_eq!(abstention.owner, "audio-transcriber");
+}
+
+// spec: EG-MEDIA-VOCAB-R012.4
+#[test]
+fn media_vocab_audio_transcriber_vocabulary_docs_truth() {
+    let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
+        .expect("the connector-competency plan reads");
+    assert_eq!(
+        connector_competency_vocab_cell(&plan, "R008"),
+        "media-v1 / personal-v1",
+        "the audio-transcriber Vocabulary cell names media-v1 / personal-v1, not MISSING"
+    );
+}
