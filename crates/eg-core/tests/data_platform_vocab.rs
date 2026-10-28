@@ -384,10 +384,12 @@ fn object_values(triples: &[Triple], subject: &str, predicate: &str) -> Vec<Stri
     triples
         .iter()
         .filter(|triple| subject_is(triple, subject) && predicate_is(triple, predicate))
-        .map(|triple| match &triple.object {
-            Term::NamedNode(node) => node.as_str().to_string(),
-            Term::Literal(literal) => literal.value().to_string(),
-            Term::BlankNode(node) => format!("_:{}", node.as_str()),
+        .filter_map(|triple| match &triple.object {
+            Term::NamedNode(node) => Some(node.as_str().to_string()),
+            Term::Literal(literal) => Some(literal.value().to_string()),
+            Term::BlankNode(node) => Some(format!("_:{}", node.as_str())),
+            // RDF-star quoted triples are not object values for these assertions.
+            Term::Triple(_) => None,
         })
         .collect()
 }
