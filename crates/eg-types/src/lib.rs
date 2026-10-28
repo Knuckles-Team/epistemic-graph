@@ -236,6 +236,9 @@ pub mod embedding;
 // EG-FEDERATED-QUERY-R083.1 — typed prior/retrieved candidates and the closed
 // arbitration verdict value; support classification and policy live above.
 pub mod retrieval_arbitration;
+// EG-FEDERATED-QUERY-R081.9.7.1 — typed hierarchy policy, section nodes and
+// stage evidence. Traversal and serving remain above this pure-data crate.
+pub mod retrieval_verdict;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
