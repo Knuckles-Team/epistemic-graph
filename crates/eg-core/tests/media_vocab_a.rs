@@ -3264,3 +3264,264 @@ fn media_vocab_audio_transcriber_vocabulary_docs_truth() {
         "the audio-transcriber Vocabulary cell names media-v1 / personal-v1, not MISSING"
     );
 }
+
+// spec: EG-MEDIA-VOCAB-R013.1
+#[test]
+fn media_vocab_freshrss_mapping_rows_resolve_existing_terms() {
+    let document = include_str!("fixtures/media_vocab/freshrss_mapping.ttl");
+    let (kind, _endpoint, only_url) = connection_of(document);
+    assert_eq!(kind, "mcp", "vg:sourceKind is mcp");
+    assert!(only_url, "the endpoint reference carries only its url");
+    let (entities, fields, _operations) = contract_of(document);
+    let rows = mapping_rows(document);
+    assert_eq!(rows.len(), 3, "the plan.md table rows are all mapped");
+    let universe = vocabulary_universe();
+    for row in &rows {
+        assert!(
+            entities.contains(&row.entity),
+            "mapsEntity {} is a discovered entity",
+            row.entity
+        );
+        assert!(
+            fields.contains(&row.key_field),
+            "keyField {} is a discovered field",
+            row.key_field
+        );
+        assert!(
+            universe.get(&row.class).map(|(kind, _)| *kind) == Some(TermKind::Class),
+            "row class {} is a declared class",
+            row.class
+        );
+        for pair in &row.pairs {
+            assert!(
+                fields.contains(&pair.field),
+                "pair field {} is a discovered field",
+                pair.field
+            );
+            assert!(
+                universe.contains_key(&pair.predicate),
+                "row predicate {} is declared vocabulary",
+                pair.predicate
+            );
+        }
+    }
+    // Coverage of the plan.md freshrss table: entity -> class. The feed
+    // terms are reused from content-v1, never redeclared.
+    let bound: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .map(|r| (
+            r.entity.as_str(),
+            r.class.strip_prefix(KG).unwrap_or(&r.class),
+        ))
+        .collect();
+    for (entity, class) in [
+        ("Article", "Article"),
+        ("UnreadCount", "Feed"),
+        ("Subscription", "FeedSubscription"),
+    ] {
+        assert!(
+            bound.contains(&(entity, class)),
+            "the plan.md table row {entity} -> {class} is mapped"
+        );
+    }
+    // R013.1's addition: the per-feed unread count, owned by :Feed.
+    let content = load(CONTENT);
+    assert_typed(&content, "unreadCount", "DatatypeProperty");
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}unreadCount"),
+            &format!("{RDFS}domain"),
+            &format!("{KG}Feed")
+        ),
+        "unreadCount is owned by :Feed"
+    );
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}unreadCount"),
+            &format!("{RDFS}range"),
+            &format!("{XSD}nonNegativeInteger")
+        ),
+        "unreadCount is a non-negative integer count"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R013.2
+#[test]
+fn media_vocab_freshrss_response_round_trips_through_mapping() {
+    let document = include_str!("fixtures/media_vocab/freshrss_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/freshrss_response.json"))
+            .expect("the recorded response parses");
+    let mapped = apply_mapping(&rows, &response, "freshrss", &universe);
+    // Four articles, two per-stream unread counts, two subscriptions, and
+    // two minted feed reference nodes (one per subscription's stream id).
+    let nodes = node_subjects(&mapped);
+    assert_eq!(nodes.len(), 10, "every record becomes exactly one node: {nodes:?}");
+    for t in &mapped {
+        let predicate = t.predicate.as_str();
+        if predicate == format!("{RDF}type")
+            || predicate == format!("{DC}source")
+            || predicate == format!("{DC}identifier")
+            || predicate == format!("{DC}date")
+        {
+            continue;
+        }
+        assert!(
+            universe.contains_key(predicate),
+            "the mapped triple uses declared vocabulary: {predicate}"
+        );
+    }
+    // The article URL carrying tracking parameters arrives normalised.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:freshrss:Article:feed-2/a1",
+            format!("{KG}canonicalUrl").as_str()
+        ),
+        vec!["https://example-blog.invalid/posts/quarterly-update".to_string()]
+    );
+    // The read state and the per-feed unread count ride their declared
+    // ranges.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:freshrss:Article:feed-2/a3",
+            format!("{KG}isRead").as_str()
+        ),
+        vec!["true".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:freshrss:UnreadCount:feed-2",
+            format!("{KG}unreadCount").as_str()
+        ),
+        vec!["2".to_string()]
+    );
+    // The subscription names its feed through the stream id; the minted
+    // reference node is typed by the ofFeed range.
+    let feed = iri_of(
+        &mapped,
+        "urn:eg-media-vocab:freshrss:Subscription:feed-2",
+        format!("{KG}ofFeed").as_str(),
+    )
+    .expect("the subscription names its feed");
+    assert_eq!(feed, "urn:eg-media-vocab:freshrss:aux:ofFeed:feed-2");
+    assert_eq!(
+        values_of(&mapped, &feed, format!("{RDF}type").as_str()),
+        vec![format!("{KG}Feed")]
+    );
+    assert_eq!(
+        values_of(&mapped, &feed, format!("{KG}title").as_str()),
+        vec!["feed-2".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:freshrss:Subscription:feed-2",
+            format!("{KG}feedUrl").as_str()
+        ),
+        vec!["https://example-blog.invalid/feed.xml".to_string()]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R013.3
+#[test]
+fn media_vocab_freshrss_single() {
+    // "Which unread articles from a given feed were published in the last
+    // 48 hours?" — CONFIRMED: stream_contents with the newer_than window and
+    // unread filter, plus unread_count (freshrss_reader docstring,
+    // mcp_freshrss reader tool). The article key is the GReader stream id,
+    // so the given-feed filter rides on the key (dc:identifier), and
+    // "published in the window" is the DECIDED reading of the
+    // newer_than watermark (publishedAt within the window).
+    const FEED: &str = "feed-2";
+    const WINDOW_SECONDS: i64 = 2 * 86400; // the question's 48 hours
+    let document = include_str!("fixtures/media_vocab/freshrss_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/freshrss_response.json"))
+            .unwrap();
+    let mapped = apply_mapping(&rows, &response, "freshrss", &universe);
+
+    // The given feed's unread articles, published within the window.
+    let articles = subjects_typed(&mapped, &["Article"]);
+    let unread_of_feed = |subject: &str| -> (bool, Option<String>) {
+        let identifier = values_of(&mapped, subject, format!("{DC}identifier").as_str());
+        let unread = values_of(&mapped, subject, format!("{KG}isRead").as_str());
+        (
+            identifier
+                .get(0)
+                .map(|id| id.starts_with(&format!("Article:{FEED}/")))
+                == Some(true),
+            unread.into_iter().next(),
+        )
+    };
+    let answer: BTreeSet<String> = articles
+        .iter()
+        .filter_map(|subject| {
+            let (in_feed, unread) = unread_of_feed(subject);
+            let published = values_of(&mapped, subject, format!("{KG}publishedAt").as_str())
+                .into_iter()
+                .next()?;
+            (in_feed
+                && unread.as_deref() == Some("false")
+                && utc_seconds(&published) >= utc_seconds(ASOF) - WINDOW_SECONDS)
+                .then(|| subject.to_string())
+        })
+        .collect();
+    assert_eq!(
+        answer,
+        ["urn:eg-media-vocab:freshrss:Article:feed-2/a1"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>(),
+        "the given feed's unread articles in the window: {answer:?}"
+    );
+
+    // The unread_count leg corroborates the stream: the recorded per-stream
+    // count equals the unread articles the stream contents carry.
+    let unread_articles = articles
+        .iter()
+        .filter(|subject| unread_of_feed(subject).0 && unread_of_feed(subject).1.as_deref() == Some("false"))
+        .count();
+    let recorded = values_of(
+        &mapped,
+        &format!("urn:eg-media-vocab:freshrss:UnreadCount:{FEED}"),
+        format!("{KG}unreadCount").as_str(),
+    )
+    .pop()
+    .expect("the feed carries its recorded unread count");
+    assert_eq!(
+        recorded.parse::<usize>().expect("the unread count is a whole number"),
+        unread_articles,
+        "the per-stream unread count matches the unread articles"
+    );
+
+    // The given feed is a subscribed feed, named on its feed URL.
+    assert_eq!(
+        values_of(
+            &mapped,
+            &format!("urn:eg-media-vocab:freshrss:Subscription:{FEED}"),
+            format!("{KG}feedUrl").as_str()
+        ),
+        vec!["https://example-blog.invalid/feed.xml".to_string()]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R013.4
+#[test]
+fn media_vocab_freshrss_vocabulary_docs_truth() {
+    let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
+        .expect("the connector-competency plan reads");
+    assert_eq!(
+        connector_competency_vocab_cell(&plan, "R022"),
+        "content-v1",
+        "the freshrss Vocabulary cell names content-v1, not MISSING"
+    );
+}

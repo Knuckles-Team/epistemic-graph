@@ -238,3 +238,11 @@
     rdfs:comment "The keyed hash of a subscriber's email address; the only identity a Subscriber carries. The raw address is never stored (connector governance: identity opaque-reference)." ;
     rdfs:domain :Subscriber ;
     rdfs:range xsd:string .
+
+# R013.1: the per-feed unread count (FreshRSS unread-count).
+
+:unreadCount a owl:DatatypeProperty ;
+    rdfs:label "unread count" ;
+    rdfs:comment "The number of unread articles a feed currently has (FreshRSS per-stream unread count)." ;
+    rdfs:domain :Feed ;
+    rdfs:range xsd:nonNegativeInteger .
