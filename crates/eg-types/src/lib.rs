@@ -242,6 +242,19 @@ pub mod workload_class;
 // and deterministic aggregate capabilities. No RPC or persistence ownership.
 pub mod worker_registry;
 
+// EG-DURABLE-KERNEL-R089.1 — per-step verification verdict. Pure, no dep.
+pub mod step_verdict;
+// EG-DURABLE-KERNEL-R088.1 — rule-output correction with two-principal approval.
+pub mod rule_correction;
+// EG-DURABLE-KERNEL-R851.1 — the A2A peer record. Pure serde.
+pub mod agent_peer;
+// EG-DURABLE-KERNEL-R852.1/.2/.4 — health anomalies and correlated incidents.
+pub mod health_incident;
+// EG-DURABLE-KERNEL-R700.1 — the retention-cleanup policy shape.
+pub mod retention_policy;
+// EG-DURABLE-KERNEL-R094.1 — hierarchical concept-ID grammar and path claims.
+pub mod concept_id;
+
 // EG-DURABLE-KERNEL-R041 — the SQL plan cache key (statement digest + schema
 // version) and its lookup decision. Pure, no dep beyond `contract::Digest256`.
 pub mod plan_cache_key;
