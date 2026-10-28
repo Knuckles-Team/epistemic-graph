@@ -917,3 +917,81 @@ ex:acmeCustomer a kg:Customer ;
         report.results
     );
 }
+
+// spec: EG-SUPPLY-VOCAB-R003.17
+#[test]
+fn opportunity_date_shape_requires_a_close_date() {
+    let shapes = commercial_shapes();
+    // The registered shape declares the closeDate constraint on Opportunity.
+    let shape_triples =
+        parse_turtle(&shapes).expect("the commercial shapes parse");
+    assert!(
+        has_iri(
+            &shape_triples,
+            &format!("{KG}OpportunityShape"),
+            &format!("{RDF}type"),
+            &format!("{SHACL}NodeShape")
+        ),
+        "OpportunityShape is a registered node shape"
+    );
+    // A valid dated opportunity is accepted.
+    let valid = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:acmeOpportunity a kg:Opportunity ;
+    kg:closeDate \"2026-12-31T00:00:00\"^^xsd:dateTime ."
+    );
+    let report =
+        eg_shacl::validate_turtle(&shapes, &valid).expect("valid fixture parses");
+    assert!(
+        report.conforms,
+        "a dated opportunity is accepted: {:?}",
+        report.results
+    );
+    // A missing closeDate is refused.
+    let missing = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:acmeOpportunity a kg:Opportunity ."
+    );
+    let report =
+        eg_shacl::validate_turtle(&shapes, &missing).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "a missing closeDate must be refused: {:?}",
+        report.results
+    );
+    assert!(
+        report.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("#closeDate>"))
+                && result.constraint_component.ends_with("MinCountConstraintComponent")
+        }),
+        "the refusal lands on the missing closeDate: {:?}",
+        report.results
+    );
+    // An invalid date datatype is refused.
+    let bad_date = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:acmeOpportunity a kg:Opportunity ;
+    kg:closeDate \"next friday\" ."
+    );
+    let report =
+        eg_shacl::validate_turtle(&shapes, &bad_date).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "an invalid closeDate datatype must be refused: {:?}",
+        report.results
+    );
+    assert!(
+        report.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("#closeDate>"))
+                && result.constraint_component.ends_with("DatatypeConstraintComponent")
+        }),
+        "the refusal lands on the closeDate datatype: {:?}",
+        report.results
+    );
+}

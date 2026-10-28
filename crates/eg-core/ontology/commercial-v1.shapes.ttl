@@ -41,3 +41,11 @@ kg:LastActivityShape a sh:NodeShape ;
         sh:message "lastActivityAt is a dateTime value."
     ] ;
     sh:message "A customer's last activity is a dateTime value." .
+
+kg:OpportunityShape a sh:NodeShape ;
+    sh:targetClass kg:Opportunity ;
+    sh:property [
+        sh:path kg:closeDate ; sh:minCount 1 ; sh:datatype xsd:dateTime ;
+        sh:message "An Opportunity carries a dateTime closeDate."
+    ] ;
+    sh:message "An opportunity names its expected close date." .
