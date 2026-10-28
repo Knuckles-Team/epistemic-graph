@@ -20,10 +20,10 @@ class RecoveryBoundary(unittest.TestCase):
 
     def admits(self, **changes):
         context = dict(
-            repository="Knuckles-Team/epistemic-graph",
+            repository="Knuckles-Team/medulla",
             event_name="workflow_dispatch",
             ref="refs/heads/main",
-            workflow_ref="Knuckles-Team/epistemic-graph/.github/workflows/eg-release-recovery-dispatch.yml@refs/heads/main",
+            workflow_ref="Knuckles-Team/medulla/.github/workflows/eg-release-recovery-dispatch.yml@refs/heads/main",
         )
         context.update(changes)
         expression = self.job["if"].replace("&&", " and ")
@@ -39,7 +39,7 @@ class RecoveryBoundary(unittest.TestCase):
             {"ref": "refs/heads/feature"},
             {
                 "workflow_ref": (
-                    "Knuckles-Team/epistemic-graph/.github/workflows/"
+                    "Knuckles-Team/medulla/.github/workflows/"
                     "other.yml@refs/heads/main"
                 )
             },
@@ -64,7 +64,7 @@ class RecoveryBoundary(unittest.TestCase):
         sha = "29301642c205adc75d63cde2e69d7f53d85d707f"
         self.assertEqual(checkout["with"]["ref"], sha)
         self.assertEqual(
-            checkout["with"]["repository"], "Knuckles-Team/epistemic-graph"
+            checkout["with"]["repository"], "Knuckles-Team/medulla"
         )
         self.assertIs(checkout["with"]["persist-credentials"], False)
         self.assertIn("git rev-parse HEAD", self.job["steps"][1]["run"])
