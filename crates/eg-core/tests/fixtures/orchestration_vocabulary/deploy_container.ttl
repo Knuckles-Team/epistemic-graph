@@ -1,0 +1,54 @@
+# Worked example: "deploy a container with container-manager".
+# One task, four ordered steps, one pipeline template, and one Agent Library
+# holding an agent template, an agent and an A2A card.
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:DeployContainerTask a swarm:SequentialDependency ; :hasStep :s1, :s2, :s3, :s4 .
+
+:s1 a :TaskStep ; rdfs:label "resolve target context" ;
+    :handsOffTo :s2 ; :precedes :s2 ;
+    :requiresCapability :ContainerOrchestrationCapability .
+:s2 a :TaskStep ; rdfs:label "verify image" ;
+    :precedes :s3 ; :needsSkill :skillImageVerify .
+:s3 a :TaskStep ; rdfs:label "run container" ;
+    :precedes :s4 ; :needsSkill :skillContainerLifecycle ;
+    :stepAssignedAgent :agentContainerOps .
+:s4 a :TaskStep ; rdfs:label "verify health" ;
+    :stepAssignedAgent :agentVerifier .
+
+:ContainerOrchestrationCapability a :ServiceCapability .
+
+:tmplPipeline a swarm:TopologyTemplate ;
+    swarm:class swarm:Pipeline ;
+    swarm:hasSlot :slotA, :slotB .
+:slotA a swarm:Slot ; swarm:role swarm:Child ;
+    swarm:requiresAgentKind :agentKindExecutor ;
+    swarm:minWidth 1 ; swarm:maxWidth 1 ; swarm:feeds :slotB .
+:slotB a swarm:Slot ; swarm:role swarm:Verifier ;
+    swarm:requiresAgentKind :agentKindVerifier ;
+    swarm:minWidth 1 ; swarm:maxWidth 1 .
+
+:libMain a :AgentLibrary .
+:agentContainerOps a :AgentTemplate ;
+    :memberOfLibrary :libMain ; :hasAgentKind :agentKindExecutor ;
+    :providesCapability :ContainerOrchestrationCapability ;
+    :hasSkill :skillContainerLifecycle ; :usesModel :profileLocal ; :hasPrompt :promptOps .
+:agentVerifier a :Agent ;
+    :memberOfLibrary :libMain ; :hasAgentKind :agentKindVerifier ;
+    :providesCapability :HealthVerificationCapability ;
+    :hasSkill :skillHealthVerify ; :usesModel :profileLocal ; :hasPrompt :promptVerify .
+:cardRemoteOps a :A2AAgentCard ;
+    :memberOfLibrary :libMain ;
+    :providesCapability :ContainerOrchestrationCapability .
+
+:HealthVerificationCapability a :ServiceCapability .
+:promptOps a :Prompt .
+:promptVerify a :Prompt .
+:skillContainerLifecycle a :Skill .
+:skillImageVerify a :Skill .
+:skillHealthVerify a :Skill .
+:profileLocal a :ModelProfile ; :contextWindow 32768 .
+
+:ruleNoLatest a :BestPractice ; :appliesToTaskClass swarm:SequentialDependency .

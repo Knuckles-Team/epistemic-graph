@@ -9,6 +9,7 @@
 # A tenant extends this vocabulary under its own GraphSchema key.
 
 @prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix kg:    <http://knuckles.team/kg#> .
 @prefix egowl: <http://epistemic-graph/owl#> .
 @prefix owl:   <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
@@ -17,7 +18,7 @@
 <http://knuckles.team/kg/swarm> a owl:Ontology ;
     rdfs:label "Swarm topology" ;
     rdfs:comment "Topology classes, slot roles, stop rules and task-shape admissibility for swarm decisions." ;
-    owl:imports <http://knuckles.team/kg/core> .
+    owl:imports <http://knuckles.team/kg/core> , <http://knuckles.team/kg/orchestration> .
 
 # --- Properties -------------------------------------------------------------
 
@@ -27,10 +28,18 @@ swarm:admits a owl:ObjectProperty ;
 swarm:class a owl:ObjectProperty ;
     rdfs:comment "The one topology class a template is." .
 swarm:hasSlot a owl:ObjectProperty .
+swarm:requiresAgentKind a owl:ObjectProperty ;
+    rdfs:domain swarm:Slot ;
+    rdfs:range kg:AgentKind ;
+    rdfs:comment "The agent kind a slot accepts." .
 swarm:feeds a owl:ObjectProperty ;
     rdfs:domain swarm:Slot ;
     rdfs:range swarm:Slot ;
-    rdfs:comment "A forward data-flow edge from one topology slot to the next." .
+    rdfs:comment "The forward data-flow edge between slots. The feeds graph of a template is acyclic." .
+swarm:loopsBackTo a owl:ObjectProperty ;
+    rdfs:domain swarm:Slot ;
+    rdfs:range swarm:Slot ;
+    rdfs:comment "The only legal back-edge between slots, used by CritiqueLoop, Debate and Council. It is not part of the acyclicity path." .
 swarm:role a owl:ObjectProperty .
 swarm:hasStopRule a owl:ObjectProperty .
 swarm:lease a owl:ObjectProperty .

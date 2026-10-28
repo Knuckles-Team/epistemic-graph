@@ -177,23 +177,35 @@
     {
       "id": "EG-INGEST-WORKER-R001.1",
       "title": "Typed ingest job envelope with refusal tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/ingest_job.rs:220"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R001.2",
       "title": "Typed job kinds and lane derivation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/ingest_job.rs:267"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R001.3",
       "title": "Partition key function",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/ingest_job.rs:284"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R001.4",
@@ -219,16 +231,24 @@
     {
       "id": "EG-INGEST-WORKER-R001.7",
       "title": "Typed retry policy with validation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/ingest_job.rs:311"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R001.8",
       "title": "Retry delay function with jitter",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/ingest_job.rs:337"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R001.9",
@@ -353,16 +373,24 @@
     {
       "id": "EG-INGEST-WORKER-R002.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/ontology_proposal.rs:203"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R002.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/ontology_proposal.rs:226"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R002.3",
@@ -424,9 +452,13 @@
     {
       "id": "EG-INGEST-WORKER-R003.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/knowledge_atom.rs:35"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R003.2",
@@ -466,9 +498,13 @@
     {
       "id": "EG-INGEST-WORKER-R003.7",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b04264750b97"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_document.rs:232"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R003.8",
@@ -508,9 +544,13 @@
     {
       "id": "EG-INGEST-WORKER-R003.13",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b04264750b97"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_transcript.rs:201"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R003.14",
@@ -793,9 +833,13 @@
     {
       "id": "EG-INGEST-WORKER-R701.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/extracted_fact.rs:127"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R701.2",
@@ -978,9 +1022,13 @@
     {
       "id": "EG-INGEST-WORKER-R900.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_governance.rs:218"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R900.2",
@@ -1035,9 +1083,13 @@
     {
       "id": "EG-INGEST-WORKER-R901.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b04264750b97"
+      ],
+      "verified_by": [
+        "crates/eg-modality/src/source_row_version.rs:85"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R901.2",
@@ -1092,9 +1144,13 @@
     {
       "id": "EG-INGEST-WORKER-R902.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/source_governance.rs:15"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R902.2",
@@ -1149,9 +1205,13 @@
     {
       "id": "EG-INGEST-WORKER-R903.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/source_governance.rs:62"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R903.2",
@@ -1206,9 +1266,13 @@
     {
       "id": "EG-INGEST-WORKER-R904.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d5ec4e29ad7f"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/source_governance.rs:100"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R904.2",

@@ -1,0 +1,9 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:TaskXYZ :hasStep :z1, :z2, :z3 .
+:z1 a :TaskStep ; :precedes :z2 ; :handsOffTo :z2 ; dc:source <urn:source:workflow-store> .
+:z2 a :TaskStep ; :precedes :z3 ; :handsOffTo :z3 ; dc:source <urn:source:workflow-store> .
+:z3 a :TaskStep ; dc:source <urn:source:workflow-store> .

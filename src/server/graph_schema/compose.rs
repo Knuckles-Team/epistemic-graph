@@ -833,7 +833,10 @@ ex:parent a owl:AsymmetricProperty .
         // (EG-TYPED-PACKS-R101.1).
         // +78: the infrastructure and sdlc_lifecycle vocabulary added by the
         // connector-competency chunk 4 rows (EG-CQ-CONN, #909).
-        assert_eq!(composed.ontology.len(), 15_830);
+        // +820: the C1 train's lane vocabularies on top of those (orchestration, finance,
+        // connector, data-platform and sdd), net of terms main already defined; the pin is
+        // the measured composed count.
+        assert_eq!(composed.ontology.len(), 16_650);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -881,7 +884,8 @@ ex:parent a owl:AsymmetricProperty .
         // +2: the data-platform vocabulary's core and virtual-graph imports;
         // +1: its catalog entry.
         // +2: the connector-pack import and catalog entry (R101.1).
-        assert_eq!(imports, 113);
+        // +1: the swarm-topology module imports the orchestration module.
+        assert_eq!(imports, 114);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -905,7 +909,8 @@ ex:parent a owl:AsymmetricProperty .
         // sub-properties (the shared predicate itself remains unconstrained).
         // +90: semantic axioms from the connector-pack ingest vocabulary (R101.1).
         // +83: semantic axioms from the connector-competency chunk 4 vocabulary (#909).
-        assert_eq!(semantic_axioms, 15_567);
+        // +819: the same C1 train lane vocabularies, as semantic axioms.
+        assert_eq!(semantic_axioms, 16_386);
 
         let count_type = |object: &str| {
             composed
@@ -972,7 +977,8 @@ ex:parent a owl:AsymmetricProperty .
             // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
             // +3: the connector-pack ingest vocabulary subclass edges (R101.1).
             // +2: the connector-competency chunk 4 vocabulary (#909).
-            654
+            // +22: the C1 train's lane vocabulary classes.
+            676
         );
     }
 

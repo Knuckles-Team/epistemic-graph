@@ -4,6 +4,7 @@
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 <http://knuckles.team/kg/retrieval> a owl:Ontology ;
     rdfs:label "Search, Retrieval and Information Sources Ontology" ;
@@ -185,3 +186,58 @@
     rdfs:comment "Links a citation to the information source it points at." ;
     rdfs:domain :Citation ;
     rdfs:range :InformationSource .
+
+# Connector competency vocabulary: retrieval (EG-CQ-CONN-vocab: connector competency terms)
+
+:ScholarlyPaper a owl:Class ;
+    rdfs:label "Scholarly Paper" ;
+    rdfs:comment "A scholarly paper with its citations and publication year (ScholarX paper)." ;
+    rdfs:subClassOf :Document .
+
+:resourceUrl a owl:DatatypeProperty ;
+    rdfs:label "resource URL" ;
+    rdfs:comment "The URL a document, feed item, search hit or web resource is identified by." ;
+    rdfs:domain :Document ;
+    rdfs:range xsd:string .
+
+:firstSeenAt a owl:DatatypeProperty ;
+    rdfs:label "first seen at" ;
+    rdfs:comment "Time a source first delivered the document." ;
+    rdfs:domain :Document ;
+    rdfs:range xsd:dateTime .
+
+:mentionsTopic a owl:ObjectProperty ;
+    rdfs:label "mentions topic" ;
+    rdfs:comment "Links a document, transcript or search hit to a topic it mentions." ;
+    rdfs:domain :Document ;
+    rdfs:range :Topic .
+
+:aboutTopic a owl:ObjectProperty ;
+    rdfs:label "about topic" ;
+    rdfs:comment "Links a scholarly paper to the topic it is about." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range :Topic .
+
+:cites a owl:ObjectProperty ;
+    rdfs:label "cites" ;
+    rdfs:comment "Links a scholarly paper to a paper it cites." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range :ScholarlyPaper .
+
+:publicationYear a owl:DatatypeProperty ;
+    rdfs:label "publication year" ;
+    rdfs:comment "Calendar year a scholarly paper was published." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range xsd:integer .
+
+:rageClickRate a owl:DatatypeProperty ;
+    rdfs:label "rage click rate" ;
+    rdfs:comment "Share of sessions with rage clicks on the web resource in the measured window." ;
+    rdfs:domain :WebResource ;
+    rdfs:range xsd:decimal .
+
+:deadClickRate a owl:DatatypeProperty ;
+    rdfs:label "dead click rate" ;
+    rdfs:comment "Share of sessions with dead clicks on the web resource in the measured window." ;
+    rdfs:domain :WebResource ;
+    rdfs:range xsd:decimal .

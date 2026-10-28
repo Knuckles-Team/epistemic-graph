@@ -25,6 +25,93 @@ pub struct MetadataContract {
     pub content_hash: String,
 }
 
+/// The closed set of attached-source categories. Each category is one row of
+/// the source-category coverage matrix (EG-UNIFIED-DATA-PLANE-R022.4); an
+/// unknown category refuses at deserialization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceCategory {
+    RelationalSql,
+    PostgresWire,
+    OltpRowStore,
+    OlapColumnar,
+    TimeSeries,
+    SearchIndex,
+    DocumentStore,
+    WebMetasearch,
+    KeyValueStore,
+    DataLakeTables,
+    HadoopCatalog,
+    SparkEngine,
+    ArrowFlightSql,
+    PropertyGraph,
+    ObjectStorage,
+}
+
+impl SourceCategory {
+    /// Every category, in coverage-matrix order.
+    pub const ALL: [SourceCategory; 15] = [
+        Self::RelationalSql,
+        Self::PostgresWire,
+        Self::OltpRowStore,
+        Self::OlapColumnar,
+        Self::TimeSeries,
+        Self::SearchIndex,
+        Self::DocumentStore,
+        Self::WebMetasearch,
+        Self::KeyValueStore,
+        Self::DataLakeTables,
+        Self::HadoopCatalog,
+        Self::SparkEngine,
+        Self::ArrowFlightSql,
+        Self::PropertyGraph,
+        Self::ObjectStorage,
+    ];
+
+    /// The category name as written in the coverage matrix of `plan.md`.
+    pub fn matrix_label(self) -> &'static str {
+        match self {
+            Self::RelationalSql => "Relational SQL",
+            Self::PostgresWire => "PostgreSQL wire",
+            Self::OltpRowStore => "OLTP row store",
+            Self::OlapColumnar => "OLAP and columnar",
+            Self::TimeSeries => "Time series",
+            Self::SearchIndex => "Search index",
+            Self::DocumentStore => "Document store",
+            Self::WebMetasearch => "Web metasearch",
+            Self::KeyValueStore => "Key-value store",
+            Self::DataLakeTables => "Data lake tables",
+            Self::HadoopCatalog => "Hadoop-family catalog",
+            Self::SparkEngine => "Spark-compatible engine",
+            Self::ArrowFlightSql => "Arrow Flight SQL",
+            Self::PropertyGraph => "Property-graph source",
+            Self::ObjectStorage => "Object storage",
+        }
+    }
+}
+
+/// The isolation a source snapshot read runs at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotIsolation {
+    Snapshot,
+    RepeatableRead,
+}
+
+/// Default replica lag bound, in milliseconds, for a read served by a
+/// declared read replica (a starting default; a measurement replaces it).
+pub const DEFAULT_REPLICA_LAG_BOUND_MS: u64 = 5_000;
+
+/// How one query reads a transactional source: one read-only snapshot per
+/// source per query, shared by every fragment of that source.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotSemantics {
+    pub isolation: SnapshotIsolation,
+    pub snapshot_token: String,
+    pub replica_lag_bound_ms: u64,
+}
+
 /// Whether a mapping's query fragment is permitted to run from a copy of
 /// its hot subset, or must run live against the source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,5 +257,28 @@ mod tests {
             panic!("a predicate declared without copy capability must be refused");
         };
         assert!(error.0.contains("copy capability"), "{error}");
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R038.3.1
+    #[test]
+    fn snapshot_semantics_round_trip() {
+        let semantics = SnapshotSemantics {
+            isolation: SnapshotIsolation::RepeatableRead,
+            snapshot_token: "pg:000003A0/1F2E3D4C".to_string(),
+            replica_lag_bound_ms: DEFAULT_REPLICA_LAG_BOUND_MS,
+        };
+        let json = serde_json::to_string(&semantics).unwrap();
+        let back: SnapshotSemantics = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, semantics);
+        for category in SourceCategory::ALL {
+            let json = serde_json::to_string(&category).unwrap();
+            assert_eq!(
+                serde_json::from_str::<SourceCategory>(&json).unwrap(),
+                category
+            );
+        }
+        assert!(serde_json::from_str::<SourceCategory>("\"mainframe\"").is_err());
+        let bad = json.replace("repeatable_read", "read_committed");
+        assert!(serde_json::from_str::<SnapshotSemantics>(&bad).is_err());
     }
 }

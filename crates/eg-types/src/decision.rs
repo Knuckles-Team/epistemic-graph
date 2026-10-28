@@ -24,6 +24,7 @@
 pub mod branch_outcomes;
 pub mod concentration;
 pub mod coverage;
+pub mod defect_triage;
 pub mod derivation;
 pub mod digest;
 pub mod errors;

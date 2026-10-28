@@ -56,6 +56,7 @@ include = [
     { path = "crates/eg-core/**/*", format = "sdist" },
     { path = "crates/eg-document/**/*", format = "sdist" },
     { path = "crates/eg-durable/**/*", format = "sdist" },
+    { path = "crates/eg-enrich/**/*", format = "sdist" },
     { path = "crates/eg-epistemic/**/*", format = "sdist" },
     { path = "crates/eg-geo/**/*", format = "sdist" },
     { path = "crates/eg-graphql/**/*", format = "sdist" },

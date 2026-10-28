@@ -106,6 +106,11 @@ pub enum QuestionKind {
     /// cost as the tie-break, and abstains keeping the current harness when no
     /// candidate improves. See `decision::harness_contrast`.
     HarnessContrast,
+    /// Evaluate-only deployment placement over the fixed target registry
+    /// (EG-PLACEMENT-R001.2): `Decide` names the cheapest feasible target and
+    /// why every other target was not chosen; it acquires no capacity and
+    /// deploys nothing. See `statistical::placement`.
+    Placement,
     /// Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).
     BranchOutcome,
     /// Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).

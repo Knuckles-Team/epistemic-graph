@@ -1,0 +1,8 @@
+PREFIX : <http://knuckles.team/kg#>
+PREFIX swarm: <http://knuckles.team/kg/swarm#>
+PREFIX dc: <http://purl.org/dc/terms/>
+SELECT ?slot ?role ?kind ?min ?max ?source WHERE {
+  :tmplXYZ swarm:hasSlot ?slot ; dc:source ?source .
+  ?slot swarm:role ?role ; swarm:requiresAgentKind ?kind ;
+        swarm:minWidth ?min ; swarm:maxWidth ?max .
+}

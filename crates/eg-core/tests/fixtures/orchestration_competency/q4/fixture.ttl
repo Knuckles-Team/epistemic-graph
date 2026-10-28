@@ -1,0 +1,10 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# Two rules govern the task class of task XYZ; a third governs an unrelated class.
+:RolloutTask rdfs:subClassOf :OperateTask .
+:ruleNoLatest a :BestPractice ; :appliesToTaskClass :RolloutTask ; dc:source <urn:source:guardrail-rules> .
+:ruleBackup a :BestPractice ; :appliesToTaskClass :RolloutTask ; dc:source <urn:source:guardrail-rules> .
+:ruleReview a :BestPractice ; :appliesToTaskClass :ReviewTask ; dc:source <urn:source:guardrail-rules> .

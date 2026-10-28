@@ -32,6 +32,7 @@ mod group;
 mod kernel;
 mod ledger;
 mod maintenance;
+pub mod occ;
 mod outbox;
 mod participant;
 mod read;

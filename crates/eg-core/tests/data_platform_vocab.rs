@@ -186,3 +186,181 @@ fn core_source_registered() {
         .expect("the aggregate catalog carries an ontology");
     assert!(catalog.contains("<http://knuckles.team/kg/data-platform>"));
 }
+
+fn assert_typed(triples: &[Triple], local: &str, kind: &str) {
+    assert!(
+        has_iri(
+            triples,
+            &format!("{DP}{local}"),
+            &format!("{RDF}type"),
+            &format!("{OWL}{kind}")
+        ),
+        "{local} is an owl:{kind}"
+    );
+}
+
+fn assert_domain_range(triples: &[Triple], local: &str, domain: &str, range: &str) {
+    assert!(
+        has_iri(
+            triples,
+            &format!("{DP}{local}"),
+            &format!("{RDFS}domain"),
+            &format!("{DP}{domain}")
+        ),
+        "{local} domain is {domain}"
+    );
+    let range_iri = match range.strip_prefix("xsd:") {
+        Some(local_name) => format!("{XSD}{local_name}"),
+        None => format!("{DP}{range}"),
+    };
+    assert!(
+        has_iri(
+            triples,
+            &format!("{DP}{local}"),
+            &format!("{RDFS}range"),
+            &range_iri
+        ),
+        "{local} range is {range}"
+    );
+}
+
+fn load_data_platform() -> Vec<Triple> {
+    parse_turtle(include_str!("../ontology/data_platform-v1.ttl"))
+        .expect("the data-platform vocabulary parses")
+}
+
+// spec: EG-DATAPLAT-VOCAB-R002.1
+#[test]
+fn relational_classes_present() {
+    let triples = load_data_platform();
+    for class in [
+        "Database",
+        "Schema",
+        "Table",
+        "View",
+        "Column",
+        "ForeignKey",
+    ] {
+        assert_typed(&triples, class, "Class");
+    }
+}
+
+// spec: EG-DATAPLAT-VOCAB-R002.2
+#[test]
+fn relational_properties_domain_range() {
+    let triples = load_data_platform();
+    assert_domain_range(&triples, "inSchema", "Table", "Schema");
+    assert_domain_range(&triples, "hasColumn", "Table", "Column");
+    assert_domain_range(&triples, "referencesTable", "ForeignKey", "Table");
+    assert_domain_range(&triples, "isPrimaryKey", "Column", "xsd:boolean");
+    assert_domain_range(&triples, "sqlDialect", "Database", "xsd:string");
+}
+
+// spec: EG-DATAPLAT-VOCAB-R002.3
+#[test]
+fn document_terms_present() {
+    let triples = load_data_platform();
+    assert_typed(&triples, "Collection", "Class");
+    assert_typed(&triples, "DocumentField", "Class");
+    assert_typed(&triples, "fieldPath", "DatatypeProperty");
+    assert_typed(&triples, "fieldType", "DatatypeProperty");
+    assert_typed(&triples, "presenceRatio", "DatatypeProperty");
+    assert_typed(&triples, "documentCount", "DatatypeProperty");
+}
+
+// spec: EG-DATAPLAT-VOCAB-R003.1
+#[test]
+fn object_terms_present_without_content_property() {
+    let triples = load_data_platform();
+    assert_typed(&triples, "Bucket", "Class");
+    assert_typed(&triples, "StoredObject", "Class");
+    for property in ["objectKey", "byteSize", "lastModified"] {
+        assert_typed(&triples, property, "DatatypeProperty");
+    }
+    for forbidden in ["content", "body", "payload", "data"] {
+        assert!(
+            !has_iri(
+                &triples,
+                &format!("{DP}{forbidden}"),
+                &format!("{RDF}type"),
+                &format!("{OWL}DatatypeProperty")
+            ),
+            "{forbidden} must not be a property of stored objects"
+        );
+    }
+}
+
+// spec: EG-DATAPLAT-VOCAB-R003.2
+#[test]
+fn vector_terms_present() {
+    let triples = load_data_platform();
+    assert_typed(&triples, "VectorCollection", "Class");
+    assert_typed(&triples, "EmbeddingSpace", "Class");
+    for property in [
+        "embeddingModel",
+        "dimensions",
+        "distanceMetric",
+        "vectorCount",
+    ] {
+        assert_typed(&triples, property, "DatatypeProperty");
+    }
+    assert_typed(&triples, "usesEmbeddingSpace", "ObjectProperty");
+}
+
+// spec: EG-DATAPLAT-VOCAB-R004.1
+#[test]
+fn stream_terms_present() {
+    let triples = load_data_platform();
+    for class in ["Topic", "Partition", "ConsumerGroup", "PartitionLag"] {
+        assert_typed(&triples, class, "Class");
+    }
+    assert_typed(&triples, "partitionOf", "ObjectProperty");
+    assert_typed(&triples, "subscribesTo", "ObjectProperty");
+    assert_typed(&triples, "lag", "DatatypeProperty");
+    assert_typed(&triples, "groupState", "DatatypeProperty");
+}
+
+// spec: EG-DATAPLAT-VOCAB-R004.3
+#[test]
+fn analytics_terms_present() {
+    let triples = load_data_platform();
+    assert_typed(&triples, "AnalyticsSite", "Class");
+    assert_typed(&triples, "BehaviorMetric", "Class");
+    for property in [
+        "metricName",
+        "metricValue",
+        "windowDays",
+        "dimensionName",
+        "dimensionValue",
+    ] {
+        assert_typed(&triples, property, "DatatypeProperty");
+    }
+}
+
+// spec: EG-DATAPLAT-VOCAB-R004.4
+#[test]
+fn ml_terms_present() {
+    let triples = load_data_platform();
+    assert!(has_iri(
+        &triples,
+        &format!("{DP}Dataset"),
+        &format!("{RDFS}subClassOf"),
+        "http://knuckles.team/kg#Dataset"
+    ));
+    assert_typed(&triples, "Model", "Class");
+    assert!(
+        !has_iri(
+            &triples,
+            &format!("{DP}Model"),
+            &format!("{OWL}equivalentClass"),
+            "http://knuckles.team/kg#Model"
+        ),
+        "dp:Model must not be equivalent to the narrower core Model"
+    );
+    assert_typed(&triples, "TrainingRun", "Class");
+    assert_typed(&triples, "EvaluationResult", "Class");
+    assert_typed(&triples, "trainedOn", "ObjectProperty");
+    assert_typed(&triples, "producedModel", "ObjectProperty");
+    assert_typed(&triples, "evaluatedOn", "ObjectProperty");
+    assert_typed(&triples, "baselineRun", "ObjectProperty");
+}

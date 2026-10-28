@@ -1258,7 +1258,7 @@ mod tests {
             ),
             (
                 "capability",
-                "23bef29fbbc23ce086f187f5f8fe3a23b442d09ef30e5febf221817d7d3b9456",
+                "e20f971c54e0c49672d10bc83fd44c3f2a343412e77fedc7f0501ec75fb482f2",
             ),
             (
                 "argumentation",
@@ -1338,15 +1338,15 @@ mod tests {
             ),
             (
                 "orchestration",
-                "84da4abbeb7415189b568720a9e833675ba427511a78f8cafd79a6c0aa83025a",
+                "54876718a69bcb729925b5b3f9110e1ab7db066f90a64212f0fcaf7c2ca2521b",
             ),
             (
                 "orchestration-shapes",
-                "fd4e60fe31e5666576d0b0f817ab2fd0846e84e66e53a9634ff54600861a887c",
+                "0693b12c0787dca437c392cc4bf8e2dcb099f563fcdb830327b6bf2cc9367299",
             ),
             (
                 "personal",
-                "55ba0a0b4173d123d59e594fe8a8ca84716bd7a320407cbbed247c4ca30dfabe",
+                "c83b84b5ec44f9d6df4d3f3c0e1a8ff3227d75821697a4e47eac31bd0d1be0a8",
             ),
             (
                 "process_intelligence",
@@ -1354,7 +1354,7 @@ mod tests {
             ),
             (
                 "sdd",
-                "db421a14086da905ff377173cd1006e0b3fb520ca9361b53a05e0c18a700d387",
+                "7fc49c182c7f1d0a3af1caf8cdf72f623fa200c1057eafb77c121538e372c050",
             ),
             (
                 "service_operations",
@@ -1362,11 +1362,11 @@ mod tests {
             ),
             (
                 "dataplatform",
-                "3efdde3316dd8e72b876f47e67d9d510f5af466852d951f7b1006d9355bf4c62",
+                "f31c8ded176afd68dfd0649a97929f4761520214e4efb97a67617d20439ec94f",
             ),
             (
                 "data-platform",
-                "8d76ccb12efc61c9724f9c6ff0368ea95bb7a97b16cd423a01de919bc0ee2007",
+                "039234d96e444879f9eb9af9ba3f74371adf1d19da89d554f647c02a66223508",
             ),
             (
                 "it4it_delivery",
@@ -1374,11 +1374,11 @@ mod tests {
             ),
             (
                 "media",
-                "9ec45d345d8995429c75603cdd4ea9b726e72d5b467c68c5d45706cd1e9e0a5a",
+                "f49e08dc473a23c69c8c396107266cb1ecab2ce596851939c1a6393fd1ba9f71",
             ),
             (
                 "retrieval",
-                "a4aded0ccadcf3bf5fae62d5071dc330e4e73e56daf7b2dfb8e288d865a0346f",
+                "2c45883c6dd7bac72e96447e8033f500ec7feb8b6d4a6d7969571ee45680e311",
             ),
             (
                 "sdlc_lifecycle",
@@ -1414,22 +1414,23 @@ mod tests {
             ),
             (
                 "swarm-topology",
-                "fa4b46dc24003cfd60cd1082d78a29b1638ab63477950d84e16dddcd8e47ceee",
+                "bd849e8b40e5cf4b5ca018660ca5c1ad735559abec8d83d88b2aaf57cc5318a1",
             ),
             (
                 "swarm-topology-shapes",
-                "0c68fa2aeffa973e4869a91a916863cce58b661870e82130ea693413fb8a1732",
+                "1072f280c5761d749574f913967ab1fbdef04681795e43db961c8b5e9c3a4413",
             ),
             // R004.1 and R004.2.1/.2 added the asset-class migration and portfolio
             // records; semantic acceptance/refusal fixtures live in
             // src/server/graph_schema/finance_tests.rs. Pin both updated artifacts.
+            // R004.2.3-R004.2.6 added the portfolio-group, strategy and leverage records.
             (
                 "finance",
-                "cea770e406de84a6366aa23607594e98bf96ebfac229f30230bef0c63ff35ff9",
+                "f56efd6b98b4ccbd707311231adc83068f0db1c4385bfa8aed7d263c9535eabd",
             ),
             (
                 "finance-shapes",
-                "77c33f7959115828a21b5f3a161de10bc8e24eeeee039abca6557681d1b9925c",
+                "a978edea07c44826abe07d10de2c0812cfdf63b5462f44787da70ea019720710",
             ),
             (
                 "worldview",
@@ -1449,11 +1450,11 @@ mod tests {
             ),
             (
                 "virtual-graph",
-                "16d5934a22a256fc6eaa86ff33b47bd7d815e2f81bea7b1d1022327cf92b8a2b",
+                "24f74c48928f0edde9fe80c903028ea90eb9093e29685ca3619c64284d1b39d3",
             ),
             (
                 "virtual-graph-shapes",
-                "313fdb8ea2d27847dc860a9a36ff18dee7b97ba0eb4d132dc161b8f88decc956",
+                "96af31e002d61552f35d86e352505ffa6513da805b3186f4190804893b0b306c",
             ),
             // EG-SUPPLY-VOCAB-R003.13: the commercial module (ontology plus its
             // shapes companion) joins the catalog; the pin follows the ontology.
