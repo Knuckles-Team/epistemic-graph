@@ -471,6 +471,17 @@ pub mod wire;
 // RF-ADR-009 D18 — EG-owned versioned source change sets and append-only
 // write-back/reconciliation receipts. Connector transports remain in the SDK.
 pub mod write_back;
+// EG-FEDERATED-QUERY-R700 — AIF argument maps and their Dung projection.
+pub mod argument_map;
+// EG-FEDERATED-QUERY-R701 — live artifacts re-derived from a query source.
+pub mod live_artifact;
+// EG-FEDERATED-QUERY-R702 — search-task records and shortcut-risk reports.
+pub mod search_task;
+// EG-FEDERATED-QUERY-R081 — retrieval sufficiency, selection, feedback and
+// hierarchy contracts; the deciding functions live in `eg_plan::retrieval_verdict`.
+pub mod retrieval_verdict;
+// EG-FEDERATED-QUERY-R085.1 — approved, read-only source query records.
+pub mod source_query;
 
 // CONCEPT:EG-KG.query.compound-predicate-decode — the serializable compound-WHERE predicate AST lives at the
 // bottom of the DAG so `eg-core` can evaluate it; `eg-query` decodes SQL into it.
