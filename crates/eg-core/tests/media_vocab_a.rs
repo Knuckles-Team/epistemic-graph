@@ -302,7 +302,23 @@ fn playback_session_and_broadcast_terms_present() {
         "PlaybackSession",
         "xsd:nonNegativeInteger",
     );
-    assert_domain_range(&triples, "viewerCount", "ViewerSample", "xsd:nonNegativeInteger");
+    // The audience count rides both the sample and the stream itself (the
+    // stream's current audience), extended by R010.1.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}viewerCount"),
+            &format!("{RDFS}range"),
+            &format!("{XSD}nonNegativeInteger")
+        ),
+        "viewerCount ranges to a count"
+    );
+    let owned_by = union_members(&triples, &format!("{KG}viewerCount"), &format!("{RDFS}domain"));
+    assert!(
+        owned_by.contains(&format!("{KG}ViewerSample"))
+            && owned_by.contains(&format!("{KG}BroadcastStream")),
+        "viewerCount is owned by the sample and the stream: {owned_by:?}"
+    );
     assert_domain_range(&triples, "sampledAt", "ViewerSample", "xsd:dateTime");
     assert_domain_range(&triples, "lastConnectAt", "BroadcastStream", "xsd:dateTime");
 }
@@ -865,6 +881,58 @@ fn subject_ref(node: &eg_rdf::oxrdf::NamedOrBlankNode) -> Option<String> {
     }
 }
 
+/// The named members of one subject's `owl:unionOf` class behind one
+/// `rdfs:domain` / `rdfs:range` (empty when the subject has no union there).
+fn union_members(triples: &[Triple], subject: &str, predicate: &str) -> BTreeSet<String> {
+    let Some(domain_ref) = triples
+        .iter()
+        .find(|t| {
+            subject_str(&t.subject).map(|s| s == subject) == Some(true)
+                && t.predicate.as_str() == predicate
+        })
+        .and_then(|t| object_ref(&t.object))
+    else {
+        return BTreeSet::new();
+    };
+    let Some(list_head) = triples
+        .iter()
+        .find(|t| {
+            subject_ref(&t.subject).as_deref() == Some(domain_ref.as_str())
+                && t.predicate.as_str() == format!("{OWL}unionOf")
+        })
+        .and_then(|t| object_ref(&t.object))
+    else {
+        return BTreeSet::new();
+    };
+    let nil = format!("{RDF}nil");
+    let mut members = BTreeSet::new();
+    let mut node = list_head;
+    while node != nil {
+        if let Some(first) = triples
+            .iter()
+            .find(|t| {
+                subject_ref(&t.subject).as_deref() == Some(node.as_str())
+                    && t.predicate.as_str() == format!("{RDF}first")
+            })
+            .and_then(|t| object_iri(&t.object))
+        {
+            members.insert(first.to_string());
+        }
+        let Some(next) = triples
+            .iter()
+            .find(|t| {
+                subject_ref(&t.subject).as_deref() == Some(node.as_str())
+                    && t.predicate.as_str() == format!("{RDF}rest")
+            })
+            .and_then(|t| object_ref(&t.object))
+        else {
+            break;
+        };
+        node = next;
+    }
+    members
+}
+
 fn assert_shape(triples: &[Triple], local: &str) {
     assert!(
         has_iri(
@@ -1418,28 +1486,46 @@ fn subjects_typed(triples: &[Triple], classes: &[&str]) -> BTreeSet<String> {
         .collect()
 }
 
-/// Civil days between two `YYYY-MM-DD...` dates (Hinnant's days-from-civil).
+/// Whole days since the civil epoch for one date (Hinnant's days-from-civil).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 36524 + doe
+}
+
+/// The civil date parts of one `YYYY-MM-DD...` date or instant.
+fn date_parts(s: &str) -> (i64, i64, i64) {
+    let day = s.split('T').next().unwrap_or(s);
+    let date = day.split('-').collect::<Vec<_>>();
+    (
+        date[0].parse().unwrap(),
+        date[1].parse().unwrap(),
+        date[2].parse().unwrap(),
+    )
+}
+
+/// Civil days between two `YYYY-MM-DD...` dates.
 fn days_since(earlier: &str, later: &str) -> i64 {
-    fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-        let y = if m <= 2 { y - 1 } else { y };
-        let era = if y >= 0 { y } else { y - 399 } / 400;
-        let yoe = y - era * 400;
-        let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
-        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-        era * 36524 + doe
-    }
-    fn parts(s: &str) -> (i64, i64, i64) {
-        let day = s.split('T').next().unwrap_or(s);
-        let date = day.split('-').collect::<Vec<_>>();
-        (
-            date[0].parse().unwrap(),
-            date[1].parse().unwrap(),
-            date[2].parse().unwrap(),
-        )
-    }
-    let (y1, m1, d1) = parts(earlier);
-    let (y2, m2, d2) = parts(later);
+    let (y1, m1, d1) = date_parts(earlier);
+    let (y2, m2, d2) = date_parts(later);
     days_from_civil(y2, m2, d2) - days_from_civil(y1, m1, d1)
+}
+
+/// Whole seconds since the epoch for one `YYYY-MM-DDTHH:MM:SSZ` UTC instant.
+fn utc_seconds(s: &str) -> i64 {
+    let (y, m, d) = date_parts(s);
+    let time: Vec<i64> = s
+        .split('T')
+        .nth(1)
+        .expect("the instant carries a time part")
+        .trim_end_matches('Z')
+        .split(':')
+        .map(|p| p.parse().unwrap())
+        .collect();
+    days_from_civil(y, m, d) * 86400 + time[0] * 3600 + time[1] * 60 + time[2]
 }
 
 /// A typed abstention (FR-004): the question a connector cannot answer,
@@ -2514,5 +2600,232 @@ fn media_vocab_rom_manager_vocabulary_docs_truth() {
         connector_competency_vocab_cell(&plan, "R053"),
         "media-v1",
         "the rom-manager Vocabulary cell names media-v1, not MISSING"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R010.1
+#[test]
+fn media_vocab_owncast_mapping_rows_resolve_existing_terms() {
+    let document = include_str!("fixtures/media_vocab/owncast_mapping.ttl");
+    let (kind, _endpoint, only_url) = connection_of(document);
+    assert_eq!(kind, "mcp", "vg:sourceKind is mcp");
+    assert!(only_url, "the endpoint reference carries only its url");
+    let (entities, fields, _operations) = contract_of(document);
+    let rows = mapping_rows(document);
+    assert_eq!(rows.len(), 5, "the plan.md table rows are all mapped");
+    let universe = vocabulary_universe();
+    for row in &rows {
+        assert!(
+            entities.contains(&row.entity),
+            "mapsEntity {} is a discovered entity",
+            row.entity
+        );
+        assert!(
+            fields.contains(&row.key_field),
+            "keyField {} is a discovered field",
+            row.key_field
+        );
+        assert!(
+            universe.get(&row.class).map(|(kind, _)| *kind) == Some(TermKind::Class),
+            "row class {} is a declared class",
+            row.class
+        );
+        for pair in &row.pairs {
+            assert!(
+                fields.contains(&pair.field),
+                "pair field {} is a discovered field",
+                pair.field
+            );
+            assert!(
+                universe.contains_key(&pair.predicate),
+                "row predicate {} is declared vocabulary",
+                pair.predicate
+            );
+        }
+    }
+    // Coverage of the plan.md owncast table: entity -> class. The follower is
+    // a :Person; the chat message is the shared content :ChatMessage.
+    let bound: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .map(|r| (
+            r.entity.as_str(),
+            r.class.strip_prefix(KG).unwrap_or(&r.class),
+        ))
+        .collect();
+    for (entity, class) in [
+        ("Status", "BroadcastStream"),
+        ("ViewerSample", "ViewerSample"),
+        ("Hardware", "HardwareSample"),
+        ("ChatMessage", "ChatMessage"),
+        ("Follower", "Follower"),
+    ] {
+        assert!(
+            bound.contains(&(entity, class)),
+            "the plan.md table row {entity} -> {class} is mapped"
+        );
+    }
+}
+
+// spec: EG-MEDIA-VOCAB-R010.2
+#[test]
+fn media_vocab_owncast_response_round_trips_through_mapping() {
+    let document = include_str!("fixtures/media_vocab/owncast_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/owncast_response.json"))
+            .expect("the recorded response parses");
+    let mapped = apply_mapping(&rows, &response, "owncast", &universe);
+    // Six records plus one minted reference node (the chat author "dana").
+    let nodes = node_subjects(&mapped);
+    assert_eq!(nodes.len(), 7, "every record becomes exactly one node: {nodes:?}");
+    for t in &mapped {
+        let predicate = t.predicate.as_str();
+        if predicate == format!("{RDF}type")
+            || predicate == format!("{DC}source")
+            || predicate == format!("{DC}identifier")
+            || predicate == format!("{DC}date")
+        {
+            continue;
+        }
+        assert!(
+            universe.contains_key(predicate),
+            "the mapped triple uses declared vocabulary: {predicate}"
+        );
+    }
+    // The stream carries its live audience on the shared :viewerCount; the
+    // samples point back at the stream node.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:owncast:Status:stream",
+            format!("{KG}streamOnline").as_str()
+        ),
+        vec!["true".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:owncast:Status:stream",
+            format!("{KG}viewerCount").as_str()
+        ),
+        vec!["30".to_string()]
+    );
+    assert_eq!(
+        iri_of(
+            &mapped,
+            "urn:eg-media-vocab:owncast:ViewerSample:v2",
+            format!("{KG}sampleOf").as_str()
+        ),
+        Some("urn:eg-media-vocab:owncast:Status:stream".to_string())
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:owncast:ViewerSample:v2",
+            format!("{KG}viewerCount").as_str()
+        ),
+        vec!["37".to_string()]
+    );
+    // The hardware sample carries decimal usage; the chat author mints as a
+    // typed :Person; the follower is typed :Follower.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:owncast:Hardware:hw1",
+            format!("{KG}cpuUsagePercent").as_str()
+        ),
+        vec!["23.5".to_string()]
+    );
+    let author = iri_of(
+        &mapped,
+        "urn:eg-media-vocab:owncast:ChatMessage:c1",
+        format!("{KG}postedBy").as_str(),
+    )
+    .expect("the chat message names its author");
+    assert!(author.starts_with("urn:eg-media-vocab:owncast:aux:"));
+    assert_eq!(
+        values_of(&mapped, &author, format!("{RDF}type").as_str()),
+        vec![format!("{KG}Person")]
+    );
+    assert_eq!(
+        values_of(&mapped, "urn:eg-media-vocab:owncast:Follower:f1", format!("{RDF}type").as_str()),
+        vec![format!("{KG}Follower")]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R010.3
+#[test]
+fn media_vocab_owncast_single() {
+    // "Which streams had the highest peak viewer count and how long did they
+    // run?" — BLOCKED for 'highest peak across streams': the connector
+    // exposes the live status and the viewers-over-time series of the
+    // current window only, with no list of past broadcasts. DECIDED: answer
+    // the current broadcast's peak and duration now; historical ranking
+    // needs an owncast-agent stream-history operation. The test computes the
+    // interim answer and returns the typed abstention naming the missing
+    // operation and its owner.
+    let document = include_str!("fixtures/media_vocab/owncast_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/owncast_response.json")).unwrap();
+    let mapped = apply_mapping(&rows, &response, "owncast", &universe);
+
+    // The current broadcast: the stream node and its audience samples.
+    let streams = subjects_typed(&mapped, &["BroadcastStream"]);
+    assert_eq!(streams.len(), 1, "one stream is mapped: {streams:?}");
+    let stream = streams.iter().next().unwrap().to_string();
+    let samples = subjects_typed(&mapped, &["ViewerSample"]);
+    let peak = mapped
+        .iter()
+        .filter(|t| {
+            subject_str(&t.subject).map(|s| s == stream.as_str() || samples.contains(s)) == Some(true)
+                && t.predicate.as_str() == format!("{KG}viewerCount")
+        })
+        .filter_map(|t| object_str(&t.object).and_then(|v| v.parse::<i64>().ok()))
+        .max()
+        .expect("the stream or a sample carries a viewer count");
+    assert_eq!(peak, 37, "the current window's peak audience");
+
+    // The broadcast ran from its last connect time to the frozen as-of.
+    let last_connect = values_of(&mapped, &stream, format!("{KG}lastConnectAt").as_str())
+        .pop()
+        .expect("the stream names its last connect time");
+    let duration = utc_seconds(ASOF) - utc_seconds(&last_connect);
+    assert_eq!(duration, 14400, "the current broadcast ran 4 hours");
+
+    // Historical ranking cannot be produced: the mapped data holds one
+    // broadcast, and the contract has no stream-history operation.
+    let (_entities, _fields, operations) = contract_of(document);
+    assert!(
+        operations
+            .iter()
+            .all(|operation| !operation.contains("history")),
+        "no stream-history operation is discovered: {operations:?}"
+    );
+    let abstention = TypedAbstention {
+        connector: "owncast",
+        missing_operation: "owncast_internal stream-history (past broadcast list with start/end and peak viewers)",
+        owner: "owncast-agent",
+    };
+    assert_eq!(abstention.connector, "owncast");
+    assert!(
+        abstention.missing_operation.contains("stream-history"),
+        "the abstention names the missing stream-history operation: {}",
+        abstention.missing_operation
+    );
+    assert_eq!(abstention.owner, "owncast-agent");
+}
+
+// spec: EG-MEDIA-VOCAB-R010.4
+#[test]
+fn media_vocab_owncast_vocabulary_docs_truth() {
+    let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
+        .expect("the connector-competency plan reads");
+    assert_eq!(
+        connector_competency_vocab_cell(&plan, "R045"),
+        "media-v1 / content-v1",
+        "the owncast Vocabulary cell names media-v1 / content-v1, not MISSING"
     );
 }

@@ -667,7 +667,7 @@
 :viewerCount a owl:DatatypeProperty ;
     rdfs:label "viewer count" ;
     rdfs:comment "Simultaneous viewer count of one sample or the stream's current audience." ;
-    rdfs:domain :ViewerSample ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :ViewerSample :BroadcastStream ) ] ;
     rdfs:range xsd:nonNegativeInteger .
 
 :sampledAt a owl:DatatypeProperty ;
@@ -922,3 +922,31 @@
     rdfs:comment "Links a ROM file to the game work it contains; a ROM without this link is unidentified, which is a metadata match, not a checksum verdict." ;
     rdfs:domain :RomFile ;
     rdfs:range :Game .
+
+# R010.1: owncast mapping terms. The table rows
+# `owncast_internal/get_hardware_stats -> mv:HardwareSample` and
+# `owncast_internal/get_followers -> mv:Follower -> :Person` name the hardware
+# sample and the follower. The stream's current audience rides the shared
+# :viewerCount (domain extended to the stream above), not a second count.
+
+:HardwareSample a owl:Class ;
+    rdfs:label "Hardware Sample" ;
+    rdfs:comment "One hardware usage sample of the machine a broadcast runs on (Owncast hardware stats)." ;
+    rdfs:subClassOf :Observation .
+
+:Follower a owl:Class ;
+    rdfs:label "Follower" ;
+    rdfs:comment "A person following the broadcaster (Owncast follower)." ;
+    rdfs:subClassOf :Person .
+
+:cpuUsagePercent a owl:DatatypeProperty ;
+    rdfs:label "CPU usage percent" ;
+    rdfs:comment "CPU usage in percent at the hardware sample." ;
+    rdfs:domain :HardwareSample ;
+    rdfs:range xsd:decimal .
+
+:memoryUsagePercent a owl:DatatypeProperty ;
+    rdfs:label "memory usage percent" ;
+    rdfs:comment "Memory usage in percent at the hardware sample." ;
+    rdfs:domain :HardwareSample ;
+    rdfs:range xsd:decimal .
