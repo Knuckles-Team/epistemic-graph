@@ -955,3 +955,11 @@ fn mapping_fixture_openbao_validates() {
         &["openbao_mcp_sys:get_mounts", "openbao_mcp_logical:list"],
     );
 }
+
+// spec: EG-DATAPLAT-VOCAB-R006.7
+#[test]
+fn mapping_fixture_clarity_validates() {
+    let triples =
+        validate_fixture(include_str!("../ontology/fixtures/data_platform/clarity.ttl"));
+    assert_via_operations(&triples, &["clarity_insights:get_data_export"]);
+}
