@@ -67,6 +67,8 @@ fn named_scan_plan() -> Method {
             eg_plan::Op::Limit { k: 10 },
         ]),
         foreign_execution: None,
+
+        foreign_executions: Default::default(),
     }
 }
 

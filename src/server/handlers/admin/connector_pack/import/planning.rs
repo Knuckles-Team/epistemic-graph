@@ -671,7 +671,13 @@ fn declared_sources(
     body: &[u8],
     connector: &eg_types::contract::ResourceId,
 ) -> Result<Vec<eg_types::connector_pack::PackSourceRegistration>, String> {
-    if entry.kind != PackEntryKind::Ontology {
+    if entry.kind == PackEntryKind::Resource && entry.uri.starts_with("contract://") {
+        if entry.uri != format!("contract://{}", connector.as_str())
+            || entry.media_type != "text/turtle"
+        {
+            return Err("MALFORMED_BODY: connector contract identity or media type differs".into());
+        }
+    } else if entry.kind != PackEntryKind::Ontology {
         return Ok(Vec::new());
     }
     #[cfg(feature = "rdf")]

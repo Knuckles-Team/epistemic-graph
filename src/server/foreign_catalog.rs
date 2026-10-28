@@ -328,6 +328,41 @@ impl ForeignSourceCatalog {
         self.bind_for(caller, store, isolation, receipt, &descriptor, driver)
     }
 
+    /// Bind several already-completed page sources into one owner-scoped registry.
+    /// Every durable approval is checked before any driver is installed.
+    #[cfg(feature = "federation")]
+    pub(crate) fn bind_registered_many(
+        &self,
+        caller: &CarrierAuthority,
+        store: &AgentLibraryStore,
+        isolation: &IsolationLayer,
+        sources: &[(
+            ConnectorPackSourceApprovalResult,
+            String,
+            SharedForeignSource,
+        )],
+    ) -> Result<OwnedForeignRegistry, String> {
+        let mut descriptors = Vec::with_capacity(sources.len());
+        let mut names = std::collections::HashSet::new();
+        for (receipt, name, _) in sources {
+            if !names.insert(name.as_str()) {
+                return Err("INVALID_ARGUMENT: repeated foreign source name".to_string());
+            }
+            let descriptor = self.registered_descriptor(caller, receipt, name)?;
+            self.verify_binding(caller, store, receipt, &descriptor)?;
+            descriptors.push(descriptor);
+        }
+        let mut scoped = self.registry_for(caller, isolation);
+        for ((_, _, driver), descriptor) in sources.iter().zip(descriptors) {
+            scoped.registry.register_bound_trusted_host(
+                descriptor.name,
+                descriptor.spec,
+                Arc::clone(driver),
+            );
+        }
+        Ok(scoped)
+    }
+
     fn registered_descriptor(
         &self,
         caller: &CarrierAuthority,
@@ -464,13 +499,40 @@ pub(crate) async fn served_foreign_leg(
     plan: &eg_plan::Plan,
     read_authority: Option<&GraphReadAuthority>,
     execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
+    executions: &[eg_types::foreign_read::ForeignReadExecutionRef],
 ) -> Result<Option<OwnedForeignRegistry>, String> {
     let s = state.read().await;
     let caller = read_authority.and_then(GraphReadAuthority::carrier);
-    if execution.is_some() && !crate::server::handlers::query::plan_needs_foreign(&plan.ops) {
+    if execution.is_some() && !executions.is_empty() {
+        return Err("INVALID_ARGUMENT: conflicting foreign execution forms".into());
+    }
+    if (execution.is_some() || !executions.is_empty())
+        && !crate::server::handlers::query::plan_needs_foreign(&plan.ops)
+    {
         return Err(
             "FOREIGN_READ_UNUSED: execution is attached to a plan without a foreign source".into(),
         );
+    }
+    if !executions.is_empty() {
+        let caller = caller.ok_or_else(|| {
+            "ACCESS_DENIED: foreign read executions require a verified tenant carrier".to_string()
+        })?;
+        let store = s.agent_library.as_deref().ok_or_else(|| {
+            "SOURCE_APPROVAL_STORE_UNAVAILABLE: foreign read requires the Agent Library".to_string()
+        })?;
+        let plan_digest = crate::server::foreign_read::canonical_plan_digest(plan)?;
+        return s
+            .foreign_reads
+            .bind_many_for_query(
+                caller,
+                executions,
+                plan,
+                plan_digest,
+                &s.foreign_sources,
+                store,
+                &s.isolation,
+            )
+            .map(Some);
     }
     if let Some(execution) = execution {
         let caller = caller.ok_or_else(|| {

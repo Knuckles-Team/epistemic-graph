@@ -711,18 +711,26 @@ impl ServedPlanLegs {
         read_authority: Option<&GraphReadAuthority>,
         plan: &eg_plan::Plan,
         foreign_execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
+        foreign_executions: &[eg_types::foreign_read::ForeignReadExecutionRef],
     ) -> Result<Self, String> {
         #[cfg(not(feature = "tsdb"))]
         let _ = graph_name;
         #[cfg(not(any(feature = "federation", feature = "decide")))]
         let _ = state;
         #[cfg(not(any(feature = "tsdb", feature = "federation", feature = "decide")))]
-        let _ = (read_authority, plan, foreign_execution);
+        let _ = (read_authority, plan, foreign_execution, foreign_executions);
         Ok(Self {
             #[cfg(feature = "tsdb")]
             tsdb_scope: served_tsdb_scope(plan, graph_name, read_authority)?,
             #[cfg(feature = "federation")]
-            foreign: served_foreign_leg(state, plan, read_authority, foreign_execution).await?,
+            foreign: served_foreign_leg(
+                state,
+                plan,
+                read_authority,
+                foreign_execution,
+                foreign_executions,
+            )
+            .await?,
             #[cfg(feature = "decide")]
             decisions: served_decision_leg(state, plan, read_authority).await?,
             #[cfg(feature = "result-cache")]
@@ -906,15 +914,40 @@ impl QueryHandlerCtx<'_> {
         plan: &eg_plan::Plan,
         foreign_execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
     ) -> Result<ServedPlanLegs, Response> {
+        self.served_legs_with_foreign_executions(plan, foreign_execution, &[])
+            .await
+    }
+
+    pub(crate) async fn served_legs_with_foreign_executions(
+        &self,
+        plan: &eg_plan::Plan,
+        foreign_execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
+        foreign_executions: &[eg_types::foreign_read::ForeignReadExecutionRef],
+    ) -> Result<ServedPlanLegs, Response> {
         ServedPlanLegs::resolve(
             self.state,
             self.graph_name,
             self.read_authority,
             plan,
             foreign_execution,
+            foreign_executions,
         )
         .await
-        .map(|legs| legs.with_watermarks(self.core, plan))
+        .map(|legs| {
+            if foreign_execution.is_some() || !foreign_executions.is_empty() {
+                // Page-backed executions are request-scoped; catalog watermarks
+                // cannot prove their transient row buffers are cache-equivalent.
+                #[allow(unused_mut)]
+                let mut legs = legs;
+                #[cfg(feature = "result-cache")]
+                {
+                    legs.watermarks = ForeignWatermarks::Unfresh;
+                }
+                legs
+            } else {
+                legs.with_watermarks(self.core, plan)
+            }
+        })
         .map_err(|denied| Response::err(self.req_id, denied))
     }
 }
