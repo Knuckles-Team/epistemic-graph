@@ -1,8 +1,8 @@
 # Recipe: serve a typed kernel as a wire method (a `.3` wiring row)
 
 A `.3` row says "the typed model and kernel exist; serve them". This recipe turns one
-kernel function into a served method with a generated contract, generated clients and a
-served integration test. It was proven on `EG-FINANCE-PRIMITIVES-R900.3`
+kernel function into a served method. The method has a generated contract, generated
+clients and a served integration test. It was proven on `EG-FINANCE-PRIMITIVES-R900.3`
 (`FinancePositionSize`, `FinanceDistributionShift`) and repeated for R901.3, R613.3 and
 R018.3 (`src/server/handlers/finance/numeric_kernels.rs`).
 

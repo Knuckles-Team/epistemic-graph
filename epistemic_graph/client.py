@@ -9061,7 +9061,10 @@ class FinanceClient:
         fraction: float | None = None,
         max_risk: float | None = None,
     ) -> float:
-        """Fractional-Kelly stake clamped to [0, max_risk] (default half Kelly, 0.02 cap)."""
+        """Fractional-Kelly stake clamped to [0, max_risk].
+
+        The default is half Kelly with a 0.02 cap.
+        """
         return await _gen.compute.send_finance_position_size(
             self._client,
             {

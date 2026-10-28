@@ -346,9 +346,9 @@ def test_self_hosted_runners_are_unreachable_from_pull_requests() -> None:
             if "self-hosted" not in _runner_labels(job):
                 continue
             condition = " ".join(str(job.get("if", "")).split())
-            assert (
-                "github.repository == 'Knuckles-Team/medulla'" in condition
-            ), f"{workflow.name}:{name}"
+            assert "github.repository == 'Knuckles-Team/medulla'" in condition, (
+                f"{workflow.name}:{name}"
+            )
             assert "pull_request" not in condition, f"{workflow.name}:{name}"
             assert "startsWith(github.ref, 'refs/tags/v')" in condition, (
                 f"{workflow.name}:{name}"

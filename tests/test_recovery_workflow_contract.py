@@ -39,8 +39,7 @@ class RecoveryBoundary(unittest.TestCase):
             {"ref": "refs/heads/feature"},
             {
                 "workflow_ref": (
-                    "Knuckles-Team/medulla/.github/workflows/"
-                    "other.yml@refs/heads/main"
+                    "Knuckles-Team/medulla/.github/workflows/other.yml@refs/heads/main"
                 )
             },
         ):
@@ -63,9 +62,7 @@ class RecoveryBoundary(unittest.TestCase):
         checkout = self.job["steps"][0]
         sha = "29301642c205adc75d63cde2e69d7f53d85d707f"
         self.assertEqual(checkout["with"]["ref"], sha)
-        self.assertEqual(
-            checkout["with"]["repository"], "Knuckles-Team/medulla"
-        )
+        self.assertEqual(checkout["with"]["repository"], "Knuckles-Team/medulla")
         self.assertIs(checkout["with"]["persist-credentials"], False)
         self.assertIn("git rev-parse HEAD", self.job["steps"][1]["run"])
         self.assertIn(sha, self.job["steps"][1]["run"])
