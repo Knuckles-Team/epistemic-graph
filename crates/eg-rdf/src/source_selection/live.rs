@@ -4,7 +4,7 @@
 //! `rdfs:subClassOf` axioms. Each row carries the origin of the schema source it
 //! was read from, so a pack or ingestion row stays a proposal (R003.4).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use eg_core::graph::{GraphSchemaSources, SchemaSourceOrigin};
 use oxrdf::{Term, Triple};
@@ -211,4 +211,40 @@ pub fn fixture_from_schema_sources(
         );
     }
     Ok(fixture)
+}
+
+/// The sources the documents declare connected: a `vg:SourceConnection` with a
+/// `vg:MetadataContract` carrying an approved `vg:VirtualMapping`. A connection
+/// is named by its foreign catalog name, `dc:identifier`, label, or IRI.
+pub fn connected_sources_from_turtle(documents: &[&str]) -> Result<BTreeSet<String>, String> {
+    const DC_IDENTIFIER: &str = "http://purl.org/dc/terms/identifier";
+    let mut triples = Vec::new();
+    for document in documents {
+        triples.extend(crate::mapping::parse_turtle(document)?);
+    }
+    let index = Index::from_triples(&triples);
+    let mut connected = BTreeSet::new();
+    for connection in index.subjects_of_type(&format!("{VG}SourceConnection")) {
+        let has_approved_mapping = index
+            .subjects_of_type(&format!("{VG}MetadataContract"))
+            .into_iter()
+            .filter(|contract| index.vg(contract, "contractSource") == Some(connection))
+            .any(|contract| {
+                index
+                    .subjects_of_type(&format!("{VG}VirtualMapping"))
+                    .into_iter()
+                    .any(|mapping| {
+                        index.vg(mapping, "mapsContract") == Some(contract)
+                            && index.vg(mapping, "approved") == Some("true")
+                    })
+            });
+        if has_approved_mapping {
+            let name = index
+                .vg(connection, "foreignSourceName")
+                .or_else(|| index.first(connection, DC_IDENTIFIER))
+                .map_or_else(|| index.source_name(connection), str::to_string);
+            connected.insert(name);
+        }
+    }
+    Ok(connected)
 }
