@@ -4,6 +4,7 @@
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 <http://knuckles.team/kg/media> a owl:Ontology ;
     rdfs:label "Media and Content Ontology" ;
@@ -311,3 +312,140 @@
     rdfs:comment "Links a game title to the system it runs on." ;
     rdfs:domain :GameTitle ;
     rdfs:range :GameSystem .
+
+# Connector competency vocabulary: media (EG-CQ-CONN-vocab: connector competency terms)
+
+:PlaybackProgress a owl:Class ;
+    rdfs:label "Playback Progress" ;
+    rdfs:comment "One viewer or listener position within a media item (Audiobookshelf media progress, Jellyfin user data)." ;
+    rdfs:subClassOf :Observation .
+
+:DownloadJob a owl:Class ;
+    rdfs:label "Download Job" ;
+    rdfs:comment "One acquisition job that fetches a source URL into a media item or file (media-downloader job)." ;
+    rdfs:subClassOf :Task .
+
+:RomFile a owl:Class ;
+    rdfs:label "ROM File" ;
+    rdfs:comment "A game ROM image file of a game title, with the checksum recorded and the checksum expected from the reference set." ;
+    rdfs:subClassOf :File .
+
+:isMonitored a owl:DatatypeProperty ;
+    rdfs:label "is monitored" ;
+    rdfs:comment "True when the library manager (Radarr, Sonarr) monitors the item for acquisition." ;
+    rdfs:domain :MediaItem ;
+    rdfs:range xsd:boolean .
+
+:hasFile a owl:DatatypeProperty ;
+    rdfs:label "has file" ;
+    rdfs:comment "True when a file for the item exists in the library." ;
+    rdfs:domain :MediaItem ;
+    rdfs:range xsd:boolean .
+
+:lastSearchedBy a owl:DatatypeProperty ;
+    rdfs:label "last searched by" ;
+    rdfs:comment "Name of the indexer that last searched for the wanted item." ;
+    rdfs:domain :MediaItem ;
+    rdfs:range xsd:string .
+
+:transferState a owl:DatatypeProperty ;
+    rdfs:label "transfer state" ;
+    rdfs:comment "The client state of a torrent, for example downloading, stalledDL, seeding or pausedUP." ;
+    rdfs:domain :Torrent ;
+    rdfs:range xsd:string .
+
+:shareRatio a owl:DatatypeProperty ;
+    rdfs:label "share ratio" ;
+    rdfs:comment "Uploaded over downloaded bytes of a torrent." ;
+    rdfs:domain :Torrent ;
+    rdfs:range xsd:decimal .
+
+:lastActivityAt a owl:DatatypeProperty ;
+    rdfs:label "last activity at" ;
+    rdfs:comment "Time of the last transfer activity of a torrent." ;
+    rdfs:domain :Torrent ;
+    rdfs:range xsd:dateTime .
+
+:progressOf a owl:ObjectProperty ;
+    rdfs:label "progress of" ;
+    rdfs:comment "Links a playback progress record to the media item it positions." ;
+    rdfs:domain :PlaybackProgress ;
+    rdfs:range :MediaItem .
+
+:progressViewer a owl:ObjectProperty ;
+    rdfs:label "progress viewer" ;
+    rdfs:comment "Links a playback progress record to the viewer or listener it belongs to." ;
+    rdfs:domain :PlaybackProgress ;
+    rdfs:range :Viewer .
+
+:progressFraction a owl:DatatypeProperty ;
+    rdfs:label "progress fraction" ;
+    rdfs:comment "Fraction of the media item consumed, from 0.0 to 1.0." ;
+    rdfs:domain :PlaybackProgress ;
+    rdfs:range xsd:decimal .
+
+:downloadStatus a owl:DatatypeProperty ;
+    rdfs:label "download status" ;
+    rdfs:comment "The outcome of a download job: queued, running, completed or failed." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:string .
+
+:downloadSourceUrl a owl:DatatypeProperty ;
+    rdfs:label "download source URL" ;
+    rdfs:comment "The URL a download job fetches." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:string .
+
+:downloadError a owl:DatatypeProperty ;
+    rdfs:label "download error" ;
+    rdfs:comment "The error message of a failed download job." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:string .
+
+:downloadFinishedAt a owl:DatatypeProperty ;
+    rdfs:label "download finished at" ;
+    rdfs:comment "Time a download job finished." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:dateTime .
+
+:downloadOutput a owl:ObjectProperty ;
+    rdfs:label "download output" ;
+    rdfs:comment "Links a download job to the media item or file it produced." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :MediaItem :File ) ] .
+
+:peakViewerCount a owl:DatatypeProperty ;
+    rdfs:label "peak viewer count" ;
+    rdfs:comment "Highest simultaneous viewer count of a live stream." ;
+    rdfs:domain :LiveStream ;
+    rdfs:range xsd:integer .
+
+:streamDurationSeconds a owl:DatatypeProperty ;
+    rdfs:label "stream duration seconds" ;
+    rdfs:comment "How long a live stream ran, in seconds." ;
+    rdfs:domain :LiveStream ;
+    rdfs:range xsd:integer .
+
+:romOf a owl:ObjectProperty ;
+    rdfs:label "ROM of" ;
+    rdfs:comment "Links a ROM file to the game title it contains." ;
+    rdfs:domain :RomFile ;
+    rdfs:range :GameTitle .
+
+:expectedChecksum a owl:DatatypeProperty ;
+    rdfs:label "expected checksum" ;
+    rdfs:comment "The checksum the reference set (DAT) lists for the ROM." ;
+    rdfs:domain :RomFile ;
+    rdfs:range xsd:string .
+
+:actualChecksum a owl:DatatypeProperty ;
+    rdfs:label "actual checksum" ;
+    rdfs:comment "The checksum computed from the ROM file on disk." ;
+    rdfs:domain :RomFile ;
+    rdfs:range xsd:string .
+
+:conversionState a owl:DatatypeProperty ;
+    rdfs:label "conversion state" ;
+    rdfs:comment "Whether the ROM was converted to its target format: converted or unconverted." ;
+    rdfs:domain :RomFile ;
+    rdfs:range xsd:string .
