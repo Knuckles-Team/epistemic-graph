@@ -657,7 +657,7 @@ fn store_mapping_fixture(fixture: &str, expected_operations: &[&str]) {
 
     let mappings: Vec<String> = triples
         .iter()
-        .filter_map(|triple| is_store_mapping_subject(triple))
+        .filter_map(is_store_mapping_subject)
         .collect();
     assert!(
         !mappings.is_empty(),

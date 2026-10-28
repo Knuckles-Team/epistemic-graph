@@ -33,7 +33,7 @@ fn blocking_key_fixture_parses_and_lists_two_keys_per_concept() {
                     && matches!(
                         &triple.object,
                         eg_rdf::oxrdf::Term::NamedNode(n)
-                            if n.as_str() == &format!("{EX}BlockingKeySet")
+                            if n.as_str() == format!("{EX}BlockingKeySet")
                     )
             }),
             "{set} is a blocking key set"
@@ -76,7 +76,7 @@ fn blocking_key_fixture_parses_and_lists_two_keys_per_concept() {
                         && matches!(
                             &triple.object,
                             eg_rdf::oxrdf::Term::NamedNode(n)
-                                if n.as_str() == &format!("{EX}BlockingKey")
+                                if n.as_str() == format!("{EX}BlockingKey")
                         )
                 }),
                 "key {key_node} is typed BlockingKey"

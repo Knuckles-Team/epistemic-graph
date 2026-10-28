@@ -112,7 +112,7 @@ fn finance_method_terms_and_shape() {
     ));
 
     // The registered shapes companion carries the algorithm shape.
-    let shape_triples = parse_turtle(&shapes).expect("the registered finance shapes parse");
+    let shape_triples = parse_turtle(shapes).expect("the registered finance shapes parse");
     assert!(has_iri(
         &shape_triples,
         &format!("{KG}FinanceAlgorithmShape"),
@@ -125,12 +125,12 @@ fn finance_method_terms_and_shape() {
     let complete = "@prefix : <http://knuckles.team/kg#> .
         :method a :FinanceAlgorithm ; :appliesToAnalysis :riskAnalysis ; :appliesToInstrumentType :Position .
         :riskAnalysis a :AnalysisType .";
-    let report = eg_shacl::validate_turtle(&shapes, complete).expect("validation runs");
+    let report = eg_shacl::validate_turtle(shapes, complete).expect("validation runs");
     assert!(report.conforms, "a complete algorithm conforms: {report:?}");
 
     let missing_analysis = "@prefix : <http://knuckles.team/kg#> .
         :method a :FinanceAlgorithm ; :appliesToInstrumentType :Position .";
-    let report = eg_shacl::validate_turtle(&shapes, missing_analysis).expect("validation runs");
+    let report = eg_shacl::validate_turtle(shapes, missing_analysis).expect("validation runs");
     assert!(
         !report.conforms,
         "an algorithm naming no analysis type violates the shape: {report:?}"
@@ -138,7 +138,7 @@ fn finance_method_terms_and_shape() {
 
     let missing_instrument = "@prefix : <http://knuckles.team/kg#> .
         :method a :FinanceAlgorithm ; :appliesToAnalysis :riskAnalysis .";
-    let report = eg_shacl::validate_turtle(&shapes, missing_instrument).expect("validation runs");
+    let report = eg_shacl::validate_turtle(shapes, missing_instrument).expect("validation runs");
     assert!(
         !report.conforms,
         "an algorithm naming no instrument or position class violates the shape: {report:?}"

@@ -410,7 +410,7 @@ fn reject_pack_or_ingestion_approval_claim(
         ("shapes", source.shapes_ttl.as_deref()),
         ("ontology", source.ontology_ttl.as_deref()),
     ] {
-        if document.is_some_and(|text| document_claims_virtual_graph_approval(text)) {
+        if document.is_some_and(document_claims_virtual_graph_approval) {
             return Err(format!(
                 "APPROVAL_CLAIM_REFUSED: {label} document of '{source_id}' asserts \
                  vg:approved true; approval is an operator assertion and may not ride a \
@@ -466,7 +466,7 @@ fn document_claims_virtual_graph_approval(document: &str) -> bool {
                     next_line_first_term(&lines[index + 1..])
                 } else {
                     Some(
-                        rest.split(|c| c == ';' || c == '.')
+                        rest.split([';', '.'])
                             .next()
                             .unwrap_or("")
                             .trim(),
@@ -516,7 +516,7 @@ fn next_line_first_term<'a>(lines: &'a [&'a str]) -> Option<&'a str> {
             continue;
         }
         return Some(
-            text.split(|c| c == ';' || c == '.')
+            text.split([';', '.'])
                 .next()
                 .unwrap_or("")
                 .trim(),

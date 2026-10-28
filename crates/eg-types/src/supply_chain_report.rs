@@ -234,7 +234,7 @@ pub fn assemble_supply_chain_report(
     let service_impacts = by_service
         .into_iter()
         .map(|(service, mut items)| {
-            items.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
+            items.sort_by_key(|item| item.sort_key());
             ServiceImpact { service, items }
         })
         .collect();
@@ -258,7 +258,7 @@ pub fn assemble_supply_chain_report(
         .collect();
 
     let mut abstentions = abstentions.to_vec();
-    abstentions.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
+    abstentions.sort_by_key(|abstention| abstention.sort_key());
 
     Ok(SupplyChainImpactReport {
         service_impacts,

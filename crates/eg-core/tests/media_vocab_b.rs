@@ -88,18 +88,15 @@ fn load_vocabulary() -> Vec<Triple> {
         .into_iter()
         .chain(
             parse_turtle(include_str!("../ontology/retrieval-v1.ttl"))
-                .expect("the retrieval vocabulary parses")
-                .into_iter(),
+                .expect("the retrieval vocabulary parses"),
         )
         .chain(
             parse_turtle(include_str!("../ontology/core-foundation-v1.ttl"))
-                .expect("the core foundation vocabulary parses")
-                .into_iter(),
+                .expect("the core foundation vocabulary parses"),
         )
         .chain(
             parse_turtle(include_str!("../ontology/personal-v1.ttl"))
-                .expect("the personal vocabulary parses")
-                .into_iter(),
+                .expect("the personal vocabulary parses"),
         )
         .collect()
 }
