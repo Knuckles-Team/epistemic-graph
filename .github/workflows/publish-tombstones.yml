@@ -77,7 +77,7 @@ jobs:
     needs: guard
     if: github.repository == 'Knuckles-Team/medulla'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     # id-token is the PyPI trusted-publishing exchange; contents:read is the
     # checkout. No token secret is read by this workflow.
     permissions:
