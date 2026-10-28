@@ -1309,14 +1309,20 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.2",
       "title": "Dispatch handler and result contract disclose the typed NL→UQL model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "32248e14e747",
         "569b1ab507d6",
         "8710a3709c47",
         "f9d6d793d946"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/nl.rs:863",
+        "crates/eg-types/src/nl_query.rs:43",
+        "src/server/tests/nl_explain.rs:122",
+        "src/server/tests/nl_explain.rs:68",
+        "src/server/tests/nl_explain.rs:95"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.2.1",
         "EG-FEDERATED-QUERY-R058.2.2"
@@ -1336,13 +1342,19 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.2.2",
       "title": "Served NL result carries the executed UQL; plan-only is reachable",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "32248e14e747",
         "569b1ab507d6",
         "f9d6d793d946"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/nl_query.rs:43",
+        "src/server/tests/nl_explain.rs:122",
+        "src/server/tests/nl_explain.rs:68",
+        "src/server/tests/nl_explain.rs:95",
+        "tests/test_pb_clients.py:88"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.2.2.1",
         "EG-FEDERATED-QUERY-R058.2.2.2"
@@ -1366,11 +1378,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.2.2.2",
       "title": "Plan-only NL entry point",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "32248e14e747"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/tests/nl_explain.rs:122"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.3",
@@ -1385,7 +1399,7 @@
         "src/server/handlers/query/nl.rs:332",
         "src/server/handlers/query/nl.rs:338",
         "src/server/handlers/query/nl.rs:361",
-        "src/server/tests/nl_explain.rs:147"
+        "src/server/tests/nl_explain.rs:148"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.3.1",
@@ -1414,7 +1428,7 @@
         "a685d96e5de3"
       ],
       "verified_by": [
-        "src/server/tests/nl_explain.rs:147"
+        "src/server/tests/nl_explain.rs:148"
       ]
     },
     {
