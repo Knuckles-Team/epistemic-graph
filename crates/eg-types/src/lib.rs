@@ -42,6 +42,20 @@ pub mod asr_wire;
 pub mod capacity_lease;
 // EG-DURABLE-KERNEL-R076.1 — authoritative scheduler policy data and validation.
 pub mod scheduler_config;
+// EG-INGEST-WORKER-R001.1/.2/.3/.7/.8 — ingest job envelope, lanes, partition key, retry.
+pub mod ingest_job;
+// EG-INGEST-WORKER-R002.1/.2 — induced ontology proposals and admission scores.
+pub mod ontology_proposal;
+// EG-INGEST-WORKER-R003.1 — typed knowledge atoms with mandatory provenance.
+pub mod knowledge_atom;
+// EG-INGEST-WORKER-R701.1 — extracted facts, candidate claims and evidence spans.
+pub mod extracted_fact;
+// EG-INGEST-WORKER-R900.1/R902.1/R903.1/R904.1 — source governance records.
+pub mod source_governance;
+// EG-INGEST-WORKER-R003.7 — normalized documents and accepted/quarantined outcomes.
+pub mod source_document;
+// EG-INGEST-WORKER-R003.13 — source transcript threads and messages.
+pub mod source_transcript;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
