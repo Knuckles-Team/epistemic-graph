@@ -506,7 +506,7 @@
         "0c01d687aba9",
         "20c64b28144f",
         "4aefb9406e55",
-        "51d84d58e174"
+        "4fac49dd5da2"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:1009",
@@ -535,10 +535,10 @@
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:1077",
-        "tests/shard_open_budget.rs:377",
-        "tests/shard_open_budget.rs:412",
-        "tests/shard_open_budget.rs:431",
-        "tests/shard_open_budget.rs:452"
+        "tests/shard_open_budget.rs:388",
+        "tests/shard_open_budget.rs:423",
+        "tests/shard_open_budget.rs:442",
+        "tests/shard_open_budget.rs:463"
       ]
     },
     {
@@ -547,15 +547,15 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "20c64b28144f",
+        "4fac49dd5da2",
         "51d84d58e174",
         "ace497f2c64a",
-        "cdf5f87230de",
-        "d22dec0c32ed"
+        "cdf5f87230de"
       ],
       "verified_by": [
-        "tests/shard_open_budget.rs:359",
-        "tests/shard_open_budget.rs:369",
-        "tests/shard_open_budget.rs:479"
+        "tests/shard_open_budget.rs:370",
+        "tests/shard_open_budget.rs:380",
+        "tests/shard_open_budget.rs:490"
       ]
     },
     {
@@ -2478,7 +2478,7 @@
       "verified_by": [
         "src/server/handlers/jobs/graph_tests.rs:145",
         "src/server/handlers/jobs/graph_tests.rs:170",
-        "src/server/handlers/jobs/graph_tests.rs:245"
+        "src/server/handlers/jobs/graph_tests.rs:270"
       ]
     },
     {

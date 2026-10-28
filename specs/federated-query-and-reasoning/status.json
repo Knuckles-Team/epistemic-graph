@@ -4597,14 +4597,22 @@
       "title": "Compact graph artifact",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-ann/src/hnsw/artifact.rs:835",
+        "crates/eg-ann/src/hnsw/artifact.rs:858"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R040.5.3",
       "title": "Revision-bound regeneration and selective rescore",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-ann/src/hnsw/artifact.rs:1020",
+        "crates/eg-ann/src/hnsw/artifact.rs:905",
+        "crates/eg-ann/src/hnsw/artifact.rs:951",
+        "crates/eg-ann/src/hnsw/artifact.rs:982"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R040.5.4",

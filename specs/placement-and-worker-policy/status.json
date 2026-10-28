@@ -423,7 +423,9 @@
       "title": "Plain labels are accepted and stored opaque",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/jobs/graph_tests.rs:248"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R003.6",
