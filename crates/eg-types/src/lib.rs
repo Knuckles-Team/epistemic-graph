@@ -139,6 +139,30 @@ pub mod gramps_cutover_gate;
 // read. Pure data; real discovery, the copy pipeline, and EXPLAIN's
 // per-fragment reporting are later children.
 pub mod metadata_acceleration;
+// EG-UNIFIED-DATA-PLANE-R040.1/.2 — per-modality embedding promotion gate.
+pub mod embedding_promotion;
+// EG-UNIFIED-DATA-PLANE-R038.6.1 — read-only property-graph view over mappings.
+pub mod virtual_graph_view;
+// EG-UNIFIED-DATA-PLANE-R761.1 — column profile record.
+pub mod profile;
+// EG-UNIFIED-DATA-PLANE-R762.1 — quality rules and scores.
+pub mod quality;
+// EG-UNIFIED-DATA-PLANE-R702 and R763.1 — dataset and column lineage.
+pub mod lineage;
+// EG-UNIFIED-DATA-PLANE-R764.1/.2 — asset usage and catalog search hits.
+pub mod asset_usage;
+// EG-ENGINE-PARITY-R020.1 — relational engine capability report.
+pub mod engine_capabilities;
+// EG-UNIFIED-DATA-PLANE-R700 — governed action specs and runs.
+pub mod action_spec;
+// EG-UNIFIED-DATA-PLANE-R701 — standards, cohorts, drift and consolidation.
+pub mod standards_drift;
+// EG-UNIFIED-DATA-PLANE-R030.2/.3/.700 — blocking, Fellegi-Sunter scoring,
+// approval and identity evidence over entity link proposals.
+pub mod entity_resolution;
+// EG-UNIFIED-DATA-PLANE-R750.750-752 — run audit rows, tool calls and the
+// scoped conversation-history step store.
+pub mod run_history;
 // EG-UNIFIED-DATA-PLANE-R027.1 — typed Postgres compatibility-feature
 // inventory and fix-proof shape, refusing a fix recorded without a complete
 // captured-traffic/failing-test/passing-test proof. Pure data;
