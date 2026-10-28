@@ -1,5 +1,5 @@
 // Package epgthin is a DELIBERATELY THIN Go client (CONCEPT:EG-328) for the
-// epistemic-graph Program-B engine Methods that had no client surface: the native
+// Medulla Program-B engine Methods that had no client surface: the native
 // broker + append-log streams (EG-275..284/314), RBAC admin (EG-092), online
 // backup/restore (EG-090), and NL->query (EG-080).
 //
@@ -41,7 +41,7 @@ import (
 
 const maxResponseBytes = 64 * 1024 * 1024
 
-// Client is a thin, single-connection epistemic-graph client. Safe for sequential use;
+// Client is a thin, single-connection Medulla client. Safe for sequential use;
 // wrap calls with your own mutex for concurrent callers (the transport itself serializes
 // the write + read below).
 type Client struct {
@@ -297,7 +297,7 @@ func (c *Client) sendWithIdempotency(method string, params any, graph, idempoten
 	}
 	bodySize := binary.BigEndian.Uint32(lenBuf[:])
 	if bodySize == 0 || bodySize > maxResponseBytes {
-		return nil, fmt.Errorf("epistemic-graph response exceeded the resource limit")
+		return nil, fmt.Errorf("medulla response exceeded the resource limit")
 	}
 	body := make([]byte, bodySize)
 	if _, err := io.ReadFull(c.conn, body); err != nil {
@@ -312,10 +312,10 @@ func (c *Client) sendWithIdempotency(method string, params any, graph, idempoten
 		return nil, err
 	}
 	if resp.ID != id {
-		return nil, fmt.Errorf("epistemic-graph response correlation id mismatch")
+		return nil, fmt.Errorf("medulla response correlation id mismatch")
 	}
 	if resp.Error != "" {
-		return nil, fmt.Errorf("epistemic-graph: %s", resp.Error)
+		return nil, fmt.Errorf("medulla: %s", resp.Error)
 	}
 	// Compact result: a top-level msgpack bin is a second Raw layer.
 	if b, ok := resp.Result.([]byte); ok {
