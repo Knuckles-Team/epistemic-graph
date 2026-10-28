@@ -183,9 +183,9 @@ fn premises_record_comparisons_order_retained_set_and_revisions() {
         .filter(|p| p.fact.starts_with("answer_global_order:"))
         .collect();
     assert_eq!(order.len(), 1, "one premise for the global order");
-    assert!(order[0]
-        .fact
-        .starts_with("answer_global_order:order=c,a,d,b;tie_rule=lowest_candidate_id;retained=c,a;"));
+    assert!(order[0].fact.starts_with(
+        "answer_global_order:order=c,a,d,b;tie_rule=lowest_candidate_id;retained=c,a;"
+    ));
     assert!(order[0].fact.ends_with(&ranking.ranking_digest));
     let revisions: Vec<(&str, &str)> = premises
         .iter()

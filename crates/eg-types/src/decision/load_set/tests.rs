@@ -40,7 +40,10 @@ fn load_set_round_trips() {
         }],
     };
     let value = serde_json::to_value(&answer).unwrap();
-    assert_eq!(serde_json::from_value::<LoadSetAnswer>(value).unwrap(), answer);
+    assert_eq!(
+        serde_json::from_value::<LoadSetAnswer>(value).unwrap(),
+        answer
+    );
     assert_eq!(
         serde_json::to_value(crate::decision::statistical::QuestionKind::LoadSet).unwrap(),
         "load_set"

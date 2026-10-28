@@ -37,10 +37,7 @@ pub struct LoadSetQuestion {
     pub job_embedding: Vec<f32>,
     #[serde(default)]
     pub required_capabilities: Vec<String>,
-    #[serde(
-        default = "default_max_tools",
-        deserialize_with = "bounded_max_tools"
-    )]
+    #[serde(default = "default_max_tools", deserialize_with = "bounded_max_tools")]
     pub max_tools: u16,
     #[serde(default = "default_max_agents")]
     pub max_agents: u16,

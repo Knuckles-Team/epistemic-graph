@@ -42,7 +42,10 @@ fn round_types_round_trip() {
     let defaults = EvolutionDefaults::default();
     assert_eq!(defaults.rounds, 1);
     assert_eq!(
-        (defaults.flip_fraction.numerator(), defaults.flip_fraction.denominator()),
+        (
+            defaults.flip_fraction.numerator(),
+            defaults.flip_fraction.denominator()
+        ),
         (1, 2)
     );
     let allocation = StageAllocation {
@@ -56,9 +59,12 @@ fn round_types_round_trip() {
     };
     let value = serde_json::to_value((&prediction(), &defaults, &allocation, &budget)).unwrap();
     assert_eq!(
-        serde_json::from_value::<(PredictionDeclaration, EvolutionDefaults, StageAllocation, RunBudget)>(
-            value
-        )
+        serde_json::from_value::<(
+            PredictionDeclaration,
+            EvolutionDefaults,
+            StageAllocation,
+            RunBudget
+        )>(value)
         .unwrap(),
         (prediction(), defaults, allocation, budget)
     );

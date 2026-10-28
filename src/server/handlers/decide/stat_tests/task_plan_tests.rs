@@ -258,15 +258,27 @@ async fn decide_routes_task_plan_with_calls() {
     let plan = record.task_plan.as_ref().unwrap();
     let join = plan.tasks.iter().find(|t| t.task_id == "join").unwrap();
     let call = join.call.as_ref().unwrap();
-    assert_eq!((call.server.as_str(), call.tool.as_str()), ("github", "create_issue"));
+    assert_eq!(
+        (call.server.as_str(), call.tool.as_str()),
+        ("github", "create_issue")
+    );
     assert_eq!(
         call.arguments["body"],
         serde_json::json!({ "$ref": "steps.c.output.summary" })
     );
-    assert!(plan.tasks.iter().filter(|t| t.task_id != "join").all(|t| t.call.is_none()));
+    assert!(plan
+        .tasks
+        .iter()
+        .filter(|t| t.task_id != "join")
+        .all(|t| t.call.is_none()));
     let mut request = task_request(&pin);
     with_call(&mut request, "steps.b.output");
-    assert_invalid(&h, request, "binding_not_dependency: task=join pointer=/body").await;
+    assert_invalid(
+        &h,
+        request,
+        "binding_not_dependency: task=join pointer=/body",
+    )
+    .await;
 }
 
 // spec: EG-DECISION-ENGINE-R134.111.11

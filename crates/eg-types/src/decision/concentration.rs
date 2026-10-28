@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 fn positive<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
     let value = u32::deserialize(deserializer)?;
     if value == 0 {
-        return Err(serde::de::Error::custom("concentration bounds are positive"));
+        return Err(serde::de::Error::custom(
+            "concentration bounds are positive",
+        ));
     }
     Ok(value)
 }

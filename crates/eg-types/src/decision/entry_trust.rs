@@ -98,7 +98,10 @@ fn poison_check(
 
 /// The `tier_order` default: an entry below the strongest clean tier on its
 /// key is admitted only when it agrees with that tier's value.
-fn tier_order(entry: &RetrievedEntry, strongest: &BTreeMap<FactKey<'_>, (TrustTier, BTreeSet<&str>)>) -> bool {
+fn tier_order(
+    entry: &RetrievedEntry,
+    strongest: &BTreeMap<FactKey<'_>, (TrustTier, BTreeSet<&str>)>,
+) -> bool {
     let key = (entry.subject.as_str(), entry.fact_key.as_str());
     strongest.get(&key).is_none_or(|(tier, values)| {
         entry.trust.tier == *tier || values.contains(entry.value.as_str())
@@ -148,8 +151,12 @@ pub fn admit_entries(entries: &[RetrievedEntry], policy: &EntryTrustPolicy) -> E
             admission.refused.push(refuse(entry, EntryCheck::TierOrder));
         }
     }
-    admission.admitted.sort_by(|a, b| a.entry_id.cmp(&b.entry_id));
-    admission.refused.sort_by(|a, b| a.entry_id.cmp(&b.entry_id));
+    admission
+        .admitted
+        .sort_by(|a, b| a.entry_id.cmp(&b.entry_id));
+    admission
+        .refused
+        .sort_by(|a, b| a.entry_id.cmp(&b.entry_id));
     admission
 }
 

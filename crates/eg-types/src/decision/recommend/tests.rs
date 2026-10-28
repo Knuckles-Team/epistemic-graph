@@ -37,8 +37,14 @@ fn request_round_trips() {
         }],
     };
     let value = serde_json::to_value(&answer).unwrap();
-    assert_eq!(value["items"][0]["semantic_id"]["codes"], serde_json::json!([1, 2, 3, 255]));
-    assert_eq!(serde_json::from_value::<RecommendAnswerV1>(value).unwrap(), answer);
+    assert_eq!(
+        value["items"][0]["semantic_id"]["codes"],
+        serde_json::json!([1, 2, 3, 255])
+    );
+    assert_eq!(
+        serde_json::from_value::<RecommendAnswerV1>(value).unwrap(),
+        answer
+    );
     assert_eq!(
         serde_json::to_value(crate::decision::statistical::QuestionKind::ItemRecommendation)
             .unwrap(),

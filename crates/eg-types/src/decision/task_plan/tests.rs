@@ -303,7 +303,10 @@ fn tool_step_round_trips_with_literals_and_bindings() {
     });
     let proposal = mixed(arguments.clone());
     let wire = serde_json::to_value(&proposal).unwrap();
-    assert!(wire["tasks"][0].get("call").is_none(), "prompt step keeps its form");
+    assert!(
+        wire["tasks"][0].get("call").is_none(),
+        "prompt step keeps its form"
+    );
     assert_eq!(
         serde_json::from_value::<TaskPlanProposal>(wire).unwrap(),
         proposal
@@ -372,9 +375,11 @@ fn argument_bytes(arguments: &serde_json::Value) -> usize {
 #[test]
 fn binding_bounds() {
     assert!(plan_explicit_tasks(&mixed(bound_arguments(MAX_BINDINGS_PER_CALL, 0))).is_ok());
-    assert!(plan_explicit_tasks(&mixed(bound_arguments(MAX_BINDINGS_PER_CALL + 1, 0)))
-        .unwrap_err()
-        .starts_with("call_bounds"));
+    assert!(
+        plan_explicit_tasks(&mixed(bound_arguments(MAX_BINDINGS_PER_CALL + 1, 0)))
+            .unwrap_err()
+            .starts_with("call_bounds")
+    );
     let base = argument_bytes(&bound_arguments(0, 0));
     let exact = bound_arguments(0, MAX_CALL_ARGUMENT_BYTES - base);
     assert_eq!(argument_bytes(&exact), MAX_CALL_ARGUMENT_BYTES);
@@ -388,17 +393,21 @@ fn binding_bounds() {
         serde_json::json!({ "x": reference(&format!("steps.a.output.{segments}")) })
     };
     assert!(plan_explicit_tasks(&mixed(path(MAX_BINDING_PATH_SEGMENTS))).is_ok());
-    assert!(plan_explicit_tasks(&mixed(path(MAX_BINDING_PATH_SEGMENTS + 1)))
-        .unwrap_err()
-        .starts_with("binding_bad_path"));
+    assert!(
+        plan_explicit_tasks(&mixed(path(MAX_BINDING_PATH_SEGMENTS + 1)))
+            .unwrap_err()
+            .starts_with("binding_bad_path")
+    );
     let long = |len: usize| {
         let key = "k".repeat(len - "steps.a.output.".len());
         serde_json::json!({ "x": reference(&format!("steps.a.output.{key}")) })
     };
     assert!(plan_explicit_tasks(&mixed(long(MAX_BINDING_PATH_BYTES))).is_ok());
-    assert!(plan_explicit_tasks(&mixed(long(MAX_BINDING_PATH_BYTES + 1)))
-        .unwrap_err()
-        .starts_with("binding_bad_path"));
+    assert!(
+        plan_explicit_tasks(&mixed(long(MAX_BINDING_PATH_BYTES + 1)))
+            .unwrap_err()
+            .starts_with("binding_bad_path")
+    );
     let tools = TaskPlanProposal {
         tasks: BoundedVec::new(
             (0..MAX_TOOL_STEPS)
@@ -476,9 +485,16 @@ fn refuses_each_binding_defect() {
     // A reference to a downstream task closes a cycle through `depends_on`.
     let mut downstream = mixed(serde_json::json!({}));
     let mut tasks = downstream.tasks.as_slice().to_vec();
-    tasks[0] = tool("a", &[], serde_json::json!({ "y": reference("steps.b.output") }));
+    tasks[0] = tool(
+        "a",
+        &[],
+        serde_json::json!({ "y": reference("steps.b.output") }),
+    );
     downstream.tasks = BoundedVec::new(tasks).unwrap();
-    assert_eq!(binding_refusal(downstream), "binding_cycle: task=a pointer=/y");
+    assert_eq!(
+        binding_refusal(downstream),
+        "binding_cycle: task=a pointer=/y"
+    );
     for call in [
         TaskPlanCall {
             server: String::new(),

@@ -39,8 +39,8 @@ fn policy_round_trips() {
     let wire = serde_json::to_value(&fact).unwrap();
     assert_eq!(wire["status"], "shipped");
     assert_eq!(serde_json::from_value::<EditFact>(wire).unwrap(), fact);
-    let verdict = concentration_verdict(&[], &edit("e1", 2, EditStatus::Proposed), Some(&policy()))
-        .unwrap();
+    let verdict =
+        concentration_verdict(&[], &edit("e1", 2, EditStatus::Proposed), Some(&policy())).unwrap();
     let wire = serde_json::to_value(&verdict).unwrap();
     assert_eq!(wire["action"], "keep");
     assert_eq!(
@@ -61,14 +61,27 @@ fn third_edit_in_window_reverts_and_two_keep() {
         edit("e2", 2, EditStatus::Shipped),
         edit("e3", 3, EditStatus::Shipped),
     ];
-    let third = concentration_verdict(&facts, &edit("e4", 4, EditStatus::Proposed), Some(&policy()))
-        .unwrap();
+    let third = concentration_verdict(
+        &facts,
+        &edit("e4", 4, EditStatus::Proposed),
+        Some(&policy()),
+    )
+    .unwrap();
     assert_eq!(
-        (third.count, third.first_round, third.last_round, third.action),
+        (
+            third.count,
+            third.first_round,
+            third.last_round,
+            third.action
+        ),
         (3, 2, 4, ConcentrationAction::Revert)
     );
-    let two = concentration_verdict(&facts[..1], &edit("e4", 4, EditStatus::Proposed), Some(&policy()))
-        .unwrap();
+    let two = concentration_verdict(
+        &facts[..1],
+        &edit("e4", 4, EditStatus::Proposed),
+        Some(&policy()),
+    )
+    .unwrap();
     assert_eq!((two.count, two.action), (2, ConcentrationAction::Keep));
     // Outside the window, reverted edits and other dimensions do not count.
     let mut other = edit("o", 3, EditStatus::Shipped);
@@ -79,8 +92,12 @@ fn third_edit_in_window_reverts_and_two_keep() {
         other,
         edit("e3", 3, EditStatus::Shipped),
     ];
-    let kept = concentration_verdict(&mixed, &edit("e4", 4, EditStatus::Proposed), Some(&policy()))
-        .unwrap();
+    let kept = concentration_verdict(
+        &mixed,
+        &edit("e4", 4, EditStatus::Proposed),
+        Some(&policy()),
+    )
+    .unwrap();
     assert_eq!((kept.count, kept.first_round), (2, 3));
     assert_eq!(kept.action, ConcentrationAction::Keep);
 }

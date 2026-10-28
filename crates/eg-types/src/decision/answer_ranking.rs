@@ -219,7 +219,11 @@ fn order(request: &AnswerRankingRequest) -> Vec<RankedAnswer> {
     ranked
 }
 
-fn revisions(request: &AnswerRankingRequest, ranked: &[RankedAnswer], k: usize) -> Vec<RevisionAction> {
+fn revisions(
+    request: &AnswerRankingRequest,
+    ranked: &[RankedAnswer],
+    k: usize,
+) -> Vec<RevisionAction> {
     let top = &ranked[0].candidate_id;
     ranked[k..]
         .iter()

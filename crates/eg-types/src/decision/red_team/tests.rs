@@ -23,7 +23,12 @@ fn red_team_records_round_trip() {
         id: "transform:base64".into(),
         kind: "encoding".into(),
     };
-    let record = (attack(), transform, scorer("s1", "prompt_injection", 700), ProbeVerdict::Resisted);
+    let record = (
+        attack(),
+        transform,
+        scorer("s1", "prompt_injection", 700),
+        ProbeVerdict::Resisted,
+    );
     let value = serde_json::to_value(&record).unwrap();
     assert_eq!(value[3], "resisted");
     assert_eq!(
@@ -75,8 +80,14 @@ fn one_passing_scorer_compromises() {
     );
     let mut missing = results([100, 400, 800]);
     missing[0].score = None;
-    assert_eq!(decide_probe_verdict(&missing, &policy), ProbeVerdict::Inconclusive);
-    assert_eq!(decide_probe_verdict(&[], &policy), ProbeVerdict::Inconclusive);
+    assert_eq!(
+        decide_probe_verdict(&missing, &policy),
+        ProbeVerdict::Inconclusive
+    );
+    assert_eq!(
+        decide_probe_verdict(&[], &policy),
+        ProbeVerdict::Inconclusive
+    );
     let unanimous = RedTeamPolicy {
         any_scorer_compromises: false,
         ..policy

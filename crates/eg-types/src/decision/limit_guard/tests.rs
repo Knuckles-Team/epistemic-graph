@@ -37,7 +37,10 @@ fn limit_types_round_trip() {
     let rule = rules().remove(2);
     let value = serde_json::to_value(&rule).unwrap();
     assert_eq!(value["metric"], "sector_concentration");
-    assert_eq!(serde_json::from_value::<LimitRule>(value.clone()).unwrap(), rule);
+    assert_eq!(
+        serde_json::from_value::<LimitRule>(value.clone()).unwrap(),
+        rule
+    );
     let mut unknown = value;
     unknown["metric"] = serde_json::json!("leverage");
     assert!(serde_json::from_value::<LimitRule>(unknown).is_err());
@@ -48,7 +51,10 @@ fn limit_types_round_trip() {
         signal_iri: "urn:signal:order-1".into(),
     };
     let value = serde_json::to_value(&breach).unwrap();
-    assert_eq!(serde_json::from_value::<LimitBreach>(value).unwrap(), breach);
+    assert_eq!(
+        serde_json::from_value::<LimitBreach>(value).unwrap(),
+        breach
+    );
 }
 
 // spec: EG-DECISION-ENGINE-R131.2
@@ -73,10 +79,15 @@ fn check_returns_all_breaches() {
             .iter()
             .map(|b| (b.rule_id.as_str(), b.observed, b.bound))
             .collect::<Vec<_>>(),
-        [("max-position", 12_000, 10_000), ("max-sector", 3_000, 2_500)],
+        [
+            ("max-position", 12_000, 10_000),
+            ("max-sector", 3_000, 2_500)
+        ],
         "two breaches in rule order; the loosening drawdown bound is ignored"
     );
-    assert!(breaches.iter().all(|b| b.signal_iri == "urn:signal:order-1"));
+    assert!(breaches
+        .iter()
+        .all(|b| b.signal_iri == "urn:signal:order-1"));
     let tightened = GuardedAction {
         requested_bounds: vec![RequestedBound {
             rule_id: "max-drawdown".into(),

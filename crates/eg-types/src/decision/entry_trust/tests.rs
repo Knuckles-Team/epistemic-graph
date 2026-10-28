@@ -26,11 +26,16 @@ fn entry_trust_round_trips() {
     let trust = entry("e1", TrustTier::Attested, "8", "sha256:a").trust;
     let value = serde_json::to_value(&trust).unwrap();
     assert_eq!(value["tier"], "attested");
-    assert_eq!(serde_json::from_value::<EntryTrust>(value.clone()).unwrap(), trust);
+    assert_eq!(
+        serde_json::from_value::<EntryTrust>(value.clone()).unwrap(),
+        trust
+    );
     let mut unknown = value;
     unknown["tier"] = serde_json::json!("trusted");
     assert!(serde_json::from_value::<EntryTrust>(unknown).is_err());
-    assert!(TrustTier::Verified > TrustTier::Attested && TrustTier::Attested > TrustTier::Unverified);
+    assert!(
+        TrustTier::Verified > TrustTier::Attested && TrustTier::Attested > TrustTier::Unverified
+    );
 }
 
 // spec: EG-DECISION-ENGINE-R132.2

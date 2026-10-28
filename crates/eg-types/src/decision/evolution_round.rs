@@ -94,7 +94,7 @@ pub fn decide_round_verdict(
     let flipped = |id: &str, to_pass: bool| {
         outcomes
             .iter()
-            .any(|o| o.task_id == id && !o.passed_before == to_pass && o.passed_after == to_pass)
+            .any(|o| o.task_id == id && o.passed_before != to_pass && o.passed_after == to_pass)
     };
     let declared: Vec<(&str, bool)> = prediction
         .fixes
