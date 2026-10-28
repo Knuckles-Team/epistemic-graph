@@ -143,17 +143,17 @@ def test_runtime_svg_labels_match_mermaid_source() -> None:
     mermaid = RUNTIME_DIAGRAM.with_suffix(".mmd").read_text(encoding="utf-8")
 
     for label in (
-        "Arbora web UI",
+        "Overstory web UI",
         "browser experience",
-        "Agent Terminal UI",
-        "Geniusbot",
+        "Tuig",
+        "Axil",
         "Messaging",
         "Arbora",
         "governed runtime gateway",
-        "Agent Utilities",
+        "Meristem",
         "agent control plane",
-        "Epistemic Graph",
-        "Agent Connector SDK",
+        "Medulla",
+        "Scion SDK",
         "typed source integration",
     ):
         assert label in text

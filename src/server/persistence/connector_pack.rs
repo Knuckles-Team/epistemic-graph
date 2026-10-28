@@ -307,6 +307,7 @@ impl AgentLibraryStore {
         let media_type = entry
             .attributes
             .get(eg_types::agent_component::COMPONENT_MEDIA_TYPE_ATTRIBUTE)
+            .or_else(|| entry.attributes.get("media_type"))
             .cloned()
             .unwrap_or_else(|| eg_types::agent_component::DEFAULT_COMPONENT_MEDIA_TYPE.to_string());
         Ok(ConnectorPackContentPointer {

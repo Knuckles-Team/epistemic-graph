@@ -86,7 +86,7 @@ where
         let cut_weight = connection[sink];
         if cut_weight < best_weight
             || (cut_weight.total_cmp(&best_weight).is_eq()
-                && best_side.as_ref().map_or(true, |current| side < *current))
+                && best_side.as_ref().is_none_or(|current| side < *current))
         {
             best_weight = cut_weight;
             best_side = Some(side);
