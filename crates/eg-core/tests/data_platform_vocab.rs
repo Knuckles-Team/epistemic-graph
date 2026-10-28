@@ -944,3 +944,14 @@ fn mapping_fixture_kafka_validates() {
         ],
     );
 }
+
+// spec: EG-DATAPLAT-VOCAB-R006.6
+#[test]
+fn mapping_fixture_openbao_validates() {
+    let triples =
+        validate_fixture(include_str!("../ontology/fixtures/data_platform/openbao.ttl"));
+    assert_via_operations(
+        &triples,
+        &["openbao_mcp_sys:get_mounts", "openbao_mcp_logical:list"],
+    );
+}
