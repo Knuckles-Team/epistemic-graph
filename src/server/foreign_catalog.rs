@@ -57,6 +57,8 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use eg_plan::federation::{ForeignSourceRegistry, SharedForeignSource};
+#[cfg(feature = "federation")]
+use eg_types::connector_pack::PackSourceKind;
 use eg_types::connector_pack::{
     ConnectorPackSourceApprovalResult, PackSourceApproval, PackSourceRegistration,
 };
@@ -281,6 +283,14 @@ impl ForeignSourceCatalog {
             );
         }
 
+        #[cfg(feature = "federation")]
+        if !approved_operation_matches(&descriptor.name, &descriptor.spec, &receipt.registration) {
+            return Err(
+                "SOURCE_BINDING_MISMATCH: approved operation differs from registered source"
+                    .to_string(),
+            );
+        }
+
         // The durable member/head/body and the exact stored registration are
         // authoritative. The receipt is only the candidate reference.
         store.verify_connector_pack_source_approval(receipt)?;
@@ -498,6 +508,40 @@ fn verify_outbound_before_register(spec: &ForeignSourceSpec) -> Result<(), Strin
     }
     let _ = spec;
     Ok(())
+}
+
+/// Compare the approved operation to the catalog spec before binding host data.
+/// The registration is authenticated separately against the durable pack head.
+#[cfg(feature = "federation")]
+fn approved_operation_matches(
+    name: &str,
+    spec: &ForeignSourceSpec,
+    registration: &PackSourceRegistration,
+) -> bool {
+    if name != registration.source_id || name.is_empty() || registration.operation.is_empty() {
+        return false;
+    }
+    match (registration.source_kind, spec) {
+        (PackSourceKind::McpTool, ForeignSourceSpec::Mcp { server, tool, .. }) => {
+            server == registration.connector.as_str() && tool == &registration.operation
+        }
+        (PackSourceKind::HttpEndpoint, ForeignSourceSpec::Api { operation, .. }) => {
+            operation == &registration.operation
+        }
+        (
+            PackSourceKind::GraphqlQuery,
+            ForeignSourceSpec::GraphQl {
+                endpoint,
+                operation,
+                ..
+            },
+        ) => endpoint == &registration.source_id && operation == &registration.operation,
+        (PackSourceKind::A2aSkill, ForeignSourceSpec::A2a { agent, skill, .. }) => {
+            agent == registration.connector.as_str() && skill == &registration.operation
+        }
+        // A Named source does not carry an independently checkable operation.
+        _ => false,
+    }
 }
 
 /// Length-prefixed SHA-256 over the owner scope and every resolved `(name, spec)`.

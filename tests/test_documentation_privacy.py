@@ -151,3 +151,32 @@ def test_live_scan_of_the_tracked_tree_reports_zero_findings() -> None:
     documented examples or ordinary identifiers/constants may register as a
     finding, or the gate would false-positive on its own documentation."""
     assert privacy.scan(ROOT) == []
+
+
+def test_public_platform_author_does_not_erase_real_identities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    name = "\u0043odex"
+    values = {"user.name": name, "user.email": "noreply@openai.com"}
+    monkeypatch.setattr(
+        privacy.subprocess,
+        "run",
+        lambda command, **_kwargs: SimpleNamespace(stdout=values[command[-1]] + "\n"),
+    )
+    assert privacy._git_config_identifiers(tmp_path) == set()
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_REMOTE", raising=False)
+    monkeypatch.delenv("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(privacy, "_os_identifier_candidates", lambda: {"private-host"})
+    monkeypatch.setattr(privacy, "_git_common_dir_identifiers", lambda _root: set())
+    assert "private-host" in privacy.derive_local_identifiers(tmp_path)
+    values["user.email"] = "private.person@example.invalid"
+    assert privacy._git_config_identifiers(tmp_path) == {
+        name,
+        "private.person@example.invalid",
+    }
+    assert privacy.classify_runtime_source_line(
+        f'const OWNER: &str = "{name}";', identifiers=frozenset({name.casefold()})
+    )
