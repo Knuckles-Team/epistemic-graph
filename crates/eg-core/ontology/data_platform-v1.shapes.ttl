@@ -131,5 +131,32 @@ dp:PolicyPathGrantShape a sh:NodeShape ;
     sh:property [ sh:path dp:asOf ] ;
     sh:message "A policy-path grant carries only its policy/path/capability metadata — permissions are scoped to that pair, never flattened onto the policy." .
 
+# Store mapping: the operation a mapping routes reads through may never read a
+# secret value (EG-DATAPLAT-VOCAB-R005.4). The denylist below mirrors
+# `eg_plan::virtual_graph_mapping::REFUSED_VALUE_OPERATIONS` — the engine-side
+# check at mapping-approval time; this shape refuses the same rows at
+# graph-validation time.
+
+dp:StoreMappingShape a sh:NodeShape ;
+    sh:targetClass dp:StoreMapping ;
+    sh:property [ sh:path dp:viaOperation ; sh:datatype xsd:string ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A mapping that routes reads through a secret-value operation is refused: kv read, logical read and unwrap are never mapped (EG-DATAPLAT-VOCAB-R005.4)." ;
+        sh:prefixes dp:DataPlatformPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this dp:viaOperation ?operation .
+                FILTER(?operation IN (
+                    "openbao_mcp_kv:kv2_get",
+                    "openbao_mcp_kv:kv1_get",
+                    "openbao_mcp_logical:read",
+                    "openbao_mcp_logical:unwrap"
+                ))
+            }
+        """ ;
+    ] ;
+    sh:message "A store mapping names the operation its reads route through, and that operation may never read a secret value." .
+
 dp:DataPlatformPrefixes a owl:Ontology ;
     sh:declare [ sh:prefix "dp" ; sh:namespace "http://knuckles.team/kg/data-platform#"^^xsd:anyURI ] .

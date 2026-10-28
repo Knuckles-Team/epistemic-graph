@@ -232,6 +232,40 @@ fn load_data_platform() -> Vec<Triple> {
 }
 
 const DP_SHAPES: &str = include_str!("../ontology/data_platform-v1.shapes.ttl");
+const VG_SHAPES: &str = include_str!("../ontology/virtual_graph-v1.shapes.ttl");
+
+/// One minimal complete store-mapping document with the given `dp:viaOperation`:
+/// a metadata contract, one approved `dp:StoreMapping` onto `dp:SecretPath` and
+/// its one predicate-field pair.
+fn store_mapping_document(via_operation: &str) -> String {
+    format!(
+        r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://example.org/data-platform/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:b8cc56e85870f9307795bd43189dc66c516c662bd1df459a76537c4f1e7f9c44" ;
+    vg:discoveredEntity "logical_paths" ;
+    vg:discoveredField "path" .
+
+ex:mapping a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:SecretPath ;
+    vg:mapsEntity "logical_paths" ;
+    vg:keyField "path" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:pathName ;
+        vg:field "path"
+    ] ;
+    vg:approved true ;
+    dp:viaOperation "{via_operation}" .
+"#
+    )
+}
 
 // spec: EG-DATAPLAT-VOCAB-R002.4
 #[test]
@@ -706,4 +740,38 @@ ex:path a dp:SecretPath ;
             );
         }
     }
+}
+
+// spec: EG-DATAPLAT-VOCAB-R005.4
+#[test]
+fn openbao_value_operation_mapping_refused() {
+    // Every secret-value operation is refused by the StoreMapping denylist.
+    for operation in [
+        "openbao_mcp_kv:kv2_get",
+        "openbao_mcp_kv:kv1_get",
+        "openbao_mcp_logical:read",
+        "openbao_mcp_logical:unwrap",
+    ] {
+        let document = store_mapping_document(operation);
+        let report =
+            validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &document)
+                .expect("the refused mapping parses before validation");
+        assert!(
+            !report.conforms,
+            "a StoreMapping via {operation} must be refused: {:?}",
+            report.results
+        );
+    }
+
+    // A metadata-only openbao operation is not on the denylist: the same
+    // mapping with it conforms.
+    let good = store_mapping_document("openbao_mcp_logical:list");
+    let report =
+        validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &good)
+            .expect("the metadata mapping parses before validation");
+    assert!(
+        report.conforms,
+        "a metadata-only viaOperation must conform: {:?}",
+        report.results
+    );
 }
