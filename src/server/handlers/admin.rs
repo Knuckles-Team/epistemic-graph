@@ -537,7 +537,10 @@ mod agent_library_security_tests {
             publish_key,
         );
         drop(store);
-        state.write().await.agent_library = None;
+        let mut guard = state.write().await;
+        guard.agent_library = None;
+        *guard.agent_library_open.lock() = None;
+        drop(guard);
         let replayed =
             response_write_result(crate::server::dispatch::dispatch(&state, replay_request).await);
         assert!(replayed.replayed);
