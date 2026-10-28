@@ -1326,7 +1326,7 @@ mod tests {
             ),
             (
                 "orchestration",
-                "0bc001c5098354a6f9b6e0fbfd974c0714c00b086536530dd212da694cb07469",
+                "84da4abbeb7415189b568720a9e833675ba427511a78f8cafd79a6c0aa83025a",
             ),
             (
                 "orchestration-shapes",

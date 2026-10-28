@@ -776,7 +776,8 @@ ex:parent a owl:AsymmetricProperty .
         // sub-properties (the shared predicate itself remains unconstrained).
         // +10: SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1),
         // plus one infrastructure ContainerImage → SoftwareComponent edge (R002.2).
-        assert_eq!(composed.ontology.len(), 15_648);
+        // +5: the orchestration handsOffTo property (EG-CQ-ORCH-R006.1).
+        assert_eq!(composed.ontology.len(), 15_653);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology

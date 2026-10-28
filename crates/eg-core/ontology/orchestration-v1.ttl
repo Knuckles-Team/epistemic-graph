@@ -402,6 +402,12 @@
     rdfs:comment "Workflow → the agents/skills it orchestrates." ;
     rdfs:domain :Workflow .
 
+:handsOffTo a owl:ObjectProperty ;
+    rdfs:label "hands off to" ;
+    rdfs:comment "A task step hands execution to the next task step in a workflow." ;
+    rdfs:domain :TaskStep ;
+    rdfs:range :TaskStep .
+
 :presenceStatus a owl:DatatypeProperty ;
     rdfs:label "presence status" ;
     rdfs:comment "CONCEPT:KG-2.141 — a BusAgent's bus presence (online|offline), computed from lastSeen vs a staleness window (ECO-4.84)." ;
