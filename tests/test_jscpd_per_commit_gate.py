@@ -10,10 +10,9 @@ Two wiring facts prove "runs on every commit":
 
 1. The local pre-commit configuration declares the jscpd-differential hook,
    so a developer's committed tree is checked before it reaches a PR.
-2. The hosted `scanner-quality` job in `.github/workflows/ci.yml` runs
-   `check_duplication.py enforce` on every push to `main` and every pull
-   request -- the actual per-commit backstop, since the local hook's
-   `stages: [manual]` means it is not auto-invoked by a bare `git commit`.
+2. The manual gate profile (`scripts/ci_parity.sh`, which runs the
+   `manual` hook stage) runs `check_duplication.py enforce` against a base
+   ref. The hosted advisory scanner job was removed to bound pull-request CI.
 """
 
 from __future__ import annotations
@@ -38,18 +37,22 @@ def test_precommit_config_declares_the_jscpd_differential_hook() -> None:
 
 
 @pytest.mark.spec("EG-DURABLE-KERNEL-R010")
-def test_ci_runs_jscpd_enforce_on_every_push_and_pull_request() -> None:
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    triggers = workflow[True]  # YAML 1.1 parses the bare `on:` key as boolean True
-    assert "push" in triggers and "main" in triggers["push"]["branches"]
-    assert "pull_request" in triggers
-
-    steps = workflow["jobs"]["scanner-quality"]["steps"]
-    enforce_step = next(
-        step
-        for step in steps
-        if "check_duplication.py" in step.get("run", "")
-        and "enforce" in shlex.split(step.get("run", ""), comments=True)
+def test_manual_gate_profile_runs_jscpd_enforce_against_a_base() -> None:
+    config = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())
+    hook = next(
+        hook
+        for repo in config["repos"]
+        for hook in repo.get("hooks", [])
+        if hook["id"] == "jscpd-differential"
     )
-    tokens = shlex.split(enforce_step["run"], comments=True)
-    assert "--base-ref" in tokens
+    assert hook["stages"] == ["manual"]
+    tokens = shlex.split(hook["entry"], comments=True)
+    assert tokens[:2] == ["bash", "-c"]
+    inner = shlex.split(tokens[2], comments=True)
+    assert "scripts/check_duplication.py" in inner and "enforce" in inner
+    assert "--base-ref" in inner
+    parity = (ROOT / "scripts/ci_parity.sh").read_text(encoding="utf-8")
+    assert "--hook-stage manual" in parity
+    # The advisory hosted scanner job was removed (EG-CONTRACT-R053.7).
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    assert "scanner-quality" not in workflow["jobs"]
