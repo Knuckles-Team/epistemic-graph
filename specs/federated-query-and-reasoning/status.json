@@ -1458,12 +1458,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R065",
       "title": "Named UQL sub-plans compile to an ordered plan DAG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
-        "8451d7eecf02"
+        "8451d7eecf02",
+        "a30ed8c4c4bb"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/uql_dag_served.rs:3"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R066",
