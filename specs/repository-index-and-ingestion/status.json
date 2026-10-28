@@ -381,11 +381,14 @@
     {
       "id": "EG-REPO-INGEST-R010",
       "title": "Tree-sitter grammar coverage expands to 18 more languages",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "97239d459287"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/tests/grammar_expansion.rs:206"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R011",
