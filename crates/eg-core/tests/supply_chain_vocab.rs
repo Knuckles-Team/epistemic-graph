@@ -995,3 +995,96 @@ ex:acmeOpportunity a kg:Opportunity ;
         report.results
     );
 }
+
+const INFRA_SHAPES: &str =
+    include_str!("../ontology/infrastructure-v1.shapes.ttl");
+
+const INFRA_DATA_PREFIX: &str = r#"
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/host-limit#> .
+"#;
+
+// spec: EG-SUPPLY-VOCAB-R004.2
+#[test]
+fn host_limit_shape_requires_reading_and_closed_kind() {
+    let shape_triples =
+        parse_turtle(INFRA_SHAPES).expect("the infrastructure shapes parse");
+    assert!(
+        has_iri(
+            &shape_triples,
+            &format!("{INFRA}HostLimitShape"),
+            &format!("{RDF}type"),
+            &format!("{SHACL}NodeShape")
+        ),
+        "HostLimitShape is a node shape"
+    );
+    // A complete row is accepted.
+    let valid = format!(
+        "{INFRA_DATA_PREFIX}
+ex:diskLimit a infra:HostLimit ;
+    infra:limitOf ex:rackHost ;
+    infra:limitKind \"disk\" ;
+    infra:readingValue 1200000000000 ;
+    infra:limitValue 2000000000000 .
+
+ex:rackHost a infra:Host ."
+    );
+    let report =
+        eg_shacl::validate_turtle(INFRA_SHAPES, &valid).expect("valid fixture parses");
+    assert!(report.conforms, "a complete HostLimit row: {:?}", report.results);
+    // A missing limit value is refused.
+    let missing_limit = format!(
+        "{INFRA_DATA_PREFIX}
+ex:diskLimit a infra:HostLimit ;
+    infra:limitOf ex:rackHost ;
+    infra:limitKind \"disk\" ;
+    infra:readingValue 1200000000000 .
+ex:rackHost a infra:Host ."
+    );
+    let report =
+        eg_shacl::validate_turtle(INFRA_SHAPES, &missing_limit).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "a missing limit value must be refused: {:?}",
+        report.results
+    );
+    assert!(
+        report.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("#limitValue>"))
+                && result.constraint_component.ends_with("MinCountConstraintComponent")
+        }),
+        "the refusal lands on the missing limitValue: {:?}",
+        report.results
+    );
+    // An unknown limit kind is refused.
+    let unknown_kind = format!(
+        "{INFRA_DATA_PREFIX}
+ex:diskLimit a infra:HostLimit ;
+    infra:limitOf ex:rackHost ;
+    infra:limitKind \"fan\" ;
+    infra:readingValue 1200000000000 ;
+    infra:limitValue 2000000000000 .
+ex:rackHost a infra:Host ."
+    );
+    let report =
+        eg_shacl::validate_turtle(INFRA_SHAPES, &unknown_kind).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "an unknown limit kind must be refused: {:?}",
+        report.results
+    );
+    assert!(
+        report.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("#limitKind>"))
+                && result.constraint_component.ends_with("InConstraintComponent")
+        }),
+        "the refusal lands on the closed limitKind vocabulary: {:?}",
+        report.results
+    );
+}
