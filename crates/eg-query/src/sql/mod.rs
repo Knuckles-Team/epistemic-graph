@@ -116,6 +116,7 @@ mod udfs;
 mod read_only;
 pub use read_only::require_single_read;
 
+pub use ann::ColumnVectorBinding;
 pub(crate) use ann::{isqrt, metric_to_ann};
 pub use ann_filter::{AnnDeclineReason, AnnQueryShape};
 pub use ann_pushdown::{user_ann_decision, UserAnnDecision, UserAnnPushdown};

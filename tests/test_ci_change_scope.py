@@ -114,6 +114,56 @@ def test_incomplete_diff_runs_code(data: bytes) -> None:
     assert not scope.documentation_diff(data)
 
 
+@pytest.mark.parametrize(
+    ("paths", "selected"),
+    [
+        (["src/lib.rs"], set()),
+        (["crates/eg-query/src/lib.rs"], set()),
+        (["clients/js/index.mjs"], {"clients"}),
+        (["crates/eg-types/src/lib.rs"], {"clients"}),
+        (["crates/eg-asr-whisper/src/lib.rs"], {"whisper"}),
+        (["crates/eg-audio/src/lib.rs"], {"whisper", "tts"}),
+        (["crates/eg-tts-piper/src/lib.rs"], {"tts"}),
+        (["pyproject.toml"], {"packaging"}),
+        (["crates/eg-pyengine/src/lib.rs"], {"packaging"}),
+        (["Cargo.lock"], {"clients", "whisper", "tts", "packaging"}),
+        ([".github/workflows/ci.yml"], {"clients", "whisper", "tts", "packaging"}),
+        (["scripts/ci_change_scope.py"], {"clients", "whisper", "tts", "packaging"}),
+    ],
+)
+def test_path_gates_select_only_the_changed_surfaces(
+    paths: list[str], selected: set[str]
+) -> None:
+    gates = scope.gates_for_paths(paths)
+    assert set(gates) == set(scope.PATH_GATES)
+    assert {gate for gate, on in gates.items() if on} == selected
+
+
+@pytest.mark.parametrize("event", ["push", "workflow_dispatch", "schedule", ""])
+def test_non_pr_events_run_every_path_gate(event: str) -> None:
+    assert all(scope.path_gates(event, "a" * 40, "b" * 40).values())
+
+
+def test_unavailable_history_runs_every_path_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing(*args: object, **kwargs: object) -> None:
+        raise subprocess.CalledProcessError(128, "git")
+
+    monkeypatch.setattr(scope.subprocess, "run", missing)
+    assert all(scope.path_gates("pull_request", "a" * 40, "b" * 40).values())
+    assert all(scope.path_gates("pull_request", "", "b" * 40).values())
+
+
+def test_local_scope_job_publishes_code_and_every_path_gate() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    changes = jobs["changes"]
+    assert "uses" not in changes
+    assert set(changes["outputs"]) == {"code", "full_native", *scope.PATH_GATES}
+    run = changes["steps"][-1]["run"]
+    assert "scripts/ci_change_scope.py --path-gates" in run
+
+
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch", "merge_group", ""])
 def test_non_pr_events_always_run_full_validation(event: str) -> None:
     assert scope.requires_code(event, "a" * 40, "b" * 40)
@@ -153,7 +203,7 @@ def test_complete_git_diff_has_no_api_file_limit(
 
 def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
-    light = jobs["changes"]
+    light = jobs["light-gates"]
     assert light == {
         "uses": CENTRAL_LIGHT_GATES,
         "with": {"runner": CENTRAL_RUNNER},
@@ -169,7 +219,8 @@ def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
     for name in ("Install pinned cargo-deny", "Rust dependency advisory gate"):
         assert security[name]["if"] == "needs.changes.outputs.code != 'false'"
     assert jobs["security"]["if"] == "always()"
-    assert "changes" in jobs["engine-main-wheel"]["needs"]
+    assert jobs["security"]["needs"] == "changes"
+    assert {"light-gates", "changes"} <= set(jobs["engine-main-wheel"]["needs"])
     assert "lint-and-architecture" not in jobs["engine-main-wheel"]["needs"]
 
 
@@ -185,7 +236,7 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
         "gates-whisper",
     ):
         assert jobs[name]["runs-on"] == "ubuntu-24.04"
-        assert jobs[name]["if"] == "needs.changes.outputs.code == 'true'"
+        assert jobs[name]["if"].startswith("needs.changes.outputs.code == 'true' && ")
 
 
 @pytest.mark.parametrize("job_name", ["gates-crates", "gates-storage"])
@@ -196,9 +247,13 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
     assert job["runs-on"] == "ubuntu-24.04"
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
-    assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && 10 || 60 }}"
-    )
+    timeout = "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+    if job_name == "gates-crates":
+        timeout = (
+            "${{ github.event_name == 'pull_request' && "
+            "needs.changes.outputs.full_native != 'true' && 10 || 60 }}"
+        )
+    assert job["timeout-minutes"] == timeout
     installs = [
         step
         for step in job["steps"]
@@ -224,7 +279,7 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
 # spec: EG-CONTRACT-R031.1
 def test_light_runtime_and_spec_checks_are_centralized() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
-    assert jobs["changes"] == {
+    assert jobs["light-gates"] == {
         "uses": CENTRAL_LIGHT_GATES,
         "with": {"runner": CENTRAL_RUNNER},
     }
@@ -601,7 +656,13 @@ def test_split_native_acceptance_preserves_commands_and_release_dependencies(
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs[job_name]
     assert job["needs"] == "changes"
-    assert job["if"] == jobs["gates"]["if"]
+    gate = {"gates-wheel": "packaging", "gates-whisper": "whisper"}[job_name]
+    assert job["if"] == (
+        "needs.changes.outputs.code == 'true' && "
+        "(github.event_name != 'pull_request' || "
+        "needs.changes.outputs.full_native == 'true' || "
+        f"needs.changes.outputs.{gate} == 'true')"
+    )
     assert job["runs-on"] == jobs["gates"]["runs-on"]
     assert job["timeout-minutes"] == jobs["gates"]["timeout-minutes"]
     steps = native_acceptance_steps(job["steps"])

@@ -83,6 +83,8 @@ pub(crate) fn apply_add_edge_row(
 /// same-shaped handles positionally through every one of them.
 pub(crate) struct GraphRowTables<'g> {
     pub(crate) inline_history: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
+    pub(crate) run_checkpoints:
+        ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) current_plans: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) nodes: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) edges:
@@ -131,6 +133,8 @@ impl<'g> GraphRowTables<'g> {
             nodes: member.open_scoped_table(NODES)?,
             inline_history: member
                 .open_scoped_table(super::work_item::inline_history::INLINE_HISTORY)?,
+            run_checkpoints: member
+                .open_scoped_table(super::work_item::checkpoint::RUN_CHECKPOINTS)?,
             current_plans: member
                 .open_scoped_table(super::work_item::current_plan::CURRENT_PLANS)?,
             edges: member.open_scoped_table(EDGES)?,

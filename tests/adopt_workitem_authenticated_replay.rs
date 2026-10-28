@@ -585,6 +585,26 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// Claim a newly admitted run through its authenticated native request path.
+async fn claim_admitted_run(
+    state: &test_support::SharedState,
+    admitted: &SubmitWorkItemResult,
+    request_id: u64,
+    envelope_key: &str,
+    label: &str,
+) -> ClaimWorkItemResult {
+    let mut claim = claim_method(WORKER);
+    if let Method::ClaimWorkItem { request, .. } = &mut claim {
+        request.work_item_id = Some(admitted.work_item_id.clone());
+        request.now_ms = now_secs() * 1000;
+        request.lease_ms = 60_000;
+    }
+    decode_raw(
+        &test_support::dispatch(state, signed_run_request(request_id, claim, envelope_key)).await,
+        label,
+    )
+}
+
 // spec: EG-DURABLE-KERNEL-R028.5
 // spec: EG-DURABLE-KERNEL-R028.5.3
 #[tokio::test]
@@ -603,16 +623,7 @@ async fn current_plan_native_publish_read_and_receipt_replay() {
         .await,
         "admit plan run",
     );
-    let mut claim = claim_method(WORKER);
-    if let Method::ClaimWorkItem { request, .. } = &mut claim {
-        request.work_item_id = Some(admitted.work_item_id.clone());
-        request.now_ms = now_secs() * 1000;
-        request.lease_ms = 60_000;
-    }
-    let claimed: ClaimWorkItemResult = decode_raw(
-        &test_support::dispatch(&state, signed_run_request(502, claim, "claim-plan")).await,
-        "claim plan run",
-    );
+    let claimed = claim_admitted_run(&state, &admitted, 502, "claim-plan", "claim plan run").await;
     assert!(claimed.claimed);
     let initial = PublishCurrentPlanRequest {
         tenant: TENANT.into(),
@@ -915,6 +926,279 @@ async fn current_plan_expired_replay(
         .unwrap(),
         outbox
     );
+}
+
+// spec: EG-DURABLE-KERNEL-R028.1.1
+#[tokio::test]
+async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
+    use eg_types::run_checkpoint::{
+        CheckpointContent, GetRunCheckpointRequest, PublishRunCheckpointRequest,
+        RunCheckpointPublished, RunCheckpointRead,
+    };
+    use sha2::{Digest, Sha256};
+    let dir = temp_dir("eg-checkpoint-native");
+    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
+    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    let mut submission = run_submit_method();
+    if let Method::SubmitWorkItem { request } = &mut submission {
+        request.conversation = Some(Box::new(
+            eg_types::native_control::ConversationTurnAdmission {
+                history_profile: None,
+                schema_version: NativeControlSchemaVersion::V1,
+                context_id: "checkpoint-context".into(),
+                expected_revision: 0,
+                predecessor_run_id: None,
+            },
+        ));
+    }
+    let admitted: SubmitWorkItemResult = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(901, submission, "admit-checkpoint"),
+        )
+        .await,
+        "admit checkpoint run",
+    );
+    let claimed = claim_admitted_run(
+        &state,
+        &admitted,
+        902,
+        "claim-checkpoint",
+        "claim checkpoint run",
+    )
+    .await;
+    assert!(claimed.claimed);
+    let content = r#"{"phase":"step_inflight","next_step":0,"messages":[]}"#.to_string();
+    let request = PublishRunCheckpointRequest {
+        tenant: TENANT.into(),
+        work_item_id: admitted.work_item_id.clone(),
+        run_id: "run-owner-admission".into(),
+        context_id: "checkpoint-context".into(),
+        worker_id: WORKER.into(),
+        lease_epoch: claimed.lease_epoch.unwrap(),
+        fencing_token: claimed.fencing_token.unwrap(),
+        expected_revision: None,
+        idempotency_key: "body-key-replaced-by-envelope".into(),
+        snapshot: CheckpointContent {
+            payload_digest: hex::encode(Sha256::digest(content.as_bytes())),
+            content,
+            short_term: vec![],
+            long_term: vec![],
+        },
+    };
+    let publish = |request| Method::PublishRunCheckpoint { request };
+    let authenticated = signed_run_request(903, publish(request.clone()), "checkpoint-write");
+    let fresh: RunCheckpointPublished = decode_raw(
+        &test_support::dispatch(&state, authenticated.clone()).await,
+        "publish checkpoint",
+    );
+    assert!(!fresh.replayed);
+    assert_eq!(fresh.revision, 1);
+    assert_eq!(
+        fresh.changed_work_item_ids,
+        vec![admitted.work_item_id.clone()]
+    );
+    let exact = test_support::dispatch(&state, authenticated).await;
+    assert_eq!(
+        exact.error.as_deref(),
+        Some("REPLAY_NONCE_CONSUMED"),
+        "{exact:?}"
+    );
+    let version = concrete.read_mutation_graph_version(GRAPH).await.unwrap();
+    let replay: RunCheckpointPublished = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(904, publish(request.clone()), "checkpoint-write"),
+        )
+        .await,
+        "replay checkpoint receipt",
+    );
+    assert!(replay.replayed);
+    assert_eq!(replay.revision, fresh.revision);
+    let loser = test_support::dispatch(
+        &state,
+        signed_run_request(905, publish(request.clone()), "other-executor-key"),
+    )
+    .await;
+    assert_eq!(
+        loser.error.as_deref(),
+        Some("CONFLICT"),
+        "distinct executor must lose the expected-head CAS: {loser:?}"
+    );
+    let foreign_retry = test_support::dispatch(
+        &state,
+        signed_request_as(
+            906,
+            publish(request.clone()),
+            "checkpoint-write",
+            "agent:foreign-owner",
+        ),
+    )
+    .await;
+    assert!(
+        foreign_retry.error.is_some(),
+        "owner check must precede receipt replay"
+    );
+
+    for (index, field) in ["content", "refs", "fence"].into_iter().enumerate() {
+        let mut changed = request.clone();
+        match field {
+            "content" => {
+                changed.snapshot.content = "{}".into();
+                changed.snapshot.payload_digest = hex::encode(Sha256::digest(b"{}"));
+            }
+            "refs" => {
+                changed
+                    .snapshot
+                    .short_term
+                    .push(eg_types::run_checkpoint::CheckpointMemoryRef {
+                        document_id: "private-memory".into(),
+                        revision: 1,
+                        digest: "a".repeat(64),
+                    })
+            }
+            _ => changed.fencing_token += 1,
+        }
+        let collision = test_support::dispatch(
+            &state,
+            signed_run_request(920 + index as u64, publish(changed), "checkpoint-write"),
+        )
+        .await;
+        assert_eq!(
+            collision.error.as_deref(),
+            Some("IDEMPOTENCY_CONFLICT"),
+            "{field}: {collision:?}"
+        );
+    }
+    for (index, field) in ["context", "tenant", "run"].into_iter().enumerate() {
+        let mut changed = request.clone();
+        match field {
+            "context" => changed.context_id = "foreign".into(),
+            "tenant" => changed.tenant = "foreign".into(),
+            _ => changed.run_id = "foreign".into(),
+        }
+        let denied = test_support::dispatch(
+            &state,
+            signed_run_request(930 + index as u64, publish(changed), "checkpoint-write"),
+        )
+        .await;
+        assert!(
+            denied.error.is_some(),
+            "preflight must reject {field} before replay"
+        );
+    }
+    let get = || Method::GetRunCheckpoint {
+        request: GetRunCheckpointRequest {
+            tenant: TENANT.into(),
+            work_item_id: admitted.work_item_id.clone(),
+            run_id: request.run_id.clone(),
+            context_id: request.context_id.clone(),
+            current_claim: None,
+        },
+    };
+    let read: Option<RunCheckpointRead> = decode_raw(
+        &test_support::dispatch(&state, signed_run_request(907, get(), "checkpoint-read")).await,
+        "read checkpoint",
+    );
+    let read = read.expect("owner sees checkpoint");
+    assert_eq!(read.work_item.work_item_id, admitted.work_item_id);
+    assert_eq!(read.snapshot.content, request.snapshot.content);
+    let foreign: Option<RunCheckpointRead> = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_request_as(908, get(), "foreign-checkpoint-read", "agent:foreign-owner"),
+        )
+        .await,
+        "foreign checkpoint read",
+    );
+    assert!(foreign.is_none());
+    assert_eq!(
+        concrete.read_mutation_graph_version(GRAPH).await.unwrap(),
+        version
+    );
+    let expire = Method::RenewWorkItemLease {
+        tenant: TENANT.into(),
+        work_item_id: admitted.work_item_id.clone(),
+        worker_id: WORKER.into(),
+        lease_epoch: request.lease_epoch,
+        fencing_token: request.fencing_token,
+        now_ms: now_secs() * 1000,
+        lease_ms: 1,
+    };
+    let expired = test_support::dispatch(
+        &state,
+        signed_run_request(940, expire, "expire-checkpoint-lease"),
+    )
+    .await;
+    assert!(expired.error.is_none());
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    let Method::GetRunCheckpoint {
+        request: mut claimed_read,
+    } = get()
+    else {
+        unreachable!("checkpoint read fixture")
+    };
+    claimed_read.current_claim = Some(eg_types::run_checkpoint::CheckpointClaim {
+        worker_id: request.worker_id.clone(),
+        lease_epoch: request.lease_epoch,
+        fencing_token: request.fencing_token,
+    });
+    let refused_read = test_support::dispatch(
+        &state,
+        signed_run_request(
+            943,
+            Method::GetRunCheckpoint {
+                request: claimed_read,
+            },
+            "expired-claim-read",
+        ),
+    )
+    .await;
+    assert_eq!(
+        refused_read.error.as_deref(),
+        Some("CONFLICT"),
+        "{refused_read:?}"
+    );
+    let before_replay = concrete.read_mutation_graph_version(GRAPH).await.unwrap();
+    let historical: RunCheckpointPublished = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(941, publish(request.clone()), "checkpoint-write"),
+        )
+        .await,
+        "historical checkpoint replay",
+    );
+    assert!(historical.replayed);
+    assert_eq!(historical.revision, fresh.revision);
+    assert_eq!(
+        concrete.read_mutation_graph_version(GRAPH).await.unwrap(),
+        before_replay
+    );
+    let (reopened_backend, reopened) = reopen_run_state(state, concrete, &dir).await;
+    let recovered: RunCheckpointPublished = decode_raw(
+        &test_support::dispatch(
+            &reopened,
+            signed_run_request(942, publish(request.clone()), "checkpoint-write"),
+        )
+        .await,
+        "reopened checkpoint receipt",
+    );
+    assert_eq!(recovered, historical);
+    let durable: Option<RunCheckpointRead> = decode_raw(
+        &test_support::dispatch(
+            &reopened,
+            signed_run_request(909, get(), "checkpoint-reopened"),
+        )
+        .await,
+        "reopen checkpoint",
+    );
+    assert_eq!(
+        durable.expect("checkpoint survives reopen").snapshot,
+        read.snapshot
+    );
+    drop(reopened);
+    reopened_backend.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 // spec: EG-DURABLE-KERNEL-R028.4.1

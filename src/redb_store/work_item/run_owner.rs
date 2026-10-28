@@ -157,31 +157,7 @@ fn read_admission_with_profile(
         return Err("RUN_ADMISSION_UNAVAILABLE: completed-text history opt-in required".into());
     }
     let work_item = WorkItemView::from_tenant_row(&id, &row, tenant)?.ok_or(unavailable)?;
-    let run_completion = match (
-        row.get(eg_types::run_completion::RUN_COMPLETION_BATCH),
-        row.get(eg_types::run_completion::RUN_COMPLETION_DIGEST),
-    ) {
-        (None, None) => None,
-        (Some(batch), Some(digest)) => {
-            let batch = batch.as_str().ok_or("invalid run completion batch")?;
-            let digest = digest.as_str().ok_or("invalid run completion digest")?;
-            let receipt = eg_transaction::read_ledger(snapshot, batch)?
-                .ok_or("missing run completion receipt")?;
-            let records = eg_transaction::read_outbox(snapshot, batch)?;
-            Some(project_completion(
-                snapshot.scope(),
-                tenant,
-                run_id,
-                &id,
-                property_string(&row, "status"),
-                batch,
-                digest,
-                &receipt,
-                &records,
-            )?)
-        }
-        _ => return Err("incomplete run completion binding".into()),
-    };
+    let run_completion = completion_from_snapshot(snapshot, &row, tenant, run_id, &id)?;
     let mut view = RunWorkItemView {
         completed_checkpoint: None,
         checkpoint_selection: None,
@@ -339,4 +315,41 @@ fn validate_completion_ledger(
         return Err("run completion ledger/outbox binding mismatch".into());
     }
     Ok(())
+}
+
+/// Project a row binding through the same immutable ledger and outbox snapshot.
+pub(super) fn completion_from_snapshot(
+    snapshot: &eg_storage::ScopedRead<'_, eg_storage::GraphShardOwner>,
+    row: &serde_json::Map<String, serde_json::Value>,
+    tenant: &str,
+    run_id: &str,
+    id: &str,
+) -> Result<Option<eg_types::run_completion::CommittedRunCompletion>, String> {
+    Ok(
+        match (
+            row.get(eg_types::run_completion::RUN_COMPLETION_BATCH),
+            row.get(eg_types::run_completion::RUN_COMPLETION_DIGEST),
+        ) {
+            (None, None) => None,
+            (Some(batch), Some(digest)) => {
+                let batch = batch.as_str().ok_or("invalid run completion batch")?;
+                let digest = digest.as_str().ok_or("invalid run completion digest")?;
+                let receipt = eg_transaction::read_ledger(snapshot, batch)?
+                    .ok_or("missing run completion receipt")?;
+                let records = eg_transaction::read_outbox(snapshot, batch)?;
+                Some(project_completion(
+                    snapshot.scope(),
+                    tenant,
+                    run_id,
+                    id,
+                    property_string(row, "status"),
+                    batch,
+                    digest,
+                    &receipt,
+                    &records,
+                )?)
+            }
+            _ => return Err("incomplete run completion binding".into()),
+        },
+    )
 }

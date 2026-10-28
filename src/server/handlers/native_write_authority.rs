@@ -65,7 +65,6 @@ fn work_item_body_tenants(method: &Method) -> Vec<&str> {
     match method {
         Method::ClaimWorkItem { request, .. } => vec![request.tenant_ref.as_str()],
         Method::CasWorkItemMetadata { request } => vec![request.tenant_ref.as_str()],
-        Method::PublishCurrentPlan { request } => vec![request.tenant.as_str()],
         Method::RenewWorkItemLease { tenant, .. }
         | Method::CommitWorkItemResult { tenant, .. }
         | Method::CancelWorkItem { tenant, .. }
@@ -76,6 +75,15 @@ fn work_item_body_tenants(method: &Method) -> Vec<&str> {
             .chain(request.requests.iter().map(|child| &child.context))
             .map(|context| context.tenant_id.as_str())
             .collect(),
+        other => publication_body_tenants(other),
+    }
+}
+
+/// Private publication writes carry one exact tenant.
+fn publication_body_tenants(method: &Method) -> Vec<&str> {
+    match method {
+        Method::PublishCurrentPlan { request } => vec![request.tenant.as_str()],
+        Method::PublishRunCheckpoint { request } => vec![request.tenant.as_str()],
         other => governance_body_tenants(other),
     }
 }
@@ -83,6 +91,7 @@ fn work_item_body_tenants(method: &Method) -> Vec<&str> {
 /// Governance and work-market writes bind their named tenant the same way.
 fn governance_body_tenants(method: &Method) -> Vec<&str> {
     match method {
+        Method::IssueHostStartGrant { request } => vec![request.tenant.as_str()],
         Method::IssueControlLease { request } => vec![request.tenant.as_str()],
         Method::TransitionControlLease { request } => vec![request.tenant.as_str()],
         // EH-346: the engine-internal policy-record store binds the same way.

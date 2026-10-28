@@ -312,6 +312,8 @@ fn explain(plan: &Plan, ctx: &PlanCtx, warnings: Vec<String>) -> Result<UqlResul
         Err(why) => (false, why.to_string()),
     };
     Ok(UqlResult::Explain {
+        plan_digest: None,
+        query_digest: None,
         canonical: plan.to_uql().map_err(|e| e.to_string())?,
         optimized: optimized.to_uql().map_err(|e| e.to_string())?,
         stages,

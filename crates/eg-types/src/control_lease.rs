@@ -190,6 +190,9 @@ pub struct ControlLeaseView {
     pub hard_expires_at_ms: u64,
     /// Row revision: 1 at issue, bumped by every transition.
     pub revision: u64,
+    /// Native issuance provenance, absent on legacy and ordinary leases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_start_provenance: Option<crate::host_start::HostStartProvenance>,
 }
 
 /// How an issue resolved.
@@ -260,6 +263,9 @@ impl IssueControlLeaseRequest {
             ("idempotency_key", &self.idempotency_key),
         ] {
             bounded(field, value)?;
+        }
+        if self.kind == crate::host_start::HOST_START_KIND {
+            return Err("ACCESS_DENIED: host.start is issued by IssueHostStartGrant only".into());
         }
         if self.kind == DECISION_EVALUATION_LEASE_KIND {
             return Err(format!(
@@ -383,7 +389,21 @@ impl ControlLeaseView {
         let text = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or("");
         let status = ControlLeaseStatus::from_stored(text("status"))
             .ok_or_else(|| format!("control lease '{lease_id}' carries an unrecognized status"))?;
+        let host_start_provenance = row
+            .get("host_start_provenance")
+            .map(|value| {
+                serde_json::from_value::<crate::host_start::HostStartProvenance>(value.clone())
+            })
+            .transpose()
+            .map_err(|e| e.to_string())?;
+        if let Some(provenance) = &host_start_provenance {
+            if text("kind") != crate::host_start::HOST_START_KIND {
+                return Err("host-start provenance on a different lease kind".into());
+            }
+            provenance.validate()?;
+        }
         Ok(Self {
+            host_start_provenance,
             lease_id: lease_id.to_string(),
             kind: text("kind").to_string(),
             status,

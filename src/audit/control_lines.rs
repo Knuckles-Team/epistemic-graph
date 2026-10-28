@@ -445,6 +445,10 @@ pub(super) fn work_item_audit_line(method: &Method) -> Option<String> {
 /// fall-through. Never logs the grant body: identity and the lifecycle edge only.
 fn control_lease_audit_line(method: &Method) -> Option<String> {
     match method {
+        Method::IssueHostStartGrant { request } => Some(format!(
+            "ISSUE_HOST_START_GRANT|{}|{}",
+            request.tenant, request.lease_id
+        )),
         Method::IssueControlLease { request } => Some(format!(
             "ISSUE_CONTROL_LEASE|{}|{}|{}",
             request.tenant, request.lease_id, request.kind

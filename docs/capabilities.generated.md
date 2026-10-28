@@ -64,7 +64,7 @@
 | `ResolveCandidates` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `ClusterHierarchyRefresh` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1 hierarchical Leiden clustering for million-node graph visualization: (re)computes and durably caches the cluster hierarchy in its own non-authoritative store (server::persistence::cluster_hierarchy_store), never as graph nodes/edges -- see ClusterHierarchyClusters/ClusterHierarchyExpand |
 | `ClusterHierarchyClusters` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1: GET clusters(graph, level, parent_cluster_id?) from the cached hierarchy |
-| `ClusterHierarchyExpand` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1: GET expand(graph, cluster_id) -- a level-1 cluster's member nodes/edges read live off the graph |
+| `ClusterHierarchyExpand` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1: GET expand(graph, cluster_id). Read the level-1 cluster members directly from the graph |
 | `Vf2SubgraphMatch` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `MatchOntologyTerms` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `BatchL2Normalize` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
@@ -199,12 +199,15 @@
 | `DeferWorkItem` | true | GraphRedb | `work:write` | true | true | false | Atomic | fenced lease release schedules retry without consuming an attempt |
 | `CasWorkItemMetadata` | true | GraphRedb | `work:write` | true | true | false | Atomic | BUG-111: atomic single-field CAS on non-authority scheduling metadata (checkpoint_id/metadata/prio_bucket); status/lease/tenant are fenced but never written |
 | `PublishCurrentPlan` | true | GraphRedb | `work:write` | true | true | false | Atomic | immutable owner and live fence bind revisioned current-plan publication |
+| `PublishRunCheckpoint` | true | GraphRedb | `work:write` | true | true | false | Atomic | owner and live fence atomically bind an immutable private checkpoint and WorkItem head |
+| `GetRunCheckpoint` | false | None | `work:read` | true | false | false | Snapshot | private owner-bound checkpoint and same-snapshot WorkItem view |
 | `GetCurrentPlan` | false | None | `work:read` | true | false | false | Snapshot | authoritative owner-bound current plan and live lease snapshot |
 | `GetRunWorkItem` | false | None | `work:read` | true | false | false | Snapshot | owner-bound immutable run admission and current caller-safe WorkItem snapshot |
-| `GetConversationHead` | false | None | `work:read` | true | false | false | Snapshot | owner-bound ordered conversation head snapshot |
+| `GetSessionUsage` | false | None | `usage:read` | true | false | false | Snapshot | bounded caller-context committed usage |
 | `GetWorkItem` | false | None | `work:read` | true | false | false | Snapshot | tenant-bound native WorkItem row view; lease owner/epoch/fencing token never projected |
 | `ListWorkItems` | false | None | `work:read` | true | false | false | Snapshot | bounded tenant-bound WorkItem page; limit/scan/byte bounds each resume through an opaque tenant-bound cursor |
 | `GetWorkItemOutcome` | false | None | `work:read` | true | false | false | Snapshot | tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-verified |
+| `IssueHostStartGrant` | true | GraphRedb | `host:issue-start` | true | true | false | Atomic | bounded immutable host-start assertions with native issuer provenance; application session/execution admission remains with Arbora |
 | `IssueControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | tenant-bound immutable grant record in the WorkItem MutationBatch; an existing id is a collision, never an overwrite |
 | `TransitionControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | one-way active to revoked/expired, CAS on the read revision |
 | `ListControlLeases` | false | None | `lease:read` | true | false | false | Snapshot | bounded tenant-bound control-lease page filtered by kind/status/grant pairs |
@@ -371,6 +374,10 @@
 | `KnowledgeStream` | false | None | `query:stream` | true | false | false | Snapshot | one RequestContext/RLS/placement-bound stream with the sole native Arrow IPC projection for all seven query families |
 | `UnifiedQuery` | false | None | `query:unified` | true | false | false | Snapshot |  |
 | `QueryForeignColumns` | false | None | `federation:read` | true | false | false | Snapshot | Verified owner-scoped mapped-column read with bounded source fetch and local predicate residual |
+| `ForeignReadOpen` | false | None | `federation:read` | true | false | false | Snapshot | Host-driven bounded source execution; durable approval and current catalog are re-read before binding |
+| `ForeignReadChunk` | false | None | `federation:read` | true | false | false | Snapshot | Monotone bounded page append |
+| `ForeignReadComplete` | false | None | `federation:read` | true | false | false | Snapshot | One terminal completion before correlated query |
+| `ForeignReadAbort` | false | None | `federation:read` | true | false | false | Snapshot | One terminal abort |
 | `Uql` | false | None | `query:unified` | true | false | false | Snapshot | UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only |
 | `ExplainPlan` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainProvenance` | false | None | `explain:read` | true | false | false | Snapshot |  |
@@ -389,6 +396,7 @@
 | `RankByProvenance` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal` |
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
 | `NlQueryExplain` | false | None | `query:nl` | false | false | false | Snapshot | EG-FEDERATED-QUERY-R058.2.2.1: NlQuery plus the executed UQL text. It shares the planner, budget, authority and refusals of NlQuery |
+| `NlQueryPlan` | false | None | `query:nl` | false | false | false | None | EG-FEDERATED-QUERY-R058.2.2.2: typed plan-only UQL candidate and pins; no graph/source data read or authority claim |
 | `TxnUnifiedQuery` | false | None | `txn:read` | true | false | false | Saga |  |
 | `TxnUql` | false | None | `txn:read` | true | false | false | Saga |  |
 | `EdgeIndex` | ~true | GraphRedb | `semantic:binding-write` | true | false | false | Atomic | EH-351/EH-352, runtime-conditional: status reads; create, refresh and drop write the verified tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it |

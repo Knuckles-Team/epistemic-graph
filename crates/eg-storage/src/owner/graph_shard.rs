@@ -159,6 +159,9 @@ pub(crate) const CURRENT_PLANS: TableDefinition<'static, (&str, &str), &[u8]> =
 pub(crate) const INLINE_HISTORY: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("work_item_inline_history");
 
+pub(crate) const RUN_CHECKPOINTS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("work_item_run_checkpoints");
+
 // -- development lane -----------------------------------------------------
 pub(crate) const DEVELOPMENT_LANE_HOLDS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("development_lane_holds");
@@ -255,6 +258,7 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::AUDIT_REQUESTS);
         $visit!(shard::CURRENT_PLANS);
         $visit!(shard::INLINE_HISTORY);
+        $visit!(shard::RUN_CHECKPOINTS);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITIES);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITY_INVOCATIONS);
         $visit!(shard::NATIVE_WORK_ITEM_AUTHORITY);
@@ -356,6 +360,7 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = graph_shard_table_names!(
     "audit_requests",
     "work_item_current_plans",
     "work_item_inline_history",
+    "work_item_run_checkpoints",
 );
 
 /// The eight tables of the shard's retired private mutation ledger.
@@ -452,6 +457,7 @@ fn key_type_wide_tuple(name: &str) -> Option<&'static str> {
         | "native_work_item_authority"
         | "work_item_current_plans"
         | "work_item_inline_history"
+        | "work_item_run_checkpoints"
         | "development_lane_holds"
         | "development_lane_counters"
         | "development_lane_policies"

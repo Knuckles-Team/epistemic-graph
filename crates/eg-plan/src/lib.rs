@@ -73,6 +73,11 @@ pub mod federation_capabilities;
 // EG-UNIFIED-DATA-PLANE-R011 — typed freshness route and a bounded
 // read-your-writes wait, refusing an unbounded (zero-timeout) wait.
 pub mod freshness_router;
+// EG-FEDERATED-QUERY-R654.2 bounded source slice: deterministic hub ranking
+// over an already-resolved code subgraph. Anchor resolution, bounded expansion,
+// operations diagnosis and served CodeContext wiring remain later slices.
+#[cfg(feature = "query")]
+pub mod code_context;
 
 /// Structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill) — the LeanRAG method as a
 /// library API over the EG-220 summary tier: retrieve at the summary/abstraction
@@ -246,7 +251,9 @@ pub use cost::{CostModel, Order, Stats};
 #[cfg(feature = "query")]
 pub use cost::{Cardinality, CostEstimate};
 pub use leanrag::{
-    flat_top_k, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever, RetrievalParams, Scored,
+    flat_top_k, retrieve_vector_free, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever,
+    RetrievalParams, Scored, SectionGranularity, SectionRecord, SectionSpan, SectionTopology,
+    TraversalLimit, VectorFreeError, VectorFreeLimits, VectorFreeResult,
 };
 pub use rowset::RowSet;
 
@@ -522,3 +529,5 @@ mod derive_tests;
 // is additionally `cfg`-gated on the modality feature(s) it needs.
 #[cfg(all(test, feature = "query"))]
 mod advanced_crossmodal_tests;
+
+pub mod document_connection;

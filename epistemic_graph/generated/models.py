@@ -308,6 +308,7 @@ from .connector_pack import (
     ConnectorPackImportRequest,
     ConnectorPackIndex,
     ConnectorPackOp,
+    ConnectorPackOpApproveSource,
     ConnectorPackOpAttestSelfServedCatalog,
     ConnectorPackOpBind,
     ConnectorPackOpCatalogAuthorityStatus,
@@ -324,6 +325,7 @@ from .connector_pack import (
     ConnectorPackReconcileRequest,
     ConnectorPackReprojectRequest,
     ConnectorPackRetireRequest,
+    ConnectorPackSourceApprovalRequest,
     ConnectorPackStatus,
     ConnectorPackStatusRequest,
     ConnectorPackUnbindRequest,
@@ -441,7 +443,9 @@ from .graph_schema import (
     GraphSchemaOpAttachApproved,
     GraphSchemaOpAttachPack,
     GraphSchemaOpDetach,
+    GraphSchemaOpImportOntology,
     GraphSchemaOpValidateRepair,
+    GraphSchemaOpWithdrawOntology,
     GraphSchemaSourcesView,
     GraphSchemaSourceView,
     GraphSchemaTermKind,
@@ -2512,6 +2516,31 @@ class ChannelType(str, Enum):
     GROUP = "Group"
 
 
+class CheckpointClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fencing_token: Annotated[int, Field(ge=0)]
+    lease_epoch: Annotated[int, Field(ge=0)]
+    worker_id: str
+
+
+class CheckpointContent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content: str
+    long_term: list[CheckpointMemoryRef]
+    payload_digest: str
+    short_term: list[CheckpointMemoryRef]
+
+
+class CheckpointMemoryRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    document_id: str
+    revision: Annotated[int, Field(ge=0)]
+
+
 class ClaimAuthor(str, Enum):
     AGENT = "agent"
     PERSON = "person"
@@ -2542,6 +2571,25 @@ class ClaimWorkItemRequest(BaseModel):
 
 class ClaimWorkItemRequestSchemaVersion(str, Enum):
     V_1 = "1"
+
+
+class ClaimWorkItemResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    attempt: Annotated[int, Field(ge=0)] | None = None
+    changed_work_item_ids: list[str]
+    claimed: bool
+    fencing_token: Annotated[int, Field(ge=0)] | None = None
+    kind: str | None = None
+    lease_epoch: Annotated[int, Field(ge=0)] | None = None
+    lease_expires_at_ms: Annotated[int, Field(ge=0)] | None = None
+    lease_holder_ref: str | None = None
+    max_attempts: Annotated[int, Field(ge=0)] | None = None
+    payload_ref: str | None = None
+    reason: ClaimWorkItemResultReason
+    schema_version: ClaimWorkItemResultSchemaVersion
+    tenant_in_flight: Annotated[int, Field(ge=0)] | None = None
+    work_item_id: str | None = None
 
 
 class ClaimWorkItemResultReason(str, Enum):
@@ -2893,22 +2941,6 @@ class CompactNodesResult(BaseModel):
     removed_nodes: list[str]
 
 
-class CompletedTextAdmission(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    user_text_digest: str
-    version: Annotated[int, Field(ge=0)]
-
-
-class CompletedTextInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    assistant_text: str
-    content_digest: str
-    user_text: str
-    version: Annotated[int, Field(ge=0)]
-
-
 class ComponentContribution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2933,6 +2965,19 @@ class ConnectorPackBindingResult(BaseModel):
     committed_version: Annotated[int, Field(ge=0)]
     connector: str
     importer: str | None = None
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    tenant_id: str
+
+
+class ConnectorPackSourceApprovalResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    batch_id: str
+    committed_version: Annotated[int, Field(ge=0)]
+    connector: str
+    contract_digest: Digest256
+    head: PackHeadRef
+    registration: PackSourceRegistration
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     tenant_id: str
 
@@ -3053,6 +3098,7 @@ class ControlLeaseView(BaseModel):
     expires_at_ms: Annotated[int, Field(ge=0)]
     grant: dict[str, Any]
     hard_expires_at_ms: Annotated[int, Field(ge=0)]
+    host_start_provenance: HostStartProvenance | None = None
     issued_at_ms: Annotated[int, Field(ge=0)]
     kind: str
     lease_id: str
@@ -3070,22 +3116,11 @@ class ConvergenceGate(BaseModel):
     total: Annotated[int, Field(ge=0)]
 
 
-class ConversationHeadView(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    context_id: str
-    revision: Annotated[int, Field(ge=0)]
-    run_id: str
-    scope: MutationScopeIdentity
-    version: Annotated[int, Field(ge=0)]
-
-
 class ConversationTurnAdmission(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     context_id: str
     expected_revision: Annotated[int, Field(ge=0)]
-    history_profile: CompletedTextAdmission | None = None
     predecessor_run_id: str | None = None
     schema_version: NativeControlSchemaVersion
 
@@ -5168,6 +5203,7 @@ class ExplainPlanResult(BaseModel):
     after: list[ExplainNodeWire]
     applied_rules: list[str]
     before: list[ExplainNodeWire]
+    plan_digest: Digest256 | None = None
 
 
 class ExplainPolicyResult(BaseModel):
@@ -5796,6 +5832,114 @@ class ForeignOperationCapabilities(BaseModel):
     key_filter_pushdown: bool | None = None
 
 
+class ForeignReadAbortRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    reason: str
+    sequence: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadAbortResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    reason: str
+    sequence: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadChunkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    rows: list[ForeignReadRow]
+    sequence: Annotated[int, Field(ge=0)]
+    source_identity: ForeignReadSourceIdentity
+
+
+class ForeignReadChunkResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    accepted_rows: Annotated[int, Field(ge=0)]
+    execution: ForeignReadExecutionRef
+    next_sequence: Annotated[int, Field(ge=0)]
+    sequence: Annotated[int, Field(ge=0)]
+    total_bytes: Annotated[int, Field(ge=0)]
+    total_rows: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    sequence: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadCompleteResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    sequence: Annotated[int, Field(ge=0)]
+    total_bytes: Annotated[int, Field(ge=0)]
+    total_rows: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadExecutionRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution_id: Annotated[int, Field(ge=0)]
+    query_digest: Digest256
+
+
+class ForeignReadLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    chunk_bytes: Annotated[int, Field(ge=0)]
+    chunk_rows: Annotated[int, Field(ge=0)]
+    deadline_ms: Annotated[int, Field(ge=0)]
+    max_bytes: Annotated[int, Field(ge=0)]
+    max_rows: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadOpenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval: ConnectorPackSourceApprovalResult
+    limits: ForeignReadLimits
+    plan_digest: Digest256
+    query_digest: Digest256
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    source_name: str
+
+
+class ForeignReadOpenResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    next_sequence: Annotated[int, Field(ge=0)]
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    source_identity: ForeignReadSourceIdentity
+
+
+class ForeignReadRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: dict[str, Any] | None = None
+    id: str
+    provenance: list[str] = Field(default_factory=list)
+    score: float | None = None
+
+
+class ForeignReadSourceIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    schema_digest: Digest256
+    snapshot_ref: Digest256
+    source_ref: str
+    source_revision: Annotated[int, Field(ge=0)]
+
+
 class ForeignSourceFreshness(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -6288,6 +6432,16 @@ class GenerationReceipt(BaseModel):
     ties: Annotated[int, Field(ge=0)]
     win_rate_lower_q16: int
     wins: Annotated[int, Field(ge=0)]
+
+
+class GetRunCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    current_claim: CheckpointClaim | None = None
+    run_id: str
+    tenant: str
+    work_item_id: str
 
 
 class GovernedActor(BaseModel):
@@ -6796,6 +6950,32 @@ class HealthReport(BaseModel):
     status: str
     uptime_s: Annotated[int, Field(ge=0)]
     version: str
+
+
+class HostStartBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    configuration_digest: str
+    interfaces: HostStartInterfaces
+    policy_revision: str
+    principal_ref: str
+    session_expires_at_ms: Annotated[int, Field(ge=0)]
+    session_ref: str
+    web_logs: bool
+    workspace_ref: str
+
+
+class HostStartInterfaces(str, Enum):
+    TERMINAL = "terminal"
+    WEB = "web"
+    BOTH = "both"
+
+
+class HostStartProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    issuer_ref: str
+    schema_version: Annotated[int, Field(ge=0)]
 
 
 class HttpFieldMap(BaseModel):
@@ -7880,14 +8060,6 @@ class InitializeRequest(BaseModel):
     mode: AuthMode
 
 
-class InlineCheckpointRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    content_digest: str
-    document_id: str
-    revision: Annotated[int, Field(ge=0)]
-
-
 class InputsBlob(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -7982,6 +8154,16 @@ class IssueControlLeaseRequest(BaseModel):
     kind: str
     lease_id: str
     pending_call_registration: PendingCallRegistration | None = None
+    tenant: str
+
+
+class IssueHostStartGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding: HostStartBinding
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_id: str
     tenant: str
 
 
@@ -11203,6 +11385,13 @@ class MethodNlQueryExplain(BaseModel):
     params: MethodNlQueryExplainParams
 
 
+class MethodNlQueryPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["NlQueryPlan"]
+    params: MethodNlQueryPlanParams
+
+
 class MethodRegisterForeignSource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11215,6 +11404,34 @@ class MethodQueryForeignColumns(BaseModel):
 
     method: Literal["QueryForeignColumns"]
     params: MethodQueryForeignColumnsParams
+
+
+class MethodForeignReadOpen(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadOpen"]
+    params: MethodForeignReadOpenParams
+
+
+class MethodForeignReadChunk(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadChunk"]
+    params: MethodForeignReadChunkParams
+
+
+class MethodForeignReadComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadComplete"]
+    params: MethodForeignReadCompleteParams
+
+
+class MethodForeignReadAbort(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadAbort"]
+    params: MethodForeignReadAbortParams
 
 
 class MethodRegisterUdf(BaseModel):
@@ -12073,6 +12290,20 @@ class MethodEdgeSearch(BaseModel):
     params: MethodEdgeSearchParams
 
 
+class MethodPublishRunCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PublishRunCheckpoint"]
+    params: MethodPublishRunCheckpointParams
+
+
+class MethodGetRunCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetRunCheckpoint"]
+    params: MethodGetRunCheckpointParams
+
+
 class MethodPublishCurrentPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12087,18 +12318,18 @@ class MethodGetCurrentPlan(BaseModel):
     params: MethodGetCurrentPlanParams
 
 
+class MethodGetSessionUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetSessionUsage"]
+    params: MethodGetSessionUsageParams
+
+
 class MethodGetRunWorkItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     method: Literal["GetRunWorkItem"]
     params: MethodGetRunWorkItemParams
-
-
-class MethodGetConversationHead(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    method: Literal["GetConversationHead"]
-    params: MethodGetConversationHeadParams
 
 
 class MethodGetWorkItem(BaseModel):
@@ -12120,6 +12351,13 @@ class MethodGetWorkItemOutcome(BaseModel):
 
     method: Literal["GetWorkItemOutcome"]
     params: MethodGetWorkItemOutcomeParams
+
+
+class MethodIssueHostStartGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["IssueHostStartGrant"]
+    params: MethodIssueHostStartGrantParams
 
 
 class MethodIssueControlLease(BaseModel):
@@ -12578,8 +12816,13 @@ Method = Annotated[
     | MethodRankByProvenance
     | MethodNlQuery
     | MethodNlQueryExplain
+    | MethodNlQueryPlan
     | MethodRegisterForeignSource
     | MethodQueryForeignColumns
+    | MethodForeignReadOpen
+    | MethodForeignReadChunk
+    | MethodForeignReadComplete
+    | MethodForeignReadAbort
     | MethodRegisterUdf
     | MethodRunUdf
     | MethodDistributedCompute
@@ -12703,13 +12946,16 @@ Method = Annotated[
     | MethodMutationOutbox
     | MethodEdgeIndex
     | MethodEdgeSearch
+    | MethodPublishRunCheckpoint
+    | MethodGetRunCheckpoint
     | MethodPublishCurrentPlan
     | MethodGetCurrentPlan
+    | MethodGetSessionUsage
     | MethodGetRunWorkItem
-    | MethodGetConversationHead
     | MethodGetWorkItem
     | MethodListWorkItems
     | MethodGetWorkItemOutcome
+    | MethodIssueHostStartGrant
     | MethodIssueControlLease
     | MethodTransitionControlLease
     | MethodGetControlLease
@@ -13157,7 +13403,6 @@ class MethodClaimNextParams(BaseModel):
 class MethodClaimWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    completed_text_history: bool | None = None
     request: ClaimWorkItemRequest
 
 
@@ -13445,6 +13690,7 @@ class MethodDiscoverParams(BaseModel):
 
     k: Annotated[int, Field(ge=0)]
     keywords: list[str]
+    quality_policy_ref: str | None = None
     query_embedding: list[float]
 
 
@@ -14251,6 +14497,30 @@ class MethodFleetCatalogParams(BaseModel):
     op: FleetCatalogOp
 
 
+class MethodForeignReadAbortParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadAbortRequest
+
+
+class MethodForeignReadChunkParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadChunkRequest
+
+
+class MethodForeignReadCompleteParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadCompleteRequest
+
+
+class MethodForeignReadOpenParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadOpenRequest
+
+
 class MethodFreshnessFeedParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14352,13 +14622,6 @@ class MethodGetControlLeaseParams(BaseModel):
     tenant: str
 
 
-class MethodGetConversationHeadParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    context_id: str
-    tenant: str
-
-
 class MethodGetCurrentPlanParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14436,12 +14699,23 @@ class MethodGetPredecessorsParams(BaseModel):
     node_id: str
 
 
+class MethodGetRunCheckpointParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: GetRunCheckpointRequest
+
+
 class MethodGetRunWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    completed_text_history: bool | None = None
     run_id: str
-    selection: RunSelectionRequest | None = None
+    tenant: str
+
+
+class MethodGetSessionUsageParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
     tenant: str
 
 
@@ -14599,6 +14873,12 @@ class MethodIssueControlLeaseParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: IssueControlLeaseRequest
+
+
+class MethodIssueHostStartGrantParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: IssueHostStartGrantRequest
 
 
 class MethodJoinChannelParams(BaseModel):
@@ -15044,6 +15324,13 @@ class MethodNlQueryParams(BaseModel):
     text: str
 
 
+class MethodNlQueryPlanParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph: str | None = None
+    text: str
+
+
 class MethodObserveDevelopmentLaneParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15231,6 +15518,12 @@ class MethodPublishParams(BaseModel):
     exchange: str
     payload: _EgOctets
     routing_key: str
+
+
+class MethodPublishRunCheckpointParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: PublishRunCheckpointRequest
 
 
 class MethodQuantumParams(BaseModel):
@@ -16022,6 +16315,7 @@ class MethodUnbindQueueParams(BaseModel):
 class MethodUnifiedQueryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    foreign_execution: ForeignReadExecutionRef | None = None
     plan: Plan
 
 
@@ -16068,7 +16362,9 @@ class MethodUpdateResourceHostParams(BaseModel):
 class MethodUqlParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    foreign_execution: ForeignReadExecutionRef | None = None
     params: dict[str, UqlParam] | None = None
+    prepare: bool | None = None
     text: str
 
 
@@ -16261,7 +16557,6 @@ class MutationBatch(BaseModel):
 
 class MutationCapability(str, Enum):
     UNVERSIONED_SYSTEM_MUTATION = "unversioned_system_mutation"
-    ENABLE_INLINE_HISTORY_PROFILE = "enable_inline_history_profile"
 
 
 class MutationEnvelopeMaintenance(BaseModel):
@@ -16416,26 +16711,6 @@ class NamedEvaluator(BaseModel):
     role: str | None = None
 
 
-class NativeClaimWorkItemResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    attempt: Annotated[int, Field(ge=0)] | None = None
-    changed_work_item_ids: list[str]
-    claimed: bool
-    fencing_token: Annotated[int, Field(ge=0)] | None = None
-    fresh_execution_grant: bool | None = None
-    kind: str | None = None
-    lease_epoch: Annotated[int, Field(ge=0)] | None = None
-    lease_expires_at_ms: Annotated[int, Field(ge=0)] | None = None
-    lease_holder_ref: str | None = None
-    max_attempts: Annotated[int, Field(ge=0)] | None = None
-    payload_ref: str | None = None
-    reason: ClaimWorkItemResultReason
-    schema_version: ClaimWorkItemResultSchemaVersion
-    tenant_in_flight: Annotated[int, Field(ge=0)] | None = None
-    work_item_id: str | None = None
-
-
 class NativeControlSchemaVersion(str, Enum):
     V_1 = "1"
 
@@ -16509,6 +16784,14 @@ class NlQueryExplainResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     rows: list[NlQueryExplainResultRowsItem]
+    uql: str
+
+
+class NlQueryPlanResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    plan_digest: Digest256
+    query_digest: Digest256
     uql: str
 
 
@@ -17453,6 +17736,34 @@ class PackRetireResult(BaseModel):
     tenant_id: str
 
 
+class PackSourceApproval(str, Enum):
+    HELD = "held"
+    APPROVED = "approved"
+
+
+class PackSourceKind(str, Enum):
+    MCP_TOOL = "mcp_tool"
+    HTTP_ENDPOINT = "http_endpoint"
+    GRAPHQL_QUERY = "graphql_query"
+    A2A_SKILL = "a2a_skill"
+    VIRTUAL_GRAPH = "virtual_graph"
+
+
+class PackSourceRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval: PackSourceApproval | None = None
+    class_iri: str
+    connector: str
+    contract_iri: str
+    entity: str
+    key_field: str
+    operation: str
+    resource_uri: str
+    source_id: str
+    source_kind: PackSourceKind
+
+
 class ParallelRelationRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -18337,6 +18648,21 @@ class PublishCurrentPlanRequest(BaseModel):
     snapshot: CurrentPlanSnapshot
     task_plan_proposal: TaskPlanProposal | None = None
     tenant: str
+    worker_id: str
+
+
+class PublishRunCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    expected_revision: Annotated[int, Field(ge=0)] | None = None
+    fencing_token: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_epoch: Annotated[int, Field(ge=0)]
+    run_id: str
+    snapshot: CheckpointContent
+    tenant: str
+    work_item_id: str
     worker_id: str
 
 
@@ -19694,25 +20020,33 @@ class RuleReasonResponse(BaseModel):
     same_as: list[RuleReasonResponseSameAsItem]
 
 
-class RunCheckpointSelection(BaseModel):
+class RunCheckpointPublished(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    admission_revision: Annotated[int, Field(ge=0)]
-    checkpoints: list[InlineCheckpointRef]
-    completed_history: str | None = None
+    changed_work_item_ids: list[str]
     context_id: str
-    current_run_checkpoint: str | None = None
+    payload_digest: str
+    replayed: bool
+    revision: Annotated[int, Field(ge=0)]
     run_id: str
-    scope: MutationScopeIdentity
-    snapshot_version: Annotated[int, Field(ge=0)]
-    version: Annotated[int, Field(ge=0)]
     work_item_id: str
+
+
+class RunCheckpointRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content: str
+    context_id: str
+    long_term: list[CheckpointMemoryRef]
+    payload_digest: str
+    revision: Annotated[int, Field(ge=0)]
+    short_term: list[CheckpointMemoryRef]
+    work_item: WorkItemView
 
 
 class RunCompletionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    completed_checkpoint: CompletedTextInput | None = None
     run_id: str
     schema_version: Annotated[int, Field(ge=0)]
     usage: RunUsage | None = None
@@ -19722,7 +20056,6 @@ class RunCompletionPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     batch_id: str
-    completed_checkpoint: InlineCheckpointRef | None = None
     completion: RunCompletionInput
     error_ref: str | None = None
     outcome: str
@@ -19761,15 +20094,6 @@ class RunEvent(BaseModel):
     work_item_id: str
 
 
-class RunSelectionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    fencing_token: Annotated[int, Field(ge=0)]
-    lease_epoch: Annotated[int, Field(ge=0)]
-    version: Annotated[int, Field(ge=0)]
-    worker_id: str
-
-
 class RunUsage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19784,8 +20108,6 @@ class RunWorkItemView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     admission: SubmitWorkItemRequest
-    checkpoint_selection: RunCheckpointSelection | None = None
-    completed_checkpoint: str | None = None
     run_completion: CommittedRunCompletion | None = None
     work_item: WorkItemView
 
@@ -21960,6 +22282,18 @@ class SessionTouch(BaseModel):
     session_token: Secret
 
 
+class SessionUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    count_coverage: dict[str, Annotated[int, Field(ge=0)]]
+    counts: dict[str, Annotated[int, Field(ge=0)]]
+    expected_runs: Annotated[int, Field(ge=0)]
+    inventory_complete: bool
+    missing_runs: Annotated[int, Field(ge=0)]
+    recorded_runs: Annotated[int, Field(ge=0)]
+
+
 class SessionView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -23525,6 +23859,8 @@ class UqlResultExplainBody(BaseModel):
     incremental: bool
     incremental_note: str
     optimized: str
+    plan_digest: Digest256 | None = None
+    query_digest: Digest256 | None = None
     stages: list[UqlStageReport]
     warnings: list[str]
 
@@ -24921,9 +25257,6 @@ GetContentVersionResult = ContentVersion | None
 GetControlLeaseResult = ControlLeaseView | None
 
 
-GetConversationHeadResult = ConversationHeadView | None
-
-
 GetCurrentPlanResult = CurrentPlanSnapshot | None
 
 
@@ -24982,6 +25315,9 @@ GetNodePropertiesBatchResult = list[GetNodePropertiesBatchResultValueItem]
 
 
 GetRdfResult = str
+
+
+GetRunCheckpointResult = RunCheckpointRead | None
 
 
 GetRunWorkItemResult = RunWorkItemView | None
@@ -25514,6 +25850,8 @@ QuestionKind = (
     | Literal["harness_config"]
     | Literal["task_plan"]
     | Literal["harness_contrast"]
+    | Literal["branch_outcome"]
+    | Literal["edit_concentration"]
 )
 
 
@@ -26228,6 +26566,9 @@ __all__ = [
     "ChannelMessage",
     "ChannelSummary",
     "ChannelType",
+    "CheckpointClaim",
+    "CheckpointContent",
+    "CheckpointMemoryRef",
     "ClaimAuthor",
     "ClaimNextResult",
     "ClaimNextResultValue",
@@ -26235,6 +26576,7 @@ __all__ = [
     "ClaimSource",
     "ClaimWorkItemRequest",
     "ClaimWorkItemRequestSchemaVersion",
+    "ClaimWorkItemResult",
     "ClaimWorkItemResultReason",
     "ClaimWorkItemResultSchemaVersion",
     "ClaimedAnalyticsJob",
@@ -26285,8 +26627,6 @@ __all__ = [
     "CommunityQualityFunction",
     "CommunityRow",
     "CompactNodesResult",
-    "CompletedTextAdmission",
-    "CompletedTextInput",
     "ComponentContribution",
     "ComponentDependency",
     "ComponentProvenance",
@@ -26302,6 +26642,7 @@ __all__ = [
     "ConnectorPackImportRequest",
     "ConnectorPackIndex",
     "ConnectorPackOp",
+    "ConnectorPackOpApproveSource",
     "ConnectorPackOpAttestSelfServedCatalog",
     "ConnectorPackOpBind",
     "ConnectorPackOpCatalogAuthorityStatus",
@@ -26318,6 +26659,8 @@ __all__ = [
     "ConnectorPackReconcileRequest",
     "ConnectorPackReprojectRequest",
     "ConnectorPackRetireRequest",
+    "ConnectorPackSourceApprovalRequest",
+    "ConnectorPackSourceApprovalResult",
     "ConnectorPackStatus",
     "ConnectorPackStatusRequest",
     "ConnectorPackUnbindRequest",
@@ -26357,7 +26700,6 @@ __all__ = [
     "ControlLeaseView",
     "ControlSetting",
     "ConvergenceGate",
-    "ConversationHeadView",
     "ConversationTurnAdmission",
     "CostBudget",
     "CostFacts",
@@ -26797,6 +27139,18 @@ __all__ = [
     "ForeignColumnRow",
     "ForeignCypherBackend",
     "ForeignOperationCapabilities",
+    "ForeignReadAbortRequest",
+    "ForeignReadAbortResult",
+    "ForeignReadChunkRequest",
+    "ForeignReadChunkResult",
+    "ForeignReadCompleteRequest",
+    "ForeignReadCompleteResult",
+    "ForeignReadExecutionRef",
+    "ForeignReadLimits",
+    "ForeignReadOpenRequest",
+    "ForeignReadOpenResult",
+    "ForeignReadRow",
+    "ForeignReadSourceIdentity",
     "ForeignSourceFreshness",
     "ForeignSourceSpec",
     "ForeignSourceSpecA2a",
@@ -26862,7 +27216,6 @@ __all__ = [
     "GetChannelMessagesResult",
     "GetContentVersionResult",
     "GetControlLeaseResult",
-    "GetConversationHeadResult",
     "GetCurrentPlanResult",
     "GetEdgePropertiesBatchResult",
     "GetEdgesPageResult",
@@ -26873,6 +27226,8 @@ __all__ = [
     "GetNodePropertiesBatchResult",
     "GetNodePropertiesBatchResultValueItem",
     "GetRdfResult",
+    "GetRunCheckpointRequest",
+    "GetRunCheckpointResult",
     "GetRunWorkItemResult",
     "GetShortestPathResult",
     "GetWorkItemOutcomeResult",
@@ -26909,7 +27264,9 @@ __all__ = [
     "GraphSchemaOpAttachApproved",
     "GraphSchemaOpAttachPack",
     "GraphSchemaOpDetach",
+    "GraphSchemaOpImportOntology",
     "GraphSchemaOpValidateRepair",
+    "GraphSchemaOpWithdrawOntology",
     "GraphSchemaSourceView",
     "GraphSchemaSourcesView",
     "GraphSchemaTermKind",
@@ -26953,6 +27310,9 @@ __all__ = [
     "HeadKind",
     "HealthReport",
     "HeldBlobRef",
+    "HostStartBinding",
+    "HostStartInterfaces",
+    "HostStartProvenance",
     "HttpFieldMap",
     "IdempotentPublish",
     "IdentityActor",
@@ -27093,7 +27453,6 @@ __all__ = [
     "IndicatorValueTrail",
     "IndicatorValueWarming",
     "InitializeRequest",
-    "InlineCheckpointRef",
     "InputsBlob",
     "InsiderAnalysis",
     "InsiderEquilibrium",
@@ -27104,6 +27463,7 @@ __all__ = [
     "InvalidationEvent",
     "InvalidationScope",
     "IssueControlLeaseRequest",
+    "IssueHostStartGrantRequest",
     "ItemLabel",
     "ItemLabelGold",
     "ItemLabelLogged",
@@ -27684,6 +28044,14 @@ __all__ = [
     "MethodFiredTriggersParams",
     "MethodFleetCatalog",
     "MethodFleetCatalogParams",
+    "MethodForeignReadAbort",
+    "MethodForeignReadAbortParams",
+    "MethodForeignReadChunk",
+    "MethodForeignReadChunkParams",
+    "MethodForeignReadComplete",
+    "MethodForeignReadCompleteParams",
+    "MethodForeignReadOpen",
+    "MethodForeignReadOpenParams",
     "MethodFork",
     "MethodFreshnessFeed",
     "MethodFreshnessFeedParams",
@@ -27715,8 +28083,6 @@ __all__ = [
     "MethodGetContextViewParams",
     "MethodGetControlLease",
     "MethodGetControlLeaseParams",
-    "MethodGetConversationHead",
-    "MethodGetConversationHeadParams",
     "MethodGetCurrentPlan",
     "MethodGetCurrentPlanParams",
     "MethodGetEdgeProperties",
@@ -27747,8 +28113,12 @@ __all__ = [
     "MethodGetPredecessors",
     "MethodGetPredecessorsParams",
     "MethodGetRdf",
+    "MethodGetRunCheckpoint",
+    "MethodGetRunCheckpointParams",
     "MethodGetRunWorkItem",
     "MethodGetRunWorkItemParams",
+    "MethodGetSessionUsage",
+    "MethodGetSessionUsageParams",
     "MethodGetShortestPath",
     "MethodGetShortestPathParams",
     "MethodGetSubgraph",
@@ -27797,6 +28167,8 @@ __all__ = [
     "MethodInvalidateEdgeParams",
     "MethodIssueControlLease",
     "MethodIssueControlLeaseParams",
+    "MethodIssueHostStartGrant",
+    "MethodIssueHostStartGrantParams",
     "MethodJoinChannel",
     "MethodJoinChannelParams",
     "MethodKgDelegate",
@@ -27891,6 +28263,8 @@ __all__ = [
     "MethodNlQueryExplain",
     "MethodNlQueryExplainParams",
     "MethodNlQueryParams",
+    "MethodNlQueryPlan",
+    "MethodNlQueryPlanParams",
     "MethodNodeCount",
     "MethodNodeIds",
     "MethodObserveDevelopmentLane",
@@ -27945,6 +28319,8 @@ __all__ = [
     "MethodPublishIdempotent",
     "MethodPublishIdempotentParams",
     "MethodPublishParams",
+    "MethodPublishRunCheckpoint",
+    "MethodPublishRunCheckpointParams",
     "MethodQuantum",
     "MethodQuantumParams",
     "MethodQueryDevelopmentLane",
@@ -28242,7 +28618,6 @@ __all__ = [
     "MutationStateDescriptor",
     "MutationSurface",
     "NamedEvaluator",
-    "NativeClaimWorkItemResult",
     "NativeControlSchemaVersion",
     "NativeOutboxScope",
     "NativeOutboxScopeSemanticBinding",
@@ -28255,6 +28630,7 @@ __all__ = [
     "NlChoiceSourceLlmProposal",
     "NlQueryExplainResult",
     "NlQueryExplainResultRowsItem",
+    "NlQueryPlanResult",
     "NlQueryResult",
     "NlQueryResultValueItem",
     "NlTarget",
@@ -28430,6 +28806,9 @@ __all__ = [
     "PackRef",
     "PackRetireResult",
     "PackSection",
+    "PackSourceApproval",
+    "PackSourceKind",
+    "PackSourceRegistration",
     "PackToolMode",
     "PackViolation",
     "PackViolationCode",
@@ -28609,6 +28988,7 @@ __all__ = [
     "ProvisionedUser",
     "PruneStats",
     "PublishCurrentPlanRequest",
+    "PublishRunCheckpointRequest",
     "QuantScaleTag",
     "QuantisedValue",
     "QuantumExpectationResult",
@@ -28770,11 +29150,11 @@ __all__ = [
     "RuleProofNode",
     "RuleReasonResponse",
     "RuleReasonResponseSameAsItem",
-    "RunCheckpointSelection",
+    "RunCheckpointPublished",
+    "RunCheckpointRead",
     "RunCompletionInput",
     "RunCompletionPayload",
     "RunEvent",
-    "RunSelectionRequest",
     "RunUsage",
     "RunWorkItemView",
     "SabrFit",
@@ -29026,6 +29406,7 @@ __all__ = [
     "ServerTransport",
     "SessionRecordProjection",
     "SessionTouch",
+    "SessionUsage",
     "SessionView",
     "Sha256Digest",
     "ShaclSeverity",

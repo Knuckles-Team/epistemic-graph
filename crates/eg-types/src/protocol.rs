@@ -50,8 +50,8 @@ fn is_false(value: &bool) -> bool {
 /// `eg2.` MAC's canonical body; without this, the server's own
 /// re-serialization used to recompute that MAC would emit an explicit
 /// `limit: 0` the client never sent, failing every such call with
-/// "Authentication failed" -- the same class of bug `is_false` above fixes
-/// for `MineAssociate::as_claim`.
+/// "Authentication failed" -- the same class of omission bug `is_false` also
+/// fixes for additive query flags such as UQL prepare.
 #[cfg(any(feature = "mining", feature = "graphlearn"))]
 fn is_zero_usize(value: &usize) -> bool {
     *value == 0

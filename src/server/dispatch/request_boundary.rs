@@ -87,12 +87,16 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             // EH-219: the typed caller-view reads over the same native rows.
             "PublishCurrentPlan",
             "GetCurrentPlan",
+            "GetRunCheckpoint",
+            "PublishRunCheckpoint",
             "GetRunWorkItem",
             "GetConversationHead",
+            "GetSessionUsage",
             "GetWorkItem",
             "ListWorkItems",
             "GetWorkItemOutcome",
             // graph-os EG-2: native control leases share the WorkItem kernel.
+            "IssueHostStartGrant",
             "IssueControlLease",
             "TransitionControlLease",
             "GetControlLease",
@@ -546,9 +550,11 @@ mod native_resource_capability_tests {
             for op in [
                 "GetRunWorkItem",
                 "GetConversationHead",
+                "GetSessionUsage",
                 "GetWorkItem",
                 "ListWorkItems",
                 "GetWorkItemOutcome",
+                "IssueHostStartGrant",
                 "IssueControlLease",
                 "TransitionControlLease",
                 "GetControlLease",

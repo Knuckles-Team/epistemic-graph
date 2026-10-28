@@ -1,0 +1,133 @@
+# Connector-pack ingest vocabulary (EG-TYPED-PACKS-R101.1).
+#
+# This core module describes the source declaration and the approved mappings
+# that an imported connector pack contributes. Connector surface terms are
+# added by R102; this file owns the ingest contract shared by those surfaces.
+
+@prefix cp:   <http://knuckles.team/kg/connector-pack#> .
+@prefix vg:   <http://knuckles.team/kg/virtual-graph#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/connector-pack> a owl:Ontology ;
+    rdfs:label "Connector pack ingest vocabulary" ;
+    rdfs:comment "Typed source contracts, mappings, access policy and provenance requirements declared by connector packs." ;
+    owl:imports <http://knuckles.team/kg/virtual-graph> .
+
+# --- Contract and mapping classes --------------------------------------------
+
+cp:IngestContract a owl:Class ;
+    rdfs:label "Ingest contract" ;
+    rdfs:comment "A connector's versioned declaration of source objects, access policy and provenance requirements." ;
+    rdfs:subClassOf vg:MetadataContract .
+
+cp:SourceObject a owl:Class ;
+    rdfs:label "Source object" ;
+    rdfs:comment "One source object and its approved projection into the composed ontology." ;
+    rdfs:subClassOf vg:VirtualMapping .
+
+cp:FieldMapping a owl:Class ;
+    rdfs:label "Field mapping" ;
+    rdfs:comment "One source-field to ontology-predicate mapping in a source object." ;
+    rdfs:subClassOf vg:PredicateFieldPair .
+
+cp:KeyRule a owl:Class ;
+    rdfs:label "Key rule" ;
+    rdfs:comment "The rule identifying one source record in a source object." .
+
+cp:CursorPolicy a owl:Class ;
+    rdfs:label "Cursor policy" ;
+    rdfs:comment "The cursor strategy used when reading a source object." .
+
+cp:AccessPolicy a owl:Class ;
+    rdfs:label "Access policy" ;
+    rdfs:comment "The tenant, role and ACL constraints applied to an ingest contract." .
+
+cp:PrivacyClass a owl:Class ;
+    rdfs:label "Privacy class" ;
+    rdfs:comment "The privacy classification required by a connector pack source." .
+
+cp:ProvenanceRequirement a owl:Class ;
+    rdfs:label "Provenance requirement" ;
+    rdfs:comment "A provenance field or evidence requirement for records from a source." .
+
+# --- Contract and mapping properties -----------------------------------------
+
+cp:contractOf a owl:ObjectProperty ;
+    rdfs:label "contract of" ;
+    rdfs:comment "The source connection whose declaration produced this ingest contract." ;
+    rdfs:domain cp:IngestContract ;
+    rdfs:range vg:SourceConnection .
+
+cp:contractVersion a owl:DatatypeProperty ;
+    rdfs:label "contract version" ;
+    rdfs:domain cp:IngestContract ;
+    rdfs:range xsd:string .
+
+cp:contractDigest a owl:DatatypeProperty ;
+    rdfs:label "contract digest" ;
+    rdfs:comment "The content digest of the connector declaration that produced this contract." ;
+    rdfs:domain cp:IngestContract ;
+    rdfs:range xsd:string .
+
+cp:hasSourceObject a owl:ObjectProperty ;
+    rdfs:label "has source object" ;
+    rdfs:domain cp:IngestContract ;
+    rdfs:range cp:SourceObject .
+
+cp:hasKeyRule a owl:ObjectProperty ;
+    rdfs:label "has key rule" ;
+    rdfs:domain cp:SourceObject ;
+    rdfs:range cp:KeyRule .
+
+cp:hasCursorPolicy a owl:ObjectProperty ;
+    rdfs:label "has cursor policy" ;
+    rdfs:domain cp:IngestContract ;
+    rdfs:range cp:CursorPolicy .
+
+cp:cursorKind a owl:DatatypeProperty ;
+    rdfs:label "cursor kind" ;
+    rdfs:domain cp:CursorPolicy ;
+    rdfs:range xsd:string .
+
+cp:hasAccessPolicy a owl:ObjectProperty ;
+    rdfs:label "has access policy" ;
+    rdfs:domain cp:IngestContract ;
+    rdfs:range cp:AccessPolicy .
+
+cp:defaultAcl a owl:DatatypeProperty ;
+    rdfs:label "default ACL" ;
+    rdfs:domain cp:AccessPolicy ;
+    rdfs:range xsd:string .
+
+cp:aclField a owl:DatatypeProperty ;
+    rdfs:label "ACL field" ;
+    rdfs:domain cp:AccessPolicy ;
+    rdfs:range xsd:string .
+
+cp:tenantField a owl:DatatypeProperty ;
+    rdfs:label "tenant field" ;
+    rdfs:domain cp:AccessPolicy ;
+    rdfs:range xsd:string .
+
+cp:readRole a owl:DatatypeProperty ;
+    rdfs:label "read role" ;
+    rdfs:domain cp:AccessPolicy ;
+    rdfs:range xsd:string .
+
+cp:privacyClass a owl:ObjectProperty ;
+    rdfs:label "privacy class" ;
+    rdfs:domain cp:AccessPolicy ;
+    rdfs:range cp:PrivacyClass .
+
+cp:requiresProvenance a owl:ObjectProperty ;
+    rdfs:label "requires provenance" ;
+    rdfs:domain cp:IngestContract ;
+    rdfs:range cp:ProvenanceRequirement .
+
+cp:governedBy a owl:ObjectProperty ;
+    rdfs:label "governed by" ;
+    rdfs:comment "Links an ingested node to the contract that governs its source declaration." ;
+    rdfs:domain rdfs:Resource ;
+    rdfs:range cp:IngestContract .

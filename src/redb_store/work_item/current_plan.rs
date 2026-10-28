@@ -19,7 +19,7 @@ struct StoredPlan {
     payload_digest: String,
 }
 
-fn live(row: &Row, worker: &str, epoch: u64, token: u64, now_ms: u64) -> bool {
+pub(super) fn live(row: &Row, worker: &str, epoch: u64, token: u64, now_ms: u64) -> bool {
     matches!(property_string(row, "status"), "leased" | "running")
         && row.get("lease_epoch").and_then(serde_json::Value::as_u64) == Some(epoch)
         && row.get("fencing_token").and_then(serde_json::Value::as_u64) == Some(token)

@@ -1,8 +1,9 @@
 //! The `Method::ConnectorPack` operation set.
 //!
 //! Five reads (`status`, `catalog_authority_status`, `catalog_owner_principal`,
-//! `catalog_binding_status`, `catalog_request_owner_principal`), one bulk import, and
-//! administrative operations, including the two catalog-authority writes
+//! `catalog_binding_status`, `catalog_request_owner_principal`), one bulk import, one
+//! admitted source-approval operation, and administrative operations, including
+//! the two catalog-authority writes
 //! (`reconcile_catalog` for a mounted child, `attest_self_served_catalog` for a
 //! producer serving its own catalog).
 //! The read/write split and the authorization action both live on the op, so
@@ -50,6 +51,23 @@ pub struct ConnectorPackImportRequest {
     /// grant rather than the ordinary pack-control one.
     #[serde(default)]
     pub allow_mass_withdrawal: bool,
+}
+
+/// Approve one held source declaration from the current connector-pack head.
+///
+/// The request carries only the selector and compare-and-set proof. The source
+/// declaration itself is resolved from the current member row; a caller cannot
+/// smuggle a second mapping or approval bit across this boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ConnectorPackSourceApprovalRequest {
+    pub context: AgentLibraryMutationContext,
+    pub connector: ResourceId,
+    pub contract_iri: String,
+    pub resource_uri: String,
+    pub expected_head: PackHeadRef,
+    pub contract_digest: Digest256,
 }
 
 /// Bind a connector to the importer allowed to publish its packs.
@@ -110,6 +128,11 @@ pub enum ConnectorPackOp {
     /// size of every `Method`.
     Import {
         request: Box<ConnectorPackImportRequest>,
+    },
+    /// Approve a held source declaration after Arbora's admitted read-only
+    /// policy has selected it. Uses the ordinary pack-control authority.
+    ApproveSource {
+        request: ConnectorPackSourceApprovalRequest,
     },
     Bind {
         request: ConnectorPackBindRequest,
@@ -179,6 +202,7 @@ impl ConnectorPackOp {
         match self {
             Self::Status { .. } => "agent:pack-read",
             Self::Import { request } if !request.allow_mass_withdrawal => "agent:pack-control",
+            Self::ApproveSource { .. } => "agent:pack-control",
             Self::Import { .. }
             | Self::Bind { .. }
             | Self::Unbind { .. }
@@ -201,6 +225,7 @@ impl ConnectorPackOp {
         match self {
             Self::Status { request } => &request.tenant_id,
             Self::Import { request } => &request.context.tenant_id,
+            Self::ApproveSource { request } => &request.context.tenant_id,
             Self::Bind { request } => &request.context.tenant_id,
             Self::Unbind { request } => &request.context.tenant_id,
             Self::Retire { request } => &request.context.tenant_id,
@@ -221,6 +246,7 @@ impl ConnectorPackOp {
         match self {
             Self::Status { request } => Some(&request.connector),
             Self::Import { request } => Some(&request.index.connector),
+            Self::ApproveSource { request } => Some(&request.connector),
             Self::Bind { request } => Some(&request.connector),
             Self::Unbind { request } => Some(&request.connector),
             Self::Retire { request } => Some(&request.connector),
@@ -239,6 +265,18 @@ impl ConnectorPackOp {
 #[cfg(test)]
 mod tests {
     use super::ConnectorPackOp;
+
+    #[test]
+    fn source_approval_is_a_mutating_pack_control_operation() {
+        let (_, op) = crate::test_support::contract_wave::pack::ops()
+            .into_iter()
+            .find(|(label, _)| *label == "ConnectorPack.approve_source")
+            .expect("contract-wave samples carry source approval");
+        assert!(op.is_mutation());
+        assert_eq!(op.authz_action(), "agent:pack-control");
+        assert_eq!(op.tenant_id(), "tenant-a");
+        assert!(op.connector().is_some());
+    }
 
     /// R010: pack admission is a single atomic `Import`, not a staged
     /// prepare/commit/abort protocol -- there is no such wire variant to

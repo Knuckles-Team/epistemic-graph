@@ -2,7 +2,7 @@
 
 Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revision. All tasks below remain unchecked until an implementation PR supplies exact evidence.
 
-- [ ] **K-01 (KG-01, KG-02):** Pin the current kernel revision, map every durable write entry point, write the cross-store atomicity ADR, and add all-or-none crash/retry tests (T-KG-01/02).
+- [ ] **K-01 (KG-01, KG-02):** Pin the current kernel revision and map every durable write entry point. Write the cross-store atomicity ADR and add all-or-none crash/retry tests (T-KG-01/02).
 - [ ] **K-02 (KG-03, KG-04):** Validate and cache owner bindings at one transaction boundary, retain golden layout lineage/refusal cases, implement bounded scrub and typed status (T-KG-03/04).
 - [ ] **K-03 (KG-05, KG-06):** Make head-only outbox attempts and reject/rewind semantics observable. Add cursor-based CDC/mirror replay, table mirroring, digest reconciliation and empty-default refusal (T-KG-05/06).
 - [ ] **K-04 (KG-07):** Enumerate all served read/write paths, thread immutable verified scope and build cross-principal/tenant denial fixtures including cache/UDF/foreign/TSDB (T-KG-07).
@@ -156,6 +156,10 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.1 acceptance:** Checkpoint acceptance covers restart/readback and refusal of wrong scope or stale fence/revision. Also refuse digest mismatch, changed-body replay and unavailable storage. Test recovery from interruption between snapshot and pointer update. Meristem resume/Arbora stream continuation remain blocked until transaction/recovery, resume-binding and retention decisions are defined.
 - [ ] **EG-DURABLE-KERNEL-R028.1 status:** Keep SPECIFIED. No runtime or consumer receipt is claimed.
 
+- [ ] **EG-DURABLE-KERNEL-R028.1.1:** Qualify checkpoint-only native source and tests for immutable typed admission context. Check matching original legacy metadata, legacy-only fallback, owner binding and same-snapshot reads. Include fenced/revisioned publication and canonical MutationBatch retry receipts. Generate fresh checkpoint public contracts and graph layout identity from this exact source. Run native tests and offline predecessor migration/reopen proof before claiming delivery.
+- [ ] **EG-DURABLE-KERNEL-R028.1.2:** Complete memory-reference resolution/retention, current-run resume precedence and fence binding. Add durable context ordering and exact host-cursor continuation through AU and served hosts. Keep broad R028.1 open until these companion acceptance cases pass.
+- [ ] **EG-DURABLE-KERNEL-R028.1.3:** Hash-verified hosted checkpoint exports and 30 local facade tests are recorded in the plan. Source formatting, static checks and source review are not native runtime evidence. Final-source native, layout, migration and full repository gates remain pending.
+
 - [ ] **EG-DURABLE-KERNEL-R085.9:** Store complete canonical search state under R085 `active_context`, requiring `search_run_id`, `state_revision`, `transcript`, `evidence`, `constraints`, and `open_claims`. Preserve Meristem R013.13/R020.1 and Medulla R085.1/.4/.7.
 - [ ] **EG-DURABLE-KERNEL-R085.9 acceptance:** Exact restart/context-eviction readback. Malformed, missing-field, oversize, wrong-authority, stale-graph, digest and backend refusals. Stale conflict retains candidate without head advance. Meristem continuation receipt/schema is an explicit dependency hold.
 - [ ] **EG-DURABLE-KERNEL-R085.9 status:** Keep SPECIFIED. No implementation or served evidence is claimed.
@@ -293,6 +297,9 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.4.2:** Measure recovery latency on a reproducible bounded workload.
 - [ ] **EG-DURABLE-KERNEL-R028.6:** Publish ordinary terminal completion types and atomic durable storage. Qualify exact usage, unknown usage, owner and fence refusal, immutable replay and reopen on this source revision. Keep served acceptance separate.
 
+- [x] **EG-DURABLE-KERNEL-R028.1.3.1:** Verify hosted artifact provenance and hashes. Import generated checkpoint contracts and codec. Pass the 30 scoped Python facade tests.
+- [ ] **EG-DURABLE-KERNEL-R028.1.3.2:** Qualify final-source native compilation, layout and migration, transaction/replay/restart behavior and full repository gates.
+
 - [ ] **EG-DURABLE-KERNEL-R028.4.3:** Qualify typed conversation head reservation in the existing native admission transaction. Complete native store tests, actual MutationBatch replay and changed-body refusal, graph-incarnation isolation and generated contract checks. Keep R028.1 and R751.750/R751.751 open for checkpoint-backed history, public transcript paging and served continuation.
 - [ ] **EG-DURABLE-KERNEL-R028.4.4:** Replay a repeated run admission from its retained owner receipt. Add the refreshed-context, restart, changed-input and missing-evidence replay tests and the pre-change store upgrade test.
 
@@ -305,3 +312,14 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] Generate canonical contracts with pinned Rust; run native and hosted gates.
 
 - [ ] Add real catalog-incarnation binding before permitting profile graph deletion, recreation or quota reclamation.
+
+
+- [ ] **EG-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
+  records through canonical contract generation, typed and signed native tests,
+  and normal publication gates. Keep execution reservation, current session policy,
+  restart and benchmark acceptance pending; no live grant or host deployment.
+
+- [ ] **EG-DURABLE-KERNEL-R030.1.1:** Qualify typed assertions and dedicated Python client projection.
+- [ ] **EG-DURABLE-KERNEL-R030.1.2:** Qualify protected native storage, provenance and refusal persistence.
+- [ ] **EG-DURABLE-KERNEL-R030.1.3:** Qualify signed issuer scope and tenant boundaries.
+- [ ] **EG-DURABLE-KERNEL-R030.1.4:** Complete exact-source artifacts, native acceptance, installed consumer and benchmark evidence.

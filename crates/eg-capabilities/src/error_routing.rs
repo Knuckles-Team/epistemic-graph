@@ -104,7 +104,10 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
 ];
 const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ("cluster", &["CLUSTER_", "FLEET_", "REGISTRY_", "RAFT_"]),
-    ("query", &["AST_", "SQL_OWNER_", "RESULT_TOO_LARGE"]),
+    (
+        "query",
+        &["AST_", "SQL_OWNER_", "RESULT_TOO_LARGE", "FOREIGN_READ_"],
+    ),
     (
         "transactions",
         &["CHANGE_BATCH_", "REPLAY_NONCE_", "STALE_GRAPH_"],
@@ -165,6 +168,8 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "ClaimWorkItem",
         &["REPLAY_NONCE_CONSUMED", "RUN_ADMISSION_UNAVAILABLE"],
     ),
+    ("PublishRunCheckpoint", &["REPLAY_NONCE_CONSUMED"]),
+    ("GetRunCheckpoint", &["CONFLICT"]),
     ("TsListSeries", &["REPLAY_NONCE_CONSUMED"]),
     // delegation/validation.rs refuses a retired Agent Library head or entry.
     (
@@ -299,7 +304,10 @@ fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
 
 fn add_typed_handler_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
     let id = d.id.as_str();
-    if matches!(id, "Uql" | "NlQuery" | "NlQueryExplain" | "KnowledgeStream") {
+    if matches!(
+        id,
+        "Uql" | "NlQuery" | "NlQueryExplain" | "NlQueryPlan" | "KnowledgeStream"
+    ) {
         codes.extend(typed_codes(UqlCode::ALL, UqlCode::as_str));
     }
     if id.starts_with("Decision") || id.starts_with("Decide") {
@@ -416,6 +424,7 @@ mod tests {
             "GraphQl",
             "SubmitWorkItem",
             "ClaimWorkItem",
+            "PublishRunCheckpoint",
             "TsListSeries",
         ] {
             assert!(
@@ -437,6 +446,21 @@ mod tests {
         assert!(!method_allows_error(
             "SubmitWorkItem",
             "CLUSTER_CONFIGURATION_INVALID"
+        ));
+    }
+
+    // spec: EG-DURABLE-KERNEL-R028.1.1
+    #[test]
+    fn checkpoint_refusals_are_declared_without_widening_other_reads() {
+        assert!(method_allows_error("GetRunCheckpoint", "CONFLICT"));
+        assert!(!method_allows_error(
+            "GetRunCheckpoint",
+            "REPLAY_NONCE_CONSUMED"
+        ));
+        assert!(!method_allows_error("GetNodes", "CONFLICT"));
+        assert!(!method_allows_error(
+            "PublishRunCheckpoint",
+            "UNSUPPORTED_COALITION"
         ));
     }
 

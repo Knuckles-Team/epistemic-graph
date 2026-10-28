@@ -45,6 +45,8 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::DeferWorkItem { .. }
         | Method::CasWorkItemMetadata { .. }
         | Method::PublishCurrentPlan { .. }
+        | Method::IssueHostStartGrant { .. }
+        | Method::PublishRunCheckpoint { .. }
         | Method::IssueControlLease { .. }
         | Method::TransitionControlLease { .. }
         | Method::PolicyEvolutionStore { .. }
@@ -107,12 +109,13 @@ pub(crate) async fn commit_verified_work_item(
     let owner_bound = matches!(
         &method,
         Method::PublishCurrentPlan { .. }
+            | Method::PublishRunCheckpoint { .. }
             | Method::ClaimWorkItem {
                 completed_text_history: true,
                 ..
             }
     ) || stored_profile_completion(ctx, &method).await?;
-    let method = prepare_current_plan(ctx, method).await?;
+    let method = prepare_private_publication(ctx, method).await?;
     let principal = if owner_bound {
         Some(ctx.verified_context.principal())
     } else {
@@ -150,27 +153,61 @@ fn stamp_retired_by(method: Method, caller: Option<&str>) -> Result<Method, Stri
     Ok(Method::RetireSealedRecord { request })
 }
 
+/// Only private publications replace body retry keys with verified transport identity.
+async fn prepare_private_publication(
+    ctx: &HandleContext<'_>,
+    method: Method,
+) -> Result<Method, String> {
+    match method {
+        Method::PublishCurrentPlan { mut request } => {
+            request.idempotency_key = verified_publication_key(ctx, &request.tenant)?;
+            request.validate()?;
+            prepare_current_plan(ctx, request).await
+        }
+        Method::PublishRunCheckpoint { mut request } => {
+            request.idempotency_key = verified_publication_key(ctx, &request.tenant)?;
+            request.validate()?;
+            prepare_checkpoint(ctx, request).await
+        }
+        other => Ok(other),
+    }
+}
+
+fn verified_publication_key(ctx: &HandleContext<'_>, tenant: &str) -> Result<String, String> {
+    super::native_write_authority::require_carrier_tenant(tenant, ctx.verified_context.tenant())?;
+    Ok(ctx.verified_context.idempotency_key().to_string())
+}
+
+#[cfg(feature = "redb")]
+fn publication_authority<'a>(
+    ctx: &'a HandleContext<'_>,
+    kind: &str,
+) -> Result<
+    (
+        &'a crate::server::persistence::redb_backend::RedbBackend,
+        String,
+        String,
+    ),
+    String,
+> {
+    let backend = ctx
+        .persistence
+        .as_ref()
+        .and_then(|backend| backend.as_redb())
+        .ok_or_else(|| format!("{kind} publication requires native persistence"))?;
+    let actor =
+        crate::server::mutation_batch::principal_fingerprint(ctx.verified_context.principal())?;
+    Ok((backend, crate::persist::sanitize(ctx.graph_name), actor))
+}
+
 /// Authorization precedes the ledger lookup even for an expired historical retry.
-async fn prepare_current_plan(ctx: &HandleContext<'_>, method: Method) -> Result<Method, String> {
-    let Method::PublishCurrentPlan { mut request } = method else {
-        return Ok(method);
-    };
-    super::native_write_authority::require_carrier_tenant(
-        &request.tenant,
-        ctx.verified_context.tenant(),
-    )?;
-    request.idempotency_key = ctx.verified_context.idempotency_key().to_string();
-    request.validate()?;
+async fn prepare_current_plan(
+    ctx: &HandleContext<'_>,
+    request: eg_types::current_plan::PublishCurrentPlanRequest,
+) -> Result<Method, String> {
     #[cfg(feature = "redb")]
     {
-        let backend = ctx
-            .persistence
-            .as_ref()
-            .and_then(|backend| backend.as_redb())
-            .ok_or("current-plan publication requires native persistence")?;
-        let actor =
-            crate::server::mutation_batch::principal_fingerprint(ctx.verified_context.principal())?;
-        let graph = crate::persist::sanitize(ctx.graph_name);
+        let (backend, graph, actor) = publication_authority(ctx, "current-plan")?;
         if !backend
             .current_plan_owner(&graph, &request.tenant, &request.snapshot.run_id, &actor)
             .await?
@@ -180,7 +217,10 @@ async fn prepare_current_plan(ctx: &HandleContext<'_>, method: Method) -> Result
         Ok(Method::PublishCurrentPlan { request })
     }
     #[cfg(not(feature = "redb"))]
-    Err("current-plan publication requires native persistence".into())
+    {
+        let _ = (ctx, request);
+        Err("current-plan publication requires native persistence".into())
+    }
 }
 
 /// Select identity from immutable stored admission, never from a completion's
@@ -216,3 +256,33 @@ async fn stored_profile_completion(
         .conversation
         .is_some_and(|turn| turn.history_profile.is_some()))
 }
+
+/// Owner authorization precedes the native retry ledger, including old receipts.
+async fn prepare_checkpoint(
+    ctx: &HandleContext<'_>,
+    request: eg_types::run_checkpoint::PublishRunCheckpointRequest,
+) -> Result<Method, String> {
+    #[cfg(feature = "redb")]
+    {
+        let (backend, graph, actor) = publication_authority(ctx, "checkpoint")?;
+        let read = eg_types::run_checkpoint::GetRunCheckpointRequest {
+            tenant: request.tenant.clone(),
+            work_item_id: request.work_item_id.clone(),
+            run_id: request.run_id.clone(),
+            context_id: request.context_id.clone(),
+            current_claim: None,
+        };
+        if !backend.checkpoint_owner(&graph, read, &actor).await? {
+            return Err("ACCESS_DENIED: checkpoint owner unavailable".into());
+        }
+        Ok(Method::PublishRunCheckpoint { request })
+    }
+    #[cfg(not(feature = "redb"))]
+    {
+        let _ = (ctx, request);
+        Err("checkpoint publication requires native persistence".into())
+    }
+}
+
+#[cfg(all(test, feature = "redb"))]
+mod host_start_tests;

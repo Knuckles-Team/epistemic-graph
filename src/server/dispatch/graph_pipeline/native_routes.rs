@@ -236,31 +236,11 @@ async fn route_work_item_reads(
     method: Method,
 ) -> Result<Response, Method> {
     let read = match method {
-        Method::GetRunWorkItem {
-            tenant,
-            run_id,
-            selection,
-            completed_text_history,
-        } => handlers::work_item_read::WorkItemRead::RunAdmission {
-            completed_text_history,
-            selection,
-            tenant,
-            run_id,
-            actor: ctx.verified_context.principal().to_string(),
-        },
-        Method::GetConversationHead { tenant, context_id } => {
-            handlers::work_item_read::WorkItemRead::ConversationHead {
-                tenant,
-                context_id,
-                actor: ctx.verified_context.principal().to_string(),
-            }
-        }
-        Method::GetCurrentPlan { tenant, run_id } => {
-            handlers::work_item_read::WorkItemRead::CurrentPlan {
-                tenant,
-                run_id,
-                actor: ctx.verified_context.principal().to_string(),
-            }
+        method @ (Method::GetRunWorkItem { .. }
+        | Method::GetConversationHead { .. }
+        | Method::GetSessionUsage { .. }
+        | Method::GetCurrentPlan { .. }) => {
+            return route_owner_bound_work_item_reads(ctx, method).await;
         }
         Method::GetWorkItem {
             tenant,
@@ -297,10 +277,69 @@ async fn route_work_item_reads(
         Method::GetControlLease { tenant, lease_id } => {
             handlers::work_item_read::WorkItemRead::ControlLease { tenant, lease_id }
         }
+        Method::GetRunCheckpoint { request } => {
+            handlers::work_item_read::WorkItemRead::Checkpoint {
+                request,
+                actor: ctx.verified_context.principal().to_string(),
+            }
+        }
+        other => return route_gap_reads(ctx, other).await,
+    };
+    Ok(answer_work_item_read(ctx, read).await)
+}
+
+#[cfg(feature = "redb")]
+async fn route_gap_reads(ctx: GraphOpRouting<'_>, method: Method) -> Result<Response, Method> {
+    let read = match method {
         Method::GapGet { tenant, gap_id } => {
             handlers::work_item_read::WorkItemRead::Gap { tenant, gap_id }
         }
         Method::GapList { request } => handlers::work_item_read::WorkItemRead::Gaps(request),
+        other => return Err(other),
+    };
+    Ok(answer_work_item_read(ctx, read).await)
+}
+
+#[cfg(feature = "redb")]
+async fn route_owner_bound_work_item_reads(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let actor = ctx.verified_context.principal().to_string();
+    let read = match method {
+        Method::GetRunWorkItem {
+            tenant,
+            run_id,
+            selection,
+            completed_text_history,
+        } => handlers::work_item_read::WorkItemRead::RunAdmission {
+            selection,
+            completed_text_history,
+            tenant,
+            run_id,
+            actor,
+        },
+        Method::GetConversationHead { tenant, context_id } => {
+            handlers::work_item_read::WorkItemRead::ConversationHead {
+                tenant,
+                context_id,
+                actor,
+            }
+        }
+        Method::GetSessionUsage { tenant, context_id } => {
+            handlers::work_item_read::WorkItemRead::SessionUsage {
+                tenant,
+                context_id,
+                actor,
+            }
+        }
+        Method::GetCurrentPlan { tenant, run_id } => {
+            handlers::work_item_read::WorkItemRead::CurrentPlan {
+                tenant,
+                run_id,
+                actor,
+            }
+        }
         other => return Err(other),
     };
     Ok(answer_work_item_read(ctx, read).await)

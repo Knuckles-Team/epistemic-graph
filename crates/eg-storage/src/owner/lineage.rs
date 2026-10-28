@@ -187,8 +187,8 @@ pub const GRAPH_SHARD_BEFORE_CURRENT_PLANS: LayoutPredecessor = LayoutPredecesso
     file_name: "graph-*.redb",
 };
 
-/// Frozen mainline census at d92c682c, before private completed-text snapshots.
-const GRAPH_SHARD_TABLES_BEFORE_INLINE_HISTORY: &[&str] = super::graph_shard::graph_shard_table_names!(
+// Frozen census of the last layout before sealed run checkpoints.
+const GRAPH_SHARD_TABLES_BEFORE_RUN_CHECKPOINTS: &[&str] = super::graph_shard::graph_shard_table_names!(
     "repository_enrichment_budgets",
     "repository_enrichment_policy_revisions",
     "repository_enrichment_supersessions",
@@ -196,12 +196,32 @@ const GRAPH_SHARD_TABLES_BEFORE_INLINE_HISTORY: &[&str] = super::graph_shard::gr
     "audit_requests",
     "work_item_current_plans",
 );
-/// Existing mainline fingerprint recorded by docs/operations/owner-store-formats.md
-/// at d92c682c; not a guessed successor fingerprint. Native fixture capture of
-/// that exact base remains required alongside the generator qualification.
-pub const GRAPH_SHARD_PRE_INLINE_HISTORY_DIGEST: [u8; 32] = [
+pub const GRAPH_SHARD_PRE_RUN_CHECKPOINTS_DIGEST: [u8; 32] = [
     0xcf, 0xc4, 0x7e, 0x43, 0x65, 0x4a, 0xbc, 0x32, 0xfb, 0xf6, 0x3c, 0xf3, 0xd9, 0xd7, 0xff, 0xd4,
     0xe0, 0x4c, 0x74, 0x2e, 0x3c, 0x95, 0x5c, 0x25, 0x9d, 0x2d, 0x05, 0xf5, 0x31, 0x6e, 0x0a, 0x27,
+];
+pub const GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::GraphShard,
+    label: "graph shard before private run checkpoints",
+    owner_tables: GRAPH_SHARD_TABLES_BEFORE_RUN_CHECKPOINTS,
+    data_lost: "none; an explicit offline layout upgrade is required. Normal open refuses this predecessor.",
+    file_name: "graph-*.redb",
+};
+
+/// Frozen mainline census at 755c24ef, before private inline history.
+const GRAPH_SHARD_TABLES_BEFORE_INLINE_HISTORY: &[&str] = super::graph_shard::graph_shard_table_names!(
+    "repository_enrichment_budgets",
+    "repository_enrichment_policy_revisions",
+    "repository_enrichment_supersessions",
+    "repository_enrichment_parks",
+    "audit_requests",
+    "work_item_current_plans",
+    "work_item_run_checkpoints",
+);
+/// Exact current-main fingerprint; not a recomputed predecessor identity.
+pub const GRAPH_SHARD_PRE_INLINE_HISTORY_DIGEST: [u8; 32] = [
+    0x3d, 0x32, 0xd0, 0x52, 0xbb, 0xa3, 0x44, 0xa0, 0x0e, 0xcd, 0xb4, 0xbd, 0x0a, 0xed, 0xed, 0xaa,
+    0xdf, 0x6d, 0x55, 0xe8, 0x6f, 0xe0, 0xd1, 0xe4, 0x35, 0x75, 0xe1, 0x70, 0x5c, 0x78, 0xfc, 0x51,
 ];
 pub const GRAPH_SHARD_BEFORE_INLINE_HISTORY: LayoutPredecessor = LayoutPredecessor {
     layout: OwnerLayout::GraphShard,
@@ -295,6 +315,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
             GRAPH_SHARD_BEFORE_POLICY_REVISIONS,
             GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
             GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+            GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS,
             GRAPH_SHARD_BEFORE_INLINE_HISTORY,
         ],
     }
@@ -364,8 +385,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            // Native lineage test output from hosted run 40451526869.
-            "e4aeac7d8f73cad643f5b843b542307ee3f1a4208a984bf9aba7cffd2a9baf35"
+            "3d32d052bba344a00ecdb4bd0aededaadf6d55e86fe0d1e43575e1705c78fc51"
         }
         OwnerLayout::AgentLibrary => {
             "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"
@@ -451,27 +471,64 @@ pub fn render_owner_store_formats() -> String {
         ));
     }
     for layout in ALL_LAYOUTS {
-        for predecessor in layout_predecessors(layout) {
+        let predecessors = layout_predecessors(layout);
+        for (index, predecessor) in predecessors.iter().enumerate() {
+            let previous = index.checked_sub(1).map(|index| &predecessors[index]);
             out.push_str(&format!(
-                "\n## `{code}`: {label}\n\n* Store file: `{file}`\n* Refused generation: {label}\n\
-                 * Data lost: {lost}\n* Owner tables of the refused generation: {tables}\n\
-                 * Removal step: {removal}\n",
+                "\n## `{code}`: {label}\n\n- Store file: `{file}`\n- Refused generation: {label}\n\
+                 - Data lost: {lost}\n- Tables: {tables}\n\
+                 - Removal step: {removal}\n",
                 code = predecessor.error_code(),
                 file = predecessor.file_name,
                 label = predecessor.label,
-                lost = predecessor.data_lost,
-                tables = predecessor
-                    .owner_tables
-                    .iter()
-                    .map(|table| format!("`{table}`"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                removal = crate::owner::offline_upgrade::render_removal_step(predecessor),
+                lost = render_predecessor_prose(predecessor.data_lost),
+                tables = render_predecessor_tables(predecessor, previous),
+                removal = render_predecessor_prose(
+                    &crate::owner::offline_upgrade::render_removal_step(predecessor),
+                ),
             ));
         }
     }
     out.push_str(&crate::owner::offline_upgrade::render_offline_upgrade_procedure());
     out
+}
+
+/// Separate independent operator clauses without changing persisted lineage data.
+fn render_predecessor_prose(text: &str) -> String {
+    text.replace("; ", ". ")
+        .replace(", or ", ". Alternatively, ")
+        .replace(", so ", ". Thus, ")
+}
+
+/// Describe inherited table sets once; additions do not imply manifest ordering.
+fn render_predecessor_tables(
+    predecessor: &LayoutPredecessor,
+    previous: Option<&LayoutPredecessor>,
+) -> String {
+    let shared = previous.filter(|previous| {
+        previous.layout == predecessor.layout
+            && previous
+                .owner_tables
+                .iter()
+                .all(|table| predecessor.owner_tables.contains(table))
+    });
+    let tables = predecessor
+        .owner_tables
+        .iter()
+        .filter(|table| shared.is_none_or(|previous| !previous.owner_tables.contains(table)))
+        .map(|table| format!("`{table}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match shared {
+        Some(previous) if tables.is_empty() => {
+            format!("Same table set as **{}** above.", previous.label)
+        }
+        Some(previous) => format!(
+            "Same table set as **{}** above. Added tables: {tables}.",
+            previous.label
+        ),
+        None => tables,
+    }
 }
 
 #[cfg(test)]

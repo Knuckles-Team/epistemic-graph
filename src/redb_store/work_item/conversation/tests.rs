@@ -17,24 +17,7 @@ fn request(run: &str, revision: u64, predecessor: Option<&str>) -> SubmitWorkIte
 
 fn admit(shard: &Shard, request: &SubmitWorkItemRequest, owner: &str) -> Result<String, String> {
     with_write(shard, &request.idempotency_key, 1000, |admitted| {
-        let member = admitted.graph(GRAPH)?;
-        let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
-        super::super::apply_submit_work_item_rows(
-            GRAPH,
-            request,
-            &mut rows.nodes,
-            &mut rows.inline_history,
-            &mut rows.edges,
-            &mut rows.command_sequences,
-            WorkItemCommitScope {
-                inline_history_enable_authorized: false,
-                crypto: DurableCrypto::none(),
-                authoritative_now_ms: 1000,
-                admitted_actor: Some(owner),
-                outbox_id: "outbox",
-            },
-        )
-        .map(|result| {
+        super::super::test_shard::submit_run_rows(admitted, request, owner).map(|result| {
             if request.conversation.is_some() {
                 assert!(result
                     .changed_work_item_ids

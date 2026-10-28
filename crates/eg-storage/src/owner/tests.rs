@@ -83,9 +83,9 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // tables (`repository_enrichment_budgets`, `_policy_revisions`,
     // `_supersessions`, `_parks`) = 58, plus the tenant-scoped operation
     // audit-append idempotency index `audit_requests` = 59, plus the private
-    // `work_item_current_plans` snapshot table = 60, plus private
-    // `work_item_inline_history` snapshots and quota = 61.
-    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 61);
+    // `work_item_current_plans` snapshot table = 60, plus private run checkpoints = 61.
+    // The inline-history table brings the union to 62 tables.
+    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 62);
     assert_eq!(owner_layouts().len(), 18);
 }
 
@@ -163,8 +163,9 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // 151 -> 152: the tenant-scoped operation audit-append idempotency index
     // `audit_requests` in GraphShard, also DomainService: service 150 = 149 + 1.
     // 152 -> 153: private current-plan snapshots are DomainService rows.
-    // 153 -> 154: private inline history is another DomainService table.
-    assert_eq!((names.len(), service, shared), (154, 152, 2));
+    // 153 -> 154: private run-checkpoint snapshots are DomainService rows.
+    // 154 -> 155: private inline history is another DomainService table.
+    assert_eq!((names.len(), service, shared), (155, 153, 2));
 }
 
 #[test]
@@ -834,8 +835,9 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // 169 -> 170: the graph shard's tenant-scoped operation audit-append
     // idempotency index `audit_requests`, also a durable mutation table.
     // 170 -> 171: the private current-plan table is also a mutation table.
-    // 171 -> 172: private inline history is also a mutation table.
-    assert_eq!(names.len(), 172);
+    // 171 -> 172: the private run-checkpoint table is a mutation table.
+    // 172 -> 173: private inline history is also a mutation table.
+    assert_eq!(names.len(), 173);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

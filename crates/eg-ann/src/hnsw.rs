@@ -33,6 +33,7 @@ use std::cmp::Ordering;
 pub mod artifact;
 /// Compact, immutable adjacency representation for opt-in no-rebuild serving.
 pub mod compact;
+pub mod pruning;
 mod search;
 
 /// One graph node: its external id, its full vector, and its per-layer adjacency
@@ -235,6 +236,19 @@ impl HnswIndex {
         for (id, v) in items {
             self.insert(*id, v.clone());
         }
+    }
+
+    /// Return a validated pruned clone under an explicit opt-in policy.
+    ///
+    /// [`pruning::PrunePolicy::new`] is disabled by default and therefore
+    /// returns an exact clone identity. Callers that opt in must bind the
+    /// policy revision and digest supplied by the owning manifest. This method
+    /// does not replace or mutate the source graph.
+    pub fn pruned_with_policy(
+        &self,
+        policy: pruning::PrunePolicy,
+    ) -> Result<Self, pruning::PruneError> {
+        pruning::prune_hub_preserving(self, policy)
     }
 
     /// Approximate top-`k` nearest neighbours to `query` (CONCEPT:EG-KG.retrieval.hnsw-vector-index).

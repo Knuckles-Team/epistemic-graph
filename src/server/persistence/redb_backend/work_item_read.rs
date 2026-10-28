@@ -234,6 +234,23 @@ impl RedbBackend {
         .await
     }
 
+    pub(crate) async fn read_session_usage(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        context_id: &str,
+        actor: &str,
+    ) -> Result<eg_types::run_usage::SessionUsage, String> {
+        self.owner_point_read(
+            graph_fname,
+            tenant,
+            context_id,
+            actor,
+            crate::redb_store::work_item::read_session_usage,
+        )
+        .await
+    }
+
     pub(crate) async fn current_plan_owner(
         &self,
         graph_fname: &str,
@@ -275,6 +292,42 @@ impl RedbBackend {
                 )
             },
         )
+        .await
+    }
+}
+
+impl RedbBackend {
+    pub(crate) async fn checkpoint_owner(
+        &self,
+        graph_fname: &str,
+        request: eg_types::run_checkpoint::GetRunCheckpointRequest,
+        actor: &str,
+    ) -> Result<bool, String> {
+        let (graph, actor) = (graph_fname.to_owned(), actor.to_owned());
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::work_item::checkpoint::is_owner(
+                shard, &graph, &request, &actor, crypto,
+            )
+        })
+        .await
+    }
+    pub(crate) async fn read_run_checkpoint(
+        &self,
+        graph_fname: &str,
+        request: eg_types::run_checkpoint::GetRunCheckpointRequest,
+        actor: &str,
+    ) -> Result<Option<eg_types::run_checkpoint::RunCheckpointRead>, String> {
+        let (graph, actor) = (graph_fname.to_owned(), actor.to_owned());
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::work_item::checkpoint::read_current(
+                shard,
+                &graph,
+                &request,
+                &actor,
+                crypto,
+                crate::server::dispatch::authoritative_now_ms(),
+            )
+        })
         .await
     }
 }

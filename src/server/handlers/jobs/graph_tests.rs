@@ -217,6 +217,9 @@ mod mine_associate_submission_tests {
                 match kind {
                     JobKind::MineAssociate { transactions, .. } => {
                         assert_eq!(transactions[0].len(), 31);
+                        assert!(transactions[0]
+                            .iter()
+                            .all(|item| item.starts_with("eg:analytics_item:")));
                         assert_eq!(
                             transactions
                                 .iter()
@@ -239,6 +242,28 @@ mod mine_associate_submission_tests {
                 );
                 assert!(response.result.is_none());
             }
+        }
+    }
+
+    // spec: EG-PLACEMENT-R003.5
+    #[test]
+    fn mine_associate_accepts_plain_item_references_and_stores_opaque_refs() {
+        let (kind, _, _, _) = govern(JobKind::MineAssociate {
+            transactions: vec![vec!["raw-label".into()]],
+            min_support: 0.1,
+            min_confidence: 0.5,
+            algorithm: "fpgrowth".into(),
+        })
+        .expect("plain item labels are mapped before durable submission");
+        match kind {
+            JobKind::MineAssociate { transactions, .. } => {
+                assert_eq!(transactions.len(), 1);
+                assert_eq!(transactions[0].len(), 1);
+                assert!(transactions[0][0].starts_with("eg:analytics_item:"));
+                assert_ne!(transactions[0][0], "raw-label");
+            }
+            #[cfg(feature = "program-optimization")]
+            JobKind::ProgramOptimize { .. } => panic!("expected association job"),
         }
     }
 

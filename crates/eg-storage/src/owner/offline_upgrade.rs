@@ -18,7 +18,8 @@ use super::layout::OwnerLayout;
 use super::lineage::{
     layout_predecessors, AGENT_LIBRARY_BEFORE_MCP_CATALOG, GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
     GRAPH_SHARD_BEFORE_CURRENT_PLANS, GRAPH_SHARD_BEFORE_ENRICHMENT,
-    GRAPH_SHARD_BEFORE_INLINE_HISTORY, SQL_BEFORE_DURABLE_ANN, SQL_BEFORE_SOURCE_CHECKPOINTS,
+    GRAPH_SHARD_BEFORE_INLINE_HISTORY, GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS, SQL_BEFORE_DURABLE_ANN,
+    SQL_BEFORE_SOURCE_CHECKPOINTS,
 };
 use super::persisted_layout::{read_persisted_manifest, LayoutPredecessor};
 use super::sql_checkpoint_upgrade::{
@@ -146,6 +147,17 @@ pub static OFFLINE_STORE_UPGRADES: &[OfflineStoreUpgrade] = &[
             integrity,
             options,
             GraphShardSource::BeforeInlineHistory
+        ),
+        upgrade_graph_shard
+    ),
+    offline_upgrade!(
+        GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS,
+        |path, identity, integrity, options| inspect_graph_shard_upgrade(
+            path,
+            identity,
+            integrity,
+            options,
+            GraphShardSource::BeforeRunCheckpoints
         ),
         upgrade_graph_shard
     ),

@@ -502,6 +502,12 @@
     },
     {
       "approver_group": null,
+      "class": "service-only",
+      "owner": "graph-os",
+      "scope": "host:issue-start"
+    },
+    {
+      "approver_group": null,
       "class": "admin",
       "owner": "engine",
       "scope": "identity:admin"

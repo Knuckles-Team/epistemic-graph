@@ -38,7 +38,7 @@
 //! caller composes it above the planner, the same way LeanRAG sits above a vector DB.
 
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 /// A node id paired with a relevance score (higher = more relevant to the query).
 #[derive(Clone, Debug, PartialEq)]
@@ -74,6 +74,344 @@ pub trait GraphTopology {
     /// The node's embedding, used to score drilled children against the query. A
     /// node with no embedding is treated as minimally relevant.
     fn embedding(&self, id: &str) -> Option<Vec<f32>>;
+}
+
+/// The stored granularity requested by the vector-free hierarchy mode.
+///
+/// This mode deliberately has no embedding or model input.  The caller supplies
+/// already-authorized section records and the traversal returns the stored
+/// summary/span at the requested level.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SectionGranularity {
+    Document,
+    Section,
+    SourceSpan,
+}
+
+/// A half-open source range carried by one immutable section record.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SectionSpan {
+    pub start: u64,
+    pub end: u64,
+}
+
+impl SectionSpan {
+    fn contains(self, child: Self) -> bool {
+        self.start <= child.start && child.start <= child.end && child.end <= self.end
+    }
+}
+
+/// The structural, source-bound data needed by vector-free hierarchy traversal.
+///
+/// The record contains the already-authorized stored summary, immutable source
+/// span and their revision-bound digests; generation remains outside this
+/// read-only traversal. `children` order is preserved by the traversal and is
+/// the deterministic tie order when no vector score is available.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SectionRecord {
+    pub document_id: String,
+    pub document_revision: String,
+    pub section_id: String,
+    pub parent_id: Option<String>,
+    pub children: Vec<String>,
+    pub granularity: SectionGranularity,
+    pub source_span: SectionSpan,
+    pub summary: String,
+    pub source_digest: String,
+    pub summary_digest: String,
+}
+
+/// Read-only accessor for records that have already passed the caller's
+/// authorization boundary.  This trait has no embedding, model or write
+/// operation, which makes vector-free traversal explicit at the type boundary.
+pub trait SectionTopology {
+    fn section(&self, section_id: &str) -> Option<SectionRecord>;
+}
+
+/// Finite traversal limits for the vector-free hierarchy path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VectorFreeLimits {
+    pub max_depth: usize,
+    pub max_visited: usize,
+}
+
+impl Default for VectorFreeLimits {
+    fn default() -> Self {
+        Self {
+            max_depth: 32,
+            max_visited: 4096,
+        }
+    }
+}
+
+/// The finite traversal dimension that stopped a vector-free request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TraversalLimit {
+    Depth,
+    Visited,
+}
+
+/// Result of a vector-free walk. `paths[i]` is the ordered root-to-record path
+/// for `selected[i]`. Finite limit exhaustion is returned as a typed refusal
+/// before the next child is read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VectorFreeResult {
+    pub selected: Vec<SectionRecord>,
+    pub paths: Vec<Vec<String>>,
+}
+
+/// Refusals from structural validation or an invalid vector-free request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum VectorFreeError {
+    InvalidLimits,
+    MissingRecord(String),
+    RootHasParent(String),
+    DocumentMismatch {
+        section_id: String,
+        expected: String,
+        actual: String,
+    },
+    RevisionMismatch {
+        section_id: String,
+        expected: String,
+        actual: String,
+    },
+    ParentMismatch {
+        section_id: String,
+        expected: String,
+        actual: Option<String>,
+    },
+    InvalidRecord(String),
+    ChildOutsideParent {
+        parent_id: String,
+        child_id: String,
+    },
+    DuplicateOrCycle(String),
+    TraversalLimitExceeded(TraversalLimit),
+    NoMatchingGranularity(SectionGranularity),
+}
+
+fn validate_section_record(record: &SectionRecord) -> Result<(), VectorFreeError> {
+    if record.document_id.is_empty()
+        || record.document_revision.is_empty()
+        || record.section_id.is_empty()
+        || record.summary.is_empty()
+        || record.source_digest.is_empty()
+        || record.summary_digest.is_empty()
+        || record.source_span.start >= record.source_span.end
+    {
+        return Err(VectorFreeError::InvalidRecord(record.section_id.clone()));
+    }
+    Ok(())
+}
+
+fn read_root_section(
+    topology: &dyn SectionTopology,
+    root_id: &str,
+    document_revision: &str,
+) -> Result<String, VectorFreeError> {
+    let root = topology
+        .section(root_id)
+        .ok_or_else(|| VectorFreeError::MissingRecord(root_id.to_string()))?;
+    validate_section_record(&root)?;
+    if root.section_id != root_id {
+        return Err(VectorFreeError::InvalidRecord(root_id.to_string()));
+    }
+    if root.parent_id.is_some() {
+        return Err(VectorFreeError::RootHasParent(root.section_id.clone()));
+    }
+    if root.document_revision != document_revision {
+        return Err(VectorFreeError::RevisionMismatch {
+            section_id: root.section_id.clone(),
+            expected: document_revision.to_string(),
+            actual: root.document_revision.clone(),
+        });
+    }
+    Ok(root.document_id.clone())
+}
+
+fn read_section(
+    topology: &dyn SectionTopology,
+    section_id: &str,
+    document_id: &str,
+    document_revision: &str,
+    expected_parent: Option<&str>,
+) -> Result<SectionRecord, VectorFreeError> {
+    let record = topology
+        .section(section_id)
+        .ok_or_else(|| VectorFreeError::MissingRecord(section_id.to_string()))?;
+    validate_section_record(&record)?;
+    if record.section_id != section_id {
+        return Err(VectorFreeError::InvalidRecord(section_id.to_string()));
+    }
+    if record.document_id != document_id {
+        return Err(VectorFreeError::DocumentMismatch {
+            section_id: section_id.to_string(),
+            expected: document_id.to_string(),
+            actual: record.document_id,
+        });
+    }
+    if record.document_revision != document_revision {
+        return Err(VectorFreeError::RevisionMismatch {
+            section_id: section_id.to_string(),
+            expected: document_revision.to_string(),
+            actual: record.document_revision,
+        });
+    }
+    if let Some(parent_id) = expected_parent {
+        if record.parent_id.as_deref() != Some(parent_id) {
+            return Err(VectorFreeError::ParentMismatch {
+                section_id: section_id.to_string(),
+                expected: parent_id.to_string(),
+                actual: record.parent_id,
+            });
+        }
+    }
+    Ok(record)
+}
+
+struct VectorFreeContext<'a> {
+    topology: &'a dyn SectionTopology,
+    document_id: &'a str,
+    document_revision: &'a str,
+    limits: VectorFreeLimits,
+}
+
+fn validate_child(
+    context: &VectorFreeContext<'_>,
+    child_id: &str,
+    parent: &SectionRecord,
+    queued: &HashSet<String>,
+) -> Result<(), VectorFreeError> {
+    if queued.contains(child_id) {
+        return Err(VectorFreeError::DuplicateOrCycle(child_id.to_string()));
+    }
+    if queued.len() >= context.limits.max_visited {
+        return Err(VectorFreeError::TraversalLimitExceeded(
+            TraversalLimit::Visited,
+        ));
+    }
+    let child = context
+        .topology
+        .section(child_id)
+        .ok_or_else(|| VectorFreeError::MissingRecord(child_id.to_string()))?;
+    validate_section_record(&child)?;
+    if child.section_id != child_id {
+        return Err(VectorFreeError::InvalidRecord(child_id.to_string()));
+    }
+    if child.document_id != context.document_id {
+        return Err(VectorFreeError::DocumentMismatch {
+            section_id: child.section_id.clone(),
+            expected: context.document_id.to_string(),
+            actual: child.document_id.clone(),
+        });
+    }
+    if child.document_revision != context.document_revision {
+        return Err(VectorFreeError::RevisionMismatch {
+            section_id: child.section_id.clone(),
+            expected: context.document_revision.to_string(),
+            actual: child.document_revision.clone(),
+        });
+    }
+    if child.parent_id.as_deref() != Some(parent.section_id.as_str()) {
+        return Err(VectorFreeError::ParentMismatch {
+            section_id: child.section_id.clone(),
+            expected: parent.section_id.clone(),
+            actual: child.parent_id.clone(),
+        });
+    }
+    if !parent.source_span.contains(child.source_span) {
+        return Err(VectorFreeError::ChildOutsideParent {
+            parent_id: parent.section_id.clone(),
+            child_id: child.section_id.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn enqueue_children(
+    context: &VectorFreeContext<'_>,
+    record: &SectionRecord,
+    path: &[String],
+    depth: usize,
+    queued: &mut HashSet<String>,
+    queue: &mut VecDeque<(String, Option<String>, Vec<String>, usize)>,
+) -> Result<(), VectorFreeError> {
+    for child_id in &record.children {
+        validate_child(context, child_id, record, queued)?;
+        queued.insert(child_id.clone());
+        let mut child_path = path.to_vec();
+        child_path.push(child_id.clone());
+        queue.push_back((
+            child_id.clone(),
+            Some(record.section_id.clone()),
+            child_path,
+            depth + 1,
+        ));
+    }
+    Ok(())
+}
+
+/// Traverse an authorized document-section tree without vectors or external
+/// inference calls.  The result is structural-only: callers decide how to
+/// attach this seam to the authenticated `UnifiedQuery`/`PlanCtx` path.
+pub fn retrieve_vector_free(
+    topology: &dyn SectionTopology,
+    root_id: &str,
+    document_revision: &str,
+    granularity: SectionGranularity,
+    limits: VectorFreeLimits,
+) -> Result<VectorFreeResult, VectorFreeError> {
+    if root_id.is_empty()
+        || document_revision.is_empty()
+        || limits.max_depth == 0
+        || limits.max_visited == 0
+    {
+        return Err(VectorFreeError::InvalidLimits);
+    }
+
+    let document_id = read_root_section(topology, root_id, document_revision)?;
+    let context = VectorFreeContext {
+        topology,
+        document_id: &document_id,
+        document_revision,
+        limits,
+    };
+    let mut queue: VecDeque<(String, Option<String>, Vec<String>, usize)> = VecDeque::new();
+    queue.push_back((root_id.to_string(), None, vec![root_id.to_string()], 0));
+    let mut queued = HashSet::from([root_id.to_string()]);
+    let mut selected = Vec::new();
+    let mut paths = Vec::new();
+
+    while let Some((section_id, expected_parent, path, depth)) = queue.pop_front() {
+        let record = read_section(
+            topology,
+            &section_id,
+            context.document_id,
+            document_revision,
+            expected_parent.as_deref(),
+        )?;
+
+        if record.granularity == granularity {
+            selected.push(record.clone());
+            paths.push(path.clone());
+        }
+
+        if depth >= limits.max_depth {
+            if !record.children.is_empty() {
+                return Err(VectorFreeError::TraversalLimitExceeded(
+                    TraversalLimit::Depth,
+                ));
+            }
+            continue;
+        }
+        enqueue_children(&context, &record, &path, depth, &mut queued, &mut queue)?;
+    }
+
+    if selected.is_empty() {
+        return Err(VectorFreeError::NoMatchingGranularity(granularity));
+    }
+    Ok(VectorFreeResult { selected, paths })
 }
 
 /// The retrieval budget knobs (CONCEPT:EG-KG.retrieval.bounded-drill).
@@ -428,6 +766,293 @@ mod tests {
             truncate_highest_scored(&mut scored, k);
             scored
         }
+    }
+
+    /// Read-only section fixture for the vector-free mode.  It intentionally
+    /// implements only `SectionTopology`: a successful walk has no embedding or
+    /// model accessor available to call.
+    #[derive(Default)]
+    struct SectionFixture {
+        records: HashMap<String, SectionRecord>,
+    }
+
+    impl SectionFixture {
+        fn add(&mut self, record: SectionRecord) {
+            self.records.insert(record.section_id.clone(), record);
+        }
+    }
+
+    impl SectionTopology for SectionFixture {
+        fn section(&self, section_id: &str) -> Option<SectionRecord> {
+            self.records.get(section_id).cloned()
+        }
+    }
+
+    fn section_record(
+        id: &str,
+        parent: Option<&str>,
+        children: &[&str],
+        granularity: SectionGranularity,
+        start: u64,
+        end: u64,
+        revision: &str,
+    ) -> SectionRecord {
+        SectionRecord {
+            document_id: "doc-1".into(),
+            document_revision: revision.into(),
+            section_id: id.into(),
+            parent_id: parent.map(str::to_owned),
+            children: children.iter().map(|child| (*child).into()).collect(),
+            granularity,
+            source_span: SectionSpan { start, end },
+            summary: format!("summary:{id}"),
+            source_digest: format!("source:{id}"),
+            summary_digest: format!("summary:{id}"),
+        }
+    }
+
+    fn nested_section_fixture() -> SectionFixture {
+        let mut fixture = SectionFixture::default();
+        fixture.add(section_record(
+            "doc-1",
+            None,
+            &["intro", "appendix"],
+            SectionGranularity::Document,
+            0,
+            100,
+            "rev-1",
+        ));
+        fixture.add(section_record(
+            "intro",
+            Some("doc-1"),
+            &["intro-a", "intro-b"],
+            SectionGranularity::Section,
+            0,
+            60,
+            "rev-1",
+        ));
+        fixture.add(section_record(
+            "appendix",
+            Some("doc-1"),
+            &[],
+            SectionGranularity::Section,
+            60,
+            100,
+            "rev-1",
+        ));
+        fixture.add(section_record(
+            "intro-a",
+            Some("intro"),
+            &[],
+            SectionGranularity::SourceSpan,
+            0,
+            30,
+            "rev-1",
+        ));
+        fixture.add(section_record(
+            "intro-b",
+            Some("intro"),
+            &[],
+            SectionGranularity::SourceSpan,
+            30,
+            60,
+            "rev-1",
+        ));
+        fixture
+    }
+
+    #[test]
+    fn vector_free_walk_returns_each_granularity_and_full_paths() {
+        let fixture = nested_section_fixture();
+        let limits = VectorFreeLimits {
+            max_depth: 4,
+            max_visited: 16,
+        };
+
+        let documents = retrieve_vector_free(
+            &fixture,
+            "doc-1",
+            "rev-1",
+            SectionGranularity::Document,
+            limits,
+        )
+        .expect("document walk should succeed");
+        assert_eq!(
+            documents
+                .selected
+                .iter()
+                .map(|record| record.section_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["doc-1"]
+        );
+        assert_eq!(documents.paths, vec![vec!["doc-1".to_string()]]);
+
+        let sections = retrieve_vector_free(
+            &fixture,
+            "doc-1",
+            "rev-1",
+            SectionGranularity::Section,
+            limits,
+        )
+        .expect("section walk should succeed");
+        assert_eq!(
+            sections
+                .selected
+                .iter()
+                .map(|record| record.section_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["intro", "appendix"]
+        );
+        assert_eq!(
+            sections.paths,
+            vec![
+                vec!["doc-1".to_string(), "intro".to_string()],
+                vec!["doc-1".to_string(), "appendix".to_string()],
+            ]
+        );
+
+        let spans = retrieve_vector_free(
+            &fixture,
+            "doc-1",
+            "rev-1",
+            SectionGranularity::SourceSpan,
+            limits,
+        )
+        .expect("source-span walk should succeed");
+        assert_eq!(
+            spans
+                .selected
+                .iter()
+                .map(|record| (record.section_id.as_str(), record.source_span))
+                .collect::<Vec<_>>(),
+            vec![
+                ("intro-a", SectionSpan { start: 0, end: 30 }),
+                ("intro-b", SectionSpan { start: 30, end: 60 }),
+            ]
+        );
+        assert_eq!(spans.selected[0].summary, "summary:intro-a");
+        assert_eq!(
+            spans.paths,
+            vec![
+                vec![
+                    "doc-1".to_string(),
+                    "intro".to_string(),
+                    "intro-a".to_string()
+                ],
+                vec![
+                    "doc-1".to_string(),
+                    "intro".to_string(),
+                    "intro-b".to_string()
+                ],
+            ]
+        );
+    }
+
+    #[test]
+    fn vector_free_walk_refuses_stale_revision_and_outside_span() {
+        let mut stale = nested_section_fixture();
+        stale.records.get_mut("intro-b").unwrap().document_revision = "rev-2".into();
+        assert_eq!(
+            retrieve_vector_free(
+                &stale,
+                "doc-1",
+                "rev-1",
+                SectionGranularity::SourceSpan,
+                VectorFreeLimits::default(),
+            ),
+            Err(VectorFreeError::RevisionMismatch {
+                section_id: "intro-b".into(),
+                expected: "rev-1".into(),
+                actual: "rev-2".into(),
+            })
+        );
+
+        let mut outside = nested_section_fixture();
+        outside.records.get_mut("intro-b").unwrap().source_span =
+            SectionSpan { start: 60, end: 70 };
+        assert_eq!(
+            retrieve_vector_free(
+                &outside,
+                "doc-1",
+                "rev-1",
+                SectionGranularity::SourceSpan,
+                VectorFreeLimits::default(),
+            ),
+            Err(VectorFreeError::ChildOutsideParent {
+                parent_id: "intro".into(),
+                child_id: "intro-b".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn vector_free_walk_stops_before_depth_or_visit_overflow() {
+        let fixture = nested_section_fixture();
+        assert_eq!(
+            retrieve_vector_free(
+                &fixture,
+                "doc-1",
+                "rev-1",
+                SectionGranularity::SourceSpan,
+                VectorFreeLimits {
+                    max_depth: 1,
+                    max_visited: 16,
+                },
+            ),
+            Err(VectorFreeError::TraversalLimitExceeded(
+                TraversalLimit::Depth
+            ))
+        );
+        assert_eq!(
+            retrieve_vector_free(
+                &fixture,
+                "doc-1",
+                "rev-1",
+                SectionGranularity::Section,
+                VectorFreeLimits {
+                    max_depth: 4,
+                    max_visited: 2,
+                },
+            ),
+            Err(VectorFreeError::TraversalLimitExceeded(
+                TraversalLimit::Visited
+            ))
+        );
+    }
+
+    #[test]
+    fn vector_free_walk_refuses_cycles_and_invalid_limits() {
+        let mut cycle = nested_section_fixture();
+        cycle
+            .records
+            .get_mut("intro-b")
+            .unwrap()
+            .children
+            .push("doc-1".into());
+        assert_eq!(
+            retrieve_vector_free(
+                &cycle,
+                "doc-1",
+                "rev-1",
+                SectionGranularity::SourceSpan,
+                VectorFreeLimits::default(),
+            ),
+            Err(VectorFreeError::DuplicateOrCycle("doc-1".into()))
+        );
+
+        assert_eq!(
+            retrieve_vector_free(
+                &cycle,
+                "doc-1",
+                "rev-1",
+                SectionGranularity::SourceSpan,
+                VectorFreeLimits {
+                    max_depth: 4,
+                    max_visited: 0,
+                },
+            ),
+            Err(VectorFreeError::InvalidLimits)
+        );
     }
 
     /// A 3-topic fixture. Each topic Ti has a `:SummaryNode` Si at its axis-aligned

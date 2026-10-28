@@ -66,9 +66,10 @@ pub(crate) struct WorkItemFenceKey<'args> {
 }
 
 mod cancel;
+pub(crate) mod checkpoint;
 mod claim;
 mod commit;
-mod control_lease;
+pub(crate) mod control_lease;
 mod conversation;
 pub(crate) mod current_plan;
 mod dispatch;
@@ -80,9 +81,11 @@ mod policy_record;
 mod read;
 mod row_guard;
 mod run_owner;
+mod session_usage;
 pub(crate) use run_owner::{
     read_admission as read_run_admission, read_admission_legacy as read_run_admission_legacy,
 };
+pub(crate) use session_usage::read_session_usage;
 mod sealed_record;
 mod submit;
 #[cfg(test)]

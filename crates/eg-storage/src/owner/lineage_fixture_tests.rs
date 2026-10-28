@@ -83,6 +83,7 @@ fn historical_graph_shard_tables_preserve_introduction_boundaries() {
         assert_eq!(
             predecessor.owner_tables.contains(&"audit_requests"),
             predecessor.label == GRAPH_SHARD_BEFORE_CURRENT_PLANS.label
+                || predecessor.label == GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS.label
                 || predecessor.label == GRAPH_SHARD_BEFORE_INLINE_HISTORY.label,
             "{}",
             predecessor.label
@@ -91,11 +92,19 @@ fn historical_graph_shard_tables_preserve_introduction_boundaries() {
             predecessor
                 .owner_tables
                 .contains(&"work_item_current_plans"),
+            predecessor.label == GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS.label
+                || predecessor.label == GRAPH_SHARD_BEFORE_INLINE_HISTORY.label
+        );
+        assert_eq!(
+            predecessor
+                .owner_tables
+                .contains(&"work_item_run_checkpoints"),
             predecessor.label == GRAPH_SHARD_BEFORE_INLINE_HISTORY.label,
         );
         assert!(!predecessor
             .owner_tables
             .contains(&"work_item_inline_history"));
+        assert!(!predecessor.owner_tables.contains(&"work_item_run_events"));
     }
     assert!(
         crate::owner::registry::owner_table_names(OwnerLayout::GraphShard)

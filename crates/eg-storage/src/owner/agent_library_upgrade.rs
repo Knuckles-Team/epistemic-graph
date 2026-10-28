@@ -56,25 +56,42 @@ pub enum GraphShardSource {
     BeforeCurrentPlans,
     /// Before the private completed-text snapshot and quota table.
     BeforeInlineHistory,
+    /// Before private context-bound run checkpoints.
+    BeforeRunCheckpoints,
 }
 
 impl GraphShardSource {
-    fn declared_generation(self) -> &'static LayoutPredecessor {
+    fn descriptor(self) -> (&'static LayoutPredecessor, [u8; 32]) {
         match self {
-            Self::BeforeEnrichment => &GRAPH_SHARD_BEFORE_ENRICHMENT,
-            Self::BeforeAuditRequests => &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
-            Self::BeforeCurrentPlans => &GRAPH_SHARD_BEFORE_CURRENT_PLANS,
-            Self::BeforeInlineHistory => &GRAPH_SHARD_BEFORE_INLINE_HISTORY,
+            Self::BeforeEnrichment => (
+                &GRAPH_SHARD_BEFORE_ENRICHMENT,
+                super::lineage::GRAPH_SHARD_PRE_ENRICHMENT_DIGEST,
+            ),
+            Self::BeforeAuditRequests => (
+                &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
+                super::lineage::GRAPH_SHARD_PRE_AUDIT_REQUESTS_DIGEST,
+            ),
+            Self::BeforeCurrentPlans => (
+                &GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+                super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST,
+            ),
+            Self::BeforeRunCheckpoints => (
+                &super::lineage::GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS,
+                super::lineage::GRAPH_SHARD_PRE_RUN_CHECKPOINTS_DIGEST,
+            ),
+            Self::BeforeInlineHistory => (
+                &GRAPH_SHARD_BEFORE_INLINE_HISTORY,
+                super::lineage::GRAPH_SHARD_PRE_INLINE_HISTORY_DIGEST,
+            ),
         }
     }
 
+    fn declared_generation(self) -> &'static LayoutPredecessor {
+        self.descriptor().0
+    }
+
     fn frozen_digest(self) -> [u8; 32] {
-        match self {
-            Self::BeforeEnrichment => super::lineage::GRAPH_SHARD_PRE_ENRICHMENT_DIGEST,
-            Self::BeforeAuditRequests => super::lineage::GRAPH_SHARD_PRE_AUDIT_REQUESTS_DIGEST,
-            Self::BeforeCurrentPlans => super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST,
-            Self::BeforeInlineHistory => super::lineage::GRAPH_SHARD_PRE_INLINE_HISTORY_DIGEST,
-        }
+        self.descriptor().1
     }
 }
 

@@ -1,0 +1,26 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# SDLC-lifecycle ABox shapes: the records the gitlab/github/repository-manager
+# connectors write under the sdlc_lifecycle module. Closed vocabularies are
+# sh:in lists so a typo is a violation, not a new state (precedent:
+# finance-v1.shapes.ttl).
+
+:CodeChangeProposalShape a sh:NodeShape ;
+    sh:description "A code change proposal carries at most one state from the closed open/merged/closed vocabulary." ;
+    sh:name "Code Change Proposal Shape" ;
+    sh:property [ sh:in ( "open" "merged" "closed" ) ;
+            sh:maxCount 1 ;
+            sh:message "proposalState is open, merged or closed." ;
+            sh:path :proposalState ] ;
+    sh:targetClass :CodeChangeProposal .
+
+:WorktreeShape a sh:NodeShape ;
+    sh:description "A worktree carries at most one state from the closed active/stale/dangling/merged vocabulary." ;
+    sh:name "Worktree Shape" ;
+    sh:property [ sh:in ( "active" "stale" "dangling" "merged" ) ;
+            sh:maxCount 1 ;
+            sh:message "worktreeState is active, stale, dangling or merged." ;
+            sh:path :worktreeState ] ;
+    sh:targetClass :Worktree .

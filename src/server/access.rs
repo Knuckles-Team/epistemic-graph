@@ -5,7 +5,7 @@ use crate::graph::{GraphCore, GraphView};
 #[cfg(feature = "security")]
 use crate::isolation::row_visibility;
 use crate::isolation::{AccessLevel, IsolationLayer};
-use eg_types::contract::Nonce;
+use eg_types::contract::{Digest256, Nonce};
 use std::sync::Arc;
 
 #[cfg(all(test, feature = "security"))]
@@ -38,6 +38,14 @@ pub(crate) struct CarrierAuthority {
     log_owner: (String, String),
     owner_scope: String,
     agent_id: String,
+    /// Digest of the verified delegation chain. Owner scope intentionally
+    /// remains the durable tenant/principal catalog key; foreign executions
+    /// bind this effective actor/delegation identity separately.
+    delegation_digest: Digest256,
+    /// Digest of the verified authority fields used to open a request-scoped
+    /// foreign execution. It excludes attempt nonce/idempotency so each phase
+    /// can use a fresh authenticated envelope while retaining the same grant.
+    authority_digest: Digest256,
     /// Per-request replay identity copied from the already-verified envelope.
     /// Stable carrier ownership fields above remain independent of this
     /// attempt-scoped value, but self-routed stores still need both pieces to
@@ -121,6 +129,33 @@ impl CarrierAuthority {
             &tenant_scope,
             &actor_scope,
         );
+        let delegation_fields = context
+            .claims()
+            .delegation
+            .iter()
+            .map(String::as_bytes)
+            .collect::<Vec<_>>();
+        let delegation_digest = Digest256::framed(b"eg/carrier-delegation/v1", &delegation_fields)?;
+        // Roles and scopes are set-like claims. Canonicalize their order before
+        // deriving the phase binding so equivalent verified contexts have one
+        // authority digest while the effective actor and delegation remain
+        // explicit inputs.
+        let mut roles = context.claims().roles.clone();
+        roles.sort();
+        let mut scopes = context.claims().scopes.clone();
+        scopes.sort();
+        let mut authority_fields: Vec<&[u8]> = vec![
+            tenant.as_bytes(),
+            principal.as_bytes(),
+            agent_id.as_bytes(),
+            tenant_scope.as_bytes(),
+            actor_scope.as_bytes(),
+            delegation_digest.as_bytes(),
+            context.claims().policy_version.as_bytes(),
+        ];
+        authority_fields.extend(roles.iter().map(String::as_bytes));
+        authority_fields.extend(scopes.iter().map(String::as_bytes));
+        let authority_digest = Digest256::framed(b"eg/carrier-authority/v1", &authority_fields)?;
         let scopes = &context.claims().scopes;
         let admin = scopes
             .iter()
@@ -146,6 +181,8 @@ impl CarrierAuthority {
             actor_scope,
             owner_scope,
             agent_id: agent_id.to_string(),
+            delegation_digest,
+            authority_digest,
             attempt_nonce: context.attempt_nonce(),
             idempotency_key: context.idempotency_key().to_string(),
             admin,
@@ -176,6 +213,20 @@ impl CarrierAuthority {
 
     pub(crate) fn agent_id(&self) -> &str {
         &self.agent_id
+    }
+
+    /// The verified effective actor for a request. This is deliberately kept
+    /// separate from `actor_scope`, which is the durable principal catalog key.
+    pub(crate) fn effective_actor_scope(&self) -> &str {
+        &self.agent_id
+    }
+
+    pub(crate) fn delegation_digest(&self) -> Digest256 {
+        self.delegation_digest
+    }
+
+    pub(crate) fn authority_digest(&self) -> Digest256 {
+        self.authority_digest
     }
 
     /// The authenticated transport nonce for the request that minted this

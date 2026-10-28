@@ -1,0 +1,16 @@
+@prefix : <http://knuckles.team/kg/infrastructure#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Infrastructure ABox shapes: the records the container-registry and
+# home-assistant connectors write under the infrastructure module. Counters
+# are bounded from below so a negative registry pull count is a violation,
+# not a plausible metric (precedent: finance-v1.shapes.ttl).
+
+:ContainerImageShape a sh:NodeShape ;
+    sh:description "A container image carries a non-negative registry pull count." ;
+    sh:name "Container Image Shape" ;
+    sh:property [ sh:minInclusive 0 ;
+            sh:message "pullCount must be at least 0." ;
+            sh:path :pullCount ] ;
+    sh:targetClass :ContainerImage .

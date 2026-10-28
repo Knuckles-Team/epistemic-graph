@@ -304,6 +304,7 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         );
     }
     for control_lease_write in [
+        "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
         "RetireSealedRecord",

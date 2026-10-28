@@ -260,7 +260,7 @@ mod tests {
                     verified_claims(&signing_secret, &request).is_some(),
                     "the peer serves only a request whose envelope verifies"
                 );
-                let Method::Uql { text, params } = request.method else {
+                let Method::Uql { text, params, .. } = request.method else {
                     panic!("the peer must receive UQL");
                 };
                 assert!(params.is_empty());

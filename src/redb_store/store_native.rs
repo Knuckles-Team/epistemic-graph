@@ -386,7 +386,8 @@ where
     Ok(())
 }
 
-pub(crate) fn apply_native_work_item_family_operation(
+/// Private publications share the row transaction and single-result constraint.
+fn apply_native_publication(
     graph_fname: &str,
     method: &Method,
     tables: &mut NativeOperationTables<'_>,
@@ -394,7 +395,51 @@ pub(crate) fn apply_native_work_item_family_operation(
     generated_result: &mut Option<Vec<u8>>,
     crypto: DurableCrypto<'_>,
     committed_at_ms: u64,
-) -> Result<(), String> {
+) -> Result<bool, String> {
+    if let Method::IssueHostStartGrant { request } = method {
+        if generated_result.is_some() || batch.operations.len() != 1 {
+            return Err("host-start issuance requires one operation".into());
+        }
+        let actor = batch
+            .envelope
+            .operation()
+            .map(|op| op.authority.actor.as_str());
+        let result = super::work_item::control_lease::host_start::issue(
+            graph_fname,
+            request,
+            actor,
+            &mut tables.graph.nodes,
+            crypto,
+            committed_at_ms,
+        )?;
+        let payload = crate::protocol::ResultPayload::of::<
+            eg_types::result_contract::coordination::IssueHostStartGrant,
+        >(result)?;
+        *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+        return Ok(true);
+    }
+    if let Method::PublishRunCheckpoint { request } = method {
+        let actor = batch
+            .envelope
+            .operation()
+            .map(|op| op.authority.actor.as_str());
+        let result = super::work_item::checkpoint::publish(
+            graph_fname,
+            request,
+            actor,
+            &mut tables.graph,
+            crypto,
+            committed_at_ms,
+        )?;
+        if generated_result.is_some() || batch.operations.len() != 1 {
+            return Err("checkpoint publication requires one operation".into());
+        }
+        let payload = crate::protocol::ResultPayload::of::<
+            eg_types::result_contract::coordination::PublishRunCheckpoint,
+        >(result)?;
+        *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+        return Ok(true);
+    }
     if let Method::PublishCurrentPlan { request } = method {
         let actor = batch
             .envelope
@@ -415,6 +460,29 @@ pub(crate) fn apply_native_work_item_family_operation(
             eg_types::result_contract::coordination::PublishCurrentPlan,
         >(result)?;
         *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub(crate) fn apply_native_work_item_family_operation(
+    graph_fname: &str,
+    method: &Method,
+    tables: &mut NativeOperationTables<'_>,
+    batch: &MutationBatch,
+    generated_result: &mut Option<Vec<u8>>,
+    crypto: DurableCrypto<'_>,
+    committed_at_ms: u64,
+) -> Result<(), String> {
+    if apply_native_publication(
+        graph_fname,
+        method,
+        tables,
+        batch,
+        generated_result,
+        crypto,
+        committed_at_ms,
+    )? {
         return Ok(());
     }
     let result = apply_work_item_rows(super::work_item::WorkItemApplyRequest {

@@ -3,6 +3,38 @@
 //! depending on eg-compute. Domain-specific DTOs are kept in private child modules
 //! and re-exported here, preserving the established `eg_types::wire::*` API.
 
+use serde::{Deserialize, Serialize};
+
+/// Closed failure modes reported by the retrieval-quality verdict.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum RetrievalFailureMode {
+    Drift,
+    ContextTruncation,
+    StaleIndex,
+    LowRelevanceTopk,
+    SparseIndex,
+}
+
+/// Model-only retrieval-quality evidence returned alongside Discover rows.
+///
+/// The served computation and policy lookup are delivered by the later R089
+/// children.  Keeping this DTO in the bottom-of-DAG wire crate lets those
+/// children share one closed, serde-compatible shape.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RetrievalVerdict {
+    pub gate_passed: bool,
+    pub failure_modes: Vec<RetrievalFailureMode>,
+    pub composite_quality_q16: u16,
+    pub index_population_ratio_q16: u16,
+    pub above_threshold: bool,
+    pub total_candidates: usize,
+    pub policy_revision: String,
+}
+
 #[cfg(feature = "datascience")]
 #[path = "wire_datascience.rs"]
 mod wire_datascience;
@@ -94,6 +126,46 @@ pub use wire_query_uql_modal::uql_series_expr;
 pub use wire_query_uql_pred::*;
 #[cfg(feature = "streaming")]
 pub use wire_streaming::*;
+
+#[cfg(test)]
+mod tests {
+    use super::{RetrievalFailureMode, RetrievalVerdict};
+
+    #[test]
+    fn verdict_round_trips() {
+        let verdict = RetrievalVerdict {
+            gate_passed: false,
+            failure_modes: vec![
+                RetrievalFailureMode::Drift,
+                RetrievalFailureMode::ContextTruncation,
+                RetrievalFailureMode::StaleIndex,
+                RetrievalFailureMode::LowRelevanceTopk,
+                RetrievalFailureMode::SparseIndex,
+            ],
+            composite_quality_q16: 19_661,
+            index_population_ratio_q16: 32_768,
+            above_threshold: false,
+            total_candidates: 17,
+            policy_revision: "retrieval-quality-v1".to_string(),
+        };
+
+        let bytes = rmp_serde::to_vec_named(&verdict).expect("encode retrieval verdict");
+        let decoded: RetrievalVerdict =
+            rmp_serde::from_slice(&bytes).expect("decode retrieval verdict");
+        assert_eq!(decoded, verdict);
+
+        let unknown_mode = serde_json::json!({
+            "gate_passed": true,
+            "failure_modes": ["not_a_supported_mode"],
+            "composite_quality_q16": 65_535,
+            "index_population_ratio_q16": 65_535,
+            "above_threshold": true,
+            "total_candidates": 1,
+            "policy_revision": "retrieval-quality-v1"
+        });
+        assert!(serde_json::from_value::<RetrievalVerdict>(unknown_mode).is_err());
+    }
+}
 
 // ── spatial wire-variant round-trip (CONCEPT:EG-KG.ontology.singles-concept) ─────────────────────────
 #[cfg(all(test, feature = "geo"))]

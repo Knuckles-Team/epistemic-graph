@@ -23,7 +23,7 @@ import sysconfig
 import tempfile
 import time
 import zipfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -34,8 +34,11 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 import maturin
 
+from scripts.configure_rust_path_remap import write_github_environment
 from scripts.inject_numeric_kernel import inject as inject_numeric
 from scripts.inject_ontology import inject as inject_ontology
+from scripts.normalize_wheel_build_paths import normalize_wheel_build_paths
+from scripts.normalize_wheel_sbom import normalize_wheel
 from scripts.strip_wheel_executables import strip_executables
 
 ROOT = Path(__file__).resolve().parent
@@ -80,8 +83,54 @@ _NATIVE_FILES = {
     "pyproject.toml",
     "scripts/inject_numeric_kernel.py",
     "scripts/inject_ontology.py",
+    "scripts/configure_rust_path_remap.py",
     "scripts/normalize_wheel_build_paths.py",
+    "scripts/normalize_wheel_sbom.py",
 }
+
+
+def _identity_neutral_build_environment_values(
+    environ: Mapping[str, str],
+) -> dict[str, str]:
+    """Apply the release path-remap recipe to one build environment.
+
+    ``configure_rust_path_remap`` owns the Rust and native compiler flag
+    policy.  Reusing its GitHub-environment writer here keeps PEP 517 builds
+    identical to the release workflow without persisting concrete checkout or
+    home paths in the wheel.
+    """
+
+    configured = dict(environ)
+    target = configured.get("CARGO_BUILD_TARGET") or None
+    with tempfile.TemporaryDirectory(prefix=f"{PROJECT_NAME}-path-remap-") as directory:
+        destination = Path(directory) / "github-env"
+        destination.touch()
+        write_github_environment(
+            destination,
+            configured,
+            checkout=ROOT,
+            target=target,
+        )
+        for line in destination.read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key:
+                configured[key] = value
+    return configured
+
+
+@contextmanager
+def _identity_neutral_build_environment() -> Iterator[Mapping[str, str]]:
+    """Build under the release path-remap environment and restore the caller."""
+
+    original = dict(os.environ)
+    configured = _identity_neutral_build_environment_values(original)
+    os.environ.clear()
+    os.environ.update(configured)
+    try:
+        yield configured
+    finally:
+        os.environ.clear()
+        os.environ.update(original)
 
 
 def _cache_root() -> Path:
@@ -588,7 +637,10 @@ def _build_editable_cached(
             return _copy_cached_wheel(*cached, wheel_directory)
         _discard_entry(entry)
         filename = _compose(
-            maturin.build_editable, wheel_directory, config_settings, metadata_directory
+            maturin.build_editable,
+            wheel_directory,
+            config_settings,
+            metadata_directory,
         )
         wheel = Path(wheel_directory) / filename
         final_inputs = _cache_inputs(config_settings)
@@ -633,6 +685,8 @@ def _compose(
     wheel_directory: str,
     config_settings: Mapping[str, Any] | None,
     metadata_directory: str | None,
+    *,
+    normalize_privacy: bool | None = None,
 ) -> str:
     """Build the engine wheel, fold in the numeric module, drop any executable.
 
@@ -640,7 +694,10 @@ def _compose(
     Cargo target and must finish before another wheel can use its staging area.
     """
 
-    with _maturin_staging_lock():
+    if normalize_privacy is None:
+        normalize_privacy = build is not maturin.build_editable
+
+    with _maturin_staging_lock(), _identity_neutral_build_environment() as environ:
         filename = build(wheel_directory, config_settings, metadata_directory)
         wheel = Path(wheel_directory) / filename
         if not wheel.is_file():
@@ -653,6 +710,15 @@ def _compose(
             )
         inject_ontology(wheel)
         strip_executables(wheel)
+        if normalize_privacy:
+            # PEP 517 frontends do not run the release workflow's post-build
+            # normalizers. Keep this backend's regular wheel output at the
+            # same privacy boundary as the managed release artifact,
+            # including SBOM RECORD updates and fixed-width native path
+            # rewrites. Editable wheels retain their source pointer and are
+            # validated by the separate cache checks above.
+            normalize_wheel(wheel, environ=environ, checkout=ROOT)
+            normalize_wheel_build_paths(wheel, environ=environ, checkout=ROOT)
         return filename
 
 

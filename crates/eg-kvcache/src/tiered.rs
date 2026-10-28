@@ -432,6 +432,24 @@ where
         None
     }
 
+    /// Look up `key` and, on a hit, promote its currently-COLD graph neighbours
+    /// into HOT as well. The caller supplies neighbours from its authorized graph
+    /// read; this cache remains topology-agnostic and does not perform a second
+    /// graph traversal. Neighbours that are absent, stale, HOT or WARM are left
+    /// alone. A miss on `key` never causes speculative page-ins.
+    pub fn get_with_graph_prefetch<I>(&mut self, key: &K, neighbors: I) -> Option<V>
+    where
+        I: IntoIterator<Item = K>,
+    {
+        let value = self.get(key)?;
+        for neighbor in neighbors {
+            if neighbor != *key && self.tier_of(&neighbor) == Some(Tier::Cold) {
+                let _ = self.get(&neighbor);
+            }
+        }
+        Some(value)
+    }
+
     /// Whether `key` is resident in ANY tier AND still fresh for the current data version
     /// (a stale entry reads as absent, CONCEPT:EG-KG.storage.content-addressed-put).
     pub fn contains(&self, key: &K) -> bool {

@@ -1760,6 +1760,127 @@
       ],
       "type": "string"
     },
+    "CheckpointMemoryRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "revision",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "ClaimWorkItemResult": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "claimed": {
+          "type": "boolean"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_holder_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_attempts": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "payload_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/ClaimWorkItemResultReason"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/ClaimWorkItemResultSchemaVersion"
+        },
+        "tenant_in_flight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "claimed",
+        "reason",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
     "ClaimWorkItemResultReason": {
       "enum": [
         "claimed",
@@ -1996,50 +2117,6 @@
       ],
       "type": "object"
     },
-    "CompletedTextAdmission": {
-      "additionalProperties": false,
-      "properties": {
-        "user_text_digest": {
-          "type": "string"
-        },
-        "version": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "version",
-        "user_text_digest"
-      ],
-      "type": "object"
-    },
-    "CompletedTextInput": {
-      "additionalProperties": false,
-      "properties": {
-        "assistant_text": {
-          "type": "string"
-        },
-        "content_digest": {
-          "type": "string"
-        },
-        "user_text": {
-          "type": "string"
-        },
-        "version": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "version",
-        "user_text",
-        "assistant_text",
-        "content_digest"
-      ],
-      "type": "object"
-    },
     "ComponentContribution": {
       "additionalProperties": false,
       "description": "One component's share of a slate's success rate.",
@@ -2246,6 +2323,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "host_start_provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostStartProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Native issuance provenance, absent on legacy and ordinary leases."
+        },
         "issued_at_ms": {
           "format": "uint64",
           "minimum": 0,
@@ -2279,38 +2367,6 @@
       ],
       "type": "object"
     },
-    "ConversationHeadView": {
-      "additionalProperties": false,
-      "properties": {
-        "context_id": {
-          "type": "string"
-        },
-        "revision": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "run_id": {
-          "type": "string"
-        },
-        "scope": {
-          "$ref": "#/$defs/MutationScopeIdentity"
-        },
-        "version": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "version",
-        "context_id",
-        "revision",
-        "run_id",
-        "scope"
-      ],
-      "type": "object"
-    },
     "ConversationTurnAdmission": {
       "additionalProperties": false,
       "description": "Expected conversation head for one newly admitted run. Revision zero creates\na context; later turns name the exact preceding successful run. A host must\nseparately validate its completed model history before executing the run.",
@@ -2322,16 +2378,6 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
-        },
-        "history_profile": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompletedTextAdmission"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "predecessor_run_id": {
           "type": [
@@ -5549,7 +5595,7 @@
     },
     "HarnessContrast": {
       "additionalProperties": false,
-      "description": "The measured behavioral contrast of two probe runs of one task\n(EG-ORCH-VOCAB-R802.1/EG-ORCH-VOCAB-R802.2). Every delta is B minus A on the Q32 fixed-point scale:\nsigned counts as `count << 32`, fractions as their Q32 numerator.",
+      "description": "The measured behavioral contrast of two probe runs of one task\n(R802.1/R802.2). Every delta is B minus A on the Q32 fixed-point scale:\nsigned counts as `count << 32`, fractions as their Q32 numerator.",
       "properties": {
         "conditions_digest": {
           "description": "The digest of the identical probe conditions (task, seed, model,\nbudget); both runs and the engine agree on it or the contrast refuses.",
@@ -5601,7 +5647,7 @@
       "type": "object"
     },
     "HarnessContrastAbstainReason": {
-      "description": "The closed abstain reasons of one contrast decision (EG-DECISION-ENGINE-R803.1).",
+      "description": "The closed abstain reasons of one contrast decision (R803.1).",
       "oneOf": [
         {
           "const": "no_improvement",
@@ -5622,7 +5668,7 @@
     },
     "HarnessContrastDecision": {
       "additionalProperties": false,
-      "description": "One contrast decision, recorded (EG-DECISION-ENGINE-R803.1).",
+      "description": "One contrast decision, recorded (R803.1).",
       "properties": {
         "abstain_reason": {
           "anyOf": [
@@ -5978,31 +6024,28 @@
         }
       ]
     },
-    "IncarnationId": {
-      "description": "Opaque logical-generation identity. It is never derived from a resource name.",
-      "type": "string"
-    },
-    "InlineCheckpointRef": {
+    "HostStartProvenance": {
       "additionalProperties": false,
+      "description": "Storage-owned provenance, never read from the arbitrary grant body.\n`issuer_ref` is the existing MutationBatch privacy-safe principal fingerprint\n(`principal:sha256:<digest>`), not a raw principal or a caller assertion.",
       "properties": {
-        "content_digest": {
+        "issuer_ref": {
           "type": "string"
         },
-        "document_id": {
-          "type": "string"
-        },
-        "revision": {
-          "format": "uint64",
+        "schema_version": {
+          "format": "uint32",
           "minimum": 0,
           "type": "integer"
         }
       },
       "required": [
-        "document_id",
-        "revision",
-        "content_digest"
+        "schema_version",
+        "issuer_ref"
       ],
       "type": "object"
+    },
+    "IncarnationId": {
+      "description": "Opaque logical-generation identity. It is never derived from a resource name.",
+      "type": "string"
     },
     "InputsBlob": {
       "additionalProperties": false,
@@ -7010,112 +7053,6 @@
         "scope",
         "incarnation_id",
         "identity_digest"
-      ],
-      "type": "object"
-    },
-    "NativeClaimWorkItemResult": {
-      "additionalProperties": false,
-      "description": "Engine-owned extension. The flattened upstream fields remain unchanged.\nFreshness is not a bearer credential and cannot replace caller/fence checks.",
-      "properties": {
-        "attempt": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "changed_work_item_ids": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "claimed": {
-          "type": "boolean"
-        },
-        "fencing_token": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "fresh_execution_grant": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "kind": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "lease_epoch": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "lease_expires_at_ms": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "lease_holder_ref": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "max_attempts": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "payload_ref": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "reason": {
-          "$ref": "#/$defs/ClaimWorkItemResultReason"
-        },
-        "schema_version": {
-          "$ref": "#/$defs/ClaimWorkItemResultSchemaVersion"
-        },
-        "tenant_in_flight": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "work_item_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "schema_version",
-        "claimed",
-        "reason",
-        "changed_work_item_ids"
       ],
       "type": "object"
     },
@@ -8144,6 +8081,16 @@
         {
           "const": "harness_contrast",
           "description": "The contrastive harness composition decision (EG-DECISION-ENGINE-R803):\ntwo to eight candidate component versions probed against the same\nbaseline under identical conditions; the engine adopts a candidate only\nwhen its measured `eval_score_delta` is positive and unbeaten, with\ncost as the tie-break, and abstains keeping the current harness when no\ncandidate improves. See `decision::harness_contrast`.",
+          "type": "string"
+        },
+        {
+          "const": "branch_outcome",
+          "description": "Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).",
+          "type": "string"
+        },
+        {
+          "const": "edit_concentration",
+          "description": "Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).",
           "type": "string"
         }
       ]
@@ -9932,80 +9879,94 @@
       ],
       "type": "object"
     },
-    "RunCheckpointSelection": {
+    "RunCheckpointPublished": {
       "additionalProperties": false,
       "properties": {
-        "admission_revision": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "checkpoints": {
+        "changed_work_item_ids": {
           "items": {
-            "$ref": "#/$defs/InlineCheckpointRef"
+            "type": "string"
           },
           "type": "array"
-        },
-        "completed_history": {
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "context_id": {
           "type": "string"
         },
-        "current_run_checkpoint": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "run_id": {
+        "payload_digest": {
           "type": "string"
         },
-        "scope": {
-          "$ref": "#/$defs/MutationScopeIdentity"
+        "replayed": {
+          "type": "boolean"
         },
-        "snapshot_version": {
+        "revision": {
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
         },
-        "version": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
+        "run_id": {
+          "type": "string"
         },
         "work_item_id": {
           "type": "string"
         }
       },
       "required": [
-        "version",
-        "run_id",
+        "changed_work_item_ids",
+        "replayed",
         "work_item_id",
+        "run_id",
         "context_id",
-        "admission_revision",
-        "scope",
-        "snapshot_version",
-        "checkpoints"
+        "revision",
+        "payload_digest"
+      ],
+      "type": "object"
+    },
+    "RunCheckpointRead": {
+      "description": "Owner-authorized checkpoint and WorkItem projection from one native read snapshot.",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "context_id": {
+          "type": "string"
+        },
+        "long_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "short_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        },
+        "work_item": {
+          "$ref": "#/$defs/WorkItemView"
+        }
+      },
+      "required": [
+        "context_id",
+        "work_item",
+        "revision",
+        "content",
+        "payload_digest",
+        "short_term",
+        "long_term"
       ],
       "type": "object"
     },
     "RunCompletionInput": {
       "additionalProperties": false,
       "properties": {
-        "completed_checkpoint": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompletedTextInput"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "run_id": {
           "type": "string"
         },
@@ -10036,16 +9997,6 @@
       "properties": {
         "batch_id": {
           "type": "string"
-        },
-        "completed_checkpoint": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InlineCheckpointRef"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "completion": {
           "$ref": "#/$defs/RunCompletionInput"
@@ -10133,23 +10084,6 @@
       "properties": {
         "admission": {
           "$ref": "#/$defs/SubmitWorkItemRequest"
-        },
-        "checkpoint_selection": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RunCheckpointSelection"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "completed_checkpoint": {
-          "description": "Owner-only completed own-turn text for display; never an execution grant.",
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "run_completion": {
           "anyOf": [
@@ -10300,6 +10234,59 @@
         "retired_by",
         "retired_at_ms",
         "reason"
+      ],
+      "type": "object"
+    },
+    "SessionUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "count_coverage": {
+          "additionalProperties": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Counts are partial when not every expected run measured that counter.",
+          "type": "object"
+        },
+        "counts": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "object"
+        },
+        "expected_runs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inventory_complete": {
+          "type": "boolean"
+        },
+        "missing_runs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recorded_runs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "context_id",
+        "inventory_complete",
+        "counts",
+        "expected_runs",
+        "recorded_runs",
+        "missing_runs",
+        "count_coverage"
       ],
       "type": "object"
     },
@@ -12835,7 +12822,7 @@
           "dynamic": null,
           "encoding": "Raw",
           "schema": {
-            "$ref": "#/$defs/NativeClaimWorkItemResult"
+            "$ref": "#/$defs/ClaimWorkItemResult"
           }
         }
       },
@@ -13135,7 +13122,7 @@
       },
       "selected_by": null
     },
-    "GetConversationHead": {
+    "GetCurrentPlan": {
       "bodies": {
         "result": {
           "dynamic": null,
@@ -13143,7 +13130,7 @@
           "schema": {
             "anyOf": [
               {
-                "$ref": "#/$defs/ConversationHeadView"
+                "$ref": "#/$defs/CurrentPlanSnapshot"
               },
               {
                 "type": "null"
@@ -13154,7 +13141,7 @@
       },
       "selected_by": null
     },
-    "GetCurrentPlan": {
+    "GetRunCheckpoint": {
       "bodies": {
         "result": {
           "dynamic": null,
@@ -13162,7 +13149,7 @@
           "schema": {
             "anyOf": [
               {
-                "$ref": "#/$defs/CurrentPlanSnapshot"
+                "$ref": "#/$defs/RunCheckpointRead"
               },
               {
                 "type": "null"
@@ -13187,6 +13174,18 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetSessionUsage": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SessionUsage"
           }
         }
       },
@@ -13231,6 +13230,18 @@
       "selected_by": null
     },
     "IssueControlLease": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ControlLeaseIssued"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "IssueHostStartGrant": {
       "bodies": {
         "result": {
           "dynamic": null,
@@ -13309,6 +13320,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/CurrentPlanPublished"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PublishRunCheckpoint": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/RunCheckpointPublished"
           }
         }
       },

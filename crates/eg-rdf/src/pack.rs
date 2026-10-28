@@ -8,7 +8,9 @@
 use eg_types::connector_pack::PackViolationCode;
 use std::collections::BTreeSet;
 
+mod sources;
 mod union;
+pub use sources::declared_sources;
 pub use union::{scoped_union, RdfUnion};
 
 /// Check the existing pack per-document triple and term limits after parsing.

@@ -51,6 +51,23 @@ Run Go commands from `clients/go` and npm commands from `clients/js`. If a named
 
 ## Amendments
 
+### 2026-10-28: slim pull-request CI
+
+EG-CONTRACT-R053.7 keeps the tag guard on a passing main run. The
+pull-request set now targets twenty minutes of wall time and one runner-hour.
+A pull request runs lint, spec status, security and workspace Clippy. It also
+runs the affected-crate tests, the Python suite and contract parity. The
+affected-crate tests now include the lower crates.
+`scripts/ci_change_scope.py --path-gates` selects the narrow jobs. Language
+clients, Whisper, Piper, pyo3 and the installed wheel run only when their
+paths change. Main pushes, a nightly schedule and dispatch run the remaining
+jobs. Those jobs are the lower-crate gate, the facade suite, plan fuzz, the
+release Clippy profiles and the build variants. Native jobs read scope from a
+local job and skip the wait for the central pre-commit leg. This change
+removes the advisory hosted scanner job. Its scanners stay in the manual
+pre-commit stage that `scripts/ci_parity.sh` runs. `CI required` needs only
+the jobs that a pull request runs.
+
 ### 2026-10-11: reconcile the native suite contract census
 
 EG-CONTRACT-R009 and EG-CONTRACT-R015 retain one current method authority. The
@@ -541,6 +558,8 @@ Verify the locked graph and unchanged advisory gate before publication.
 The changed lockfile requires fresh hosted artifact recipe qualification.
 Complete same-tree quality acceptance under R031.2 remains open.
 
+Reuse the R006.1 and R006.3 fresh-export path for host-start source qualification. Preserve parity failures and exact source/build provenance. Keep R006.2 native, measured-size and cross-language acceptance open.
+
 
 ### 2026-10-23: compose identity contracts with recovery main
 
@@ -582,3 +601,34 @@ All 73 canonical outputs match their receipt; both client codecs match the impor
 The generated schema includes conversation admission alongside identity and recovery operations.
 These outputs replace prior-union placeholders without changing production source or test assertions.
 Final-head native and generated parity remain required; complete served identity acceptance stays open.
+
+### 2026-10-28: explicit full native qualification
+
+Default PR validation remains slim. For a code candidate needing native
+qualification before merge, apply `ci:full-native` before its next push. The
+normal PR event captures that label. It runs the existing facade, lower-crate,
+fuzz, build-variant and release-Clippy jobs. It also runs every path-gated native
+job and the full workspace sweep. The required aggregate checks their exact outcomes.
+
+Labels alone do not trigger CI or qualify an existing head. No new permissions,
+credentials, release actions or fork-specific authority are introduced. The
+history-profile candidate must retain those full results, not only a green
+slim aggregate. Documentation-only scope keeps its existing skip semantics.
+
+## Coordinated pending-source integration for 2.27.6
+
+This integration preserves the published media, session-usage, host-start and checkpoint source histories. It composes their existing methods without widening authority or adding parallel effect owners. The shared dispatch inventories retain all four new method variants. The exact expected method count is 475: main had 471, usage adds one, host-start adds one and checkpoints add two.
+
+The native publication dispatcher retains the host-start shape check before its row call. Checkpoint publication retains its existing transaction and refusal behavior. The shared read handler keeps separate session-usage and checkpoint payloads, tenant checks and actor bindings. Only checkpoint reads preserve the classified CONFLICT refusal.
+
+All 73 canonical outputs, both codec copies and the ledger retain exact PR688 bytes as known placeholders. They do not describe this combined source. Prior native and artifact receipts apply only to their recorded source trees. Fresh combined-source canonical and codec generation, native tests and final parity are required before merge.
+
+The reviewed checkpoint fixture correction compares the row projection rather than the returned table-and-row tuple. Its no-mutation and snapshot-count assertions remain intact. New combined native execution must qualify this correction.
+
+Resource benchmarks, complete served image admission, installed session usage and live host activation remain open under their owning residuals. Checkpoint restore and full served continuation also remain open. This integration creates no release, deployment, credentials or policy grants.
+
+## Current-main reconciliation after initial union qualification
+
+Main `28ceffdbcff7042f266aa7b8be999d89635a4e7d` adds `NlQueryExplain`, the canonical task-plan feature-schema export and connector ontology parents. This necessary union retains those sources and the four existing feature slices. Its exact method inventory is 476, not the historical 475 above.
+
+The initial union's 2,405 passing native tests and reviewed generated artifacts remain evidence for their recorded source only. All 74 canonical outputs, both codec copies and the artifact ledger now retain exact current-main bytes as explicitly stale placeholders. No receipt or codec hash is combined by hand. Fresh current-union generation and native, client and parity gates must qualify this composition. The installed, served and resource residuals above remain open.
