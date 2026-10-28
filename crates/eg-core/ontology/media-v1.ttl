@@ -897,3 +897,28 @@
     rdfs:comment "Global upload speed of the client in bytes per second." ;
     rdfs:domain :TransferSpeedSample ;
     rdfs:range xsd:nonNegativeInteger .
+
+# R009.1: rom-manager mapping terms. The table rows
+# `romm_roms/list, get_rom, get_rom_by_hash -> mv:Game, mv:RomFile.
+# Mv:md5, mv:sha1, mv:crc32, mv:fileName` and
+# `rom_game_codes/* -> mv:Game; mv:gameCode` need the file name, the game
+# code and the link from a ROM file to the game work it contains (the
+# lane-A :Game, not the connector-competency :GameTitle).
+
+:gameCode a owl:DatatypeProperty ;
+    rdfs:label "game code" ;
+    rdfs:comment "The metadata-provider code of a game work (RomM game code)." ;
+    rdfs:domain :Game ;
+    rdfs:range xsd:string .
+
+:fileName a owl:DatatypeProperty ;
+    rdfs:label "file name" ;
+    rdfs:comment "The on-disk file name of a media file (ROM image file name)." ;
+    rdfs:domain :MediaFile ;
+    rdfs:range xsd:string .
+
+:gameOf a owl:ObjectProperty ;
+    rdfs:label "game of" ;
+    rdfs:comment "Links a ROM file to the game work it contains; a ROM without this link is unidentified, which is a metadata match, not a checksum verdict." ;
+    rdfs:domain :RomFile ;
+    rdfs:range :Game .

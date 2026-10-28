@@ -2295,3 +2295,224 @@ fn media_vocab_qbittorrent_vocabulary_docs_truth() {
         "the qbittorrent Vocabulary cell names media-v1, not MISSING"
     );
 }
+
+// spec: EG-MEDIA-VOCAB-R009.1
+#[test]
+fn media_vocab_rom_manager_mapping_rows_resolve_existing_terms() {
+    let document = include_str!("fixtures/media_vocab/rom-manager_mapping.ttl");
+    let (kind, _endpoint, only_url) = connection_of(document);
+    assert_eq!(kind, "mcp", "vg:sourceKind is mcp");
+    assert!(only_url, "the endpoint reference carries only its url");
+    let (entities, fields, _operations) = contract_of(document);
+    let rows = mapping_rows(document);
+    assert_eq!(rows.len(), 3, "the plan.md table rows are all mapped");
+    let universe = vocabulary_universe();
+    for row in &rows {
+        assert!(
+            entities.contains(&row.entity),
+            "mapsEntity {} is a discovered entity",
+            row.entity
+        );
+        assert!(
+            fields.contains(&row.key_field),
+            "keyField {} is a discovered field",
+            row.key_field
+        );
+        assert!(
+            universe.get(&row.class).map(|(kind, _)| *kind) == Some(TermKind::Class),
+            "row class {} is a declared class",
+            row.class
+        );
+        for pair in &row.pairs {
+            assert!(
+                fields.contains(&pair.field),
+                "pair field {} is a discovered field",
+                pair.field
+            );
+            assert!(
+                universe.contains_key(&pair.predicate),
+                "row predicate {} is declared vocabulary",
+                pair.predicate
+            );
+        }
+    }
+    // Coverage of the plan.md rom-manager table: entity -> class.
+    let bound: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .map(|r| (
+            r.entity.as_str(),
+            r.class.strip_prefix(KG).unwrap_or(&r.class),
+        ))
+        .collect();
+    for (entity, class) in [("Rom", "RomFile"), ("Platform", "GamePlatform"), ("Game", "Game")] {
+        assert!(
+            bound.contains(&(entity, class)),
+            "the plan.md table row {entity} -> {class} is mapped"
+        );
+    }
+}
+
+// spec: EG-MEDIA-VOCAB-R009.2
+#[test]
+fn media_vocab_rom_manager_response_round_trips_through_mapping() {
+    let document = include_str!("fixtures/media_vocab/rom-manager_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/rom-manager_response.json"))
+            .expect("the recorded response parses");
+    let mapped = apply_mapping(&rows, &response, "rom-manager", &universe);
+    // Six records (four ROMs, one platform, one game), no minted reference
+    // nodes: the game and platform values are URN references.
+    let nodes = node_subjects(&mapped);
+    assert_eq!(nodes.len(), 6, "every record becomes exactly one node: {nodes:?}");
+    for t in &mapped {
+        let predicate = t.predicate.as_str();
+        if predicate == format!("{RDF}type")
+            || predicate == format!("{DC}source")
+            || predicate == format!("{DC}identifier")
+            || predicate == format!("{DC}date")
+        {
+            continue;
+        }
+        assert!(
+            universe.contains_key(predicate),
+            "the mapped triple uses declared vocabulary: {predicate}"
+        );
+    }
+    // A ROM links to the game node it contains and carries its checksums and
+    // file name.
+    assert_eq!(
+        iri_of(
+            &mapped,
+            "urn:eg-media-vocab:rom-manager:Rom:d41d8cd98f00b204e9800998ecf8427e",
+            format!("{KG}gameOf").as_str()
+        ),
+        Some("urn:eg-media-vocab:rom-manager:Game:08920168".to_string())
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:rom-manager:Rom:d41d8cd98f00b204e9800998ecf8427e",
+            format!("{KG}crc32").as_str()
+        ),
+        vec!["7d1b2c4e".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:rom-manager:Rom:d41d8cd98f00b204e9800998ecf8427e",
+            format!("{KG}fileName").as_str()
+        ),
+        vec!["sonic_adventure.zip".to_string()]
+    );
+    // The game carries its code and links to the platform node.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:rom-manager:Game:08920168",
+            format!("{KG}gameCode").as_str()
+        ),
+        vec!["08920168".to_string()]
+    );
+    assert_eq!(
+        iri_of(
+            &mapped,
+            "urn:eg-media-vocab:rom-manager:Game:08920168",
+            format!("{KG}onPlatform").as_str()
+        ),
+        Some("urn:eg-media-vocab:rom-manager:Platform:p1".to_string())
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R009.3
+#[test]
+fn media_vocab_rom_manager_single() {
+    // "Which ROMs in a platform collection fail a checksum match against the
+    // reference set?" — BLOCKED: RomM is queried by hash and lists hashes,
+    // but there is no operation that compares a library against a reference
+    // (DAT) set and reports mismatches. DECIDED interim: report ROMs whose
+    // metadata-provider match is absent as 'unidentified', labelled as not a
+    // checksum verdict. The test returns the typed abstention naming the
+    // missing verify operation and its owner.
+    let document = include_str!("fixtures/media_vocab/rom-manager_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/rom-manager_response.json")).unwrap();
+    let mapped = apply_mapping(&rows, &response, "rom-manager", &universe);
+
+    let roms = subjects_typed(&mapped, &["RomFile"]);
+    assert_eq!(roms.len(), 4, "the collection lists four ROMs: {roms:?}");
+    // The interim answer: ROMs with no metadata-provider match are
+    // 'unidentified' — a metadata absence, not a checksum verdict.
+    let unidentified: BTreeSet<String> = roms
+        .iter()
+        .filter(|rom| {
+            iri_of(&mapped, rom, format!("{KG}gameOf").as_str()).is_none()
+        })
+        .cloned()
+        .collect();
+    assert_eq!(
+        unidentified,
+        [
+            "urn:eg-media-vocab:rom-manager:Rom:1679091c5a880faf6fb5e6087eb1b2dc",
+            "urn:eg-media-vocab:rom-manager:Rom:202cb962ac59075b964b07152d234b70",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>(),
+        "unidentified (not a checksum verdict): {unidentified:?}"
+    );
+    // The identified ROMs resolve to their game work.
+    let identified: BTreeSet<String> = roms
+        .iter()
+        .filter(|rom| iri_of(&mapped, rom, format!("{KG}gameOf").as_str()).is_some())
+        .cloned()
+        .collect();
+    for rom in &identified {
+        let game =
+            iri_of(&mapped, rom, format!("{KG}gameOf").as_str()).expect("the ROM names its game");
+        assert_eq!(
+            values_of(&mapped, &game, format!("{KG}title").as_str()),
+            vec!["Sonic Adventure".to_string()]
+        );
+    }
+    // The reference-set verdict itself cannot be produced: no checksum
+    // verdict vocabulary is bound in the mapped data.
+    for property in ["expectedChecksum", "actualChecksum"] {
+        assert!(
+            mapped
+                .iter()
+                .all(|t| t.predicate.as_str() != format!("{KG}{property}")),
+            "the mapped data carries no {property} verdict"
+        );
+    }
+
+    // The typed abstention names the missing operation and the owner who
+    // must add it.
+    let abstention = TypedAbstention {
+        connector: "rom-manager",
+        missing_operation: "romm_roms/verify (reference-set checksum verdict)",
+        owner: "rom-manager",
+    };
+    assert_eq!(abstention.connector, "rom-manager");
+    assert!(
+        abstention.missing_operation.contains("verify"),
+        "the abstention names the missing verify operation: {}",
+        abstention.missing_operation
+    );
+    assert_eq!(abstention.owner, "rom-manager");
+}
+
+// spec: EG-MEDIA-VOCAB-R009.4
+#[test]
+fn media_vocab_rom_manager_vocabulary_docs_truth() {
+    let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
+        .expect("the connector-competency plan reads");
+    assert_eq!(
+        connector_competency_vocab_cell(&plan, "R053"),
+        "media-v1",
+        "the rom-manager Vocabulary cell names media-v1, not MISSING"
+    );
+}
