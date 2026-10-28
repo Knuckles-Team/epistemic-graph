@@ -704,12 +704,12 @@ jobs:
   # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
   # link a test binary).
   gates-crates:
-    # PR budget 15 min. A release bump touches every crate's Cargo.toml and the
+    # Allow scoped PR tests enough time on a cold runner. A release bump touches every crate's Cargo.toml and the
     # lock, but pr-test-scope maps member-version-only changes to no crate
     # (PIPE-RELEASE-R007.7), so it no longer forces the full workspace sweep.
     # A registry-dependency lock change prints FULL; main CI then owns the full
     # sweep under the 60-minute push budget, as for every other FULL scope.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
     name: gates (workspace crates)
     needs: changes
     if: *eg-code-change

@@ -296,9 +296,7 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
             "python-server",
             "gates-pyo3",
         }
-        else 15
-        if job_name == "gates-crates"
-        else 10
+        else {"gates-crates": 30}.get(job_name, 10)
     )
     expected = {"gates-facade": 60}.get(
         job_name,
