@@ -1402,3 +1402,40 @@ fn alignment_relational_resolves() {
         &format!("{DP}documentCount")
     ));
 }
+
+// spec: EG-DATAPLAT-VOCAB-R008.2
+#[test]
+fn alignment_object_vector_resolves() {
+    let document =
+        include_str!("../ontology/fixtures/data_platform/alignment_object_vector.ttl");
+    assert!(
+        assert_alignment_resolves(document) >= 4,
+        "the object/vector alignment carries at least 4 rows"
+    );
+
+    let triples = parse_turtle(document).expect("the alignment table parses");
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#Object",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}StoredObject")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#byteSize",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}byteSize")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#VectorCollection",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}VectorCollection")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#dimensions",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}dimensions")
+    ));
+}
