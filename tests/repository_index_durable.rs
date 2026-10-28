@@ -23,6 +23,7 @@ use eg_types::contract::BoundedVec;
 use eg_types::ingestion_wire::{IndexFileVersion, IndexRepositoryScope, IndexTombstone};
 use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
 use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 
 const SECRET: &str = "repository-index-durable-secret";
 const GRAPH: &str = "repoindexdurable";
@@ -69,6 +70,36 @@ fn files_msgpack(files: &[(&str, &[u8])]) -> Vec<u8> {
         .map(|(path, content)| (*path, serde_bytes::Bytes::new(content)))
         .collect();
     rmp_serde::to_vec(&entries).unwrap()
+}
+
+fn generated_source(file_index: usize, functions: usize) -> Vec<u8> {
+    let mut source = String::new();
+    for function_index in 0..functions {
+        let name = format!("f_{file_index}_{function_index}_{}", "x".repeat(400));
+        writeln!(source, "def {name}():\n    return {function_index}").unwrap();
+    }
+    source.into_bytes()
+}
+
+fn generated_files(count: usize, functions: usize) -> Vec<(String, Vec<u8>)> {
+    (0..count)
+        .map(|file_index| {
+            (
+                format!("generated/{file_index}.py"),
+                generated_source(file_index, functions),
+            )
+        })
+        .collect()
+}
+
+fn generated_scope(files: &[(&str, &[u8])]) -> IndexRepositoryScope {
+    scope(
+        files
+            .iter()
+            .map(|(path, content)| member("main", path, content))
+            .collect(),
+        Vec::new(),
+    )
 }
 
 async fn call(state: &test_support::SharedState, id: u64, method: Method) -> Response {
@@ -416,4 +447,59 @@ async fn empty_source_file() {
     state.write().await.persistence = None;
     drop(state);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The real served IndexRepository route must refuse a write-set whose encoded
+/// graph operations exceed the durable record ceiling before applying an
+/// envelope. The same source set split in half is then sent through that route
+/// and read back through an independent graph request.
+#[test]
+fn served_oversized_write_set_refuses_atomically_then_halved_resend_reads_back() {
+    test_support::on_engine(served_oversized_write_set_refuses_atomically);
+}
+
+async fn served_oversized_write_set_refuses_atomically() {
+    const FILES: usize = 900;
+    const FUNCTIONS_PER_FILE: usize = 50;
+    const HALF: usize = FILES / 2;
+
+    let (_dir, _dir_s, _backend, state) = durable_graph("eg-repoindex-r008").await;
+    let owned_files = generated_files(FILES, FUNCTIONS_PER_FILE);
+    let files: Vec<(&str, &[u8])> = owned_files
+        .iter()
+        .map(|(path, content)| (path.as_str(), content.as_slice()))
+        .collect();
+    let oversized = files_msgpack(&files);
+    assert!(oversized.len() < 32 * 1024 * 1024);
+    let before = graph_version(&state);
+    let refusal = test_support::dispatch(
+        &state,
+        test_support::request(
+            SECRET,
+            2,
+            GRAPH,
+            Method::IndexRepository {
+                files_msgpack: oversized,
+                scope: Some(Box::new(generated_scope(&files))),
+            },
+        ),
+    )
+    .await;
+    let error = refusal.error.expect("oversized served batch must refuse");
+    assert!(error.starts_with("REPOSITORY_BATCH_TOO_LARGE"), "{error}");
+    assert!(error.len() < 1024, "bounded refusal detail: {error}");
+    assert_eq!(graph_version(&state), before, "refusal mutated the graph");
+
+    let half_files = &files[..HALF];
+    let result = index(&state, 3, half_files, generated_scope(half_files)).await;
+    let symbol = node_id(
+        &result,
+        "SYMBOL",
+        "name",
+        &format!("f_0_0_{}", "x".repeat(400)),
+    );
+    assert!(
+        has_node(&state, 4, &symbol).await,
+        "halved resend was not readable"
+    );
 }
