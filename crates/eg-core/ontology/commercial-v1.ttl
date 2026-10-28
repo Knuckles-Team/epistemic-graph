@@ -56,6 +56,15 @@ infra:affectsEntity, and no commercial :ChangeRequest class is added.""" ;
         owl:unionOf ( :Incident :Change ) ] ;
     rdfs:range infra:Service .
 
+:supportsCapability a owl:ObjectProperty ;
+    rdfs:label "supports capability" ;
+    rdfs:comment """Links a Service to the BusinessCapability it supports.
+Deliberately distinct from the shared evidence-to-claim :supports; the
+LeanIX supports relation, an ArchiMate realization or serving and a CMDB
+business-service relation are mapped onto it (Decision D1).""" ;
+    rdfs:domain infra:Service ;
+    rdfs:range :BusinessCapability .
+
 :Opportunity a owl:Class ;
     rdfs:label "Opportunity" ;
     rdfs:comment "An open commercial opportunity with one customer and an expected close date." ;

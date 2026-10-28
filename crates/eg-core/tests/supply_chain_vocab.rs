@@ -49,6 +49,16 @@ fn load_commercial() -> Vec<Triple> {
         .expect("the commercial vocabulary parses")
 }
 
+fn prefixed(local: &str, prefix: &str) -> String {
+    if let Some(tail) = local.strip_prefix("xsd:") {
+        format!("{XSD}{tail}")
+    } else if let Some(tail) = local.strip_prefix("infra:") {
+        format!("{INFRA}{tail}")
+    } else {
+        format!("{prefix}{local}")
+    }
+}
+
 fn assert_domain_range(
     triples: &[Triple],
     local: &str,
@@ -61,19 +71,12 @@ fn assert_domain_range(
             triples,
             &subject,
             &format!("{RDFS}domain"),
-            &format!("{KG}{domain}")
+            &prefixed(domain, KG)
         ),
         "{local} domain is {domain}"
     );
-    let range_iri = if let Some(tail) = range.strip_prefix("xsd:") {
-        format!("{XSD}{tail}")
-    } else if let Some(tail) = range.strip_prefix("infra:") {
-        format!("{INFRA}{tail}")
-    } else {
-        format!("{KG}{range}")
-    };
     assert!(
-        has_iri(triples, &subject, &format!("{RDFS}range"), &range_iri),
+        has_iri(triples, &subject, &format!("{RDFS}range"), &prefixed(range, KG)),
         "{local} range is {range}"
     );
 }
@@ -567,5 +570,46 @@ fn affects_service_declared_over_incident_or_change() {
             .iter()
             .any(|triple| subject_key(triple) == change_request),
         "commercial-v1.ttl must not redeclare :ChangeRequest"
+    );
+}
+
+// spec: EG-SUPPLY-VOCAB-R003.4
+#[test]
+fn supports_capability_declared_and_not_the_shared_supports() {
+    let triples = load_commercial();
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}supportsCapability"),
+            &format!("{RDF}type"),
+            &format!("{OWL}ObjectProperty")
+        ),
+        "supportsCapability is an object property"
+    );
+    assert_domain_range(&triples, "supportsCapability", "infra:Service", "BusinessCapability");
+    // The commercial module never redeclares or narrows the shared :supports.
+    assert!(
+        !triples
+            .iter()
+            .any(|triple| subject_key(triple) == format!("{KG}supports")),
+        "the shared :supports is not redeclared in the commercial module"
+    );
+    // And a fixture using kg:supports is not accepted by the capability shape:
+    // the shape document paths only supportsCapability, never the shared
+    // supports, so a supports-only link is not a capability link to it.
+    let shape_triples =
+        parse_turtle(include_str!("../ontology/commercial-v1.shapes.ttl"))
+            .expect("the commercial shapes parse");
+    assert!(
+        !shape_triples
+            .iter()
+            .any(|triple| {
+                triple.predicate.as_str().ends_with("path")
+                    && matches!(
+                        &triple.object,
+                        Term::NamedNode(n) if n.as_str() == format!("{KG}supports")
+                    )
+            }),
+        "the capability shape never paths the shared :supports"
     );
 }
