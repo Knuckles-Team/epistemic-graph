@@ -111,6 +111,27 @@ pub enum QuestionKind {
     /// why every other target was not chosen; it acquires no capacity and
     /// deploys nothing. See `statistical::placement`.
     Placement,
+    /// Whether a prompt passes its window share and the bounded recursive
+    /// split that makes it fit (EG-DECISION-ENGINE-R137). Evaluate-only. See
+    /// `decision::context_budget`.
+    ContextBudget,
+    /// Whether an evolution round's observed flips verify or falsify its
+    /// declaration (EG-DECISION-ENGINE-R136). See `decision::evolution_round`.
+    RoundVerdict,
+    /// Which model each evolution stage runs on (EG-DECISION-ENGINE-R136).
+    StageAllocation,
+    /// The verdict of one red-team probe (EG-DECISION-ENGINE-R138). See
+    /// `decision::red_team`.
+    ProbeVerdict,
+    /// Catalog items for a query and a history (EG-DECISION-ENGINE-R175). See
+    /// `decision::recommend`.
+    ItemRecommendation,
+    /// The tools, skills and agents one job needs (EG-DECISION-ENGINE-R176).
+    /// See `decision::load_set`.
+    LoadSet,
+    /// How and when to use one connector for one job (EG-DECISION-ENGINE-R177).
+    /// See `decision::usage_guidance`.
+    UsageGuidance,
     /// Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).
     BranchOutcome,
     /// Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).
