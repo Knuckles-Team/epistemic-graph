@@ -451,13 +451,7 @@
     "EG-FEDERATED-QUERY-R722.3",
     "EG-FEDERATED-QUERY-R722.4",
     "EG-FEDERATED-QUERY-R722.5",
-    "EG-FEDERATED-QUERY-R722.6",
-    "EG-FEDERATED-QUERY-R040.5.1",
-    "EG-FEDERATED-QUERY-R040.5.2",
-    "EG-FEDERATED-QUERY-R040.5.3",
-    "EG-FEDERATED-QUERY-R040.5.4",
-    "EG-FEDERATED-QUERY-R040.5.5",
-    "EG-FEDERATED-QUERY-R040.5.6"
+    "EG-FEDERATED-QUERY-R722.6"
   ],
   "requirements": [
     {
@@ -2816,18 +2810,10 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R040.5",
-      "title": "Low-storage ANN memory admission and selective recomputation (rollup)",
+      "title": "Source-backed definition disposition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "EG-FEDERATED-QUERY-R040.5.1",
-        "EG-FEDERATED-QUERY-R040.5.2",
-        "EG-FEDERATED-QUERY-R040.5.3",
-        "EG-FEDERATED-QUERY-R040.5.4",
-        "EG-FEDERATED-QUERY-R040.5.5",
-        "EG-FEDERATED-QUERY-R040.5.6"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R040.6",
@@ -4614,56 +4600,6 @@
     {
       "id": "EG-FEDERATED-QUERY-R722.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-FEDERATED-QUERY-R040.5.1",
-      "title": "Bounded low-storage ANN manifest and byte accounting",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-FEDERATED-QUERY-R040.5.2",
-      "title": "Compact graph artifact",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "crates/eg-ann/src/hnsw/artifact.rs:835",
-        "crates/eg-ann/src/hnsw/artifact.rs:858"
-      ]
-    },
-    {
-      "id": "EG-FEDERATED-QUERY-R040.5.3",
-      "title": "Revision-bound regeneration and selective rescore",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [
-        "crates/eg-ann/src/hnsw/artifact.rs:1020",
-        "crates/eg-ann/src/hnsw/artifact.rs:905",
-        "crates/eg-ann/src/hnsw/artifact.rs:951",
-        "crates/eg-ann/src/hnsw/artifact.rs:982"
-      ]
-    },
-    {
-      "id": "EG-FEDERATED-QUERY-R040.5.4",
-      "title": "Bounded embedding-provider batching and cache",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-FEDERATED-QUERY-R040.5.5",
-      "title": "Optional hub-preserving pruning",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-FEDERATED-QUERY-R040.5.6",
-      "title": "Authenticated integrated path and measured proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

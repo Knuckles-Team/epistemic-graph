@@ -525,32 +525,6 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 | Served refusal | `EG-FEDERATED-QUERY-R058.5` | `nl_config_refusal_tests::invalid_planner_config_is_refused_with_code_and_key` sees `ENGINE_UNAVAILABLE` and the bad key in the detail. |
 | Raw value | `EG-FEDERATED-QUERY-R058.5` | `nl::tests::unparseable_env_values_are_refused_with_source_and_raw_value` sees the env name or config key and the raw text in the detail. |
 
-<!-- spec-definition-patch:leann-low-storage-ann-tests-20261026 -->
-## EG-FEDERATED-QUERY-R040.5 planned acceptance — LEANN-inspired low-storage ANN
-
-These are planned acceptance cases only. They have not run and do not establish native, served,
-deployed or benchmark evidence. Use a fresh temporary durable engine, two authorized tenants,
-real source/index lifecycle and a separate evidence reader. Pin the source-text snapshot/digest,
-`EmbeddingSpaceRef` model/revision/tokenizer/preprocessing identity, `DocumentEncodingPolicy`,
-compact graph policy, lane-private build workspace and every finite budget. Use the existing
-`UnifiedQuery` → `run_unified_with` → `PlanCtx` path; do not inject a finished ranking or receipt.
-
-| Row | Planned proving case | Required positive and negative observations |
-|---|---|---|
-| `EG-FEDERATED-QUERY-R040.5.1` | `crates/eg-ann` accounting/manifest tests | Round-trip source reference, space, policy, generation, build workspace, graph/code/metadata/reference/cache/scratch bytes and ceilings. Compare the recorded sum with an independent checked-add oracle. Refuse missing source digest, mixed space/policy, overflow and persisted or peak over-budget values with no active-generation change. |
-| `EG-FEDERATED-QUERY-R040.5.2` | `crates/eg-ann` compact-artifact and exact-oracle tests | Build the same fixture through compact HNSW/IVF-PQ and compatibility modes. Decode bounded adjacency/codes/tombstones, preserve stable IDs and compare candidate membership with the exact full-vector oracle. Refuse malformed version, degree, code shape, duplicate ID, dangling edge and source-generation mismatch. |
-| `EG-FEDERATED-QUERY-R040.5.3` | core `EmbeddingProvider::regenerate_eligible` plus embeddingless compact query/rescore integration | Change one source text revision and prove only the changed row/required graph neighbors regenerate before replacement publication. Query compact graph without source fetches, then exercise explicit exact rescore with strict source-fetch/byte/rescore ceilings. Refuse stale/missing source digest, model space, encoding policy or index generation; a failed replacement keeps the prior complete generation. |
-| `EG-FEDERATED-QUERY-R040.5.4` | core `EmbeddingProvider` multi-source batch/cache seam | Send duplicate eligible source rows and prove one counted provider effect; exercise bounded multi-source batches and the bounded exact-key in-process cache. Verify keys include tenant/source digest/space/policy, hits stay within byte/entry bounds and counters are readable. Refuse batch/call/byte ceilings, wrong-width/non-finite vectors, provider failure, stale key and foreign-tenant lookup without publication. The query-text `TextEmbedder` remains unchanged. |
-| `EG-FEDERATED-QUERY-R040.5.5` | compact graph pruning tests | With pruning disabled, require byte-identical topology. With a pinned enabled policy, repeat the build and require deterministic edges, retained hubs, no dangling edges and connected retained components. Refuse invalid bounds, missing policy digest, policy mismatch and disconnected output; report measured recall/storage per fixture without a universal target. |
-| `EG-FEDERATED-QUERY-R040.5.6` | `tests/retrieval/test_low_storage_ann_served.py::test_revision_bound_low_storage_ann_path` | Through authenticated `UnifiedQuery`, build, update, restart, query and independently read the receipt. Compare fixed corpus/selectivity workloads with the exact full-scan oracle. Read source-text/model/build-space digests, generation, bytes, rows/visits, p50/p99, rescore/batch/cache counters and recall@k. Refuse budget exhaustion, stale generation, unauthorized source and incomplete receipt before effects. The LEANN 97% storage claim and its paper benchmark are never asserted as acceptance. |
-
-The benchmark matrix records actual results under the declared ceilings; it does not set a
-hard storage-saving or accuracy percentage. A deterministic hash embedder is acceptable only for
-seam/refusal tests; low-storage semantic quality requires a pinned actual model and independent
-readback. Existing R039.1.1, R039.2.1, R040.3/.4, R059 and R077.3 remain required and are not
-replaced by these cases.
-
-<!-- /spec-definition-patch -->
 ### R722.1 import-held registration slice
 
 - `source::tests::access_kinds_map_to_foreign_source_kinds` checks the closed source kinds.
