@@ -760,8 +760,7 @@ fn traverse_op(
     max: usize,
     input: RowSet,
 ) -> Result<RowSet, String> {
-    let reached = bfs_reached(ctx.view, &input.ids(), rel, min, max);
-    ctx.budget.check_traversal(reached.len())?;
+    let reached = bfs_reached_bounded(ctx.view, &input.ids(), rel, min, max, &ctx.budget)?;
     Ok(RowSet::from_ids(reached))
 }
 
@@ -2569,6 +2568,36 @@ pub(crate) fn bfs_reached(
     min: usize,
     max: usize,
 ) -> Vec<String> {
+    bfs_reached_checked(view, seeds, rel, min, max, |_| Ok(()))
+        .expect("the unbounded traversal callback cannot refuse")
+}
+
+/// The budgeted TRAVERSE implementation. The limit applies to every node discovered by the
+/// walk, including intermediate hops and the seed set, rather than only to the final rows.
+fn bfs_reached_bounded(
+    view: &GraphView,
+    seeds: &[String],
+    rel: &str,
+    min: usize,
+    max: usize,
+    budget: &crate::budget::Budget,
+) -> Result<Vec<String>, String> {
+    bfs_reached_checked(view, seeds, rel, min, max, |visited| {
+        budget.check_traversal(visited)
+    })
+}
+
+fn bfs_reached_checked<F>(
+    view: &GraphView,
+    seeds: &[String],
+    rel: &str,
+    min: usize,
+    max: usize,
+    mut check_visited: F,
+) -> Result<Vec<String>, String>
+where
+    F: FnMut(usize) -> Result<(), String>,
+{
     use petgraph::visit::EdgeRef;
     let mut reached: HashSet<String> = HashSet::new();
     let mut out: Vec<String> = Vec::new();
@@ -2578,24 +2607,27 @@ pub(crate) fn bfs_reached(
         .collect();
     let mut visited: HashSet<petgraph::stable_graph::NodeIndex> =
         frontier.iter().copied().collect();
+    check_visited(visited.len())?;
 
     let mut depth = 0;
     while depth < max && !frontier.is_empty() {
         depth += 1;
         let mut next = Vec::new();
-        frontier
-            .iter()
-            .flat_map(|&node| {
-                view.graph
-                    .edges_directed(node, petgraph::Direction::Outgoing)
-                    .filter_map(|edge| {
-                        let from_id = &view.graph[edge.source()];
-                        let to_id = &view.graph[edge.target()];
-                        rel_matches(view, from_id, to_id, rel).then_some(edge.target())
-                    })
-            })
-            .for_each(|nbr| {
+        for &node in &frontier {
+            for edge in view
+                .graph
+                .edges_directed(node, petgraph::Direction::Outgoing)
+            {
+                let from_id = &view.graph[edge.source()];
+                let to_id = &view.graph[edge.target()];
+                if !rel_matches(view, from_id, to_id, rel) {
+                    continue;
+                }
+                let nbr = edge.target();
                 if visited.insert(nbr) {
+                    // Refuse as soon as the walk discovers the first node beyond its
+                    // allowance, before adding more work to the next frontier.
+                    check_visited(visited.len())?;
                     next.push(nbr);
                 }
                 if depth >= min {
@@ -2604,10 +2636,11 @@ pub(crate) fn bfs_reached(
                         out.push(id);
                     }
                 }
-            });
+            }
+        }
         frontier = next;
     }
-    out
+    Ok(out)
 }
 
 /// Does the stored edge `(from→to)` carry relationship `rel`? Reads the edge's
@@ -2631,6 +2664,7 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
 #[cfg(test)]
 mod scan_order_tests {
     use super::*;
+    use crate::budget::{Budget, BUDGET_EXCEEDED};
     use eg_core::graph::GraphCore;
     use serde_json::json;
 
@@ -2682,5 +2716,43 @@ mod scan_order_tests {
         assert_eq!(scan("Doc"), vec!["n1", "n2", "n3", "n4"]);
         assert_eq!(scan("Person"), vec!["n5"]);
         assert!(scan("Missing").is_empty());
+    }
+
+    // spec: EG-FEDERATED-QUERY-R070
+    #[test]
+    fn traverse_budget_counts_intermediate_hops_before_returning_rows() {
+        let core = GraphCore::new();
+        for id in ["a", "b", "c"] {
+            core.add_node(id.into(), blob(json!({"type": "Doc"})));
+        }
+        for (from, to) in [("a", "b"), ("b", "c")] {
+            core.add_edge(
+                from.into(),
+                to.into(),
+                blob(json!({"relationship": "CITES"})),
+            )
+            .unwrap();
+        }
+        let view = core.analysis_snapshot();
+        let semantic = SemanticStore::new();
+        let input = RowSet::from_ids(vec!["a".into()]);
+        let tight = PlanCtx::new(&view, &semantic).with_budget(Budget {
+            max_result_rows: 10,
+            max_traversal_visits: 2,
+            max_series_work: Budget::DEFAULT_MAX_SERIES_WORK,
+        });
+        let err = traverse_op(&tight, "CITES", 2, 2, input.clone()).unwrap_err();
+        assert!(err.starts_with(BUDGET_EXCEEDED), "{err}");
+        assert!(err.contains("max_traversal_visits = 2"), "{err}");
+
+        let boundary = PlanCtx::new(&view, &semantic).with_budget(Budget {
+            max_result_rows: 10,
+            max_traversal_visits: 3,
+            max_series_work: Budget::DEFAULT_MAX_SERIES_WORK,
+        });
+        assert_eq!(
+            traverse_op(&boundary, "CITES", 2, 2, input).unwrap().ids(),
+            vec!["c".to_string()]
+        );
     }
 }

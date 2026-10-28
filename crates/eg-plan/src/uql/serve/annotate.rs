@@ -38,9 +38,25 @@ fn attach_knowledge(rows: &mut [UqlRow], columns: &[String], ctx: &PlanCtx) -> R
     if knowledge.rows.len() != rows.len() {
         return Err("WITH KNOWLEDGE: the result repeats a row id".into());
     }
+    ensure_row_identity(rows, &knowledge)?;
     let resolved = knowledge.provenance_frame == ProvenanceFrame::Resolved;
     for (row, record) in rows.iter_mut().zip(knowledge.rows) {
         row.knowledge = Some(wire_knowledge(record, resolved));
+    }
+    Ok(())
+}
+
+fn ensure_row_identity(rows: &[UqlRow], knowledge: &KnowledgeSet) -> Result<(), String> {
+    if let Some((index, (row, record))) = rows
+        .iter()
+        .zip(knowledge.rows.iter())
+        .enumerate()
+        .find(|(_, (row, record))| row.id != record.id)
+    {
+        return Err(format!(
+            "WITH KNOWLEDGE: row identity mismatch at position {index}: result `{}` vs knowledge `{}`",
+            row.id, record.id
+        ));
     }
     Ok(())
 }
@@ -67,5 +83,54 @@ fn wire_knowledge(record: KnowledgeRow, epistemic_resolved: bool) -> UqlKnowledg
         proof_ids: record.proof_ids,
         transformation_ids: record.transformation_ids,
         alternative_ids: record.alternative_ids,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(id: &str) -> UqlRow {
+        UqlRow {
+            id: id.into(),
+            score: None,
+            channels: Vec::new(),
+            knowledge: None,
+            proof: None,
+        }
+    }
+
+    fn knowledge_row(id: &str) -> KnowledgeRow {
+        KnowledgeRow {
+            id: id.into(),
+            kind: "Doc".into(),
+            score: None,
+            payload_ref: None,
+            projection: None,
+            valid_time: (None, None),
+            tx_time: (None, None),
+            confidence: 1.0,
+            source_refs: Vec::new(),
+            evidence_refs: Vec::new(),
+            policy_labels: Vec::new(),
+            contradiction_ids: Vec::new(),
+            proof_ids: Vec::new(),
+            transformation_ids: Vec::new(),
+            alternative_ids: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn refuses_knowledge_rows_with_different_identity_order() {
+        let rows = [row("d1"), row("d2")];
+        let knowledge = KnowledgeSet {
+            rows: vec![knowledge_row("d2"), knowledge_row("d1")],
+            ..KnowledgeSet::default()
+        };
+
+        assert_eq!(
+            ensure_row_identity(&rows, &knowledge),
+            Err("WITH KNOWLEDGE: row identity mismatch at position 0: result `d1` vs knowledge `d2`".into())
+        );
     }
 }

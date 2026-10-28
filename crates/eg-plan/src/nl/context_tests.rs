@@ -1035,10 +1035,10 @@ fn inline_foreign_adapter_cannot_bypass_the_declared_source_catalog() {
         }),
         join: false,
     }]);
-    assert!(matches!(
-        context.ground(&plan),
-        Err(SchemaViolation::UnboundForeignSource)
-    ));
+    let violation = context.ground(&plan).unwrap_err();
+    assert_eq!(violation.code(), "NL_SCHEMA_UNBOUND_FOREIGN_SOURCE");
+    assert!(violation.to_string().contains("owner-scoped"));
+    assert!(matches!(violation, SchemaViolation::UnboundForeignSource));
 }
 
 // spec: EG-FEDERATED-QUERY-R058.4.7.1

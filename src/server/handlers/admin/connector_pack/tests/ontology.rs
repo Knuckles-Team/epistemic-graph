@@ -170,3 +170,70 @@ async fn an_orphan_class_is_imported_and_flagged_by_name() {
     );
     assert!(!warnings[0].contains("conn#Lease"), "{warnings:?}");
 }
+
+/// Source declarations share the admitted member write, its tenant and body digest.
+// spec: EG-FEDERATED-QUERY-R722.1
+#[tokio::test]
+async fn source_claims_persist_held_and_old_or_other_tenant_members_stay_unbound() {
+    use super::{head_of, imported, TENANT};
+    use eg_types::connector_pack::PackSourceApproval;
+    use eg_types::contract::ResourceId;
+    let connector = "held-source";
+    let served = Served::new();
+    bind(&served, connector, ADMIN).await;
+    let body = r#"@prefix ac: <https://knuckles-team.github.io/agent-connector-sdk/access#> .
+<urn:supplier-contract> a ac:AccessContract ; ac:classIri <urn:Supplier> ;
+ ac:sourceId "suppliers" ; ac:accessKind "mcp_tool" ; ac:operation "list_suppliers" ;
+ ac:entity "Supplier" ; ac:keyField "id" ."#;
+    let pack = build_pack(connector, &[ontology(connector, body.into())]);
+    let receipt = imported(&served, &pack, None).await;
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    let key = ResourceId::new(connector).unwrap();
+    let rows = store.connector_pack_members(TENANT, &key).unwrap();
+    let member = rows
+        .iter()
+        .find(|row| !row.source_registrations.is_empty())
+        .unwrap();
+    assert_eq!(member.source_registrations.len(), 1);
+    assert_eq!(
+        member.source_registrations[0].approval,
+        PackSourceApproval::Held
+    );
+    assert_eq!(member.source_registrations[0].connector, key);
+    assert_eq!(member.source_registrations[0].resource_uri, member.uri);
+    assert!(store
+        .connector_pack_members("other-tenant", &key)
+        .unwrap()
+        .is_empty());
+    let encoded = serde_json::to_value(member).unwrap();
+    let mut legacy = encoded.clone();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("source_registrations");
+    let legacy: crate::server::persistence::connector_pack::ConnectorPackMemberRow =
+        serde_json::from_value(legacy).unwrap();
+    assert!(legacy.source_registrations.is_empty());
+    let unchanged = ok(
+        "unchanged",
+        import(&served, &pack, Some(head_of(&receipt))).await,
+    );
+    assert!(matches!(unchanged, PackImportResult::Unchanged { .. }));
+    assert_eq!(store.connector_pack_members(TENANT, &key).unwrap(), rows);
+    let super::Served { dir, state } = served;
+    drop(store);
+    drop(state);
+    let reopened = crate::server::persistence::agent_library::AgentLibraryStore::open(
+        dir.path().to_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reopened.connector_pack_members(TENANT, &key).unwrap(), rows);
+    let plan = reopened
+        .prepare_connector_pack_projection(TENANT, &key)
+        .unwrap();
+    assert_eq!(plan.source_registrations.len(), 1);
+    assert_eq!(
+        plan.source_registrations[0].approval,
+        PackSourceApproval::Held
+    );
+}

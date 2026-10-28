@@ -110,7 +110,7 @@ impl Policy {
             return (Judged::Forbidden, None);
         }
         match &request.method {
-            Method::Uql { text, params } if self.pushdown || text == BASE => {
+            Method::Uql { text, params, .. } if self.pushdown || text == BASE => {
                 let statement = crate::uql::parse_statement(text, params).expect("peer UQL");
                 let result = crate::uql::serve::run_statement(&statement, ctx).expect("peer run");
                 self.serve(text, result)
@@ -327,6 +327,8 @@ fn the_envelope_binds_the_secret_the_statement_the_graph_and_the_request_id() {
     widened.method = Method::Uql {
         text: "MATCH (:Doc)".into(),
         params: Default::default(),
+        prepare: false,
+        foreign_execution: None,
     };
     assert!(
         verified_claims(&peer.secret, &widened).is_none(),

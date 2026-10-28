@@ -695,7 +695,7 @@ fn nl_target_graph(graph: &str, req_graph: &str) -> String {
     }
 }
 
-/// Route a natural-language method (`NlQuery`, `NlQueryExplain`) to `target` through the
+/// Route a natural-language method (`NlQuery`, `NlQueryExplain`, `NlQueryPlan`) to `target` through the
 /// per-graph chain, where the `nl-query` handler runs it.
 async fn dispatch_nl_method(ctx: DispatchCtx<'_>, target: &str, method: Method) -> Response {
     let DispatchCtx {
@@ -780,6 +780,10 @@ pub(super) async fn dispatch_method_scoped_graph_methods(
         Method::NlQueryExplain { text, graph } => {
             let target = nl_target_graph(&graph, &req.graph);
             dispatch_nl_method(ctx, &target, Method::NlQueryExplain { text, graph }).await
+        }
+        Method::NlQueryPlan { text, graph } => {
+            let target = nl_target_graph(&graph, &req.graph);
+            dispatch_nl_method(ctx, &target, Method::NlQueryPlan { text, graph }).await
         }
         // Batched CROSS-GRAPH write (CONCEPT:EG-KG.storage.multi-graph-batch-write) — the
         // graphs ride the METHOD (one round-trip, many graphs), so like the txn/ts

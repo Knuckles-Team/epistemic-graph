@@ -269,6 +269,17 @@ fn small_scenario(limits: &Limits) -> Vec<String> {
         scanned(&reopen_phases)
     );
     let mut failures = Vec::new();
+    for physical_name in [
+        "epistemic-graph:admin-mutations",
+        "epistemic-graph:node-info",
+        "epistemic-graph:cluster-hierarchy",
+    ] {
+        if !fresh_phases.contains(physical_name) {
+            failures.push(format!(
+                "fresh K={SHARDS} open did not capture the R006.2 per-store phase line for {physical_name}\n--- captured phases ---\n{fresh_phases}"
+            ));
+        }
+    }
     check(
         &mut failures,
         &format!("fresh K={SHARDS} open"),

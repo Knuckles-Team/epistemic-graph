@@ -1841,6 +1841,8 @@ mod txn_ryow_dispatch_tests {
         Method::Uql {
             text: text.into(),
             params: Default::default(),
+            prepare: false,
+            foreign_execution: None,
         }
     }
 

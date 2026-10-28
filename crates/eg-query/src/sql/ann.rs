@@ -28,6 +28,7 @@ use arrow::datatypes::{DataType, SchemaRef};
 use arrow::record_batch::RecordBatch;
 
 use eg_ann::{FlatIndex, HnswIndex, IvfPq, IvfPqParams, Metric, SearchParams};
+use serde::{Deserialize, Serialize};
 
 use super::pgfamily::{AnnMethod, VectorMetric};
 
@@ -43,6 +44,49 @@ const POOL_FLOOR: usize = 64;
 /// HNSW build fan-out (`M`) and construction beam — modest, high-recall defaults.
 const HNSW_M: usize = 16;
 const HNSW_EF_CONSTRUCTION: usize = 200;
+
+/// An opt-in declaration for the text column that owns an embedding index.
+///
+/// This is the small typed planning model for R077.1. The durable
+/// `EmbeddingBinding` in `tables::embedding_binding` owns persistence and
+/// schema/tenant validation; this value only describes the SQL ANN surface.
+/// Keeping the two roles separate prevents an ANN plan from becoming a second
+/// catalog writer while still making the opt-in state explicit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ColumnVectorBinding {
+    /// The SQL table containing the source text column.
+    pub table: String,
+    /// The source text column to embed.
+    pub column: String,
+    /// Stable reference to the embedder/model used for this column.
+    pub embedder_ref: String,
+    /// Width of vectors produced by the referenced embedder.
+    pub dimension: usize,
+    /// Whether the column currently has an active vector binding.
+    pub bound: bool,
+}
+
+impl ColumnVectorBinding {
+    /// Construct a binding declaration, refusing an unusable zero-width vector.
+    pub fn new(
+        table: impl Into<String>,
+        column: impl Into<String>,
+        embedder_ref: impl Into<String>,
+        dimension: usize,
+        bound: bool,
+    ) -> Result<Self, String> {
+        if dimension == 0 {
+            return Err("column vector binding dimension must be greater than zero".into());
+        }
+        Ok(Self {
+            table: table.into(),
+            column: column.into(),
+            embedder_ref: embedder_ref.into(),
+            dimension,
+            bound,
+        })
+    }
+}
 
 /// Map a pgvector [`VectorMetric`] (from the opclass / distance operator) to the
 /// eg-ann [`Metric`] (CONCEPT:EG-KG.query.real-pgvector-ann-top). `<->`→L2, `<=>`→cosine, `<#>`→(neg)inner.
@@ -364,6 +408,24 @@ mod tests {
         assert_eq!(parse_query_vector("[0.5, 0.25]"), Some(vec![0.5, 0.25]));
         assert_eq!(parse_query_vector("$1"), None, "unresolved bind param");
         assert_eq!(parse_query_vector("'[]'"), None, "empty vector");
+    }
+
+    #[test]
+    fn r0771_column_vector_binding_round_trips_and_rejects_zero_dimension() {
+        let binding =
+            ColumnVectorBinding::new("items", "description", "embedder:bge-small", 384, true)
+                .expect("positive vector dimension is accepted");
+        let encoded = serde_json::to_vec(&binding).expect("binding serializes");
+        let decoded: ColumnVectorBinding =
+            serde_json::from_slice(&encoded).expect("binding deserializes");
+        assert_eq!(
+            decoded, binding,
+            "all binding fields survive the wire round-trip"
+        );
+
+        let error = ColumnVectorBinding::new("items", "description", "embedder:bge-small", 0, true)
+            .expect_err("zero-width vectors cannot be indexed");
+        assert!(error.contains("greater than zero"));
     }
 
     #[test]

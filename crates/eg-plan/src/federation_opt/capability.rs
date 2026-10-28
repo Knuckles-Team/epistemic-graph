@@ -152,6 +152,269 @@ pub enum PushdownKind {
     SameSourceJoin,
     /// A batched key lookup (`id IN (…)`); see [`KeyLookup::Batched`].
     BatchedLookup,
+    /// A temporal lower/upper bound on a stream or event source.
+    TimeRange,
+}
+
+/// Connection protocols whose transport shape affects safe remote pushdown.
+///
+/// This is deliberately separate from [`ForeignSourceSpec`]: a connector pack can
+/// expose the same operation through more than one transport, while the optimizer
+/// still needs the transport's own pushdown contract. The matrix below is the one
+/// planner authority for that second axis (EG-FEDERATED-QUERY-R073.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub enum ConnectionProtocol {
+    RestOpenApi,
+    GraphQl,
+    Grpc,
+    OData,
+    Soap,
+    JsonRpc,
+    Mcp,
+    A2a,
+    Sparql,
+    OpenCypherGremlin,
+    Sql,
+    EventStream,
+    ChangeDataCapture,
+    Webhook,
+    WebSocketSse,
+    FileObject,
+    Ldap,
+    Mail,
+    Calendar,
+}
+
+impl ConnectionProtocol {
+    /// Every protocol named by the connection matrix, in matrix order.
+    pub const ALL: &'static [Self] = &[
+        Self::RestOpenApi,
+        Self::GraphQl,
+        Self::Grpc,
+        Self::OData,
+        Self::Soap,
+        Self::JsonRpc,
+        Self::Mcp,
+        Self::A2a,
+        Self::Sparql,
+        Self::OpenCypherGremlin,
+        Self::Sql,
+        Self::EventStream,
+        Self::ChangeDataCapture,
+        Self::Webhook,
+        Self::WebSocketSse,
+        Self::FileObject,
+        Self::Ldap,
+        Self::Mail,
+        Self::Calendar,
+    ];
+}
+
+/// The paging or streaming form named by one connection-protocol row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub enum ProtocolTransfer {
+    PageOrCursor,
+    ConnectionCursor,
+    ServerStream,
+    SkipTopAndNextLinks,
+    DeclaredPageElements,
+    DeclaredPageParameters,
+    ResourceAndToolResultPages,
+    TaskArtifactsAndStreams,
+    FederatedServiceBindJoins,
+    ResultPages,
+    CursorsAndRecordBatches,
+    StreamOffsets,
+    ChangePositions,
+    PushedEvents,
+    StreamFrames,
+    ListingPagesAndRangeReads,
+    PagedResults,
+    MessageRanges,
+    SyncTokens,
+}
+
+/// One immutable connection-protocol policy row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct ProtocolPushdownRow {
+    pub protocol: ConnectionProtocol,
+    pub paging_or_streaming: ProtocolTransfer,
+    pub pushdown: &'static [PushdownKind],
+    pub contract_term: &'static str,
+}
+
+impl ProtocolPushdownRow {
+    /// Whether this protocol row permits a pushdown kind at all.
+    pub fn allows(&self, kind: PushdownKind) -> bool {
+        self.pushdown.contains(&kind)
+    }
+}
+
+/// The planner's protocol matrix. Keep this as the only place that maps a
+/// connection protocol to its transport and connector-pack contract term.
+pub static CONNECTION_PROTOCOL_MATRIX: &[ProtocolPushdownRow] = &[
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::RestOpenApi,
+        paging_or_streaming: ProtocolTransfer::PageOrCursor,
+        pushdown: &[PushdownKind::Filter, PushdownKind::LimitOrder],
+        contract_term: "http_endpoint",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::GraphQl,
+        paging_or_streaming: ProtocolTransfer::ConnectionCursor,
+        pushdown: &[
+            PushdownKind::Filter,
+            PushdownKind::Projection,
+            PushdownKind::LimitOrder,
+        ],
+        contract_term: "graphql_query",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::Grpc,
+        paging_or_streaming: ProtocolTransfer::ServerStream,
+        pushdown: &[PushdownKind::Filter, PushdownKind::LimitOrder],
+        contract_term: "operation",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::OData,
+        paging_or_streaming: ProtocolTransfer::SkipTopAndNextLinks,
+        pushdown: &[
+            PushdownKind::Filter,
+            PushdownKind::Projection,
+            PushdownKind::LimitOrder,
+            PushdownKind::Aggregate,
+        ],
+        contract_term: "operation",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::Soap,
+        paging_or_streaming: ProtocolTransfer::DeclaredPageElements,
+        pushdown: &[PushdownKind::Filter],
+        contract_term: "operation",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::JsonRpc,
+        paging_or_streaming: ProtocolTransfer::DeclaredPageParameters,
+        pushdown: &[PushdownKind::Filter],
+        contract_term: "operation",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::Mcp,
+        paging_or_streaming: ProtocolTransfer::ResourceAndToolResultPages,
+        pushdown: &[PushdownKind::Filter, PushdownKind::LimitOrder],
+        contract_term: "mcp_tool",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::A2a,
+        paging_or_streaming: ProtocolTransfer::TaskArtifactsAndStreams,
+        pushdown: &[PushdownKind::Filter],
+        contract_term: "a2a_skill",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::Sparql,
+        paging_or_streaming: ProtocolTransfer::FederatedServiceBindJoins,
+        pushdown: &[
+            PushdownKind::Filter,
+            PushdownKind::Projection,
+            PushdownKind::SameSourceJoin,
+            PushdownKind::LimitOrder,
+        ],
+        contract_term: "endpoint",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::OpenCypherGremlin,
+        paging_or_streaming: ProtocolTransfer::ResultPages,
+        pushdown: &[
+            PushdownKind::Filter,
+            PushdownKind::Projection,
+            PushdownKind::SameSourceJoin,
+            PushdownKind::Aggregate,
+            PushdownKind::LimitOrder,
+        ],
+        contract_term: "endpoint",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::Sql,
+        paging_or_streaming: ProtocolTransfer::CursorsAndRecordBatches,
+        pushdown: &[
+            PushdownKind::Filter,
+            PushdownKind::Projection,
+            PushdownKind::SameSourceJoin,
+            PushdownKind::Aggregate,
+            PushdownKind::LimitOrder,
+            PushdownKind::TimeRange,
+        ],
+        contract_term: "virtual_graph",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::EventStream,
+        paging_or_streaming: ProtocolTransfer::StreamOffsets,
+        pushdown: &[PushdownKind::TimeRange],
+        contract_term: "stream",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::ChangeDataCapture,
+        paging_or_streaming: ProtocolTransfer::ChangePositions,
+        pushdown: &[PushdownKind::TimeRange],
+        contract_term: "change_capture",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::Webhook,
+        paging_or_streaming: ProtocolTransfer::PushedEvents,
+        pushdown: &[],
+        contract_term: "event",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::WebSocketSse,
+        paging_or_streaming: ProtocolTransfer::StreamFrames,
+        pushdown: &[PushdownKind::TimeRange],
+        contract_term: "stream",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::FileObject,
+        paging_or_streaming: ProtocolTransfer::ListingPagesAndRangeReads,
+        pushdown: &[PushdownKind::Filter, PushdownKind::Projection],
+        contract_term: "file",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::Ldap,
+        paging_or_streaming: ProtocolTransfer::PagedResults,
+        pushdown: &[
+            PushdownKind::Filter,
+            PushdownKind::Projection,
+            PushdownKind::LimitOrder,
+        ],
+        contract_term: "directory",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::Mail,
+        paging_or_streaming: ProtocolTransfer::MessageRanges,
+        pushdown: &[
+            PushdownKind::Filter,
+            PushdownKind::Projection,
+            PushdownKind::TimeRange,
+        ],
+        contract_term: "mail",
+    },
+    ProtocolPushdownRow {
+        protocol: ConnectionProtocol::Calendar,
+        paging_or_streaming: ProtocolTransfer::SyncTokens,
+        pushdown: &[
+            PushdownKind::Filter,
+            PushdownKind::Projection,
+            PushdownKind::TimeRange,
+        ],
+        contract_term: "calendar",
+    },
+];
+
+/// Find the single planner row for a connection protocol.
+pub fn connection_protocol_row(
+    protocol: ConnectionProtocol,
+) -> Option<&'static ProtocolPushdownRow> {
+    CONNECTION_PROTOCOL_MATRIX
+        .iter()
+        .find(|row| row.protocol == protocol)
 }
 
 /// A per-query cost estimate for one foreign source fragment: how many rows it is expected
@@ -229,7 +492,19 @@ impl ForeignSourceCapability {
             PushdownKind::BatchedLookup => {
                 matches!(self.capabilities.key_lookup, KeyLookup::Batched { .. })
             }
+            // No current SourceCapabilities field proves a temporal predicate. A
+            // protocol row may permit it, but this source capability must still
+            // grow an explicit proof before the planner offers it.
+            PushdownKind::TimeRange => false,
         }
+    }
+
+    /// Whether both the source's declared proof and its connection protocol row
+    /// authorize a pushdown. Keeping the checks together prevents a planner caller
+    /// from treating a source capability as permission to bypass the protocol matrix.
+    pub fn proves_sound_for(&self, protocol: ConnectionProtocol, kind: PushdownKind) -> bool {
+        connection_protocol_row(protocol).is_some_and(|row| row.allows(kind))
+            && self.proves_sound(kind)
     }
 }
 

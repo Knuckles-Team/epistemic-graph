@@ -76,6 +76,7 @@
 // EG-DURABLE-KERNEL-R095.1000 — served agent-bus participant and hub-peer records.
 pub mod agent_bus;
 pub mod change_envelope;
+pub mod hydration;
 pub mod mirror;
 pub mod project;
 pub mod route;
@@ -87,6 +88,10 @@ pub mod idempotent_consumer;
 
 pub use agent_bus::{BusParticipant, HubPeer};
 pub use change_envelope::{ChangeEnvelope, ChangeOp, InvalidChangeEnvelope};
+pub use hydration::{
+    BaselinePlan, CoverageReport, DeltaManifest, DeltaManifestEntry, DeltaManifestKey, FileClass,
+    HydrationModelError, RepoSplitPlan, StagedStage, HYDRATION_MODEL_VERSION,
+};
 pub use mirror::DurableExecutionUnitMirror;
 pub use project::{project, unit_node_id, KgEdge, KgNode, KgProjection};
 pub use route::{

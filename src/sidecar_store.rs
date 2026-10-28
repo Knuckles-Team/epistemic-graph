@@ -79,18 +79,23 @@ impl<D: OwnerDomain> SidecarStore<D> {
         private_integrity: Option<std::sync::Arc<dyn eg_storage::PrivatePayloadIntegrity>>,
         authority: &EngineScopeAuthority,
     ) -> Result<Self, String> {
+        let started = std::time::Instant::now();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
         let physical = PhysicalStoreIdentity::new(physical_name)?;
         let proof = authority.proof();
-        let kernel = if path.exists() {
+        let existed = path.exists();
+        let kernel = if existed {
             StorageKernel::open_owner::<D>(path, physical, private_integrity)
         } else {
             StorageKernel::create_owner::<D>(path, physical, private_integrity)
         }?;
+        let kernel_elapsed = started.elapsed();
+        let report = kernel.open_report();
         let (kernel, write_authority) = kernel.into_read_and_mutation_authority()?;
         let mutations = MutationKernel::new(write_authority);
+        let bind_started = std::time::Instant::now();
         let grant = kernel.authenticate_scope::<D>(
             authority,
             identity,
@@ -98,7 +103,42 @@ impl<D: OwnerDomain> SidecarStore<D> {
             &proof,
         )?;
         let owner = kernel.bind_serving_scope(grant, 0)?;
+        let bind_elapsed = bind_started.elapsed();
+        let ledger_started = std::time::Instant::now();
         mutations.bootstrap_ledger(&owner)?;
+        let ledger_elapsed = ledger_started.elapsed();
+        let total_elapsed = started.elapsed();
+        tracing::info!(
+            store = %path.display(),
+            physical_name,
+            existed,
+            recovery_scan_skipped = report.recovery_scan_skipped,
+            file_open_ms = report.file_open.as_millis() as u64,
+            table_validation_ms = report.table_validation.as_millis() as u64,
+            recovery_ms = report.recovery.as_millis() as u64,
+            kernel_ms = kernel_elapsed.as_millis() as u64,
+            bind_ms = bind_elapsed.as_millis() as u64,
+            ledger_ms = ledger_elapsed.as_millis() as u64,
+            total_ms = total_elapsed.as_millis() as u64,
+            "redb: owner store opened",
+        );
+        crate::metrics::store_open(
+            &[
+                ("file_open", report.file_open.as_secs_f64()),
+                ("table_validation", report.table_validation.as_secs_f64()),
+                ("recovery", report.recovery.as_secs_f64()),
+                ("bind", bind_elapsed.as_secs_f64()),
+                ("ledger", ledger_elapsed.as_secs_f64()),
+                ("total", total_elapsed.as_secs_f64()),
+            ],
+            if !existed {
+                "created"
+            } else if report.recovery_scan_skipped {
+                "skipped_clean_marker"
+            } else {
+                "ran"
+            },
+        );
         Ok(Self {
             kernel,
             mutations,

@@ -2763,6 +2763,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syn 2.0.119",
+ "tempfile",
 ]
 
 [[package]]
@@ -2831,6 +2832,7 @@ dependencies = [
  "eg-ann",
  "eg-modality",
  "eg-rdf",
+ "eg-shacl",
  "eg-storage",
  "eg-transaction",
  "eg-types",
@@ -2852,6 +2854,7 @@ name = "eg-document"
 version = "0.1.0"
 dependencies = [
  "eg-modality",
+ "eg-types",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3388,6 +3391,7 @@ name = "eg-types"
 version = "0.27.0"
 dependencies = [
  "hex",
+ "oxiri",
  "rmp-serde",
  "schemars 1.2.3",
  "serde",

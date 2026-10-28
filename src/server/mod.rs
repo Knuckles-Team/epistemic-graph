@@ -301,8 +301,13 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
 // server. It went unnoticed because this repo has not pushed in a long time,
 // so CI never ran that feature-matrix row. Restoring the attribute here is
 // the fix (AGENTS.md "Feature-gating gates three sites").
+// Post-bind boot maintenance (EG-DURABLE-KERNEL-R006.4): the background
+// materialized-view reload + time-series startup reconciliation that run
+// AFTER the primary listeners bind — never on the pre-listener critical
+// path. Both tasks are feature-gated inside; without either, a no-op.
 #[cfg(feature = "blob")]
 pub mod blob;
+pub mod boot_maintenance;
 // Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface). Self-routing (NOT graph-
 // scoped) like blob/tsdb, behind the `kv` cargo feature. A build without it compiles
 // none of it; the Kv* methods then fall to the dispatch "not available" catch-all.
@@ -441,6 +446,9 @@ pub(crate) mod handlers;
 // place a caller's verified owner (tenant+principal) selects which sources a plan may resolve.
 #[cfg(feature = "federation")]
 pub mod foreign_catalog;
+// EG-FEDERATED-QUERY-R722.3 — bounded host-driven foreign-read executions.
+#[cfg(feature = "federation")]
+pub(crate) mod foreign_read;
 // Explicit RBAC-grant sharing of an owner-scoped foreign source (EH-378).
 #[cfg(feature = "federation")]
 pub(crate) mod foreign_share;
@@ -801,6 +809,9 @@ pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
 // calls this on startup to repopulate the in-RAM matview index from redb.
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub use handlers::dist_compute::reload_matviews;
+// Post-bind maintenance hook (EG-DURABLE-KERNEL-R006.4): the binary calls this
+// from `serve_transports` right after the listeners bind.
+pub use boot_maintenance::spawn_post_bind_maintenance;
 pub use persistence::PersistenceBackend;
 pub use state::{txn_limits_from_env, ServerState, MAX_BATCH_IDS};
 
@@ -857,14 +868,14 @@ pub(crate) fn test_state_with_services(
 
 pub use request_replay::seal_request_replay_ledger;
 pub use transport::{
-    handle_connection, prepare_tcp_tls, run_idle_watcher, serve_tcp, PreparedTcpTls,
-    ShutdownCoordinator, TcpTlsConfig,
+    bind_tcp, handle_connection, prepare_tcp_tls, run_idle_watcher, serve_tcp, serve_tcp_listener,
+    PreparedTcpTls, ShutdownCoordinator, TcpTlsConfig,
 };
 // serve_uds is Unix-only (UnixListener); on Windows the server uses serve_tcp,
 // so gate the re-export to keep the windows-msvc wheel building (main.rs already
 // guards its serve_uds call with #[cfg(unix)]).
 #[cfg(unix)]
-pub use transport::serve_uds;
+pub use transport::{bind_uds, serve_uds, serve_uds_listener};
 // parse_unix_socket_mode is pure parsing/validation (no fs calls) and is exported
 // unconditionally so main.rs can validate --socket-mode/GRAPH_SERVICE_SOCKET_MODE
 // up front on every platform, even though the mode itself is only applied by
@@ -1701,6 +1712,7 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -1821,6 +1833,7 @@ mod tests {
                 },
                 tolerance_ns: None,
             }]),
+            foreign_execution: None,
         };
 
         // (1) A uniform 1s grid, linearly interpolated: rows at the GRID instants, carrying
@@ -1877,6 +1890,7 @@ mod tests {
                         streams: vec!["imu".into()],
                         tolerance_ns: (10 * NS) as u64,
                     }]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -1934,6 +1948,7 @@ mod tests {
                         },
                         tolerance_ns: None,
                     }]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -1995,6 +2010,7 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2016,6 +2032,8 @@ mod tests {
                 Method::Uql {
                     text: uql.into(),
                     params: Default::default(),
+                    prepare: false,
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2081,6 +2099,8 @@ mod tests {
                 Method::Uql {
                     text: "MATCH (:Doc) |> FROBNICATE".into(),
                     params: Default::default(),
+                    prepare: false,
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2127,6 +2147,8 @@ mod tests {
                 Method::Uql {
                     text: "MATCH (:Paper)".into(),
                     params: Default::default(),
+                    prepare: false,
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2146,6 +2168,7 @@ mod tests {
                     plan: eg_plan::Plan::new(vec![eg_plan::Op::Scan {
                         label: "Paper".into(),
                     }]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2382,6 +2405,7 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2546,6 +2570,7 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(named_plan),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2573,6 +2598,7 @@ mod tests {
                         },
                         Op::Limit { k: 10 },
                     ]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2645,6 +2671,7 @@ mod tests {
                             join: true,
                         },
                     ]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2671,6 +2698,7 @@ mod tests {
                     plan: eg_plan::Plan::new(vec![Op::Foreign {
                         name: "typo_docs".into(),
                     }]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2695,6 +2723,9 @@ mod tests {
     // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
     #[cfg(feature = "wasm-udf")]
     mod udf_tenancy;
+    // Served ShEx data-selection proof for EG-FEDERATED-QUERY-R084.2.
+    #[cfg(feature = "shex")]
+    mod shex_served;
 
     // ── Cypher query surface (CONCEPT:EG-KG.query.dep-free-behind) ─────────────────────────
 
@@ -4217,6 +4248,7 @@ mod tests {
                     keywords: vec!["deploy".into()],
                     query_embedding: vec![1.0, 0.0, 0.0],
                     k: 3,
+                    quality_policy_ref: None,
                 },
             ),
         )
@@ -4247,6 +4279,7 @@ mod tests {
                     keywords: vec!["deploy".into()],
                     query_embedding: vec![],
                     k: 5,
+                    quality_policy_ref: None,
                 },
             ),
         )
