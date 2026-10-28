@@ -10,6 +10,7 @@
 @prefix infra: <http://knuckles.team/kg/infrastructure#> .
 @prefix sh:  <http://www.w3.org/ns/shacl#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 kg:CustomerContractShape a sh:NodeShape ;
     sh:targetClass kg:CustomerContract ;
@@ -30,3 +31,11 @@ kg:SupportsCapabilityShape a sh:NodeShape ;
         sh:message "A capability link points from a service to a BusinessCapability."
     ] ;
     sh:message "Only a service carries a capability link -- a link from a non-service is refused." .
+
+kg:OpportunityDateShape a sh:NodeShape ;
+    sh:targetClass kg:Opportunity ;
+    sh:property [
+        sh:path kg:closeDate ; sh:minCount 1 ; sh:datatype xsd:dateTime ;
+        sh:message "An Opportunity names a close date as an xsd:dateTime."
+    ] ;
+    sh:message "An opportunity carries its close date." .

@@ -12,6 +12,7 @@
         <http://knuckles.team/kg/archimate>,
         <http://knuckles.team/kg/calendar>,
         <http://knuckles.team/kg/commercial>,
+        <http://knuckles.team/kg/connector-pack>,
         <http://knuckles.team/kg/company>,
         <http://knuckles.team/kg/company_infra>,
         <http://knuckles.team/kg/concepts>,

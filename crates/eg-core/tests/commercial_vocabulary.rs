@@ -223,6 +223,79 @@ fn commercial_close_date_declared() {
     ));
 }
 
+const EX: &str = "http://knuckles.team/test/commercial#";
+
+// spec: EG-SUPPLY-VOCAB-R003.17
+#[test]
+fn commercial_opportunity_date_shape() {
+    let (_sources, _ontology, shapes) = commercial_source();
+    // The registered shape accepts a valid dated opportunity.
+    let valid = eg_shacl::validate_turtle(
+        &shapes,
+        &format!(
+            "@prefix kg: <{KG}> .\n\
+             @prefix ex: <{EX}> .\n\
+             @prefix xsd: <{XSD}> .\n\
+             ex:openDeal a kg:Opportunity ;\n\
+                 kg:closeDate \"2026-11-30T00:00:00Z\"^^xsd:dateTime .\n"
+        ),
+    )
+    .expect("the registered shapes and a dated opportunity parse");
+    assert!(
+        valid.conforms,
+        "a dated opportunity conforms: {:?}",
+        valid.results
+    );
+    // A missing closeDate is refused.
+    let missing = eg_shacl::validate_turtle(
+        &shapes,
+        &format!(
+            "@prefix kg: <{KG}> .\n\
+             @prefix ex: <{EX}> .\n\
+             ex:openDeal a kg:Opportunity .\n"
+        ),
+    )
+    .expect("the registered shapes and the undated opportunity parse");
+    assert!(!missing.conforms, "an undated opportunity must be refused");
+    assert!(
+        missing.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .map(|path| path.trim_matches(['<', '>']))
+                == Some(&format!("{KG}closeDate"))
+        }),
+        "the refusal names the closeDate path: {:?}",
+        missing.results
+    );
+    // A close date with a non-dateTime datatype is refused.
+    let bad_type = eg_shacl::validate_turtle(
+        &shapes,
+        &format!(
+            "@prefix kg: <{KG}> .\n\
+             @prefix ex: <{EX}> .\n\
+             ex:openDeal a kg:Opportunity ;\n\
+                 kg:closeDate \"30/11/2026\" .\n"
+        ),
+    )
+    .expect("the registered shapes and the bad-typed opportunity parse");
+    assert!(
+        !bad_type.conforms,
+        "a non-dateTime close date must be refused"
+    );
+    assert!(
+        bad_type.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .map(|path| path.trim_matches(['<', '>']))
+                == Some(&format!("{KG}closeDate"))
+        }),
+        "the refusal names the closeDate path: {:?}",
+        bad_type.results
+    );
+}
+
 // spec: EG-SUPPLY-VOCAB-R001.1.2
 #[test]
 fn supply_chain_module_loads_through_default_catalog() {
