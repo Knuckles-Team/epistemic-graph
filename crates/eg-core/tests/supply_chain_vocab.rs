@@ -801,3 +801,28 @@ fn purchase_order_declared_exactly_once() {
         "exactly one :PurchaseOrder declaration in crates/eg-core/ontology"
     );
 }
+
+// spec: EG-SUPPLY-VOCAB-R003.9
+#[test]
+fn purchase_invoice_and_invoice_supplier_declared() {
+    let triples = load_commercial();
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}PurchaseInvoice"),
+            &format!("{RDF}type"),
+            &format!("{OWL}Class")
+        ),
+        "PurchaseInvoice is a class"
+    );
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}invoiceSupplier"),
+            &format!("{RDF}type"),
+            &format!("{OWL}ObjectProperty")
+        ),
+        "invoiceSupplier is an object property"
+    );
+    assert_domain_range(&triples, "invoiceSupplier", "PurchaseInvoice", "Supplier");
+}

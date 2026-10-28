@@ -64,6 +64,17 @@ from the order's supplier and its line items without redeclaring
 :suppliedBy.""" ;
     rdfs:subClassOf bfo:0000031 .
 
+:PurchaseInvoice a owl:Class ;
+    rdfs:label "Purchase Invoice" ;
+    rdfs:comment "An invoice a supplier issues against a purchase order." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:invoiceSupplier a owl:ObjectProperty ;
+    rdfs:label "invoice supplier" ;
+    rdfs:comment "Links a PurchaseInvoice to the Supplier that issued it." ;
+    rdfs:domain :PurchaseInvoice ;
+    rdfs:range :Supplier .
+
 :supportsCapability a owl:ObjectProperty ;
     rdfs:label "supports capability" ;
     rdfs:comment """Links a Service to the BusinessCapability it supports.
