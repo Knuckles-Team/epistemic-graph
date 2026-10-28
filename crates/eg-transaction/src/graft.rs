@@ -86,6 +86,22 @@ pub struct GraftOwnerRead<'cap, 'store, D: OwnerDomain> {
 }
 
 impl<D: OwnerDomain> GraftOwnerRead<'_, '_, D> {
+    /// Whether this capability's own scope has any rows in an owner table.
+    /// The caller cannot choose another scope or obtain a mutable table.
+    pub fn scoped_table_has_rows<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<bool, String>
+    where
+        K: redb::Key + 'static,
+        for<'k> K::SelfType<'k>: eg_storage::OwnerRowScope + eg_storage::OwnerRowScopeStart<'k>,
+        V: redb::Value + 'static,
+    {
+        let table = self.write.capability().scoped_owner_table_mut(definition)?;
+        let present = table.scope_rows()?.next().transpose()?.is_some();
+        Ok(present)
+    }
+
     pub fn open_table<K, V>(
         &self,
         definition: TableDefinition<'static, K, V>,

@@ -984,7 +984,7 @@ impl Shard {
         source.mutations().graft_begin_with_validation(
             source_handle.as_ref(),
             &destination,
-            |read| Self::validate_inline_history_graft(read, graph_fname),
+            Self::validate_inline_history_graft,
         )?;
         let payload = payload
             .ok_or_else(|| "graph shard graft requires an owner payload transfer".to_string())?;
@@ -1001,15 +1001,9 @@ impl Shard {
     #[cfg(feature = "server")]
     pub(crate) fn validate_inline_history_graft(
         read: &eg_transaction::GraftOwnerRead<'_, '_, GraphShardOwner>,
-        graph: &str,
     ) -> Result<(), String> {
-        let history = read.open_table(super::work_item::inline_history::INLINE_HISTORY)?;
-        let mut rows = history.range_from((graph, ""))?;
-        if let Some(row) = rows.next() {
-            let (key, _) = row.map_err(|error| error.to_string())?;
-            if key.value().0 == graph {
-                return Err("inline history graph graft is unsupported".into());
-            }
+        if read.scoped_table_has_rows(super::work_item::inline_history::INLINE_HISTORY)? {
+            return Err("inline history graph graft is unsupported".into());
         }
         Ok(())
     }

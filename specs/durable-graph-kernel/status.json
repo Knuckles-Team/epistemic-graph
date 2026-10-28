@@ -4754,7 +4754,10 @@
         "966ec29a9eae"
       ],
       "verified_by": [
-        "src/redb_store/work_item/inline_history/tests.rs:222"
+        "src/redb_store/work_item/inline_history/tests.rs:232",
+        "tests/adopt_workitem_authenticated_replay.rs:1676",
+        "tests/adopt_workitem_authenticated_replay.rs:1682",
+        "tests/adopt_workitem_authenticated_replay.rs:1688"
       ]
     },
     {
@@ -4766,9 +4769,9 @@
         "966ec29a9eae"
       ],
       "verified_by": [
-        "src/redb_store/work_item/inline_history/tests.rs:1122",
-        "src/redb_store/work_item/inline_history/tests.rs:153",
-        "src/redb_store/work_item/inline_history/tests.rs:471"
+        "src/redb_store/work_item/inline_history/tests.rs:1160",
+        "src/redb_store/work_item/inline_history/tests.rs:163",
+        "src/redb_store/work_item/inline_history/tests.rs:481"
       ]
     },
     {

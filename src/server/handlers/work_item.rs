@@ -102,9 +102,18 @@ pub(crate) async fn commit_verified_work_item(
     placement_fence: Option<u64>,
     method: Method,
 ) -> Result<crate::protocol::ResultPayload, String> {
-    let is_plan = matches!(&method, Method::PublishCurrentPlan { .. });
+    // Run ownership is bound to the verified principal, not a delegated agent.
+    // Keep legacy lifecycle attribution unchanged outside owner-bound methods.
+    let owner_bound = matches!(
+        &method,
+        Method::PublishCurrentPlan { .. }
+            | Method::ClaimWorkItem {
+                completed_text_history: true,
+                ..
+            }
+    ) || stored_profile_completion(ctx, &method).await?;
     let method = prepare_current_plan(ctx, method).await?;
-    let principal = if is_plan {
+    let principal = if owner_bound {
         Some(ctx.verified_context.principal())
     } else {
         ctx.caller
@@ -172,4 +181,38 @@ async fn prepare_current_plan(ctx: &HandleContext<'_>, method: Method) -> Result
     }
     #[cfg(not(feature = "redb"))]
     Err("current-plan publication requires native persistence".into())
+}
+
+/// Select identity from immutable stored admission, never from a completion's
+/// caller-supplied checkpoint. This is only attribution selection: native owner,
+/// tenant and lease checks still run atomically under the writer. An absent or
+/// stale snapshot cannot grant authority; the writer refuses any mismatched owner.
+async fn stored_profile_completion(
+    ctx: &HandleContext<'_>,
+    method: &Method,
+) -> Result<bool, String> {
+    let Method::CommitWorkItemResult { work_item_id, .. } = method else {
+        return Ok(false);
+    };
+    let Some(backend) = ctx.persistence.as_ref() else {
+        return Ok(false);
+    };
+    let unavailable = "ACCESS_DENIED: terminal WorkItem unavailable";
+    let Some(bytes) = backend
+        .read_node(&crate::persist::sanitize(ctx.graph_name), work_item_id)
+        .await
+        .map_err(|_| unavailable)?
+    else {
+        return Ok(false);
+    };
+    let props: serde_json::Map<String, serde_json::Value> =
+        rmp_serde::from_slice(&bytes).map_err(|_| unavailable)?;
+    let Some(admission) = props.get(eg_types::work_item_read::RUN_ADMISSION_REQUEST) else {
+        return Ok(false);
+    };
+    let admission: eg_types::native_control::SubmitWorkItemRequest =
+        serde_json::from_value(admission.clone()).map_err(|_| unavailable)?;
+    Ok(admission
+        .conversation
+        .is_some_and(|turn| turn.history_profile.is_some()))
 }

@@ -5549,7 +5549,7 @@
     },
     "HarnessContrast": {
       "additionalProperties": false,
-      "description": "The measured behavioral contrast of two probe runs of one task\n(R802.1/R802.2). Every delta is B minus A on the Q32 fixed-point scale:\nsigned counts as `count << 32`, fractions as their Q32 numerator.",
+      "description": "The measured behavioral contrast of two probe runs of one task\n(EG-ORCH-VOCAB-R802.1/EG-ORCH-VOCAB-R802.2). Every delta is B minus A on the Q32 fixed-point scale:\nsigned counts as `count << 32`, fractions as their Q32 numerator.",
       "properties": {
         "conditions_digest": {
           "description": "The digest of the identical probe conditions (task, seed, model,\nbudget); both runs and the engine agree on it or the contrast refuses.",
@@ -5601,7 +5601,7 @@
       "type": "object"
     },
     "HarnessContrastAbstainReason": {
-      "description": "The closed abstain reasons of one contrast decision (R803.1).",
+      "description": "The closed abstain reasons of one contrast decision (EG-DECISION-ENGINE-R803.1).",
       "oneOf": [
         {
           "const": "no_improvement",
@@ -5622,7 +5622,7 @@
     },
     "HarnessContrastDecision": {
       "additionalProperties": false,
-      "description": "One contrast decision, recorded (R803.1).",
+      "description": "One contrast decision, recorded (EG-DECISION-ENGINE-R803.1).",
       "properties": {
         "abstain_reason": {
           "anyOf": [

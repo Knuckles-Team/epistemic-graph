@@ -1080,7 +1080,14 @@ fn accepted_owner_validation_fences_later_admission_and_replays_existing_marker(
     );
     let intent = source
         .mutations
-        .graft_begin_with_validation(&source_owner, &target, |_| Ok(()))
+        .graft_begin_with_validation(&source_owner, &target, |read| {
+            // A read-only presence probe cannot escape the owner's layout,
+            // even when the supplied table has scope-shaped keys.
+            let foreign =
+                redb::TableDefinition::<(&str, &str), &[u8]>::new("work_item_inline_history");
+            assert!(read.scoped_table_has_rows(foreign).is_err());
+            Ok(())
+        })
         .unwrap();
     let blocked = event_batch(&identity, "late-owner-write", intent.version);
     let error = match source.mutations.admit(&source_owner, &blocked) {

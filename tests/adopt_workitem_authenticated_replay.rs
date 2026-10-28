@@ -1472,3 +1472,221 @@ async fn terminal_history_claim_replay_never_reissues_fresh_execution_grant() {
     reopened.shutdown();
     let _ = std::fs::remove_dir_all(dir);
 }
+
+fn delegated_history_submit() -> Method {
+    let mut method = run_submit_method();
+    if let Method::SubmitWorkItem { request } = &mut method {
+        request.conversation = Some(Box::new(serde_json::from_value(serde_json::json!({
+            "schema_version":"1", "context_id":"terminal-owner-context", "expected_revision":0,
+            "predecessor_run_id":null,
+            "history_profile":{"version":1,"user_text_digest":eg_types::inline_history::content_digest("hello")}
+        })).unwrap()));
+    }
+    method
+}
+
+fn delegated_history_terminal(id: &str, claim: &ClaimWorkItemResult, outcome: &str) -> Method {
+    use eg_types::inline_history::{content_digest, CompletedTextInput};
+    let mut checkpoint = CompletedTextInput {
+        version: 1,
+        user_text: "hello".into(),
+        assistant_text: "world".into(),
+        content_digest: String::new(),
+    };
+    checkpoint.content_digest = content_digest(&checkpoint.content("run-owner-admission").unwrap());
+    Method::CommitWorkItemResult {
+        tenant: TENANT.into(),
+        work_item_id: id.into(),
+        worker_id: WORKER.into(),
+        lease_epoch: claim.lease_epoch.unwrap(),
+        fencing_token: claim.fencing_token.unwrap(),
+        idempotency_key: "history-terminal".into(),
+        outcome: outcome.into(),
+        result_ref: None,
+        error_ref: None,
+        retryable: false,
+        now_ms: now_secs() * 1000,
+        outcome_extension: None,
+        // Failed/cancelled profiles deliberately carry no completion payload:
+        // principal selection must use immutable admission, not this field.
+        run_completion: (outcome == "succeeded").then(|| {
+            Box::new(eg_types::run_completion::RunCompletionInput {
+                schema_version: 1,
+                run_id: "run-owner-admission".into(),
+                usage: None,
+                completed_checkpoint: Some(Box::new(checkpoint)),
+            })
+        }),
+    }
+}
+
+async fn read_delegated_history(
+    state: &test_support::SharedState,
+) -> eg_types::work_item_read::RunWorkItemView {
+    let view: Option<eg_types::work_item_read::RunWorkItemView> = decode_raw(
+        &test_support::dispatch(
+            state,
+            signed_run_request(
+                1605,
+                Method::GetRunWorkItem {
+                    completed_text_history: true,
+                    selection: None,
+                    tenant: TENANT.into(),
+                    run_id: "run-owner-admission".into(),
+                },
+                "history-terminal-read",
+            ),
+        )
+        .await,
+        "owner terminal history read",
+    );
+    view.expect("owner retains the admitted run")
+}
+
+fn assert_terminal_history_view(view: &eg_types::work_item_read::RunWorkItemView, outcome: &str) {
+    assert_eq!(view.work_item.status.as_stored(), outcome);
+    if outcome == "succeeded" {
+        let receipt = view
+            .run_completion
+            .as_ref()
+            .expect("durable completion receipt");
+        let checkpoint = receipt
+            .payload
+            .completed_checkpoint
+            .as_ref()
+            .expect("receipt checkpoint binding");
+        let content = view
+            .completed_checkpoint
+            .as_ref()
+            .expect("private completed text");
+        assert_eq!(
+            checkpoint.content_digest,
+            eg_types::inline_history::content_digest(content)
+        );
+        let envelope: serde_json::Value = serde_json::from_str(content).unwrap();
+        assert_eq!(envelope["messages"][0]["text"], "hello");
+        assert_eq!(envelope["messages"][1]["text"], "world");
+    } else {
+        assert!(view.completed_checkpoint.is_none());
+        assert!(view.run_completion.is_none());
+    }
+}
+
+async fn delegated_history_terminal_case(outcome: &str) {
+    let (dir, concrete, state) = fresh_run_state(&format!("eg-profile-terminal-{outcome}")).await;
+    let submitted: SubmitWorkItemResult = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(1600, delegated_history_submit(), "history-terminal-submit"),
+        )
+        .await,
+        "delegated profile admission",
+    );
+    let mut method = claim_method(WORKER);
+    if let Method::ClaimWorkItem {
+        request,
+        completed_text_history,
+    } = &mut method
+    {
+        request.work_item_id = Some(submitted.work_item_id.clone());
+        request.now_ms = now_secs() * 1000;
+        request.lease_ms = 60_000;
+        *completed_text_history = true;
+    }
+    let claim: eg_types::inline_history::NativeClaimWorkItemResult = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(1601, method, "history-terminal-claim"),
+        )
+        .await,
+        "delegated profile claim",
+    );
+    assert_eq!(claim.fresh_execution_grant, Some(true));
+    let terminal = delegated_history_terminal(&submitted.work_item_id, &claim.claim, outcome);
+    let before = concrete
+        .read_node(GRAPH, &submitted.work_item_id)
+        .await
+        .unwrap();
+    let version = concrete.read_mutation_graph_version(GRAPH).await.unwrap();
+    // Same delegated worker and exact lease/fence do not transfer principal ownership.
+    let refused = test_support::dispatch(
+        &state,
+        signed_request_with_agent(
+            1602,
+            terminal.clone(),
+            "history-terminal-foreign",
+            "agent:foreign-owner",
+            "agent:delegated-run-worker",
+        ),
+    )
+    .await;
+    assert!(
+        refused.error.is_some(),
+        "foreign terminal owner was accepted: {refused:?}"
+    );
+    assert_eq!(
+        concrete
+            .read_node(GRAPH, &submitted.work_item_id)
+            .await
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        concrete.read_mutation_graph_version(GRAPH).await.unwrap(),
+        version
+    );
+    let committed = test_support::dispatch(
+        &state,
+        signed_run_request(1603, terminal.clone(), "history-terminal"),
+    )
+    .await;
+    assert!(
+        committed.error.is_none(),
+        "delegated owner terminal: {committed:?}"
+    );
+    let view = read_delegated_history(&state).await;
+    assert_terminal_history_view(&view, outcome);
+    let version = concrete.read_mutation_graph_version(GRAPH).await.unwrap();
+    let (reopened, restarted) = reopen_run_state(state, concrete, &dir).await;
+    assert_eq!(read_delegated_history(&restarted).await, view);
+    let replay = test_support::dispatch(
+        &restarted,
+        signed_run_request(1604, terminal, "history-terminal"),
+    )
+    .await;
+    assert!(
+        replay.error.is_none(),
+        "restarted terminal replay: {replay:?}"
+    );
+    assert_eq!(
+        serde_json::to_value(replay.result).unwrap(),
+        serde_json::to_value(committed.result).unwrap()
+    );
+    assert_eq!(
+        reopened.read_mutation_graph_version(GRAPH).await.unwrap(),
+        version
+    );
+    assert_eq!(read_delegated_history(&restarted).await, view);
+    drop(restarted);
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// spec: EG-DURABLE-KERNEL-R028.4.5
+#[tokio::test]
+async fn delegated_profile_completion_preserves_owner_checkpoint_and_receipt_after_restart() {
+    delegated_history_terminal_case("succeeded").await;
+}
+
+// spec: EG-DURABLE-KERNEL-R028.4.5
+#[tokio::test]
+async fn delegated_profile_failure_without_completion_payload_preserves_owner_after_restart() {
+    delegated_history_terminal_case("failed").await;
+}
+
+// spec: EG-DURABLE-KERNEL-R028.4.5
+#[tokio::test]
+async fn delegated_profile_cancellation_without_completion_payload_preserves_owner_after_restart() {
+    delegated_history_terminal_case("cancelled").await;
+}

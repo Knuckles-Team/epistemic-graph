@@ -25,14 +25,24 @@ fn admit_profile_as(
     run: &str,
     actor: &str,
 ) -> Result<String, String> {
-    let mut request = super::super::test_shard::run_request();
-    request.run_id = Some(run.into());
-    request.idempotency_key = run.into();
     let context = if run == "run" {
         "conversation".to_string()
     } else {
         format!("conversation-{run}")
     };
+    admit_profile_in_context(shard, authorized, run, actor, &context)
+}
+
+fn admit_profile_in_context(
+    shard: &Shard,
+    authorized: bool,
+    run: &str,
+    actor: &str,
+    context: &str,
+) -> Result<String, String> {
+    let mut request = super::super::test_shard::run_request();
+    request.run_id = Some(run.into());
+    request.idempotency_key = run.into();
     request.conversation = Some(Box::new(serde_json::from_value(serde_json::json!({
         "schema_version":"1", "context_id":context, "expected_revision":0,
         "predecessor_run_id":null, "history_profile":{"version":1,"user_text_digest":content_digest("hello")}
@@ -882,7 +892,7 @@ fn unprofiled_scope_retirement_remains_supported() {
 }
 
 #[test]
-fn batched_profile_admission_marks_retirement_presence() {
+fn batched_profile_admission_refuses_without_retirement_presence() {
     let temp = open("inline-batch-presence");
     let mut child = super::super::test_shard::run_request();
     child.conversation = Some(Box::new(
@@ -900,7 +910,8 @@ fn batched_profile_admission_marks_retirement_presence() {
         requests: vec![child],
         enrichment_budget: None,
     };
-    with_write(&temp.shard, "batch-profile", 1000, |write| {
+    let before = crate::redb_store::read_mutation_graph_version(&temp.shard, GRAPH).unwrap();
+    let error = with_write(&temp.shard, "batch-profile", 1000, |write| {
         let member = write.graph(GRAPH)?;
         let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
         apply_submit_work_items_rows(
@@ -919,13 +930,27 @@ fn batched_profile_admission_marks_retirement_presence() {
             },
         )
     })
-    .unwrap();
-    assert!(crate::redb_store::purge_graph_rows(&temp.shard, GRAPH).is_err());
+    .unwrap_err();
+    assert_eq!(error, "run admission requires a single SubmitWorkItem");
+    assert_eq!(
+        crate::redb_store::read_mutation_graph_version(&temp.shard, GRAPH).unwrap(),
+        before
+    );
     let handle = temp.shard.graph(GRAPH).unwrap();
     let snapshot = temp.shard.read(&handle).unwrap();
     let history = snapshot.scoped_owner_table(INLINE_HISTORY).unwrap();
-    assert_eq!(history.scope_rows().unwrap().count(), 1);
-    assert!(history.get((GRAPH, PROFILE_PRESENT)).unwrap().is_some());
+    assert_eq!(history.scope_rows().unwrap().count(), 0);
+    assert!(history.get((GRAPH, PROFILE_PRESENT)).unwrap().is_none());
+    assert!(snapshot
+        .scoped_owner_table(NODES)
+        .unwrap()
+        .scope_rows()
+        .unwrap()
+        .next()
+        .is_none());
+    drop(history);
+    drop(snapshot);
+    crate::redb_store::purge_graph_rows(&temp.shard, GRAPH).unwrap();
 }
 
 #[cfg(feature = "server")]
@@ -979,7 +1004,7 @@ fn admission_before_atomic_graft_validation_leaves_no_fence_or_reservation() {
         .shard
         .mutations()
         .graft_begin_with_validation(source_handle.as_ref(), &target, |read| {
-            Shard::validate_inline_history_graft(read, GRAPH)
+            Shard::validate_inline_history_graft(read)
         })
         .unwrap_err();
     assert_eq!(error, "inline history graph graft is unsupported");
@@ -1020,7 +1045,7 @@ fn atomic_graft_before_profile_admission_fences_the_native_write() {
         .shard
         .mutations()
         .graft_begin_with_validation(source_handle.as_ref(), &target, |read| {
-            Shard::validate_inline_history_graft(read, GRAPH)
+            Shard::validate_inline_history_graft(read)
         })
         .unwrap();
     // The row admission cannot acquire a normal admitted owner window after
@@ -1078,8 +1103,21 @@ fn first_profile_requires_operator_consent_before_any_row_write() {
     assert!(history.get((GRAPH, PROFILE_PRESENT)).unwrap().is_some());
     drop(history);
     drop(read);
-    assert!(admit_profile_as(&temp.shard, false, "foreign", "foreign").is_err());
+    // Enablement is graph-wide, not exclusive ownership of every new run.
+    assert!(admit_profile_as(&temp.shard, false, "foreign", "foreign").is_ok());
     assert!(admit_profile_as(&temp.shard, false, "ordinary", "owner").is_ok());
+    // The operator's existing run and conversation remain owner-bound.
+    let before = crate::redb_store::read_mutation_graph_version(&temp.shard, GRAPH).unwrap();
+    let id = super::super::run_owner::work_item_id(GRAPH, "tenant", "run").unwrap();
+    let original = row(&temp.shard, &id);
+    let error = admit_profile_in_context(&temp.shard, false, "takeover", "foreign", "conversation")
+        .unwrap_err();
+    assert_eq!(error, "ACCESS_DENIED: conversation owner is unavailable");
+    assert_eq!(row(&temp.shard, &id), original);
+    assert_eq!(
+        crate::redb_store::read_mutation_graph_version(&temp.shard, GRAPH).unwrap(),
+        before
+    );
 }
 
 #[test]
@@ -1207,4 +1245,45 @@ fn profile_claim_opt_out_refuses_without_rows_version_or_receipts() {
             .unwrap()
             .is_empty());
     }
+}
+
+#[cfg(feature = "server")]
+#[test]
+fn atomic_graft_validation_ignores_other_graphs_history() {
+    let source = open("inline-graft-other-scope-source");
+    let destination = open("inline-graft-other-scope-target");
+    let (id, _, _) = seed(&source.shard);
+    let before = row(&source.shard, &id);
+    // The active profile belongs to GRAPH, not this independent scope in the
+    // same physical shard. Validation must not scan across scope boundaries.
+    let other_graph = "another-graph";
+    let source_handle = source.shard.graph(other_graph).unwrap();
+    let destination_handle = destination.shard.graph(other_graph).unwrap();
+    let target = eg_transaction::GraftDestination::new(
+        destination.shard.mutations(),
+        destination.shard.kernel(),
+        destination_handle.as_ref(),
+    )
+    .with_owner_payload(&crate::redb_store::GraphShardRetirement);
+    source
+        .shard
+        .mutations()
+        .graft_begin_with_validation(source_handle.as_ref(), &target, |read| {
+            assert!(!read.scoped_table_has_rows(INLINE_HISTORY)?);
+            Shard::validate_inline_history_graft(read)
+        })
+        .unwrap();
+    assert_eq!(row(&source.shard, &id), before);
+    assert!(source
+        .shard
+        .mutations()
+        .graft_source_marker(source_handle.as_ref())
+        .unwrap()
+        .is_some());
+    // The history-bearing neighbour remains writable and unchanged.
+    with_history(
+        &source.shard,
+        "other-scope-graft-does-not-fence-history",
+        |_| Ok(()),
+    );
 }
