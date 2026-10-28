@@ -20,7 +20,7 @@ mod verdicts;
 /// A registry fixture with one scope of every class.
 pub(super) struct TestRegistry;
 
-const REGISTRY: [(&str, ScopeClass, Option<&str>); 15] = [
+const REGISTRY: [(&str, ScopeClass, Option<&str>); 16] = [
     ("governance:read", ScopeClass::User, None),
     ("identity:provision", ScopeClass::ServiceOnly, None),
     ("kg:read", ScopeClass::User, None),
@@ -47,6 +47,11 @@ const REGISTRY: [(&str, ScopeClass, Option<&str>); 15] = [
         "governance:approve-schema-repair",
         ScopeClass::Approver,
         Some(SCHEMA_APPROVERS_GROUP),
+    ),
+    (
+        "governance:approve-source-authority",
+        ScopeClass::Approver,
+        Some(SOURCE_AUTHORITY_APPROVERS_GROUP),
     ),
 ];
 

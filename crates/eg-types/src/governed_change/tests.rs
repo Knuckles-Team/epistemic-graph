@@ -51,6 +51,19 @@ fn proposed() -> GovernedLedger {
     ledger
 }
 
+// spec: EG-SRC-AUTH-R003.1
+#[test]
+fn source_authority_kind_has_exact_scopes() {
+    assert_eq!(
+        kind_scopes(SOURCE_AUTHORITY_KIND),
+        Some((PROPOSE, "governance:approve-source-authority"))
+    );
+    assert_eq!(
+        kind_scopes(SCHEMA_REPAIR_KIND),
+        Some((PROPOSE, "governance:approve-schema-repair"))
+    );
+}
+
 // spec: EG-DURABLE-KERNEL-R027.1
 #[test]
 fn proposing_needs_the_proposer_scope_and_a_registered_kind() {

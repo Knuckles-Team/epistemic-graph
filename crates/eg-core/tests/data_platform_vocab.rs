@@ -2,7 +2,9 @@
 
 use eg_core::graph::{current_core_set_digest, GraphSchemaSources, SchemaSourceOrigin};
 use eg_rdf::mapping::parse_turtle;
-use eg_rdf::oxrdf::{NamedNode, Triple};
+use eg_rdf::oxrdf::{NamedNode, NamedOrBlankNode, Term, Triple};
+
+const SHAPES: &str = include_str!("../ontology/data_platform-v1.shapes.ttl");
 
 const DP: &str = "http://knuckles.team/kg/data-platform#";
 const VG: &str = "http://knuckles.team/kg/virtual-graph#";
@@ -363,4 +365,143 @@ fn ml_terms_present() {
     assert_typed(&triples, "producedModel", "ObjectProperty");
     assert_typed(&triples, "evaluatedOn", "ObjectProperty");
     assert_typed(&triples, "baselineRun", "ObjectProperty");
+}
+
+const SHACL: &str = "http://www.w3.org/ns/shacl#";
+
+fn subject_is(triple: &Triple, subject: &str) -> bool {
+    match &triple.subject {
+        NamedOrBlankNode::NamedNode(node) => node.as_str() == subject,
+        NamedOrBlankNode::BlankNode(node) => format!("_:{}", node.as_str()) == subject,
+    }
+}
+
+fn predicate_is(triple: &Triple, predicate: &str) -> bool {
+    triple.predicate.as_str() == predicate
+}
+
+/// Object values of `subject predicate ?object` as strings (IRIs and literals).
+fn object_values(triples: &[Triple], subject: &str, predicate: &str) -> Vec<String> {
+    triples
+        .iter()
+        .filter(|triple| subject_is(triple, subject) && predicate_is(triple, predicate))
+        .map(|triple| match &triple.object {
+            Term::NamedNode(node) => node.as_str().to_string(),
+            Term::Literal(literal) => literal.value().to_string(),
+            Term::BlankNode(node) => format!("_:{}", node.as_str()),
+        })
+        .collect()
+}
+
+fn is_class(triples: &[Triple], iri: &str) -> bool {
+    has_iri(triples, iri, &format!("{RDF}type"), &format!("{OWL}Class"))
+}
+
+fn has_domain_range(triples: &[Triple], iri: &str, domain: Option<&str>, range: &str) {
+    if let Some(domain) = domain {
+        assert!(
+            has_iri(triples, iri, &format!("{RDFS}domain"), domain),
+            "{iri} has the declared domain"
+        );
+    }
+    assert!(
+        has_iri(triples, iri, &format!("{RDFS}range"), range),
+        "{iri} has the declared range"
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R005.1
+#[test]
+fn secret_metadata_terms_present() {
+    let triples = parse_turtle(include_str!("../ontology/data_platform-v1.ttl"))
+        .expect("the data-platform vocabulary parses");
+
+/// Whether `shape` is `sh:closed` and which property IRIs its `sh:property`
+/// list allows. A closed shape rejects every property outside that list, so a
+/// value/token triple on the class is the violation itself.
+fn closed_shape(triples: &[Triple], shape: &str) -> (bool, Vec<String>) {
+    let closed_values = object_values(triples, shape, &format!("{SHACL}closed"));
+    let closed = closed_values.iter().any(|value| value == "true");
+    let property = format!("{SHACL}property");
+    let path = format!("{SHACL}path");
+    let mut allowed = Vec::new();
+    for triple in triples.iter() {
+        if subject_is(triple, shape) && predicate_is(triple, &property) {
+            if let Term::BlankNode(node) = &triple.object {
+                let node = format!("_:{}", node.as_str());
+                for path_triple in triples.iter() {
+                    if subject_is(path_triple, &node) && predicate_is(path_triple, &path) {
+                        if let Term::NamedNode(property) = &path_triple.object {
+                            allowed.push(property.as_str().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (closed, allowed)
+}
+
+// spec: EG-DATAPLAT-VOCAB-R005.2
+#[test]
+fn secret_path_with_extra_property_rejected() {
+    let shapes = parse_turtle(SHAPES).expect("the data-platform shapes parse");
+
+// spec: EG-DATAPLAT-VOCAB-R005.3
+#[test]
+fn secret_value_refused_and_no_value_property() {
+    let vocabulary = parse_turtle(include_str!("../ontology/data_platform-v1.ttl"))
+        .expect("the data-platform vocabulary parses");
+    let shapes = parse_turtle(SHAPES).expect("the data-platform shapes parse");
+
+/// Parse a StoreMapping fixture and assert each mapping row is well-formed:
+/// a dp:StoreMapping with a closed contractKind, a viaOperation for every
+/// mcp-operation row, a closed accelerationMode, and a materialisation reason
+/// exactly where the row is materialised.
+fn is_store_mapping_subject(triple: &Triple) -> Option<String> {
+    let mapping_type = format!("{DP}StoreMapping");
+    if predicate_is(triple, &format!("{RDF}type"))
+        && matches!(
+            &triple.object,
+            Term::NamedNode(node) if node.as_str() == mapping_type.as_str()
+        )
+    {
+        match &triple.subject {
+            NamedOrBlankNode::NamedNode(node) => Some(node.as_str().to_string()),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
+fn store_mapping_fixture(fixture: &str, expected_operations: &[&str]) {
+    let triples = parse_turtle(fixture).expect("the mapping fixture parses");
+
+// spec: EG-DATAPLAT-VOCAB-R006.1
+#[test]
+fn mapping_fixture_sql_validates() {
+    store_mapping_fixture(
+        include_str!("../ontology/fixtures/data_platform/sql.ttl"),
+        &[
+            "sql_schema:tables",
+            "sql_schema:columns",
+            "sql_schema:foreign_keys",
+            "sql_schema:constraints",
+        ],
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R006.8
+#[test]
+fn mapping_fixture_data_science_validates() {
+    store_mapping_fixture(
+        include_str!("../ontology/fixtures/data_platform/data-science.ttl"),
+        &[
+            "load_dataset",
+            "dataset_lineage",
+            "rank_models",
+            "evaluate_model",
+        ],
+    );
 }

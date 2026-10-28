@@ -376,6 +376,7 @@ fn validate_dynamic_sources(dynamic: &BTreeMap<String, GraphSchemaSource>) -> Re
     for (source_id, source) in dynamic {
         validate_dynamic_identity(source_id, &source.origin)?;
         source.validate()?;
+        reject_pack_or_ingestion_approval_claim(source_id, source)?;
         total = total
             .checked_add(source.byte_len())
             .ok_or_else(|| "dynamic schema byte count overflowed".to_string())?;
@@ -386,6 +387,160 @@ fn validate_dynamic_sources(dynamic: &BTreeMap<String, GraphSchemaSource>) -> Re
         ));
     }
     Ok(())
+}
+
+/// EG-SRC-AUTH-R003.2: the virtual-graph `approved` flag is an operator
+/// assertion. A `Pack` or `Ingestion` origin attaching a document that carries
+/// a truthy `vg:approved` triple is refused at the attach seam with the typed
+/// code `APPROVAL_CLAIM_REFUSED`; the same document under an `Operator`,
+/// `Admin` or `Approved` origin is not a claim and may attach.
+fn reject_pack_or_ingestion_approval_claim(
+    source_id: &str,
+    source: &GraphSchemaSource,
+) -> Result<(), String> {
+    let claim_origin = matches!(
+        source.origin,
+        SchemaSourceOrigin::Pack { .. } | SchemaSourceOrigin::Ingestion { .. }
+    );
+    if !claim_origin {
+        return Ok(());
+    }
+    for (label, document) in [
+        ("shapes", source.shapes_ttl.as_deref()),
+        ("ontology", source.ontology_ttl.as_deref()),
+    ] {
+        if document.is_some_and(|text| document_claims_virtual_graph_approval(text)) {
+            return Err(format!(
+                "APPROVAL_CLAIM_REFUSED: {label} document of '{source_id}' asserts \
+                 vg:approved true; approval is an operator assertion and may not ride a \
+                 pack or ingestion origin"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Conservative line scan for a truthy `vg:approved` triple. This crate has no
+/// RDF parser, so the scan recognises the predicate as the full IRI or as any
+/// `@prefix` label that resolves to the virtual-graph namespace, and the value
+/// as the first term after the predicate (falling through to the next line
+/// across a property-list continuation). A comment never starts inside an IRI,
+/// so only a `#` at line start or after whitespace terminates a line.
+fn document_claims_virtual_graph_approval(document: &str) -> bool {
+    const APPROVED: &str = "http://knuckles.team/kg/virtual-graph#approved";
+    let lines: Vec<&str> = document.lines().collect();
+    let mut needles: Vec<String> = vec![format!("<{APPROVED}>")];
+    for (label, iri) in prefix_bindings(&lines) {
+        if format!("{iri}approved") == APPROVED {
+            needles.push(format!("{label}:approved"));
+        }
+    }
+    for (index, line) in lines.iter().enumerate() {
+        let text = strip_line_comment(line);
+        for needle in &needles {
+            for position in text
+                .match_indices(needle.as_str())
+                .map(|(position, _)| position)
+            {
+                let before = &text[..position];
+                let before_ok = match before.chars().next_back() {
+                    None => true,
+                    Some(c) => c.is_whitespace() || c == '(',
+                };
+                if !before_ok {
+                    continue;
+                }
+                let after = &text[position + needle.len()..];
+                let after_ok = match after.chars().next() {
+                    None => true,
+                    Some(c) => c.is_whitespace() || c == ';' || c == '.',
+                };
+                if !after_ok {
+                    continue;
+                }
+                let rest = after.trim_start();
+                let value = if rest.is_empty() || rest.starts_with(';') || rest.starts_with('.') {
+                    // The predicate ends the line: across a property-list
+                    // continuation the value, if any, starts the next line.
+                    next_line_first_term(&lines[index + 1..])
+                } else {
+                    Some(
+                        rest.split(|c| c == ';' || c == '.')
+                            .next()
+                            .unwrap_or("")
+                            .trim(),
+                    )
+                };
+                if value.is_some_and(is_truthy_approval_literal) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// `@prefix label: <iri> .` bindings declared in the document.
+fn prefix_bindings(lines: &[&str]) -> BTreeMap<String, String> {
+    let mut prefixes: BTreeMap<String, String> = BTreeMap::new();
+    for line in lines {
+        let Some(declaration) = strip_line_comment(line)
+            .trim_start()
+            .strip_prefix("@prefix")
+        else {
+            continue;
+        };
+        let Some((label, rest)) = declaration.trim_start().split_once(':') else {
+            continue;
+        };
+        let label = label.trim();
+        let iri = rest
+            .trim_start()
+            .strip_prefix('<')
+            .and_then(|value| value.split_once('>').map(|(iri, _)| iri))
+            .unwrap_or("");
+        if !label.is_empty() && !iri.is_empty() {
+            prefixes.insert(label.to_string(), iri.to_string());
+        }
+    }
+    prefixes
+}
+
+/// The first term of the first non-blank, non-comment line after a
+/// property-list continuation.
+fn next_line_first_term<'a>(lines: &'a [&'a str]) -> Option<&'a str> {
+    for line in lines {
+        let text = strip_line_comment(line).trim();
+        if text.is_empty() {
+            continue;
+        }
+        return Some(
+            text.split(|c| c == ';' || c == '.')
+                .next()
+                .unwrap_or("")
+                .trim(),
+        );
+    }
+    None
+}
+
+/// Drop a trailing Turtle comment. A `#` inside an IRI (such as the
+/// virtual-graph namespace) is not a comment start; only a `#` at line start
+/// or after whitespace is.
+fn strip_line_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'#' && (index == 0 || bytes[index - 1].is_ascii_whitespace()) {
+            return &line[..index];
+        }
+    }
+    line
+}
+
+/// `true`, `1` and their quoted forms, with or without a datatype suffix.
+fn is_truthy_approval_literal(term: &str) -> bool {
+    let base = term.split("^^").next().unwrap_or(term);
+    matches!(base, "true" | "1" | "\"true\"" | "\"1\"")
 }
 
 fn validate_dynamic_identity(source_id: &str, origin: &SchemaSourceOrigin) -> Result<(), String> {
@@ -882,10 +1037,12 @@ fn core_specs() -> &'static [CoreSpec] {
         },
         // EG-DATAPLAT-VOCAB-R001.4: shared data-platform terms are one immutable
         // core source and import the virtual-graph attachment vocabulary.
+        // EG-DATAPLAT-VOCAB-R005.2: the closed secret-metadata shapes companion
+        // is wired into the same CoreSpec shapes field (R003.14 precedent).
         CoreSpec {
             module: "data-platform",
             version: 1,
-            shapes: None,
+            shapes: Some(include_str!("../../ontology/data_platform-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/data_platform-v1.ttl")),
         },
         CoreSpec {
@@ -1494,5 +1651,116 @@ mod tests {
             assert!(document.contains("http://knuckles.team/kg"));
             assert!(!document.contains("@prefix eg:"));
         }
+    }
+
+    // spec: EG-SRC-AUTH-R003.2
+    #[test]
+    fn pack_or_ingestion_attach_refuses_virtual_graph_approval_claims() {
+        let approved_mapping = concat!(
+            "@prefix vg: <http://knuckles.team/kg/virtual-graph#> .\n",
+            "@prefix m: <http://example.org/mapping#> .\n",
+            "m:incidentMapping a vg:Mapping ;\n",
+            "    vg:mappedClass m:Incident ;\n",
+            "    vg:approved true .\n"
+        );
+        let approved_authority = concat!(
+            "@prefix vg: <http://knuckles.team/kg/virtual-graph#> .\n",
+            "@prefix a: <http://example.org/authority#> .\n",
+            "a:incidentAuthority a vg:SourceAuthority ;\n",
+            "    vg:authorityFor a:Incident ;\n",
+            "    vg:approved true .\n"
+        );
+        let iri_claim = concat!(
+            "@prefix m: <http://example.org/mapping#> .\n",
+            "m:iriMapping a m:Thing ;\n",
+            "    <http://knuckles.team/kg/virtual-graph#approved> true .\n"
+        );
+        let pack = |record_id: &str, document: String| {
+            GraphSchemaSource::new(
+                SchemaSourceOrigin::Pack {
+                    connector: "servicenow".to_string(),
+                    record_id: record_id.to_string(),
+                },
+                Some(Arc::from(document)),
+                None,
+                0,
+            )
+            .unwrap()
+        };
+        let mut sources = GraphSchemaSources::default();
+
+        // The approved mapping row, carried in a pack shapes document, is
+        // refused with the typed code.
+        let error = sources
+            .attach_dynamic(
+                "pack:servicenow".to_string(),
+                pack("rec:1", approved_mapping.to_string()),
+            )
+            .unwrap_err();
+        assert!(error.starts_with("APPROVAL_CLAIM_REFUSED:"), "{error}");
+
+        // The approved authority row, carried in a pack ontology document, is
+        // refused the same way.
+        let authority_pack = GraphSchemaSource::new(
+            SchemaSourceOrigin::Pack {
+                connector: "pagerduty".to_string(),
+                record_id: "rec:1".to_string(),
+            },
+            None,
+            Some(Arc::from(approved_authority)),
+            0,
+        )
+        .unwrap();
+        let error = sources
+            .attach_dynamic("pack:pagerduty".to_string(), authority_pack)
+            .unwrap_err();
+        assert!(error.starts_with("APPROVAL_CLAIM_REFUSED:"), "{error}");
+
+        // The same refusal holds for the ingestion origin.
+        let ingestion = GraphSchemaSource::new(
+            SchemaSourceOrigin::Ingestion {
+                mapping: "incident".to_string(),
+                revision: 1,
+            },
+            Some(Arc::from(approved_mapping)),
+            None,
+            0,
+        )
+        .unwrap();
+        let error = sources
+            .attach_dynamic("ingest:incident".to_string(), ingestion)
+            .unwrap_err();
+        assert!(error.starts_with("APPROVAL_CLAIM_REFUSED:"), "{error}");
+        assert!(sources.dynamic.is_empty());
+
+        // The full-IRI predicate form is refused as well.
+        let error = sources
+            .attach_dynamic(
+                "pack:servicenow".to_string(),
+                pack("rec:2", iri_claim.to_string()),
+            )
+            .unwrap_err();
+        assert!(error.starts_with("APPROVAL_CLAIM_REFUSED:"), "{error}");
+        assert!(sources.dynamic.is_empty());
+
+        // The refusal is origin-scoped: a document without the claim attaches,
+        // and the same claim text under the operator origin attaches.
+        let not_approved = approved_mapping.replace("vg:approved true .", "vg:approved false .");
+        sources
+            .attach_dynamic("pack:servicenow".to_string(), pack("rec:3", not_approved))
+            .unwrap();
+        sources
+            .attach_dynamic(
+                OPERATOR_SOURCE_ID.to_string(),
+                GraphSchemaSource::new(
+                    SchemaSourceOrigin::Operator,
+                    Some(Arc::from(approved_mapping)),
+                    None,
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(sources.dynamic.len(), 2);
     }
 }
