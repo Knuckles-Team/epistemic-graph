@@ -1119,6 +1119,12 @@
     },
     {
       "class": "server",
+      "code": "INVALID_CONFIGURATION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "INVALID_FACTS",
       "http_status_hint": 400,
       "retryable": false
