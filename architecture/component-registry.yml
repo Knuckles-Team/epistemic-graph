@@ -3914,6 +3914,7 @@ components:
       - "tests/test_task_plan_client.py"
       - "tests/test_task_plan_receipt_validation.py"
       - "tests/test_error_contract_client.py"
+      - "tests/test_finance_liquidity_panel.py"
       - "tests/test_finance_market.py"
       - "tests/test_finance_pine_companion.py"
       - "tests/test_finance_signal_models.py"
