@@ -1,4 +1,4 @@
-# epistemic-graph — thin Go client (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
+# Medulla — thin Go client (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
 
 A **deliberately thin** Go client for the Program-B engine `Method`s that had no client
 surface. It is **not a full SDK** — the canonical, full-featured client is the Python one
@@ -34,7 +34,7 @@ Same framed-MessagePack transport as the Python client:
   implicitly omitted `Roles`, `Scopes`, or `Delegation` slices before connecting.
 - **Canonical body:** the MAC covers the engine's canonical re-derivation of the
   body, computed by the embedded `eg_method_codec.wasm` run through wazero (see the
-  [wire contract](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docs/interfaces/clients.md#wire-contract-all-three)). `vectors_test.go` replays every contract method-body vector
+  [wire contract](https://github.com/Knuckles-Team/medulla/blob/main/docs/interfaces/clients.md#wire-contract-all-three)). `vectors_test.go` replays every contract method-body vector
   through the signer.
 - **Correlation:** this client holds ONE connection and serializes each round-trip under
   a mutex, so responses are read in order (no out-of-order demux needed — unlike the
@@ -59,7 +59,7 @@ import (
 	"os"
 	"time"
 
-	epg "github.com/epistemic-graph/clients/go"
+	epg "github.com/Knuckles-Team/medulla/clients/go"
 )
 
 func main() {
@@ -70,7 +70,7 @@ func main() {
 		Graph:      "agent:planner",
 		Context: &epg.RequestContextClaims{
 			Principal: "service:graph-client", Tenant: "tenant:default",
-			Audience: "epistemic-graph", AgentID: "service:graph-client",
+			Audience: "epistemic-graph" // OIDC audience value, unchanged by the rename, AgentID: "service:graph-client",
 			Roles: []string{"graph-client"},
 			Scopes: []string{"graph:read", "graph:write"},
 			PolicyVersion: "policy:current", Delegation: []string{},
