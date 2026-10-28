@@ -4,7 +4,7 @@ use eg_types::contract::BoundedVec;
 use eg_types::decision::statistical::{
     CandidateSource, DecideRequest, QuestionKind, QuestionSafety, StatisticalOutcome, TypedValue,
 };
-use eg_types::decision::task_plan::{plan_explicit_tasks, TaskPlan};
+use eg_types::decision::task_plan::{plan_explicit_tasks, task_bindings, TaskPlan, TaskPlanTask};
 use eg_types::decision::{PremiseClass, PremiseProvenance, PremiseRef};
 
 use super::stat_support::invalid_parameter;
@@ -76,6 +76,43 @@ pub(super) fn outcome(_plan: &TaskPlan) -> StatisticalOutcome {
     }
 }
 
+/// A tool step's call and each binding are caller claims; neither grants
+/// authority to invoke the tool (EG-DECISION-ENGINE-R134.111.11).
+fn call_premises(task: &TaskPlanTask) -> Vec<PremiseRef> {
+    let Some(call) = &task.call else {
+        return Vec::new();
+    };
+    let bindings = task_bindings(task);
+    let claim = |fact: String, field: &str| PremiseRef {
+        subject: task.task_id.clone(),
+        fact,
+        class: PremiseClass::Claim,
+        provenance: PremiseProvenance::Request {
+            field: field.to_string(),
+        },
+    };
+    let references: Vec<&str> = bindings.iter().map(|b| b.reference.as_str()).collect();
+    let mut out = vec![claim(
+        format!(
+            "task_plan_call:server={};tool={};bindings={}",
+            call.server,
+            call.tool,
+            references.join(",")
+        ),
+        "params.task_plan.tasks.call",
+    )];
+    out.extend(bindings.iter().map(|binding| {
+        claim(
+            format!(
+                "task_plan_binding:pointer={};source_task={};reference={}",
+                binding.pointer, binding.source_task, binding.reference
+            ),
+            "params.task_plan.tasks.call.arguments",
+        )
+    }));
+    out
+}
+
 pub(super) fn premises(plan: &TaskPlan) -> Vec<PremiseRef> {
     let mut out: Vec<PremiseRef> = plan
         .tasks
@@ -93,6 +130,9 @@ pub(super) fn premises(plan: &TaskPlan) -> Vec<PremiseRef> {
             },
         })
         .collect();
+    for task in plan.tasks.iter() {
+        out.extend(call_premises(task));
+    }
     out.push(PremiseRef {
         subject: plan.policy_revision.clone(),
         fact: format!(

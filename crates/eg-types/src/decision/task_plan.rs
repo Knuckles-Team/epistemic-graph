@@ -11,6 +11,12 @@ use crate::contract::BoundedVec;
 
 use super::digest::digest_text;
 
+mod call;
+pub use call::{
+    task_bindings, TaskPlanBinding, TaskPlanCall, BINDING_KEY, MAX_BINDINGS_PER_CALL,
+    MAX_BINDING_PATH_BYTES, MAX_BINDING_PATH_SEGMENTS, MAX_CALL_ARGUMENT_BYTES, MAX_TOOL_STEPS,
+};
+
 pub const TASK_PLAN_POLICY_REVISION: &str = "bounded-explicit-dag-v1";
 
 /// The Agent Library component id a host publishes the canonical task-plan
@@ -23,21 +29,28 @@ pub const TASK_PLAN_FEATURE_SCHEMA_COMPONENT_ID: &str = "task-plan-features";
 /// matrix, but every Decide request pins a published `FeatureSchema`. One
 /// engine-defined body means every host publishes the same bytes, so one
 /// tenant's pin is reproducible and checkable at start-up. The single feature
-/// reads each task's declared position and abstains when it is absent.
+/// reads each task's declared position and abstains when it is absent. Two
+/// more describe a tool step's call and its binding count
+/// (EG-DECISION-ENGINE-R134.111.12).
 pub fn task_plan_feature_schema() -> super::statistical::features::FeatureSchemaBody {
     use super::statistical::features::{
         FeatureKind, FeatureSchemaBody, FeatureSpec, MissingValue, FEATURE_SCHEMA_VERSION,
     };
     FeatureSchemaBody {
         schema_version: FEATURE_SCHEMA_VERSION,
-        features: BoundedVec::new(vec![FeatureSpec {
-            name: "task_position".to_string(),
-            kind: FeatureKind::Number {
-                key: "task_position".to_string(),
-            },
-            missing: MissingValue::Abstain,
-        }])
-        .expect("one feature is within the schema bound"),
+        features: BoundedVec::new(
+            ["task_position", "task_call", "task_call_bindings"]
+                .into_iter()
+                .map(|name| FeatureSpec {
+                    name: name.to_string(),
+                    kind: FeatureKind::Number {
+                        key: name.to_string(),
+                    },
+                    missing: MissingValue::Abstain,
+                })
+                .collect(),
+        )
+        .expect("three features are within the schema bound"),
     }
 }
 pub const MAX_TASKS: u16 = 64;
@@ -45,8 +58,10 @@ pub const MAX_CONCURRENCY: u16 = 8;
 pub const MAX_PROMPT_BYTES: usize = 16 * 1024;
 pub const MAX_TOTAL_PROMPT_BYTES: usize = 64 * 1024;
 
-/// A task uses the host's already-bound agent. It cannot select credentials,
-/// tools, models or a different principal.
+/// A prompt step uses the host's already-bound agent. It cannot select
+/// credentials, models or a different principal. A task with `call` is a tool
+/// step: no model runs it and `prompt` is only its label. The call is a caller
+/// claim and grants no authority to invoke the tool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -55,6 +70,8 @@ pub struct TaskPlanTask {
     pub prompt: String,
     #[serde(default)]
     pub depends_on: BoundedVec<String, 64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<TaskPlanCall>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,7 +112,15 @@ pub fn task_plan_policy_digest() -> String {
             MAX_CONCURRENCY,
             MAX_PROMPT_BYTES,
             MAX_TOTAL_PROMPT_BYTES,
-            "lexical_ready_ids;sorted_dependencies;single_output_sink;no_retries",
+            (
+                MAX_TOOL_STEPS,
+                MAX_BINDINGS_PER_CALL,
+                MAX_CALL_ARGUMENT_BYTES,
+                MAX_BINDING_PATH_SEGMENTS,
+                MAX_BINDING_PATH_BYTES,
+            ),
+            "lexical_ready_ids;sorted_dependencies;single_output_sink;no_retries;\
+             canonical_calls;direct_dependency_bindings;no_inferred_edges",
         ),
     )
 }
@@ -139,6 +164,14 @@ fn canonical_task(task: &TaskPlanTask, bytes: &mut usize) -> Result<TaskPlanTask
         return Err(error("plan_text_bounds", &task.task_id));
     }
     let mut canonical = task.clone();
+    if let Some(raw) = &task.call {
+        let (call, _, call_bytes) = call::canonical_call(&task.task_id, raw)?;
+        *bytes += call_bytes;
+        if *bytes > MAX_TOTAL_PROMPT_BYTES {
+            return Err(error("plan_text_bounds", &task.task_id));
+        }
+        canonical.call = Some(call);
+    }
     let mut deps = task.depends_on.as_slice().to_vec();
     deps.sort();
     if deps.windows(2).any(|pair| pair[0] == pair[1]) {
@@ -215,6 +248,7 @@ fn check_output(tasks: &BTreeMap<String, TaskPlanTask>, output: &str) -> Result<
 pub fn plan_explicit_tasks(proposal: &TaskPlanProposal) -> Result<TaskPlan, String> {
     let tasks = index(proposal)?;
     let canonical = ordered(&tasks)?;
+    call::check_bindings(&tasks)?;
     check_output(&tasks, &proposal.output_task_id)?;
     let mut plan = TaskPlan {
         total_tasks: canonical.len() as u16,

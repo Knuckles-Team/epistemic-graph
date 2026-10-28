@@ -106,6 +106,31 @@ pub enum QuestionKind {
     /// cost as the tie-break, and abstains keeping the current harness when no
     /// candidate improves. See `decision::harness_contrast`.
     HarnessContrast,
+    /// Whether a prompt passes its window share and the bounded recursive
+    /// split that makes it fit (EG-DECISION-ENGINE-R137). Evaluate-only. See
+    /// `decision::context_budget`.
+    ContextBudget,
+    /// Keep or revert a candidate harness edit by the shipped edits on its
+    /// dimension inside the policy window (EG-DECISION-ENGINE-R173). See
+    /// `decision::concentration`.
+    EditConcentration,
+    /// Whether an evolution round's observed flips verify or falsify its
+    /// declaration (EG-DECISION-ENGINE-R136). See `decision::evolution_round`.
+    RoundVerdict,
+    /// Which model each evolution stage runs on (EG-DECISION-ENGINE-R136).
+    StageAllocation,
+    /// The verdict of one red-team probe (EG-DECISION-ENGINE-R138). See
+    /// `decision::red_team`.
+    ProbeVerdict,
+    /// Catalog items for a query and a history (EG-DECISION-ENGINE-R175). See
+    /// `decision::recommend`.
+    ItemRecommendation,
+    /// The tools, skills and agents one job needs (EG-DECISION-ENGINE-R176).
+    /// See `decision::load_set`.
+    LoadSet,
+    /// How and when to use one connector for one job (EG-DECISION-ENGINE-R177).
+    /// See `decision::usage_guidance`.
+    UsageGuidance,
 }
 
 /// What is at stake. Exploration is permitted only for

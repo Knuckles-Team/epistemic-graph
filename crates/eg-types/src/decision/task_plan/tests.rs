@@ -5,6 +5,7 @@ fn task(id: &str, deps: &[&str]) -> TaskPlanTask {
         task_id: id.into(),
         prompt: format!("Analyze {id} with cited evidence"),
         depends_on: BoundedVec::new(deps.iter().map(|s| s.to_string()).collect()).unwrap(),
+        call: None,
     }
 }
 
@@ -179,6 +180,7 @@ fn maximum_bounded_chain_is_valid() {
                 vec![format!("t{:02}", i - 1)]
             })
             .unwrap(),
+            call: None,
         })
         .collect();
     let input = TaskPlanProposal {
@@ -251,7 +253,10 @@ fn index_accepts_exact_total_prompt_byte_limit() {
 #[test]
 fn the_canonical_task_plan_feature_schema_is_valid_and_stable() {
     let body = task_plan_feature_schema().checked().unwrap();
-    assert_eq!(body.names(), ["task_position"]);
+    assert_eq!(
+        body.names(),
+        ["task_position", "task_call", "task_call_bindings"]
+    );
     let digest = crate::decision::statistical::body::encode_body(&body)
         .unwrap()
         .content_digest;
@@ -261,4 +266,283 @@ fn the_canonical_task_plan_feature_schema_is_valid_and_stable() {
             .unwrap()
             .content_digest
     );
+}
+
+fn tool(id: &str, deps: &[&str], arguments: serde_json::Value) -> TaskPlanTask {
+    TaskPlanTask {
+        call: Some(TaskPlanCall {
+            server: "github".into(),
+            tool: "get_issue".into(),
+            arguments,
+        }),
+        ..task(id, deps)
+    }
+}
+
+fn mixed(arguments: serde_json::Value) -> TaskPlanProposal {
+    TaskPlanProposal {
+        tasks: BoundedVec::new(vec![task("a", &[]), tool("b", &["a"], arguments)]).unwrap(),
+        output_task_id: "b".into(),
+        max_concurrency: 1,
+        max_steps: 2,
+    }
+}
+
+fn reference(text: &str) -> serde_json::Value {
+    serde_json::json!({ "$ref": text })
+}
+
+// spec: EG-DECISION-ENGINE-R134.111.8
+#[test]
+fn tool_step_round_trips_with_literals_and_bindings() {
+    let arguments = serde_json::json!({
+        "repo": "medulla",
+        "limit": 3,
+        "issue": reference("steps.a.output.items.0.number"),
+        "labels": ["bug", reference("steps.a.output.label")],
+    });
+    let proposal = mixed(arguments.clone());
+    let wire = serde_json::to_value(&proposal).unwrap();
+    assert!(wire["tasks"][0].get("call").is_none(), "prompt step keeps its form");
+    assert_eq!(
+        serde_json::from_value::<TaskPlanProposal>(wire).unwrap(),
+        proposal
+    );
+    let plan = plan_explicit_tasks(&proposal).unwrap();
+    let call = plan.tasks.as_slice()[1].call.as_ref().unwrap();
+    assert_eq!(call.arguments, arguments);
+    assert_eq!(
+        serde_json::from_value::<TaskPlan>(serde_json::to_value(&plan).unwrap()).unwrap(),
+        plan
+    );
+    assert!(plan.tasks.as_slice()[0].call.is_none());
+    let bindings = task_bindings(&plan.tasks.as_slice()[1]);
+    assert_eq!(
+        bindings
+            .iter()
+            .map(|b| (b.pointer.as_str(), b.source_task.as_str()))
+            .collect::<Vec<_>>(),
+        [("/issue", "a"), ("/labels/1", "a")]
+    );
+    let mut unknown = serde_json::to_value(mixed(arguments)).unwrap();
+    unknown["tasks"][1]["call"]["credential"] = serde_json::json!("secret");
+    assert!(serde_json::from_value::<TaskPlanProposal>(unknown).is_err());
+    let extra = serde_json::json!({ "x": { "$ref": "steps.a.output", "default": 1 } });
+    assert!(plan_explicit_tasks(&mixed(extra))
+        .unwrap_err()
+        .starts_with("binding_bad_path"));
+}
+
+// spec: EG-DECISION-ENGINE-R134.111.9
+#[test]
+fn binding_canonicalization_is_order_independent() {
+    let first: serde_json::Value = serde_json::from_str(
+        r#"{"b": 1, "a": {"y": [1, 2], "x": {"$ref": " steps.a.output.items.007 "}}}"#,
+    )
+    .unwrap();
+    let second: serde_json::Value = serde_json::from_str(
+        r#"{ "a" : { "x" : { "$ref" : "steps.a.output.items.7" }, "y" : [1,2] }, "b" : 1 }"#,
+    )
+    .unwrap();
+    let one = plan_explicit_tasks(&mixed(first)).unwrap();
+    let two = plan_explicit_tasks(&mixed(second)).unwrap();
+    assert_eq!(one.plan_digest, two.plan_digest);
+    assert_eq!(
+        one.tasks.as_slice()[1].call.as_ref().unwrap().arguments["a"]["x"],
+        reference("steps.a.output.items.7")
+    );
+    // A binding never adds an edge: the referenced task is still only `a`.
+    assert_eq!(one.tasks.as_slice()[1].depends_on.as_slice(), ["a"]);
+}
+
+fn bound_arguments(bindings: usize, padding: usize) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for i in 0..bindings {
+        map.insert(format!("k{i:02}"), reference("steps.a.output"));
+    }
+    map.insert("pad".into(), serde_json::Value::String("x".repeat(padding)));
+    serde_json::Value::Object(map)
+}
+
+fn argument_bytes(arguments: &serde_json::Value) -> usize {
+    serde_json::to_vec(arguments).unwrap().len()
+}
+
+// spec: EG-DECISION-ENGINE-R134.111.9
+#[test]
+fn binding_bounds() {
+    assert!(plan_explicit_tasks(&mixed(bound_arguments(MAX_BINDINGS_PER_CALL, 0))).is_ok());
+    assert!(plan_explicit_tasks(&mixed(bound_arguments(MAX_BINDINGS_PER_CALL + 1, 0)))
+        .unwrap_err()
+        .starts_with("call_bounds"));
+    let base = argument_bytes(&bound_arguments(0, 0));
+    let exact = bound_arguments(0, MAX_CALL_ARGUMENT_BYTES - base);
+    assert_eq!(argument_bytes(&exact), MAX_CALL_ARGUMENT_BYTES);
+    assert!(plan_explicit_tasks(&mixed(exact)).is_ok());
+    let over = bound_arguments(0, MAX_CALL_ARGUMENT_BYTES - base + 1);
+    assert!(plan_explicit_tasks(&mixed(over))
+        .unwrap_err()
+        .starts_with("call_bounds"));
+    let path = |n: usize| {
+        let segments = vec!["k"; n].join(".");
+        serde_json::json!({ "x": reference(&format!("steps.a.output.{segments}")) })
+    };
+    assert!(plan_explicit_tasks(&mixed(path(MAX_BINDING_PATH_SEGMENTS))).is_ok());
+    assert!(plan_explicit_tasks(&mixed(path(MAX_BINDING_PATH_SEGMENTS + 1)))
+        .unwrap_err()
+        .starts_with("binding_bad_path"));
+    let long = |len: usize| {
+        let key = "k".repeat(len - "steps.a.output.".len());
+        serde_json::json!({ "x": reference(&format!("steps.a.output.{key}")) })
+    };
+    assert!(plan_explicit_tasks(&mixed(long(MAX_BINDING_PATH_BYTES))).is_ok());
+    assert!(plan_explicit_tasks(&mixed(long(MAX_BINDING_PATH_BYTES + 1)))
+        .unwrap_err()
+        .starts_with("binding_bad_path"));
+    let tools = TaskPlanProposal {
+        tasks: BoundedVec::new(
+            (0..MAX_TOOL_STEPS)
+                .map(|i| {
+                    let deps: Vec<String> = (i > 0)
+                        .then(|| format!("t{:02}", i - 1))
+                        .into_iter()
+                        .collect();
+                    let deps: Vec<&str> = deps.iter().map(String::as_str).collect();
+                    tool(&format!("t{i:02}"), &deps, serde_json::json!({}))
+                })
+                .collect(),
+        )
+        .unwrap(),
+        output_task_id: "t63".into(),
+        max_concurrency: 8,
+        max_steps: 64,
+    };
+    assert_eq!(plan_explicit_tasks(&tools).unwrap().total_tasks, 64);
+    let mut over_total = mixed(bound_arguments(0, MAX_CALL_ARGUMENT_BYTES - base));
+    let mut tasks = over_total.tasks.as_slice().to_vec();
+    for task in &mut tasks {
+        task.prompt = "x".repeat(MAX_PROMPT_BYTES);
+    }
+    for i in 0..2 {
+        tasks.push(TaskPlanTask {
+            prompt: "x".repeat(MAX_PROMPT_BYTES),
+            ..task(&format!("p{i}"), &[])
+        });
+    }
+    tasks[1].depends_on = BoundedVec::new(vec!["a".into(), "p0".into(), "p1".into()]).unwrap();
+    over_total.tasks = BoundedVec::new(tasks).unwrap();
+    over_total.max_steps = 4;
+    // Four full prompts fit; the call text pushes the plan past 64 KiB.
+    assert!(plan_explicit_tasks(&over_total)
+        .unwrap_err()
+        .starts_with("plan_text_bounds"));
+}
+
+fn binding_refusal(proposal: TaskPlanProposal) -> String {
+    plan_explicit_tasks(&proposal).unwrap_err()
+}
+
+// spec: EG-DECISION-ENGINE-R134.111.10
+#[test]
+fn refuses_each_binding_defect() {
+    let cases = [
+        (
+            serde_json::json!({ "x": reference("steps.zz.output") }),
+            "binding_unknown_task: task=b pointer=/x",
+        ),
+        (
+            serde_json::json!({ "n": { "x": reference("steps.a.output.a b") } }),
+            "binding_bad_path: task=b pointer=/n/x",
+        ),
+        (
+            serde_json::json!({ "x": [reference("steps.b.output")] }),
+            "binding_cycle: task=b pointer=/x/0",
+        ),
+    ];
+    for (arguments, expected) in cases {
+        assert_eq!(binding_refusal(mixed(arguments)), expected);
+    }
+    let mut not_dependency = mixed(serde_json::json!({ "x": reference("steps.c.output") }));
+    let mut tasks = not_dependency.tasks.as_slice().to_vec();
+    tasks.push(task("c", &[]));
+    tasks[1].depends_on = BoundedVec::new(vec!["a".into()]).unwrap();
+    tasks[0].depends_on = BoundedVec::new(vec!["c".into()]).unwrap();
+    not_dependency.tasks = BoundedVec::new(tasks).unwrap();
+    not_dependency.max_steps = 3;
+    assert_eq!(
+        binding_refusal(not_dependency),
+        "binding_not_dependency: task=b pointer=/x"
+    );
+    // A reference to a downstream task closes a cycle through `depends_on`.
+    let mut downstream = mixed(serde_json::json!({}));
+    let mut tasks = downstream.tasks.as_slice().to_vec();
+    tasks[0] = tool("a", &[], serde_json::json!({ "y": reference("steps.b.output") }));
+    downstream.tasks = BoundedVec::new(tasks).unwrap();
+    assert_eq!(binding_refusal(downstream), "binding_cycle: task=a pointer=/y");
+    for call in [
+        TaskPlanCall {
+            server: String::new(),
+            tool: "t".into(),
+            arguments: serde_json::json!({}),
+        },
+        TaskPlanCall {
+            server: "s".into(),
+            tool: "bad tool".into(),
+            arguments: serde_json::json!({}),
+        },
+        TaskPlanCall {
+            server: "s".into(),
+            tool: "t".into(),
+            arguments: serde_json::json!([1]),
+        },
+        TaskPlanCall {
+            server: "s".into(),
+            tool: "t".into(),
+            arguments: reference("steps.a.output"),
+        },
+    ] {
+        let mut input = mixed(serde_json::json!({}));
+        let mut tasks = input.tasks.as_slice().to_vec();
+        tasks[1].call = Some(call);
+        input.tasks = BoundedVec::new(tasks).unwrap();
+        assert_eq!(binding_refusal(input), "call_invalid: task=b pointer=");
+    }
+    assert_eq!(
+        binding_refusal(mixed(bound_arguments(MAX_BINDINGS_PER_CALL + 1, 0))),
+        "call_bounds: task=b pointer=/k00"
+    );
+    // A plain dependency cycle still refuses as a plan cycle.
+    let mut cyclic = mixed(serde_json::json!({ "x": reference("steps.a.output") }));
+    let mut tasks = cyclic.tasks.as_slice().to_vec();
+    tasks[0].depends_on = BoundedVec::new(vec!["b".into()]).unwrap();
+    cyclic.tasks = BoundedVec::new(tasks).unwrap();
+    assert!(binding_refusal(cyclic).starts_with("plan_cycle"));
+}
+
+// spec: EG-DECISION-ENGINE-R134.111.11
+#[test]
+fn digest_covers_calls_and_bindings() {
+    let arguments = serde_json::json!({ "repo": "medulla", "x": reference("steps.a.output.id") });
+    let base = plan_explicit_tasks(&mixed(arguments.clone())).unwrap();
+    let digest = |edit: &dyn Fn(&mut TaskPlanCall)| {
+        let mut input = mixed(arguments.clone());
+        let mut tasks = input.tasks.as_slice().to_vec();
+        edit(tasks[1].call.as_mut().unwrap());
+        input.tasks = BoundedVec::new(tasks).unwrap();
+        plan_explicit_tasks(&input).unwrap().plan_digest
+    };
+    assert_eq!(digest(&|_| {}), base.plan_digest);
+    assert_ne!(digest(&|c| c.tool = "list_issues".into()), base.plan_digest);
+    assert_ne!(digest(&|c| c.server = "gitlab".into()), base.plan_digest);
+    assert_ne!(
+        digest(&|c| c.arguments["repo"] = serde_json::json!("other")),
+        base.plan_digest
+    );
+    assert_ne!(
+        digest(&|c| c.arguments["x"] = reference("steps.a.output.name")),
+        base.plan_digest
+    );
+    let prompt_only = plan_explicit_tasks(&proposal()).unwrap();
+    assert_ne!(prompt_only.policy_digest, "");
+    assert_eq!(base.policy_digest, task_plan_policy_digest());
 }
