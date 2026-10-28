@@ -124,9 +124,26 @@ dp:PolicyPathGrantShape a sh:NodeShape ;
     sh:targetClass dp:PolicyPathGrant ;
     sh:closed true ;
     sh:ignoredProperties ( rdf:type rdfs:label ) ;
-    sh:property [ sh:path dp:grantPolicy ] ;
-    sh:property [ sh:path dp:grantPath ] ;
-    sh:property [ sh:path dp:grantsCapability ] ;
+    sh:property [
+        sh:path dp:grantPolicy ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class dp:AccessPolicy ;
+        sh:message "A policy-path grant references exactly one access policy."
+    ] ;
+    sh:property [
+        sh:path dp:grantPath ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class dp:SecretPath ;
+        sh:message "A policy-path grant references exactly one secret path."
+    ] ;
+    sh:property [
+        sh:path dp:grantsCapability ;
+        sh:minCount 1 ;
+        sh:in ( "read" "list" "create" "update" "delete" "sudo" "deny" ) ;
+        sh:message "grantsCapability is one of read, list, create, update, delete, sudo, deny."
+    ] ;
     sh:property [ sh:path dp:inStore ] ;
     sh:property [ sh:path dp:asOf ] ;
     sh:message "A policy-path grant carries only its policy/path/capability metadata — permissions are scoped to that pair, never flattened onto the policy." .

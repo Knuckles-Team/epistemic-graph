@@ -775,3 +775,74 @@ fn openbao_value_operation_mapping_refused() {
         report.results
     );
 }
+
+// spec: EG-DATAPLAT-VOCAB-R005.5
+#[test]
+fn grants_capability_closed_list() {
+    // One policy granting read on path A and deny on path B: the permissions
+    // stay scoped to their policy/path pair and conform.
+    let scoped_grants = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:engine a dp:SecretEngine .
+
+ex:policy a dp:AccessPolicy ;
+    dp:inStore ex:engine .
+
+ex:pathA a dp:SecretPath ;
+    dp:pathName "secret/data/production/db" ;
+    dp:inStore ex:engine .
+
+ex:pathB a dp:SecretPath ;
+    dp:pathName "secret/data/production/api" ;
+    dp:inStore ex:engine .
+
+ex:grantA a dp:PolicyPathGrant ;
+    dp:grantPolicy ex:policy ;
+    dp:grantPath ex:pathA ;
+    dp:grantsCapability "read" ;
+    dp:inStore ex:engine .
+
+ex:grantB a dp:PolicyPathGrant ;
+    dp:grantPolicy ex:policy ;
+    dp:grantPath ex:pathB ;
+    dp:grantsCapability "deny" ;
+    dp:inStore ex:engine .
+"#;
+    let report = validate_turtle(DP_SHAPES, scoped_grants)
+        .expect("the scoped-grant document parses before validation");
+    assert!(
+        report.conforms,
+        "one policy granting read on path A and deny on path B must conform: {:?}",
+        report.results
+    );
+
+    // A capability outside the closed list is refused.
+    let bad_capability = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:engine a dp:SecretEngine .
+
+ex:policy a dp:AccessPolicy ;
+    dp:inStore ex:engine .
+
+ex:pathA a dp:SecretPath ;
+    dp:pathName "secret/data/production/db" ;
+    dp:inStore ex:engine .
+
+ex:grant a dp:PolicyPathGrant ;
+    dp:grantPolicy ex:policy ;
+    dp:grantPath ex:pathA ;
+    dp:grantsCapability "admin" ;
+    dp:inStore ex:engine .
+"#;
+    let report = validate_turtle(DP_SHAPES, bad_capability)
+        .expect("the bad-capability document parses before validation");
+    assert!(
+        !report.conforms,
+        "a grantsCapability outside the closed list must be rejected: {:?}",
+        report.results
+    );
+}
