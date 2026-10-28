@@ -13422,6 +13422,7 @@ class MethodDiscoverParams(BaseModel):
 
     k: Annotated[int, Field(ge=0)]
     keywords: list[str]
+    quality_policy_ref: str | None = None
     query_embedding: list[float]
 
 

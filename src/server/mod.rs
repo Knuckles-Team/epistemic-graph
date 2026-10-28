@@ -4225,6 +4225,7 @@ mod tests {
                     keywords: vec!["deploy".into()],
                     query_embedding: vec![1.0, 0.0, 0.0],
                     k: 3,
+                    quality_policy_ref: None,
                 },
             ),
         )
@@ -4255,6 +4256,7 @@ mod tests {
                     keywords: vec!["deploy".into()],
                     query_embedding: vec![],
                     k: 5,
+                    quality_policy_ref: None,
                 },
             ),
         )
