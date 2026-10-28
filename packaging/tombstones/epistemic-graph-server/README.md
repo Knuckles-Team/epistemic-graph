@@ -1,8 +1,8 @@
 # epistemic-graph-server
 
 The project retired this name. The native server executable now publishes as
-**`medulla-stem`**. This package is a tombstone: it ships no code and no executable, and
-it exists only to move an old install onto the current one.
+**`medulla-stem`**. This package is a tombstone. It ships no code and no executable. It
+exists only to move an old install onto the current one.
 
 ```bash
 pip install medulla-stem
