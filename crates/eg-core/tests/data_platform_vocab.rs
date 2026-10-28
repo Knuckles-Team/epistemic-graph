@@ -267,6 +267,37 @@ ex:mapping a dp:StoreMapping ;
     )
 }
 
+/// Validates a mapping fixture against the data-platform and virtual-graph
+/// shapes and returns its triples.
+fn validate_fixture(document: &str) -> Vec<Triple> {
+    let report =
+        validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), document)
+            .expect("the mapping fixture parses before validation");
+    assert!(
+        report.conforms,
+        "the mapping fixture must conform to the data-platform and virtual-graph shapes: {:?}",
+        report.results
+    );
+    parse_turtle(document).expect("the mapping fixture parses")
+}
+
+/// Asserts that the named `dp:viaOperation` values each appear on some
+/// `dp:StoreMapping` node of the fixture.
+fn assert_via_operations(triples: &[Triple], operations: &[&str]) {
+    let via_operation = NamedNode::new(&format!("{DP}viaOperation")).unwrap();
+    for operation in operations {
+        assert!(
+            triples.iter().any(|triple| {
+                triple.predicate == via_operation
+                    && triple.object == eg_rdf::oxrdf::Term::Literal(
+                        eg_rdf::oxrdf::Literal::new_simple_literal(*operation)
+                    )
+            }),
+            "a mapping via {operation} must be present in the fixture"
+        );
+    }
+}
+
 // spec: EG-DATAPLAT-VOCAB-R002.4
 #[test]
 fn document_field_shape_rejects_ratio_2() {
@@ -844,5 +875,21 @@ ex:grant a dp:PolicyPathGrant ;
         !report.conforms,
         "a grantsCapability outside the closed list must be rejected: {:?}",
         report.results
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R006.1
+#[test]
+fn mapping_fixture_sql_validates() {
+    let triples =
+        validate_fixture(include_str!("../ontology/fixtures/data_platform/sql.ttl"));
+    assert_via_operations(
+        &triples,
+        &[
+            "sql_schema:tables",
+            "sql_schema:columns",
+            "sql_schema:foreign_keys",
+            "sql_schema:constraints",
+        ],
     );
 }
