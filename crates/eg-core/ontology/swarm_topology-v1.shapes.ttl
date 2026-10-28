@@ -138,6 +138,28 @@ swarm:FeedsAcyclicShape a sh:NodeShape ;
         """ ;
     ] .
 
+# A template whose slots are wired by swarm:feeds has exactly one root: the one
+# slot nothing feeds. Templates without feeds edges are not constrained.
+swarm:FeedsSingleRootShape a sh:NodeShape ;
+    sh:targetClass swarm:TopologyTemplate ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A feeds graph has more than one root slot." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this swarm:hasSlot ?wired .
+                ?wired swarm:feeds ?somewhere .
+                $this swarm:hasSlot ?a .
+                $this swarm:hasSlot ?b .
+                FILTER(?a != ?b)
+                OPTIONAL { ?x swarm:feeds ?a }
+                OPTIONAL { ?y swarm:feeds ?b }
+                FILTER(!BOUND(?x) && !BOUND(?y))
+            }
+        """ ;
+    ] .
+
 swarm:StopRuleShape a sh:NodeShape ;
     sh:targetClass swarm:StopRule ;
     sh:property [ sh:path swarm:n ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 1 ; sh:maxInclusive 16 ] ;

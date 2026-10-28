@@ -307,3 +307,29 @@
             }
         """
     ] .
+
+# A hand-off names a source step and a target step.
+:HandOffShape a sh:NodeShape ;
+    sh:targetSubjectsOf :handsOffTo ;
+    sh:sparql [
+        sh:message "A hand-off source is not a task step." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :handsOffTo ?target .
+                OPTIONAL { $this a ?kind . FILTER(?kind = :TaskStep) }
+                FILTER(!BOUND(?kind))
+            }
+        """
+    ] ,
+    [
+        sh:message "A hand-off target is not a task step." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :handsOffTo ?target .
+                OPTIONAL { ?target a ?kind . FILTER(?kind = :TaskStep) }
+                FILTER(!BOUND(?kind))
+            }
+        """
+    ] .

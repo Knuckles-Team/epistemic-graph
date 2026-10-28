@@ -1,0 +1,18 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# Task XYZ staffs a two-slot pipeline: one aggregator and one verifier.
+:agentKindAggregator a :AgentKind .
+:agentKindVerifier a :AgentKind .
+:tmplXYZ a swarm:TopologyTemplate ; swarm:class swarm:Pipeline ;
+    swarm:hasSlot :xSlotA, :xSlotB ; swarm:hasStopRule :xStop ;
+    dc:source <urn:source:topology-templates> .
+:xStop a swarm:MaxRoundsStop .
+:xSlotA a swarm:Slot ; swarm:nodeId "a" ; swarm:role swarm:Aggregator ;
+    swarm:requiresAgentKind :agentKindAggregator ;
+    swarm:minWidth 1 ; swarm:maxWidth 2 ; swarm:maxRounds 1 ; swarm:feeds :xSlotB .
+:xSlotB a swarm:Slot ; swarm:nodeId "b" ; swarm:role swarm:Verifier ;
+    swarm:requiresAgentKind :agentKindVerifier ;
+    swarm:minWidth 1 ; swarm:maxWidth 1 ; swarm:maxRounds 1 .

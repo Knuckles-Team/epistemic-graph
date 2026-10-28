@@ -1,0 +1,5 @@
+PREFIX : <http://knuckles.team/kg#>
+PREFIX dc: <http://purl.org/dc/terms/>
+SELECT ?from ?to ?source WHERE {
+  :TaskXYZ :hasStep ?from . ?from :handsOffTo ?to ; dc:source ?source .
+}

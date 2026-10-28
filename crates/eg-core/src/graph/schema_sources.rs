@@ -1330,7 +1330,7 @@ mod tests {
             ),
             (
                 "orchestration-shapes",
-                "839d2802f4e17089ce5a3a87f68b514d8e71af3dc7da191f5a9036bf7a1a5416",
+                "0693b12c0787dca437c392cc4bf8e2dcb099f563fcdb830327b6bf2cc9367299",
             ),
             (
                 "personal",
@@ -1406,7 +1406,7 @@ mod tests {
             ),
             (
                 "swarm-topology-shapes",
-                "378eb3ea973eea3fe5479634a91fa32ec7af0e4b1964e78819f01e7d6eeef494",
+                "1072f280c5761d749574f913967ab1fbdef04681795e43db961c8b5e9c3a4413",
             ),
             // R004.1 and R004.2.1/.2 added the asset-class migration and portfolio
             // records; semantic acceptance/refusal fixtures live in

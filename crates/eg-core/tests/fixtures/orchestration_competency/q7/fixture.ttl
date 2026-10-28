@@ -1,0 +1,10 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:tmplDag a swarm:TopologyTemplate ; swarm:class swarm:Pipeline ;
+    swarm:hasSlot :dRoot, :dMid, :dLeaf ; dc:source <urn:source:topology-templates> .
+:dRoot a swarm:Slot ; swarm:feeds :dMid .
+:dMid a swarm:Slot ; swarm:feeds :dLeaf .
+:dLeaf a swarm:Slot .

@@ -1,0 +1,6 @@
+PREFIX : <http://knuckles.team/kg#>
+PREFIX dc: <http://purl.org/dc/terms/>
+SELECT ?rule ?class ?source WHERE {
+  ?rule a :BestPractice ; :appliesToTaskClass ?class ; dc:source ?source .
+  FILTER (?class = :RolloutTask)
+}
