@@ -44,6 +44,8 @@ pub mod capacity_lease;
 pub mod scheduler_config;
 // EG-TYPED-PACKS-R803.1 — typed sensitive-data detector and detection records.
 pub mod sensitive_detect;
+// EG-TYPED-PACKS-R804.1 — ontology revision difference and impact records.
+pub mod ontology_diff;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
