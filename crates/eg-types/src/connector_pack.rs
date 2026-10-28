@@ -19,6 +19,7 @@
 
 pub mod annotations;
 pub mod catalog_authority;
+pub mod contract_version;
 pub mod digest;
 pub mod ids;
 pub mod index;

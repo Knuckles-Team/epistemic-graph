@@ -49,6 +49,98 @@ pub enum ToolEffect {
     Write,
 }
 
+/// What a tool may change beyond returning a value. Absent reads as
+/// [`ToolSideEffects::ExternalWrite`], the least permissive answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ToolSideEffects {
+    None,
+    WorkspaceWrite,
+    ExternalWrite,
+    Network,
+}
+
+impl ToolSideEffects {
+    const ALL: [Self; 4] = [
+        Self::None,
+        Self::WorkspaceWrite,
+        Self::ExternalWrite,
+        Self::Network,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::WorkspaceWrite => "workspace_write",
+            Self::ExternalWrite => "external_write",
+            Self::Network => "network",
+        }
+    }
+}
+
+/// Who asserted a tool's effect facts. Absent reads as
+/// [`ToolFactDeclarer::Connector`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ToolFactDeclarer {
+    /// The connector author declared it.
+    Connector,
+    /// Copied from an MCP `ToolAnnotations` hint, which the MCP specification
+    /// says must not be trusted.
+    McpHint,
+    /// An evaluation certified it.
+    Certified,
+}
+
+impl ToolFactDeclarer {
+    const ALL: [Self; 3] = [Self::Connector, Self::McpHint, Self::Certified];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Connector => "connector",
+            Self::McpHint => "mcp_hint",
+            Self::Certified => "certified",
+        }
+    }
+}
+
+/// Decode one closed token, naming the field and the accepted set on refusal.
+fn closed_token<'de, D, T: Copy>(
+    deserializer: D,
+    field: &str,
+    all: &[T],
+    token: fn(T) -> &'static str,
+) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    all.iter()
+        .copied()
+        .find(|candidate| token(*candidate) == value)
+        .ok_or_else(|| {
+            let accepted: Vec<&str> = all.iter().map(|candidate| token(*candidate)).collect();
+            serde::de::Error::custom(format!(
+                "{field}: unknown value `{value}`; expected one of {}",
+                accepted.join(", ")
+            ))
+        })
+}
+
+impl<'de> Deserialize<'de> for ToolSideEffects {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        closed_token(deserializer, "side_effects", &Self::ALL, Self::as_str)
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolFactDeclarer {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        closed_token(deserializer, "declared_by", &Self::ALL, Self::as_str)
+    }
+}
+
 /// Which modalities a component consumes and produces.
 ///
 /// Native `eg:modality/*` IRIs, sorted and unique, so two components that
@@ -296,6 +388,19 @@ pub enum AgentComponentFacts {
         cost: Option<CostFacts>,
         #[serde(default)]
         latency_declared: Option<DeclaredLatency>,
+        /// Declared side effects. Absent is unknown, read as `external_write`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        side_effects: Option<ToolSideEffects>,
+        /// Who declared the effect facts. Absent reads as `connector`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        declared_by: Option<ToolFactDeclarer>,
+        /// Declared schema size in tokens. Absent is unknown, never zero.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        schema_tokens: Option<u32>,
+        /// `true` when `read_only_hint` came from an uncertified MCP hint, so
+        /// no decision may treat it as a proven read-only fact.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        read_only_unproven: bool,
     },
     Toolset {
         transport: ToolsetTransport,
@@ -368,8 +473,12 @@ impl AgentComponentFacts {
                 modalities,
                 cost,
                 latency_declared,
+                schema_tokens,
                 ..
             } => {
+                if *schema_tokens == Some(0) {
+                    return Err("agent component schema_tokens must be non-zero".into());
+                }
                 validate_names("required_scopes", required_scopes, MAX_SCOPES)?;
                 validate_schema_digest("input_schema_digest", input_schema_digest.as_deref())?;
                 validate_schema_digest("output_schema_digest", output_schema_digest.as_deref())?;

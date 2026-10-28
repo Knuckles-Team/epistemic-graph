@@ -24,6 +24,7 @@ pub(super) fn facts(entry: &PackEntry, digest: &Digest256) -> Result<AgentCompon
         PackEntryKind::Tool => AgentComponentFacts::Tool {
             effect: if entry.annotations.read_only_hint == Some(true)
                 && entry.annotations.destructive_hint != Some(true)
+                && !entry.annotations.read_only_unproven()
             {
                 ToolEffect::Read
             } else {
@@ -45,6 +46,10 @@ pub(super) fn facts(entry: &PackEntry, digest: &Digest256) -> Result<AgentCompon
             modalities,
             cost,
             latency_declared: entry.annotations.latency_declared,
+            side_effects: entry.annotations.side_effects,
+            declared_by: entry.annotations.declared_by,
+            schema_tokens: entry.annotations.schema_tokens,
+            read_only_unproven: entry.annotations.read_only_unproven(),
         },
         PackEntryKind::ModelProfile => {
             let model = entry.annotations.model.as_ref().ok_or_else(|| {
@@ -210,5 +215,59 @@ mod tests {
         assert_eq!(input, Some(format!("sha256:{}", "02".repeat(32))));
         assert_eq!(output, Some(format!("sha256:{}", "03".repeat(32))));
         assert_eq!(schema_digests(&tool_entry(None)).1, None);
+    }
+
+    fn tool_facts_of(annotations: PackAnnotations) -> AgentComponentFacts {
+        let entry = PackEntry {
+            annotations,
+            ..tool_entry(None)
+        };
+        facts(&entry, &Digest256::from_bytes([0; 32])).unwrap()
+    }
+
+    // spec: EG-TYPED-PACKS-R045.5
+    #[test]
+    fn mcp_hint_read_only_is_unproven() {
+        use eg_types::agent_component::{ToolFactDeclarer, ToolSideEffects};
+        let hinted = PackAnnotations {
+            read_only_hint: Some(true),
+            side_effects: Some(ToolSideEffects::None),
+            declared_by: Some(ToolFactDeclarer::McpHint),
+            schema_tokens: Some(640),
+            ..PackAnnotations::default()
+        };
+        let AgentComponentFacts::Tool {
+            effect,
+            read_only_hint,
+            side_effects,
+            declared_by,
+            schema_tokens,
+            read_only_unproven,
+            ..
+        } = tool_facts_of(hinted.clone())
+        else {
+            panic!("a tool entry derives tool facts");
+        };
+        assert_eq!(effect, ToolEffect::Write);
+        assert_eq!(read_only_hint, Some(true));
+        assert!(read_only_unproven);
+        assert_eq!(side_effects, Some(ToolSideEffects::None));
+        assert_eq!(declared_by, Some(ToolFactDeclarer::McpHint));
+        assert_eq!(schema_tokens, Some(640));
+        for declarer in [None, Some(ToolFactDeclarer::Connector), Some(ToolFactDeclarer::Certified)] {
+            let AgentComponentFacts::Tool {
+                effect,
+                read_only_unproven,
+                ..
+            } = tool_facts_of(PackAnnotations {
+                declared_by: declarer,
+                ..hinted.clone()
+            })
+            else {
+                panic!("a tool entry derives tool facts");
+            };
+            assert_eq!(effect, ToolEffect::Read, "{declarer:?}");
+            assert!(!read_only_unproven, "{declarer:?}");
+        }
     }
 }

@@ -44,6 +44,10 @@ fn tool(effect: ToolEffect) -> AgentComponentFacts {
         modalities: ModalityFacts::default(),
         cost: None,
         latency_declared: None,
+        side_effects: None,
+        declared_by: None,
+        schema_tokens: None,
+        read_only_unproven: false,
     }
 }
 

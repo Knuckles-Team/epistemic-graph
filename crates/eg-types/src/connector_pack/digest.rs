@@ -176,18 +176,23 @@ pub fn annotations_digest(annotations: &PackAnnotations) -> Result<Digest256, St
     let contract_version = optional_text(annotations.contract_version.as_deref());
     let sdk_pin = optional_text(annotations.sdk_contract_pin.as_deref());
     let tool_mode = optional_text(annotations.tool_mode.map(tool_mode_token));
-    Digest256::framed(
-        ANNOTATIONS_DIGEST_DOMAIN,
-        &[
+    let schema_tokens = annotations.schema_tokens.map(u32::to_be_bytes);
+    let hints = [
+        tri(annotations.read_only_hint),
+        tri(annotations.destructive_hint),
+        tri(annotations.idempotent_hint),
+        tri(annotations.open_world_hint),
+    ];
+    let mut fields: Vec<&[u8]> = vec![
             lists[0].as_bytes(),
             lists[1].as_bytes(),
             lists[2].as_bytes(),
             lists[3].as_bytes(),
             lists[4].as_bytes(),
-            &tri(annotations.read_only_hint),
-            &tri(annotations.destructive_hint),
-            &tri(annotations.idempotent_hint),
-            &tri(annotations.open_world_hint),
+            &hints[0],
+            &hints[1],
+            &hints[2],
+            &hints[3],
             contract_version,
             currency,
             prices[0].as_slice(),
@@ -198,8 +203,19 @@ pub fn annotations_digest(annotations: &PackAnnotations) -> Result<Digest256, St
             model.as_slice(),
             sdk_pin,
             tool_mode,
-        ],
-    )
+    ];
+    // Harness tool facts are framed by name and only when present, so an entry
+    // that declares none keeps its published golden vector.
+    if let Some(side_effects) = annotations.side_effects {
+        fields.extend([b"side_effects".as_slice(), side_effects.as_str().as_bytes()]);
+    }
+    if let Some(declared_by) = annotations.declared_by {
+        fields.extend([b"declared_by".as_slice(), declared_by.as_str().as_bytes()]);
+    }
+    if let Some(tokens) = schema_tokens.as_ref() {
+        fields.extend([b"schema_tokens".as_slice(), tokens.as_slice()]);
+    }
+    Digest256::framed(ANNOTATIONS_DIGEST_DOMAIN, &fields)
 }
 
 /// The five annotation lists, each already sorted and de-duplicated by
@@ -422,5 +438,64 @@ mod contract_pin_tests {
             entry_digest(&repinned).unwrap(),
             entry_digest(server).unwrap()
         );
+    }
+}
+
+#[cfg(test)]
+mod harness_tool_fact_tests {
+    use super::*;
+    use crate::agent_component::{ToolFactDeclarer, ToolSideEffects};
+
+    // spec: EG-TYPED-PACKS-R045.3
+    #[test]
+    fn absent_new_fields_keep_golden_vectors() {
+        let index = crate::test_support::contract_wave::pack::index();
+        assert_eq!(
+            entry_digest(&index.server).unwrap().to_hex(),
+            "be337c60eeea7477fe2970931c3de4ada4d30a301aa10bb6aa8d2b49827f4e6d"
+        );
+        let base = crate::test_support::contract_wave::pack::annotations();
+        let baseline = annotations_digest(&base).unwrap();
+        let explicit_absent: PackAnnotations = serde_json::from_value({
+            let mut wire = serde_json::to_value(&base).unwrap();
+            wire["side_effects"] = serde_json::Value::Null;
+            wire["declared_by"] = serde_json::Value::Null;
+            wire["schema_tokens"] = serde_json::Value::Null;
+            wire
+        })
+        .unwrap();
+        assert_eq!(annotations_digest(&explicit_absent).unwrap(), baseline);
+        let variants = [
+            PackAnnotations {
+                side_effects: Some(ToolSideEffects::None),
+                ..base.clone()
+            },
+            PackAnnotations {
+                side_effects: Some(ToolSideEffects::Network),
+                ..base.clone()
+            },
+            PackAnnotations {
+                declared_by: Some(ToolFactDeclarer::McpHint),
+                ..base.clone()
+            },
+            PackAnnotations {
+                declared_by: Some(ToolFactDeclarer::Certified),
+                ..base.clone()
+            },
+            PackAnnotations {
+                schema_tokens: Some(1),
+                ..base.clone()
+            },
+            PackAnnotations {
+                schema_tokens: Some(2),
+                ..base.clone()
+            },
+        ];
+        let digests: std::collections::BTreeSet<_> = variants
+            .iter()
+            .map(|annotations| annotations_digest(annotations).unwrap().to_hex())
+            .chain([baseline.to_hex()])
+            .collect();
+        assert_eq!(digests.len(), variants.len() + 1, "each field must be bound");
     }
 }

@@ -145,6 +145,10 @@ pub fn tool(component_id: &str, classification: &[&str], per_call: Option<u64>) 
             p50_ms: 1,
             p95_ms: 50,
         }),
+        side_effects: None,
+        declared_by: None,
+        schema_tokens: None,
+        read_only_unproven: false,
     };
     tool
 }
