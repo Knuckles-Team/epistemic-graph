@@ -1719,6 +1719,28 @@
         }
       ]
     },
+    "DistributionShift": {
+      "description": "Two-sample distribution-shift verdict (EG-FINANCE-PRIMITIVES-R900.3).",
+      "properties": {
+        "p_value": {
+          "format": "double",
+          "type": "number"
+        },
+        "shifted": {
+          "type": "boolean"
+        },
+        "statistic": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "statistic",
+        "p_value",
+        "shifted"
+      ],
+      "type": "object"
+    },
     "DocTerms": {
       "description": "A document's weighted terms.",
       "properties": {
@@ -6994,6 +7016,18 @@
       },
       "selected_by": null
     },
+    "FinanceDistributionShift": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DistributionShift"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "FinanceDownsideDeviation": {
       "bodies": {
         "result": {
@@ -7534,6 +7568,19 @@
               "type": "number"
             },
             "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinancePositionSize": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
           }
         }
       },

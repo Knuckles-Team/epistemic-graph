@@ -30041,6 +30041,99 @@
         },
         {
           "additionalProperties": false,
+          "description": "Fractional-Kelly stake from accuracy and win/loss ratio, clamped to `[0, max_risk]`\n(EG-FINANCE-PRIMITIVES-R900.3). `fraction` defaults to one half, `max_risk` to 0.02.",
+          "properties": {
+            "method": {
+              "const": "FinancePositionSize",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "accuracy": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "fraction": {
+                  "default": null,
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "max_risk": {
+                  "default": null,
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "win_loss_ratio": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "accuracy",
+                "win_loss_ratio"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Two-sample Kolmogorov-Smirnov shift test between a reference and a current sample\n(EG-FINANCE-PRIMITIVES-R900.3); `shifted` when the statistic exceeds `threshold`.",
+          "properties": {
+            "method": {
+              "const": "FinanceDistributionShift",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "current": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "reference": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "threshold": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "reference",
+                "current",
+                "threshold"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "properties": {
             "method": {
               "const": "FinanceBayesianKelly",

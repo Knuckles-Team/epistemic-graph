@@ -75,6 +75,8 @@ fn route_for_market(method: &Method) -> Option<FinanceRoute> {
         | Method::FinanceKyleLambda { .. }
         | Method::FinanceSurveillanceRisk { .. } => Some(FinanceRoute::Microstructure),
         Method::FinanceKellyFraction { .. }
+        | Method::FinancePositionSize { .. }
+        | Method::FinanceDistributionShift { .. }
         | Method::FinanceBayesianKelly { .. }
         | Method::FinancePosteriorCredibleInterval { .. } => Some(FinanceRoute::Sizing),
         Method::FinanceMarket { .. } | Method::FinanceSignalModels { .. } => {

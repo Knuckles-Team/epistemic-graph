@@ -466,6 +466,8 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("FinanceKalmanFilter1d", REASON_PURE_COMPUTE),
     ("FinanceKalmanVolatility", REASON_PURE_COMPUTE),
     ("FinanceKellyFraction", REASON_PURE_COMPUTE),
+    ("FinancePositionSize", REASON_PURE_COMPUTE),
+    ("FinanceDistributionShift", REASON_PURE_COMPUTE),
     ("FinanceKyleLambda", REASON_PURE_COMPUTE),
     ("FinanceLogitQuotes", REASON_PURE_COMPUTE),
     ("FinanceMarket", REASON_PURE_COMPUTE),

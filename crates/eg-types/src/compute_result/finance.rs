@@ -120,6 +120,15 @@ pub struct DieboldMariano {
     pub a_better: bool,
 }
 
+/// Two-sample distribution-shift verdict (EG-FINANCE-PRIMITIVES-R900.3).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DistributionShift {
+    pub statistic: f64,
+    pub p_value: f64,
+    pub shifted: bool,
+}
+
 /// Forensic-accounting scores for one fiscal year against the prior one.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]

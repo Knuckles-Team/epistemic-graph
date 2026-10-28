@@ -121,6 +121,8 @@
 | `FinanceKyleLambda` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceSurveillanceRisk` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKellyFraction` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinancePositionSize` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceDistributionShift` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceBayesianKelly` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinancePosteriorCredibleInterval` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinancePurgedCpcv` | false | None | `compute:finance` | true | false | false | None |  |

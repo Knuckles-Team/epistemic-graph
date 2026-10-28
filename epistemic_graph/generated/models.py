@@ -4508,6 +4508,14 @@ class DistResultScores(BaseModel):
     Scores: list[DistResultScoresBodyItem]
 
 
+class DistributionShift(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    p_value: float
+    shifted: bool
+    statistic: float
+
+
 class DocTerms(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10747,6 +10755,20 @@ class MethodFinanceKellyFraction(BaseModel):
     params: MethodFinanceKellyFractionParams
 
 
+class MethodFinancePositionSize(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinancePositionSize"]
+    params: MethodFinancePositionSizeParams
+
+
+class MethodFinanceDistributionShift(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceDistributionShift"]
+    params: MethodFinanceDistributionShiftParams
+
+
 class MethodFinanceBayesianKelly(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12492,6 +12514,8 @@ Method = Annotated[
     | MethodFinanceKyleLambda
     | MethodFinanceSurveillanceRisk
     | MethodFinanceKellyFraction
+    | MethodFinancePositionSize
+    | MethodFinanceDistributionShift
     | MethodFinanceBayesianKelly
     | MethodFinancePosteriorCredibleInterval
     | MethodFinancePurgedCpcv
@@ -13760,6 +13784,14 @@ class MethodFinanceDieboldMarianoParams(BaseModel):
     losses_b: list[float]
 
 
+class MethodFinanceDistributionShiftParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    current: list[float]
+    reference: list[float]
+    threshold: float
+
+
 class MethodFinanceDownsideDeviationParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14042,6 +14074,15 @@ class MethodFinancePairsTradingParams(BaseModel):
     lookback: Annotated[int, Field(ge=0)]
     prices_a: list[float]
     prices_b: list[float]
+
+
+class MethodFinancePositionSizeParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    accuracy: float
+    fraction: float | None = None
+    max_risk: float | None = None
+    win_loss_ratio: float
 
 
 class MethodFinancePosteriorCredibleIntervalParams(BaseModel):
@@ -26463,6 +26504,7 @@ __all__ = [
     "DistResultLabelsBodyItem",
     "DistResultScores",
     "DistResultScoresBodyItem",
+    "DistributionShift",
     "DocTerms",
     "DpoResult",
     "DsLogSoftmaxResult",
@@ -27482,6 +27524,8 @@ __all__ = [
     "MethodFinanceDetectRegimesParams",
     "MethodFinanceDieboldMariano",
     "MethodFinanceDieboldMarianoParams",
+    "MethodFinanceDistributionShift",
+    "MethodFinanceDistributionShiftParams",
     "MethodFinanceDownsideDeviation",
     "MethodFinanceDownsideDeviationParams",
     "MethodFinanceDrawdownSeries",
@@ -27550,6 +27594,8 @@ __all__ = [
     "MethodFinanceOuOptimalThresholdsParams",
     "MethodFinancePairsTrading",
     "MethodFinancePairsTradingParams",
+    "MethodFinancePositionSize",
+    "MethodFinancePositionSizeParams",
     "MethodFinancePosteriorCredibleInterval",
     "MethodFinancePosteriorCredibleIntervalParams",
     "MethodFinanceProbabilityBacktestOverfit",
