@@ -330,6 +330,7 @@ mod tests {
     }
 
     #[test]
+    // spec: EG-FEDERATED-QUERY-R039.2.1
     fn document_encoding_policy_round_trips_position_modes() {
         for mode in [
             DocumentPositionMode::LocalReset,
@@ -344,6 +345,7 @@ mod tests {
     }
 
     #[test]
+    // spec: EG-FEDERATED-QUERY-R039.2.1
     fn document_encoding_policy_rejects_invalid_bounds_and_revision() {
         assert!(DocumentEncodingPolicy::new(
             "tokenizer-v1",
