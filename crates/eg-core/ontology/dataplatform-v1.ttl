@@ -4,6 +4,7 @@
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 <http://knuckles.team/kg/dataplatform> a owl:Ontology ;
     rdfs:label "Data Platform and Machine Learning Ontology" ;
@@ -363,3 +364,135 @@
     rdfs:domain :Embedding ;
     rdfs:range :VectorIndex ;
     rdfs:subPropertyOf :partOf .
+
+# Connector competency vocabulary: data platform (EG-CQ-CONN-vocab: connector competency terms)
+
+:DocumentCollection a owl:Class ;
+    rdfs:label "Document Collection" ;
+    rdfs:comment "A named collection of schemaless documents in a document store (MongoDB or DocumentDB collection)." ;
+    rdfs:subClassOf :Dataset .
+
+:FieldProfile a owl:Class ;
+    rdfs:label "Field Profile" ;
+    rdfs:comment "The observed presence of one field across the documents of a collection." ;
+    rdfs:subClassOf :Observation .
+
+:isPrimaryKey a owl:DatatypeProperty ;
+    rdfs:label "is primary key" ;
+    rdfs:comment "True when the column is part of the primary key of its table." ;
+    rdfs:domain :Column ;
+    rdfs:range xsd:boolean .
+
+:referencesTable a owl:ObjectProperty ;
+    rdfs:label "references table" ;
+    rdfs:comment "Links a column to the table its foreign key points at." ;
+    rdfs:domain :Column ;
+    rdfs:range :Table .
+
+:documentCount a owl:DatatypeProperty ;
+    rdfs:label "document count" ;
+    rdfs:comment "Number of documents in a document collection." ;
+    rdfs:domain :DocumentCollection ;
+    rdfs:range xsd:integer .
+
+:profiledCollection a owl:ObjectProperty ;
+    rdfs:label "profiled collection" ;
+    rdfs:comment "Links a field profile to the collection it describes." ;
+    rdfs:domain :FieldProfile ;
+    rdfs:range :DocumentCollection .
+
+:fieldName a owl:DatatypeProperty ;
+    rdfs:label "field name" ;
+    rdfs:comment "The name of the profiled field." ;
+    rdfs:domain :FieldProfile ;
+    rdfs:range xsd:string .
+
+:fieldPresenceCount a owl:DatatypeProperty ;
+    rdfs:label "field presence count" ;
+    rdfs:comment "Number of documents of the collection that carry the field." ;
+    rdfs:domain :FieldProfile ;
+    rdfs:range xsd:integer .
+
+:lastWriteAt a owl:DatatypeProperty ;
+    rdfs:label "last write at" ;
+    rdfs:comment "Time of the latest write to a dataset." ;
+    rdfs:domain :Dataset ;
+    rdfs:range xsd:dateTime .
+
+:duplicateOf a owl:ObjectProperty ;
+    rdfs:label "duplicate of" ;
+    rdfs:comment "Links a document collection to the relational table whose content it duplicates." ;
+    rdfs:domain :DocumentCollection ;
+    rdfs:range :Table .
+
+:totalSizeBytes a owl:DatatypeProperty ;
+    rdfs:label "total size bytes" ;
+    rdfs:comment "Total stored bytes of a storage container." ;
+    rdfs:domain :StorageContainer ;
+    rdfs:range xsd:integer .
+
+:storedInContainer a owl:ObjectProperty ;
+    rdfs:label "stored in container" ;
+    rdfs:comment "Links a stored blob to the bucket that holds it." ;
+    rdfs:domain :Blob ;
+    rdfs:range :StorageContainer .
+
+:sizeBytes a owl:DatatypeProperty ;
+    rdfs:label "size bytes" ;
+    rdfs:comment "Size of a stored blob in bytes." ;
+    rdfs:domain :Blob ;
+    rdfs:range xsd:integer .
+
+:lastReadAt a owl:DatatypeProperty ;
+    rdfs:label "last read at" ;
+    rdfs:comment "Time a stored blob was last read." ;
+    rdfs:domain :Blob ;
+    rdfs:range xsd:dateTime .
+
+:backedByBlob a owl:ObjectProperty ;
+    rdfs:label "backed by blob" ;
+    rdfs:comment "Links a model artifact or distribution to the stored blob that holds its bytes." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :ModelArtifact :Distribution ) ] ;
+    rdfs:range :Blob .
+
+:validationMetric a owl:DatatypeProperty ;
+    rdfs:label "validation metric" ;
+    rdfs:comment "Value of the validation metric a model evaluation measured." ;
+    rdfs:domain :ModelEvaluation ;
+    rdfs:range xsd:decimal .
+
+:baselineMetric a owl:DatatypeProperty ;
+    rdfs:label "baseline metric" ;
+    rdfs:comment "Value of the same metric for the baseline run." ;
+    rdfs:domain :ModelEvaluation ;
+    rdfs:range xsd:decimal .
+
+:fineTunedFrom a owl:ObjectProperty ;
+    rdfs:label "fine-tuned from" ;
+    rdfs:comment "Links a fine-tuned model version to the model version it started from." ;
+    rdfs:domain :ModelVersion ;
+    rdfs:range :ModelVersion .
+
+:vectorCount a owl:DatatypeProperty ;
+    rdfs:label "vector count" ;
+    rdfs:comment "Number of vectors a vector index holds." ;
+    rdfs:domain :VectorIndex ;
+    rdfs:range xsd:integer .
+
+:indexDimension a owl:DatatypeProperty ;
+    rdfs:label "index dimension" ;
+    rdfs:comment "Dimension of the vectors a vector index stores." ;
+    rdfs:domain :VectorIndex ;
+    rdfs:range xsd:integer .
+
+:indexedWithModel a owl:ObjectProperty ;
+    rdfs:label "indexed with model" ;
+    rdfs:comment "Links a vector index to the embedding model that produced its vectors." ;
+    rdfs:domain :VectorIndex ;
+    rdfs:range :EmbeddingModel .
+
+:embeddingDimension a owl:DatatypeProperty ;
+    rdfs:label "embedding dimension" ;
+    rdfs:comment "Output dimension of an embedding model." ;
+    rdfs:domain :EmbeddingModel ;
+    rdfs:range xsd:integer .
