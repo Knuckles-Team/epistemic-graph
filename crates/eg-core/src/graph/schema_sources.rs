@@ -1362,7 +1362,7 @@ mod tests {
             ),
             (
                 "media",
-                "f49e08dc473a23c69c8c396107266cb1ecab2ce596851939c1a6393fd1ba9f71",
+                "5920136545dda8e7ed67a8fb2cb6e25acf1c0498e944ee96673549fa178420e2",
             ),
             (
                 "retrieval",
