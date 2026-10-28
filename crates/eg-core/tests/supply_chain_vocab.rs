@@ -725,3 +725,44 @@ ex:orderManagement a kg:BusinessCapability ."
         report.results
     );
 }
+
+// spec: EG-SUPPLY-VOCAB-R003.7
+#[test]
+fn supplier_and_customer_entail_organization_without_a_party_class() {
+    let mut triples = physical_documents();
+    triples.extend(load_commercial());
+    let classification = eg_rdf::owl::Reasoner::from_triples(&triples).classify();
+    assert!(
+        classification.consistent,
+        "the commercial vocabulary classifies consistently: {:?}",
+        classification.unsatisfiable
+    );
+    let organization = format!("<{KG}Organization>");
+    assert!(
+        classification.entails_subclass(&format!("<{KG}Supplier>"), &organization),
+        "Supplier entails Organization through the shared Vendor"
+    );
+    assert!(
+        classification.entails_subclass(&format!("<{KG}Customer>"), &organization),
+        "Customer entails Organization"
+    );
+    // No :Party class is declared anywhere in the core ontology set.
+    let party = format!("{KG}Party");
+    for entry in std::fs::read_dir("ontology").expect("the ontology directory is present") {
+        let path = entry.unwrap().path();
+        let document = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("{} reads: {err}", path.display()));
+        let parsed = parse_turtle(&document)
+            .unwrap_or_else(|err| panic!("{} parses: {err}", path.display()));
+        assert!(
+            !parsed
+                .iter()
+                .any(|triple| {
+                    subject_key(triple) == format!("<{party}>")
+                        && triple.predicate.as_str().ends_with("type")
+                }),
+            "{:?} declares a :Party class",
+            path.display()
+        );
+    }
+}
