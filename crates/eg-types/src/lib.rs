@@ -242,6 +242,11 @@ pub mod distribution;
 // EG-DURABLE-KERNEL-R038 — the declared durability class (ephemeral/async/sync)
 // a KV namespace or table carries. Pure serde, no dep.
 pub mod durability_class;
+// EG-DURABLE-KERNEL-R084.1 — typed optimistic-write conflict and the closed
+// set of scope-level merge strategies. Resolution and served wiring live above
+// this pure-data crate.
+pub mod write_conflict;
+pub use write_conflict::{MergeStrategy, WriteConflict};
 // EG-DURABLE-KERNEL-R037 — the workload classification (point/structure/sql)
 // every wire listener routes an operation by. Pure, no dep.
 pub mod workload_class;
