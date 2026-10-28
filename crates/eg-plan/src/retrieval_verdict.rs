@@ -305,12 +305,12 @@ struct Descent<'a> {
 }
 
 impl<'a> Descent<'a> {
-    fn refuse(&mut self, code: &str, detail: String) -> DescentRefusal {
+    fn refuse(&mut self, code: &str, detail: String) -> Box<DescentRefusal> {
         self.receipt.incomplete = true;
-        DescentRefusal {
+        Box::new(DescentRefusal {
             refusal: RetrievalRefusal::new(code, detail),
             partial: self.receipt.clone(),
-        }
+        })
     }
 
     fn charge(
@@ -318,7 +318,7 @@ impl<'a> Descent<'a> {
         source: &mut dyn HierarchySource,
         stage: HierarchyStage,
         id: &str,
-    ) -> Result<f64, DescentRefusal> {
+    ) -> Result<f64, Box<DescentRefusal>> {
         if self.receipt.reranker_calls >= self.policy.max_reranker_calls {
             return Err(self.refuse(RETRIEVAL_BUDGET_EXCEEDED, "reranker calls".into()));
         }
@@ -341,7 +341,7 @@ impl<'a> Descent<'a> {
         source: &mut dyn HierarchySource,
         stage: HierarchyStage,
         frontier: Vec<(&'a HierarchyCommunity, Vec<String>)>,
-    ) -> Result<Vec<(&'a HierarchyCommunity, Vec<String>)>, DescentRefusal> {
+    ) -> Result<Vec<(&'a HierarchyCommunity, Vec<String>)>, Box<DescentRefusal>> {
         let mut scored = Vec::with_capacity(frontier.len());
         for (community, path) in frontier {
             if self.receipt.visited_communities >= self.policy.max_visited_communities {
@@ -388,7 +388,7 @@ impl<'a> Descent<'a> {
         &mut self,
         source: &mut dyn HierarchySource,
         mut kept: Vec<(&'a HierarchyCommunity, Vec<String>)>,
-    ) -> Result<Vec<(&'a HierarchyCommunity, Vec<String>)>, DescentRefusal> {
+    ) -> Result<Vec<(&'a HierarchyCommunity, Vec<String>)>, Box<DescentRefusal>> {
         let mut leaves = Vec::new();
         while !kept.is_empty() {
             let mut frontier = Vec::new();
@@ -420,7 +420,7 @@ impl<'a> Descent<'a> {
         &mut self,
         source: &mut dyn HierarchySource,
         leaves: Vec<(&'a HierarchyCommunity, Vec<String>)>,
-    ) -> Result<(), DescentRefusal> {
+    ) -> Result<(), Box<DescentRefusal>> {
         let mut seen = BTreeSet::new();
         let mut candidates = Vec::new();
         for (community, path) in leaves {
@@ -479,7 +479,7 @@ pub fn descend_hierarchy(
     tenant: &str,
     communities: &[HierarchyCommunity],
     source: &mut dyn HierarchySource,
-) -> Result<HierarchyStageReceipt, DescentRefusal> {
+) -> Result<HierarchyStageReceipt, Box<DescentRefusal>> {
     let mut descent = Descent {
         policy,
         tenant,

@@ -260,9 +260,9 @@ pub mod knowledge_scope;
 pub mod policy_mask;
 /// Retrieval sufficiency, selection and hierarchy decisions (EG-FEDERATED-QUERY-R081).
 pub mod retrieval_verdict;
+pub mod rowset;
 /// Stored, versioned queries (EG-FEDERATED-QUERY-R708).
 pub mod stored_query;
-pub mod rowset;
 
 /// The `PROPAGATE` cone as plain ids (EH-526): what a standing impact watch recomputes.
 #[cfg(feature = "query")]
