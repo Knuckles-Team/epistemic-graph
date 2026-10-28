@@ -237,7 +237,7 @@ Each group below describes responsibility; it does not declare a new deployable 
 | Composition, listeners, policy, persistence adapters | Root `src/` and its `Medulla` library and executable targets |
 | Shared records, policies, codecs, resources | `eg-types`, `eg-capabilities`, `eg-method-codec`, `eg-resource` |
 | Physical storage, mutation authority, graph state | `eg-storage`, `eg-transaction`, `eg-core`, `eg-durable`, `eg-sqlite-format` |
-| Query and semantic processing | `eg-query`, `eg-plan`, `eg-rdf`, `eg-shacl`, `eg-shex`, `eg-graphql`, `eg-epistemic` |
+| Query and semantic processing | `eg-query`, `eg-plan`, `eg-rdf`, `eg-shacl`, `eg-shex`, `eg-graphql`, `eg-epistemic`, `eg-enrich` |
 | Compute and indexed data | `eg-compute`, `eg-numeric`, `eg-ann`, `eg-geo`, `eg-tensor`, `eg-stream`, `eg-tsdb`, `eg-text`, `eg-kvcache`, `eg-lake` |
 | Governed media contracts and processing | `eg-modality`, `eg-document`, `eg-image`, `eg-audio`, `eg-video`, `eg-alignment`, `eg-asr-whisper`, `eg-tts-piper` |
 | Jobs, programs, state machines, extensions | `eg-jobs`, `eg-program`, `eg-statechart`, `eg-wasm`, `eg-pyengine` |
