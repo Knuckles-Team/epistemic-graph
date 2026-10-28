@@ -107,7 +107,8 @@ def test_workflow_preserves_failed_parity():
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs["gates-contract"]
     assert job["needs"] == "changes"
-    assert job["if"] == jobs["gates"]["if"]
+    # Contract parity blocks every pull request; `gates` runs after merge.
+    assert job["if"] == "needs.changes.outputs.code == 'true'"
     assert job["steps"][0] == jobs["gates"]["steps"][0]
     assert all(step in jobs["gates"]["steps"] for step in job["steps"][:5])
     assert "gates-contract" in jobs["engine-main-wheel"]["needs"]
