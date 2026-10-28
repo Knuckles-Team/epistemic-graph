@@ -2805,9 +2805,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R086.7",
       "title": "Refusal: unavailable reads",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f8aef9dba62b"
+      ],
+      "verified_by": [
+        "src/server/persistence/read_through.rs:184"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.8",
