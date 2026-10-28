@@ -68,10 +68,10 @@ fn validate_mapping_datatypes(mapping: &DeclaredMapping) -> Result<(), String> {
         if !eg_types::connector_pack::source_datatype_supported(datatype) {
             return Err("schema mapping contains an unsupported datatype".into());
         }
-        if !mapping
+        if mapping
             .fields
             .get(field)
-            .is_some_and(|target| !target.starts_with("xsd:"))
+            .is_none_or(|target| target.starts_with("xsd:"))
         {
             return Err("schema datatype requires an explicit mapped field target".into());
         }
