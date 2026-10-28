@@ -262,7 +262,8 @@ ex:mapping a dp:StoreMapping ;
         vg:field "path"
     ] ;
     vg:approved true ;
-    dp:viaOperation "{via_operation}" .
+    dp:viaOperation "{via_operation}" ;
+    dp:accelerationMode "virtual" .
 "#
     )
 }
@@ -973,5 +974,79 @@ fn mapping_fixture_data_science_validates() {
     assert_via_operations(
         &triples,
         &["load_dataset", "dataset_lineage", "rank_models", "evaluate_model", "fit_model:fit"],
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R007.1
+#[test]
+fn materialised_without_reason_rejected() {
+    fn mapping_with_mode(mode: &str, reason: Option<&str>) -> String {
+        format!(
+            r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://example.org/data-platform/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:1076e71eb9f4543f53a06ccb20595f33afd5684c08ce0679f69ff9e0be1255d6" ;
+    vg:discoveredEntity "logical_paths" ;
+    vg:discoveredField "path" .
+
+ex:mapping a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:SecretPath ;
+    vg:mapsEntity "logical_paths" ;
+    vg:keyField "path" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:pathName ;
+        vg:field "path"
+    ] ;
+    vg:approved true ;
+    dp:viaOperation "openbao_mcp_logical:list" ;
+    dp:accelerationMode "{mode}"{reason} .
+"#,
+            reason = reason
+                .map(|r| format!(" ; dp:materialisationReason \"{r}\""))
+                .unwrap_or_default()
+        )
+    }
+
+    // A materialised mapping without a reason is a violation.
+    let no_reason = mapping_with_mode("materialised", None);
+    let report =
+        validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &no_reason)
+            .expect("the no-reason mapping parses before validation");
+    assert!(
+        !report.conforms,
+        "a materialised mapping without a materialisationReason must be rejected: {:?}",
+        report.results
+    );
+
+    // The same mapping with a reason conforms.
+    let with_reason = mapping_with_mode(
+        "materialised",
+        Some("Sustained lag needs history; recorded via the R038 AccelerationPolicy."),
+    );
+    let report =
+        validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &with_reason)
+            .expect("the with-reason mapping parses before validation");
+    assert!(
+        report.conforms,
+        "a materialised mapping with a reason must conform: {:?}",
+        report.results
+    );
+
+    // A virtual mapping needs no reason.
+    let virtual_mode = mapping_with_mode("virtual", None);
+    let report =
+        validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &virtual_mode)
+            .expect("the virtual mapping parses before validation");
+    assert!(
+        report.conforms,
+        "a virtual mapping must conform without a reason: {:?}",
+        report.results
     );
 }

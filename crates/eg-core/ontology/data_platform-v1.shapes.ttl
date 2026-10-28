@@ -157,6 +157,25 @@ dp:PolicyPathGrantShape a sh:NodeShape ;
 dp:StoreMappingShape a sh:NodeShape ;
     sh:targetClass dp:StoreMapping ;
     sh:property [ sh:path dp:viaOperation ; sh:datatype xsd:string ] ;
+    sh:property [
+        sh:path dp:accelerationMode ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "virtual" "materialised" ) ;
+        sh:message "accelerationMode is exactly one of virtual, materialised."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A materialised mapping must record why it is materialised; virtual needs no reason (EG-DATAPLAT-VOCAB-R007.1)." ;
+        sh:prefixes dp:DataPlatformPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this dp:accelerationMode "materialised" .
+                OPTIONAL { $this dp:materialisationReason ?reason }
+                FILTER(!BOUND(?reason))
+            }
+        """ ;
+    ] ;
     sh:sparql [
         a sh:SPARQLConstraint ;
         sh:message "A mapping that routes reads through a secret-value operation is refused: kv read, logical read and unwrap are never mapped (EG-DATAPLAT-VOCAB-R005.4)." ;
