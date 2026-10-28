@@ -229,3 +229,115 @@ pub struct SabrFit {
     pub rmse: f64,
     pub converged: bool,
 }
+
+/// One raised AML alert (EG-FINANCE-PRIMITIVES-R901.3).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AmlAlertResult {
+    pub rule_id: String,
+    pub rule_version: u32,
+    /// `structuring` or `threshold`.
+    pub kind: String,
+    /// `info`, `warning`, `critical` or `report-required`.
+    pub severity: String,
+    pub amount_minor: i64,
+}
+
+/// An AML screen: the alert, or none when the amount is below the structuring band.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AmlScreenResult {
+    pub alert: Option<AmlAlertResult>,
+}
+
+/// Basel-style capital ratios and their minimum checks (EG-FINANCE-PRIMITIVES-R901.3).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct CapitalRatiosResult {
+    pub cet1_ratio: f64,
+    pub tier1_ratio: f64,
+    pub total_capital_ratio: f64,
+    pub leverage_ratio: f64,
+    pub cet1_meets_minimum: bool,
+    pub total_capital_meets_minimum: bool,
+    pub leverage_meets_minimum: bool,
+}
+
+/// One leg of a correspondent settlement chain.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SettlementLegResult {
+    pub sequence: u32,
+    pub from: String,
+    pub to: String,
+    pub amount_minor: i64,
+}
+
+/// A fitted three-state regime chain and its forecast (EG-FINANCE-PRIMITIVES-R613.3).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RegimeChainResult {
+    pub states: Vec<String>,
+    pub probabilities: Vec<Vec<f64>>,
+    pub current_state: usize,
+    pub forecast: Vec<f64>,
+    pub horizon: usize,
+    pub threshold: f64,
+    pub hit_rate: f64,
+    pub transitions: usize,
+    pub solver_status: String,
+}
+
+/// An Almgren-Chriss execution schedule with its parameters, objective and solver status.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ExecutionScheduleResult {
+    pub symbol: String,
+    pub continuous: bool,
+    pub total_shares: f64,
+    pub horizon: f64,
+    pub slices: usize,
+    pub volatility: f64,
+    pub risk_aversion: f64,
+    pub temporary_impact: f64,
+    pub permanent_impact: f64,
+    pub holdings: Vec<f64>,
+    pub trades: Vec<f64>,
+    pub objective: f64,
+    pub solver_status: String,
+}
+
+/// A market-making quote around a reservation price.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct MarketMakingQuoteResult {
+    pub symbol: String,
+    pub reservation_price: f64,
+    pub spread: f64,
+    pub bid: f64,
+    pub ask: f64,
+}
+
+/// A pairs-trading entry signal.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PairsSignalResult {
+    pub y: String,
+    pub x: String,
+    pub hedge_ratio: f64,
+    pub z_score: f64,
+    pub entry_z: f64,
+    /// `short_spread`, `long_spread` or `flat`.
+    pub side: String,
+}
+
+/// One ranked factor with the provenance of its inputs (EG-FINANCE-PRIMITIVES-R018.3).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct FactorRecordResult {
+    pub factor_id: String,
+    pub information_coefficient: f64,
+    pub information_ratio: f64,
+    pub rank: u32,
+    pub input_provenance_keys: Vec<String>,
+}

@@ -95,6 +95,15 @@ if TYPE_CHECKING:
     FinanceSurveillanceRiskRequest = _models.MethodFinanceSurveillanceRiskParams
     FinanceKellyFractionRequest = _models.MethodFinanceKellyFractionParams
     FinancePositionSizeRequest = _models.MethodFinancePositionSizeParams
+    FinanceAmlScreenRequest = _models.MethodFinanceAmlScreenParams
+    FinanceCapitalRatiosRequest = _models.MethodFinanceCapitalRatiosParams
+    FinanceExpectedLossRequest = _models.MethodFinanceExpectedLossParams
+    FinanceSettlementChainRequest = _models.MethodFinanceSettlementChainParams
+    FinanceRegimeChainRequest = _models.MethodFinanceRegimeChainParams
+    FinanceExecutionScheduleRequest = _models.MethodFinanceExecutionScheduleParams
+    FinanceMarketMakingQuoteRequest = _models.MethodFinanceMarketMakingQuoteParams
+    FinancePairsSignalRequest = _models.MethodFinancePairsSignalParams
+    FinanceFactorRankRequest = _models.MethodFinanceFactorRankParams
     FinanceDistributionShiftRequest = _models.MethodFinanceDistributionShiftParams
     FinanceBayesianKellyRequest = _models.MethodFinanceBayesianKellyParams
     FinancePosteriorCredibleIntervalRequest = (
@@ -3444,6 +3453,382 @@ async def send_finance_position_size(
     return expect_float("FinancePositionSize", payload)
 
 
+async def send_finance_aml_screen(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceAmlScreen
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceAmlScreen
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceAmlScreenParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceAmlScreen",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceAmlScreen", payload)
+
+
+def decode_finance_aml_screen(result: OpaqueResult) -> _models.AmlScreenResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceAmlScreen", models().AmlScreenResult, result)
+
+
+async def send_finance_capital_ratios(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceCapitalRatios
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceCapitalRatios
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceCapitalRatiosParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceCapitalRatios",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceCapitalRatios", payload)
+
+
+def decode_finance_capital_ratios(result: OpaqueResult) -> _models.CapitalRatiosResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceCapitalRatios", models().CapitalRatiosResult, result)
+
+
+async def send_finance_expected_loss(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> float:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceExpectedLoss
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Float
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceExpectedLoss
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceExpectedLossParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceExpectedLoss",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_float("FinanceExpectedLoss", payload)
+
+
+async def send_finance_settlement_chain(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceSettlementChain
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceSettlementChain
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceSettlementChainParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceSettlementChain",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceSettlementChain", payload)
+
+
+def decode_finance_settlement_chain(
+    result: OpaqueResult,
+) -> _models.FinanceSettlementChainResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceSettlementChain", models().FinanceSettlementChainResult, result
+    )
+
+
+async def send_finance_regime_chain(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceRegimeChain
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceRegimeChain
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceRegimeChainParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceRegimeChain",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceRegimeChain", payload)
+
+
+def decode_finance_regime_chain(result: OpaqueResult) -> _models.RegimeChainResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceRegimeChain", models().RegimeChainResult, result)
+
+
+async def send_finance_execution_schedule(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceExecutionSchedule
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceExecutionSchedule
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceExecutionScheduleParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceExecutionSchedule",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceExecutionSchedule", payload)
+
+
+def decode_finance_execution_schedule(
+    result: OpaqueResult,
+) -> _models.ExecutionScheduleResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceExecutionSchedule", models().ExecutionScheduleResult, result
+    )
+
+
+async def send_finance_market_making_quote(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceMarketMakingQuote
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceMarketMakingQuote
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceMarketMakingQuoteParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceMarketMakingQuote",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceMarketMakingQuote", payload)
+
+
+def decode_finance_market_making_quote(
+    result: OpaqueResult,
+) -> _models.MarketMakingQuoteResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceMarketMakingQuote", models().MarketMakingQuoteResult, result
+    )
+
+
+async def send_finance_pairs_signal(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinancePairsSignal
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinancePairsSignal
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinancePairsSignalParams.model_validate(params or {})
+    payload = await client._send(
+        "FinancePairsSignal",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinancePairsSignal", payload)
+
+
+def decode_finance_pairs_signal(result: OpaqueResult) -> _models.PairsSignalResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinancePairsSignal", models().PairsSignalResult, result)
+
+
+async def send_finance_factor_rank(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceFactorRank
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceFactorRank
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceFactorRankParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceFactorRank",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceFactorRank", payload)
+
+
+def decode_finance_factor_rank(result: OpaqueResult) -> _models.FinanceFactorRankResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceFactorRank", models().FinanceFactorRankResult, result)
+
+
 async def send_finance_distribution_shift(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -5906,6 +6291,15 @@ _REQUEST_METHODS = frozenset(
         "FinanceSurveillanceRisk",
         "FinanceKellyFraction",
         "FinancePositionSize",
+        "FinanceAmlScreen",
+        "FinanceCapitalRatios",
+        "FinanceExpectedLoss",
+        "FinanceSettlementChain",
+        "FinanceRegimeChain",
+        "FinanceExecutionSchedule",
+        "FinanceMarketMakingQuote",
+        "FinancePairsSignal",
+        "FinanceFactorRank",
         "FinanceDistributionShift",
         "FinanceBayesianKelly",
         "FinancePosteriorCredibleInterval",
