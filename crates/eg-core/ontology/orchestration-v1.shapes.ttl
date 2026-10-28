@@ -34,3 +34,276 @@
             }
         """
     ] .
+
+# A step is acyclic under :precedes and has exactly one owning task. The
+# SHACL-SPARQL evaluator declines property paths, so a cycle is detected by
+# unrolling the chain up to eight steps.
+:TaskStepShape a sh:NodeShape ;
+    sh:targetClass :TaskStep ;
+    sh:sparql [
+        sh:message "A task step precedes itself." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                { $this :precedes $this . }
+                UNION { $this :precedes ?n1 . ?n1 :precedes $this . }
+                UNION { $this :precedes ?n1 . ?n1 :precedes ?n2 . ?n2 :precedes $this . }
+                UNION { $this :precedes ?n1 . ?n1 :precedes ?n2 . ?n2 :precedes ?n3 . ?n3 :precedes $this . }
+                UNION { $this :precedes ?n1 . ?n1 :precedes ?n2 . ?n2 :precedes ?n3 . ?n3 :precedes ?n4 . ?n4 :precedes $this . }
+                UNION { $this :precedes ?n1 . ?n1 :precedes ?n2 . ?n2 :precedes ?n3 . ?n3 :precedes ?n4 . ?n4 :precedes ?n5 . ?n5 :precedes $this . }
+                UNION { $this :precedes ?n1 . ?n1 :precedes ?n2 . ?n2 :precedes ?n3 . ?n3 :precedes ?n4 . ?n4 :precedes ?n5 . ?n5 :precedes ?n6 . ?n6 :precedes $this . }
+                UNION { $this :precedes ?n1 . ?n1 :precedes ?n2 . ?n2 :precedes ?n3 . ?n3 :precedes ?n4 . ?n4 :precedes ?n5 . ?n5 :precedes ?n6 . ?n6 :precedes ?n7 . ?n7 :precedes $this . }
+            }
+        """
+    ] ,
+    [
+        sh:message "A task step has no owning task." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this a :TaskStep .
+                OPTIONAL { ?owner :hasStep $this }
+                FILTER(!BOUND(?owner))
+            }
+        """
+    ] ,
+    [
+        sh:message "A task step has more than one owning task." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                ?first :hasStep $this .
+                ?second :hasStep $this .
+                FILTER(?first != ?second)
+            }
+        """
+    ] .
+
+# A library member that provides no capability is useless to coverage.
+:LibraryMemberShape a sh:NodeShape ;
+    sh:targetSubjectsOf :memberOfLibrary ;
+    sh:property [ sh:path :providesCapability ; sh:minCount 1 ] .
+
+# Every projected best practice names exactly one task class, as an IRI.
+:RuleScopeShape a sh:NodeShape ;
+    sh:targetClass :BestPractice ;
+    sh:property [ sh:path :appliesToTaskClass ;
+        sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] .
+
+# An assigned step names an agent or an A2A card; an agent carries one model and one prompt.
+:StepBindingShape a sh:NodeShape ;
+    sh:targetSubjectsOf :stepAssignedAgent ;
+    sh:sparql [
+        sh:message "A step is assigned something that is neither an agent nor an A2A agent card." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :stepAssignedAgent ?agent .
+                OPTIONAL {
+                    ?agent a ?kind .
+                    FILTER(?kind IN (:Agent, :AgentTemplate, :A2AAgentCard))
+                }
+                FILTER(!BOUND(?kind))
+            }
+        """
+    ] ,
+    [
+        sh:message "An assigned agent has no model." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :stepAssignedAgent ?agent .
+                ?agent a ?kind .
+                FILTER(?kind IN (:Agent, :AgentTemplate))
+                OPTIONAL { ?agent :usesModel ?model }
+                FILTER(!BOUND(?model))
+            }
+        """
+    ] ,
+    [
+        sh:message "An assigned agent has no prompt." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :stepAssignedAgent ?agent .
+                ?agent a ?kind .
+                FILTER(?kind IN (:Agent, :AgentTemplate))
+                OPTIONAL { ?agent :hasPrompt ?prompt }
+                FILTER(!BOUND(?prompt))
+            }
+        """
+    ] ,
+    [
+        sh:message "An assigned agent has more than one model." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :stepAssignedAgent ?agent .
+                ?agent :usesModel ?first , ?second .
+                FILTER(?first != ?second)
+            }
+        """
+    ] ,
+    [
+        sh:message "An assigned agent has more than one prompt." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :stepAssignedAgent ?agent .
+                ?agent :hasPrompt ?first , ?second .
+                FILTER(?first != ?second)
+            }
+        """
+    ] .
+
+# A trace with a terminal status carries its termination reason, every
+# counter, its model, its task class and the harness config it applied.
+:RunTraceCompletedShape a sh:NodeShape ;
+    sh:targetClass :RunTrace ;
+    sh:sparql
+    [
+        sh:message "A terminal run trace lacks :terminationReason." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :terminationReason ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] ,
+    [
+        sh:message "A terminal run trace lacks :peakContextTokens." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :peakContextTokens ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] ,
+    [
+        sh:message "A terminal run trace lacks :contextBudgetTokens." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :contextBudgetTokens ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] ,
+    [
+        sh:message "A terminal run trace lacks :elisionCount." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :elisionCount ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] ,
+    [
+        sh:message "A terminal run trace lacks :summarizationCount." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :summarizationCount ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] ,
+    [
+        sh:message "A terminal run trace lacks :turnCount." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :turnCount ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] ,
+    [
+        sh:message "A terminal run trace lacks :toolCallCount." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :toolCallCount ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] ,
+    [
+        sh:message "A terminal run trace lacks :runModel." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :runModel ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] ,
+    [
+        sh:message "A terminal run trace lacks :runTaskClass." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :runTaskClass ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] ,
+    [
+        sh:message "A terminal run trace lacks :appliedHarnessConfig." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this :status ?status .
+                FILTER(?status IN ("completed", "failed", "cancelled"))
+                OPTIONAL { $this :appliedHarnessConfig ?value }
+                FILTER(!BOUND(?value))
+            }
+        """
+    ] .
+
+# A measured fact cites exactly one evaluation run and a value from its property's value set.
+:MeasuredModelFactShape a sh:NodeShape ;
+    sh:targetClass :MeasuredModelFact ;
+    sh:property [ sh:path :evidencedByRun ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ,
+    [ sh:path :factOfModel ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ,
+    [ sh:path :measuredProperty ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+        sh:in ( "shellProficiency" "stoppingBehaviour" "contextWindowTokens" ) ] ,
+    [ sh:path :measuredValue ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:sparql [
+        sh:message "The measured value is outside the value set of its property." ;
+        sh:select """
+            PREFIX : <http://knuckles.team/kg#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this :measuredProperty ?property ; :measuredValue ?value .
+                FILTER (
+                    (?property = "shellProficiency" && !(?value IN ("low", "medium", "high")))
+                    || (?property = "stoppingBehaviour"
+                        && !(?value IN ("stops_early", "balanced", "over_verifies")))
+                    || (?property = "contextWindowTokens"
+                        && !(datatype(?value) = xsd:integer && ?value > 0))
+                )
+            }
+        """
+    ] .
