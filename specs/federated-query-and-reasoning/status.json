@@ -486,8 +486,8 @@
         "2b3e2738b5ff"
       ],
       "verified_by": [
-        "crates/eg-types/src/wire_query_core.rs:1117",
-        "crates/eg-types/src/wire_query_core.rs:1149"
+        "crates/eg-types/src/wire_query_core.rs:1128",
+        "crates/eg-types/src/wire_query_core.rs:1160"
       ]
     },
     {
@@ -752,7 +752,7 @@
         "c3b87d31ac11"
       ],
       "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:226"
+        "crates/eg-capabilities/tests/contract_registry.rs:229"
       ]
     },
     {
@@ -781,7 +781,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2695",
-        "src/server/mod.rs:2107"
+        "src/server/mod.rs:2119"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R022.1"
@@ -798,7 +798,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2695",
-        "src/server/mod.rs:2107"
+        "src/server/mod.rs:2119"
       ]
     },
     {
@@ -871,7 +871,7 @@
         "c2181ef46a26"
       ],
       "verified_by": [
-        "src/server/handlers/query/uql_statement.rs:225"
+        "src/server/handlers/query/uql_statement.rs:343"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R028.1"
@@ -1298,17 +1298,24 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.1",
       "title": "Typed NL→UQL disclosure model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3da71fa8e9b7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/query/nl.rs:407"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.2",
       "title": "Dispatch handler and result contract disclose the typed NL→UQL model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "32248e14e747",
+        "569b1ab507d6",
+        "8710a3709c47",
+        "f9d6d793d946"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.2.1",
@@ -1329,8 +1336,12 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.2.2",
       "title": "Served NL result carries the executed UQL; plan-only is reachable",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "32248e14e747",
+        "569b1ab507d6",
+        "f9d6d793d946"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.2.2.1",
@@ -1346,17 +1357,19 @@
         "f9d6d793d946"
       ],
       "verified_by": [
-        "crates/eg-types/src/nl_query.rs:26",
-        "src/server/tests/nl_explain.rs:54",
-        "src/server/tests/nl_explain.rs:81",
+        "crates/eg-types/src/nl_query.rs:43",
+        "src/server/tests/nl_explain.rs:68",
+        "src/server/tests/nl_explain.rs:95",
         "tests/test_pb_clients.py:88"
       ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.2.2.2",
       "title": "Plan-only NL entry point",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "32248e14e747"
+      ],
       "verified_by": []
     },
     {
@@ -1369,10 +1382,10 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:261",
-        "src/server/handlers/query/nl.rs:267",
-        "src/server/handlers/query/nl.rs:290",
-        "src/server/tests/nl_explain.rs:108"
+        "src/server/handlers/query/nl.rs:332",
+        "src/server/handlers/query/nl.rs:338",
+        "src/server/handlers/query/nl.rs:361",
+        "src/server/tests/nl_explain.rs:147"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.3.1",
@@ -1388,9 +1401,9 @@
         "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:261",
-        "src/server/handlers/query/nl.rs:267",
-        "src/server/handlers/query/nl.rs:290"
+        "src/server/handlers/query/nl.rs:332",
+        "src/server/handlers/query/nl.rs:338",
+        "src/server/handlers/query/nl.rs:361"
       ]
     },
     {
@@ -1401,7 +1414,7 @@
         "a685d96e5de3"
       ],
       "verified_by": [
-        "src/server/tests/nl_explain.rs:108"
+        "src/server/tests/nl_explain.rs:147"
       ]
     },
     {
@@ -2303,9 +2316,9 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/wire_query_core.rs:1047",
-        "crates/eg-types/src/wire_query_core.rs:1059",
-        "crates/eg-types/src/wire_query_core.rs:1086"
+        "crates/eg-types/src/wire_query_core.rs:1058",
+        "crates/eg-types/src/wire_query_core.rs:1070",
+        "crates/eg-types/src/wire_query_core.rs:1097"
       ]
     },
     {
@@ -3112,7 +3125,7 @@
         "crates/eg-plan/src/nl_regressions.rs:278",
         "crates/eg-plan/src/nl_regressions.rs:290",
         "crates/eg-plan/src/nl_regressions.rs:319",
-        "src/server/handlers/query/nl.rs:309",
+        "src/server/handlers/query/nl.rs:380",
         "src/server/nl.rs:450"
       ]
     },
@@ -4548,7 +4561,11 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/pack/sources.rs:114",
+        "crates/eg-types/src/connector_pack/source.rs:63",
+        "src/server/handlers/admin/connector_pack/tests/ontology.rs:175"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R722.2",
@@ -4559,7 +4576,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R722.3",
-      "title": "Wiring",
+      "title": "Wiring and served execution contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4569,7 +4586,9 @@
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/pack/sources.rs:136"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R722.5",
