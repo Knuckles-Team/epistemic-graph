@@ -44,6 +44,40 @@ fn load_supply_chain() -> Vec<Triple> {
         .expect("the supply-chain vocabulary parses")
 }
 
+fn load_commercial() -> Vec<Triple> {
+    parse_turtle(include_str!("../ontology/commercial-v1.ttl"))
+        .expect("the commercial vocabulary parses")
+}
+
+fn assert_domain_range(
+    triples: &[Triple],
+    local: &str,
+    domain: &str,
+    range: &str,
+) {
+    let subject = format!("{KG}{local}");
+    assert!(
+        has_iri(
+            triples,
+            &subject,
+            &format!("{RDFS}domain"),
+            &format!("{KG}{domain}")
+        ),
+        "{local} domain is {domain}"
+    );
+    let range_iri = if let Some(tail) = range.strip_prefix("xsd:") {
+        format!("{XSD}{tail}")
+    } else if let Some(tail) = range.strip_prefix("infra:") {
+        format!("{INFRA}{tail}")
+    } else {
+        format!("{KG}{range}")
+    };
+    assert!(
+        has_iri(triples, &subject, &format!("{RDFS}range"), &range_iri),
+        "{local} range is {range}"
+    );
+}
+
 const SHACL: &str = "http://www.w3.org/ns/shacl#";
 
 const SUPPLY_SHAPES: &str = include_str!("../ontology/supply_chain-v1.shapes.ttl");
@@ -409,4 +443,53 @@ fn supplier_and_item_shapes_require_a_label() {
             report.results
         );
     }
+}
+
+// spec: EG-SUPPLY-VOCAB-R003.2
+#[test]
+fn contract_terms_declared_with_domain_range() {
+    let triples = load_commercial();
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}CustomerContract"),
+            &format!("{RDF}type"),
+            &format!("{OWL}Class")
+        ),
+        "CustomerContract is a class"
+    );
+    // The five contract terms carry their declared domain and range.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}contractCustomer"),
+            &format!("{RDF}type"),
+            &format!("{OWL}ObjectProperty")
+        ),
+        "contractCustomer is an object property"
+    );
+    assert_domain_range(&triples, "contractCustomer", "CustomerContract", "Customer");
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}coversService"),
+            &format!("{RDF}type"),
+            &format!("{OWL}ObjectProperty")
+        ),
+        "coversService is an object property"
+    );
+    assert_domain_range(&triples, "coversService", "CustomerContract", "infra:Service");
+    for property in ["contractStatus", "contractEnd"] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{KG}{property}"),
+                &format!("{RDF}type"),
+                &format!("{OWL}DatatypeProperty")
+            ),
+            "{property} is a datatype property"
+        );
+    }
+    assert_domain_range(&triples, "contractStatus", "CustomerContract", "xsd:string");
+    assert_domain_range(&triples, "contractEnd", "CustomerContract", "xsd:date");
 }

@@ -28,6 +28,24 @@ source names it the report abstains Uncovered.""" ;
     rdfs:domain :CustomerContract ;
     rdfs:range infra:Service .
 
+:contractCustomer a owl:ObjectProperty ;
+    rdfs:label "contract customer" ;
+    rdfs:comment "Links a CustomerContract to the one Customer that holds it." ;
+    rdfs:domain :CustomerContract ;
+    rdfs:range :Customer .
+
+:contractStatus a owl:DatatypeProperty ;
+    rdfs:label "contract status" ;
+    rdfs:comment "The status of a CustomerContract (for example active, expired or terminated); active contracts are the default filter." ;
+    rdfs:domain :CustomerContract ;
+    rdfs:range xsd:string .
+
+:contractEnd a owl:DatatypeProperty ;
+    rdfs:label "contract end" ;
+    rdfs:comment "The date a CustomerContract ends or has ended." ;
+    rdfs:domain :CustomerContract ;
+    rdfs:range xsd:date .
+
 :Opportunity a owl:Class ;
     rdfs:label "Opportunity" ;
     rdfs:comment "An open commercial opportunity with one customer and an expected close date." ;
