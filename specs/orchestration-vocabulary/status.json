@@ -161,9 +161,19 @@
     {
       "id": "EG-ORCH-VOCAB-R001",
       "title": "Task steps (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "232da0d60c91",
+        "481fa6ea2c55",
+        "4b6ac7e2fe1f",
+        "fcf70c5bf0a8"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:31",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:413",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:421",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:442"
+      ],
       "rollup_of": [
         "EG-ORCH-VOCAB-R001.1",
         "EG-ORCH-VOCAB-R001.2",
@@ -187,30 +197,50 @@
     {
       "id": "EG-ORCH-VOCAB-R001.2",
       "title": "Add property `:hasStep`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:413"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R001.3",
       "title": "Add step-order acyclicity shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:421"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R001.4",
       "title": "Add Q1 fixture and query test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:442"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R002",
       "title": "Agent kinds and staffing (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:462",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:483",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:496",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:525",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:555"
+      ],
       "rollup_of": [
         "EG-ORCH-VOCAB-R002.1",
         "EG-ORCH-VOCAB-R002.2",
@@ -222,37 +252,57 @@
     {
       "id": "EG-ORCH-VOCAB-R002.1",
       "title": "Add class `:AgentKind` and seed members",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:462"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R002.2",
       "title": "Add property `:hasAgentKind`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:483"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R002.3",
       "title": "Add property `swarm:requiresAgentKind` and the import",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:496"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R002.4",
       "title": "Add slot-kind shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:525"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R002.5",
       "title": "Add Q2 query test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:555"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R003",
@@ -274,37 +324,57 @@
     {
       "id": "EG-ORCH-VOCAB-R003.1",
       "title": "Add class `:AgentTemplate`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:586"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R003.2",
       "title": "Add class `:AgentLibrary`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:607"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R003.3",
       "title": "Add property `:memberOfLibrary`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:613"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R003.4",
       "title": "Add property `:instanceOfTemplate`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:625"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R003.5",
       "title": "Add library-member shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:637"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R003.6",
@@ -316,9 +386,13 @@
     {
       "id": "EG-ORCH-VOCAB-R003.7",
       "title": "Add Q3 query test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:649"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R004",
@@ -353,16 +427,24 @@
     {
       "id": "EG-ORCH-VOCAB-R004.2",
       "title": "Add property `:appliesToTaskClass`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:668"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R004.3",
       "title": "Add rule-scope shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:683"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R004.4",
@@ -374,9 +456,13 @@
     {
       "id": "EG-ORCH-VOCAB-R004.5",
       "title": "Add Q4 query test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:699"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R005",
@@ -397,30 +483,46 @@
     {
       "id": "EG-ORCH-VOCAB-R005.1",
       "title": "Add class `:ModelProfile`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:734"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R005.2",
       "title": "Add property `:needsSkill`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:748"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R005.3",
       "title": "Add property `:stepAssignedAgent`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:760"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R005.4",
       "title": "Add binding shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:776"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R005.5",
@@ -432,9 +534,13 @@
     {
       "id": "EG-ORCH-VOCAB-R005.6",
       "title": "Add Q5 query test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:805"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R006",
@@ -454,30 +560,46 @@
     {
       "id": "EG-ORCH-VOCAB-R006.1",
       "title": "Add property `:handsOffTo`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:841"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R006.2",
       "title": "Add property `swarm:feeds`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:870"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R006.3",
       "title": "Add property `swarm:loopsBackTo`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:882"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R006.4",
       "title": "Add DAG acyclicity shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:894"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R006.5",
@@ -489,9 +611,14 @@
     {
       "id": "EG-ORCH-VOCAB-R006.6",
       "title": "Add Q6 and Q7 query tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:917",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:928"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R007",
@@ -688,23 +815,35 @@
     {
       "id": "EG-ORCH-VOCAB-R009.9",
       "title": "Add property `:appliedHarnessConfig`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:945"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R009.10",
       "title": "Add property `:runModel`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:965"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R009.11",
       "title": "Add property `:runTaskClass`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:979"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R009.12",
@@ -735,9 +874,13 @@
     {
       "id": "EG-ORCH-VOCAB-R009.14",
       "title": "Add completed-trace shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:1014"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R009.15",
@@ -842,44 +985,68 @@
     {
       "id": "EG-ORCH-VOCAB-R011.1",
       "title": "Add class `:EvaluationRun`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:1041"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R011.2",
       "title": "Add class `:MeasuredModelFact`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:1050"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R011.3",
       "title": "Add properties `:factOfModel` and `:measuredProperty`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:1056"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R011.4",
       "title": "Add property `:evidencedByRun`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:1076"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R011.5",
       "title": "Add property `:measuredSupersedes`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:1088"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R011.6",
       "title": "Add measured-fact shape",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6ac7e2fe1f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:1100"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R011.7",

@@ -134,9 +134,13 @@
     {
       "id": "EG-ENGINE-PARITY-R002.1",
       "title": "Model and behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1c3ecc289e2d"
+      ],
+      "verified_by": [
+        "crates/eg-transaction/tests/occ.rs:7"
+      ]
     },
     {
       "id": "EG-ENGINE-PARITY-R002.2",
@@ -200,9 +204,13 @@
     {
       "id": "EG-ENGINE-PARITY-R004.1",
       "title": "Model and behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1c3ecc289e2d"
+      ],
+      "verified_by": [
+        "crates/eg-transaction/tests/occ.rs:53"
+      ]
     },
     {
       "id": "EG-ENGINE-PARITY-R004.2",
@@ -728,9 +736,13 @@
     {
       "id": "EG-ENGINE-PARITY-R020.1",
       "title": "Model and behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0833f86e3a00"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/engine_capabilities.rs:5"
+      ]
     },
     {
       "id": "EG-ENGINE-PARITY-R020.2",
