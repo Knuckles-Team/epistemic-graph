@@ -668,7 +668,7 @@ fn core_specs() -> &'static [CoreSpec] {
         CoreSpec {
             module: "harness",
             version: 1,
-            shapes: None,
+            shapes: Some(include_str!("../../ontology/harness-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/harness-v1.ttl")),
         },
         CoreSpec {
