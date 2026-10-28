@@ -14,7 +14,9 @@ use eg_types::supply_chain_report::{
     SupplyChainImpactReport,
 };
 
-use crate::source_selection::{select_sources, CoverageFixture, CoverageResult, Premise};
+use crate::source_selection::{
+    select_sources, AbstainReason, CoverageFixture, CoverageResult, Premise,
+};
 
 /// Plan `roots` (the question's ontology classes) against the authority
 /// fixture and assemble the supply-chain impact report from the recorded
@@ -63,10 +65,25 @@ pub fn supply_chain_impact(
                     class: class.clone(),
                 });
             }
-            CoverageResult::Unconnected { class, source, .. } => {
-                abstentions.push(ReportAbstention::Unconnected {
-                    class: class.clone(),
-                    source: source.clone(),
+            CoverageResult::Abstained {
+                class,
+                reason,
+                source,
+                ..
+            } => {
+                let source = source.clone().unwrap_or_default();
+                abstentions.push(match reason {
+                    AbstainReason::Unconnected => ReportAbstention::Unconnected {
+                        class: class.clone(),
+                        source,
+                    },
+                    AbstainReason::UnapprovedMapping => ReportAbstention::UnapprovedMapping {
+                        class: class.clone(),
+                        mapping: source,
+                    },
+                    _ => ReportAbstention::Uncovered {
+                        class: class.clone(),
+                    },
                 });
             }
         }

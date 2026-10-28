@@ -163,6 +163,7 @@ closed_error_codes! {
         RegistryCursorStale => "REGISTRY_CURSOR_STALE",
         RegistryLimit => "REGISTRY_LIMIT",
         ReplayNonceConsumed => "REPLAY_NONCE_CONSUMED",
+        RepositoryBatchTooLarge => "REPOSITORY_BATCH_TOO_LARGE",
         ReservedGraphName => "RESERVED_GRAPH_NAME",
         ResultTooLarge => "RESULT_TOO_LARGE",
         SchemaInconsistent => "SCHEMA_INCONSISTENT",

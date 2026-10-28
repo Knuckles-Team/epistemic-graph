@@ -27,7 +27,8 @@ use super::LegacyIntegrityPolicy;
 /// EG-TYPED-PACKS-R105.6 to R105.9), the commercial module with its shapes
 /// companion (52, EG-SUPPLY-VOCAB-R003.13), the supply-chain vocabulary
 /// (53, EG-SUPPLY-VOCAB-R001.1.2), and the connector-pack vocabulary with its
-/// shapes companion (54, EG-TYPED-PACKS-R101.1 to R102.1).
+/// shapes companion (54, EG-TYPED-PACKS-R101.1 to R102.1), and the government
+/// and foundation shapes companions (55, 56, EG-CQ-CONN-R073.1, R074.1).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -1159,7 +1160,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 54);
+        assert_eq!(sources.core.len(), 56);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1446,7 +1447,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "92871242d053d76f04c997f08c736a584ff69171e7089958bd39da7642710c1a",
+                "a5d2d681d7e80c27b2d6e8cb40409a2161099a7702d3457be41b3f000b37be88",
             ),
             (
                 "company",
@@ -1458,7 +1459,7 @@ mod tests {
             ),
             (
                 "connector-pack",
-                "1b98e4cded3986fcfec509cce5dd5362c4aa92d1c14d1c5e9b4275a8b82bc278",
+                "129b2707c8bbd818bfd71d2678d0352152a5aacadc0704e27d5951e5a00f2fae",
             ),
             (
                 "concepts",
@@ -1522,15 +1523,15 @@ mod tests {
             ),
             (
                 "orchestration",
-                "54876718a69bcb729925b5b3f9110e1ab7db066f90a64212f0fcaf7c2ca2521b",
+                "71d5ceee33e90c545ddb427679a44a88b5a8781a93a4065df2faf3a4dcd9f43d",
             ),
             (
                 "orchestration-shapes",
-                "0693b12c0787dca437c392cc4bf8e2dcb099f563fcdb830327b6bf2cc9367299",
+                "816fc9d0bafd4e57026d36131351410a89fb483b6342402c52e676732292fac8",
             ),
             (
                 "personal",
-                "c83b84b5ec44f9d6df4d3f3c0e1a8ff3227d75821697a4e47eac31bd0d1be0a8",
+                "399357c7ed3cecc8537010390c1d5c6708ea96b233c951c5cd473d8827a79511",
             ),
             (
                 "process_intelligence",
@@ -1550,7 +1551,7 @@ mod tests {
             ),
             (
                 "data-platform",
-                "039234d96e444879f9eb9af9ba3f74371adf1d19da89d554f647c02a66223508",
+                "03d30f8521e1adbfce3ac284bade4df85909801b3051a521b0bca3a7a1475f5e",
             ),
             (
                 "it4it_delivery",
@@ -1610,11 +1611,11 @@ mod tests {
             // R004.2.3-R004.2.6 added the portfolio-group, strategy and leverage records.
             (
                 "finance",
-                "f56efd6b98b4ccbd707311231adc83068f0db1c4385bfa8aed7d263c9535eabd",
+                "3ddf1f2612dd5762befc10ae5650c826e090258fd73b36f96b7050e85dcb099d",
             ),
             (
                 "finance-shapes",
-                "a978edea07c44826abe07d10de2c0812cfdf63b5462f44787da70ea019720710",
+                "f541fb730a8852eab40265eefeeb3ff1ad445415cf95a17a403df87a5279362c",
             ),
             (
                 "worldview",
@@ -1634,7 +1635,7 @@ mod tests {
             ),
             (
                 "virtual-graph",
-                "24f74c48928f0edde9fe80c903028ea90eb9093e29685ca3619c64284d1b39d3",
+                "1dc1e43c3f9565bbece22a981a1b07e8cbe97034776f50d08ff279368eb0a963",
             ),
             (
                 "virtual-graph-shapes",
@@ -1644,19 +1645,15 @@ mod tests {
             // shapes companion) joins the catalog; the pin follows the ontology.
             (
                 "commercial",
-                "6659980a41cf3d4702e31d34942d6f45d32dbbece5cabfc327118145963e5a2a",
+                "d181cc7082e1e46c927c1a420967cdda73987e6d6c3e1c2c70b07a674dcf0685",
             ),
             (
                 "supply_chain",
-                "640999e7f89656c1e599c82ee240faf5d434480526fa6b6aeaf6a03eef4a2007",
+                "a7a8a983b0a24032447e3cbe4187d640cb69e4ca7456f1b42afe1a919327250b",
             ),
             // EG-TYPED-PACKS-R101.1/R102.1: the connector-pack module (ontology
             // plus its surface shapes companion) joins the catalog; the pin
             // follows the ontology.
-            (
-                "connector-pack",
-                "129b2707c8bbd818bfd71d2678d0352152a5aacadc0704e27d5951e5a00f2fae",
-            ),
         ];
         let catalog = current_core_catalog();
         let pinned_modules: BTreeSet<_> = expected.iter().map(|(module, _)| *module).collect();

@@ -153,6 +153,8 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
             "WEB_SELECTION_TOO_MANY_CANDIDATES",
         ],
     ),
+    // EG-REPO-INGEST-R007/R008: an over-budget batch is refused whole.
+    ("IndexRepository", &["REPOSITORY_BATCH_TOO_LARGE"]),
     ("GetNodes", &["RESULT_TOO_LARGE"]),
     ("GetEdges", &["RESULT_TOO_LARGE"]),
     (
