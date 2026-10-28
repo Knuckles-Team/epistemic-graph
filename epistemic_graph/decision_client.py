@@ -117,7 +117,10 @@ def task_plan_request(
     from epistemic_graph.generated.models import TaskPlanProposal
 
     typed = TaskPlanProposal.model_validate(dict(proposal), strict=True)
-    body = typed.model_dump(mode="json")
+    # ``TaskPlanTask::call`` carries ``skip_serializing_if = "Option::is_none"``
+    # on the engine side, so an absent call is an absent key -- never ``null``.
+    # The generated senders dump the same way (``exclude_none=True``).
+    body = typed.model_dump(mode="json", exclude_none=True)
     return decide_request(
         tenant_id,
         (question_id, "task_plan", "ordinary"),
@@ -129,17 +132,31 @@ def task_plan_request(
     )
 
 
+def _task_plan_task(task: Mapping[str, Any]) -> dict[str, Any]:
+    """One task in Rust declaration order, for the digest.
+
+    ``call`` is present only when the caller declared it: the engine skips a
+    ``None`` call when it serializes, and the digest covers those exact bytes.
+    """
+    body: dict[str, Any] = {
+        "task_id": task["task_id"],
+        "prompt": task["prompt"],
+        "depends_on": task["depends_on"],
+    }
+    call = task.get("call")
+    if call is not None:
+        body["call"] = {
+            "server": call["server"],
+            "tool": call["tool"],
+            "arguments": call["arguments"],
+        }
+    return body
+
+
 def _task_plan_body(value: Mapping[str, Any]) -> dict[str, Any]:
     """A validated proposal in Rust declaration order, for its digest."""
     return {
-        "tasks": [
-            {
-                "task_id": task["task_id"],
-                "prompt": task["prompt"],
-                "depends_on": task["depends_on"],
-            }
-            for task in value["tasks"]
-        ],
+        "tasks": [_task_plan_task(task) for task in value["tasks"]],
         "output_task_id": value["output_task_id"],
         "max_concurrency": value["max_concurrency"],
         "max_steps": value["max_steps"],
@@ -275,13 +292,21 @@ def verify_task_plan_receipt(
     asked = DecideRequest.model_validate_json(
         canonical_body_bytes(dict(request)), strict=True
     ).model_dump(mode="json", by_alias=True)
-    received = StatisticalDecisionRecord.model_validate_json(
+    decoded = StatisticalDecisionRecord.model_validate_json(
         canonical_body_bytes(dict(record)), strict=True
-    ).model_dump(mode="json", by_alias=True)
+    )
+    received = decoded.model_dump(mode="json", by_alias=True)
 
     _verify_task_plan_question(asked, expected_principal)
     _verify_task_plan_identity(received, asked, expected_principal)
-    plan = received["task_plan"]
+    # Return the plan exactly as the engine serves it: a ``None`` task call is
+    # an absent key (``skip_serializing_if``), not ``null``, and the caller
+    # round-trips this body into ``PublishCurrentPlan`` unchanged.
+    plan = (
+        None
+        if decoded.task_plan is None
+        else decoded.task_plan.model_dump(mode="json", by_alias=True, exclude_none=True)
+    )
     _require_task_plan(plan is not None, "missing plan")
     return _verify_task_plan_claims(plan, asked)
 
