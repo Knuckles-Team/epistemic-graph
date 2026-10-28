@@ -908,3 +908,12 @@ fn mapping_fixture_documentdb_validates() {
         ],
     );
 }
+
+// spec: EG-DATAPLAT-VOCAB-R006.3
+#[test]
+fn mapping_fixture_objectstore_validates() {
+    let triples = validate_fixture(include_str!(
+        "../ontology/fixtures/data_platform/objectstore.ttl"
+    ));
+    assert_via_operations(&triples, &["buckets:list", "objects:list", "objects:head"]);
+}
