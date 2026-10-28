@@ -1,14 +1,13 @@
 # Native Visualization (D-VZ-1)
 
-Neither `agent-utilities` nor Medulla ships a visualization library, and
-`matplotlib` does not scale — it draws every point in either case of how multiple pixels
-exist on screen. This engine ships its own **LOD-native** visualization stack
-instead. It has a declarative chart IR, a columnar store, decimation/density kernels and a
-static export backend. An interactive rendering surface and a content-addressed
-render cache complete it. The design is architecturally inspired by
-`open-source-libraries/xy` (Apache-2.0) and reimplemented in-tree rather than depended
-on. That project is alpha and Python-first. A dependency there may put this engine's
-visualization surface behind someone else's API churn.
+Neither `agent-utilities` nor Medulla ships a visualization library. `matplotlib` does not
+scale here: it draws every point, whatever the pixel count. This engine ships its own
+**LOD-native** visualization stack instead. The stack has a declarative chart IR and a
+columnar store. It has decimation and density kernels, plus a static export backend. An
+interactive rendering surface and a content-addressed render cache complete it. The design is
+inspired by `open-source-libraries/xy` (Apache-2.0). This engine reimplements that design
+in-tree rather than depending on it. That project is alpha and Python-first. A dependency
+there may put this engine's visualization surface behind someone else's API churn.
 
 ## Lane map
 
