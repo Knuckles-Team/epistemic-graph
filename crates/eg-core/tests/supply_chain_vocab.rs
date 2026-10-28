@@ -1452,3 +1452,72 @@ fn servicenow_incident_change_ci_maps_to_affects_service() {
         "the CMDB contract declares get_cmdb_instances"
     );
 }
+
+const VM_SALESFORCE: &str = "http://knuckles.team/test/vm-salesforce#";
+
+// spec: EG-SUPPLY-VOCAB-R005.6
+#[test]
+fn salesforce_account_and_contract_map_via_soql() {
+    let fixture = include_str!("fixtures/vm_salesforce.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the salesforce mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // The standard Account sObject is the Customer source.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_SALESFORCE}accountMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}Customer")
+        ),
+        "salesforce Account maps to kg:Customer"
+    );
+    // The Contract sObject is read by SOQL (the connector ontology declares no
+    // Contract class today) and projects the contract terms.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_SALESFORCE}contractMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}CustomerContract")
+        ),
+        "salesforce Contract maps to kg:CustomerContract"
+    );
+    let mut pairs = pair_fields(&triples, &format!("<{VM_SALESFORCE}contractMapping>"));
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("contractCustomer".to_string(), "AccountName".to_string()),
+            ("contractEnd".to_string(), "EndDate".to_string()),
+            ("contractStatus".to_string(), "Status".to_string()),
+        ],
+        "the contract mapping projects the customer, status and end date"
+    );
+    // Both mappings ride the salesforce_soql contract.
+    for mapping in ["accountMapping", "contractMapping"] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{VM_SALESFORCE}{mapping}"),
+                &format!("{VG}mapsContract"),
+                &format!("{VM_SALESFORCE}salesforceSoql")
+            ),
+            "{mapping} rides the salesforce_soql contract"
+        );
+    }
+    let contract = format!("<{VM_SALESFORCE}salesforceSoql>");
+    assert!(
+        triples.iter().any(|triple| {
+            subject_key(triple) == contract
+                && triple.predicate.as_str().ends_with("discoveredOperation")
+                && literal_value(&triple.object) == "salesforce_soql"
+        }),
+        "the contract records the salesforce_soql operation"
+    );
+}
