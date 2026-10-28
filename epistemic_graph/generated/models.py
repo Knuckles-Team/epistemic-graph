@@ -25428,6 +25428,7 @@ QuestionKind = (
     | Literal["harness_config"]
     | Literal["task_plan"]
     | Literal["harness_contrast"]
+    | Literal["placement"]
 )
 
 
