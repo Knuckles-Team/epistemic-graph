@@ -1935,3 +1935,91 @@ fn gitlab_dependencies_and_github_dependabot_map_rank_two() {
         );
     }
 }
+
+const VM_HOST_LIMITS: &str = "http://knuckles.team/test/vm-host-limits#";
+
+// spec: EG-SUPPLY-VOCAB-R006.7
+#[test]
+fn fan_manager_and_systems_manager_assemble_host_limit_rows() {
+    let fixture = include_str!("fixtures/vm_host_limits.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the host-limits mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // Every mapping projects onto the normalized HostLimit pair.
+    for mapping in [
+        "temperatureReadingMapping",
+        "capacityReadingMapping",
+        "fanPolicyMapping",
+    ] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{VM_HOST_LIMITS}{mapping}"),
+                &format!("{VG}mapsOntologyClass"),
+                &format!("{INFRA}HostLimit")
+            ),
+            "{mapping} maps to infra:HostLimit"
+        );
+    }
+    // Temperature: the reading side is celsius, the limit side the policy
+    // ceiling (Decision D6).
+    let mut pairs = pair_fields(
+        &triples,
+        &format!("<{VM_HOST_LIMITS}temperatureReadingMapping>"),
+    );
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("limitOf".to_string(), "hostname".to_string()),
+            ("readingValue".to_string(), "celsius".to_string()),
+        ],
+        "the temperature reading projects celsius"
+    );
+    let mut pairs = pair_fields(&triples, &format!("<{VM_HOST_LIMITS}fanPolicyMapping>"));
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("limitOf".to_string(), "hostname".to_string()),
+            ("limitValue".to_string(), "maxTemperature".to_string()),
+        ],
+        "the fan policy projects the ceiling"
+    );
+    // Capacity: the freeBytes reading pairs with the declared R004.3
+    // thresholds (no source exposes a capacity limit).
+    let mut pairs = pair_fields(&triples, &format!("<{VM_HOST_LIMITS}capacityReadingMapping>"));
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("limitOf".to_string(), "hostname".to_string()),
+            ("readingValue".to_string(), "freeBytes".to_string()),
+        ],
+        "the capacity reading projects freeBytes"
+    );
+    // A HostLimit row has both values: the mappings together cover
+    // readingValue and limitValue.
+    let all: Vec<(String, String)> = [
+        "temperatureReadingMapping",
+        "capacityReadingMapping",
+        "fanPolicyMapping",
+    ]
+    .iter()
+    .flat_map(|mapping| pair_fields(&triples, &format!("<{VM_HOST_LIMITS}{mapping}>")))
+    .collect();
+    let predicates: Vec<&str> = all.iter().map(|(predicate, _)| predicate.as_str()).collect();
+    assert!(
+        predicates.iter().any(|p| *p == "readingValue"),
+        "some mapping projects the reading side"
+    );
+    assert!(
+        predicates.iter().any(|p| *p == "limitValue"),
+        "some mapping projects the limit side"
+    );
+}
