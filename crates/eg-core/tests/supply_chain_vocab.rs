@@ -613,3 +613,115 @@ fn supports_capability_declared_and_not_the_shared_supports() {
         "the capability shape never paths the shared :supports"
     );
 }
+
+fn commercial_shapes() -> std::sync::Arc<str> {
+    let sources = eg_core::graph::GraphSchemaSources::default();
+    sources
+        .validate()
+        .expect("the default core catalog validates");
+    sources
+        .core
+        .get("core:commercial@1")
+        .and_then(|source| source.shapes_ttl.clone())
+        .expect("the commercial module carries its shapes companion")
+}
+
+const COMMERCE_DATA_PREFIX: &str = r#"
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/commercial#> .
+"#;
+
+// spec: EG-SUPPLY-VOCAB-R003.5
+#[test]
+fn contract_and_capability_shape_fixtures() {
+    let shapes = commercial_shapes();
+    // A complete contract plus a service capability link are accepted.
+    let valid = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:acmeContract a kg:CustomerContract ;
+    kg:contractCustomer ex:acmeCustomer ;
+    kg:coversService ex:checkoutService .
+
+ex:acmeCustomer a kg:Customer .
+
+ex:checkoutService a infra:Service ;
+    kg:supportsCapability ex:orderManagement .
+
+ex:orderManagement a kg:BusinessCapability ."
+    );
+    let report =
+        eg_shacl::validate_turtle(&shapes, &valid).expect("valid fixture parses");
+    assert!(
+        report.conforms,
+        "a complete contract and a service capability link: {:?}",
+        report.results
+    );
+    // A contract with no customer is refused on contractCustomer.
+    let no_customer = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:ghostContract a kg:CustomerContract ;
+    kg:coversService ex:checkoutService .
+
+ex:checkoutService a infra:Service ."
+    );
+    let report =
+        eg_shacl::validate_turtle(&shapes, &no_customer).expect("fixture parses");
+    assert!(!report.conforms, "a contract with no customer must be refused");
+    assert!(
+        report.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("#contractCustomer>"))
+                && result.constraint_component.ends_with("MinCountConstraintComponent")
+        }),
+        "the refusal lands on the missing customer: {:?}",
+        report.results
+    );
+    // A contract with no covered service is refused on coversService.
+    let no_service = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:ghostContract a kg:CustomerContract ;
+    kg:contractCustomer ex:acmeCustomer .
+
+ex:acmeCustomer a kg:Customer ."
+    );
+    let report =
+        eg_shacl::validate_turtle(&shapes, &no_service).expect("fixture parses");
+    assert!(!report.conforms, "a contract with no covered service must be refused");
+    assert!(
+        report.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("#coversService>"))
+                && result.constraint_component.ends_with("MinCountConstraintComponent")
+        }),
+        "the refusal lands on the missing covered service: {:?}",
+        report.results
+    );
+    // A capability link from a non-service subject is refused.
+    let non_service_link = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:processDoc a kg:Document ;
+    kg:supportsCapability ex:orderManagement .
+
+ex:orderManagement a kg:BusinessCapability ."
+    );
+    let report =
+        eg_shacl::validate_turtle(&shapes, &non_service_link).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "a capability link from a non-service must be refused: {:?}",
+        report.results
+    );
+    assert!(
+        report.results.iter().any(|result| {
+            result.focus_node.ends_with("#processDoc>")
+                && result.constraint_component.ends_with("ClassConstraintComponent")
+        }),
+        "the non-service link subject is refused on its class: {:?}",
+        report.results
+    );
+}

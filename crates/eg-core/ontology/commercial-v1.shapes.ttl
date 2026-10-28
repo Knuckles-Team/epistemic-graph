@@ -25,6 +25,8 @@ kg:CustomerContractShape a sh:NodeShape ;
 
 kg:SupportsCapabilityShape a sh:NodeShape ;
     sh:targetClass infra:Service ;
+    sh:targetSubjectsOf kg:supportsCapability ;
+    sh:class infra:Service ;
     sh:property [
         sh:path kg:supportsCapability ; sh:class kg:BusinessCapability ;
         sh:message "A capability link points from a service to a BusinessCapability."
