@@ -1835,7 +1835,7 @@
         "crates/eg-types/src/decision/statistical/tool_subset.rs:161",
         "crates/eg-types/src/decision/statistical/tool_subset.rs:189",
         "crates/eg-types/src/decision/statistical/tool_subset.rs:203",
-        "src/server/handlers/decide/stat_tests/tool_subset_tests.rs:58"
+        "src/server/handlers/decide/stat_tests/tool_subset_tests.rs:68"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R045.1",
@@ -1867,7 +1867,7 @@
         "e8eaaf916a40"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/tool_subset_tests.rs:58"
+        "src/server/handlers/decide/stat_tests/tool_subset_tests.rs:68"
       ]
     },
     {
