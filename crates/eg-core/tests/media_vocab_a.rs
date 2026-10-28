@@ -20,6 +20,7 @@ const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
 const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 
 const MEDIA: &str = include_str!("../ontology/media-v1.ttl");
+const CONTENT: &str = include_str!("../ontology/content-v1.ttl");
 const PERSONAL: &str = include_str!("../ontology/personal-v1.ttl");
 const RETRIEVAL: &str = include_str!("../ontology/retrieval-v1.ttl");
 const DATAPLATFORM: &str = include_str!("../ontology/dataplatform-v1.ttl");
@@ -444,5 +445,132 @@ fn connector_alias_collisions_are_baseline_two_and_media_adds_none() {
             &format!("{KG}Person")
         ),
         "contributor ranges to :Person, not an :Author alias"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R002.1
+#[test]
+fn content_feed_article_and_search_terms_present() {
+    let content = load(CONTENT);
+    for class in ["Feed", "FeedSubscription", "Article", "ResearchPaper"] {
+        assert_class(&content, class);
+    }
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}Article"),
+            &format!("{RDFS}subClassOf"),
+            &format!("{KG}Document")
+        ),
+        ":Article is under :Document"
+    );
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}ResearchPaper"),
+            &format!("{RDFS}subClassOf"),
+            &format!("{KG}Document")
+        ),
+        ":ResearchPaper is under :Document"
+    );
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}ResearchPaper"),
+            &format!("{RDFS}seeAlso"),
+            "http://purl.org/ontology/bibo/AcademicArticle"
+        ),
+        ":ResearchPaper sees bibo:AcademicArticle"
+    );
+    // The search terms are reused from retrieval-v1 without redeclaration.
+    let retrieval = load(RETRIEVAL);
+    for class in ["SearchQuery", "SearchResult", "SearchEngine"] {
+        assert_class(&retrieval, class);
+        assert!(
+            !declared_classes(&content).contains(&format!("{KG}{class}")),
+            "content-v1 must not redeclare the retrieval {class}"
+        );
+    }
+}
+
+// spec: EG-MEDIA-VOCAB-R002.2
+#[test]
+fn content_social_and_email_terms_present() {
+    let content = load(CONTENT);
+    for class in [
+        "SocialPost",
+        "PublishingChannel",
+        "EngagementMetric",
+        "EmailCampaign",
+        "MailingList",
+        "Subscriber",
+    ] {
+        assert_class(&content, class);
+    }
+    for property in ["sentCount", "viewCount", "clickCount", "postState", "subscriptionStatus"] {
+        assert_typed(&content, property, "DatatypeProperty");
+    }
+}
+
+// spec: EG-MEDIA-VOCAB-R002.3
+#[test]
+fn content_message_terms_reuse_team_without_redeclaration() {
+    let content = load(CONTENT);
+    assert_class(&content, "MessageChannel");
+    assert_class(&content, "ChatMessage");
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}ChatMessage"),
+            &format!("{RDFS}subClassOf"),
+            &format!("{KG}Message")
+        ),
+        ":ChatMessage is under the shared :Message"
+    );
+    for property in ["memberCount", "lastPostAt", "postedAt"] {
+        assert_typed(&content, property, "DatatypeProperty");
+    }
+    assert_typed(&content, "postedBy", "ObjectProperty");
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}postedBy"),
+            &format!("{RDFS}range"),
+            &format!("{KG}Person")
+        ),
+        "postedBy ranges to :Person"
+    );
+    // The shared :Team is reused, never redeclared by the content module.
+    assert!(
+        !declared_classes(&content).contains(&format!("{KG}Team")),
+        "content-v1 must not redeclare :Team"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R002.4
+#[test]
+fn content_properties_present() {
+    let content = load(CONTENT);
+    for property in [
+        "publishedAt",
+        "isRead",
+        "feedUrl",
+        "resultUrl",
+        "rank",
+        "doi",
+        "arxivId",
+        "citationCount",
+    ] {
+        assert_typed(&content, property, "DatatypeProperty");
+    }
+    assert_typed(&content, "servedByEngine", "ObjectProperty");
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}servedByEngine"),
+            &format!("{RDFS}range"),
+            &format!("{KG}SearchEngine")
+        ),
+        "servedByEngine ranges to the retrieval :SearchEngine"
     );
 }
