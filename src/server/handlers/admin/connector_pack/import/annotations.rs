@@ -319,7 +319,9 @@ mod tests {
             let error =
                 serde_json::from_value::<PackAnnotations>(serde_json::json!({ field: value }))
                     .expect_err("an unknown closed value never reaches admission");
-            assert!(error.to_string().starts_with(&format!("{field}: unknown value")));
+            assert!(error
+                .to_string()
+                .starts_with(&format!("{field}: unknown value")));
         }
         let zero = PackAnnotations {
             schema_tokens: Some(0),
@@ -327,7 +329,10 @@ mod tests {
         };
         let findings = check_annotations(PackEntryKind::Tool, &zero);
         assert_eq!(findings.violations.len(), 1);
-        assert_eq!(findings.violations[0].0, PackViolationCode::InvalidAnnotation);
+        assert_eq!(
+            findings.violations[0].0,
+            PackViolationCode::InvalidAnnotation
+        );
         assert!(findings.violations[0].1.contains("schema_tokens"));
         let sized = PackAnnotations {
             schema_tokens: Some(1),

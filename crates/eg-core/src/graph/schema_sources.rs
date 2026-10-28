@@ -1611,7 +1611,7 @@ mod tests {
             // R004.2.3-R004.2.6 added the portfolio-group, strategy and leverage records.
             (
                 "finance",
-                "3ddf1f2612dd5762befc10ae5650c826e090258fd73b36f96b7050e85dcb099d",
+                "daa1a6e0f66bc95b108beacdf23676b2236397ca3504fb2c3535829203328ee6",
             ),
             (
                 "finance-shapes",

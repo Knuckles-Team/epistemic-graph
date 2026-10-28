@@ -787,12 +787,14 @@
 :FinanceAlgorithm a owl:Class ;
     rdfs:label "Finance Algorithm" ;
     rdfs:comment "A first-class financial analysis method (a valuation, risk or signal algorithm) as a governed, queryable record: the analysis types it applies to, the instrument or position classes it operates over, and the record classes it requires as input. BFO:GenericallyDependentContinuant." ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf bfo:0000031 ;
+    skos:closeMatch wd:Q8366 .
 
 :AnalysisType a owl:Class ;
     rdfs:label "Analysis Type" ;
     rdfs:comment "The kind of financial analysis a finance algorithm computes (e.g. a risk, valuation or trend-signal analysis): the analysis half of the algorithm applicability question. BFO:GenericallyDependentContinuant." ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q10870555 .
 
 :appliesToAnalysis a owl:ObjectProperty ;
     rdfs:label "applies to analysis" ;

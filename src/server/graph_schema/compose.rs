@@ -758,7 +758,8 @@ ex:parent a owl:AsymmetricProperty .
         // SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1); plus 138 for
         // the world model: BFO material entity and object, the RO/BFO-aligned shared
         // relations, and the shared reference-term / quantity / observation vocabulary.
-        assert_eq!(triples.len(), 1_095);
+        // plus 24 for the CQ-CONN chunk 5 core-foundation terms and shapes (EG-CQ-CONN-R074).
+        assert_eq!(triples.len(), 1_119);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -836,7 +837,10 @@ ex:parent a owl:AsymmetricProperty .
         // +820: the C1 train's lane vocabularies on top of those (orchestration, finance,
         // connector, data-platform and sdd), net of terms main already defined; the pin is
         // the measured composed count.
-        assert_eq!(composed.ontology.len(), 16_650);
+        // +536: the C2 train (connector-pack surface, media lane B, data-platform secrets,
+        // CQ-CONN chunk 5 and supply-vocab terms), net of terms main already defined; the pin
+        // is the measured composed count.
+        assert_eq!(composed.ontology.len(), 17_186);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -885,7 +889,9 @@ ex:parent a owl:AsymmetricProperty .
         // +1: its catalog entry.
         // +2: the connector-pack import and catalog entry (R101.1).
         // +1: the swarm-topology module imports the orchestration module.
-        assert_eq!(imports, 114);
+        // +3: the C2 train's government-shapes and foundation-shapes imports and the
+        // connector-pack shapes companion.
+        assert_eq!(imports, 117);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -910,7 +916,9 @@ ex:parent a owl:AsymmetricProperty .
         // +90: semantic axioms from the connector-pack ingest vocabulary (R101.1).
         // +83: semantic axioms from the connector-competency chunk 4 vocabulary (#909).
         // +819: the same C1 train lane vocabularies, as semantic axioms.
-        assert_eq!(semantic_axioms, 16_386);
+        // +533: the C2 train vocabularies (connector-pack surface, media lane B, secrets,
+        // CQ-CONN chunk 5, finance method terms), as semantic axioms.
+        assert_eq!(semantic_axioms, 16_919);
 
         let count_type = |object: &str| {
             composed
@@ -940,12 +948,14 @@ ex:parent a owl:AsymmetricProperty .
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
             // +1: cat:lineageTo, the inverse of :derivedFrom (EG-TYPED-PACKS-R106.1).
-            36
+            // +1: cp:hasContract, the inverse of cp:contractOf (EG-TYPED-PACKS-R102.1).
+            37
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#propertyChainAxiom"),
             // +1: the registered supply-chain usesComponent property chain.
-            6
+            // +1: the CQ-CONN chunk 5 property chain.
+            7
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#minCardinality"),
@@ -978,7 +988,9 @@ ex:parent a owl:AsymmetricProperty .
             // +3: the connector-pack ingest vocabulary subclass edges (R101.1).
             // +2: the connector-competency chunk 4 vocabulary (#909).
             // +22: the C1 train's lane vocabulary classes.
-            676
+            // +22: the C2 train's connector-pack surface, media lane B, secret-metadata and
+            // CQ-CONN chunk 5 classes.
+            698
         );
     }
 

@@ -254,7 +254,11 @@ mod tests {
         assert_eq!(side_effects, Some(ToolSideEffects::None));
         assert_eq!(declared_by, Some(ToolFactDeclarer::McpHint));
         assert_eq!(schema_tokens, Some(640));
-        for declarer in [None, Some(ToolFactDeclarer::Connector), Some(ToolFactDeclarer::Certified)] {
+        for declarer in [
+            None,
+            Some(ToolFactDeclarer::Connector),
+            Some(ToolFactDeclarer::Certified),
+        ] {
             let AgentComponentFacts::Tool {
                 effect,
                 read_only_unproven,
