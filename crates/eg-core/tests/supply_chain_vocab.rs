@@ -2341,3 +2341,52 @@ fn recorded_response_set_covers_every_available_d4_row() {
         }
     }
 }
+// spec: EG-SUPPLY-VOCAB-R008.3
+#[test]
+fn every_d4_concept_is_covered_or_carries_a_typed_abstention() {
+    let files = recorded_files();
+    let mut typed_abstentions = 0;
+    for (concept, rank1, rank2, _operation, not_available) in d4_rows() {
+        let available = !rank1.is_empty() || !rank2.is_empty();
+        let file = format!("{}.ttl", concept_file(&concept));
+        if available {
+            assert!(
+                files.contains(&file),
+                "{concept} has an authority row (recorded response)"
+            );
+        }
+        // A not-available note is a typed abstention: it must be present for
+        // every row without an authority source, and no concept is silently
+        // uncovered.
+        if not_available.trim().is_empty() {
+            assert!(available, "{concept} is silently uncovered");
+            continue;
+        }
+        assert!(
+            !available || files.contains(&file),
+            "{concept} abstains but has no authority row to abstain from"
+        );
+        typed_abstentions += 1;
+    }
+    // The two abstentions the row names: the twenty contracts gap inside the
+    // CustomerContract row, and the coversService BLOCKED row.
+    let covers = d4_rows()
+        .into_iter()
+        .find(|(concept, _, _, _, _)| concept == "coversService")
+        .expect("the D4 table names coversService");
+    assert!(
+        covers.4.contains("BLOCKED"),
+        "the coversService abstention is BLOCKED with a reason: {}",
+        covers.4
+    );
+    let contract = d4_rows()
+        .into_iter()
+        .find(|(concept, _, _, _, _)| concept == "CustomerContract")
+        .expect("the D4 table names CustomerContract");
+    assert!(
+        contract.4.to_lowercase().contains("twenty"),
+        "the twenty contracts gap is typed: {}",
+        contract.4
+    );
+    assert!(typed_abstentions >= 2, "the register lists the typed abstentions");
+}
