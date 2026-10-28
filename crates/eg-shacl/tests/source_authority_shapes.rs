@@ -15,10 +15,10 @@ fn report(row: &str) -> ValidationReport {
          @prefix ex: <http://example.org/> .\n\
          ex:cmdb a vg:SourceConnection ; vg:sourceKind \"sql\" ; vg:endpointRef ex:ep1 ;\n\
            vg:declaredCapability \"read\" .\n\
-         ex:ep1 vg:url \"postgres://cmdb.internal/app\" .\n\
+         ex:ep1 vg:url \"postgres://cmdb.example.invalid/app\" .\n\
          ex:hw a vg:SourceConnection ; vg:sourceKind \"mcp\" ; vg:endpointRef ex:ep2 ;\n\
            vg:declaredCapability \"read\", \"copy\" .\n\
-         ex:ep2 vg:url \"https://hw.internal/mcp\" .\n\
+         ex:ep2 vg:url \"https://hw.example.invalid/mcp\" .\n\
          ex:c1 a vg:MetadataContract ; vg:contractSource ex:cmdb ; vg:schemaVersion \"1\" ;\n\
            vg:contentDigest \"sha256:{zero:0>64}\" ; vg:discoveredEntity \"Host\" ;\n\
            vg:discoveredField \"Host.id\", \"Host.name\" .\n\

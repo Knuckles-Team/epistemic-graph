@@ -9,10 +9,10 @@
 
 ex:servicenow a vg:SourceConnection ; vg:sourceKind "mcp" ; vg:endpointRef ex:ep-snow ;
     vg:foreignSourceName "servicenow-mcp" ; vg:sourceRole "live_truth" .
-ex:ep-snow vg:url "https://servicenow.internal/mcp" .
+ex:ep-snow vg:url "https://servicenow.example.invalid/mcp" .
 ex:pagerduty a vg:SourceConnection ; vg:sourceKind "mcp" ; vg:endpointRef ex:ep-pd ;
     vg:foreignSourceName "pagerduty-mcp" ; vg:sourceRole "live_truth" .
-ex:ep-pd vg:url "https://pagerduty.internal/mcp" .
+ex:ep-pd vg:url "https://pagerduty.example.invalid/mcp" .
 
 ex:snow-contract a vg:MetadataContract ; vg:contractSource ex:servicenow ; vg:schemaVersion "1" ;
     vg:contentDigest "sha256:0000000000000000000000000000000000000000000000000000000000000001" ;

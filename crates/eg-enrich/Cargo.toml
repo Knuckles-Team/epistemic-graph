@@ -3,7 +3,7 @@ name = "eg-enrich"
 version = "0.1.0"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
-description = "Typed code enrichment for indexed repositories: code/test/feature facts, commit history, service links and structural fingerprints (EG-REPO-INGEST-R600..R603)."
+description = "Typed code enrichment for indexed repositories: entities, history, links and fingerprints."
 license = "MIT"
 
 [lib]
