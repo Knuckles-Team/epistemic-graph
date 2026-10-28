@@ -262,6 +262,7 @@ ex:mapping a dp:StoreMapping ;
         vg:field "path"
     ] ;
     vg:approved true ;
+    dp:contractKind "mcp-operation" ;
     dp:viaOperation "{via_operation}" ;
     dp:accelerationMode "virtual" .
 "#
@@ -1005,6 +1006,7 @@ ex:mapping a dp:StoreMapping ;
         vg:field "path"
     ] ;
     vg:approved true ;
+    dp:contractKind "mcp-operation" ;
     dp:viaOperation "openbao_mcp_logical:list" ;
     dp:accelerationMode "{mode}"{reason} .
 "#,
@@ -1047,6 +1049,77 @@ ex:mapping a dp:StoreMapping ;
     assert!(
         report.conforms,
         "a virtual mapping must conform without a reason: {:?}",
+        report.results
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R007.2
+#[test]
+fn mcp_operation_requires_via_operation() {
+    fn mapping_with_kind(kind: &str, via_operation: Option<&str>) -> String {
+        format!(
+            r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://example.org/data-platform/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:d780efe5a265c68dcfc72ea0ef8d07f04cabcae6e04cb2ce14d067e27987aca4" ;
+    vg:discoveredEntity "logical_paths" ;
+    vg:discoveredField "path" .
+
+ex:mapping a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:SecretPath ;
+    vg:mapsEntity "logical_paths" ;
+    vg:keyField "path" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:pathName ;
+        vg:field "path"
+    ] ;
+    vg:approved true ;
+    dp:contractKind "{kind}"{operation} ;
+    dp:accelerationMode "virtual" .
+"#,
+            operation = via_operation
+                .map(|op| format!(" ; dp:viaOperation \"{op}\""))
+                .unwrap_or_default()
+        )
+    }
+
+    // An mcp-operation contract without its named operation is a violation.
+    let missing_operation = mapping_with_kind("mcp-operation", None);
+    let report =
+        validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &missing_operation)
+            .expect("the missing-operation mapping parses before validation");
+    assert!(
+        !report.conforms,
+        "an mcp-operation mapping without a viaOperation must be rejected: {:?}",
+        report.results
+    );
+
+    // The same mapping with its named operation conforms.
+    let named_operation = mapping_with_kind("mcp-operation", Some("openbao_mcp_logical:list"));
+    let report =
+        validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &named_operation)
+            .expect("the named-operation mapping parses before validation");
+    assert!(
+        report.conforms,
+        "an mcp-operation mapping with a viaOperation must conform: {:?}",
+        report.results
+    );
+
+    // Other contract kinds do not require a viaOperation.
+    let r2rml = mapping_with_kind("r2rml-sql", None);
+    let report =
+        validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &r2rml)
+            .expect("the r2rml mapping parses before validation");
+    assert!(
+        report.conforms,
+        "an r2rml-sql mapping without a viaOperation must conform: {:?}",
         report.results
     );
 }

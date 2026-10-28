@@ -164,6 +164,25 @@ dp:StoreMappingShape a sh:NodeShape ;
         sh:in ( "virtual" "materialised" ) ;
         sh:message "accelerationMode is exactly one of virtual, materialised."
     ] ;
+    sh:property [
+        sh:path dp:contractKind ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "r2rml-sql" "document-shape" "mcp-operation" ) ;
+        sh:message "contractKind is exactly one of r2rml-sql, document-shape, mcp-operation."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An mcp-operation contract requires the named viaOperation (EG-DATAPLAT-VOCAB-R007.2)." ;
+        sh:prefixes dp:DataPlatformPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this dp:contractKind "mcp-operation" .
+                OPTIONAL { $this dp:viaOperation ?operation }
+                FILTER(!BOUND(?operation))
+            }
+        """ ;
+    ] ;
     sh:sparql [
         a sh:SPARQLConstraint ;
         sh:message "A materialised mapping must record why it is materialised; virtual needs no reason (EG-DATAPLAT-VOCAB-R007.1)." ;
