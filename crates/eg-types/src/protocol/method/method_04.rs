@@ -198,6 +198,25 @@ $($variants)*
         fraction: f64,
     },
 
+    /// Fractional-Kelly stake from accuracy and win/loss ratio, clamped to `[0, max_risk]`
+    /// (EG-FINANCE-PRIMITIVES-R900.3). `fraction` defaults to one half, `max_risk` to 0.02.
+    FinancePositionSize {
+        accuracy: f64,
+        win_loss_ratio: f64,
+        #[serde(default)]
+        fraction: Option<f64>,
+        #[serde(default)]
+        max_risk: Option<f64>,
+    },
+
+    /// Two-sample Kolmogorov-Smirnov shift test between a reference and a current sample
+    /// (EG-FINANCE-PRIMITIVES-R900.3); `shifted` when the statistic exceeds `threshold`.
+    FinanceDistributionShift {
+        reference: Vec<f64>,
+        current: Vec<f64>,
+        threshold: f64,
+    },
+
     FinanceBayesianKelly {
         alpha: f64,
         beta: f64,

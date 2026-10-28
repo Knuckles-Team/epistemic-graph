@@ -109,6 +109,8 @@ METHOD_IDS = frozenset(
         "FinanceKyleLambda",
         "FinanceSurveillanceRisk",
         "FinanceKellyFraction",
+        "FinancePositionSize",
+        "FinanceDistributionShift",
         "FinanceBayesianKelly",
         "FinancePosteriorCredibleInterval",
         "FinancePurgedCpcv",

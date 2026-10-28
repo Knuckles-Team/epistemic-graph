@@ -226,6 +226,7 @@ SEND_BY_METHOD = {
     "FinanceDeflatedSharpe": compute.send_finance_deflated_sharpe,
     "FinanceDetectRegimes": compute.send_finance_detect_regimes,
     "FinanceDieboldMariano": compute.send_finance_diebold_mariano,
+    "FinanceDistributionShift": compute.send_finance_distribution_shift,
     "FinanceDownsideDeviation": compute.send_finance_downside_deviation,
     "FinanceDrawdownSeries": compute.send_finance_drawdown_series,
     "FinanceEffectiveIndependentN": compute.send_finance_effective_independent_n,
@@ -260,6 +261,7 @@ SEND_BY_METHOD = {
     "FinanceOuCalibrate": compute.send_finance_ou_calibrate,
     "FinanceOuOptimalThresholds": compute.send_finance_ou_optimal_thresholds,
     "FinancePairsTrading": compute.send_finance_pairs_trading,
+    "FinancePositionSize": compute.send_finance_position_size,
     "FinancePosteriorCredibleInterval": (
         compute.send_finance_posterior_credible_interval
     ),

@@ -94,6 +94,8 @@ if TYPE_CHECKING:
     FinanceKyleLambdaRequest = _models.MethodFinanceKyleLambdaParams
     FinanceSurveillanceRiskRequest = _models.MethodFinanceSurveillanceRiskParams
     FinanceKellyFractionRequest = _models.MethodFinanceKellyFractionParams
+    FinancePositionSizeRequest = _models.MethodFinancePositionSizeParams
+    FinanceDistributionShiftRequest = _models.MethodFinanceDistributionShiftParams
     FinanceBayesianKellyRequest = _models.MethodFinanceBayesianKellyParams
     FinancePosteriorCredibleIntervalRequest = (
         _models.MethodFinancePosteriorCredibleIntervalParams
@@ -3406,6 +3408,85 @@ async def send_finance_kelly_fraction(
     return expect_float("FinanceKellyFraction", payload)
 
 
+async def send_finance_position_size(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> float:
+    """Send one engine-contract request.
+
+    Method:
+        FinancePositionSize
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Float
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinancePositionSize
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinancePositionSizeParams.model_validate(params or {})
+    payload = await client._send(
+        "FinancePositionSize",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_float("FinancePositionSize", payload)
+
+
+async def send_finance_distribution_shift(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceDistributionShift
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceDistributionShift
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceDistributionShiftParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceDistributionShift",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceDistributionShift", payload)
+
+
+def decode_finance_distribution_shift(
+    result: OpaqueResult,
+) -> _models.DistributionShift:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceDistributionShift", models().DistributionShift, result)
+
+
 async def send_finance_bayesian_kelly(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -5824,6 +5905,8 @@ _REQUEST_METHODS = frozenset(
         "FinanceKyleLambda",
         "FinanceSurveillanceRisk",
         "FinanceKellyFraction",
+        "FinancePositionSize",
+        "FinanceDistributionShift",
         "FinanceBayesianKelly",
         "FinancePosteriorCredibleInterval",
         "FinancePurgedCpcv",

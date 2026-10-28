@@ -179,6 +179,9 @@ method_results! {
     #[cfg(feature = "finance")]
     FinanceConvergenceGate(FinanceConvergenceGate) => Raw<finance::ConvergenceGate>;
     FinanceEmpiricalKelly(FinanceEmpiricalKelly) => Float<f64>;
+    FinancePositionSize(FinancePositionSize) => Float<f64>;
+    #[cfg(feature = "finance")]
+    FinanceDistributionShift(FinanceDistributionShift) => Raw<finance::DistributionShift>;
     FinanceSabrImpliedVol(FinanceSabrImpliedVol) => Float<f64>;
     FinanceSabrSmile(FinanceSabrSmile) => Raw<Vec<f64>>;
     #[cfg(feature = "finance")]

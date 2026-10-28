@@ -9054,6 +9054,35 @@ class FinanceClient:
             )
         ).payload
 
+    async def position_size(
+        self,
+        accuracy: float,
+        win_loss_ratio: float,
+        fraction: float | None = None,
+        max_risk: float | None = None,
+    ) -> float:
+        """Fractional-Kelly stake clamped to [0, max_risk] (default half Kelly, 0.02 cap)."""
+        return await _gen.compute.send_finance_position_size(
+            self._client,
+            {
+                "accuracy": accuracy,
+                "win_loss_ratio": win_loss_ratio,
+                "fraction": fraction,
+                "max_risk": max_risk,
+            },
+        )
+
+    async def distribution_shift(
+        self, reference: list[float], current: list[float], threshold: float
+    ) -> dict[str, Any]:
+        """Two-sample KS shift test: {statistic, p_value, shifted}."""
+        return (
+            await _gen.compute.send_finance_distribution_shift(
+                self._client,
+                {"reference": reference, "current": current, "threshold": threshold},
+            )
+        ).payload
+
     # ── Backtest validation
     # (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest)
     # ─────────────────────────
