@@ -598,3 +598,178 @@
     rdfs:comment "Cost basis per unit, in the account's base currency." ;
     rdfs:domain :Lot ;
     rdfs:range xsd:decimal .
+
+# ── Portfolio grouping, strategy and leverage records (EG-FINANCE-PRIMITIVES-R004.2.3 to R004.2.6) ──
+#
+# Versioned records shared by PortfolioGroup, StrategySpec, StrategyRun and LeverageTerms:
+# an unknown schema version fails closed in the shapes, and every record names its tenant,
+# source, effective time and known-at time. Group membership never changes accounting;
+# no class here authorises an order.
+
+:recordSchemaVersion a owl:DatatypeProperty ;
+    rdfs:label "record schema version" ;
+    rdfs:comment "The finance record schema version a record declares; only finance-v1 is admitted." ;
+    rdfs:range xsd:string .
+
+:recordTenant a owl:DatatypeProperty ;
+    rdfs:label "record tenant" ;
+    rdfs:comment "The tenant that owns the record." ;
+    rdfs:range xsd:string .
+
+:recordSource a owl:DatatypeProperty ;
+    rdfs:label "record source" ;
+    rdfs:comment "The source identity the record was taken from." ;
+    rdfs:range xsd:string .
+
+:recordEffectiveAt a owl:DatatypeProperty ;
+    rdfs:label "record effective at" ;
+    rdfs:comment "When the record's content takes effect." ;
+    rdfs:range xsd:dateTime .
+
+:recordKnownAt a owl:DatatypeProperty ;
+    rdfs:label "record known at" ;
+    rdfs:comment "When the engine learned the record; point-in-time queries exclude later records." ;
+    rdfs:range xsd:dateTime .
+
+:PortfolioGroup a owl:Class ;
+    rdfs:label "Portfolio Group" ;
+    rdfs:comment "A named user view that associates holdings or watchlist items, shown as a Basic or Holdings view. Membership never changes accounting. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:closeMatch wd:Q5340806 .
+
+:portfolioGroupName a owl:DatatypeProperty ;
+    rdfs:label "portfolio group name" ;
+    rdfs:comment "The user-facing name of the group." ;
+    rdfs:domain :PortfolioGroup ;
+    rdfs:range xsd:string .
+
+:portfolioView a owl:DatatypeProperty ;
+    rdfs:label "portfolio view" ;
+    rdfs:comment "basic or holdings." ;
+    rdfs:domain :PortfolioGroup ;
+    rdfs:range xsd:string .
+
+:portfolioMember a owl:ObjectProperty ;
+    rdfs:label "portfolio member" ;
+    rdfs:comment "A position or watchlist instrument the group associates; any number." ;
+    rdfs:domain :PortfolioGroup .
+
+:StrategySpec a owl:Class ;
+    rdfs:label "Strategy Specification" ;
+    rdfs:comment "An immutable, versioned specification of a default strategy: its kind, universe, currency and canonical digest. Evaluating it proposes actions only and never places or authorizes an order. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q1574928 .
+
+:strategySpecId a owl:DatatypeProperty ;
+    rdfs:label "strategy spec id" ;
+    rdfs:comment "The strategy's stable identifier." ;
+    rdfs:domain :StrategySpec ;
+    rdfs:range xsd:string .
+
+:strategySpecVersion a owl:DatatypeProperty ;
+    rdfs:label "strategy spec version" ;
+    rdfs:comment "The positive version of the specification." ;
+    rdfs:domain :StrategySpec ;
+    rdfs:range xsd:integer .
+
+:strategySpecKind a owl:DatatypeProperty ;
+    rdfs:label "strategy spec kind" ;
+    rdfs:comment "dca_fixed_amount, dca_fixed_shares, value_averaging, trend_flip, trend_moving_average, rebalance_calendar or rebalance_threshold." ;
+    rdfs:domain :StrategySpec ;
+    rdfs:range xsd:string .
+
+:strategySpecDigest a owl:DatatypeProperty ;
+    rdfs:label "strategy spec digest" ;
+    rdfs:comment "sha256 of the canonical specification; (id, version, digest) is immutable." ;
+    rdfs:domain :StrategySpec ;
+    rdfs:range xsd:string .
+
+:strategySpecUniverse a owl:ObjectProperty ;
+    rdfs:label "strategy spec universe" ;
+    rdfs:comment "The portfolio group whose items the strategy is evaluated over." ;
+    rdfs:domain :StrategySpec ;
+    rdfs:range :PortfolioGroup .
+
+:strategySpecCurrency a owl:DatatypeProperty ;
+    rdfs:label "strategy spec currency" ;
+    rdfs:comment "The currency the strategy's amounts are stated in." ;
+    rdfs:domain :StrategySpec ;
+    rdfs:range xsd:string .
+
+:StrategyRun a owl:Class ;
+    rdfs:label "Strategy Run" ;
+    rdfs:comment "One point-in-time evaluation of a strategy specification: its decision time, the digest of its inputs and its outcome. Informational only. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q1574928 .
+
+:strategyRunSpec a owl:ObjectProperty ;
+    rdfs:label "strategy run spec" ;
+    rdfs:comment "The strategy specification this run evaluated." ;
+    rdfs:domain :StrategyRun ;
+    rdfs:range :StrategySpec .
+
+:strategyRunStatus a owl:DatatypeProperty ;
+    rdfs:label "strategy run status" ;
+    rdfs:comment "proposed, missed or abstained." ;
+    rdfs:domain :StrategyRun ;
+    rdfs:range xsd:string .
+
+:strategyRunDecidedAt a owl:DatatypeProperty ;
+    rdfs:label "strategy run decided at" ;
+    rdfs:comment "The decision time the run evaluated." ;
+    rdfs:domain :StrategyRun ;
+    rdfs:range xsd:dateTime .
+
+:strategyRunInputDigest a owl:DatatypeProperty ;
+    rdfs:label "strategy run input digest" ;
+    rdfs:comment "sha256 over the point-in-time inputs the run consumed." ;
+    rdfs:domain :StrategyRun ;
+    rdfs:range xsd:string .
+
+:LeverageTerms a owl:Class ;
+    rdfs:label "Leverage Terms" ;
+    rdfs:comment "The contractual terms of one leveraged instrument: product type, jurisdiction policy version, multiplier, currency and margin requirements. Unknown terms refuse any live-action eligibility. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q625360 .
+
+:leverageInstrument a owl:ObjectProperty ;
+    rdfs:label "leverage instrument" ;
+    rdfs:comment "The financial instrument the terms apply to." ;
+    rdfs:domain :LeverageTerms ;
+    rdfs:range :FinancialInstrument .
+
+:leverageProductType a owl:DatatypeProperty ;
+    rdfs:label "leverage product type" ;
+    rdfs:comment "margin, future, daily_reset_fund or fx." ;
+    rdfs:domain :LeverageTerms ;
+    rdfs:range xsd:string .
+
+:leveragePolicyVersion a owl:DatatypeProperty ;
+    rdfs:label "leverage policy version" ;
+    rdfs:comment "The jurisdiction and product policy version the terms were read under." ;
+    rdfs:domain :LeverageTerms ;
+    rdfs:range xsd:string .
+
+:leverageMultiplier a owl:DatatypeProperty ;
+    rdfs:label "leverage multiplier" ;
+    rdfs:comment "The positive contract multiplier or leverage factor." ;
+    rdfs:domain :LeverageTerms ;
+    rdfs:range xsd:decimal .
+
+:leverageCurrency a owl:DatatypeProperty ;
+    rdfs:label "leverage currency" ;
+    rdfs:comment "The currency the margin amounts are stated in." ;
+    rdfs:domain :LeverageTerms ;
+    rdfs:range xsd:string .
+
+:leverageInitialMargin a owl:DatatypeProperty ;
+    rdfs:label "leverage initial margin" ;
+    rdfs:comment "The non-negative initial margin requirement." ;
+    rdfs:domain :LeverageTerms ;
+    rdfs:range xsd:decimal .
+
+:leverageMaintenanceMargin a owl:DatatypeProperty ;
+    rdfs:label "leverage maintenance margin" ;
+    rdfs:comment "The non-negative maintenance margin requirement." ;
+    rdfs:domain :LeverageTerms ;
+    rdfs:range xsd:decimal .

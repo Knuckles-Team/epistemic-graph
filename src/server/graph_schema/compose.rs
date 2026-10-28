@@ -781,7 +781,9 @@ ex:parent a owl:AsymmetricProperty .
         // model facts, and the swarm slot-kind and feeds edges (EG-ORCH-VOCAB
         // R001-R006, R009.9-R009.11, R011.1-R011.5), including the swarm import
         // of the orchestration module.
-        assert_eq!(composed.ontology.len(), 15_776);
+        // +139: PortfolioGroup, StrategySpec, StrategyRun and LeverageTerms with the
+        // shared record properties (EG-FINANCE-PRIMITIVES-R004.2.3 to R004.2.6).
+        assert_eq!(composed.ontology.len(), 15_915);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -851,7 +853,9 @@ ex:parent a owl:AsymmetricProperty .
         // +7: the shared versionOf relation's two module-local constrained
         // sub-properties (the shared predicate itself remains unconstrained).
         // +127: the orchestration vocabulary terms above, less the one import edge.
-        assert_eq!(semantic_axioms, 15_517);
+        // +139: the PortfolioGroup, StrategySpec, StrategyRun and LeverageTerms
+        // declarations above are semantic axioms (EG-FINANCE-PRIMITIVES-R004.2.3-6).
+        assert_eq!(semantic_axioms, 15_656);
 
         let count_type = |object: &str| {
             composed
@@ -916,7 +920,9 @@ ex:parent a owl:AsymmetricProperty .
             // +9: the commercial and registered supply-chain class placements;
             // +2: SourceRecord and OpaqueSourceReference; +1: ContainerImage's
             // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
-            649
+            // +4: PortfolioGroup, StrategySpec, StrategyRun and LeverageTerms specialize
+            // BFO GDC (EG-FINANCE-PRIMITIVES-R004.2.3-6).
+            653
         );
     }
 
