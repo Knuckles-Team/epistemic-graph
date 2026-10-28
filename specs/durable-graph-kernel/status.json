@@ -2288,9 +2288,9 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/jobs.rs:751",
-        "crates/eg-types/src/jobs.rs:768",
-        "crates/eg-types/src/jobs.rs:804"
+        "crates/eg-types/src/jobs.rs:752",
+        "crates/eg-types/src/jobs.rs:769",
+        "crates/eg-types/src/jobs.rs:805"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R071.600"

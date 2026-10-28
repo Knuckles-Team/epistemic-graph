@@ -9,7 +9,6 @@ mod test_support;
 
 use eg_types::wire::UqlResult;
 use epistemic_graph::protocol::{Method, Response, ResultPayload};
-use epistemic_graph::server::dispatch;
 
 const SECRET: &str = "uql-dag-served-test-secret";
 

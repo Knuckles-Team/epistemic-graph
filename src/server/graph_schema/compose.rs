@@ -831,7 +831,9 @@ ex:parent a owl:AsymmetricProperty .
         // +5: the orchestration handsOffTo property (EG-CQ-ORCH-R006.1).
         // +95: the connector-pack ingest vocabulary (94) and its catalog import
         // (EG-TYPED-PACKS-R101.1).
-        assert_eq!(composed.ontology.len(), 15_752);
+        // +78: the infrastructure and sdlc_lifecycle vocabulary added by the
+        // connector-competency chunk 4 rows (EG-CQ-CONN, #909).
+        assert_eq!(composed.ontology.len(), 15_830);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -902,7 +904,8 @@ ex:parent a owl:AsymmetricProperty .
         // +7: the shared versionOf relation's two module-local constrained
         // sub-properties (the shared predicate itself remains unconstrained).
         // +90: semantic axioms from the connector-pack ingest vocabulary (R101.1).
-        assert_eq!(semantic_axioms, 15_484);
+        // +83: semantic axioms from the connector-competency chunk 4 vocabulary (#909).
+        assert_eq!(semantic_axioms, 15_567);
 
         let count_type = |object: &str| {
             composed
@@ -968,7 +971,8 @@ ex:parent a owl:AsymmetricProperty .
             // +2: SourceRecord and OpaqueSourceReference; +1: ContainerImage's
             // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
             // +3: the connector-pack ingest vocabulary subclass edges (R101.1).
-            652
+            // +2: the connector-competency chunk 4 vocabulary (#909).
+            654
         );
     }
 
