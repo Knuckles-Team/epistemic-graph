@@ -1088,3 +1088,33 @@ ex:rackHost a infra:Host ."
         report.results
     );
 }
+
+// spec: EG-SUPPLY-VOCAB-R004.3
+#[test]
+fn declared_capacity_thresholds_pass_the_host_limit_shape() {
+    let fixture = parse_turtle(include_str!(
+        "fixtures/host_limit_thresholds.ttl"
+    ))
+    .expect("the declared-threshold fixture parses");
+    // The fixture declares one row per capacity kind (D6).
+    for kind in ["disk", "memory", "cpu"] {
+        assert!(
+            fixture
+                .iter()
+                .any(|triple| {
+                    triple.predicate.as_str().ends_with("limitKind")
+                        && matches!(&triple.object, Term::Literal(l) if l.value() == kind)
+                }),
+            "the fixture declares a {kind} threshold"
+        );
+    }
+    // Every declared row passes the HostLimit shape.
+    let ttl = include_str!("fixtures/host_limit_thresholds.ttl");
+    let report =
+        eg_shacl::validate_turtle(INFRA_SHAPES, ttl).expect("fixture parses");
+    assert!(
+        report.conforms,
+        "the declared capacity thresholds pass HostLimitShape: {:?}",
+        report.results
+    );
+}
