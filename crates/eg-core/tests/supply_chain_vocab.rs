@@ -1521,3 +1521,61 @@ fn salesforce_account_and_contract_map_via_soql() {
         "the contract records the salesforce_soql operation"
     );
 }
+
+const VM_TWENTY: &str = "http://knuckles.team/test/vm-twenty#";
+
+// spec: EG-SUPPLY-VOCAB-R005.8
+#[test]
+fn twenty_company_maps_to_customer_rank_two_without_a_contract_mapping() {
+    let fixture = include_str!("fixtures/vm_twenty.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the twenty Company mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_TWENTY}companyMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}Customer")
+        ),
+        "twenty Company maps to kg:Customer"
+    );
+    let authority = format!("{VM_TWENTY}companyAuthority");
+    assert!(
+        has_iri(
+            &triples,
+            &authority,
+            &format!("{VG}authorityFor"),
+            &format!("{KG}Customer")
+        )
+    );
+    let rank = triples
+        .iter()
+        .find(|triple| {
+            subject_key(triple) == format!("<{authority}>")
+                && triple.predicate.as_str().ends_with("authorityRank")
+        })
+        .expect("the authority declares its rank");
+    assert_eq!(
+        literal_value(&rank.object),
+        "2",
+        "twenty is the rank-2 source for Customer"
+    );
+    // Twenty has no contract object in its manifest, so no mapping projects
+    // onto kg:CustomerContract: a contract query against twenty abstains.
+    let contract_class = format!("{KG}CustomerContract");
+    assert!(
+        !triples
+            .iter()
+            .any(|triple| {
+                triple.predicate.as_str().ends_with("mapsOntologyClass")
+                    && matches!(&triple.object, Term::NamedNode(n) if n.as_str() == contract_class)
+            }),
+        "the fixture declares no CustomerContract mapping"
+    );
+}
