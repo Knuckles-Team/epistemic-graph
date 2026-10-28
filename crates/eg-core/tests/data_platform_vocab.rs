@@ -928,3 +928,19 @@ fn mapping_fixture_vector_validates() {
         &["vector_collection_management:list_collections"],
     );
 }
+
+// spec: EG-DATAPLAT-VOCAB-R006.5
+#[test]
+fn mapping_fixture_kafka_validates() {
+    let triples =
+        validate_fixture(include_str!("../ontology/fixtures/data_platform/kafka.ttl"));
+    assert_via_operations(
+        &triples,
+        &[
+            "kafka_topics:list",
+            "kafka_partitions:list",
+            "kafka_groups:lags",
+            "kafka_groups:lag_summary",
+        ],
+    );
+}
