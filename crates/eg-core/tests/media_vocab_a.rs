@@ -1429,7 +1429,8 @@ fn days_since(earlier: &str, later: &str) -> i64 {
         era * 36524 + doe
     }
     fn parts(s: &str) -> (i64, i64, i64) {
-        let date = s.split('-').collect::<Vec<_>>();
+        let day = s.split('T').next().unwrap_or(s);
+        let date = day.split('-').collect::<Vec<_>>();
         (
             date[0].parse().unwrap(),
             date[1].parse().unwrap(),
@@ -1673,5 +1674,208 @@ fn media_vocab_arr_vocabulary_docs_truth() {
         connector_competency_vocab_cell(&plan, "R005"),
         "media-v1",
         "the arr Vocabulary cell names media-v1, not MISSING"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R006.1
+#[test]
+fn media_vocab_jellyfin_mapping_rows_resolve_existing_terms() {
+    let document = include_str!("fixtures/media_vocab/jellyfin_mapping.ttl");
+    // The connection is one MCP source whose endpoint carries only a url.
+    let (kind, _endpoint, only_url) = connection_of(document);
+    assert_eq!(kind, "mcp", "vg:sourceKind is mcp");
+    assert!(only_url, "the endpoint reference carries only its url");
+    // Every row binds only discovered names (the shape SPARQL rules) and
+    // names an existing class or property.
+    let (entities, fields, _operations) = contract_of(document);
+    let rows = mapping_rows(document);
+    assert_eq!(rows.len(), 7, "the plan.md table rows are all mapped");
+    let universe = vocabulary_universe();
+    for row in &rows {
+        assert!(
+            entities.contains(&row.entity),
+            "mapsEntity {} is a discovered entity",
+            row.entity
+        );
+        assert!(
+            fields.contains(&row.key_field),
+            "keyField {} is a discovered field",
+            row.key_field
+        );
+        assert!(
+            universe.get(&row.class).map(|(kind, _)| *kind) == Some(TermKind::Class),
+            "row class {} is a declared class",
+            row.class
+        );
+        for pair in &row.pairs {
+            assert!(
+                fields.contains(&pair.field),
+                "pair field {} is a discovered field",
+                pair.field
+            );
+            assert!(
+                universe.contains_key(&pair.predicate),
+                "row predicate {} is declared vocabulary",
+                pair.predicate
+            );
+        }
+    }
+    // Coverage of the plan.md jellyfin table: entity -> class.
+    let bound: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .map(|r| (
+            r.entity.as_str(),
+            r.class.strip_prefix(KG).unwrap_or(&r.class),
+        ))
+        .collect();
+    for (entity, class) in [
+        ("Movie", "Film"),
+        ("Episode", "TelevisionEpisode"),
+        ("Track", "MusicTrack"),
+        ("ItemUserData", "PlaybackSession"),
+        ("Session", "PlaybackSession"),
+        ("MediaInfo", "MediaFile"),
+        ("LibraryCounts", "MediaLibrary"),
+    ] {
+        assert!(
+            bound.contains(&(entity, class)),
+            "the plan.md table row {entity} -> {class} is mapped"
+        );
+    }
+}
+
+// spec: EG-MEDIA-VOCAB-R006.2
+#[test]
+fn media_vocab_jellyfin_response_round_trips_through_mapping() {
+    let document = include_str!("fixtures/media_vocab/jellyfin_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/jellyfin_response.json"))
+            .expect("the recorded response parses");
+    let mapped = apply_mapping(&rows, &response, "jellyfin", &universe);
+    // Ten records plus one minted reference node (the viewer "dana" the user
+    // data and the live session name).
+    let nodes = node_subjects(&mapped);
+    assert_eq!(nodes.len(), 11, "every record becomes exactly one node: {nodes:?}");
+    // No undeclared vocabulary leaves the mapping.
+    for t in &mapped {
+        let predicate = t.predicate.as_str();
+        if predicate == format!("{RDF}type")
+            || predicate == format!("{DC}source")
+            || predicate == format!("{DC}identifier")
+            || predicate == format!("{DC}date")
+        {
+            continue;
+        }
+        assert!(
+            universe.contains_key(predicate),
+            "the mapped triple uses declared vocabulary: {predicate}"
+        );
+    }
+    // The user data points at the mapped item node; the viewer mints as a
+    // typed :Person.
+    assert_eq!(
+        iri_of(
+            &mapped,
+            "urn:eg-media-vocab:jellyfin:ItemUserData:3",
+            format!("{KG}itemOf").as_str()
+        ),
+        Some("urn:eg-media-vocab:jellyfin:Movie:3".to_string())
+    );
+    let viewer = iri_of(
+        &mapped,
+        "urn:eg-media-vocab:jellyfin:ItemUserData:3",
+        format!("{KG}playedBy").as_str(),
+    )
+    .expect("the user data names its viewer");
+    assert!(viewer.starts_with("urn:eg-media-vocab:jellyfin:aux:"));
+    // One type triple per record that names the viewer, all the same.
+    let types: BTreeSet<String> =
+        values_of(&mapped, &viewer, format!("{RDF}type").as_str()).into_iter().collect();
+    assert_eq!(types, BTreeSet::from([format!("{KG}Person")]));
+    assert_eq!(
+        values_of(&mapped, &viewer, format!("{KG}title").as_str()),
+        vec!["dana".to_string(), "dana".to_string(), "dana".to_string()]
+    );
+    // The per-type library count lands on the library node; the playback
+    // info carries its container and size as declared vocabulary.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:jellyfin:LibraryCounts:Movies",
+            format!("{KG}itemCount").as_str()
+        ),
+        vec!["4".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:jellyfin:MediaInfo:1",
+            format!("{KG}container").as_str()
+        ),
+        vec!["mkv".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:jellyfin:MediaInfo:1",
+            format!("{KG}sizeBytes").as_str()
+        ),
+        vec!["5368709120".to_string()]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R006.3
+#[test]
+fn media_vocab_jellyfin_single() {
+    // "Which movies in a library have never been played and were added more
+    // than a year ago?" — CONFIRMED: get_items plus get_item_user_data;
+    // never played is the absence of any PlaybackSession pointing at the
+    // film, added-more-than-a-year is addedAt (DateCreated) measured against
+    // the frozen as-of.
+    let document = include_str!("fixtures/media_vocab/jellyfin_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/jellyfin_response.json")).unwrap();
+    let mapped = apply_mapping(&rows, &response, "jellyfin", &universe);
+
+    let films = subjects_typed(&mapped, &["Film"]);
+    // The works any playback session (user data or live session) points at;
+    // a film absent from that set was never played.
+    let played: BTreeSet<String> = subjects_typed(&mapped, &["PlaybackSession"])
+        .iter()
+        .filter_map(|session| iri_of(&mapped, session, format!("{KG}itemOf").as_str()))
+        .collect();
+    let answer: BTreeSet<String> = films
+        .iter()
+        .filter(|film| {
+            !played.contains(*film)
+                && values_of(&mapped, film, format!("{KG}addedAt").as_str())
+                    .iter()
+                    .any(|added| days_since(added, ASOF) > 365)
+        })
+        .cloned()
+        .collect();
+    assert_eq!(
+        answer,
+        ["urn:eg-media-vocab:jellyfin:Movie:1"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>(),
+        "never played and added more than a year ago: {answer:?}"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R006.4
+#[test]
+fn media_vocab_jellyfin_vocabulary_docs_truth() {
+    let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
+        .expect("the connector-competency plan reads");
+    assert_eq!(
+        connector_competency_vocab_cell(&plan, "R027"),
+        "media-v1",
+        "the jellyfin Vocabulary cell names media-v1, not MISSING"
     );
 }

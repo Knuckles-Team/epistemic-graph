@@ -829,3 +829,12 @@
     rdfs:comment "Links a grab event to the work or request it acquired (arr history entry references its movie or series plus episode)." ;
     rdfs:domain :GrabEvent ;
     rdfs:range [ a owl:Class ; owl:unionOf ( :DownloadRequest :MediaWork ) ] .
+
+# R006.1: jellyfin mapping term. The table row `jellyfin_library/get_item_counts
+# -> mv:MediaLibrary count` needs a count property on the library.
+
+:itemCount a owl:DatatypeProperty ;
+    rdfs:label "item count" ;
+    rdfs:comment "How many items of one kind the library holds (Jellyfin per-type item counts)." ;
+    rdfs:domain :MediaLibrary ;
+    rdfs:range xsd:nonNegativeInteger .
