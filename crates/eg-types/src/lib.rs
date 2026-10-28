@@ -381,6 +381,12 @@ pub mod result_contract;
 // storage, queues, handlers, and surface projections live in crates above this
 // bottom-of-DAG owner and must consume these exact operation and identity DTOs.
 pub mod semantic_index;
+// EG-SDLC — release, deployment, defect, derived status and lifecycle trace records.
+pub mod lifecycle;
+// EG-SCM-R002 — the source changeset record and its structured trailers.
+pub mod source_changeset;
+// EG-SCM-R013 — graph-native symbol edits.
+pub mod source_symbol_edit;
 // RF-ADR-009 — raw connector records, exact manifest mapping reference, cursor
 // CAS and the terminal native ingestion receipt. Runtime authority lives in the
 // server; these are bounded pure wire types.
@@ -408,6 +414,8 @@ pub mod work_item_command_log;
 // the caller's row view, its three-bound page scan, and its cursor family.
 pub mod run_completion;
 pub mod work_item_read;
+// EG-IDENTITY-R610 — tenant parent chains, secured reads and ownership claims.
+pub mod tenancy;
 // The opaque tenant-bound keyset cursor shared by every paged read
 // (`AgentComponent.Search`, `ListWorkItems`).
 pub mod tenant_cursor;
