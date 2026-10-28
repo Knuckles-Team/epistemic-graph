@@ -6,7 +6,7 @@
 //! per producer.  Checkpoint identity is deliberately reused from `eg-types`;
 //! this module does not create a second cursor contract.
 
-use eg_types::contract::{Digest256, ResourceId, UtcUnixNanos};
+use eg_types::contract::{Digest256, UtcUnixNanos};
 pub use eg_types::source_ingestion::SourceCheckpoint;
 use serde::{Deserialize, Serialize};
 
@@ -147,6 +147,7 @@ pub struct TranscriptTurn {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eg_types::contract::ResourceId;
 
     // spec: EG-REPO-INGEST-R800.1
     #[test]

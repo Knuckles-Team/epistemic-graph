@@ -229,7 +229,7 @@ pub(crate) async fn handle_gateway(
         GraphSchemaOp::ImportOntology { .. } | GraphSchemaOp::WithdrawOntology { .. } => {
             Response::err(
                 ctx.req_id,
-                &format!(
+                format!(
                     "{}: runtime ontology import is delivered by R103.2",
                     eg_types::graph_schema::GraphSchemaErrorCode::OntologyImportNotWired.as_str()
                 ),

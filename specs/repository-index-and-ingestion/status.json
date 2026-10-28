@@ -716,9 +716,9 @@
         "052265feef24"
       ],
       "verified_by": [
-        "crates/eg-document/src/transcript.rs:151",
-        "crates/eg-document/src/transcript.rs:226",
-        "crates/eg-document/src/transcript.rs:248"
+        "crates/eg-document/src/transcript.rs:152",
+        "crates/eg-document/src/transcript.rs:227",
+        "crates/eg-document/src/transcript.rs:249"
       ]
     },
     {

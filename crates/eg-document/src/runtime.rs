@@ -186,16 +186,16 @@ pub fn compare_transcript_prefix(
     previous_line_digests: &[Digest256],
     max_line_bytes: usize,
 ) -> Result<TranscriptPrefixDelta, TranscriptLineError> {
-    let mut reader = TranscriptLineReader::new(bytes, max_line_bytes)?;
+    let reader = TranscriptLineReader::new(bytes, max_line_bytes)?;
     let mut first_changed_ordinal = None;
     let mut line_count = 0_u64;
 
-    while let Some(line) = reader.next() {
+    for line in reader {
         let line = line?;
         let prior = usize::try_from(line.ordinal)
             .ok()
             .and_then(|index| previous_line_digests.get(index));
-        if first_changed_ordinal.is_none() && prior.map_or(true, |digest| *digest != line.digest) {
+        if first_changed_ordinal.is_none() && prior.is_none_or(|digest| *digest != line.digest) {
             first_changed_ordinal = Some(line.ordinal);
         }
         line_count = line.ordinal.saturating_add(1);
