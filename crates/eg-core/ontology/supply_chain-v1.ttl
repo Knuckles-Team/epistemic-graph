@@ -159,3 +159,14 @@ serviceRunsOn) is asserted as the property-chain axiom on this property.""" ;
     rdfs:comment "Links a container image to each Vulnerability its scanner found in it. Same IRI as the dockerhub ontology; kept, not replaced." ;
     rdfs:domain infra:ContainerImage ;
     rdfs:range :Vulnerability .
+
+:EcosystemPackage a owl:Class ;
+    rdfs:label "Ecosystem Package" ;
+    rdfs:comment "One package of the agent ecosystem (a connector, an agent, a skill bundle) with the dependency edges to the packages it needs; package dependency reuses the shared transitive :dependsOn rather than declaring a parallel property." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:affectsPackage a owl:ObjectProperty ;
+    rdfs:label "affects package" ;
+    rdfs:comment "Links a Vulnerability finding to each EcosystemPackage it affects: the package the finding was recorded in and, through the transitive :dependsOn chain, every package that depends on it." ;
+    rdfs:domain :Vulnerability ;
+    rdfs:range :EcosystemPackage .

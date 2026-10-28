@@ -1451,7 +1451,7 @@ mod tests {
             ),
             (
                 "supply_chain",
-                "b6b287d4103485932aec3de3830ba39fce6ad4ffb8ee22c550eee80076f8f0ed",
+                "0ec7f49f009de50bf6047db62445220a5f9fb1a0092a2f7354f2fa28d4aed808",
             ),
         ];
         let catalog = current_core_catalog();
