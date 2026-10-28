@@ -25430,6 +25430,8 @@ QuestionKind = (
     | Literal["harness_config"]
     | Literal["task_plan"]
     | Literal["harness_contrast"]
+    | Literal["branch_outcome"]
+    | Literal["edit_concentration"]
 )
 
 

@@ -21,6 +21,8 @@
 //! Every algorithm -- derivation, solving, verification, execution, fitting --
 //! lives above this module. These are data types and their bounds.
 
+pub mod branch_outcomes;
+pub mod concentration;
 pub mod coverage;
 pub mod derivation;
 pub mod digest;
@@ -33,6 +35,7 @@ pub mod ingestion_ladder;
 pub mod jobs;
 pub mod numeric;
 pub mod policy;
+pub mod promotion;
 pub mod prompt_candidate;
 pub mod rapid_r015;
 pub mod rapid_r044;
@@ -40,6 +43,7 @@ pub mod rapid_r056;
 pub mod record;
 pub mod replay;
 pub mod request;
+pub mod skill_upgrade;
 pub mod statistical;
 pub mod task_plan;
 pub mod topology;
