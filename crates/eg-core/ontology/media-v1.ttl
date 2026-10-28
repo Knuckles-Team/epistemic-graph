@@ -812,3 +812,20 @@
 
 # R003.1: `:contentSha256` on `:MediaFile` is the file-content identity key
 # (declared with the R001.2 file terms).
+
+# R005.1: arr mapping terms. The table row `prowlarr_action/get_indexer,
+# get_indexerstats -> mv:MediaIndexer; mv:indexerEnabled` and the DECIDED
+# answer for the single-source question (plan.md, arr: "indexer that last
+# GRABBED it" from get_history) name two more media terms.
+
+:indexerEnabled a owl:DatatypeProperty ;
+    rdfs:label "indexer enabled" ;
+    rdfs:comment "True while the indexer is enabled for searches and grabs (Prowlarr indexer state)." ;
+    rdfs:domain :MediaIndexer ;
+    rdfs:range xsd:boolean .
+
+:grabOf a owl:ObjectProperty ;
+    rdfs:label "grab of" ;
+    rdfs:comment "Links a grab event to the work or request it acquired (arr history entry references its movie or series plus episode)." ;
+    rdfs:domain :GrabEvent ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :DownloadRequest :MediaWork ) ] .
