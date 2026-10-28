@@ -269,6 +269,14 @@ ex:mapping a dp:StoreMapping ;
     )
 }
 
+/// The literal value of a term, if it is a literal.
+fn literal_value(term: &eg_rdf::oxrdf::Term) -> Option<&str> {
+    match term.as_ref() {
+        eg_rdf::oxrdf::TermRef::Literal(literal) => Some(literal.value()),
+        _ => None,
+    }
+}
+
 /// Validates a mapping fixture against the data-platform and virtual-graph
 /// shapes and returns its triples.
 fn validate_fixture(document: &str) -> Vec<Triple> {
@@ -1174,6 +1182,117 @@ fn no_second_discovery_path() {
             assert!(
                 contract_iris.contains(&triple.object.to_string()),
                 "every vg:mapsContract must name a vg:MetadataContract node in the same fixture"
+            );
+        }
+    }
+}
+
+// spec: EG-DATAPLAT-VOCAB-R007.4
+#[test]
+fn virtual_default_for_all_eight() {
+    // `all_virtual` marks the fixtures whose mappings are every virtual
+    // (decision 4): sql, documentdb, objectstore, vector, openbao.
+    let fixtures: &[(&str, bool)] = &[
+        (include_str!("../ontology/fixtures/data_platform/sql.ttl"), true),
+        (
+            include_str!("../ontology/fixtures/data_platform/documentdb.ttl"),
+            true,
+        ),
+        (include_str!("../ontology/fixtures/data_platform/objectstore.ttl"), true),
+        (include_str!("../ontology/fixtures/data_platform/vector.ttl"), true),
+        (include_str!("../ontology/fixtures/data_platform/kafka.ttl"), false),
+        (include_str!("../ontology/fixtures/data_platform/openbao.ttl"), true),
+        (include_str!("../ontology/fixtures/data_platform/clarity.ttl"), false),
+        (
+            include_str!("../ontology/fixtures/data_platform/data-science.ttl"),
+            false,
+        ),
+    ];
+
+    let store_mapping = NamedNode::new(&format!("{DP}StoreMapping")).unwrap();
+    let acceleration_mode = NamedNode::new(&format!("{DP}accelerationMode")).unwrap();
+    let materialisation_reason =
+        NamedNode::new(&format!("{DP}materialisationReason")).unwrap();
+
+    for (document, all_virtual) in fixtures {
+        let triples = parse_turtle(document).expect("the fixture parses");
+        let rdf_type = NamedNode::new(&format!("{RDF}type")).unwrap();
+        let mapping_iris: Vec<String> = triples
+            .iter()
+            .filter(|triple| {
+                triple.predicate == rdf_type
+                    && triple
+                        .object
+                        == eg_rdf::oxrdf::Term::NamedNode(store_mapping.clone())
+            })
+            .map(|triple| triple.subject.to_string())
+            .collect();
+        assert!(
+            !mapping_iris.is_empty(),
+            "every fixture carries at least one StoreMapping"
+        );
+
+        for mapping_iri in &mapping_iris {
+            let mode = triples
+                .iter()
+                .find(|triple| {
+                    triple.subject.to_string() == *mapping_iri
+                        && triple.predicate == acceleration_mode
+                })
+                .and_then(|triple| {
+                    literal_value(&triple.object).map(|value| value.to_string())
+                });
+            assert!(
+                matches!(mode.as_deref(), Some("virtual") | Some("materialised")),
+                "every mapping names an accelerationMode: {mapping_iri}"
+            );
+            let has_reason = triples.iter().any(|triple| {
+                triple.subject.to_string() == *mapping_iri
+                    && triple.predicate == materialisation_reason
+            });
+            let has_acceleration_policy = triples
+                .iter()
+                .any(|triple| {
+                    triple.subject.to_string() == *mapping_iri
+                        && triple.predicate.as_str().contains("ccelerationPolicy")
+                });
+
+            match mode.as_deref() {
+                Some("virtual") => assert!(
+                    !has_reason && !has_acceleration_policy,
+                    "a virtual mapping carries no materialisationReason and no AccelerationPolicy: {mapping_iri}"
+                ),
+                Some("materialised") => {
+                    let reason = triples
+                        .iter()
+                        .find(|triple| {
+                            triple.subject.to_string() == *mapping_iri
+                                && triple.predicate == materialisation_reason
+                        })
+                        .and_then(|triple| {
+                            literal_value(&triple.object).map(|value| value.to_string())
+                        })
+                        .unwrap_or_default();
+                    assert!(
+                        reason.contains("R038"),
+                        "a materialised mapping cites R038 in its reason: {mapping_iri} ({reason})"
+                    );
+                }
+                _ => panic!("mapping {mapping_iri} has no accelerationMode"),
+            }
+        }
+
+        if *all_virtual {
+            let any_materialised = mapping_iris.iter().any(|iri| {
+                triples.iter().any(|triple| {
+                    triple.subject.to_string() == *iri
+                        && triple.predicate == acceleration_mode
+                        && literal_value(&triple.object) == Some("materialised")
+                })
+            });
+            assert!(
+                !any_materialised,
+                "an all-virtual fixture must carry no materialised mapping"
             );
         }
     }
