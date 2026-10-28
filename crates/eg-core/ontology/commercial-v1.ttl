@@ -75,6 +75,14 @@ from the order's supplier and its line items without redeclaring
     rdfs:domain :PurchaseInvoice ;
     rdfs:range :Supplier .
 
+:contactOf a owl:ObjectProperty ;
+    rdfs:label "contact of" ;
+    rdfs:comment """Links a Person to the Customer the person contacts for.
+Reuses the shared :Person class for the contact representation; no :Contact
+class is added.""" ;
+    rdfs:domain :Person ;
+    rdfs:range :Customer .
+
 :supportsCapability a owl:ObjectProperty ;
     rdfs:label "supports capability" ;
     rdfs:comment """Links a Service to the BusinessCapability it supports.

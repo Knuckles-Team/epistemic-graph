@@ -826,3 +826,39 @@ fn purchase_invoice_and_invoice_supplier_declared() {
     );
     assert_domain_range(&triples, "invoiceSupplier", "PurchaseInvoice", "Supplier");
 }
+
+// spec: EG-SUPPLY-VOCAB-R003.11
+#[test]
+fn contact_of_declared_with_no_contact_class() {
+    let triples = load_commercial();
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}contactOf"),
+            &format!("{RDF}type"),
+            &format!("{OWL}ObjectProperty")
+        ),
+        "contactOf is an object property"
+    );
+    assert_domain_range(&triples, "contactOf", "Person", "Customer");
+    // No :Contact class exists in the core ontology set.
+    let mut contact_classes = 0;
+    for entry in std::fs::read_dir("ontology").expect("the ontology directory is present") {
+        let path = entry.unwrap().path();
+        let document = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("{} reads: {err}", path.display()));
+        let parsed = parse_turtle(&document)
+            .unwrap_or_else(|err| panic!("{} parses: {err}", path.display()));
+        contact_classes += parsed
+            .iter()
+            .filter(|triple| {
+                subject_key(triple) == format!("<{KG}Contact>")
+                    && triple.predicate.as_str().ends_with("type")
+            })
+            .count();
+    }
+    assert_eq!(
+        contact_classes, 0,
+        "no :Contact class is declared; :Person is reused for contacts"
+    );
+}
