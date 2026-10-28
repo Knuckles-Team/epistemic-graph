@@ -20,7 +20,12 @@
 
 use std::collections::BTreeMap;
 
+use eg_types::lake_catalog::ProjectionAccess;
 use serde_json::{json, Value};
+
+/// The refusal code for a write that arrives through a projection
+/// (EG-FEDERATED-QUERY-R080.4).
+pub const PROJECTION_READ_ONLY: &str = "PROJECTION_READ_ONLY";
 
 /// One registered table's catalog entry (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 #[derive(Clone, Debug, PartialEq)]
@@ -32,6 +37,88 @@ pub struct TableEntry {
     /// Optionally the inline `metadata.json` content, returned in a LoadTable response
     /// so a client need not do a second fetch.
     pub metadata_json: Option<String>,
+    /// Always [`ProjectionAccess::ReadOnly`] for a published projection
+    /// (EG-FEDERATED-QUERY-R080.1).
+    pub access: ProjectionAccess,
+}
+
+/// An Iceberg-REST catalog operation, classified for the projection write
+/// boundary (EG-FEDERATED-QUERY-R080.2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CatalogOperation {
+    ListNamespaces,
+    ListTables,
+    LoadTable,
+    CreateTable,
+    CommitData,
+    CommitMetadata,
+    UpdateSchema,
+    RenameTable,
+    DropTable,
+    /// Any other route; treated as a write, so it fails closed.
+    Other(String),
+}
+
+impl CatalogOperation {
+    /// The operation's stable name, used in refusals and operation records.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::ListNamespaces => "list_namespaces",
+            Self::ListTables => "list_tables",
+            Self::LoadTable => "load_table",
+            Self::CreateTable => "create_table",
+            Self::CommitData => "commit_data",
+            Self::CommitMetadata => "commit_metadata",
+            Self::UpdateSchema => "update_schema",
+            Self::RenameTable => "rename_table",
+            Self::DropTable => "drop_table",
+            Self::Other(name) => name,
+        }
+    }
+
+    /// Whether the operation only reads.
+    pub fn is_read(&self) -> bool {
+        matches!(
+            self,
+            Self::ListNamespaces | Self::ListTables | Self::LoadTable
+        )
+    }
+
+    fn is_known_write(&self) -> bool {
+        !self.is_read() && !matches!(self, Self::Other(_))
+    }
+}
+
+/// A write refused at a read-only projection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectionWriteRefusal {
+    pub code: &'static str,
+    /// HTTP 405 Method Not Allowed.
+    pub http_status: u16,
+    pub table: String,
+    pub operation: String,
+}
+
+/// Refuse any write through a read-only projection (EG-FEDERATED-QUERY-R080.2).
+/// Reads pass. Create, commit, schema update, rename and drop are writes, and
+/// an unknown operation fails closed even on an authoritative table. Internal
+/// publication ([`IcebergRestCatalog::register`]) never flips an entry to
+/// writable, so it grants clients nothing.
+pub fn refuse_projection_write(
+    op: &CatalogOperation,
+    entry: &TableEntry,
+) -> Result<(), ProjectionWriteRefusal> {
+    let allowed =
+        op.is_read() || (op.is_known_write() && entry.access == ProjectionAccess::Authoritative);
+    if allowed {
+        return Ok(());
+    }
+    Err(ProjectionWriteRefusal {
+        code: PROJECTION_READ_ONLY,
+        http_status: 405,
+        table: format!("{}.{}", entry.namespace, entry.name),
+        operation: op.name().to_string(),
+    })
 }
 
 /// A minimal in-memory Iceberg-REST catalog (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
@@ -64,6 +151,7 @@ impl IcebergRestCatalog {
                 name: nm,
                 metadata_location: metadata_location.into(),
                 metadata_json,
+                access: ProjectionAccess::ReadOnly,
             },
         );
     }
@@ -107,6 +195,16 @@ impl IcebergRestCatalog {
         json!({ "identifiers": identifiers })
     }
 
+    /// A registered table's entry, or `None` if unknown.
+    pub fn entry(&self, namespace: &str, name: &str) -> Option<&TableEntry> {
+        self.tables.get(&(namespace.to_string(), name.to_string()))
+    }
+
+    /// Every registered entry, in `(namespace, name)` order.
+    pub fn entries(&self) -> impl Iterator<Item = &TableEntry> {
+        self.tables.values()
+    }
+
     /// The metadata location for a table, or `None` if unknown (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
     pub fn metadata_location(&self, namespace: &str, name: &str) -> Option<&str> {
         self.tables
@@ -130,5 +228,84 @@ impl IcebergRestCatalog {
             "metadata": metadata,
             "config": {},
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn catalog() -> IcebergRestCatalog {
+        let mut catalog = IcebergRestCatalog::new();
+        catalog.register(
+            "graph",
+            "nodes",
+            "s3://lake/graph/nodes/metadata.json",
+            None,
+        );
+        catalog.register(
+            "graph",
+            "edges",
+            "s3://lake/graph/edges/metadata.json",
+            None,
+        );
+        // Re-publishing a committed snapshot keeps the entry read-only.
+        catalog.register(
+            "graph",
+            "nodes",
+            "s3://lake/graph/nodes/v2.metadata.json",
+            None,
+        );
+        catalog
+    }
+
+    // spec: EG-FEDERATED-QUERY-R080.1
+    #[test]
+    fn every_registered_entry_is_read_only() {
+        let catalog = catalog();
+        assert_eq!(catalog.len(), 2);
+        assert!(catalog
+            .entries()
+            .all(|entry| entry.access == ProjectionAccess::ReadOnly));
+    }
+
+    // spec: EG-FEDERATED-QUERY-R080.2
+    #[test]
+    fn refuse_projection_write_classifies_each_operation() {
+        let catalog = catalog();
+        let entry = catalog.entry("graph", "nodes").unwrap();
+        for read in [
+            CatalogOperation::ListNamespaces,
+            CatalogOperation::ListTables,
+            CatalogOperation::LoadTable,
+        ] {
+            assert_eq!(refuse_projection_write(&read, entry), Ok(()));
+        }
+        for write in [
+            CatalogOperation::CreateTable,
+            CatalogOperation::CommitData,
+            CatalogOperation::CommitMetadata,
+            CatalogOperation::UpdateSchema,
+            CatalogOperation::RenameTable,
+            CatalogOperation::DropTable,
+            CatalogOperation::Other("register_view".into()),
+        ] {
+            let refusal = refuse_projection_write(&write, entry).unwrap_err();
+            assert_eq!(refusal.code, PROJECTION_READ_ONLY);
+            assert_eq!(refusal.http_status, 405);
+            assert_eq!(refusal.table, "graph.nodes");
+            assert_eq!(refusal.operation, write.name());
+        }
+        let mut authoritative = entry.clone();
+        authoritative.access = ProjectionAccess::Authoritative;
+        assert_eq!(
+            refuse_projection_write(&CatalogOperation::CommitData, &authoritative),
+            Ok(())
+        );
+        assert!(
+            refuse_projection_write(&CatalogOperation::Other("purge".into()), &authoritative)
+                .is_err(),
+            "an unknown mutating operation fails closed"
+        );
     }
 }
