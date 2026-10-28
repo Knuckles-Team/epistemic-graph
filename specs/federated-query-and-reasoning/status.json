@@ -557,7 +557,7 @@
         "be0f1acb05c6"
       ],
       "verified_by": [
-        "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs:343"
+        "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs:418"
       ]
     },
     {

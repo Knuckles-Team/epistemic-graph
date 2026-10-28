@@ -110,12 +110,15 @@
     {
       "id": "EG-REPO-INGEST-R001",
       "title": "Reconcile mode re-admits stranded semantic intents",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "06a13bef2738",
+        "173804d141e3",
         "ac5638477288"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs:230"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R002",
