@@ -769,3 +769,46 @@
     rdfs:comment "Links a media work to a person who contributed to it (role carried as an annotation); replaces the connector `:Author` alias." ;
     rdfs:domain :MediaWork ;
     rdfs:range :Person .
+
+# R003.1: cross-source identity keys. Correlation keys only: no global
+# inverse-functionality axioms, so a provider ID scoped to its work class joins
+# records without identifying two source records as one entity.
+
+:tmdbId a owl:DatatypeProperty ;
+    rdfs:label "TMDB ID" ;
+    rdfs:comment "The TMDB numeric ID of a film or television series. Scoped to the work class: a Film and a TelevisionSeries carrying the same numeric value remain distinct entities." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Film :TelevisionSeries ) ] ;
+    rdfs:range xsd:string .
+
+:tvdbId a owl:DatatypeProperty ;
+    rdfs:label "TVDB ID" ;
+    rdfs:comment "The TVDB ID of a television series or episode." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :TelevisionSeries :TelevisionEpisode ) ] ;
+    rdfs:range xsd:string .
+
+:imdbId a owl:DatatypeProperty ;
+    rdfs:label "IMDb ID" ;
+    rdfs:comment "The IMDb identifier of a media work." ;
+    rdfs:domain :MediaWork ;
+    rdfs:range xsd:string .
+
+:musicBrainzId a owl:DatatypeProperty ;
+    rdfs:label "MusicBrainz ID" ;
+    rdfs:comment "The MusicBrainz identifier of an album or track." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :MusicAlbum :MusicTrack ) ] ;
+    rdfs:range xsd:string .
+
+:isbn a owl:DatatypeProperty ;
+    rdfs:label "ISBN" ;
+    rdfs:comment "The ISBN of an audiobook; the cross-source join key to the same work in another library." ;
+    rdfs:domain :Audiobook ;
+    rdfs:range xsd:string .
+
+:infoHash a owl:DatatypeProperty ;
+    rdfs:label "info hash" ;
+    rdfs:comment "The torrent info-hash of a download transfer. Normalisation: lower-case hex, 40 or 64 characters; repeated reads of the same source-native key upsert the same entity." ;
+    rdfs:domain :DownloadTransfer ;
+    rdfs:range xsd:string .
+
+# R003.1: `:contentSha256` on `:MediaFile` is the file-content identity key
+# (declared with the R001.2 file terms).

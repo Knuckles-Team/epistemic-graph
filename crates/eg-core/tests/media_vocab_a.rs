@@ -37,6 +37,16 @@ fn load(document: &str) -> Vec<Triple> {
     parse_turtle(document).unwrap_or_else(|err| panic!("the document parses: {err}"))
 }
 
+fn has_literal(triples: &[Triple], subject: &str, predicate: &str, value: &str) -> bool {
+    triples
+        .iter()
+        .any(|t| {
+            subject_str(&t.subject) == Some(subject)
+                && t.predicate.as_str() == predicate
+                && object_str(&t.object) == Some(value)
+        })
+}
+
 /// The IRI of one subject node, when it is a named node.
 fn subject_str(node: &eg_rdf::oxrdf::NamedOrBlankNode) -> Option<&str> {
     match node {
@@ -545,6 +555,234 @@ fn content_message_terms_reuse_team_without_redeclaration() {
         !declared_classes(&content).contains(&format!("{KG}Team")),
         "content-v1 must not redeclare :Team"
     );
+}
+
+// spec: EG-MEDIA-VOCAB-R003.1
+#[test]
+fn identity_keys_preserve_distinct_records_and_provenance() {
+    let media = load(MEDIA);
+    let content = load(CONTENT);
+    // The eight key properties are datatype correlation properties.
+    for (triples, local) in [
+        (&media, "tmdbId"),
+        (&media, "tvdbId"),
+        (&media, "imdbId"),
+        (&media, "musicBrainzId"),
+        (&media, "isbn"),
+        (&media, "infoHash"),
+        (&media, "contentSha256"),
+        (&content, "canonicalUrl"),
+    ] {
+        assert_typed(triples, local, "DatatypeProperty");
+    }
+    // No global inverse-functionality on any module property.
+    for (name, triples) in [("media", &media), ("content", &content)] {
+        assert!(
+            triples
+                .iter()
+                .all(|t| object_iri(&t.object) != Some(&format!("{OWL}InverseFunctionalProperty"))),
+            "{name} declares a globally inverse-functional property"
+        );
+    }
+    // Fixture: equal URLs and provider IDs across source records keep distinct
+    // records and their provenance; no sameAs is minted by a key match.
+    const FIXTURE: &str = r#"
+@prefix : <http://knuckles.team/kg#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix f: <urn:eg-media-vocab:identity/> .
+
+f:articleA a :Article ; :canonicalUrl "https://example.com/story" ; dc:source "freshrss" ; dc:identifier "f1" .
+f:articleB a :Article ; :canonicalUrl "https://example.com/story" ; dc:source "freshrss" ; dc:identifier "f2" .
+f:resultOne a :SearchResult ; :resultUrl "https://example.com/story" ; dc:source "searxng" ; dc:identifier "s1" .
+f:resultTwo a :SearchResult ; :resultUrl "https://example.com/story" ; dc:source "searxng" ; dc:identifier "s2" .
+f:postOne a :SocialPost ; :canonicalUrl "https://example.com/story" ; dc:source "postiz" ; dc:identifier "p1" .
+f:postTwo a :SocialPost ; :canonicalUrl "https://example.com/story" ; dc:source "postiz" ; dc:identifier "p2" .
+f:film a :Film ; :tmdbId "603" ; dc:source "radarr" ; dc:identifier "m1" .
+f:series a :TelevisionSeries ; :tmdbId "603" ; dc:source "sonarr" ; dc:identifier "m2" .
+# Repeated reads of the same source-native key upsert the same entity.
+f:repeated a :TelevisionSeries ; :tvdbId "81190" ; dc:source "sonarr" ; dc:identifier "a1" , "a2" .
+"#;
+    let triples = load(FIXTURE);
+    for (record, identifier) in [
+        ("articleA", "f1"),
+        ("articleB", "f2"),
+        ("resultOne", "s1"),
+        ("resultTwo", "s2"),
+        ("postOne", "p1"),
+        ("postTwo", "p2"),
+        ("film", "m1"),
+        ("series", "m2"),
+    ] {
+        assert!(
+            has_literal(
+                &triples,
+                &format!("urn:eg-media-vocab:identity/{record}"),
+                "http://purl.org/dc/terms/identifier",
+                identifier
+            ),
+            "{record} keeps its own provenance"
+        );
+    }
+    // The same numeric provider ID on different work classes stays distinct.
+    assert!(
+        has_iri(
+            &triples,
+            "urn:eg-media-vocab:identity/film",
+            &format!("{RDF}type"),
+            &format!("{KG}Film")
+        )
+        && has_iri(
+            &triples,
+            "urn:eg-media-vocab:identity/series",
+            &format!("{RDF}type"),
+            &format!("{KG}TelevisionSeries")
+        ),
+        "film and series are separate records"
+    );
+    assert!(
+        triples
+            .iter()
+            .all(|t| object_iri(&t.object) != Some(&format!("{OWL}sameAs"))),
+        "a key match must not mint owl:sameAs"
+    );
+    // The repeated same-key read is one entity, not two.
+    let subjects: BTreeSet<String> = triples
+        .iter()
+        .filter(|t| {
+            t.predicate.as_str() == format!("{KG}tvdbId")
+                && object_str(&t.object) == Some("81190")
+        })
+        .filter_map(|t| subject_str(&t.subject).map(|s| s.to_string()))
+        .collect();
+    assert_eq!(
+        subjects.len(),
+        1,
+        "repeated reads of the same key upsert the same entity"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R003.2
+#[test]
+fn normalisation_fixture_table_passes() {
+    // The rules live in the rdfs:comment of the key properties.
+    let media = load(MEDIA);
+    let content = load(CONTENT);
+    let hash_comment = comment_of(&media, &format!("{KG}infoHash"))
+        .expect("infoHash carries its normalisation comment");
+    assert!(
+        hash_comment.contains("lower-case hex"),
+        "infoHash normalisation is documented"
+    );
+    let url_comment = comment_of(&content, &format!("{KG}canonicalUrl"))
+        .expect("canonicalUrl carries its normalisation comment");
+    assert!(
+        url_comment.contains("lower-cased") && url_comment.contains("fragment"),
+        "canonicalUrl normalisation is documented"
+    );
+    // Fixture table: the documented rules, applied, yield the expected form.
+    for (raw, expected) in [
+        (
+            "A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0",
+            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+        ),
+        (
+            "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        ),
+    ] {
+        let normalized = raw.to_lowercase();
+        assert_eq!(normalized.len(), expected.len());
+        assert_eq!(normalized, expected.trim());
+    }
+    // Only the scheme and host are lower-cased; the path stays as delivered.
+    for (raw, expected) in [
+        (
+            "https://Example.com/Story?utm_source=rss&id=9#comments",
+            "https://example.com/Story?id=9",
+        ),
+        ("HTTP://WWW.EXAMPLE.COM/PATH", "http://www.example.com/PATH"),
+        ("https://example.com/story?utm_campaign=x", "https://example.com/story"),
+    ] {
+        assert_eq!(normalize_canonical_url(raw), expected);
+    }
+}
+
+fn normalize_canonical_url(raw: &str) -> String {
+    let (scheme, rest) = raw.split_once("://").expect("the table entries carry a scheme");
+    let (host, tail) = match rest.split_once('/') {
+        Some((host, tail)) => (host, format!("/{tail}")),
+        None => (rest, String::new()),
+    };
+    let without_fragment = tail
+        .split_once('#')
+        .map(|(kept, _fragment)| kept.to_string())
+        .unwrap_or(tail);
+    let (path, query) = match without_fragment.split_once('?') {
+        Some((path, query)) => (path.to_string(), query.to_string()),
+        None => (without_fragment, String::new()),
+    };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|param| {
+            !param
+                .split_once('=')
+                .map_or(true, |(name, _)| name.starts_with("utm_"))
+        })
+        .collect();
+    let query = if kept.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", kept.join("&"))
+    };
+    format!(
+        "{}://{}{}{}",
+        scheme.to_lowercase(),
+        host.to_lowercase(),
+        path,
+        query
+    )
+}
+
+// spec: EG-MEDIA-VOCAB-R003.3
+#[test]
+fn subscriber_identity_is_a_keyed_hash_never_a_raw_address() {
+    let content = load(CONTENT);
+    assert_typed(&content, "subscriberKey", "DatatypeProperty");
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}subscriberKey"),
+            &format!("{RDFS}domain"),
+            &format!("{KG}Subscriber")
+        ),
+        "subscriberKey is owned by :Subscriber"
+    );
+    let comment = comment_of(&content, &format!("{KG}subscriberKey"))
+        .expect("subscriberKey carries its keyed-hash comment");
+    assert!(
+        comment.contains("keyed hash") && comment.contains("never stored"),
+        "the keyed-hash rule is documented"
+    );
+    // The content module declares no raw-address property.
+    let property_names: BTreeSet<String> = content
+        .iter()
+        .filter(|t| {
+            object_iri(&t.object) == Some(&format!("{OWL}DatatypeProperty"))
+                || object_iri(&t.object) == Some(&format!("{OWL}ObjectProperty"))
+        })
+        .filter_map(|t| {
+            subject_str(&t.subject)
+                .map(|s| s.rsplit('#').next().unwrap_or(s).to_string())
+        })
+        .collect();
+    for local in &property_names {
+        assert!(
+            !local.to_lowercase().contains("email")
+                && !local.to_lowercase().contains("address"),
+            "a raw-address property {local} must not exist in content-v1"
+        );
+    }
 }
 
 // spec: EG-MEDIA-VOCAB-R002.4

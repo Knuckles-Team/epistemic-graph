@@ -218,3 +218,23 @@
     rdfs:comment "How many papers cite the research paper (count only: the citing papers are not modelled)." ;
     rdfs:domain :ResearchPaper ;
     rdfs:range xsd:nonNegativeInteger .
+
+# R003.1: cross-source identity key. Article identity uses its class-scoped
+# normalised canonical URL; a URL join does not create owl:sameAs between a
+# document and the search results or posts that reference it. No global
+# inverse-functionality is declared.
+
+:canonicalUrl a owl:DatatypeProperty ;
+    rdfs:label "canonical URL" ;
+    rdfs:comment "The normalised document URL of an article or search result, and the shared target URL a post or campaign links to. Normalisation: scheme and host lower-cased, tracking parameters and fragment stripped. Shared target URLs support joins without identifying the result, post, campaign and document as one entity." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Article :SearchResult :SocialPost :EmailCampaign ) ] ;
+    rdfs:range xsd:string .
+
+# R003.3: keyed-hash identity for email-derived joins; the raw address is
+# never stored.
+
+:subscriberKey a owl:DatatypeProperty ;
+    rdfs:label "subscriber key" ;
+    rdfs:comment "The keyed hash of a subscriber's email address; the only identity a Subscriber carries. The raw address is never stored (connector governance: identity opaque-reference)." ;
+    rdfs:domain :Subscriber ;
+    rdfs:range xsd:string .
