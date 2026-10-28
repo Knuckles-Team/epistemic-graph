@@ -998,7 +998,13 @@
       "title": "`RelationalDriverConfig` builds from a validated engine/host/port/service name, and `connect` refuses an unsafe or invalid destination before issuing any request",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/relational_connection.rs:124",
+        "crates/eg-plan/src/relational_connection.rs:143",
+        "crates/eg-plan/src/relational_connection.rs:152",
+        "crates/eg-plan/src/relational_connection.rs:161",
+        "crates/eg-plan/src/relational_connection.rs:170"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.2.2",

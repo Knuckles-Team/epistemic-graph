@@ -1,0 +1,32 @@
+# data-science dp:StoreMapping fixture (EG-DATAPLAT-VOCAB-R006.8).
+#
+# One approved StoreMapping row per operation, virtual-first; run history is
+# materialised with the reason recorded (decision 4: the ML engine registry is
+# in-process, so run history must be recorded as TrainingRun / EvaluationResult
+# metadata when a run happens).
+
+@prefix dp:  <http://knuckles.team/kg/data-platform#> .
+@prefix ex:  <http://example.org/fixture/data-platform/data-science/> .
+
+ex:load-dataset-mapping a dp:StoreMapping ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "load_dataset" ;
+    dp:accelerationMode "virtual" .
+
+ex:dataset-lineage-mapping a dp:StoreMapping ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "dataset_lineage" ;
+    dp:accelerationMode "virtual" .
+
+ex:rank-models-mapping a dp:StoreMapping ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "rank_models" ;
+    dp:accelerationMode "virtual" .
+
+# Run history: the in-process ML engine registry (MLEngine) is not durable, so
+# the evaluation result is materialised as metadata at run time.
+ex:evaluate-model-mapping a dp:StoreMapping ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "evaluate_model" ;
+    dp:accelerationMode "materialised" ;
+    dp:materialisationReason "run history: the in-process ML engine registry is not durable; EvaluationResult metadata must be recorded at run time (plan decision 4)" .
