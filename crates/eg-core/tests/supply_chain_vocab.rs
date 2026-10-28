@@ -766,3 +766,38 @@ fn supplier_and_customer_entail_organization_without_a_party_class() {
         );
     }
 }
+
+// spec: EG-SUPPLY-VOCAB-R003.8
+#[test]
+fn purchase_order_declared_exactly_once() {
+    let triples = load_commercial();
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}PurchaseOrder"),
+            &format!("{RDF}type"),
+            &format!("{OWL}Class")
+        ),
+        "PurchaseOrder is a class"
+    );
+    // The core ontology set declares exactly one :PurchaseOrder.
+    let mut declarations = 0;
+    for entry in std::fs::read_dir("ontology").expect("the ontology directory is present") {
+        let path = entry.unwrap().path();
+        let document = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("{} reads: {err}", path.display()));
+        let parsed = parse_turtle(&document)
+            .unwrap_or_else(|err| panic!("{} parses: {err}", path.display()));
+        declarations += parsed
+            .iter()
+            .filter(|triple| {
+                subject_key(triple) == format!("<{KG}PurchaseOrder>")
+                    && triple.predicate.as_str().ends_with("type")
+            })
+            .count();
+    }
+    assert_eq!(
+        declarations, 1,
+        "exactly one :PurchaseOrder declaration in crates/eg-core/ontology"
+    );
+}
