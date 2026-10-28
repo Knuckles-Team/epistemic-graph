@@ -539,7 +539,7 @@
         "f2398cefb06c"
       ],
       "verified_by": [
-        "tests/test_no_version_suffixes.py:185"
+        "tests/test_no_version_suffixes.py:196"
       ]
     },
     {

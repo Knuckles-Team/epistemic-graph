@@ -114,6 +114,17 @@ FALSE_POSITIVE_LINE_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.compile(r"tests/fixtures/[a-z_]+_v[0-9]+\.json|method_policy_registry_v1"),
         "test fixture FILENAME, not a persisted table",
     ),
+    # -- Spec-mandated connector-competency audit test modules. The ---------
+    # -- verification cells of EG-CQ-CONN-R070 through R082 name the -------
+    # -- `ontology_audit_<module>_v1` test modules; the trailing token ------
+    # -- mirrors the `<module>-v1.ttl` ontology filename, it is not a -------
+    # -- versioned component. ----------------------------------------------
+    (
+        re.compile(r"\bmod ontology_audit_[a-z_]+_v[0-9]+\b"),
+        "connector-competency ontology audit test module (EG-CQ-CONN-R070 to "
+        "R082); spec-mandated name mirroring the <module>-v1.ttl filename, "
+        "not a versioned component",
+    ),
 ]
 
 

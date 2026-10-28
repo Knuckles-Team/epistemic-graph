@@ -123,3 +123,8 @@ eg-modality = { path = "../eg-modality", optional = true }
 # the registered core documents with the native RDF stack. Dev-only: a default
 # build links nothing extra (the eg-plan test-target precedent).
 eg-rdf = { path = "../eg-rdf", features = ["rdf"] }
+# The connector-competency vocabulary tests (EG-CQ-CONN-R084.x) validate the
+# registered shapes companions with the native SHACL engine. Dev-only, the same
+# precedent as eg-rdf's own eg-shacl dev-dep: a default build links nothing
+# extra, and eg-shacl sits above eg-rdf in the DAG (no cycle).
+eg-shacl = { path = "../eg-shacl" }

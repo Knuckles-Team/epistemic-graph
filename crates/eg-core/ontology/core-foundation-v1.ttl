@@ -118,6 +118,11 @@
             owl:onProperty :influenced ],
         bfo:0000031 .
 
+:GlossaryTerm a owl:Class ;
+    rdfs:label "Glossary Term" ;
+    rdfs:comment "R074.2: a governed business term of a domain glossary; a :Concept so it federates with the SKOS taxonomy." ;
+    rdfs:subClassOf :Concept .
+
 :GovernedConcept a owl:Class ;
     rdfs:label "Governed Concept" ;
     rdfs:comment """A first-class concept-id node (e.g. KG-2.312 / EG-3.31.20)
@@ -342,6 +347,12 @@ namespace; concepts are :partOf their pillar.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 .
 
+:agreementExpiresAt a owl:DatatypeProperty ;
+    rdfs:label "agreement expires at" ;
+    rdfs:comment "R074.5: the expiry date of this :Agreement." ;
+    rdfs:domain :Agreement ;
+    rdfs:range xsd:date .
+
 :alignedWith a owl:ObjectProperty,
         owl:SymmetricProperty ;
     rdfs:label "aligned with" ;
@@ -400,6 +411,12 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:comment "Links an Evidence node (or other supporting entity) to a belief/claim it contradicts (CONTRADICTS edge convention — mirrors epistemic-graph's eg-alignment::AlignmentRelation::ContradictsClaim). CONCEPT:AU-KG.identity.evidence-spine-convergence." ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 .
+
+:counterparty a owl:ObjectProperty ;
+    rdfs:label "counterparty" ;
+    rdfs:comment "R074.4: the other party to this :Agreement; minCount 1 per the core-foundation-v1.shapes.ttl companion." ;
+    rdfs:domain :Agreement ;
+    rdfs:range :LegalEntity .
 
 :corrects a owl:ObjectProperty ;
     rdfs:label "corrects" ;
@@ -508,6 +525,12 @@ necessarily depends on what it extends.""" ;
     rdfs:domain :AssetOccurrence ;
     rdfs:range :Rendition .
 
+:hasRenewalAction a owl:ObjectProperty ;
+    rdfs:label "has renewal action" ;
+    rdfs:comment "R074.6: the :Action that renews or re-executes this :Agreement at its expiry." ;
+    rdfs:domain :Agreement ;
+    rdfs:range :Action .
+
 :hasSibling a owl:ObjectProperty,
         owl:SymmetricProperty ;
     rdfs:label "has sibling" ;
@@ -583,6 +606,12 @@ necessarily depends on what it extends.""" ;
     rdfs:comment "Links a Document to a Hashtag mined from the document's own structured entity metadata, deterministically at ingestion time before any LLM call (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining)." ;
     rdfs:domain :Document ;
     rdfs:range :Hashtag .
+
+:termAssignedTo a owl:ObjectProperty ;
+    rdfs:label "term assigned to" ;
+    rdfs:comment "R074.3: the :Dataset this :GlossaryTerm has been assigned to." ;
+    rdfs:domain :GlossaryTerm ;
+    rdfs:range :Dataset .
 
 :triggeredIncident a owl:ObjectProperty ;
     rdfs:label "triggered incident" ;
