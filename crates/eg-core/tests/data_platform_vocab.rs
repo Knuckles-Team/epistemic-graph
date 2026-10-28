@@ -640,3 +640,70 @@ ex:policy a dp:AccessPolicy ;
         report.results
     );
 }
+
+// spec: EG-DATAPLAT-VOCAB-R005.3
+#[test]
+fn secret_value_refused_and_no_value_property() {
+    // A SecretPath carrying a value triple fails validation: the closed shape
+    // names the metadata a secret path may carry, and a value is not among it.
+    let with_value = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix kg: <http://knuckles.team/kg#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:path a dp:SecretPath ;
+    dp:pathName "secret/data/production/db" ;
+    kg:value "s3cr3t" .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, with_value).expect("the value document parses before validation");
+    assert!(
+        !report.conforms,
+        "a secret path with a value triple must be rejected: {:?}",
+        report.results
+    );
+
+    // A token triple is refused the same way.
+    let with_token = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix kg: <http://knuckles.team/kg#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:path a dp:SecretPath ;
+    dp:pathName "secret/data/production/db" ;
+    kg:token "tok-abc" .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, with_token).expect("the token document parses before validation");
+    assert!(
+        !report.conforms,
+        "a secret path with a token triple must be rejected: {:?}",
+        report.results
+    );
+
+    // And the refusal cannot be undone by adding a property: neither the
+    // vocabulary nor its shapes declare anything named value, secret, token,
+    // password, ciphertext or rules.
+    let vocabulary = load_data_platform();
+    let shapes = parse_turtle(DP_SHAPES).expect("the shapes document parses");
+    for document in [&vocabulary, &shapes] {
+        for name in ["value", "secret", "token", "password", "ciphertext", "rules"] {
+            let iri = format!("{DP}{name}");
+            assert!(
+                !has_iri(
+                    document,
+                    &iri,
+                    &format!("{RDF}type"),
+                    &format!("{OWL}DatatypeProperty")
+                )
+                && !has_iri(
+                    document,
+                    &iri,
+                    &format!("{RDF}type"),
+                    &format!("{OWL}ObjectProperty")
+                ),
+                "{name} must not be a declared data-platform property"
+            );
+        }
+    }
+}
