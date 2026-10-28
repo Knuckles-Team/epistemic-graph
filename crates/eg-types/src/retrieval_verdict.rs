@@ -1116,7 +1116,6 @@ fn validate_parent_cycles(
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

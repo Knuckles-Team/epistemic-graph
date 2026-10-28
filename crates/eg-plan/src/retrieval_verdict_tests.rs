@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use eg_types::retrieval_verdict::{
-    ChunkScorePair, FallbackPolicy, HierarchyCommunity, DescentPolicy, DescentStage,
-    RepairStep, ScoreNormalization, ScoreRegion, SelectionPolicy, Verdict,
-    RETRIEVAL_BUDGET_EXCEEDED, RETRIEVAL_HIERARCHY_INVALID, RETRIEVAL_NORMALIZATION_INVALID,
-    RETRIEVAL_POLICY_UNVERIFIED, RETRIEVAL_ROUND_LIMIT_REQUIRED, RETRIEVAL_SCORE_PAIR_REQUIRED,
+    ChunkScorePair, DescentPolicy, DescentStage, FallbackPolicy, HierarchyCommunity, RepairStep,
+    ScoreNormalization, ScoreRegion, SelectionPolicy, Verdict, RETRIEVAL_BUDGET_EXCEEDED,
+    RETRIEVAL_HIERARCHY_INVALID, RETRIEVAL_NORMALIZATION_INVALID, RETRIEVAL_POLICY_UNVERIFIED,
+    RETRIEVAL_ROUND_LIMIT_REQUIRED, RETRIEVAL_SCORE_PAIR_REQUIRED,
 };
 
 use super::*;

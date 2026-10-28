@@ -13,11 +13,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use eg_types::retrieval_verdict::{
-    ChunkScorePair, ChunkSelection, FallbackPolicy, HierarchyCommunity, DescentPolicy,
-    DescentStage, DescentReceipt, HierarchyVisit, RepairStep, RetrievalRefusal,
-    ScoreNormalization, ScoreRegion, SelectionPolicy, SelectionReceipt, SufficiencyVerdict,
-    Verdict, RETRIEVAL_BUDGET_EXCEEDED, RETRIEVAL_HIERARCHY_INVALID,
-    RETRIEVAL_NORMALIZATION_INVALID, RETRIEVAL_POLICY_UNVERIFIED, RETRIEVAL_ROUND_LIMIT_REQUIRED,
+    ChunkScorePair, ChunkSelection, DescentPolicy, DescentReceipt, DescentStage, FallbackPolicy,
+    HierarchyCommunity, HierarchyVisit, RepairStep, RetrievalRefusal, ScoreNormalization,
+    ScoreRegion, SelectionPolicy, SelectionReceipt, SufficiencyVerdict, Verdict,
+    RETRIEVAL_BUDGET_EXCEEDED, RETRIEVAL_HIERARCHY_INVALID, RETRIEVAL_NORMALIZATION_INVALID,
+    RETRIEVAL_POLICY_UNVERIFIED, RETRIEVAL_ROUND_LIMIT_REQUIRED,
 };
 
 use crate::RowSet;
