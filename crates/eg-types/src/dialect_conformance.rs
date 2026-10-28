@@ -106,6 +106,32 @@ impl ConformanceReport {
     }
 }
 
+/// Where a source category's rows live by default (EG-UNIFIED-DATA-PLANE-R022.4.1):
+/// read at query time from the source (`virtual`) or stored by the engine
+/// (`ingested`). A fetched web page has no virtual category; it enters as a
+/// Document through `SourceIngest`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceResidency {
+    Virtual,
+    Ingested,
+}
+
+/// Default cache time-to-live, in seconds, for virtual web metasearch rows.
+pub const WEB_METASEARCH_TTL_S: u64 = 900;
+
+/// The default residency of one source category and, for a cached virtual
+/// category, its time-to-live in seconds.
+pub fn default_residency(
+    category: crate::metadata_acceleration::SourceCategory,
+) -> (SourceResidency, Option<u64>) {
+    use crate::metadata_acceleration::SourceCategory;
+    match category {
+        SourceCategory::WebMetasearch => (SourceResidency::Virtual, Some(WEB_METASEARCH_TTL_S)),
+        _ => (SourceResidency::Virtual, None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +234,56 @@ mod tests {
         };
         assert!(report.validate().is_err());
         assert_eq!(report.green_count(), 1);
+    }
+
+    /// Parse the residency cell of each row of the coverage matrix in
+    /// `plan.md`, keyed by the category label.
+    fn plan_matrix_residency() -> Vec<(String, String)> {
+        let plan = include_str!("../../../specs/unified-data-plane/plan.md");
+        let section = plan
+            .split("### Source-category coverage matrix (R022.4)")
+            .nth(1)
+            .expect("plan.md holds the coverage matrix");
+        section
+            .lines()
+            .skip_while(|line| !line.starts_with("| Category"))
+            .skip(2)
+            .take_while(|line| line.starts_with('|'))
+            .map(|line| {
+                let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+                (cells[0].to_string(), cells.last().unwrap().to_string())
+            })
+            .collect()
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R022.4.1
+    #[test]
+    fn matrix_states_residency() {
+        use crate::metadata_acceleration::SourceCategory;
+        let rows = plan_matrix_residency();
+        for category in SourceCategory::ALL {
+            let label = category.matrix_label();
+            let (_, cell) = rows
+                .iter()
+                .find(|(name, _)| name == label)
+                .unwrap_or_else(|| panic!("coverage matrix has no row for {label}"));
+            let (residency, ttl) = default_residency(category);
+            let word = cell.split(',').next().unwrap().trim();
+            let stated: SourceResidency =
+                serde_json::from_value(serde_json::Value::String(word.to_string()))
+                    .unwrap_or_else(|_| panic!("{label} has no closed residency value: {cell:?}"));
+            assert_eq!(stated, residency, "{label}");
+            match ttl {
+                Some(seconds) => assert!(
+                    cell.contains(&format!("{seconds} s time-to-live")),
+                    "{label}"
+                ),
+                None => assert_eq!(cell, word, "{label}"),
+            }
+        }
+        assert_eq!(
+            default_residency(SourceCategory::WebMetasearch),
+            (SourceResidency::Virtual, Some(900))
+        );
     }
 }
