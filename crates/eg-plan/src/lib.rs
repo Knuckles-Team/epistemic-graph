@@ -250,6 +250,18 @@ pub use leanrag::{
 };
 pub use rowset::RowSet;
 
+/// Read-time access checks for `checked_at_read` sources (EG-FEDERATED-QUERY-R703).
+pub mod access_check;
+/// Document boosts from retrieval feedback (EG-FEDERATED-QUERY-R705).
+pub mod feedback_boost;
+/// Agent knowledge scopes applied before truncation (EG-FEDERATED-QUERY-R704).
+pub mod knowledge_scope;
+/// Column mask and row-filter policies (EG-FEDERATED-QUERY-R706).
+pub mod policy_mask;
+/// Retrieval sufficiency, selection and hierarchy decisions (EG-FEDERATED-QUERY-R081).
+pub mod retrieval_verdict;
+/// Stored, versioned queries (EG-FEDERATED-QUERY-R708).
+pub mod stored_query;
 pub mod rowset;
 
 /// The `PROPAGATE` cone as plain ids (EH-526): what a standing impact watch recomputes.

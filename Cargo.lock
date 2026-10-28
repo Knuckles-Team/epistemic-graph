@@ -2969,6 +2969,7 @@ version = "0.1.0"
 dependencies = [
  "apache-avro 0.22.0",
  "eg-modality",
+ "eg-types",
  "iceberg",
  "iceberg-storage-opendal",
  "polars-core",
