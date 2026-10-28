@@ -783,7 +783,10 @@ ex:parent a owl:AsymmetricProperty .
         // of the orchestration module.
         // +139: PortfolioGroup, StrategySpec, StrategyRun and LeverageTerms with the
         // shared record properties (EG-FINANCE-PRIMITIVES-R004.2.3 to R004.2.6).
-        assert_eq!(composed.ontology.len(), 15_915);
+        // +562: the connector-vocabulary additions to the dataplatform, media, personal
+        // and retrieval modules, the shared data-platform module and the sdd additions
+        // merged in the C1 train; the pin is the measured composed count.
+        assert_eq!(composed.ontology.len(), 16_477);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -855,7 +858,8 @@ ex:parent a owl:AsymmetricProperty .
         // +127: the orchestration vocabulary terms above, less the one import edge.
         // +139: the PortfolioGroup, StrategySpec, StrategyRun and LeverageTerms
         // declarations above are semantic axioms (EG-FINANCE-PRIMITIVES-R004.2.3-6).
-        assert_eq!(semantic_axioms, 15_656);
+        // +562: the same C1 train vocabulary additions, all semantic axioms.
+        assert_eq!(semantic_axioms, 16_218);
 
         let count_type = |object: &str| {
             composed
@@ -922,7 +926,8 @@ ex:parent a owl:AsymmetricProperty .
             // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
             // +4: PortfolioGroup, StrategySpec, StrategyRun and LeverageTerms specialize
             // BFO GDC (EG-FINANCE-PRIMITIVES-R004.2.3-6).
-            653
+            // +18: the C1 train's connector, data-platform and sdd vocabulary classes.
+            671
         );
     }
 

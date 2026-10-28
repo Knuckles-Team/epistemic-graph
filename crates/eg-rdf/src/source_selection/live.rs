@@ -33,6 +33,8 @@ impl Index {
                 Term::NamedNode(node) => node.as_str().to_string(),
                 Term::BlankNode(node) => format!("_:{}", node.as_str()),
                 Term::Literal(literal) => literal.value().to_string(),
+                // A quoted triple is not a source-selection value; index its text form.
+                other => other.to_string(),
             };
             index
                 .0

@@ -1342,7 +1342,7 @@ mod tests {
             ),
             (
                 "sdd",
-                "db421a14086da905ff377173cd1006e0b3fb520ca9361b53a05e0c18a700d387",
+                "7fc49c182c7f1d0a3af1caf8cdf72f623fa200c1057eafb77c121538e372c050",
             ),
             (
                 "service_operations",
@@ -1354,7 +1354,7 @@ mod tests {
             ),
             (
                 "data-platform",
-                "8d76ccb12efc61c9724f9c6ff0368ea95bb7a97b16cd423a01de919bc0ee2007",
+                "039234d96e444879f9eb9af9ba3f74371adf1d19da89d554f647c02a66223508",
             ),
             (
                 "it4it_delivery",
