@@ -481,6 +481,10 @@ pub mod identity;
 // EH-400 — declared freshness: `eg:volatilityClass`, per-class invalidation events and
 // foreign-source watermarks (the `FreshnessFeed` wire shapes).
 pub mod freshness;
+// EG-TYPED-PACKS-R802.1/R805.1 — governance record models: stewardship and
+// data products. Pure data and field validation; served wiring lands in later children.
+pub mod data_product;
+pub mod stewardship;
 // EH-348 — the graph-driven work market: the canonical `:Gap` paired with its
 // one native WorkItem, the versioned derived `WorkOffer`, and the deterministic
 // legal-offer ranking stage the `Decide` layer runs.

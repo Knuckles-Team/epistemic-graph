@@ -62,7 +62,7 @@ pub use content::{
 pub use facts::{
     AgentComponentFacts, CostFacts, DeclaredCost, DeclaredLatency, FactQuality, MeasuredFact,
     ModalityFacts, ObservationRef, PriceSource, PromptMode, ShellProficiency, StoppingBehaviour,
-    ToolEffect, ToolsetTransport,
+    ToolEffect, ToolFactDeclarer, ToolSideEffects, ToolsetTransport,
 };
 pub use input_capabilities::{ModelInputCapabilities, ModelInputMediaType};
 pub use search::{
@@ -853,6 +853,10 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
             modalities,
             cost,
             latency_declared,
+            side_effects,
+            declared_by,
+            schema_tokens,
+            read_only_unproven,
         } => {
             put_text(
                 hasher,
@@ -869,6 +873,13 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
             put_tristate(hasher, *idempotent_hint);
             put_tristate(hasher, *open_world_hint);
             put_selection_facts(hasher, modalities, cost.as_ref(), latency_declared.as_ref());
+            put_tool_harness_facts(
+                hasher,
+                *side_effects,
+                *declared_by,
+                *schema_tokens,
+                *read_only_unproven,
+            );
         }
         AgentComponentFacts::Toolset { transport } => put_text(
             hasher,
@@ -992,6 +1003,32 @@ fn quality_token(quality: FactQuality) -> &'static str {
         FactQuality::Estimated => "estimated",
         FactQuality::Declared => "declared",
         FactQuality::Unavailable => "unavailable",
+    }
+}
+
+/// The harness tool facts, each framed by name and written only when present,
+/// so a tool that declares none keeps its existing digest.
+fn put_tool_harness_facts(
+    hasher: &mut Sha256,
+    side_effects: Option<ToolSideEffects>,
+    declared_by: Option<ToolFactDeclarer>,
+    schema_tokens: Option<u32>,
+    read_only_unproven: bool,
+) {
+    if let Some(side_effects) = side_effects {
+        put_text(hasher, "side_effects");
+        put_text(hasher, side_effects.as_str());
+    }
+    if let Some(declared_by) = declared_by {
+        put_text(hasher, "declared_by");
+        put_text(hasher, declared_by.as_str());
+    }
+    if let Some(tokens) = schema_tokens {
+        put_text(hasher, "schema_tokens");
+        hasher.update(tokens.to_be_bytes());
+    }
+    if read_only_unproven {
+        put_text(hasher, "read_only_unproven");
     }
 }
 
@@ -1451,6 +1488,10 @@ mod tests {
             modalities: overrides.modalities,
             cost: overrides.cost,
             latency_declared: overrides.latency_declared,
+            side_effects: None,
+            declared_by: None,
+            schema_tokens: None,
+            read_only_unproven: false,
         }
     }
 
@@ -1468,6 +1509,10 @@ mod tests {
             modalities: ModalityFacts::default(),
             cost: None,
             latency_declared: None,
+            side_effects: None,
+            declared_by: None,
+            schema_tokens: None,
+            read_only_unproven: false,
         }
     }
 
