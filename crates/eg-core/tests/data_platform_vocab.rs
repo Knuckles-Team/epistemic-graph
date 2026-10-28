@@ -277,6 +277,21 @@ fn literal_value(term: &eg_rdf::oxrdf::Term) -> Option<&str> {
     }
 }
 
+/// The IRI of a named term, without Turtle's angle brackets.
+fn iri_of(term: &eg_rdf::oxrdf::Term) -> Option<String> {
+    if term.is_named_node() {
+        let rendered = term.to_string();
+        return Some(rendered[1..rendered.len() - 1].to_string());
+    }
+    None
+}
+
+/// The IRI of a triple subject, without Turtle's angle brackets.
+fn subject_iri_of(subject: &eg_rdf::oxrdf::NamedOrBlankNode) -> String {
+    let rendered = subject.to_string();
+    rendered[1..rendered.len() - 1].to_string()
+}
+
 /// Validates a mapping fixture against the data-platform and virtual-graph
 /// shapes and returns its triples.
 fn validate_fixture(document: &str) -> Vec<Triple> {
@@ -1187,6 +1202,59 @@ fn no_second_discovery_path() {
     }
 }
 
+/// Asserts every alignment row resolves: the package term lives in the
+/// shared kg# namespace and the dp: object is declared in the
+/// data-platform vocabulary (a class for rdfs:subClassOf rows, a property
+/// for owl:equivalentProperty rows). Returns the row count.
+fn assert_alignment_resolves(document: &str) -> usize {
+    let triples = parse_turtle(document).expect("the alignment table parses");
+    let vocabulary = load_data_platform();
+
+    let sub_class_of = NamedNode::new(&format!("{RDFS}subClassOf")).unwrap();
+    let equivalent_property = NamedNode::new(&format!("{OWL}equivalentProperty")).unwrap();
+    let rdf_type = NamedNode::new(&format!("{RDF}type")).unwrap();
+    let kg_namespace = "http://knuckles.team/kg#";
+
+    let mut rows = 0;
+    for triple in triples
+        .iter()
+        .filter(|t| {
+            (t.predicate == sub_class_of || t.predicate == equivalent_property)
+                && iri_of(&t.object).is_some_and(|iri| iri.starts_with(DP))
+        })
+    {
+        rows += 1;
+        assert!(
+            subject_iri_of(&triple.subject).starts_with(kg_namespace),
+            "an alignment row names a package term in the shared kg# namespace: {}",
+            triple.subject
+        );
+        let object_iri = iri_of(&triple.object).expect("the filter kept a named dp: object");
+        let dp_local = object_iri[DP.len()..].to_string();
+        let expected_types: Vec<String> = {
+            let kinds: &[&str] = if triple.predicate == sub_class_of {
+                &["Class"]
+            } else {
+                &["ObjectProperty", "DatatypeProperty"]
+            };
+            kinds.iter().map(|kind| format!("{OWL}{kind}")).collect()
+        };
+        assert!(
+            vocabulary
+                .iter()
+                .any(|t| {
+                    subject_iri_of(&t.subject) == format!("{DP}{dp_local}")
+                        && t.predicate == rdf_type
+                        && expected_types
+                            .iter()
+                            .any(|iri| iri_of(&t.object).as_deref() == Some(iri.as_str()))
+                }),
+            "{dp_local} must be declared in the data-platform vocabulary"
+        );
+    }
+    rows
+}
+
 // spec: EG-DATAPLAT-VOCAB-R007.4
 #[test]
 fn virtual_default_for_all_eight() {
@@ -1296,4 +1364,41 @@ fn virtual_default_for_all_eight() {
             );
         }
     }
+}
+
+// spec: EG-DATAPLAT-VOCAB-R008.1
+#[test]
+fn alignment_relational_resolves() {
+    let document =
+        include_str!("../ontology/fixtures/data_platform/alignment_relational.ttl");
+    assert!(
+        assert_alignment_resolves(document) >= 4,
+        "the relational alignment carries at least 4 rows"
+    );
+
+    let triples = parse_turtle(document).expect("the alignment table parses");
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#DatabaseTable",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}Table")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#isPrimaryKey",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}isPrimaryKey")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#Collection",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}Collection")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#documentCount",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}documentCount")
+    ));
 }
