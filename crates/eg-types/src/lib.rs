@@ -52,6 +52,10 @@ pub mod knowledge_atom;
 pub mod extracted_fact;
 // EG-INGEST-WORKER-R900.1/R902.1/R903.1/R904.1 — source governance records.
 pub mod source_governance;
+// EG-INGEST-WORKER-R003.7 — normalized documents and accepted/quarantined outcomes.
+pub mod source_document;
+// EG-INGEST-WORKER-R003.13 — source transcript threads and messages.
+pub mod source_transcript;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
