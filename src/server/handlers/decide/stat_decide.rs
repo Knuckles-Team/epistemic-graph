@@ -83,7 +83,12 @@ async fn serve(
     }
     let (store, secret) = {
         let mut guard = state.write().await;
-        (guard.ensure_agent_library()?, guard.auth_secret.clone())
+        (
+            guard
+                .ensure_agent_library()
+                .map_err(|error| telemetry::scorer_failure("store_open", error))?,
+            guard.auth_secret.clone(),
+        )
     };
     // A `harness_contrast` question declares its candidates but still reads
     // its evidence (held versions, probe runs, stored contrasts) from the
@@ -114,7 +119,9 @@ async fn serve(
         decide_blocking(&ctx, &request, graph_view.as_ref(), principal, started)
     })
     .await
-    .map_err(|error| format!("Decide task failed: {error}"))?
+    .map_err(|error| {
+        telemetry::scorer_failure("worker_join", format!("Decide task failed: {error}"))
+    })?
 }
 
 fn decide_blocking(
@@ -124,7 +131,8 @@ fn decide_blocking(
     principal: String,
     started: Instant,
 ) -> Result<DecisionBatch, String> {
-    let task_plan = super::stat_task_plan::task_plan(request)?;
+    let task_plan = super::stat_task_plan::task_plan(request)
+        .map_err(|error| telemetry::scorer_failure("task_plan", error))?;
     let mut candidates = read_candidates(
         ctx.store,
         ctx.tenant_id,
@@ -132,9 +140,12 @@ fn decide_blocking(
         graph_view,
         &principal,
         request.question.kind,
-    )?;
-    let pinned = pinned_inputs(ctx, &request.feature_schema, request.head.as_ref())?;
-    let policy = resolve_policy(ctx.store, ctx.tenant_id, &request.policy)?;
+    )
+    .map_err(|error| telemetry::scorer_failure("candidates", error))?;
+    let pinned = pinned_inputs(ctx, &request.feature_schema, request.head.as_ref())
+        .map_err(|error| telemetry::scorer_failure("pinned_inputs", error))?;
+    let policy = resolve_policy(ctx.store, ctx.tenant_id, &request.policy)
+        .map_err(|error| telemetry::scorer_failure("policy", error))?;
     let reader = LogReader {
         tenant_id: ctx.tenant_id.to_string(),
         principal: principal.clone(),
@@ -147,7 +158,8 @@ fn decide_blocking(
         &pinned.schema,
         policy.statistical.tenant_public_features,
         &mut candidates.views,
-    )?;
+    )
+    .map_err(|error| telemetry::scorer_failure("outcome_rates", error))?;
     let specialized = task_plan
         .as_ref()
         .map(|plan| Ok(super::stat_task_plan::outcome(plan)))
@@ -168,11 +180,14 @@ fn decide_blocking(
         },
         None => match super::stat_harness_contrast::contrast_executed(request, graph_view) {
             Some(result) => result?,
-            None => execute(ctx, request, &pinned, &policy, &candidates.views)?,
+            None => execute(ctx, request, &pinned, &policy, &candidates.views)
+                .map_err(|error| telemetry::scorer_failure("execute", error))?,
         },
     };
-    let slices = live_slices(ctx, request, &pinned, &candidates.views)?;
-    let nl = binding(request, &executed.ladder.outcome, &candidates.entries)?;
+    let slices = live_slices(ctx, request, &pinned, &candidates.views)
+        .map_err(|error| telemetry::scorer_failure("belief_slices", error))?;
+    let nl = binding(request, &executed.ladder.outcome, &candidates.entries)
+        .map_err(|error| telemetry::scorer_failure("binding", error))?;
     let record = seal(
         Sealing {
             ctx,
@@ -186,7 +201,8 @@ fn decide_blocking(
         &executed,
         nl,
         task_plan,
-    )?;
+    )
+    .map_err(|error| telemetry::scorer_failure("seal", error))?;
     telemetry::decided(&record, candidates.views.len(), started);
     let records = BoundedVec::new(vec![record])
         .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;

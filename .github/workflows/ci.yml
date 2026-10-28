@@ -1446,6 +1446,39 @@ jobs:
           pass: primary
           cache-save: 'true'
 
+  # Candidate artifact only: same release recipe, no publishing credentials.
+  candidate-server-wheel:
+    name: Candidate medulla-stem wheel (Linux x86_64)
+    timeout-minutes: 360
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request' && needs.changes.outputs.full_native == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Build the official server wheel (release-server profile)
+        uses: ./.github/actions/build-server-wheel
+        with:
+          cache-save: 'false'
+      - name: Smoke and audit the installed candidate package
+        run: |
+          set -euo pipefail
+          candidate="$(python3 scripts/candidate_server_wheel_provenance.py dist-server --audit-only)"
+          python3 -m venv "$RUNNER_TEMP/candidate-server-smoke"
+          smoke="$RUNNER_TEMP/candidate-server-smoke/bin"
+          "$smoke/python" -m pip install --no-index --no-deps "$candidate"
+          (cd "$RUNNER_TEMP" && "$smoke/epistemic-graph-server" --help >/dev/null)
+          "$smoke/python" -I scripts/candidate_server_wheel_provenance.py dist-server --installed
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate-medulla-stem-linux-x86_64-${{ github.sha }}
+          path: |
+            dist-server/*.whl
+            dist-server/provenance.json
+          if-no-files-found: error
+
   # ── Warm compile cache for the epistemic-graph-server wheel (EG-CONTRACT-R053.9).
   # Builds the exact release server wheel natively for each Linux architecture on
   # main pushes and SAVES the Swatinem/rust-cache entry under `egs-<arch>`; release.yml
@@ -1573,11 +1606,13 @@ jobs:
       - gates-facade
       - gates-variants
       - clippy-release-profiles
+      - candidate-server-wheel
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Require every blocking CI result
         env:
+          CANDIDATE_SERVER_WHEEL_RESULT: ${{ needs.candidate-server-wheel.result }}
           EVENT_NAME: ${{ github.event_name }}
           CODE_SCOPE: ${{ needs.changes.outputs.code }}
           FULL_NATIVE: ${{ needs.changes.outputs.full_native }}
@@ -1664,6 +1699,7 @@ jobs:
             "gates-facade=$GATES_FACADE_RESULT"
             "gates-variants=$GATES_VARIANTS_RESULT"
             "clippy-release-profiles=$CLIPPY_RELEASE_PROFILES_RESULT"
+            "candidate-server-wheel=$CANDIDATE_SERVER_WHEEL_RESULT"
           )
           failures=()
           for entry in "${results[@]}"; do
@@ -1673,6 +1709,15 @@ jobs:
 
             if [[ "$job" == light-gates || "$job" == changes || "$job" == security ]]; then
               [[ "$result" == success ]] || failures+=("$job=$result")
+              continue
+            fi
+
+            if [[ "$job" == candidate-server-wheel ]]; then
+              expected=skipped
+              if [[ "$CODE_SCOPE" == true && "$EVENT_NAME" == pull_request && "$FULL_NATIVE" == true ]]; then
+                expected=success
+              fi
+              [[ "$result" == "$expected" ]] || failures+=("$job=$result (expected $expected)")
               continue
             fi
 

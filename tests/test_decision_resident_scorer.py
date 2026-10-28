@@ -101,10 +101,120 @@ def engine(tmp_path, run, *, bootstrap):
         with SyncEpistemicGraphClient.connect(
             socket_path=socket, auth_secret=SECRET, verified_context=request_context()
         ) as client:
-            yield client
+            try:
+                yield client
+            except Exception as error:
+                # Only closed diagnostic tokens leave the synthetic fixture.
+                # Raw native logs can contain request values and stay private.
+                add_scorer_diagnostic_note(error, log)
+                raise
     finally:
         stop_traced_engine(process)
     assert_no_external_runtime(trace.read_text())
+
+
+SCORER_STAGES = frozenset(
+    {
+        "store_open",
+        "worker_join",
+        "task_plan",
+        "candidates",
+        "pinned_inputs",
+        "policy",
+        "outcome_rates",
+        "execute",
+        "belief_slices",
+        "binding",
+        "seal",
+    }
+)
+SCORER_REASONS = frozenset(
+    {
+        "persist_directory_missing",
+        "owner_manifest_changed",
+        "read_manifest_changed",
+        "scope_unbound",
+        "scope_identity_mismatch",
+        "store_root_mismatch",
+        "serving_grant_mismatch",
+        "read_capability_mismatch",
+        "table_outside_layout",
+        "scoped_accessor_required",
+        "control_scope_required",
+        "component_row_decode",
+        "component_revision_bound",
+        "component_byte_bound",
+        "worker_join_failed",
+        "mutation_ledger_corrupt",
+        "component_pin_mismatch",
+        "head_invalid",
+        "feature_schema_invalid",
+        "unclassified",
+    }
+)
+
+
+def add_scorer_diagnostic_note(error, log):
+    # Python 3.10 has no BaseException.add_note; never mask its original error.
+    add_note = getattr(error, "add_note", None)
+    if callable(add_note):
+        add_note(scorer_diagnostics(log))
+
+
+def scorer_diagnostics(log):
+    """Export fixed allowlisted tokens only, never raw text or log paths."""
+    try:
+        # Bound memory even if an unrelated failure produces excessive output.
+        with log.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 65536))
+            text = stream.read(65536).decode("utf-8", errors="replace")
+    except OSError:
+        return "resident scorer diagnostic: log unavailable"
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    found = set()
+    for line in text.splitlines():
+        if "resident scorer stage refused" not in line:
+            continue
+        stage = re.search(r'\bstage="?([a-z_]+)"?(?:\s|$)', line)
+        reason = re.search(r'\breason="?([a-z_]+)"?(?:\s|$)', line)
+        if (
+            stage
+            and reason
+            and stage[1] in SCORER_STAGES
+            and reason[1] in SCORER_REASONS
+        ):
+            found.add((stage[1], reason[1]))
+    summary = "; ".join(f"{stage}/{reason}" for stage, reason in sorted(found))
+    return "resident scorer diagnostic: " + (summary or "no classified event")
+
+
+@pytest.mark.no_engine
+def test_scorer_diagnostics_never_export_raw_log_values(tmp_path):
+    log = tmp_path / "private.log"
+    log.write_text(
+        "secret=do-not-export /private/path\n"
+        'resident scorer stage refused stage="pinned_inputs" '
+        'reason="component_row_decode" secret=do-not-export\n'
+        'resident scorer stage refused stage="secret" reason="private"\n'
+    )
+    assert scorer_diagnostics(log) == (
+        "resident scorer diagnostic: pinned_inputs/component_row_decode"
+    )
+    log.write_text("unknown private refusal secret=do-not-export")
+    assert scorer_diagnostics(log) == "resident scorer diagnostic: no classified event"
+
+    class LegacyException:
+        pass
+
+    add_scorer_diagnostic_note(LegacyException(), log)
+    error = RuntimeError("original error")
+    add_scorer_diagnostic_note(error, log)
+    assert str(error) == "original error"
+    if hasattr(error, "__notes__"):
+        assert error.__notes__ == ["resident scorer diagnostic: no classified event"]
+    log.unlink()
+    assert scorer_diagnostics(log) == "resident scorer diagnostic: log unavailable"
 
 
 def stop_traced_engine(process):

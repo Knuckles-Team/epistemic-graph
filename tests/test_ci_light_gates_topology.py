@@ -41,6 +41,7 @@ REQUIRED_BLOCKING_JOBS = [
     "gates-facade",
     "gates-variants",
     "clippy-release-profiles",
+    "candidate-server-wheel",
 ]
 FULL_NATIVE_JOBS = {
     "gates",
@@ -110,6 +111,7 @@ def test_all_native_scope_consumers_keep_the_changes_output_edge() -> None:
         "quality-advisory",
         "clippy-release-profiles",
         "engine-main-wheel",
+        "candidate-server-wheel",
     }
     actual = {
         name
@@ -251,6 +253,10 @@ def _aggregate_env(
                 and job in FULL_NATIVE_JOBS | PATH_GATED_JOBS.keys()
             ):
                 result = "skipped"
+        if job == "candidate-server-wheel":
+            result = (
+                "success" if code and full and event == "pull_request" else "skipped"
+            )
         env[job.upper().replace("-", "_") + "_RESULT"] = result
     return env
 
@@ -280,7 +286,10 @@ def test_aggregate_accepts_exact_expected_matrix(
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("job", sorted(FULL_NATIVE_JOBS | PATH_GATED_JOBS.keys()))
+@pytest.mark.parametrize(
+    "job",
+    sorted(FULL_NATIVE_JOBS | PATH_GATED_JOBS.keys() | {"candidate-server-wheel"}),
+)
 @pytest.mark.parametrize("outcome", ["failure", "cancelled", "skipped", "", None])
 def test_full_native_aggregate_refuses_every_unproven_job(
     job: str, outcome: str | None

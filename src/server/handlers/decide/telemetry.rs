@@ -176,3 +176,79 @@ pub(super) fn logged(ok: bool, started: Instant) {
         "decision log call served"
     );
 }
+
+/// Bounded diagnostics for the native scorer's stage failures. Never emit the
+/// refusal itself: it can contain caller values, paths, or credentials.
+pub(super) fn scorer_failure(stage: &'static str, error: String) -> String {
+    let reason = scorer_failure_reason(&error);
+    tracing::info!(parent: None, stage, reason, "resident scorer stage refused");
+    error // Preserve the exact existing error and wire classification.
+}
+
+fn scorer_failure_reason(error: &str) -> &'static str {
+    match error {
+        "Agent Library requires a configured persist directory" => "persist_directory_missing",
+        "cached owner manifest differs from persisted authority" => "owner_manifest_changed",
+        "mutation read manifest authority changed" => "read_manifest_changed",
+        "mutation scope is not bound to this store" => "scope_unbound",
+        "mutation scope binding identity mismatch" => "scope_identity_mismatch",
+        "mutation store handle does not match persisted root" => "store_root_mismatch",
+        "authenticated serving grant does not match this store" => "serving_grant_mismatch",
+        "owner read capability does not match this store" => "read_capability_mismatch",
+        "scoped read may not open a table outside its layout" => "table_outside_layout",
+        "a scope-prefixed owner table is reachable only through its scoped accessor" => {
+            "scoped_accessor_required"
+        }
+        "only the file's control scope may open a file-wide owner table" => {
+            "control_scope_required"
+        }
+        "agent component row is invalid or exceeds resource limits" => "component_row_decode",
+        "agent component history exceeds its retained revision bound" => "component_revision_bound",
+        "agent component history exceeds its retained byte bound" => "component_byte_bound",
+        _ if error.starts_with("Decide task failed: ") => "worker_join_failed",
+        _ if error.starts_with("CORRUPT_MUTATION_LEDGER: ") => "mutation_ledger_corrupt",
+        _ if error.starts_with("COMPONENT_PIN_MISMATCH: ") => "component_pin_mismatch",
+        _ if error.starts_with("HEAD_INVALID: ") => "head_invalid",
+        _ if error.starts_with("FEATURE_SCHEMA_INVALID: ") => "feature_schema_invalid",
+        _ => "unclassified",
+    }
+}
+
+#[cfg(test)]
+mod scorer_diagnostic_tests {
+    use super::{scorer_failure, scorer_failure_reason};
+
+    #[test]
+    fn diagnostics_preserve_the_original_error() {
+        let original = "private request=/private/path credential=do-not-export".to_string();
+        assert_eq!(scorer_failure("execute", original.clone()), original);
+    }
+
+    #[test]
+    fn diagnostics_are_fixed_categories_not_refusal_text() {
+        assert_eq!(
+            scorer_failure_reason("mutation read manifest authority changed"),
+            "read_manifest_changed"
+        );
+        assert_eq!(
+            scorer_failure_reason("agent component row is invalid or exceeds resource limits"),
+            "component_row_decode"
+        );
+        assert_eq!(
+            scorer_failure_reason("Decide task failed: secret=/private/path"),
+            "worker_join_failed"
+        );
+        assert_eq!(
+            scorer_failure_reason("CORRUPT_MUTATION_LEDGER: secret=/private/path"),
+            "mutation_ledger_corrupt"
+        );
+        assert_eq!(
+            scorer_failure_reason("secret=/private/path\nHEAD_INVALID: sensitive"),
+            "unclassified"
+        );
+        assert_eq!(
+            scorer_failure_reason("mutation read manifest authority changed secret"),
+            "unclassified"
+        );
+    }
+}
