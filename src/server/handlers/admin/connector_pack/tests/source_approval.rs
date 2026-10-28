@@ -278,8 +278,9 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
                 "r722-four-phase:register",
                 crate::protocol::Method::RegisterForeignSource {
                     name: source_name.clone(),
-                    source: eg_types::wire::ForeignSourceSpec::Api {
-                        operation: "list_suppliers".to_string(),
+                    source: eg_types::wire::ForeignSourceSpec::Mcp {
+                        server: connector.to_string(),
+                        tool: "list_suppliers".to_string(),
                         capabilities: Default::default(),
                     },
                 },
@@ -449,8 +450,9 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
         &crate::server::auth::VerifiedRequestContext::verified_for_test(ADMIN),
     )
     .unwrap();
-    let spec = eg_types::wire::ForeignSourceSpec::Api {
-        operation: "list_suppliers".to_string(),
+    let spec = eg_types::wire::ForeignSourceSpec::Mcp {
+        server: connector.to_string(),
+        tool: "list_suppliers".to_string(),
         capabilities: Default::default(),
     };
     let catalog = crate::server::foreign_catalog::ForeignSourceCatalog::default();
@@ -479,6 +481,41 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
         vec!["bound-row"]
     );
     drop(store);
+
+    // A durable approval for one MCP operation must never authorize another
+    // operation or a different transport, even when both values are registered
+    // in the same owner's catalog.
+    for wrong_spec in [
+        eg_types::wire::ForeignSourceSpec::Mcp {
+            server: connector.to_string(),
+            tool: "list_customers".to_string(),
+            capabilities: Default::default(),
+        },
+        eg_types::wire::ForeignSourceSpec::Api {
+            operation: "list_suppliers".to_string(),
+            capabilities: Default::default(),
+        },
+    ] {
+        let wrong_catalog = crate::server::foreign_catalog::ForeignSourceCatalog::default();
+        wrong_catalog
+            .register(&caller, registration.source_id.clone(), wrong_spec.clone())
+            .unwrap();
+        let mut wrong_descriptor = descriptor.clone();
+        wrong_descriptor.spec = wrong_spec;
+        let store = served.state.write().await.ensure_agent_library().unwrap();
+        let refusal = match wrong_catalog.bind_for(
+            &caller,
+            store.as_ref(),
+            &crate::isolation::IsolationLayer::new(),
+            &approved,
+            &wrong_descriptor,
+            Arc::new(BoundRows),
+        ) {
+            Ok(_) => panic!("a different source operation must not bind"),
+            Err(error) => error,
+        };
+        assert!(refusal.contains("SOURCE_BINDING_MISMATCH"), "{refusal}");
+    }
 
     let mut held_receipt = approved.clone();
     held_receipt.registration.approval = PackSourceApproval::Held;

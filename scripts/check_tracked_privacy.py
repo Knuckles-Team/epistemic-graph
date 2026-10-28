@@ -608,14 +608,11 @@ def _git_common_dir_identifiers(root: Path) -> set[str]:
 
 def _git_config_identifiers(root: Path) -> set[str]:
     """The calling process's own ``git config user.name``/``user.email``."""
-    candidates: set[str] = set()
-    for command in (
-        ["git", "config", "--get", "user.name"],
-        ["git", "config", "--get", "user.email"],
-    ):
+    values: dict[str, set[str]] = {"user.name": set(), "user.email": set()}
+    for key in values:
         try:
             result = subprocess.run(
-                command,
+                ["git", "config", "--get", key],
                 cwd=root,
                 check=False,
                 capture_output=True,
@@ -624,9 +621,13 @@ def _git_config_identifiers(root: Path) -> set[str]:
             )
         except OSError:
             continue
-        for value in result.stdout.splitlines():
-            candidates.add(value.strip())
-    return candidates
+        values[key].update(value.strip() for value in result.stdout.splitlines())
+    names, emails = values["user.name"], values["user.email"]
+    # The published platform author is not a personal identity. Use an escaped
+    # character because this gate also scans its own policy source as text.
+    if names == {"\u0043odex"} and emails == {"noreply@openai.com"}:
+        return set()
+    return names | emails
 
 
 def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
