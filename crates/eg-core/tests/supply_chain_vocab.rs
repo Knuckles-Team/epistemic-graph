@@ -1668,3 +1668,67 @@ fn container_manager_workload_and_image_map_deployed_as_and_uses_image() {
         );
     }
 }
+
+const VM_UPTIME: &str = "http://knuckles.team/test/vm-uptime#";
+
+// spec: EG-SUPPLY-VOCAB-R006.4
+#[test]
+fn uptime_monitor_resolves_to_service_by_url_host_key() {
+    let fixture = include_str!("fixtures/vm_uptime.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the uptime mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // A monitor is not a Service: it resolves to one by the host of the URL
+    // it monitors, so the Service projection is keyed on the `url` field.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_UPTIME}monitorServiceMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{INFRA}Service")
+        ),
+        "the monitor resolves to infra:Service"
+    );
+    let key_field = triples
+        .iter()
+        .find(|triple| {
+            subject_key(triple) == format!("<{VM_UPTIME}monitorServiceMapping>")
+                && triple.predicate.as_str().ends_with("keyField")
+        })
+        .expect("the monitor mapping names its keyField");
+    assert_eq!(
+        literal_value(&key_field.object),
+        "url",
+        "the monitor resolves to its service by the URL host key"
+    );
+    // The heartbeat stat is the service's health signal.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_UPTIME}heartbeatTrendMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{INFRA}HealthTrend")
+        ),
+        "the heartbeat stat maps to infra:HealthTrend"
+    );
+    // Both contracts ride the confirmed operations.
+    for (contract, operation) in [
+        ("uptimeMonitorsAccess", "get_monitors"),
+        ("uptimeHeartbeatsAccess", "get_heartbeats"),
+    ] {
+        let node = format!("<{VM_UPTIME}{contract}>");
+        assert!(
+            triples.iter().any(|triple| {
+                subject_key(triple) == node
+                    && triple.predicate.as_str().ends_with("discoveredOperation")
+                    && literal_value(&triple.object) == operation
+            }),
+            "the {contract} contract declares {operation}"
+        );
+    }
+}
