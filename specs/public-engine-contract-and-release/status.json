@@ -1010,10 +1010,10 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "18f4fd3521ed",
+        "323a909b78f0",
         "42376299456f",
         "701e8e498e07",
-        "805fce6204d9",
-        "88b8c1a73156"
+        "805fce6204d9"
       ],
       "verified_by": [
         "tests/test_build_backend.py:137",
@@ -1110,6 +1110,7 @@
       "title": "A tag publishes only a commit main CI already passed",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "323a909b78f0",
         "805fce6204d9"
       ],
       "verified_by": [
