@@ -161,3 +161,28 @@ Google Calendar). BFO:Process via Event. Aligned to schema:Event.""" ;
     rdfs:subPropertyOf :eventLocation ;
     rdfs:domain :CalendarEvent ;
     rdfs:range xsd:string .
+
+# Connector competency vocabulary: transcripts (EG-CQ-CONN-vocab: connector competency terms)
+
+:TranscriptSegment a owl:Class ;
+    rdfs:label "Transcript Segment" ;
+    rdfs:comment "One timed span of a transcript with its own text and recognition confidence." ;
+    rdfs:subClassOf :Fragment .
+
+:segmentOf a owl:ObjectProperty ;
+    rdfs:label "segment of" ;
+    rdfs:comment "Links a transcript segment to its transcript." ;
+    rdfs:domain :TranscriptSegment ;
+    rdfs:range :Transcript .
+
+:segmentConfidence a owl:DatatypeProperty ;
+    rdfs:label "segment confidence" ;
+    rdfs:comment "Recognition confidence of one transcript segment, from 0.0 to 1.0." ;
+    rdfs:domain :TranscriptSegment ;
+    rdfs:range xsd:decimal .
+
+:hasTranscript a owl:ObjectProperty ;
+    rdfs:label "has transcript" ;
+    rdfs:comment "Links a recording or video to its transcript." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :MediaItem :VoiceMessage ) ] ;
+    rdfs:range :Transcript .
