@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Install the pinned native scanners used by the scanner-quality CI job and the
-# manual-stage pre-commit hooks (cccc, kiss fork, dupehound, arch-lint, jscpd,
-# dependency-cruiser). One definition shared by CI and `scripts/bootstrap.sh
-# --scanners`; CI keys its cache on this file's hash, so changing a pin here
-# rebuilds the cached toolchain.
+# Install the pinned native scanners used by the manual-stage pre-commit hooks
+# (cccc, kiss fork, dupehound, arch-lint, jscpd, dependency-cruiser), which
+# `scripts/ci_parity.sh` runs. One definition for `scripts/bootstrap.sh
+# --scanners` and any provisioning job.
 #
 # Usage: scripts/install_scanners.sh [--verify] [ROOT]   (default: ~/.local/share/eg-scanners)
 # Prints the bin directories to put on PATH, one per line.
