@@ -531,6 +531,20 @@ impl TableChange {
     }
 }
 
+/// Who may write a catalog table (EG-FEDERATED-QUERY-R080.1). The graph is the
+/// only write boundary: every Iceberg/Parquet projection the engine publishes
+/// is `ReadOnly`, and a write that arrives through one is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectionAccess {
+    /// A materialized projection of committed graph state; clients only read it.
+    #[default]
+    ReadOnly,
+    /// A table whose authority accepts writes directly.
+    Authoritative,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -909,5 +923,18 @@ mod tests {
         let first = rmp_serde::to_vec_named(&snap).unwrap();
         let second = rmp_serde::to_vec_named(&snap).unwrap();
         assert_eq!(first, second);
+    }
+
+    // spec: EG-FEDERATED-QUERY-R080.1
+    #[test]
+    fn projection_access_round_trips_and_defaults_read_only() {
+        for access in [ProjectionAccess::ReadOnly, ProjectionAccess::Authoritative] {
+            assert_eq!(round_trip(&access), access);
+            let json = serde_json::to_string(&access).unwrap();
+            assert_eq!(serde_json::from_str::<ProjectionAccess>(&json).unwrap(), access);
+        }
+        assert_eq!(serde_json::to_string(&ProjectionAccess::ReadOnly).unwrap(), "\"read_only\"");
+        assert_eq!(ProjectionAccess::default(), ProjectionAccess::ReadOnly);
+        assert!(serde_json::from_str::<ProjectionAccess>("\"read_write\"").is_err());
     }
 }
