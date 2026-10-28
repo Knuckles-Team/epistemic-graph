@@ -1,6 +1,6 @@
 # Engine modes & the auto-bundle
 
-`epistemic-graph` is reachable three ways, resolved by **one** precedence so every entrypoint provisions
+Medulla is reachable three ways, resolved by **one** precedence so every entrypoint provisions
 an engine identically with no per-entrypoint code. In `agent-utilities` this is the `EngineResolver`
 (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision); every entrypoint — the arbora MCP server, the gateway/host daemon, the facade, the
 tenant engine pool, messaging, agent/serving — funnels through it.
@@ -126,7 +126,7 @@ configuration.
 | No socket, calls go straight to the library | **embedded** |
 
 `GRAPH_SERVICE_ENDPOINTS` is the sole Agent Utilities client-topology selector.
-`GRAPH_SERVICE_TCP_ADDR` and `GRAPH_SERVICE_SOCKET` configure Epistemic Graph
+`GRAPH_SERVICE_TCP_ADDR` and `GRAPH_SERVICE_SOCKET` configure Medulla
 server listeners (and may be passed explicitly to the native client); they do
 not select an Agent Utilities resolver mode. See [Service Mode](service_mode.md)
 for server variables and [Deployment](deployment.md) for the standalone-container

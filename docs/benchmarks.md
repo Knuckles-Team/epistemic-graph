@@ -165,7 +165,7 @@ the *same* deterministic agent-memory workload. All numbers are **measured** on 
 bench engine (`--features full`, redb-authoritative); full write-up + reproduction in the workspace
 report `reports/phase2-memory-kv-benchmark-results.md`.
 
-| Category | epistemic-graph | Stitched baseline | Winner |
+| Category | Medulla | Stitched baseline | Winner |
 |---|---|---|---|
 | recall@10 (quality) | **1.000** (indexed ANN) | 1.000 (exhaustive scan) | tie — this repository's keeps quality *with* an index |
 | cross-modal retrieval p50 (N=2000) | **7.3 ms** | 26.3 ms | **~3.6×** |

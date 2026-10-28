@@ -1,8 +1,8 @@
-# Deploying epistemic-graph as a database
+# Deploying Medulla as a database
 
-`epistemic-graph` is a **durable, Rust-native graph database engine**. It is a hard base
+Medulla is a **durable, Rust-native graph database engine**. It is a hard base
 dependency of `agent-utilities`, so every Agent Utilities install carries the one supported
-`epistemic-graph[full]` artifact. A local Arbora process can autostart and supervise that
+`medulla[full]` artifact. A local Arbora process can autostart and supervise that
 artifact over a private UDS socket, or it can connect to a **standalone, centralized database
 container** shared across multiple agents. This guide covers the standalone deployment: container
 recipes, connection configuration, the configuration surface, and the database architecture.
@@ -25,7 +25,7 @@ recipes, connection configuration, the configuration surface, and the database a
 There is **one build** (CONCEPT:EG-KG.sharding.deployment-tiers): `cargo build` (== `--features full`) is the
 full-featured engine — all MAIN features that compile without an external GPU/robotics
 toolchain. The **release Docker image installs the published main wheel via `uv`** (no
-cargo compile — see [`docker/Dockerfile`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/Dockerfile)). Two opt-in layers stack on top, built explicitly
+cargo compile — see [`docker/Dockerfile`](https://github.com/Knuckles-Team/medulla/blob/main/docker/Dockerfile)). Two opt-in layers stack on top, built explicitly
 from source (they are NOT published wheels):
 
 | Build | `--features` | Adds on top of the main build | Use when |
@@ -97,7 +97,7 @@ export EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial
 docker compose -f docker/compose.yml up -d server
 ```
 
-The bundled [`docker/compose.yml`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/compose.yml)
+The bundled [`docker/compose.yml`](https://github.com/Knuckles-Team/medulla/blob/main/docker/compose.yml)
 builds the image, exposes TLS native RPC, and persists to the named volume
 `eg-data`. Auxiliary listeners remain loopback-only inside the deployment.
 
@@ -116,7 +116,7 @@ export CONTAINER_DATA_DIR=/var/lib/epistemic-graph TLS_CERT_FILE=./certs/server.
 : "${TLS_CERT_FILE:?set to a host PEM certificate file}"
 : "${TLS_KEY_FILE:?set to a host PEM private key file}"
 docker volume create eg-data
-docker run -d --name epistemic-graph \
+docker run -d --name medulla \
   -e GRAPH_SERVICE_AUTH_SECRET \
   -e EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph \
   -e EPISTEMIC_GRAPH_TENANT=tenant:default \
@@ -130,7 +130,7 @@ docker run -d --name epistemic-graph \
   --mount type=bind,src="${TLS_CERT_FILE}",dst=/run/secrets/server.crt,readonly \
   --mount type=bind,src="${TLS_KEY_FILE}",dst=/run/secrets/server.key,readonly \
   -v eg-data:"${CONTAINER_DATA_DIR}" \
-  <registry>/epistemic-graph:<tag>
+  <registry>/medulla:<tag>
 ```
 
 > Load `GRAPH_SERVICE_AUTH_SECRET` and `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` from a
@@ -176,7 +176,7 @@ docker run -d --name eg-node-1 \
   --mount type=bind,src="${TLS_KEY_FILE}",dst=/run/secrets/server.key,readonly \
   -p 9100:9100 \
   -v eg-data-1:"${CONTAINER_DATA_DIR}" \
-  <registry>/epistemic-graph:<tag>
+  <registry>/medulla:<tag>
 # repeat for eg-node-2 (NODE_ID=2) and eg-node-3 (NODE_ID=3)
 ```
 
@@ -194,7 +194,7 @@ process-environment inspection and is not recommended.
 Local native clients use the per-platform **UDS**; remote native clients use
 verified **TLS** (`9100`). Agent Utilities and Arbora select topology only from
 `GRAPH_SERVICE_ENDPOINTS` and resolve authentication and trust through named
-AgentConfig references. The native Epistemic Graph client instead receives
+AgentConfig references. The native Medulla client instead receives
 `socket_path` or `tcp_addr` explicitly; the listener variables in the
 configuration table below are server settings, not Agent Utilities topology
 selectors.
@@ -396,7 +396,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Single["Single-node"]
-        A1[agent / MCP container] -->|TCP 9100| S1[("epistemic-graph<br/>redb @ eg-data")]
+        A1[agent / MCP container] -->|TCP 9100| S1[("Medulla<br/>redb @ eg-data")]
         GOS[arbora front-end] -->|UDS / TCP| S1
     end
 

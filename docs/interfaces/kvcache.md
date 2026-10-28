@@ -1,6 +1,6 @@
 # KV-cache interface (vLLM / LMCache shared blocks)
 
-epistemic-graph can act as a **tiered, shared LLM KV-block cache** — an LMCache/vLLM-style remote backend
+Medulla can act as a **tiered, shared LLM KV-block cache** — an LMCache/vLLM-style remote backend
 so parallel-deployed inference instances share KV blocks by token-hash (prefix-cache dedup) and survive
 OOM by offloading blocks to RAM/disk. This is a distinct modality from the vector [ANN](vector.md) index:
 ANN stores fixed-dimension embedding vectors; the KV-cache stores opaque attention KV **blocks** keyed by
@@ -27,7 +27,7 @@ flowchart TD
     subgraph lm["LMCache (decoupled lmcache server)"]
       L1["L1 · CPU RAM<br/>--l1-size-gb<br/>✓ survives vLLM restart"]
     end
-    subgraph eg["epistemic-graph (kvcache-server, this engine)"]
+    subgraph eg["Medulla (kvcache-server, this engine)"]
       L2["L2 · durable + dedup<br/>EG-185 hot/warm/cold tiers<br/>EG-186 content-addressed dedup<br/>✓ survives server restart · persists · shared cross-instance"]
     end
     L0 -->|"miss / evict · offload KV (+ Mamba state) via CUDA-IPC"| L1

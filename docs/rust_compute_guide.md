@@ -1,6 +1,6 @@
 # Rust Compute Guide
 
-> Architecture and usage reference for the `epistemic-graph` Rust compute engine.
+> Architecture and usage reference for the Medulla Rust compute engine.
 
 ## Overview
 
@@ -147,7 +147,7 @@ import json
 stats_json = g.prune_by_lifecycle(max_age_secs=86400, min_score=0.1)
 stats = json.loads(stats_json)
 
-# Batch operations (single epistemic-graph crossing)
+# Batch operations (single Medulla crossing)
 ops = json.dumps(
     [
         {"op": "add_node", "id": "concept:auth", "properties": {}},
@@ -213,7 +213,7 @@ See [`docs/service_mode.md`](service_mode.md) for full reference.
 ## Building
 
 ```bash
-cd epistemic-graph
+cd medulla
 
 # Build the Unix Sockets library (for embedded fallback)
 maturin develop --release

@@ -1,6 +1,6 @@
 # Native Visualization (D-VZ-1)
 
-Neither `agent-utilities` nor `epistemic-graph` ships a visualization library, and
+Neither `agent-utilities` nor Medulla ships a visualization library, and
 `matplotlib` does not scale — it draws every point in either case of how multiple pixels
 exist on screen. This engine ships its own **LOD-native** visualization stack
 instead: a declarative chart IR, a columnar store, decimation/density kernels, a
@@ -45,7 +45,7 @@ flowchart LR
         Browser["Browser (GET /, GET /tile)"]
     end
 
-    subgraph Engine["epistemic-graph engine"]
+    subgraph Engine["Medulla engine"]
         Handler["handlers::viz\n(RPC entry point)"]
         Interactive["server::viz_interactive\n(loopback HTTP, feature viz-interactive)"]
         EngineState["server::viz_engine::VizEngineState\n(V4 — one instance, shared)"]

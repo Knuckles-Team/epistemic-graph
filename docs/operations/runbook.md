@@ -1,6 +1,6 @@
 # Operations runbook
 
-Everything an operator needs to run epistemic-graph as a durable database: the deployment
+Everything an operator needs to run Medulla as a durable database: the deployment
 tiers, the full env-var catalog for every listener and knob, backup / point-in-time recovery,
 RBAC, encryption-at-rest, and how to turn each modality on. For the per-client connect recipes
 see [`interfaces/connecting.md`](../interfaces/connecting.md); for the storage internals see

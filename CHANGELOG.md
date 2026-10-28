@@ -307,6 +307,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   forwards `SpawnDelegation.oidc_token` onto the envelope in `on`-mode delegation.
 
 ### Changed
+- **Documentation points at the Medulla names.** Prose, links and deployment
+  examples in `README.md`, `docs/`, `specs/README.md` and `docker/` now use the
+  current repository, Pages, PyPI and container names: `Knuckles-Team/medulla`,
+  `knuckles-team.github.io/medulla/`, `medulla` / `medulla-stem` on PyPI, and
+  `medulla` / `medulla-stem` container images. Stable identifiers are untouched
+  by this change: the `epistemic_graph` import module, the
+  `epistemic-graph-server` executable, the `epistemic-graph` Cargo package,
+  `EpistemicGraph*` types, `EPISTEMIC_GRAPH_*` environment keys,
+  `epistemic_graph_*` metric names, and the `epistemic-graph` OIDC audience and
+  runtime socket paths. Earlier entries in this file keep their original
+  wording, because they record what shipped under those names.
 - **2.27 release-qualification disclosure (EH-308).** The differential
   `jscpd` gate is intentionally red for this release by the 2026-09-20
   operator ruling: against the publication base at `origin/main` it reports

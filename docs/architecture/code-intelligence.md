@@ -9,7 +9,7 @@ scope-aware**, computed in the Rust engine and shipped already-resolved.
 
 ## What changed
 
-- **Resolution is in Rust, in one round-trip.** The `epistemic-graph` engine's
+- **Resolution is in Rust, in one round-trip.** The Medulla engine's
   `IndexRepository` op parses every file (rayon) **and** resolves cross-file calls
   over the whole batch, returning one merged graph. The Python pipeline calls it
   once instead of doing a separate parse pass plus a per-symbol Python resolution
@@ -68,8 +68,8 @@ Knowledge Graph's `:Code` symbols. OWL reasoning over those symbols
 
 | Layer | File |
 |---|---|
-| Rust extraction | `epistemic-graph/crates/eg-compute/src/parser/tree_sitter.rs` |
-| Rust resolution | `epistemic-graph/crates/eg-compute/src/parser/resolve.rs` |
+| Rust extraction | `medulla/crates/eg-compute/src/parser/tree_sitter.rs` |
+| Rust resolution | `medulla/crates/eg-compute/src/parser/resolve.rs` |
 | Pipeline consumer | `agent_utilities/knowledge_graph/enrichment/pipeline.py`, `enrichment/extractors/code_test.py` |
 | GitLab consumer | `agent_utilities/knowledge_graph/core/gitlab_indexer.py` |
 | Ontology | `agent_utilities/knowledge_graph/ontology_software.ttl` (`:inherits`, `:realizes`) |

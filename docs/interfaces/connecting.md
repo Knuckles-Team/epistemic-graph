@@ -1,6 +1,6 @@
 # Connecting — per-wire connection guide
 
-epistemic-graph is a **drop-in substrate**: existing clients connect to it as if it were the
+Medulla is a **drop-in substrate**: existing clients connect to it as if it were the
 database they already speak. This page is the single connect-and-query recipe per surface —
 the Cargo feature to build with, the env var (or CLI flag) that sets the listen address, and a
 minimal working example.

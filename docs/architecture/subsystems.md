@@ -1,6 +1,6 @@
 # Subsystems — the one substrate, multiple surfaces
 
-`epistemic-graph` is one durable engine, but this cycle (waves 18–22) added multiple **cross-cutting
+Medulla is one durable engine, but this cycle (waves 18–22) added multiple **cross-cutting
 subsystems** and a fan of **wire adapters** that all compose on the *same* `GraphCore` + redb-authoritative
 store + unified `RowSet` planner. None is a bolt-on service: a broker queue, a log stream, a KV block, and
 a geometry are all rows in the one store, reached through the one dispatch shell and (where relevant) the

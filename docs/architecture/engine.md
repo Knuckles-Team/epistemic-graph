@@ -2,7 +2,7 @@
 
 Super Intelligence (SI) is the Arbora project term for model-backed agents.
 
-This is the deep architectural reference for `epistemic-graph` — the one durable engine that unifies
+This is the deep architectural reference for Medulla — the one durable engine that unifies
 graph, vector, SQL, RDF/SPARQL, OWL-2, time-series, content-addressed BLOB, full-text, and reasoning
 behind a single cross-modal planner, distributed and replicated from a Raspberry Pi to an HA cluster.
 
@@ -24,10 +24,10 @@ flowchart TB
     LLM["vLLM / LMCache KV-block clients"]
     LAKE["Lakehouse engines (Databricks · Spark · Trino · DuckDB)"]
     OTELC["External OTel collector / Prometheus (remote-write)"]
-    PEER["Peer epistemic-graph engines (federation / Raft / super-cluster)"]
+    PEER["Peer Medulla engines (federation / Raft / super-cluster)"]
     EXT["External Postgres / MySQL / HTTP-JSON sources"]
 
-    ENGINE["epistemic-graph<br/>unified data · compute · messaging · observability · lakehouse engine<br/>(graph + vector + SQL + RDF/OWL + TSDB + BLOB + text + GIS + tensor + stream + broker + KV-cache + LTAP)"]
+    ENGINE["Medulla<br/>unified data · compute · messaging · observability · lakehouse engine<br/>(graph + vector + SQL + RDF/OWL + TSDB + BLOB + text + GIS + tensor + stream + broker + KV-cache + LTAP)"]
 
     AGENT -->|"MessagePack / UDS / TCP, HMAC"| ENGINE
     PSQL -->|"Postgres wire, SCRAM"| ENGINE
@@ -339,7 +339,7 @@ flowchart LR
         LIM["Limit"]
     end
     subgraph Foreign["Foreign source kinds (ForeignSourceSpec)"]
-        REMOTE["Remote epistemic-graph engine (same transport, HMAC)"]
+        REMOTE["Remote Medulla engine (same transport, HMAC)"]
         HTTP["HTTP / JSON API (rustls ureq)"]
         SQLSRC["External Postgres / MySQL (sqlx, runtime-tokio-rustls)"]
     end
