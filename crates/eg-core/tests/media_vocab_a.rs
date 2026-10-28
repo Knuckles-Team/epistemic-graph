@@ -2829,3 +2829,199 @@ fn media_vocab_owncast_vocabulary_docs_truth() {
         "the owncast Vocabulary cell names media-v1 / content-v1, not MISSING"
     );
 }
+
+// spec: EG-MEDIA-VOCAB-R011.1
+#[test]
+fn media_vocab_media_downloader_mapping_rows_resolve_existing_terms() {
+    let document = include_str!("fixtures/media_vocab/media-downloader_mapping.ttl");
+    let (kind, _endpoint, only_url) = connection_of(document);
+    assert_eq!(kind, "mcp", "vg:sourceKind is mcp");
+    assert!(only_url, "the endpoint reference carries only its url");
+    let (entities, fields, _operations) = contract_of(document);
+    let rows = mapping_rows(document);
+    assert_eq!(rows.len(), 2, "the plan.md table rows are all mapped");
+    let universe = vocabulary_universe();
+    for row in &rows {
+        assert!(
+            entities.contains(&row.entity),
+            "mapsEntity {} is a discovered entity",
+            row.entity
+        );
+        assert!(
+            fields.contains(&row.key_field),
+            "keyField {} is a discovered field",
+            row.key_field
+        );
+        assert!(
+            universe.get(&row.class).map(|(kind, _)| *kind) == Some(TermKind::Class),
+            "row class {} is a declared class",
+            row.class
+        );
+        for pair in &row.pairs {
+            assert!(
+                fields.contains(&pair.field),
+                "pair field {} is a discovered field",
+                pair.field
+            );
+            assert!(
+                universe.contains_key(&pair.predicate),
+                "row predicate {} is declared vocabulary",
+                pair.predicate
+            );
+        }
+    }
+    // Coverage of the plan.md media-downloader table: entity -> class. The
+    // download action is modelled as a request; the watch file is a file.
+    let bound: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .map(|r| (
+            r.entity.as_str(),
+            r.class.strip_prefix(KG).unwrap_or(&r.class),
+        ))
+        .collect();
+    for (entity, class) in [("DownloadJob", "DownloadRequest"), ("WatchFile", "MediaFile")] {
+        assert!(
+            bound.contains(&(entity, class)),
+            "the plan.md table row {entity} -> {class} is mapped"
+        );
+    }
+}
+
+// spec: EG-MEDIA-VOCAB-R011.2
+#[test]
+fn media_vocab_media_downloader_response_round_trips_through_mapping() {
+    let document = include_str!("fixtures/media_vocab/media-downloader_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/media-downloader_response.json"))
+            .expect("the recorded response parses");
+    let mapped = apply_mapping(&rows, &response, "media-downloader", &universe);
+    // Four records (two download jobs, two watched files), no minted
+    // reference nodes: the output values are URN references.
+    let nodes = node_subjects(&mapped);
+    assert_eq!(nodes.len(), 4, "every record becomes exactly one node: {nodes:?}");
+    for t in &mapped {
+        let predicate = t.predicate.as_str();
+        if predicate == format!("{RDF}type")
+            || predicate == format!("{DC}source")
+            || predicate == format!("{DC}identifier")
+            || predicate == format!("{DC}date")
+        {
+            continue;
+        }
+        assert!(
+            universe.contains_key(predicate),
+            "the mapped triple uses declared vocabulary: {predicate}"
+        );
+    }
+    // The job carries its source URL and state, and links the file it
+    // produced.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:media-downloader:DownloadJob:j1",
+            format!("{KG}downloadSourceUrl").as_str()
+        ),
+        vec!["https://media.example/files/episode-01.mkv".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:media-downloader:DownloadJob:j1",
+            format!("{KG}downloadRequestState").as_str()
+        ),
+        vec!["importing".to_string()]
+    );
+    assert_eq!(
+        iri_of(
+            &mapped,
+            "urn:eg-media-vocab:media-downloader:DownloadJob:j1",
+            format!("{KG}downloadOutput").as_str()
+        ),
+        Some("urn:eg-media-vocab:media-downloader:WatchFile:wf1".to_string())
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:media-downloader:WatchFile:wf1",
+            format!("{KG}fileName").as_str()
+        ),
+        vec!["episode-01.mkv".to_string()]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R011.3
+#[test]
+fn media_vocab_media_downloader_single() {
+    // "Which download jobs failed in the last week, with what error, for
+    // which source URL?" — BLOCKED: the connector exposes only download
+    // actions and watch prompts; there is no operation that lists past
+    // jobs, their status or error. The test verifies the mapped data
+    // carries no failure to report and returns the typed abstention naming
+    // the missing operation and its owner.
+    let document = include_str!("fixtures/media_vocab/media-downloader_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/media-downloader_response.json"))
+            .unwrap();
+    let mapped = apply_mapping(&rows, &response, "media-downloader", &universe);
+
+    // No failed job and no error anywhere in the mapped data.
+    let requests = subjects_typed(&mapped, &["DownloadRequest"]);
+    let failed: BTreeSet<String> = requests
+        .iter()
+        .filter(|request| {
+            values_of(&mapped, request, format!("{KG}downloadRequestState").as_str())
+                .iter()
+                .any(|state| state == "failed")
+        })
+        .cloned()
+        .collect();
+    assert!(
+        failed.is_empty(),
+        "no failed job is recorded: {failed:?}"
+    );
+    assert!(
+        mapped
+            .iter()
+            .all(|t| t.predicate.as_str() != format!("{KG}downloadError")),
+        "the mapped data carries no downloadError"
+    );
+    // The discovered operations contain no download-history operation.
+    let (_entities, _fields, operations) = contract_of(document);
+    assert!(
+        operations
+            .iter()
+            .all(|operation| !operation.contains("list_downloads")),
+        "no list_downloads operation is discovered: {operations:?}"
+    );
+
+    // The typed abstention names the missing operation and the owner who
+    // must add it.
+    let abstention = TypedAbstention {
+        connector: "media-downloader",
+        missing_operation: "list_downloads (download history: job id, source URL, status, error, completedAt, output path)",
+        owner: "media-downloader",
+    };
+    assert_eq!(abstention.connector, "media-downloader");
+    assert!(
+        abstention.missing_operation.contains("list_downloads"),
+        "the abstention names the missing download-history operation: {}",
+        abstention.missing_operation
+    );
+    assert_eq!(abstention.owner, "media-downloader");
+}
+
+// spec: EG-MEDIA-VOCAB-R011.4
+#[test]
+fn media_vocab_media_downloader_vocabulary_docs_truth() {
+    let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
+        .expect("the connector-competency plan reads");
+    assert_eq!(
+        connector_competency_vocab_cell(&plan, "R038"),
+        "media-v1",
+        "the media-downloader Vocabulary cell names media-v1, not MISSING"
+    );
+}
