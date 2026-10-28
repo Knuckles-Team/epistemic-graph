@@ -26,6 +26,10 @@ mod catalog_authority;
 mod import;
 pub(crate) mod reconcile;
 pub(crate) mod reproject;
+#[cfg(all(feature = "rdf", feature = "shacl"))]
+pub(crate) mod seed;
+#[cfg(all(test, feature = "rdf", feature = "shacl"))]
+mod seed_tests;
 mod self_served_catalog;
 #[cfg(all(test, feature = "redb", feature = "blob"))]
 mod tests;
