@@ -1,0 +1,29 @@
+# Data-platform shapes (EG-DATAPLAT-VOCAB-R002.4).
+#
+# SHACL Core plus aggregate-free `sh:sparql` only, in the same style as
+# `core:virtual-graph-shapes@1` (DECIDE §4.8): an absence check uses the
+# `OPTIONAL ... FILTER(!BOUND(...))` form, never NOT EXISTS. A closed shape
+# names exactly the properties a node may carry, so any other property is
+# itself the violation (SHACL Core, no SPARQL needed).
+
+@prefix dp:   <http://knuckles.team/kg/data-platform#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+dp:DocumentFieldShape a sh:NodeShape ;
+    sh:targetClass dp:DocumentField ;
+    sh:property [
+        sh:path dp:fieldType ;
+        sh:in ( "string" "int32" "int64" "double" "bool" "date" "object_id" "array" "document" "null" "mixed" ) ;
+        sh:message "fieldType is one of the DocumentFieldType list, including mixed."
+    ] ;
+    sh:property [
+        sh:path dp:presenceRatio ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:maxInclusive 1 ;
+        sh:message "presenceRatio is a decimal in [0,1]."
+    ] .

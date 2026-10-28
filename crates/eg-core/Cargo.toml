@@ -123,3 +123,8 @@ eg-modality = { path = "../eg-modality", optional = true }
 # the registered core documents with the native RDF stack. Dev-only: a default
 # build links nothing extra (the eg-plan test-target precedent).
 eg-rdf = { path = "../eg-rdf", features = ["rdf"] }
+# The data-platform SHACL contract tests (EG-DATAPLAT-VOCAB-R002.4+) validate
+# fixture data against the native SHACL engine. Dev-only, same precedent:
+# eg-shacl depends on eg-rdf (not eg-core), so this adds no edge to any
+# non-test build.
+eg-shacl = { path = "../eg-shacl" }

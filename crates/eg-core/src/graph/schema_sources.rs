@@ -874,10 +874,13 @@ fn core_specs() -> &'static [CoreSpec] {
         },
         // EG-DATAPLAT-VOCAB-R001.4: shared data-platform terms are one immutable
         // core source and import the virtual-graph attachment vocabulary.
+        // The SHACL shapes companion (EG-DATAPLAT-VOCAB-R002.4+) is wired into
+        // the SAME source's shapes field, as the commercial module does
+        // (EG-SUPPLY-VOCAB-R003.14) — one registered artifact per module.
         CoreSpec {
             module: "data-platform",
             version: 1,
-            shapes: None,
+            shapes: Some(include_str!("../../ontology/data_platform-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/data_platform-v1.ttl")),
         },
         CoreSpec {
@@ -1354,7 +1357,7 @@ mod tests {
             ),
             (
                 "data-platform",
-                "8d76ccb12efc61c9724f9c6ff0368ea95bb7a97b16cd423a01de919bc0ee2007",
+                "039234d96e444879f9eb9af9ba3f74371adf1d19da89d554f647c02a66223508",
             ),
             (
                 "it4it_delivery",

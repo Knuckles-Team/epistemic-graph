@@ -3,6 +3,7 @@
 use eg_core::graph::{current_core_set_digest, GraphSchemaSources, SchemaSourceOrigin};
 use eg_rdf::mapping::parse_turtle;
 use eg_rdf::oxrdf::{NamedNode, Triple};
+use eg_shacl::validate_turtle;
 
 const DP: &str = "http://knuckles.team/kg/data-platform#";
 const VG: &str = "http://knuckles.team/kg/virtual-graph#";
@@ -228,6 +229,66 @@ fn assert_domain_range(triples: &[Triple], local: &str, domain: &str, range: &st
 fn load_data_platform() -> Vec<Triple> {
     parse_turtle(include_str!("../ontology/data_platform-v1.ttl"))
         .expect("the data-platform vocabulary parses")
+}
+
+const DP_SHAPES: &str = include_str!("../ontology/data_platform-v1.shapes.ttl");
+
+// spec: EG-DATAPLAT-VOCAB-R002.4
+#[test]
+fn document_field_shape_rejects_ratio_2() {
+    // A presenceRatio of 2 is outside [0,1] and must be refused.
+    let bad_ratio = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:field a dp:DocumentField ;
+    dp:fieldPath "address.city" ;
+    dp:fieldType "string" ;
+    dp:presenceRatio 2.0 .
+"#;
+    let report = validate_turtle(DP_SHAPES, bad_ratio)
+        .expect("the ratio-2 document parses before validation");
+    assert!(
+        !report.conforms,
+        "a presenceRatio of 2 must be rejected: {:?}",
+        report.results
+    );
+
+    // A DocumentFieldType member (including mixed) with a ratio inside [0,1] conforms.
+    let good = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:field a dp:DocumentField ;
+    dp:fieldPath "address.city" ;
+    dp:fieldType "mixed" ;
+    dp:presenceRatio 0.5 .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, good).expect("the conforming document parses before validation");
+    assert!(
+        report.conforms,
+        "a DocumentFieldType member with a ratio in [0,1] must conform: {:?}",
+        report.results
+    );
+
+    // A fieldType outside the DocumentFieldType list is refused on its own.
+    let bad_type = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:field a dp:DocumentField ;
+    dp:fieldPath "address.city" ;
+    dp:fieldType "weird" ;
+    dp:presenceRatio 0.5 .
+"#;
+    let report = validate_turtle(DP_SHAPES, bad_type)
+        .expect("the bad-type document parses before validation");
+    assert!(
+        !report.conforms,
+        "fieldType must be a DocumentFieldType member: {:?}",
+        report.results
+    );
 }
 
 // spec: EG-DATAPLAT-VOCAB-R002.1
