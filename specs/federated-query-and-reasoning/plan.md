@@ -107,6 +107,19 @@ or hosted release gates. No broader acceptance is claimed.
 
 ## Amendments
 
+### 2026-10-27 — EG-FEDERATED-QUERY-R013 central authorization clarification
+
+The original R013 wording required `ACCESS_DENIED` whenever a caller named another principal's source.
+The centralized authorization contract requires identical concealment for unknown and ungranted resources.
+That wording exposed a known-but-ungranted source and conflicted with the existing contract.
+The corrected binding reuses `may_use_shared` and adds no new grant or visibility API.
+Unknown and known-but-ungranted names return the executor's typed not-found response.
+An effective exact share grant makes the source identity visible.
+A grantee's unqualified plain-name use then returns stable `ACCESS_DENIED`.
+The qualified shared name remains the only usable path.
+This follow-up claims no R013 acceptance or native execution.
+Central policy review remains required before status promotion.
+
 ### 2026-10-11 — EG-FEDERATED-QUERY-R058.3.1 source-guard repair
 
 Scope the no-cache guard to production NL handlers, excluding the adjacent
