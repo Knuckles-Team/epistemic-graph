@@ -6,8 +6,10 @@ use super::*;
 // the authoritative-shard commit succeeds, but documents one residual: a crash strictly
 // BETWEEN those two commits leaves the measurement durable + authoritative in
 // after its SERIES-table commit may not be reflected in the served store.
-// The pass below closes that window: run ONCE at boot, after both stores are open and
-// before the server accepts traffic, so a prior crash's residual never lingers.
+// The pass below closes that window: run ONCE at boot, after both stores are open —
+// as POST-BIND background maintenance (`server::boot_maintenance::
+// spawn_post_bind_maintenance`, EG-DURABLE-KERNEL-R006.4), never on the
+// pre-listener critical path — so a prior crash's residual never lingers.
 #[cfg(feature = "tsdb")]
 #[derive(Default)]
 pub struct TsReconcileReport {
@@ -140,6 +142,12 @@ fn reconcile_shard(
 ) -> Result<(), String> {
     let rtx = shard.control_read()?;
     let series_ids = eg_tsdb::store::list_series_in_rtx(&rtx).map_err(|e| e.to_string())?;
+    // Start-of-pass visibility (EG-DURABLE-KERNEL-R006.4): even a zero-work
+    // boot logs now — a multi-minute full replay used to be invisible.
+    tracing::info!(
+        series = series_ids.len(),
+        "time-series startup reconciliation: examining series in one authoritative shard"
+    );
     for series_id in series_ids {
         reconcile_series(&rtx, tsdb_store, &series_id, report)?;
     }
@@ -170,7 +178,20 @@ impl RedbBackend {
     /// file a SECOND time (redb's exclusive per-process file lock would reject that) —
     /// see `eg_tsdb::store::{list_series_in_rtx, meta_in_rtx, range_in_rtx}`, the read-only
     /// counterparts of `append_batch_in_wtx` extracted for exactly this caller.
+    ///
+    /// Runs ONCE at boot as POST-BIND background maintenance (EG-DURABLE-KERNEL-
+    /// R006.4) — residual closing, not a serving precondition.
     pub async fn reconcile_time_series(
+        &self,
+        tsdb_store: &eg_tsdb::store::SeriesStore,
+    ) -> Result<TsReconcileReport, String> {
+        self.reconcile_time_series_sync(tsdb_store)
+    }
+
+    /// The synchronous core of [`Self::reconcile_time_series`]: pure redb I/O
+    /// with no await points, so the post-bind maintenance task runs it off the
+    /// reactor through the blocking-task boundary (EG-DURABLE-KERNEL-R006.4).
+    pub(crate) fn reconcile_time_series_sync(
         &self,
         tsdb_store: &eg_tsdb::store::SeriesStore,
     ) -> Result<TsReconcileReport, String> {

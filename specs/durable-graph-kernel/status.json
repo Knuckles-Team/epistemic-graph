@@ -13,6 +13,8 @@
     "EG-DURABLE-KERNEL-R006.1",
     "EG-DURABLE-KERNEL-R006.2",
     "EG-DURABLE-KERNEL-R006.3",
+    "EG-DURABLE-KERNEL-R006.4",
+    "EG-DURABLE-KERNEL-R006.5",
     "EG-DURABLE-KERNEL-R007",
     "EG-DURABLE-KERNEL-R008",
     "EG-DURABLE-KERNEL-R009",
@@ -503,8 +505,8 @@
         "03670fc1f33c",
         "0c01d687aba9",
         "20c64b28144f",
-        "51d84d58e174",
-        "8dbb5bd9de53"
+        "4aefb9406e55",
+        "51d84d58e174"
       ],
       "verified_by": [
         "crates/eg-storage/src/physical/tests.rs:1008",
@@ -516,7 +518,9 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R006.1",
         "EG-DURABLE-KERNEL-R006.2",
-        "EG-DURABLE-KERNEL-R006.3"
+        "EG-DURABLE-KERNEL-R006.3",
+        "EG-DURABLE-KERNEL-R006.4",
+        "EG-DURABLE-KERNEL-R006.5"
       ]
     },
     {
@@ -571,6 +575,28 @@
         "crates/eg-storage/src/physical/tests.rs:782",
         "crates/eg-storage/src/physical/tests.rs:793",
         "crates/eg-storage/src/physical/tests.rs:821"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R006.4",
+      "title": "Pre-listener boot does not block on write-lock-holding maintenance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4aefb9406e55"
+      ],
+      "verified_by": [
+        "src/server/connector_pack_projection/boot_regression.rs:378"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R006.5",
+      "title": "Ts startup reconciliation replays the legacy gap once, then uses the cursor fast path",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4aefb9406e55"
+      ],
+      "verified_by": [
+        "src/server/connector_pack_projection/boot_regression.rs:379"
       ]
     },
     {
@@ -3374,7 +3400,7 @@
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:161",
         "crates/eg-types/src/change_envelope/material.rs:181",
-        "src/server/mod.rs:2163"
+        "src/server/mod.rs:2171"
       ]
     },
     {
@@ -3387,7 +3413,7 @@
       ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:198",
-        "src/server/mod.rs:2163"
+        "src/server/mod.rs:2171"
       ]
     },
     {
