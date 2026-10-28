@@ -428,7 +428,7 @@
         "crates/eg-capabilities/src/contract/errors.rs:495",
         "crates/eg-capabilities/src/error_routing.rs:384",
         "crates/eg-types/src/governed_change/tests.rs:183",
-        "src/server/auth.rs:2053",
+        "src/server/auth.rs:2184",
         "src/server/transport/tests.rs:145"
       ],
       "rollup_of": [
@@ -446,7 +446,7 @@
         "ef81c8ba3a08"
       ],
       "verified_by": [
-        "src/server/auth.rs:2053",
+        "src/server/auth.rs:2184",
         "src/server/transport/tests.rs:145"
       ]
     },
