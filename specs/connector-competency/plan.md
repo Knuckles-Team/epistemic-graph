@@ -342,9 +342,15 @@ four named bulk rows:
 Engine gaps observed. The ordering comparator parses operands as f64, so a
 FILTER comparison over a dateTime lexical silently drops the row. The tests
 express windows with the `YEAR()`, `MONTH()`, `DAY()`, `HOURS()` and
-`MINUTES()` accessors instead. The native query path has no typed-abstention
-mechanism, so the test-spec's "or a typed abstention" branch stays
-unexercised here.
+`MINUTES()` accessors instead. The typed abstention is the source-selection
+`Abstained { reason: Unconnected }` verdict: `question_abstention`
+(`crates/eg-rdf/src/source_selection.rs`) selects each `(source, concept)` a
+question reads against the sources `connected_sources_from_turtle` finds
+connected (an approved `vg:VirtualMapping` under a `vg:MetadataContract`) and
+returns the `AuthorityAudit` naming each unconnected source. The `.3`
+acceptance helper `assert_acceptance` (`crates/eg-rdf/tests/common/mod.rs`)
+proves, per question, the answer with every source connected and the typed
+abstention naming each required source when it alone is unconnected.
 
 ### 2026-10-27: fixture SPARQL answers for R039.2, R042.1
 
