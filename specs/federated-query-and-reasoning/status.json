@@ -2113,9 +2113,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.9.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c1c753f7f08e"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/leanrag.rs:1336"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.9.5",

@@ -3349,7 +3349,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.1",
-      "title": "Run checkpoint and memory binding. Owner decisions remain open",
+      "title": "Run checkpoint and memory binding",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3437,10 +3437,11 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.7",
-      "title": "Definition hold: no cross-backend transaction contract is authorized",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: defines no behavior; one-graph R084.1-.6 stays the only write boundary and R039 the single redb durability authority. Cross-backend coordination is not authorized",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "defines no behavior; one-graph R084.1-.6 stays the only write boundary and R039 the single redb durability authority. Cross-backend coordination is not authorized"
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.8",
