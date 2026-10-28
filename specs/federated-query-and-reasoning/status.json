@@ -774,7 +774,7 @@
         "8451d7eecf02"
       ],
       "verified_by": [
-        "crates/eg-plan/src/exec.rs:2661",
+        "crates/eg-plan/src/exec.rs:2695",
         "src/server/mod.rs:2107"
       ],
       "rollup_of": [
@@ -791,7 +791,7 @@
         "8040b672e582"
       ],
       "verified_by": [
-        "crates/eg-plan/src/exec.rs:2661",
+        "crates/eg-plan/src/exec.rs:2695",
         "src/server/mod.rs:2107"
       ]
     },
@@ -1519,7 +1519,8 @@
         "e93f988eae07"
       ],
       "verified_by": [
-        "crates/eg-plan/src/budget.rs:73"
+        "crates/eg-plan/src/budget.rs:73",
+        "crates/eg-plan/src/exec.rs:2721"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R070.1"
@@ -1701,7 +1702,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-query/src/plan_scope.rs:107"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R078.2",
