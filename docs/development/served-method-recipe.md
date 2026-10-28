@@ -105,8 +105,8 @@ This rewrites `clients/go/eg_method_codec.wasm`, `clients/js/eg_method_codec.was
 sha256 pins in `.config/generated-artifacts.toml`. CI runs it with `--check`.
 
 Do not commit the output of `python3 scripts/gen_api_docs.py --write`: `docs/api/` and
-`docs/openapi.json` drift from the base branch independently of your method. If you ran it,
-run `git checkout -- docs/api docs/openapi.json`.
+`docs/openapi.json` drift from the base branch independently of the method. After a run,
+restore both with `git checkout -- docs/api docs/openapi.json`.
 
 ## 6. Served integration test
 
