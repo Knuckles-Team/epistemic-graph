@@ -857,9 +857,12 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "681de5cb1968"
+        "681de5cb1968",
+        "c2181ef46a26"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "src/server/handlers/query/uql_statement.rs:183"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R028.1"
       ]
