@@ -3387,6 +3387,7 @@ name = "eg-types"
 version = "0.27.0"
 dependencies = [
  "hex",
+ "oxiri",
  "rmp-serde",
  "schemars 1.2.3",
  "serde",
