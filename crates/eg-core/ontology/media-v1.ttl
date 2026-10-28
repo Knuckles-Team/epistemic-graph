@@ -868,3 +868,32 @@
     rdfs:domain :Audiobook ;
     rdfs:range :BookSeries ;
     rdfs:subPropertyOf :partOf .
+
+# R008.1: qbittorrent mapping terms. The table row
+# `qbittorrent_torrents/get_torrent_properties, get_torrent_trackers ->
+# mv:DownloadTransfer detail; mv:trackerUrl` and
+# `qbittorrent_transfer/* -> mv:TransferSpeedSample (global)` name the tracker
+# URL and the global speed sample the torrent list does not carry.
+
+:trackerUrl a owl:DatatypeProperty ;
+    rdfs:label "tracker URL" ;
+    rdfs:comment "The announce URL of the tracker a torrent is announced to (qBittorrent torrent properties / trackers)." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Torrent :DownloadTransfer ) ] ;
+    rdfs:range xsd:string .
+
+:TransferSpeedSample a owl:Class ;
+    rdfs:label "Transfer Speed Sample" ;
+    rdfs:comment "One global download/upload speed sample of the torrent client (qBittorrent transfer info)." ;
+    rdfs:subClassOf :Observation .
+
+:downloadSpeedBytesPerSecond a owl:DatatypeProperty ;
+    rdfs:label "download speed bytes per second" ;
+    rdfs:comment "Global download speed of the client in bytes per second." ;
+    rdfs:domain :TransferSpeedSample ;
+    rdfs:range xsd:nonNegativeInteger .
+
+:uploadSpeedBytesPerSecond a owl:DatatypeProperty ;
+    rdfs:label "upload speed bytes per second" ;
+    rdfs:comment "Global upload speed of the client in bytes per second." ;
+    rdfs:domain :TransferSpeedSample ;
+    rdfs:range xsd:nonNegativeInteger .

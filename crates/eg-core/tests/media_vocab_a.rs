@@ -2102,3 +2102,196 @@ fn media_vocab_audiobookshelf_vocabulary_docs_truth() {
         "the audiobookshelf Vocabulary cell names media-v1, not MISSING"
     );
 }
+
+// spec: EG-MEDIA-VOCAB-R008.1
+#[test]
+fn media_vocab_qbittorrent_mapping_rows_resolve_existing_terms() {
+    let document = include_str!("fixtures/media_vocab/qbittorrent_mapping.ttl");
+    let (kind, _endpoint, only_url) = connection_of(document);
+    assert_eq!(kind, "mcp", "vg:sourceKind is mcp");
+    assert!(only_url, "the endpoint reference carries only its url");
+    let (entities, fields, _operations) = contract_of(document);
+    let rows = mapping_rows(document);
+    assert_eq!(rows.len(), 4, "the plan.md table rows are all mapped");
+    let universe = vocabulary_universe();
+    for row in &rows {
+        assert!(
+            entities.contains(&row.entity),
+            "mapsEntity {} is a discovered entity",
+            row.entity
+        );
+        assert!(
+            fields.contains(&row.key_field),
+            "keyField {} is a discovered field",
+            row.key_field
+        );
+        assert!(
+            universe.get(&row.class).map(|(kind, _)| *kind) == Some(TermKind::Class),
+            "row class {} is a declared class",
+            row.class
+        );
+        for pair in &row.pairs {
+            assert!(
+                fields.contains(&pair.field),
+                "pair field {} is a discovered field",
+                pair.field
+            );
+            assert!(
+                universe.contains_key(&pair.predicate),
+                "row predicate {} is declared vocabulary",
+                pair.predicate
+            );
+        }
+    }
+    // Coverage of the plan.md qbittorrent table: entity -> class. The sync
+    // delta and the properties detail both map to the same transfer class.
+    let bound: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .map(|r| (
+            r.entity.as_str(),
+            r.class.strip_prefix(KG).unwrap_or(&r.class),
+        ))
+        .collect();
+    for (entity, class) in [
+        ("Torrent", "DownloadTransfer"),
+        ("TorrentProperties", "DownloadTransfer"),
+        ("TransferInfo", "TransferSpeedSample"),
+        ("SyncTorrent", "DownloadTransfer"),
+    ] {
+        assert!(
+            bound.contains(&(entity, class)),
+            "the plan.md table row {entity} -> {class} is mapped"
+        );
+    }
+}
+
+// spec: EG-MEDIA-VOCAB-R008.2
+#[test]
+fn media_vocab_qbittorrent_response_round_trips_through_mapping() {
+    let document = include_str!("fixtures/media_vocab/qbittorrent_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/qbittorrent_response.json"))
+            .expect("the recorded response parses");
+    let mapped = apply_mapping(&rows, &response, "qbittorrent", &universe);
+    // Six records (three torrents, one properties record, one transfer
+    // sample, one sync delta), no minted reference nodes.
+    let nodes = node_subjects(&mapped);
+    assert_eq!(nodes.len(), 6, "every record becomes exactly one node: {nodes:?}");
+    for t in &mapped {
+        let predicate = t.predicate.as_str();
+        if predicate == format!("{RDF}type")
+            || predicate == format!("{DC}source")
+            || predicate == format!("{DC}identifier")
+            || predicate == format!("{DC}date")
+        {
+            continue;
+        }
+        assert!(
+            universe.contains_key(predicate),
+            "the mapped triple uses declared vocabulary: {predicate}"
+        );
+    }
+    // The UPPER-CASE hash from the recorded list arrives case-folded on its
+    // documented key.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:qbittorrent:Torrent:B44226130472E16A5D2B7E7F2C1A9D3E5F6A8C0B",
+            format!("{KG}infoHash").as_str()
+        ),
+        vec!["b44226130472e16a5d2b7e7f2c1a9d3e5f6a8c0b".to_string()]
+    );
+    // The properties record names the tracker on the transfer class; the
+    // transfer sample carries the global speeds.
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:qbittorrent:TorrentProperties:B44226130472E16A5D2B7E7F2C1A9D3E5F6A8C0B",
+            format!("{KG}trackerUrl").as_str()
+        ),
+        vec!["https://tracker.example/announce".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:qbittorrent:TransferInfo:global",
+            format!("{KG}downloadSpeedBytesPerSecond").as_str()
+        ),
+        vec!["1048576".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            "urn:eg-media-vocab:qbittorrent:TransferInfo:global",
+            format!("{KG}uploadSpeedBytesPerSecond").as_str()
+        ),
+        vec!["262144".to_string()]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R008.3
+#[test]
+fn media_vocab_qbittorrent_single() {
+    // "Which torrents are stalled, with what ratio and how long since last
+    // activity?" — CONFIRMED: state, ratio and last_activity are fields of
+    // the torrent list; 'stalled' is state stalledDL or stalledUP. The
+    // question is answered from the full list (the sync delta is the
+    // incremental fetch mechanism, not a separate torrent set).
+    let document = include_str!("fixtures/media_vocab/qbittorrent_mapping.ttl");
+    let rows = mapping_rows(document);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/media_vocab/qbittorrent_response.json")).unwrap();
+    let mapped = apply_mapping(&rows, &response, "qbittorrent", &universe);
+
+    let list: Vec<String> = subjects_typed(&mapped, &["DownloadTransfer"])
+        .into_iter()
+        .filter(|subject| subject.contains(":qbittorrent:Torrent:"))
+        .collect();
+    assert_eq!(list.len(), 3, "the torrent list has three torrents: {list:?}");
+    let answer: BTreeMap<String, (String, i64)> = list
+        .iter()
+        .filter_map(|subject| {
+            let state = values_of(&mapped, subject, format!("{KG}transferState").as_str()).pop()?;
+            if state != "stalledDL" && state != "stalledUP" {
+                return None;
+            }
+            let ratio = values_of(&mapped, subject, format!("{KG}shareRatio").as_str()).pop()?;
+            let last_activity =
+                values_of(&mapped, subject, format!("{KG}lastActivityAt").as_str()).pop()?;
+            Some((
+                subject.to_string(),
+                (ratio, days_since(&last_activity, ASOF)),
+            ))
+        })
+        .collect();
+    assert_eq!(
+        answer,
+        BTreeMap::from([
+            (
+                "urn:eg-media-vocab:qbittorrent:Torrent:B44226130472E16A5D2B7E7F2C1A9D3E5F6A8C0B"
+                    .to_string(),
+                ("0.12".to_string(), 3),
+            ),
+            (
+                "urn:eg-media-vocab:qbittorrent:Torrent:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+                    .to_string(),
+                ("1.5".to_string(), 14),
+            ),
+        ])
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R008.4
+#[test]
+fn media_vocab_qbittorrent_vocabulary_docs_truth() {
+    let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
+        .expect("the connector-competency plan reads");
+    assert_eq!(
+        connector_competency_vocab_cell(&plan, "R051"),
+        "media-v1",
+        "the qbittorrent Vocabulary cell names media-v1, not MISSING"
+    );
+}
