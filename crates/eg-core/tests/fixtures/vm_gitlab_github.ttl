@@ -1,0 +1,114 @@
+# Virtual-mapping fixture: gitlab dependencies and github Dependabot
+# alerts to ComponentVersion and Vulnerability (rank 2)
+# (EG-SUPPLY-VOCAB-R006.6).
+#
+# Recorded over the `gitlab_vulnerabilities` tool (action `dependencies` for
+# the project dependency list, action `vulnerabilities` for advisories) and
+# the `github_dependabot` tool (actions list/get for Dependabot alerts).
+# Both are rank-2 sources behind dockerhub: the dependency list projects onto
+# kg:ComponentVersion, the advisory/alert rows onto kg:Vulnerability with
+# kg:affectsComponent to the affected package.
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-gitlab-github#> .
+
+ex:gitlabConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://gitlab.invalid/api/v4" ] .
+
+ex:githubConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://github.invalid/api/v3" ] .
+
+ex:gitlabDependenciesAccess a vg:MetadataContract ;
+    vg:contractSource ex:gitlabConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:7d58a5e8ffb6a4e5b4437183befe8e2a32a02f3c8f0aa9369a3864987617e33a" ;
+    vg:discoveredEntity "Dependency" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "version" ;
+    vg:discoveredOperation "dependencies" .
+
+ex:gitlabVulnerabilitiesAccess a vg:MetadataContract ;
+    vg:contractSource ex:gitlabConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:b9a2ffc6fd1db87914966d278bd023f4feb32788c05c27ed9bd223723af39653" ;
+    vg:discoveredEntity "Vulnerability" ;
+    vg:discoveredField "id" ;
+    vg:discoveredField "severity" ;
+    # The advisory's affected package name.
+    vg:discoveredField "package" ;
+    vg:discoveredOperation "vulnerabilities" .
+
+ex:githubDependabotAccess a vg:MetadataContract ;
+    vg:contractSource ex:githubConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:b8662d408cf6008042f2bd57bea1d03aeb5bc7688b8edbd01f99814e3b1e6c91" ;
+    vg:discoveredEntity "DependabotAlert" ;
+    vg:discoveredField "number" ;
+    vg:discoveredField "severity" ;
+    # The alert's affected package name.
+    vg:discoveredField "package" ;
+    vg:discoveredOperation "list" ;
+    vg:discoveredOperation "get" .
+
+# GitLab is the rank-2 source for component versions and vulnerabilities.
+ex:gitlabComponentAuthority a vg:SourceAuthority ;
+    vg:authoritativeSource ex:gitlabConnection ;
+    vg:authorityFor kg:ComponentVersion ;
+    vg:authorityRank 2 .
+
+ex:gitlabVulnerabilityAuthority a vg:SourceAuthority ;
+    vg:authoritativeSource ex:gitlabConnection ;
+    vg:authorityFor kg:Vulnerability ;
+    vg:authorityRank 2 .
+
+# GitHub Dependabot is the rank-2 source for vulnerabilities.
+ex:githubVulnerabilityAuthority a vg:SourceAuthority ;
+    vg:authoritativeSource ex:githubConnection ;
+    vg:authorityFor kg:Vulnerability ;
+    vg:authorityRank 2 .
+
+ex:gitlabComponentVersionMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:gitlabDependenciesAccess ;
+    vg:mapsOntologyClass kg:ComponentVersion ;
+    vg:mapsEntity "Dependency" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:versionString ;
+        vg:field "version" ] ;
+    vg:approved true .
+
+ex:gitlabVulnerabilityMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:gitlabVulnerabilitiesAccess ;
+    vg:mapsOntologyClass kg:Vulnerability ;
+    vg:mapsEntity "Vulnerability" ;
+    vg:keyField "id" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "id" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:severity ;
+        vg:field "severity" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:affectsComponent ;
+        vg:field "package" ] ;
+    vg:approved true .
+
+ex:dependabotVulnerabilityMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:githubDependabotAccess ;
+    vg:mapsOntologyClass kg:Vulnerability ;
+    vg:mapsEntity "DependabotAlert" ;
+    vg:keyField "number" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "number" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:severity ;
+        vg:field "severity" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:affectsComponent ;
+        vg:field "package" ] ;
+    vg:approved true .

@@ -1830,3 +1830,108 @@ fn dockerhub_image_sbom_and_cves_map_components_and_vulnerabilities() {
         );
     }
 }
+
+const VM_GITLAB_GITHUB: &str = "http://knuckles.team/test/vm-gitlab-github#";
+
+// spec: EG-SUPPLY-VOCAB-R006.6
+#[test]
+fn gitlab_dependencies_and_github_dependabot_map_rank_two() {
+    let fixture = include_str!("fixtures/vm_gitlab_github.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the gitlab/github mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // The gitlab dependency list projects onto kg:ComponentVersion.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_GITLAB_GITHUB}gitlabComponentVersionMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}ComponentVersion")
+        ),
+        "the gitlab dependency maps to kg:ComponentVersion"
+    );
+    let mut pairs = pair_fields(
+        &triples,
+        &format!("<{VM_GITLAB_GITHUB}gitlabComponentVersionMapping>"),
+    );
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![("versionString".to_string(), "version".to_string())],
+        "the gitlab dependency row projects its version string"
+    );
+    // The gitlab advisory and the github Dependabot alert each project onto
+    // kg:Vulnerability, affecting their package.
+    for (mapping, label_field) in [
+        ("gitlabVulnerabilityMapping", "id"),
+        ("dependabotVulnerabilityMapping", "number"),
+    ] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{VM_GITLAB_GITHUB}{mapping}"),
+                &format!("{VG}mapsOntologyClass"),
+                &format!("{KG}Vulnerability")
+            ),
+            "{mapping} maps to kg:Vulnerability"
+        );
+        let mut pairs = pair_fields(&triples, &format!("<{VM_GITLAB_GITHUB}{mapping}>"));
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![
+                ("affectsComponent".to_string(), "package".to_string()),
+                ("label".to_string(), label_field.to_string()),
+                ("severity".to_string(), "severity".to_string()),
+            ],
+            "{mapping} projects severity, label and its affected package"
+        );
+    }
+    // Both sources are rank 2 (dockerhub is rank 1).
+    for authority in [
+        "gitlabComponentAuthority",
+        "gitlabVulnerabilityAuthority",
+        "githubVulnerabilityAuthority",
+    ] {
+        let node = format!("<{VM_GITLAB_GITHUB}{authority}>");
+        assert!(
+            triples
+                .iter()
+                .any(|triple| subject_key(triple) == node
+                    && triple.predicate.as_str().ends_with("authorityRank")
+                    && literal_value(&triple.object) == "2"),
+            "{authority} is rank 2"
+        );
+    }
+    // The confirmed operations.
+    for (contract, operation) in [
+        ("gitlabDependenciesAccess", "dependencies"),
+        ("gitlabVulnerabilitiesAccess", "vulnerabilities"),
+    ] {
+        let node = format!("<{VM_GITLAB_GITHUB}{contract}>");
+        assert!(
+            triples.iter().any(|triple| {
+                subject_key(triple) == node
+                    && triple.predicate.as_str().ends_with("discoveredOperation")
+                    && literal_value(&triple.object) == operation
+            }),
+            "the {contract} contract declares {operation}"
+        );
+    }
+    let github_contract = format!("<{VM_GITLAB_GITHUB}githubDependabotAccess>");
+    for operation in ["list", "get"] {
+        assert!(
+            triples.iter().any(|triple| {
+                subject_key(triple) == github_contract
+                    && triple.predicate.as_str().ends_with("discoveredOperation")
+                    && literal_value(&triple.object) == operation
+            }),
+            "the github_dependabot contract declares {operation}"
+        );
+    }
+}
