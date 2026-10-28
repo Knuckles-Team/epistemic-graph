@@ -345,6 +345,10 @@ pub struct ServerState {
     /// Always present (empty) with the feature on.
     #[cfg(feature = "federation")]
     pub foreign_sources: Arc<crate::server::foreign_catalog::ForeignSourceCatalog>,
+    /// Bounded host-driven foreign-read page buffers.  Durable approval remains
+    /// in the Agent Library; this map is only request-scoped execution state.
+    #[cfg(feature = "federation")]
+    pub(crate) foreign_reads: Arc<crate::server::foreign_read::ForeignReadSessions>,
     /// Generic namespaced Key→Value store (CONCEPT:EG-KG.storage.namespaced-kv-surface, feature `kv`). `Some` on a
     /// `kv` build: a durable `{persist_dir}/kv.redb` when a persist dir is set, else an
     /// in-memory scratch map. The `Kv*` handlers get/put/delete/scan/cas through it; it
@@ -516,6 +520,8 @@ impl ServerState {
             matviews: Arc::default(),
             #[cfg(feature = "federation")]
             foreign_sources: Arc::default(),
+            #[cfg(feature = "federation")]
+            foreign_reads: Arc::default(),
             #[cfg(feature = "kv")]
             kv: None,
             #[cfg(feature = "lake")]

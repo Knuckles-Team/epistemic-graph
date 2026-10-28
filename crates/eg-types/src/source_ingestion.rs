@@ -567,7 +567,7 @@ fn validate_record(
 }
 
 fn validate_relationships(batch: &SourceIngestionBatch) -> Result<(), String> {
-    let mut endpoint_pairs = BTreeSet::new();
+    let mut identities = BTreeSet::new();
     for relationship in &batch.relationships {
         validate_mapping_reference(&relationship.relation_reference)?;
         validate_entity_ref(&relationship.source, &batch.provider_checkpoint.stream)?;
@@ -599,8 +599,12 @@ fn validate_relationships(batch: &SourceIngestionBatch) -> Result<(), String> {
         {
             return Err("source relationship properties must be a JSON object".into());
         }
-        if !endpoint_pairs.insert((&relationship.source, &relationship.target)) {
-            return Err("source ingestion batch contains duplicate relationship endpoints".into());
+        if !identities.insert((
+            &relationship.source,
+            &relationship.target,
+            relationship.relation_reference.as_str(),
+        )) {
+            return Err("source ingestion batch contains duplicate relationship identity".into());
         }
     }
     Ok(())

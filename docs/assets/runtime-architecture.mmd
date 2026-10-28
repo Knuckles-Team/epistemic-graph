@@ -1,16 +1,16 @@
 flowchart LR
   People["People"]
-  WebUI["Arbora web UI<br/>browser experience"]
-  TUI["Agent Terminal UI<br/>REST capabilities"]
-  Genius["Geniusbot<br/>desktop cockpit"]
+  WebUI["Overstory web UI<br/>browser experience"]
+  TUI["Tuig<br/>REST capabilities"]
+  Genius["Axil<br/>desktop cockpit"]
   Messaging["Messaging channels<br/>chat and voice"]
   Clients["MCP / REST / A2A clients"]
   Arbora["Arbora<br/>governed runtime gateway and composition host"]
-  AU["Agent Utilities<br/>agent control plane"]
-  EG["Epistemic Graph<br/>durable multimodal knowledge and reasoning engine"]
-  Server["Epistemic Graph Server<br/>native server executable, subcommands, container image"]
+  AU["Meristem<br/>agent control plane"]
+  EG["Medulla<br/>durable multimodal knowledge and reasoning engine"]
+  Server["Medulla Stem (embedded)<br/>embedded native server runtime, included in Medulla image"]
   Sources["Source systems"]
-  SDK["Agent Connector SDK<br/>typed source integration"]
+  SDK["Scion SDK<br/>typed source integration"]
 
   People --> WebUI
   People --> TUI
@@ -23,6 +23,6 @@ flowchart LR
   Messaging -->|hosted co-service| Arbora
   Arbora --> AU
   AU --> EG
-  EG -->|"epistemic-graph[server] installs"| Server
+  EG -->|"Stem is embedded in Medulla"| Server
   Sources --> SDK
   SDK --> EG

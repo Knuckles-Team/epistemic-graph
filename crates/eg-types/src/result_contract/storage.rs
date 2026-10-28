@@ -14,8 +14,8 @@ use crate::agent_template::AgentTemplateCommittedResult;
 use crate::agent_template::AgentTemplateEntry;
 use crate::connector_pack::ConnectorPackStatus as ConnectorPackStatusBody;
 use crate::connector_pack::{
-    ConnectorPackBindingResult, McpCatalogSnapshotBinding, PackBodyReconcileReport,
-    PackImportReceipt, PackImportResult, PackRetireResult,
+    ConnectorPackBindingResult, ConnectorPackSourceApprovalResult, McpCatalogSnapshotBinding,
+    PackBodyReconcileReport, PackImportReceipt, PackImportResult, PackRetireResult,
 };
 use crate::decision::coverage::CapabilityCoverageResult;
 use crate::decision::guardrail::GuardrailEntailmentResult;
@@ -103,6 +103,7 @@ method_results! {
     DecisionCommit(DecisionCommit) => Raw<DecisionCommitResult>;
     ConnectorPackStatus(ConnectorPack / "status") => Raw<ConnectorPackStatusBody>;
     ConnectorPackImport(ConnectorPack / "import") => Raw<PackImportResult>;
+    ConnectorPackApproveSource(ConnectorPack / "approve_source") => Raw<ConnectorPackSourceApprovalResult>;
     ConnectorPackBind(ConnectorPack / "bind") => Raw<ConnectorPackBindingResult>;
     ConnectorPackUnbind(ConnectorPack / "unbind") => Raw<ConnectorPackBindingResult>;
     ConnectorPackRetire(ConnectorPack / "retire") => Raw<PackRetireResult>;

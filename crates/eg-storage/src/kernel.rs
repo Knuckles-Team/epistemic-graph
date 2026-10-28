@@ -24,6 +24,7 @@ use crate::physical::root::{
 use crate::physical::write_authority::{TxnAuthority, WriteValidationCounts};
 use crate::recovery::validate::{validate_recovery_content, validate_recovery_identity};
 use crate::tables::SCOPE_BINDINGS;
+use eg_types::durability_class::{DurabilityClass, DurabilityWritePlan};
 use eg_types::MutationScopeIdentity;
 use redb::{Database, ReadableDatabase};
 use std::collections::BTreeSet;
@@ -465,7 +466,24 @@ impl MutationOwnerAuthority {
         &self,
         owner: &OwnedStoreHandle<D>,
     ) -> Result<PhysicalWriteCapability<'_, D>, String> {
-        PhysicalWriteCapability::open(&self.store, owner)
+        self.write_capability_with_durability(owner, DurabilityClass::Sync)
+            .map(|(capability, _plan)| capability)
+    }
+
+    /// Admit one owner-scoped durable write under its declared durability
+    /// class. Ephemeral classes are refused before opening the physical write
+    /// transaction; the returned plan is the class's commit/flush contract.
+    pub fn write_capability_with_durability<D: OwnerDomain>(
+        &self,
+        owner: &OwnedStoreHandle<D>,
+        class: DurabilityClass,
+    ) -> Result<(PhysicalWriteCapability<'_, D>, DurabilityWritePlan), String> {
+        let plan = class.write_plan();
+        class
+            .refuse_if_durable_log_write()
+            .map_err(|error| error.to_string())?;
+        let capability = PhysicalWriteCapability::open(&self.store, owner)?;
+        Ok((capability, plan))
     }
 
     /// Mint one write capability per member of an admitted **scope group**,

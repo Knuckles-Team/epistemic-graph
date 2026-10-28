@@ -16,6 +16,10 @@
 
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::OwnerScopedCall;
+use eg_types::foreign_read::{
+    ForeignReadAbortRequest, ForeignReadChunkRequest, ForeignReadCompleteRequest,
+    ForeignReadOpenRequest, FOREIGN_READ_SCHEMA_VERSION,
+};
 
 /// Try to handle a federation method. `Ok(resp)` = handled; `Err(method)` = not mine.
 pub(crate) async fn try_handle(
@@ -57,7 +61,203 @@ pub(crate) async fn try_handle(
             columns,
             predicates,
         } => Ok(query_columns(call, name, columns, predicates).await),
+        Method::ForeignReadOpen { request } => Ok(open_foreign_read(call, request).await),
+        Method::ForeignReadChunk { request } => Ok(chunk_foreign_read(call, request).await),
+        Method::ForeignReadComplete { request } => Ok(complete_foreign_read(call, request).await),
+        Method::ForeignReadAbort { request } => Ok(abort_foreign_read(call, request).await),
         other => Err(other),
+    }
+}
+
+async fn open_foreign_read(call: OwnerScopedCall<'_>, request: ForeignReadOpenRequest) -> Response {
+    let req_id = call.req_id;
+    let owner = match call.owner("ForeignReadOpen") {
+        Ok(owner) => owner,
+        Err(refusal) => return refusal,
+    };
+    if !owner.can_read() {
+        crate::metrics::access_denied();
+        return Response::err(req_id, "ACCESS_DENIED: ForeignReadOpen requires kg:read");
+    }
+    if request.schema_version != FOREIGN_READ_SCHEMA_VERSION {
+        return Response::err(
+            req_id,
+            "FOREIGN_READ_SCHEMA_MISMATCH: unsupported schema version",
+        );
+    }
+    if let Err(error) = request.limits.validate() {
+        return Response::err(req_id, error);
+    }
+    let store = {
+        let state = call.state.read().await;
+        state.agent_library.clone()
+    };
+    let Some(store) = store else {
+        return Response::err(
+            req_id,
+            "SOURCE_APPROVAL_STORE_UNAVAILABLE: foreign read requires the Agent Library",
+        );
+    };
+    let ForeignReadOpenRequest {
+        source_name,
+        approval,
+        plan_digest,
+        query_digest,
+        limits,
+        ..
+    } = request;
+    let (execution, expires_at_ms, source_identity) = {
+        let state = call.state.read().await;
+        match state.foreign_reads.open(
+            &owner,
+            source_name.clone(),
+            approval.clone(),
+            plan_digest,
+            query_digest,
+            limits,
+        ) {
+            Ok(opened) => opened,
+            Err(error) => return Response::err(req_id, error),
+        }
+    };
+    let binding = {
+        let state = call.state.read().await;
+        let page_source = match state.foreign_reads.page_source(execution.execution_id) {
+            Ok(source) => source,
+            Err(error) => {
+                state.foreign_reads.remove(execution.execution_id);
+                return Response::err(req_id, error);
+            }
+        };
+        state.foreign_sources.bind_registered_for(
+            &owner,
+            &store,
+            &state.isolation,
+            &approval,
+            &source_name,
+            page_source,
+        )
+    };
+    if let Err(error) = binding {
+        let state = call.state.read().await;
+        state.foreign_reads.remove(execution.execution_id);
+        return Response::err(req_id, error);
+    }
+    let result = eg_types::foreign_read::ForeignReadOpenResult {
+        schema_version: FOREIGN_READ_SCHEMA_VERSION,
+        execution,
+        expires_at_ms,
+        next_sequence: 0,
+        source_identity,
+    };
+    Response::ok(
+        req_id,
+        ResultPayload::of::<eg_types::result_contract::query::ForeignReadOpen>(result),
+    )
+}
+
+async fn chunk_foreign_read(
+    call: OwnerScopedCall<'_>,
+    request: ForeignReadChunkRequest,
+) -> Response {
+    let req_id = call.req_id;
+    let owner = match call.owner("ForeignReadChunk") {
+        Ok(owner) => owner,
+        Err(refusal) => return refusal,
+    };
+    if !owner.can_read() {
+        crate::metrics::access_denied();
+        return Response::err(req_id, "ACCESS_DENIED: ForeignReadChunk requires kg:read");
+    }
+    let result = {
+        let state = call.state.read().await;
+        let Some(store) = state.agent_library.as_deref() else {
+            return Response::err(
+                req_id,
+                "SOURCE_APPROVAL_STORE_UNAVAILABLE: foreign read requires the Agent Library",
+            );
+        };
+        state
+            .foreign_reads
+            .append(&owner, store, &state.foreign_sources, request)
+    };
+    match result {
+        Ok(result) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::query::ForeignReadChunk>(result),
+        ),
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+async fn complete_foreign_read(
+    call: OwnerScopedCall<'_>,
+    request: ForeignReadCompleteRequest,
+) -> Response {
+    let req_id = call.req_id;
+    let owner = match call.owner("ForeignReadComplete") {
+        Ok(owner) => owner,
+        Err(refusal) => return refusal,
+    };
+    if !owner.can_read() {
+        crate::metrics::access_denied();
+        return Response::err(
+            req_id,
+            "ACCESS_DENIED: ForeignReadComplete requires kg:read",
+        );
+    }
+    let result = {
+        let state = call.state.read().await;
+        let Some(store) = state.agent_library.as_deref() else {
+            return Response::err(
+                req_id,
+                "SOURCE_APPROVAL_STORE_UNAVAILABLE: foreign read requires the Agent Library",
+            );
+        };
+        state
+            .foreign_reads
+            .complete(&owner, store, &state.foreign_sources, request)
+    };
+    match result {
+        Ok(result) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::query::ForeignReadComplete>(result),
+        ),
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+async fn abort_foreign_read(
+    call: OwnerScopedCall<'_>,
+    request: ForeignReadAbortRequest,
+) -> Response {
+    let req_id = call.req_id;
+    let owner = match call.owner("ForeignReadAbort") {
+        Ok(owner) => owner,
+        Err(refusal) => return refusal,
+    };
+    if !owner.can_read() {
+        crate::metrics::access_denied();
+        return Response::err(req_id, "ACCESS_DENIED: ForeignReadAbort requires kg:read");
+    }
+    let result = {
+        let state = call.state.read().await;
+        let Some(store) = state.agent_library.as_deref() else {
+            return Response::err(
+                req_id,
+                "SOURCE_APPROVAL_STORE_UNAVAILABLE: foreign read requires the Agent Library",
+            );
+        };
+        state
+            .foreign_reads
+            .abort(&owner, store, &state.foreign_sources, request)
+    };
+    match result {
+        Ok(result) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::query::ForeignReadAbort>(result),
+        ),
+        Err(error) => Response::err(req_id, error),
     }
 }
 

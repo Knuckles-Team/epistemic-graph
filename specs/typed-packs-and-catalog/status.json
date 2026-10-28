@@ -670,7 +670,7 @@
         "bcbbe51307d8"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/ops.rs:249"
+        "crates/eg-types/src/connector_pack/ops.rs:287"
       ]
     },
     {
@@ -694,7 +694,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "src/server/mutation.rs:2396"
+        "src/server/mutation.rs:2398"
       ]
     },
     {
@@ -764,7 +764,7 @@
         "71533e899d52"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/ops.rs:275",
+        "crates/eg-types/src/connector_pack/ops.rs:313",
         "src/server/handlers/admin/connector_pack/tests/admin.rs:241"
       ]
     },
@@ -2336,9 +2336,14 @@
     {
       "id": "EG-TYPED-PACKS-R101.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5518276883bf",
+        "f01ca93a7a6c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_pack_vocabulary.rs:22"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R101.2",
@@ -2517,9 +2522,13 @@
     {
       "id": "EG-TYPED-PACKS-R103.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c4ea2dc5bdfa"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/graph_schema.rs:502"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R103.2",
@@ -3368,7 +3377,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/sensitive_detect.rs:3"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R803.2",
@@ -3936,10 +3947,14 @@
     {
       "id": "EG-TYPED-PACKS-R085.4.3",
       "title": "Renewal contract and served qualification",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "63841f955e6f",
+        "746d29e2e17f"
+      ],
       "verified_by": [
-        "src/server/dispatch/identity_store/resolution_context/tests.rs:681"
+        "src/server/dispatch/identity_store/resolution_context/tests.rs:681",
+        "src/server/dispatch/identity_store/resolution_context/tests.rs:781"
       ]
     },
     {

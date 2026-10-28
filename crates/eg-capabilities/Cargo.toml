@@ -96,6 +96,9 @@ version = "1.0.107"
 optional = true
 default-features = false
 
+[dev-dependencies]
+tempfile = "3"
+
 # The generator can never run under a partial feature profile: the registry it
 # serializes must be the complete supported wire inventory.
 [[bin]]
@@ -143,6 +146,11 @@ canonical-ledger = [
     "quantum",
     "asr-native",
     "viz",
+    # The four host-driven foreign-read methods and RegisterForeignSource are
+    # part of the canonical published Python contract. Keep the wire feature
+    # in the same profile as their domain-owned descriptors so the registry
+    # bijection cannot silently omit the federation family.
+    "eg-types/federation",
     # `timeseries`, `probabilistic` and `program-optimization` gate wire `Op`/DTO
     # items on eg-types' side and NO `Method` variant, so `policy()`'s exhaustive
     # Method match neither needs nor references them -- which is why they are (and

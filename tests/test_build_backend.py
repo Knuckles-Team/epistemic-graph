@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import zipfile
+from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -169,6 +170,45 @@ def test_build_backend_folds_numeric_into_engine_base(
         assert archive.read(f"epistemic_graph/engine.{suffix}") == b"engine"
         assert build_backend._record_valid(archive)
         assert not [n for n in archive.namelist() if ".data/scripts/" in n]
+
+
+def test_regular_composition_applies_privacy_normalizers_at_backend_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, Path, Mapping[str, str]]] = []
+
+    def build(wheel_directory: str, _settings: object, _metadata: object) -> str:
+        destination = Path(wheel_directory)
+        destination.mkdir(parents=True, exist_ok=True)
+        filename = "medulla-0-py3-none-any.whl"
+        _wheel(
+            destination / filename, "medulla-0.dist-info/METADATA", b"Name: medulla\n"
+        )
+        return filename
+
+    def component(directory: Path, _manifest: Path, _features: str) -> Path:
+        wheel = directory / "numeric.whl"
+        _wheel(wheel, "numeric/numeric.abi3.so", b"numeric")
+        return wheel
+
+    def record(name: str):
+        def normalizer(
+            wheel: Path, *, environ: Mapping[str, str], checkout: Path
+        ) -> None:
+            calls.append((name, wheel, environ))
+            assert checkout == build_backend.ROOT
+            assert environ["RUSTFLAGS"] == ""
+            assert environ["CARGO_ENCODED_RUSTFLAGS"]
+
+        return normalizer
+
+    monkeypatch.setattr(build_backend, "_build_component", component)
+    monkeypatch.setattr(build_backend, "normalize_wheel", record("sbom"))
+    monkeypatch.setattr(build_backend, "normalize_wheel_build_paths", record("paths"))
+
+    build_backend._compose(build, str(tmp_path / "output"), None, None)
+
+    assert [name for name, _wheel, _environ in calls] == ["sbom", "paths"]
 
 
 def test_regular_and_editable_builds_serialize_complete_maturin_staging(

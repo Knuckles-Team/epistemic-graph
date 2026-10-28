@@ -725,3 +725,27 @@ BFO:GenericallyDependentContinuant — an information entity.""" ;
     rdfs:comment "A logical network that connects containers, services or hosts and carries their traffic (a container network, an overlay network, a bridge network). A NetworkSubnet is an address range inside one." ;
     skos:altLabel "Container Network", "Overlay Network", "Bridge Network", "Virtual Network" ;
     rdfs:subClassOf bfo:0000004 .
+
+:lastPushedAt a owl:DatatypeProperty ;
+    rdfs:label "last pushed at" ;
+    rdfs:comment "The most recent time a :ContainerImage was pushed to its registry (Docker Hub / Harbor / GHCR)." ;
+    rdfs:domain :ContainerImage ;
+    rdfs:range xsd:dateTime .
+
+:pullCount a owl:DatatypeProperty ;
+    rdfs:label "pull count" ;
+    rdfs:comment "The registry's reported pull count for a :ContainerImage (a non-negative counter — see infrastructure-v1.shapes.ttl)." ;
+    rdfs:domain :ContainerImage ;
+    rdfs:range xsd:integer .
+
+:entityState a owl:DatatypeProperty ;
+    rdfs:label "entity state" ;
+    rdfs:comment "The current state string of a Home-Assistant :Entity (its reported value, or 'unavailable')." ;
+    rdfs:domain :Entity ;
+    rdfs:range xsd:string .
+
+:unavailableSince a owl:DatatypeProperty ;
+    rdfs:label "unavailable since" ;
+    rdfs:comment "When a Home-Assistant :Entity last went unavailable (the start of its current unavailable window)." ;
+    rdfs:domain :Entity ;
+    rdfs:range xsd:dateTime .

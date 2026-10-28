@@ -446,12 +446,39 @@ pub struct ExplainNodeWire {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ExplainPlanResult {
+    /// SHA-256 of the exact named-MessagePack `Plan` supplied to `ExplainPlan`.
+    /// Foreign-read clients use this server-produced value when opening the
+    /// correlated execution; they must not reconstruct a planner locally.
+    ///
+    /// This is optional for additive wire compatibility with historical
+    /// ExplainPlan responses. A foreign-read client must fail closed when it is
+    /// absent rather than substituting a zero or locally guessed digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_digest: Option<crate::contract::Digest256>,
     /// The plan as a `PlanDag` BEFORE the DAG-aware cost optimizer.
     pub before: Vec<ExplainNodeWire>,
     /// The plan as a `PlanDag` AFTER `eg_plan::optimizer::optimize_dag`.
     pub after: Vec<ExplainNodeWire>,
     /// The active optimizer rule set, in application order (`eg_plan::cost_opt_rule_names()`).
     pub applied_rules: Vec<String>,
+}
+
+#[cfg(all(test, feature = "query"))]
+mod explain_plan_result_tests {
+    use super::ExplainPlanResult;
+
+    #[test]
+    fn historical_response_without_plan_digest_still_decodes() {
+        let historical = rmp_serde::to_vec_named(&serde_json::json!({
+            "before": [],
+            "after": [],
+            "applied_rules": [],
+        }))
+        .expect("encode historical ExplainPlan response");
+        let decoded: ExplainPlanResult =
+            rmp_serde::from_slice(&historical).expect("decode historical ExplainPlan response");
+        assert!(decoded.plan_digest.is_none());
+    }
 }
 
 /// DAG-safe wire mirror of `eg_modality::ResourceId` for an evidence subject.

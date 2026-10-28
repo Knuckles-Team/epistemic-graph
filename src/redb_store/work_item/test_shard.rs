@@ -4,6 +4,8 @@
 
 use super::*;
 
+pub(crate) mod run_fixture;
+
 pub(super) const GRAPH: &str = "graph-a";
 
 pub(super) struct TempShard {
@@ -118,4 +120,27 @@ pub(super) fn run_request() -> eg_types::native_control::SubmitWorkItemRequest {
         "max_tenant_in_flight":0
     }))
     .unwrap()
+}
+
+/// Submit fixture rows within the caller's existing admitted transaction.
+pub(super) fn submit_run_rows(
+    admitted: &ShardWrite<'_>,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+    owner: &str,
+) -> Result<eg_types::native_control::SubmitWorkItemResult, String> {
+    let member = admitted.graph(GRAPH)?;
+    let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
+    super::apply_submit_work_item_rows(
+        GRAPH,
+        request,
+        &mut rows.nodes,
+        &mut rows.edges,
+        &mut rows.command_sequences,
+        WorkItemCommitScope {
+            crypto: DurableCrypto::none(),
+            authoritative_now_ms: 1000,
+            admitted_actor: Some(owner),
+            outbox_id: "outbox",
+        },
+    )
 }

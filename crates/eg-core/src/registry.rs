@@ -1449,12 +1449,84 @@ fn secondary_indexes_valid(core: &Arc<GraphCore>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Debug)]
+    struct RecordingReadThrough {
+        graph_name: String,
+    }
+
+    impl crate::read_through::ReadThrough for RecordingReadThrough {
+        fn read_node_blob(&self, _node_id: &str) -> Option<Vec<u8>> {
+            Some(self.graph_name.as_bytes().to_vec())
+        }
+    }
+
+    struct RecordingReadThroughFactory {
+        attached: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl crate::read_through::ReadThroughFactory for RecordingReadThroughFactory {
+        fn for_graph(&self, graph_name: &str) -> Arc<dyn crate::read_through::ReadThrough> {
+            self.attached.lock().unwrap().push(graph_name.to_string());
+            Arc::new(RecordingReadThrough {
+                graph_name: graph_name.to_string(),
+            })
+        }
+    }
 
     #[test]
     fn test_bus_exists_on_creation() {
         let reg = GraphRegistry::new();
         assert!(reg.exists("__commons__"));
         assert_eq!(reg.list().len(), 1);
+    }
+
+    #[test]
+    fn read_through_factory_attaches_existing_and_future_graphs() {
+        let mut reg = GraphRegistry::new();
+        reg.create_graph("recovered:graph", GraphType::Agent, None)
+            .unwrap();
+        let attached = Arc::new(Mutex::new(Vec::new()));
+
+        reg.set_read_through_factory(Arc::new(RecordingReadThroughFactory {
+            attached: attached.clone(),
+        }));
+
+        reg.create_graph("future:graph", GraphType::Agent, None)
+            .unwrap();
+
+        let mut attached_names = attached.lock().unwrap().clone();
+        attached_names.sort();
+        assert_eq!(
+            attached_names,
+            vec![
+                "__commons__".to_string(),
+                "future:graph".to_string(),
+                "recovered:graph".to_string(),
+            ]
+        );
+        assert_eq!(
+            reg.get("__commons__")
+                .unwrap()
+                .core
+                .get_node_properties("evicted"),
+            Some(b"__commons__".to_vec())
+        );
+        assert_eq!(
+            reg.get("recovered:graph")
+                .unwrap()
+                .core
+                .get_node_properties("evicted"),
+            Some(b"recovered:graph".to_vec())
+        );
+        assert_eq!(
+            reg.get("future:graph")
+                .unwrap()
+                .core
+                .get_node_properties("evicted"),
+            Some(b"future:graph".to_vec())
+        );
     }
 
     #[test]

@@ -19,10 +19,12 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod rendered;
 pub mod request;
 pub mod row;
 pub mod vocabulary;
 
+pub use rendered::RenderedSkillPackage;
 pub use request::{
     DiscoveryCounts, FleetCatalogCursor, FleetCatalogListRequest, FleetCatalogLookupRequest,
     FleetDiscoveryRecordRequest, FleetOverrideClearRequest, FleetOverrideSetRequest,

@@ -20,6 +20,10 @@
 //! no modality VALUE type of their own — `ModalityContract` may simply not apply, which
 //! is a legitimate outcome, not a gap", this crate is a documented SKIP.
 
+pub mod plan_scope;
+
+pub use plan_scope::{PlanScope, PlanScopeError, ScopePredicate};
+
 #[cfg(feature = "sql")]
 pub mod sql;
 
@@ -43,13 +47,14 @@ pub use sql::{
     infer_param_sites, parse_create_ann_index, plan_ann_search, plan_bm25_search,
     require_single_read, returning_columns, schema_probe_sql, user_ann_decision, AlterTableAction,
     AlterTablePlan, AnnDeclineReason, AnnIndexPlan, AnnMethod, AnnQueryShape, AnnSearchPlan,
-    Bm25SearchPlan, CancellationToken, ColumnDef, ContinuousAggPlan, CopyFormat, CopyPlan,
-    CreateFunctionPlan, CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin, DeleteTable,
-    DropFunctionPlan, DropTablePlan, DropViewPlan, GraphTableQuery, HypertablePlan, InsertNode,
-    InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict, OnConflictAction,
-    ParamLiteralType, ParamSite, PgColType, QueryResult, SqlCache, SqlContextCache, StatementKind,
-    StreamOutcome, TableWhereEq, TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin,
-    UpdateTable, UserAnnDecision, UserAnnPushdown, VectorMetric, WhereEq, READ_ONLY_RELATION_NAMES,
+    Bm25SearchPlan, CancellationToken, ColumnDef, ColumnVectorBinding, ContinuousAggPlan,
+    CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan, DeleteNodes,
+    DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, GraphTableQuery,
+    HypertablePlan, InsertNode, InsertNodes, InsertNodesSelect, InsertSelect, InsertTable,
+    OnConflict, OnConflictAction, ParamLiteralType, ParamSite, PgColType, QueryResult, SqlCache,
+    SqlContextCache, StatementKind, StreamOutcome, TableWhereEq, TypedColumn, TypedQueryResult,
+    UpdateNodes, UpdateNodesJoin, UpdateTable, UserAnnDecision, UserAnnPushdown, VectorMetric,
+    WhereEq, READ_ONLY_RELATION_NAMES,
 };
 
 #[cfg(feature = "sql")]

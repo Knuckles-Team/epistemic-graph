@@ -6310,6 +6310,82 @@
         }
       ]
     },
+    "CheckpointClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "worker_id",
+        "lease_epoch",
+        "fencing_token"
+      ],
+      "type": "object"
+    },
+    "CheckpointContent": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "long_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "short_term": {
+          "items": {
+            "$ref": "#/$defs/CheckpointMemoryRef"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "content",
+        "payload_digest",
+        "short_term",
+        "long_term"
+      ],
+      "type": "object"
+    },
+    "CheckpointMemoryRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "revision",
+        "digest"
+      ],
+      "type": "object"
+    },
     "ClaimAuthor": {
       "description": "Who made a claim. Either way it is a claim, never a fact.",
       "enum": [
@@ -7063,6 +7139,24 @@
         },
         {
           "additionalProperties": false,
+          "description": "Approve a held source declaration after Arbora's admitted read-only\npolicy has selected it. Uses the ordinary pack-control authority.",
+          "properties": {
+            "op": {
+              "const": "approve_source",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/ConnectorPackSourceApprovalRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "properties": {
             "op": {
               "const": "bind",
@@ -7303,6 +7397,85 @@
         "context",
         "connector",
         "uris"
+      ],
+      "type": "object"
+    },
+    "ConnectorPackSourceApprovalRequest": {
+      "additionalProperties": false,
+      "description": "Approve one held source declaration from the current connector-pack head.\n\nThe request carries only the selector and compare-and-set proof. The source\ndeclaration itself is resolved from the current member row; a caller cannot\nsmuggle a second mapping or approval bit across this boundary.",
+      "properties": {
+        "connector": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/$defs/AgentLibraryMutationContext"
+        },
+        "contract_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "contract_iri": {
+          "type": "string"
+        },
+        "expected_head": {
+          "$ref": "#/$defs/PackHeadRef"
+        },
+        "resource_uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "context",
+        "connector",
+        "contract_iri",
+        "resource_uri",
+        "expected_head",
+        "contract_digest"
+      ],
+      "type": "object"
+    },
+    "ConnectorPackSourceApprovalResult": {
+      "additionalProperties": false,
+      "description": "What approving one held source declaration committed.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "contract_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "head": {
+          "$ref": "#/$defs/PackHeadRef"
+        },
+        "registration": {
+          "$ref": "#/$defs/PackSourceRegistration"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_id",
+        "connector",
+        "head",
+        "registration",
+        "contract_digest",
+        "batch_id",
+        "committed_version"
       ],
       "type": "object"
     },
@@ -12731,6 +12904,17 @@
             "$ref": "#/$defs/ExplainNodeWire"
           },
           "type": "array"
+        },
+        "plan_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "SHA-256 of the exact named-MessagePack `Plan` supplied to `ExplainPlan`.\nForeign-read clients use this server-produced value when opening the\ncorrelated execution; they must not reconstruct a planner locally.\n\nThis is optional for additive wire compatibility with historical\nExplainPlan responses. A foreign-read client must fail closed when it is\nabsent rather than substituting a zero or locally guessed digest."
         }
       },
       "required": [
@@ -14553,6 +14737,356 @@
       },
       "type": "object"
     },
+    "ForeignReadAbortRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "execution": {
+          "$ref": "#/$defs/ForeignReadExecutionRef"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "execution",
+        "sequence",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ForeignReadAbortResult": {
+      "properties": {
+        "execution": {
+          "$ref": "#/$defs/ForeignReadExecutionRef"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "execution",
+        "sequence",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ForeignReadChunkRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "execution": {
+          "$ref": "#/$defs/ForeignReadExecutionRef"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/ForeignReadRow"
+          },
+          "type": "array"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/ForeignReadSourceIdentity"
+        }
+      },
+      "required": [
+        "execution",
+        "sequence",
+        "source_identity",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "ForeignReadChunkResult": {
+      "properties": {
+        "accepted_rows": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "execution": {
+          "$ref": "#/$defs/ForeignReadExecutionRef"
+        },
+        "next_sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_rows": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "execution",
+        "sequence",
+        "accepted_rows",
+        "total_rows",
+        "total_bytes",
+        "next_sequence"
+      ],
+      "type": "object"
+    },
+    "ForeignReadCompleteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "execution": {
+          "$ref": "#/$defs/ForeignReadExecutionRef"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "execution",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    "ForeignReadCompleteResult": {
+      "properties": {
+        "execution": {
+          "$ref": "#/$defs/ForeignReadExecutionRef"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_rows": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "execution",
+        "sequence",
+        "total_rows",
+        "total_bytes"
+      ],
+      "type": "object"
+    },
+    "ForeignReadExecutionRef": {
+      "additionalProperties": false,
+      "description": "Server-issued opaque execution handle plus the query digest it is allowed to\nanswer.  The digest is recomputed from the correlated query by the server.",
+      "properties": {
+        "execution_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "query_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "execution_id",
+        "query_digest"
+      ],
+      "type": "object"
+    },
+    "ForeignReadLimits": {
+      "additionalProperties": false,
+      "description": "The finite limits accepted for one host-driven foreign read.",
+      "properties": {
+        "chunk_bytes": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "chunk_rows": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deadline_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_rows": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_rows",
+        "max_bytes",
+        "chunk_rows",
+        "chunk_bytes",
+        "deadline_ms"
+      ],
+      "type": "object"
+    },
+    "ForeignReadOpenRequest": {
+      "additionalProperties": false,
+      "description": "Open one approved source execution.  `approval` is only a candidate receipt;\nthe server re-reads its durable current head/member before accepting it.",
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/ConnectorPackSourceApprovalResult"
+        },
+        "limits": {
+          "$ref": "#/$defs/ForeignReadLimits"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "query_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "source_name",
+        "approval",
+        "plan_digest",
+        "query_digest",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "ForeignReadOpenResult": {
+      "properties": {
+        "execution": {
+          "$ref": "#/$defs/ForeignReadExecutionRef"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/ForeignReadSourceIdentity"
+        }
+      },
+      "required": [
+        "schema_version",
+        "execution",
+        "expires_at_ms",
+        "next_sequence",
+        "source_identity"
+      ],
+      "type": "object"
+    },
+    "ForeignReadRow": {
+      "additionalProperties": false,
+      "description": "A bounded row supplied by the already-authorized host adapter.",
+      "properties": {
+        "columns": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Mapping-approved connector cells in the existing `ForeignRows` value\ncurrency. The SDK receiver owns response-to-mapping validation; EG\nbounds and preserves the cells for the existing residual/projection\npath instead of introducing another property representation.",
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "provenance": {
+          "default": [],
+          "description": "Source references are retained for the lifecycle boundary and are exposed\nthrough the existing column-capable projection when that path is used.\nThe ordinary RowSet executor still consumes `(id, score)`; this DTO does\nnot claim the complete R722.5 served-answer proof by itself.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "score": {
+          "default": null,
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "ForeignReadSourceIdentity": {
+      "additionalProperties": false,
+      "description": "The source identity pinned by the admitted pack head for one execution.\n\n`source_ref` is the current registration's resource URI.  The remaining\nfields are derived from the authoritative approval receipt: the pack head\nrevision is the source revision, the approved contract digest is the schema\ndigest, and the pack digest is the snapshot reference.  A host may echo this\nvalue on each chunk, but it cannot choose or alter it.",
+      "properties": {
+        "schema_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "snapshot_ref": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "source_ref": {
+          "type": "string"
+        },
+        "source_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_ref",
+        "source_revision",
+        "schema_digest",
+        "snapshot_ref"
+      ],
+      "type": "object"
+    },
     "ForeignSourceSpec": {
       "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops — so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`.\nSource kinds share one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
       "oneOf": [
@@ -15465,6 +15999,41 @@
       ],
       "type": "object"
     },
+    "GetRunCheckpointRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "current_claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckpointClaim"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "work_item_id",
+        "run_id",
+        "context_id"
+      ],
+      "type": "object"
+    },
     "GovernedActor": {
       "additionalProperties": false,
       "description": "Who acted, stamped from the verified request context at the boundary.",
@@ -15801,6 +16370,84 @@
           "required": [
             "op",
             "connector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Import or revise one connector-owned ontology source. The runtime\nhandler is introduced by R103.2; keeping the closed model here makes\nthe source identity and CAS fields explicit before that wiring lands.",
+          "properties": {
+            "connector": {
+              "type": "string"
+            },
+            "content_digest": {
+              "$ref": "#/$defs/Digest256"
+            },
+            "expected_prior_revision": {
+              "default": null,
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "ontology_iri": {
+              "type": "string"
+            },
+            "ontology_ttl": {
+              "type": "string"
+            },
+            "op": {
+              "const": "import_ontology",
+              "type": "string"
+            },
+            "shapes_ttl": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "connector",
+            "ontology_iri",
+            "version",
+            "ontology_ttl",
+            "content_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Withdraw the complete connector-owned ontology source at a known\nrevision. The runtime handler is introduced by R103.2.",
+          "properties": {
+            "connector": {
+              "type": "string"
+            },
+            "expected_revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "ontology_iri": {
+              "type": "string"
+            },
+            "op": {
+              "const": "withdraw_ontology",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "connector",
+            "ontology_iri",
+            "expected_revision"
           ],
           "type": "object"
         },
@@ -16539,6 +17186,57 @@
         "encoding"
       ],
       "type": "object"
+    },
+    "HostStartBinding": {
+      "additionalProperties": false,
+      "description": "Immutable assertions from the access owner, not evidence of session liveness.",
+      "properties": {
+        "configuration_digest": {
+          "type": "string"
+        },
+        "interfaces": {
+          "$ref": "#/$defs/HostStartInterfaces"
+        },
+        "policy_revision": {
+          "type": "string"
+        },
+        "principal_ref": {
+          "type": "string"
+        },
+        "session_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_ref": {
+          "type": "string"
+        },
+        "web_logs": {
+          "type": "boolean"
+        },
+        "workspace_ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal_ref",
+        "session_ref",
+        "workspace_ref",
+        "configuration_digest",
+        "interfaces",
+        "web_logs",
+        "policy_revision",
+        "session_expires_at_ms"
+      ],
+      "type": "object"
+    },
+    "HostStartInterfaces": {
+      "enum": [
+        "terminal",
+        "web",
+        "both"
+      ],
+      "type": "string"
     },
     "HttpFieldMap": {
       "description": "Which JSON element fields become a RowSet row's id / score (for\n[`ForeignSourceSpec::HttpJson`]).",
@@ -18572,6 +19270,36 @@
         "issued_at_ms",
         "expires_at_ms",
         "hard_expires_at_ms",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "IssueHostStartGrantRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/HostStartBinding"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "lease_id": {
+          "type": "string"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "lease_id",
+        "binding",
+        "expires_at_ms",
         "idempotency_key"
       ],
       "type": "object"
@@ -27613,6 +28341,13 @@
                   },
                   "type": "array"
                 },
+                "quality_policy_ref": {
+                  "description": "Optional retrieval-quality policy identity.  The model-only slice\ncarries this reference; policy lookup and verdict computation are\nserved by the later R089 children.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "query_embedding": {
                   "items": {
                     "format": "float",
@@ -31793,6 +32528,18 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "foreign_execution": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ForeignReadExecutionRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Optional host-driven foreign-read execution bound to this exact plan."
+                },
                 "plan": {
                   "$ref": "#/$defs/Plan"
                 }
@@ -31819,12 +32566,28 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "foreign_execution": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ForeignReadExecutionRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Optional host-driven foreign-read execution bound to this exact text\nand parameter map."
+                },
                 "params": {
                   "additionalProperties": {
                     "$ref": "#/$defs/UqlParam"
                   },
                   "default": {},
                   "type": "object"
+                },
+                "prepare": {
+                  "description": "Plan the exact executable text and return server-owned foreign-read\npins without executing it. The later ordinary UQL request must use\nthe same text and typed parameters when presenting the execution ref.",
+                  "type": "boolean"
                 },
                 "text": {
                   "type": "string"
@@ -32376,6 +33139,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "Plan a natural-language request without executing it\n(EG-FEDERATED-QUERY-R058.2.2.2). The result contains the exact\nexact UQL and plan/query pins that a caller must carry into a later\n`Uql` request. Plan-only does not read graph data or establish source\nauthority; those checks belong to the later exact-UQL admission path.",
+          "properties": {
+            "method": {
+              "const": "NlQueryPlan",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "graph": {
+                  "default": "",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Register (or replace) a foreign RowSet source under `name`. `source` is the\n[`crate::wire::ForeignSourceSpec`] (a remote engine or an HTTP/JSON API). A\nlater `ForeignScan` can name this registered source by id (the registry-backed\nform) instead of inlining the whole spec. Returns the name on success.",
           "properties": {
             "method": {
@@ -32436,6 +33230,114 @@
               },
               "required": [
                 "name"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Open one approved, host-driven bounded foreign read. The source driver\nstays in the authenticated host; the server rechecks this receipt.",
+          "properties": {
+            "method": {
+              "const": "ForeignReadOpen",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/ForeignReadOpenRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Append one bounded page to a previously opened foreign read.",
+          "properties": {
+            "method": {
+              "const": "ForeignReadChunk",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/ForeignReadChunkRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Close a foreign read successfully before its correlated query runs.",
+          "properties": {
+            "method": {
+              "const": "ForeignReadComplete",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/ForeignReadCompleteRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Close a foreign read without making its rows queryable.",
+          "properties": {
+            "method": {
+              "const": "ForeignReadAbort",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/ForeignReadAbortRequest"
+                }
+              },
+              "required": [
+                "request"
               ],
               "type": "object"
             }
@@ -37708,6 +38610,58 @@
           "additionalProperties": false,
           "properties": {
             "method": {
+              "const": "PublishRunCheckpoint",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/PublishRunCheckpointRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "GetRunCheckpoint",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/GetRunCheckpointRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
               "const": "PublishCurrentPlan",
               "type": "string"
             },
@@ -37750,6 +38704,37 @@
               "required": [
                 "tenant",
                 "run_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Caller-owned committed measurements from one bounded snapshot.",
+          "properties": {
+            "method": {
+              "const": "GetSessionUsage",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "context_id": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tenant",
+                "context_id"
               ],
               "type": "object"
             }
@@ -37911,7 +38896,33 @@
         },
         {
           "additionalProperties": false,
-          "description": "Issue one active control lease: an immutable, time-boxed grant record.\nA row already holding the id answers `collision` and is left untouched.\n`request.tenant` must equal the verified request tenant. See\n[`crate::control_lease`].",
+          "description": "Issue one active control lease: an immutable, time-boxed grant record.\nA row already holding the id answers `collision` and is left untouched.\n`request.tenant` must equal the verified request tenant. See\n[`crate::control_lease`].\nPersist a grant from an explicitly authorized host-start issuer.",
+          "properties": {
+            "method": {
+              "const": "IssueHostStartGrant",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/IssueHostStartGrantRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "properties": {
             "method": {
               "const": "IssueControlLease",
@@ -39501,6 +40512,29 @@
       "required": [
         "uql",
         "rows"
+      ],
+      "type": "object"
+    },
+    "NlQueryPlanResult": {
+      "description": "The unexecuted natural-language candidate and the pins for the exact\nUQL/empty-parameter request. A caller may use this receipt to obtain its\napproved foreign execution and then dispatch that exact UQL via `Method::Uql`;\nthe NL planner is never run again for that execution. Plan-only does not read\ngraph data or establish source authority; those checks remain on the later\nexact-UQL admission path.",
+      "properties": {
+        "plan_digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "SHA-256 of the parsed plan for the exact UQL."
+        },
+        "query_digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "SHA-256 of the exact UQL and typed empty parameter map."
+        },
+        "uql": {
+          "description": "The exact UQL produced by the server-owned planner.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uql",
+        "plan_digest",
+        "query_digest"
       ],
       "type": "object"
     },
@@ -41757,6 +42791,74 @@
         "offset",
         "length",
         "sha256"
+      ],
+      "type": "object"
+    },
+    "PackSourceApproval": {
+      "description": "A connector declaration never supplies admission approval.",
+      "enum": [
+        "held",
+        "approved"
+      ],
+      "type": "string"
+    },
+    "PackSourceKind": {
+      "description": "Access kinds retain their SDK contract spelling.",
+      "enum": [
+        "mcp_tool",
+        "http_endpoint",
+        "graphql_query",
+        "a2a_skill",
+        "virtual_graph"
+      ],
+      "type": "string"
+    },
+    "PackSourceRegistration": {
+      "additionalProperties": false,
+      "description": "One source declaration, pinned by its containing member's body digest.\nImport always records `Held`; a publisher cannot approve its own mapping.",
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/PackSourceApproval",
+          "default": "held"
+        },
+        "class_iri": {
+          "type": "string"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "contract_iri": {
+          "type": "string"
+        },
+        "entity": {
+          "type": "string"
+        },
+        "key_field": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "resource_uri": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "source_kind": {
+          "$ref": "#/$defs/PackSourceKind"
+        }
+      },
+      "required": [
+        "connector",
+        "contract_iri",
+        "resource_uri",
+        "source_kind",
+        "class_iri",
+        "source_id",
+        "operation",
+        "entity",
+        "key_field"
       ],
       "type": "object"
     },
@@ -44119,6 +45221,62 @@
       ],
       "type": "object"
     },
+    "PublishRunCheckpointRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/CheckpointContent"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "work_item_id",
+        "run_id",
+        "context_id",
+        "worker_id",
+        "lease_epoch",
+        "fencing_token",
+        "snapshot",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "QuantScaleTag": {
       "description": "The fixed-point scale a [`QuantisedValue`] is read on. Mirrors\n`eg_numeric`'s `QuantScale`.",
       "oneOf": [
@@ -44424,6 +45582,16 @@
         {
           "const": "harness_contrast",
           "description": "The contrastive harness composition decision (EG-DECISION-ENGINE-R803):\ntwo to eight candidate component versions probed against the same\nbaseline under identical conditions; the engine adopts a candidate only\nwhen its measured `eval_score_delta` is positive and unbeaten, with\ncost as the tie-break, and abstains keeping the current harness when no\ncandidate improves. See `decision::harness_contrast`.",
+          "type": "string"
+        },
+        {
+          "const": "branch_outcome",
+          "description": "Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).",
+          "type": "string"
+        },
+        {
+          "const": "edit_concentration",
+          "description": "Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).",
           "type": "string"
         }
       ]
@@ -55428,6 +56596,28 @@
                 "optimized": {
                   "type": "string"
                 },
+                "plan_digest": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Digest256"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Server-computed SHA-256 of the exact named-MessagePack plan used for\nthis statement.  The standalone planner leaves this absent; the\nauthenticated server fills it before returning an EXPLAIN so a\nforeign-read host never has to reproduce planner serialization."
+                },
+                "query_digest": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Digest256"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Server-computed digest of the exact UQL text and typed parameter map.\nA host must use this value when opening the correlated foreign read;\nit must not locally reconstruct the MessagePack/framing convention."
+                },
                 "stages": {
                   "items": {
                     "$ref": "#/$defs/UqlStageReport"
@@ -57260,6 +58450,54 @@
       },
       "selected_by": null
     },
+    "ForeignReadAbort": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ForeignReadAbortResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ForeignReadChunk": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ForeignReadChunkResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ForeignReadComplete": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ForeignReadCompleteResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ForeignReadOpen": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ForeignReadOpenResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "GetChangeCursor": {
       "bodies": {
         "result": {
@@ -57402,6 +58640,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/NlQueryExplainResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "NlQueryPlan": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/NlQueryPlanResult"
           }
         }
       },

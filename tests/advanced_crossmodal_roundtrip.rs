@@ -563,6 +563,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
             16,
             Method::UnifiedQuery {
                 plan: committed_reason,
+                foreign_execution: None,
             },
         ),
     ))
@@ -1664,6 +1665,9 @@ async fn explain_plan_surfaces_the_optimizer_rewrite() {
             }],
         },
     ]);
+    let expected_plan_digest = eg_types::contract::Digest256::sha256(
+        &rmp_serde::to_vec_named(&plan).expect("serialize ExplainPlan input"),
+    );
     let resp = Box::pin(dispatch(&state, req(200, Method::ExplainPlan { plan }))).await;
     assert!(resp.error.is_none(), "ExplainPlan error: {:?}", resp.error);
     let bytes = match &resp.result {
@@ -1672,6 +1676,11 @@ async fn explain_plan_surfaces_the_optimizer_rewrite() {
     };
     let result: epistemic_graph::protocol::ExplainPlanResult =
         rmp_serde::from_slice(&bytes).expect("ExplainPlanResult decodes");
+    assert_eq!(
+        result.plan_digest,
+        Some(expected_plan_digest),
+        "ExplainPlan's pin must match the query binder's canonical plan bytes"
+    );
     assert_eq!(result.before.len(), 3, "before dag has all 3 ops");
     assert_eq!(
         result.after.len(),

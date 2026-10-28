@@ -21,10 +21,13 @@
 //! Every algorithm -- derivation, solving, verification, execution, fitting --
 //! lives above this module. These are data types and their bounds.
 
+pub mod branch_outcomes;
+pub mod concentration;
 pub mod coverage;
 pub mod derivation;
 pub mod digest;
 pub mod errors;
+pub mod execution_answer;
 pub mod guardrail;
 pub mod harness_contrast;
 pub mod ingestion_admission;
@@ -32,6 +35,7 @@ pub mod ingestion_ladder;
 pub mod jobs;
 pub mod numeric;
 pub mod policy;
+pub mod promotion;
 pub mod prompt_candidate;
 pub mod rapid_r015;
 pub mod rapid_r044;
@@ -39,6 +43,7 @@ pub mod rapid_r056;
 pub mod record;
 pub mod replay;
 pub mod request;
+pub mod skill_upgrade;
 pub mod statistical;
 pub mod task_plan;
 pub mod topology;
@@ -71,6 +76,9 @@ pub const MAX_ASSEMBLY_TEMPLATES: usize = 8;
 pub const MAX_TEMPLATE_SLOTS: usize = 6;
 
 pub use errors::DecisionErrorCode;
+pub use execution_answer::{
+    ExecutionAnswer, ExecutionAnswerPart, ExecutionAnswerParts, EXECUTION_ANSWER_SCHEMA_VERSION,
+};
 pub use ingestion_admission::ContentClass;
 pub use jobs::{
     DecisionEvalOp, DecisionEvalReceipt, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
