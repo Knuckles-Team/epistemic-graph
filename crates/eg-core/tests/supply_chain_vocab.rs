@@ -2023,3 +2023,38 @@ fn fan_manager_and_systems_manager_assemble_host_limit_rows() {
         "some mapping projects the limit side"
     );
 }
+
+const BLOCKING: &str = "http://knuckles.team/test/blocking-keys#";
+
+// spec: EG-SUPPLY-VOCAB-R007.1
+#[test]
+fn blocking_key_fixture_covers_each_concept_with_two_keys() {
+    let triples =
+        parse_turtle(include_str!("fixtures/supply_chain_blocking_keys.ttl"))
+            .expect("the blocking-key fixture parses");
+    for (concept, keyset) in [
+        (format!("{KG}Supplier"), "supplierKeys"),
+        (format!("{INFRA}Service"), "serviceKeys"),
+        (format!("{INFRA}Host"), "hostKeys"),
+        (format!("{INFRA}ContainerImage"), "containerImageKeys"),
+        (format!("{KG}Customer"), "customerKeys"),
+    ] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{BLOCKING}{keyset}"),
+                &format!("{BLOCKING}forConcept"),
+                &concept
+            ),
+            "{keyset} is the key set for {concept}"
+        );
+        let keys = triples
+            .iter()
+            .filter(|triple| {
+                subject_key(triple) == format!("<{BLOCKING}{keyset}>")
+                    && triple.predicate.as_str().ends_with("hasKey")
+            })
+            .count();
+        assert!(keys >= 2, "{keyset} lists at least two keys (found {keys})");
+    }
+}
