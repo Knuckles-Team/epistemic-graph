@@ -120,7 +120,9 @@ FALSE_POSITIVE_LINE_PATTERNS: list[tuple[re.Pattern, str]] = [
     # `RecommendAnswerV1` and `AnswerCandidateRankingV1` as the typed records
     # of the answer-ranking and recommendation questions.
     (
-        re.compile(r"\b(?:AnswerCandidateRanking|RecommendRequest|RecommendAnswer)V1\b"),
+        re.compile(
+            r"\b(?:AnswerCandidateRanking|RecommendRequest|RecommendAnswer)V1\b"
+        ),
         "spec-named decision-engine record type (EG-DECISION-ENGINE-R134), "
         "not a versioned component",
     ),

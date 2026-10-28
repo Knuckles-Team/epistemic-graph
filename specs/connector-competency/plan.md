@@ -343,14 +343,15 @@ Engine gaps observed. The ordering comparator parses operands as f64, so a
 FILTER comparison over a dateTime lexical silently drops the row. The tests
 express windows with the `YEAR()`, `MONTH()`, `DAY()`, `HOURS()` and
 `MINUTES()` accessors instead. The typed abstention is the source-selection
-`Abstained { reason: Unconnected }` verdict: `question_abstention`
+`Abstained { reason: Unconnected }` verdict. The function `question_abstention`
 (`crates/eg-rdf/src/source_selection.rs`) selects each `(source, concept)` a
-question reads against the sources `connected_sources_from_turtle` finds
-connected (an approved `vg:VirtualMapping` under a `vg:MetadataContract`) and
-returns the `AuthorityAudit` naming each unconnected source. The `.3`
-acceptance helper `assert_acceptance` (`crates/eg-rdf/tests/common/mod.rs`)
-proves, per question, the answer with every source connected and the typed
-abstention naming each required source when it alone is unconnected.
+question reads. It checks them against the sources that
+`connected_sources_from_turtle` finds connected: an approved `vg:VirtualMapping`
+under a `vg:MetadataContract`. It returns the `AuthorityAudit` naming each
+unconnected source. The `.3` acceptance helper `assert_acceptance`
+(`crates/eg-rdf/tests/common/mod.rs`) proves two cases per question. With every
+source connected, the question gets its answer. With one source unconnected, the
+typed abstention names that source.
 
 ### 2026-10-27: fixture SPARQL answers for R039.2, R042.1
 
