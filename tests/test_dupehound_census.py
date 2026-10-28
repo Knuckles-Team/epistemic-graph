@@ -466,13 +466,11 @@ def test_empty_production_universe_is_not_applicable_without_native_scan(
     assert context.tool["invocation"] == []
 
 
-def test_release_workflow_wires_the_adapter_without_changing_changed_gate():
+def test_census_adapter_stays_separate_from_the_changed_gate():
+    # The advisory hosted scanner job that ran the census was removed to bound
+    # pull-request CI (EG-CONTRACT-R053.7); the adapter remains runnable.
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert "scripts/check_dupehound_census.py" in workflow
-    assert "dupehound-full-tree-v1:epistemic-graph" in workflow
-    assert "python -m pytest -q --noconftest tests/test_dupehound_census.py" in workflow
-    assert "actions/upload-artifact" in workflow
-    assert "epistemic-graph-dupehound.stderr.txt" in workflow
+    assert "scripts/check_dupehound_census.py" not in workflow
     assert "--no-default-excludes" in (
         ROOT / "scripts/check_dupehound_census.py"
     ).read_text(encoding="utf-8")
