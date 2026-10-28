@@ -748,3 +748,136 @@
     rdfs:label "costUsd" ;
     rdfs:domain :RunTrace ;
     rdfs:range xsd:decimal .
+
+# EG-ORCH-VOCAB-R001 through R006: task steps, agent kinds, library membership,
+# per-step bindings and hand-off. Step order reuses the core :precedes.
+
+:hasStep a owl:ObjectProperty ;
+    rdfs:label "hasStep" ;
+    rdfs:comment "A task has an ordered step. No domain: a task is any class-typed IRI. Step order is the core :precedes." ;
+    rdfs:range :TaskStep .
+
+:AgentKind a owl:Class ;
+    rdfs:label "Agent Kind" ;
+    rdfs:comment "The kind of work a slot needs and an agent does. Kinds are named individuals, so a slot constraint is a value; a tenant adds kinds under its own schema key." .
+
+:agentKindSupervisor a :AgentKind ; rdfs:label "supervisor" .
+:agentKindWorker a :AgentKind ; rdfs:label "worker" .
+:agentKindVerifier a :AgentKind ; rdfs:label "verifier" .
+:agentKindAggregator a :AgentKind ; rdfs:label "aggregator" .
+:agentKindPlanner a :AgentKind ; rdfs:label "planner" .
+:agentKindResearcher a :AgentKind ; rdfs:label "researcher" .
+:agentKindExecutor a :AgentKind ; rdfs:label "executor" .
+
+:hasAgentKind a owl:ObjectProperty ;
+    rdfs:label "hasAgentKind" ;
+    rdfs:comment "The kind an agent fills." ;
+    rdfs:domain :Agent ;
+    rdfs:range :AgentKind .
+
+:AgentTemplate a owl:Class ;
+    rdfs:label "Agent Template" ;
+    rdfs:comment "A parameterized agent stored in the Agent Library. It is an agent: every agent property applies. It is not a swarm topology template." ;
+    rdfs:subClassOf :Agent .
+
+:AgentLibrary a owl:Class ;
+    rdfs:label "Agent Library" ;
+    rdfs:comment "The set of agents, agent templates and A2A agent cards an assembly may use." .
+
+:memberOfLibrary a owl:ObjectProperty ;
+    rdfs:label "memberOfLibrary" ;
+    rdfs:comment "An agent, agent template or A2A agent card belongs to an Agent Library. No domain: members come from three classes." ;
+    rdfs:range :AgentLibrary .
+
+:instanceOfTemplate a owl:ObjectProperty ;
+    rdfs:label "instanceOfTemplate" ;
+    rdfs:comment "An agent instantiates an agent template." ;
+    rdfs:domain :Agent ;
+    rdfs:range :AgentTemplate .
+
+:ModelProfile a owl:Class ;
+    rdfs:label "Model Profile" ;
+    rdfs:comment "A model with its measured or declared profile; :usesModel and :contextWindow apply." ;
+    rdfs:subClassOf :Model .
+
+:needsSkill a owl:ObjectProperty ;
+    rdfs:label "needsSkill" ;
+    rdfs:comment "A task step needs a skill." ;
+    rdfs:domain :TaskStep ;
+    rdfs:range :Skill .
+
+:stepAssignedAgent a owl:ObjectProperty ;
+    rdfs:label "stepAssignedAgent" ;
+    rdfs:comment "The agent or A2A agent card assigned to a task step. No range: :assignedAgent is range-restricted to an A2A card and is left alone." ;
+    rdfs:domain :TaskStep .
+
+:handsOffTo a owl:ObjectProperty ;
+    rdfs:label "handsOffTo" ;
+    rdfs:comment "A step hands its output directly to the next step. A direct hand-off implies precedence." ;
+    rdfs:subPropertyOf :precedes ;
+    rdfs:domain :TaskStep ;
+    rdfs:range :TaskStep .
+
+# EG-ORCH-VOCAB-R009.9 through R009.11: what a harness run applied and ran on.
+
+:TaskClass a owl:Class ;
+    rdfs:label "Task Class" ;
+    rdfs:comment "A class of task a harness run belongs to." .
+
+:appliedHarnessConfig a owl:ObjectProperty ;
+    rdfs:label "appliedHarnessConfig" ;
+    rdfs:comment "The committed HarnessConfig decision a run applied." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :Decision .
+
+:runModel a owl:ObjectProperty ;
+    rdfs:label "runModel" ;
+    rdfs:comment "The model profile a run used. :usesModel has an agent domain, so per-model run queries use this property." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :ModelProfile .
+
+:runTaskClass a owl:ObjectProperty ;
+    rdfs:label "runTaskClass" ;
+    rdfs:comment "The task class a run belongs to." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :TaskClass .
+
+# EG-ORCH-VOCAB-R011.1 through R011.5: measured model facts from evaluation.
+
+:EvaluationRun a owl:Class ;
+    rdfs:label "Evaluation Run" ;
+    rdfs:comment "One matched ablation run. Its traces link through :hasEvent or :produced." ;
+    rdfs:subClassOf :RunTrace .
+
+:MeasuredModelFact a owl:Class ;
+    rdfs:label "Measured Model Fact" ;
+    rdfs:comment "One measured value of one property of one model profile, cited to the evaluation run that measured it." .
+
+:factOfModel a owl:ObjectProperty ;
+    rdfs:label "factOfModel" ;
+    rdfs:comment "The model profile a measured fact describes." ;
+    rdfs:domain :MeasuredModelFact ;
+    rdfs:range :ModelProfile .
+
+:measuredProperty a owl:DatatypeProperty ;
+    rdfs:label "measuredProperty" ;
+    rdfs:comment "The model property a measured fact records: shellProficiency, stoppingBehaviour or contextWindowTokens." ;
+    rdfs:domain :MeasuredModelFact ;
+    rdfs:range xsd:string .
+
+:measuredValue a owl:DatatypeProperty ;
+    rdfs:label "measuredValue" ;
+    rdfs:comment "The measured value. Its value set depends on :measuredProperty." ;
+    rdfs:domain :MeasuredModelFact .
+
+:evidencedByRun a owl:ObjectProperty ;
+    rdfs:label "evidencedByRun" ;
+    rdfs:comment "The evaluation run that measured a fact." ;
+    rdfs:domain :MeasuredModelFact ;
+    rdfs:range :EvaluationRun .
+
+:measuredSupersedes a owl:ObjectProperty ;
+    rdfs:label "measuredSupersedes" ;
+    rdfs:comment "A newer measurement replaces an older one by this edge, never by deletion." ;
+    rdfs:domain :MeasuredModelFact ;
+    rdfs:range :MeasuredModelFact .

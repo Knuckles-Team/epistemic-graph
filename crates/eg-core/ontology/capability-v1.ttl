@@ -372,6 +372,12 @@ schema changes.  Teams link to domains via `worksOnDomain`.""" ;
     rdfs:comment "A recommended engineering practice governed as a development standard." ;
     rdfs:subClassOf :DevelopmentStandard .
 
+:appliesToTaskClass a owl:ObjectProperty ;
+    rdfs:label "applies to task class" ;
+    rdfs:comment "A development standard, best practice or guardrail rule governs a task class. Subclasses of the task class inherit the rule by entailment." ;
+    rdfs:domain :DevelopmentStandard ;
+    rdfs:range owl:Class .
+
 :DevelopmentStandard a owl:Class ;
     rdfs:label "Development Standard" ;
     rdfs:comment """A codified engineering standard, coding guideline, or quality gate.
