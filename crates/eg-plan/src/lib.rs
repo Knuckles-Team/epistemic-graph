@@ -529,3 +529,5 @@ mod derive_tests;
 // is additionally `cfg`-gated on the modality feature(s) it needs.
 #[cfg(all(test, feature = "query"))]
 mod advanced_crossmodal_tests;
+
+pub mod document_connection;
