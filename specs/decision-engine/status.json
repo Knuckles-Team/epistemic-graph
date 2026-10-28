@@ -9798,8 +9798,8 @@
       "landed_in": [],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:60",
-        "tests/decide/test_task_plan_served.py:228",
-        "tests/decide/test_task_plan_served.py:350"
+        "tests/decide/test_task_plan_served.py:236",
+        "tests/decide/test_task_plan_served.py:358"
       ]
     },
     {
@@ -9825,7 +9825,7 @@
       "verified_by": [
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:155",
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:61",
-        "tests/decide/test_task_plan_served.py:229"
+        "tests/decide/test_task_plan_served.py:237"
       ]
     },
     {
