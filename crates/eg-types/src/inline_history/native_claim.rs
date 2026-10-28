@@ -51,9 +51,12 @@ impl<'de> Deserialize<'de> for NativeClaimWorkItemResult {
                     .transpose()
                     .map_err(A::Error::custom)?
                     .flatten();
-                let claim = serde_json::from_value(Value::Object(fields))
-                    .map_err(A::Error::custom)?;
-                Ok(NativeClaimWorkItemResult { claim, fresh_execution_grant })
+                let claim =
+                    serde_json::from_value(Value::Object(fields)).map_err(A::Error::custom)?;
+                Ok(NativeClaimWorkItemResult {
+                    claim,
+                    fresh_execution_grant,
+                })
             }
         }
         deserializer.deserialize_map(ClaimVisitor)
@@ -119,15 +122,18 @@ mod tests {
     #[cfg(feature = "contract-schema")]
     #[test]
     fn native_schema_flattens_claim_without_opening_unknown_fields() {
-        let schema = serde_json::to_value(schemars::schema_for!(NativeClaimWorkItemResult)).unwrap();
+        let schema =
+            serde_json::to_value(schemars::schema_for!(NativeClaimWorkItemResult)).unwrap();
         assert_eq!(schema["additionalProperties"], false);
         let properties = schema["properties"].as_object().unwrap();
         assert!(properties.contains_key("claimed"));
         assert!(properties.contains_key("lease_epoch"));
         assert!(properties.contains_key("fresh_execution_grant"));
         assert!(!properties.contains_key("claim"));
-        assert!(!schema["required"].as_array().unwrap().iter()
+        assert!(!schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
             .any(|field| field == "fresh_execution_grant"));
     }
-
 }

@@ -109,7 +109,8 @@ where
     'w: 'a,
 {
     pub(crate) nodes: &'a mut ScopedOwnerTableMut<'n, (&'static str, &'static str), &'static [u8]>,
-    pub(crate) inline_history: &'a mut ScopedOwnerTableMut<'n, (&'static str, &'static str), &'static [u8]>,
+    pub(crate) inline_history:
+        &'a mut ScopedOwnerTableMut<'n, (&'static str, &'static str), &'static [u8]>,
     pub(crate) edges: &'a mut ScopedOwnerTableMut<
         'e,
         (&'static str, &'static str, &'static str, u32),
@@ -128,7 +129,8 @@ impl<'g> GraphRowTables<'g> {
     ) -> Result<Self, String> {
         Ok(Self {
             nodes: member.open_scoped_table(NODES)?,
-            inline_history: member.open_scoped_table(super::work_item::inline_history::INLINE_HISTORY)?,
+            inline_history: member
+                .open_scoped_table(super::work_item::inline_history::INLINE_HISTORY)?,
             current_plans: member
                 .open_scoped_table(super::work_item::current_plan::CURRENT_PLANS)?,
             edges: member.open_scoped_table(EDGES)?,

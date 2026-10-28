@@ -224,9 +224,10 @@ pub trait OwnerPayloadTransfer<S: OwnerDomain, D: OwnerDomain> {
 
 mod reservation;
 use reservation::{
-    cleanup_losing_reservation_in, cleanup_refused_validation_in, require_empty_destination, require_reservation_baseline,
-    reservation_in, reserve_destination, scope_domain, scope_expectation,
-    validate_destination_phase_b, validate_reservation_state, with_losing_reservation_cleanup,
+    cleanup_losing_reservation_in, cleanup_refused_validation_in, require_empty_destination,
+    require_reservation_baseline, reservation_in, reserve_destination, scope_domain,
+    scope_expectation, validate_destination_phase_b, validate_reservation_state,
+    with_losing_reservation_cleanup,
 };
 mod copy;
 #[cfg(test)]
@@ -522,7 +523,12 @@ where
         // No source marker has been written by this attempt. Keep the source
         // writer while proving absence and cancelling the exact reservation.
         let error = cleanup_refused_validation_in(
-            error, &write, destination, &identity, &source_digest, &target,
+            error,
+            &write,
+            destination,
+            &identity,
+            &source_digest,
+            &target,
         );
         write.abort()?;
         return Err(error);

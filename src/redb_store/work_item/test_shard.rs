@@ -77,14 +77,22 @@ pub(super) fn apply(
 }
 
 pub(super) fn apply_as_actor(
-    shard: &Shard, tag: &str, method: Method, now_ms: u64, actor: Option<&str>,
+    shard: &Shard,
+    tag: &str,
+    method: Method,
+    now_ms: u64,
+    actor: Option<&str>,
 ) -> Result<crate::protocol::ResultPayload, String> {
     apply_then(shard, tag, method, now_ms, actor, |_, _| Ok(()))
 }
 
 /// Test-only outer transaction seam: the callback runs AFTER native row effects.
 pub(super) fn apply_then(
-    shard: &Shard, tag: &str, method: Method, now_ms: u64, actor: Option<&str>,
+    shard: &Shard,
+    tag: &str,
+    method: Method,
+    now_ms: u64,
+    actor: Option<&str>,
     after: impl FnOnce(&super::NativeNodeRows<'_>, &super::NativeNodeRows<'_>) -> Result<(), String>,
 ) -> Result<crate::protocol::ResultPayload, String> {
     let op_id = format!("work-item-test/{tag}");

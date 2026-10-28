@@ -65,7 +65,8 @@ pub(crate) fn apply_native_record_rows(
                 edges: request.edges,
                 command_sequences: request.command_sequences,
             },
-            WorkItemCommitScope { inline_history_enable_authorized: false,
+            WorkItemCommitScope {
+                inline_history_enable_authorized: false,
                 admitted_actor: None,
                 crypto: request.crypto,
                 authoritative_now_ms: request.committed_at_ms,

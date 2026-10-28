@@ -135,7 +135,12 @@ pub(super) fn cleanup_refused_validation_in<S: OwnerDomain, D: OwnerDomain>(
             Err(error) => format!("{primary}; refused reservation was retained: {error}"),
         },
         Ok(Some(_)) => cleanup_losing_reservation_in(
-            primary, source_write, destination, identity, source_digest, target,
+            primary,
+            source_write,
+            destination,
+            identity,
+            source_digest,
+            target,
         ),
         Err(_) => primary,
     }

@@ -981,11 +981,11 @@ impl Shard {
         // directly leaves the source without the durable marker it is required
         // to prove, which makes every backup/reshard/migration caller fail at
         // the same precondition.
-        source
-            .mutations()
-            .graft_begin_with_validation(source_handle.as_ref(), &destination, |read| {
-                Self::validate_inline_history_graft(read, graph_fname)
-            })?;
+        source.mutations().graft_begin_with_validation(
+            source_handle.as_ref(),
+            &destination,
+            |read| Self::validate_inline_history_graft(read, graph_fname),
+        )?;
         let payload = payload
             .ok_or_else(|| "graph shard graft requires an owner payload transfer".to_string())?;
         let grafted = self.mutations.graft_scope_with_payload(
@@ -1015,13 +1015,18 @@ impl Shard {
     }
 
     #[cfg(feature = "server")]
-    fn refuse_inline_history_graft(&self, graph: &str, identity: &MutationScopeIdentity)
-        -> Result<(), String>
-    {
-        if !self.kernel.scope_binding_exists(identity)? { return Ok(()); }
+    fn refuse_inline_history_graft(
+        &self,
+        graph: &str,
+        identity: &MutationScopeIdentity,
+    ) -> Result<(), String> {
+        if !self.kernel.scope_binding_exists(identity)? {
+            return Ok(());
+        }
         let handle = self.graph(graph)?;
         let snapshot = self.read(&handle)?;
-        let history = snapshot.scoped_owner_table(super::work_item::inline_history::INLINE_HISTORY)?;
+        let history =
+            snapshot.scoped_owner_table(super::work_item::inline_history::INLINE_HISTORY)?;
         if history.scope_rows()?.next().transpose()?.is_some() {
             return Err("inline history graph graft is unsupported".into());
         }

@@ -55,7 +55,10 @@ fn validate<'a>(
     {
         return Err("CONVERSATION_INVALID: invalid context or predecessor binding".into());
     }
-    turn.history_profile.as_ref().map(|profile| profile.validate()).transpose()?;
+    turn.history_profile
+        .as_ref()
+        .map(|profile| profile.validate())
+        .transpose()?;
     Ok((actor, run))
 }
 
@@ -109,11 +112,15 @@ fn preceding_run(
 }
 
 fn validate_profile_continuity(
-    turn: &ConversationTurnAdmission, original: &SubmitWorkItemRequest,
+    turn: &ConversationTurnAdmission,
+    original: &SubmitWorkItemRequest,
     row: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
     if turn.history_profile.is_some()
-        != original.conversation.as_ref().is_some_and(|value| value.history_profile.is_some())
+        != original
+            .conversation
+            .as_ref()
+            .is_some_and(|value| value.history_profile.is_some())
     {
         return Err("CONVERSATION_UNSUPPORTED: cannot change the admitted history profile".into());
     }

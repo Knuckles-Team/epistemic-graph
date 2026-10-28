@@ -72,7 +72,9 @@ impl RunCompletionInput {
         if self.schema_version != 1 || self.run_id.trim().is_empty() || self.run_id.len() > 512 {
             return Err("invalid ordinary run completion version or run id".into());
         }
-        if let Some(checkpoint) = &self.completed_checkpoint { checkpoint.validate(&self.run_id)?; }
+        if let Some(checkpoint) = &self.completed_checkpoint {
+            checkpoint.validate(&self.run_id)?;
+        }
         self.usage.as_ref().map_or(Ok(()), RunUsage::validate)
     }
 }
@@ -122,7 +124,10 @@ impl RunCompletionPayload {
             return Err("completed checkpoint requires successful terminal outcome".into());
         }
         Ok(Some(Self {
-            completed_checkpoint: completion.completed_checkpoint.as_ref().map(|c| c.checkpoint_ref(work_item_id)),
+            completed_checkpoint: completion
+                .completed_checkpoint
+                .as_ref()
+                .map(|c| c.checkpoint_ref(work_item_id)),
             completion: completion.receipt_input(),
             tenant: tenant.clone(),
             work_item_id: work_item_id.clone(),

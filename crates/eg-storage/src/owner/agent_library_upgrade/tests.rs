@@ -145,7 +145,11 @@ const GRAPH_GENERATIONS: [GraphGeneration; 2] = [
     GraphGeneration {
         recorded: BEFORE_AUDIT_REQUESTS,
         source: GraphShardSource::BeforeAuditRequests,
-        added: &["audit_requests", "work_item_current_plans", "work_item_inline_history"],
+        added: &[
+            "audit_requests",
+            "work_item_current_plans",
+            "work_item_inline_history",
+        ],
     },
 ];
 
@@ -354,9 +358,10 @@ fn inline_history_upgrade_preserves_graph_and_private_plan_rows() {
         GRAPH_SHARD_BEFORE_INLINE_HISTORY, GRAPH_SHARD_PRE_INLINE_HISTORY_DIGEST,
     };
     let directory = private_local_tempdir();
-    let path = directory.path().join("graph-inline-history-predecessor.redb");
-    create_predecessor_owner_file(&path, identity(), &GRAPH_SHARD_BEFORE_INLINE_HISTORY)
-        .unwrap();
+    let path = directory
+        .path()
+        .join("graph-inline-history-predecessor.redb");
+    create_predecessor_owner_file(&path, identity(), &GRAPH_SHARD_BEFORE_INLINE_HISTORY).unwrap();
     assert_eq!(
         RecordedLayout::read(&path).manifest().layout_digest,
         GRAPH_SHARD_PRE_INLINE_HISTORY_DIGEST
@@ -394,11 +399,21 @@ fn inline_history_upgrade_preserves_graph_and_private_plan_rows() {
     let database = Database::open(&path).unwrap();
     let read = database.begin_read().unwrap();
     assert_eq!(
-        read.open_table(NODES).unwrap().get(NODE_KEY).unwrap().unwrap().value(),
+        read.open_table(NODES)
+            .unwrap()
+            .get(NODE_KEY)
+            .unwrap()
+            .unwrap()
+            .value(),
         b"preserved native row"
     );
     assert_eq!(
-        read.open_table(CURRENT_PLANS).unwrap().get(NODE_KEY).unwrap().unwrap().value(),
+        read.open_table(CURRENT_PLANS)
+            .unwrap()
+            .get(NODE_KEY)
+            .unwrap()
+            .unwrap()
+            .value(),
         b"preserved private plan"
     );
     assert_eq!(read.open_table(INLINE_HISTORY).unwrap().len().unwrap(), 0);

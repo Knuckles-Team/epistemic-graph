@@ -220,7 +220,12 @@ fn only_the_catalog_is_readable_before_any_graph_scope_is_known() {
         RowKey::FileWide,
         "the boot scan cannot bind a graph scope to discover graph names"
     );
-    for still_scoped in ["semantic_store", "work_item_command_sequence", "nodes", "work_item_inline_history"] {
+    for still_scoped in [
+        "semantic_store",
+        "work_item_command_sequence",
+        "nodes",
+        "work_item_inline_history",
+    ] {
         assert_eq!(
             owner_row_key(still_scoped, OwnerLayout::GraphShard),
             RowKey::ScopePrefixed,

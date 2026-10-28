@@ -4446,7 +4446,7 @@
         "f9bfc0da8ae7"
       ],
       "verified_by": [
-        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:294",
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:298",
         "crates/eg-types/src/current_plan/tests.rs:110",
         "crates/eg-types/src/current_plan/tests.rs:3",
         "src/redb_store/work_item/current_plan/tests.rs:135",
@@ -4732,11 +4732,11 @@
         "a1874ae34e29"
       ],
       "verified_by": [
-        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:349",
-        "src/redb_store/work_item/conversation/tests.rs:140",
-        "src/redb_store/work_item/conversation/tests.rs:161",
-        "src/redb_store/work_item/conversation/tests.rs:177",
-        "src/redb_store/work_item/conversation/tests.rs:217"
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:353",
+        "src/redb_store/work_item/conversation/tests.rs:141",
+        "src/redb_store/work_item/conversation/tests.rs:162",
+        "src/redb_store/work_item/conversation/tests.rs:178",
+        "src/redb_store/work_item/conversation/tests.rs:218"
       ]
     },
     {

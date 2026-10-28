@@ -737,8 +737,12 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
         admitted_actor,
         inline_history_enable_authorized,
     } = scope;
-    super::inline_history::authorize_profile_presence(graph, request, inline_history,
-        inline_history_enable_authorized)?;
+    super::inline_history::authorize_profile_presence(
+        graph,
+        request,
+        inline_history,
+        inline_history_enable_authorized,
+    )?;
     let context_tenant = request.context.tenant_id.as_str();
     let owner = super::run_owner::admit_owner(graph, request, admitted_actor)?;
 
@@ -856,7 +860,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
             command_sequences,
             WorkItemCommitScope {
                 admitted_actor,
-        inline_history_enable_authorized,
+                inline_history_enable_authorized,
                 crypto,
                 authoritative_now_ms,
                 outbox_id,

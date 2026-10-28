@@ -26,7 +26,8 @@ fn admit(shard: &Shard, request: &SubmitWorkItemRequest, owner: &str) -> Result<
             &mut rows.inline_history,
             &mut rows.edges,
             &mut rows.command_sequences,
-            WorkItemCommitScope { inline_history_enable_authorized: false,
+            WorkItemCommitScope {
+                inline_history_enable_authorized: false,
                 crypto: DurableCrypto::none(),
                 authoritative_now_ms: 1000,
                 admitted_actor: Some(owner),

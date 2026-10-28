@@ -331,7 +331,9 @@ pub(crate) fn apply_commit_work_item_result_row(
         use sha2::{Digest, Sha256};
         let payload = eg_types::run_completion::RunCompletionPayload {
             completion: completion.receipt_input(),
-            completed_checkpoint: completion.completed_checkpoint.as_ref()
+            completed_checkpoint: completion
+                .completed_checkpoint
+                .as_ref()
                 .map(|value| value.checkpoint_ref(input.work_item_id)),
             tenant: input.tenant.into(),
             work_item_id: input.work_item_id.into(),

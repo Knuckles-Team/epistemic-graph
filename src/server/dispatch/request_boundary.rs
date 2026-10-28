@@ -545,7 +545,7 @@ mod native_resource_capability_tests {
             append_native_work_item_ops(&mut ops, available);
             for op in [
                 "GetRunWorkItem",
-            "GetConversationHead",
+                "GetConversationHead",
                 "GetWorkItem",
                 "ListWorkItems",
                 "GetWorkItemOutcome",

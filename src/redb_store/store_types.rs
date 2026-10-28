@@ -456,7 +456,8 @@ impl eg_storage::OwnerPayloadRetirement<GraphShardOwner> for GraphShardRetiremen
         // V1 has no admission-generation witness across retirement/recreate.
         // A private marker covers pending/failed profiles without decryption.
         {
-            let history = write.scoped_owner_table_mut(super::work_item::inline_history::INLINE_HISTORY)?;
+            let history =
+                write.scoped_owner_table_mut(super::work_item::inline_history::INLINE_HISTORY)?;
             if history.scope_rows()?.next().transpose()?.is_some() {
                 return Err("inline history scope retirement is unsupported".into());
             }

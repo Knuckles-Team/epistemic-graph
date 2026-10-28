@@ -899,13 +899,20 @@ mod tests {
             }}
         })).unwrap();
         let mut envelope = carrying(method);
-        if let crate::mutation_batch::MutationEnvelope::Operation(operation) = &mut envelope.mutation.envelope {
-            operation.verified_capabilities.insert(crate::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
+        if let crate::mutation_batch::MutationEnvelope::Operation(operation) =
+            &mut envelope.mutation.envelope
+        {
+            operation
+                .verified_capabilities
+                .insert(crate::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
         }
         let bytes = rmp_serde::to_vec_named(&envelope).unwrap();
         let decoded: ChangeEnvelope = rmp_serde::from_slice(&bytes).unwrap();
         let error = decoded.validate().unwrap_err();
-        assert!(error.starts_with("CARRIER_INNER_METHOD_REFUSED: operation 0: SubmitWorkItem"), "{error}");
+        assert!(
+            error.starts_with("CARRIER_INNER_METHOD_REFUSED: operation 0: SubmitWorkItem"),
+            "{error}"
+        );
     }
 
     #[test]

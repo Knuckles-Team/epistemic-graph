@@ -88,10 +88,14 @@ fn historical_graph_shard_tables_preserve_introduction_boundaries() {
             predecessor.label
         );
         assert_eq!(
-            predecessor.owner_tables.contains(&"work_item_current_plans"),
+            predecessor
+                .owner_tables
+                .contains(&"work_item_current_plans"),
             predecessor.label == GRAPH_SHARD_BEFORE_INLINE_HISTORY.label,
         );
-        assert!(!predecessor.owner_tables.contains(&"work_item_inline_history"));
+        assert!(!predecessor
+            .owner_tables
+            .contains(&"work_item_inline_history"));
     }
     assert!(
         crate::owner::registry::owner_table_names(OwnerLayout::GraphShard)
