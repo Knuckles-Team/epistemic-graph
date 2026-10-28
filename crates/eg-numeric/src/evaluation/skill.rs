@@ -27,9 +27,46 @@ pub fn information_coefficient(signal: &[f64], forward_returns: &[f64]) -> f64 {
     crate::series::window::pearson(&xs, &ys).unwrap_or(0.0)
 }
 
+/// [`information_coefficient`] with typed refusals: a length mismatch, fewer than two
+/// finite pairs, or a constant side is an error rather than a silent `0`.
+pub fn information_coefficient_checked(signal: &[f64], forward_returns: &[f64]) -> Result<f64> {
+    if signal.len() != forward_returns.len() {
+        return Err(NumericError::shape(
+            "signal and forward returns differ in length",
+        ));
+    }
+    let (xs, ys): (Vec<f64>, Vec<f64>) = signal
+        .iter()
+        .zip(forward_returns)
+        .filter(|(s, r)| s.is_finite() && r.is_finite())
+        .map(|(&s, &r)| (s, r))
+        .unzip();
+    if xs.len() < 2 {
+        return Err(NumericError::bounds(
+            "an information coefficient needs two finite pairs",
+        ));
+    }
+    crate::series::window::pearson(&xs, &ys)
+        .ok_or_else(|| NumericError::bounds("a constant side has no correlation"))
+}
+
 /// The fundamental law of active management: `IR = IC · √N_independent`.
 pub fn information_ratio(ic: f64, n_independent: f64) -> f64 {
     ic * n_independent.max(0.0).sqrt()
+}
+
+/// [`information_ratio`] with typed refusals: a non-finite coefficient, or a breadth
+/// that is non-finite or negative, is an error rather than a clamped value.
+pub fn information_ratio_checked(ic: f64, n_independent: f64) -> Result<f64> {
+    if !ic.is_finite() || !(-1.0..=1.0).contains(&ic) {
+        return Err(NumericError::bounds(
+            "an information coefficient is finite and within [-1, 1]",
+        ));
+    }
+    if !n_independent.is_finite() || n_independent < 0.0 {
+        return Err(NumericError::bounds("breadth is finite and not negative"));
+    }
+    Ok(information_ratio(ic, n_independent))
 }
 
 /// The effective number of independent signals of a matrix (rows = signals, columns =
@@ -54,6 +91,24 @@ pub fn effective_independent_n(rows: &[Vec<f64>]) -> f64 {
     } else {
         k as f64
     }
+}
+
+/// [`effective_independent_n`] with typed refusals: no rows, rows of unequal length,
+/// fewer than two columns, or a non-finite value is an error.
+pub fn effective_independent_n_checked(rows: &[Vec<f64>]) -> Result<f64> {
+    let t = rows.first().map_or(0, Vec::len);
+    if rows.is_empty() || t < 2 {
+        return Err(NumericError::bounds(
+            "effective breadth needs one row of at least two columns",
+        ));
+    }
+    if rows.iter().any(|row| row.len() != t) {
+        return Err(NumericError::shape("the rows differ in length"));
+    }
+    if rows.iter().flatten().any(|v| !v.is_finite()) {
+        return Err(NumericError::bounds("a row holds a non-finite value"));
+    }
+    Ok(effective_independent_n(rows))
 }
 
 /// The rows' correlation matrix over their first `t` columns.
@@ -281,5 +336,97 @@ mod tests {
             }
         )
         .is_err());
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R002.1.3
+    #[test]
+    fn information_coefficient_independent_vectors() {
+        // x = 1..5, y = 2,4,5,4,5: Sxy = 6, Sxx = 10, Syy = 6, r = 6/sqrt(60).
+        let ic =
+            information_coefficient_checked(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 5.0, 4.0, 5.0])
+                .unwrap();
+        assert!((ic - 0.774_596_669_241_483_4).abs() < 1e-12);
+        assert_eq!(
+            ic,
+            information_coefficient(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 5.0, 4.0, 5.0])
+        );
+        // A perfect negative relation is exactly -1.
+        let anti = information_coefficient_checked(&[1.0, 2.0, 3.0], &[3.0, 2.0, 1.0]).unwrap();
+        assert!((anti + 1.0).abs() < 1e-12);
+        // A non-finite pair is dropped before the correlation.
+        let dropped =
+            information_coefficient_checked(&[1.0, f64::NAN, 2.0, 3.0], &[3.0, 9.0, 2.0, 1.0])
+                .unwrap();
+        assert!((dropped + 1.0).abs() < 1e-12);
+        // Malformed and short inputs refuse.
+        assert!(information_coefficient_checked(&[1.0, 2.0], &[1.0]).is_err());
+        assert!(information_coefficient_checked(&[], &[]).is_err());
+        assert!(information_coefficient_checked(&[1.0], &[2.0]).is_err());
+        assert!(information_coefficient_checked(&[1.0, f64::NAN], &[2.0, 3.0]).is_err());
+        assert!(information_coefficient_checked(&[2.0, 2.0, 2.0], &[1.0, 2.0, 3.0]).is_err());
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R002.1.4
+    #[test]
+    fn information_ratio_independent_vectors() {
+        // IR = IC * sqrt(N): 0.5 * sqrt(16) = 2; 0.25 * sqrt(4) = 0.5; zero breadth is zero.
+        assert_eq!(information_ratio_checked(0.5, 16.0).unwrap(), 2.0);
+        assert_eq!(information_ratio_checked(0.25, 4.0).unwrap(), 0.5);
+        assert_eq!(information_ratio_checked(-0.5, 16.0).unwrap(), -2.0);
+        assert_eq!(information_ratio_checked(0.5, 0.0).unwrap(), 0.0);
+        assert_eq!(
+            information_ratio_checked(0.5, 16.0).unwrap(),
+            information_ratio(0.5, 16.0)
+        );
+        // Malformed inputs refuse.
+        for (ic, n) in [
+            (f64::NAN, 4.0),
+            (f64::INFINITY, 4.0),
+            (1.5, 4.0),
+            (0.5, -1.0),
+            (0.5, f64::NAN),
+            (0.5, f64::INFINITY),
+        ] {
+            assert!(information_ratio_checked(ic, n).is_err(), "{ic} {n}");
+        }
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R002.1.5
+    #[test]
+    fn effective_sample_size_independent_vectors() {
+        // Identical rows are perfectly correlated: eigenvalues (2, 0), (2)^2 / 4 = 1.
+        let row = vec![1.0, 2.0, 3.0, 4.0];
+        let same = effective_independent_n_checked(&[row.clone(), row.clone()]).unwrap();
+        assert!((same - 1.0).abs() < 1e-9);
+        // Orthogonal +-1 rows have an identity correlation matrix: (2)^2 / 2 = 2.
+        let a = vec![1.0, -1.0, 1.0, -1.0];
+        let b = vec![1.0, 1.0, -1.0, -1.0];
+        let orthogonal = effective_independent_n_checked(&[a.clone(), b]).unwrap();
+        assert!((orthogonal - 2.0).abs() < 1e-9);
+        // One row is one independent signal.
+        assert!((effective_independent_n_checked(&[a]).unwrap() - 1.0).abs() < 1e-9);
+        // Malformed and short inputs refuse.
+        assert!(effective_independent_n_checked(&[]).is_err());
+        assert!(effective_independent_n_checked(&[vec![1.0]]).is_err());
+        assert!(effective_independent_n_checked(&[vec![1.0, 2.0], vec![1.0]]).is_err());
+        assert!(effective_independent_n_checked(&[vec![1.0, f64::NAN]]).is_err());
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R002.1.10
+    #[test]
+    fn brier_independent_vectors() {
+        use crate::calibration::metrics::binary_brier_score;
+        // (0.9-1)^2 + (0.8-1)^2 + (0.3-0)^2 + (0.2-0)^2 = 0.01 + 0.04 + 0.09 + 0.04.
+        let brier = binary_brier_score(&[0.9, 0.8, 0.3, 0.2], &[1.0, 1.0, 0.0, 0.0]).unwrap();
+        assert!((brier - 0.045).abs() < 1e-12);
+        // A perfect forecaster scores zero; a maximally wrong one scores one.
+        assert_eq!(binary_brier_score(&[1.0, 0.0], &[1.0, 0.0]).unwrap(), 0.0);
+        assert_eq!(binary_brier_score(&[0.0, 1.0], &[1.0, 0.0]).unwrap(), 1.0);
+        // An uninformative 0.5 forecast scores 0.25.
+        assert_eq!(binary_brier_score(&[0.5, 0.5], &[1.0, 0.0]).unwrap(), 0.25);
+        // Mismatched, empty and non-finite inputs refuse.
+        assert!(binary_brier_score(&[0.5, 0.5], &[1.0]).is_err());
+        assert!(binary_brier_score(&[], &[]).is_err());
+        assert!(binary_brier_score(&[f64::NAN], &[1.0]).is_err());
     }
 }

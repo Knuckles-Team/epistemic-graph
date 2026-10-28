@@ -181,6 +181,8 @@ pub fn binary_brier_score(forecasts: &[f64], outcomes: &[f64]) -> StatResult<f64
         "outcomes",
         "one outcome per forecast",
     )?;
+    validate::all_finite(forecasts, "forecasts")?;
+    validate::all_finite(outcomes, "outcomes")?;
     let squares: Vec<f64> = forecasts
         .iter()
         .zip(outcomes)
