@@ -16,6 +16,8 @@ pub mod agent_graph;
 pub mod agent_library;
 pub mod agent_ontology;
 pub mod agent_template;
+// EG-CQ-ORCH-R010.1 — pure data model for graph-derived architecture views.
+pub mod architecture_view;
 // EG-UNIFIED-DATA-PLANE-R012.1 — typed model for governed attached-source write-back.
 pub mod attached_source_governance;
 // EG-UNIFIED-DATA-PLANE-R014.1 — typed model distinguishing the MySQL and
