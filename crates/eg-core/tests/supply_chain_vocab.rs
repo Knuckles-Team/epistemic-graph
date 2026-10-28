@@ -493,3 +493,79 @@ fn contract_terms_declared_with_domain_range() {
     assert_domain_range(&triples, "contractStatus", "CustomerContract", "xsd:string");
     assert_domain_range(&triples, "contractEnd", "CustomerContract", "xsd:date");
 }
+
+// spec: EG-SUPPLY-VOCAB-R003.3
+#[test]
+fn affects_service_declared_over_incident_or_change() {
+    let triples = load_commercial();
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}affectsService"),
+            &format!("{RDF}type"),
+            &format!("{OWL}ObjectProperty")
+        ),
+        "affectsService is an object property"
+    );
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}affectsService"),
+            &format!("{RDFS}range"),
+            &format!("{INFRA}Service")
+        ),
+        "affectsService ranges to infra:Service"
+    );
+    // The declared domain is the union of the shared :Incident and :Change.
+    let domain = triples
+        .iter()
+        .find(|triple| {
+            subject_key(triple) == format!("<{KG}affectsService>")
+                && triple.predicate.as_str().ends_with("domain")
+        })
+        .and_then(object_key)
+        .expect("affectsService declares its domain");
+    let union_list = triples
+        .iter()
+        .find(|triple| {
+            subject_key(triple) == domain && triple.predicate.as_str().ends_with("unionOf")
+        })
+        .and_then(object_key)
+        .expect("the domain is an owl:unionOf class");
+    let mut members: Vec<String> = Vec::new();
+    let mut cursor = Some(union_list);
+    while let Some(node) = cursor {
+        let member = triples
+            .iter()
+            .find(|triple| {
+                subject_key(triple) == node && triple.predicate.as_str().ends_with("first")
+            })
+            .and_then(object_key)
+            .expect("every union-list head carries a first");
+        members.push(member);
+        // A list cell carries a rest; the final member does not.
+        cursor = triples
+            .iter()
+            .find(|triple| {
+                subject_key(triple) == node && triple.predicate.as_str().ends_with("rest")
+            })
+            .and_then(object_key)
+            .filter(|next| !next.ends_with("#nil>"));
+    }
+    assert!(
+        members.iter().any(|m| m == &format!("<{KG}Incident>")),
+        "the domain union names :Incident: {members:?}"
+    );
+    assert!(
+        members.iter().any(|m| m == &format!("<{KG}Change>")),
+        "the domain union names the shared :Change: {members:?}"
+    );
+    // No commercial :ChangeRequest is redeclared (Decision D3).
+    let change_request = format!("{KG}ChangeRequest");
+    assert!(
+        !triples
+            .iter()
+            .any(|triple| subject_key(triple) == change_request),
+        "commercial-v1.ttl must not redeclare :ChangeRequest"
+    );
+}

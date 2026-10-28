@@ -46,6 +46,16 @@ source names it the report abstains Uncovered.""" ;
     rdfs:domain :CustomerContract ;
     rdfs:range xsd:date .
 
+:affectsService a owl:ObjectProperty ;
+    rdfs:label "affects service" ;
+    rdfs:comment """Links an Incident or Change to each Service it affects, mapped
+from a ServiceNow change request and its CI relation. Reuses the shared
+:Incident and :Change classes; the distinct infra:Incident keeps
+infra:affectsEntity, and no commercial :ChangeRequest class is added.""" ;
+    rdfs:domain [ a owl:Class ;
+        owl:unionOf ( :Incident :Change ) ] ;
+    rdfs:range infra:Service .
+
 :Opportunity a owl:Class ;
     rdfs:label "Opportunity" ;
     rdfs:comment "An open commercial opportunity with one customer and an expected close date." ;
