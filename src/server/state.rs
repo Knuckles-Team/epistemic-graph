@@ -636,14 +636,14 @@ mod construction_tests {
             .map(|_| {
                 let (slot, barrier, path) = (slot.clone(), barrier.clone(), path.clone());
                 std::thread::spawn(move || {
-                    barrier.wait();
+                    crate::test_rendezvous::meet(&barrier, "agent library open");
                     super::open_shared_agent_library(&slot, &path).unwrap()
                 })
             })
             .collect();
         let handles: Vec<_> = threads
             .into_iter()
-            .map(|thread| thread.join().unwrap())
+            .map(|thread| crate::test_rendezvous::join_bounded(thread, "agent library open"))
             .collect();
         assert!(handles
             .iter()
