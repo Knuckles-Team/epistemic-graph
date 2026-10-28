@@ -544,3 +544,35 @@ fn ml_terms_present() {
     assert_typed(&triples, "evaluatedOn", "ObjectProperty");
     assert_typed(&triples, "baselineRun", "ObjectProperty");
 }
+
+// spec: EG-DATAPLAT-VOCAB-R005.1
+#[test]
+fn secret_metadata_terms_present() {
+    let triples = load_data_platform();
+    assert!(has_iri(
+        &triples,
+        &format!("{DP}SecretEngine"),
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}DataStore")
+    ));
+    for class in ["SecretPath", "AccessPolicy", "RotationState", "PolicyPathGrant"] {
+        assert_typed(&triples, class, "Class");
+    }
+    assert_typed(&triples, "hasRotationState", "ObjectProperty");
+    for property in [
+        "lastRotatedAt",
+        "currentVersion",
+        "leaseExpiresAt",
+        "grantsCapability",
+    ] {
+        assert_typed(&triples, property, "DatatypeProperty");
+    }
+    assert_domain_range(&triples, "pathName", "SecretPath", "xsd:string");
+    assert_domain_range(&triples, "hasRotationState", "SecretPath", "RotationState");
+    assert_domain_range(&triples, "lastRotatedAt", "RotationState", "xsd:dateTime");
+    assert_domain_range(&triples, "currentVersion", "RotationState", "xsd:integer");
+    assert_domain_range(&triples, "leaseExpiresAt", "RotationState", "xsd:dateTime");
+    assert_domain_range(&triples, "grantPolicy", "PolicyPathGrant", "AccessPolicy");
+    assert_domain_range(&triples, "grantPath", "PolicyPathGrant", "SecretPath");
+    assert_domain_range(&triples, "grantsCapability", "PolicyPathGrant", "xsd:string");
+}

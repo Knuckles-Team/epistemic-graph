@@ -316,3 +316,66 @@ dp:baselineRun a owl:ObjectProperty ;
     rdfs:label "baseline run" ;
     rdfs:domain dp:TrainingRun ;
     rdfs:range dp:TrainingRun .
+
+dp:SecretEngine a owl:Class ;
+    rdfs:label "Secret engine" ;
+    rdfs:comment "A mounted secrets engine (kv, transit, pki, database). Metadata only — never the secrets it stores." ;
+    rdfs:subClassOf dp:DataStore .
+
+dp:SecretPath a owl:Class ;
+    rdfs:label "Secret path" ;
+    rdfs:comment "A secret path within an engine. Metadata only — no value, token, ciphertext or key property exists in this vocabulary." .
+
+dp:AccessPolicy a owl:Class ;
+    rdfs:label "Access policy" ;
+    rdfs:comment "A named ACL policy. The name only is modelled; the rule body is never modelled." .
+
+dp:RotationState a owl:Class ;
+    rdfs:label "Rotation state" ;
+    rdfs:comment "Observed rotation metadata for a secret path: version, last rotation time, lease expiry." .
+
+dp:PolicyPathGrant a owl:Class ;
+    rdfs:label "Policy-path grant" ;
+    rdfs:comment "One policy's capability grant over one secret path. Permissions are scoped to the policy/path pair, never flattened onto the policy." .
+
+dp:hasRotationState a owl:ObjectProperty ;
+    rdfs:label "has rotation state" ;
+    rdfs:domain dp:SecretPath ;
+    rdfs:range dp:RotationState .
+
+dp:lastRotatedAt a owl:DatatypeProperty ;
+    rdfs:label "last rotated at" ;
+    rdfs:domain dp:RotationState ;
+    rdfs:range xsd:dateTime .
+
+dp:currentVersion a owl:DatatypeProperty ;
+    rdfs:label "current version" ;
+    rdfs:domain dp:RotationState ;
+    rdfs:range xsd:integer .
+
+dp:leaseExpiresAt a owl:DatatypeProperty ;
+    rdfs:label "lease expires at" ;
+    rdfs:domain dp:RotationState ;
+    rdfs:range xsd:dateTime .
+
+dp:pathName a owl:DatatypeProperty ;
+    rdfs:label "path name" ;
+    rdfs:comment "The name of a secret path. A value pasted into a path is refused by the data-platform shapes." ;
+    rdfs:domain dp:SecretPath ;
+    rdfs:range xsd:string .
+
+dp:grantPolicy a owl:ObjectProperty ;
+    rdfs:label "grant policy" ;
+    rdfs:domain dp:PolicyPathGrant ;
+    rdfs:range dp:AccessPolicy .
+
+dp:grantPath a owl:ObjectProperty ;
+    rdfs:label "grant path" ;
+    rdfs:domain dp:PolicyPathGrant ;
+    rdfs:range dp:SecretPath .
+
+dp:grantsCapability a owl:DatatypeProperty ;
+    rdfs:label "grants capability" ;
+    rdfs:comment "One of the closed capability list read, list, create, update, delete, sudo, deny; one or more per grant." ;
+    rdfs:domain dp:PolicyPathGrant ;
+    rdfs:range xsd:string .

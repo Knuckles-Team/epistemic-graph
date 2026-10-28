@@ -1357,7 +1357,7 @@ mod tests {
             ),
             (
                 "data-platform",
-                "039234d96e444879f9eb9af9ba3f74371adf1d19da89d554f647c02a66223508",
+                "553360457903105c10582f4bc1bf0c0ee589ce43c6214c44775e62908e9a5193",
             ),
             (
                 "it4it_delivery",
