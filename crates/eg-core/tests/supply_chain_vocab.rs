@@ -250,6 +250,124 @@ fn container_only_runs_on_neither_infers_nor_retires() {
     );
 }
 
+// spec: EG-SUPPLY-VOCAB-R002.7
+#[test]
+fn component_version_vulnerability_and_uses_component_shapes() {
+    let shape_triples =
+        parse_turtle(SUPPLY_SHAPES).expect("the supply-chain shapes parse");
+    for shape in [
+        "ComponentVersionShape",
+        "VulnerabilityShape",
+        "UsesComponentShape",
+        "UsesComponentObjectShape",
+    ] {
+        assert!(
+            has_iri(
+                &shape_triples,
+                &format!("{KG}{shape}"),
+                &format!("{RDF}type"),
+                &format!("{SHACL}NodeShape")
+            ),
+            "{shape} is a node shape"
+        );
+    }
+    // A well-formed version, vulnerability and service link are accepted.
+    let valid = format!(
+        "{SUPPLY_SHAPE_DATA_PREFIX}
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+
+ex:openssl111k a kg:ComponentVersion ;
+    kg:supplyChainVersionOf ex:openssl ;
+    kg:versionString \"1.1.1k\" .
+
+ex:openssl a kg:SoftwareComponent .
+
+ex:cve20241234 a kg:Vulnerability ;
+    kg:cveId \"CVE-2024-1234\" ;
+    kg:severity \"high\" ;
+    kg:affectsComponent ex:openssl111k .
+
+ex:checkoutService a infra:Service ;
+    kg:usesComponent ex:openssl111k ."
+    );
+    let report =
+        eg_shacl::validate_turtle(SUPPLY_SHAPES, &valid).expect("valid fixture parses");
+    assert!(
+        report.conforms,
+        "a well-formed version, vulnerability and service link: {:?}",
+        report.results
+    );
+    // A versionless component version is refused on the version link.
+    let versionless = format!(
+        "{SUPPLY_SHAPE_DATA_PREFIX}
+ex:orphanVersion a kg:ComponentVersion ;
+    kg:versionString \"0.0.1\" ."
+    );
+    let report =
+        eg_shacl::validate_turtle(SUPPLY_SHAPES, &versionless).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "a versionless component version must be refused: {:?}",
+        report.results
+    );
+    // A severity outside the closed vocabulary is refused.
+    let bad_severity = format!(
+        "{SUPPLY_SHAPE_DATA_PREFIX}
+ex:apocalyptic a kg:Vulnerability ;
+    kg:cveId \"CVE-2024-9999\" ;
+    kg:severity \"apocalyptic\" ;
+    kg:affectsComponent ex:openssl111k .
+
+ex:openssl111k a kg:ComponentVersion ."
+    );
+    let report =
+        eg_shacl::validate_turtle(SUPPLY_SHAPES, &bad_severity).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "a severity outside {{low, medium, high, critical, unknown}} must be refused: {:?}",
+        report.results
+    );
+    assert!(
+        report
+            .results
+            .iter()
+            .any(|result| result.constraint_component.ends_with("InConstraintComponent")),
+        "the refusal lands on the closed severity vocabulary: {:?}",
+        report.results
+    );
+    // A usesComponent from a non-service subject is refused.
+    let non_service = format!(
+        "{SUPPLY_SHAPE_DATA_PREFIX}
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+
+ex:checkoutWorkload a infra:Workload ;
+    kg:usesComponent ex:openssl111k .
+
+ex:openssl111k a kg:ComponentVersion ;
+    kg:supplyChainVersionOf ex:openssl ;
+    kg:versionString \"1.1.1k\" .
+
+ex:openssl a kg:SoftwareComponent ."
+    );
+    let report =
+        eg_shacl::validate_turtle(SUPPLY_SHAPES, &non_service).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "a usesComponent from a non-service must be refused: {:?}",
+        report.results
+    );
+    assert!(
+        report.results.iter().any(|result| {
+            result
+                .focus_node
+                .ends_with("#checkoutWorkload>")
+                && result.constraint_component.ends_with("ClassConstraintComponent")
+        }),
+        "the non-service subject is refused on its class: {:?}",
+        report.results
+    );
+}
+
 // spec: EG-SUPPLY-VOCAB-R001.4
 #[test]
 fn supplier_and_item_shapes_require_a_label() {
