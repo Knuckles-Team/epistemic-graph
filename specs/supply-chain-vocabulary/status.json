@@ -101,7 +101,7 @@
         "crates/eg-rdf/tests/supply_chain_declarations.rs:112",
         "crates/eg-rdf/tests/supply_chain_declarations.rs:62",
         "crates/eg-rdf/tests/supply_chain_declarations.rs:94",
-        "src/server/graph_schema/compose.rs:649"
+        "src/server/graph_schema/compose.rs:701"
       ],
       "rollup_of": [
         "EG-SUPPLY-VOCAB-R001.1.1",
@@ -130,7 +130,7 @@
       ],
       "verified_by": [
         "crates/eg-core/tests/commercial_vocabulary.rs:226",
-        "src/server/graph_schema/compose.rs:649"
+        "src/server/graph_schema/compose.rs:701"
       ]
     },
     {

@@ -53,14 +53,14 @@ fn attach_list_and_detach_share_one_authoritative_source_set() {
             _ => None,
         })
         .collect();
-    // The listing reports the exact immutable catalog: 53 sources carrying
-    // 45 ontology documents and 9 shape documents. Commercial owns both kinds
+    // The listing reports the exact immutable catalog: 54 sources carrying
+    // 46 ontology documents and 9 shape documents. Commercial owns both kinds
     // in one source; every other source owns exactly one document kind.
     let catalog = core.schema_sources();
     let catalog_ids: std::collections::BTreeSet<_> =
         catalog.core.keys().map(String::as_str).collect();
     assert_eq!(core_ids, catalog_ids);
-    assert_eq!(core_ids.len(), 53);
+    assert_eq!(core_ids.len(), 54);
     for anchor in [
         "core:catalog@1",
         "core:foundation@1",
@@ -75,7 +75,7 @@ fn attach_list_and_detach_share_one_authoritative_source_set() {
             .iter()
             .filter(|source| source.ontology_sha256.is_some())
             .count(),
-        45
+        46
     );
     assert_eq!(
         initial

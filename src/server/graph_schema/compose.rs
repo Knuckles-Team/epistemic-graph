@@ -221,7 +221,21 @@ fn validate_imports(source_id: &str, triples: &[Triple], shapes: bool) -> Result
         .iter()
         .filter(|triple| triple.predicate.as_str() == OWL_IMPORTS)
     {
-        let allowed = matches!(&triple.object, Term::NamedNode(node) if document_iris.contains(node.as_str()));
+        let allowed = match &triple.object {
+            Term::NamedNode(node) if document_iris.contains(node.as_str()) => true,
+            // ConnectorPack admission validates the parent catalog as a
+            // server-resolved authority. Preserve that edge in the tenant's
+            // composed schema while keeping generic dynamic/admin sources
+            // closed over their own declared documents.
+            Term::NamedNode(node)
+                if !shapes
+                    && source_id.starts_with("pack:")
+                    && eg_rdf::pack::is_parent_ontology_iri(node.as_str()) =>
+            {
+                true
+            }
+            _ => false,
+        };
         if !allowed {
             return Err(format!(
                 "{}: source '{source_id}' imports a document outside its own authority",
@@ -628,6 +642,44 @@ ex:Shape a sh:NodeShape ; sh:targetClass ex:Thing ;
     }
 
     #[test]
+    fn pack_parent_import_is_retained_in_composed_schema() {
+        let mut sources = GraphSchemaSources::default();
+        let ontology = r#"
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<https://example.org/connector> a owl:Ontology ;
+    owl:imports <http://knuckles.team/kg> .
+<https://example.org/connector#Ticket> a owl:Class ;
+    rdfs:subClassOf <http://knuckles.team/kg#Event> .
+"#;
+        let source = GraphSchemaSource::new(
+            SchemaSourceOrigin::Pack {
+                connector: "example".to_string(),
+                record_id: "pack:example:1".to_string(),
+            },
+            None,
+            Some(Arc::from(ontology)),
+            0,
+        )
+        .unwrap();
+        sources
+            .attach_dynamic("pack:example".to_string(), source)
+            .unwrap();
+
+        let composed = validate_and_compose(&sources).unwrap();
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == OWL_IMPORTS
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == "https://example.org/connector")
+                && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == "http://knuckles.team/kg")
+        }));
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == RDF_TYPE
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == "https://example.org/connector#Ticket")
+                && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == "http://www.w3.org/2002/07/owl#Class")
+        }));
+    }
+
+    #[test]
     fn unsupported_owl_axiom_fails_closed_with_typed_code() {
         let mut sources = GraphSchemaSources::default();
         let unsupported = r#"
@@ -777,7 +829,9 @@ ex:parent a owl:AsymmetricProperty .
         // +10: SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1),
         // plus one infrastructure ContainerImage → SoftwareComponent edge (R002.2).
         // +5: the orchestration handsOffTo property (EG-CQ-ORCH-R006.1).
-        assert_eq!(composed.ontology.len(), 15_653);
+        // +95: the connector-pack ingest vocabulary (94) and its catalog import
+        // (EG-TYPED-PACKS-R101.1).
+        assert_eq!(composed.ontology.len(), 15_748);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -814,7 +868,8 @@ ex:parent a owl:AsymmetricProperty .
         // the data-platform, IT4IT-delivery, media and retrieval module headers;
         // +1: the shared data-platform vocabulary header.
         // +2: the commercial and newly registered supply-chain module headers.
-        assert_eq!(ontology_subjects.len(), 45);
+        // +1: the connector-pack ingest vocabulary header (R101.1).
+        assert_eq!(ontology_subjects.len(), 46);
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:imports <.../core>`; +6: the service-operations module's five
         // imports and its catalog entry; +5: the metadata-catalog module's four
@@ -823,7 +878,8 @@ ex:parent a owl:AsymmetricProperty .
         // +6: commercial and supply-chain module imports and catalog entries;
         // +2: the data-platform vocabulary's core and virtual-graph imports;
         // +1: its catalog entry.
-        assert_eq!(imports, 111);
+        // +2: the connector-pack import and catalog entry (R101.1).
+        assert_eq!(imports, 113);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -845,7 +901,8 @@ ex:parent a owl:AsymmetricProperty .
         // +224: semantic axioms from the final commercial/supply-chain catalog.
         // +7: the shared versionOf relation's two module-local constrained
         // sub-properties (the shared predicate itself remains unconstrained).
-        assert_eq!(semantic_axioms, 15_390);
+        // +90: semantic axioms from the connector-pack ingest vocabulary (R101.1).
+        assert_eq!(semantic_axioms, 15_480);
 
         let count_type = |object: &str| {
             composed
@@ -910,7 +967,8 @@ ex:parent a owl:AsymmetricProperty .
             // +9: the commercial and registered supply-chain class placements;
             // +2: SourceRecord and OpaqueSourceReference; +1: ContainerImage's
             // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
-            649
+            // +3: the connector-pack ingest vocabulary subclass edges (R101.1).
+            652
         );
     }
 
