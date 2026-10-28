@@ -411,16 +411,13 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
 
 
 def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
+    fifteen_min = "${{ github.event_name == 'pull_request' && 15 || 60 }}"
+    thirty_min = "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     pr_scoped = {
-        ("ci.yml", "quality-advisory"): (
-            "${{ github.event_name == 'pull_request' && 15 || 60 }}"
-        ),
-        ("ci.yml", "gates-crates"): (
-            "${{ github.event_name == 'pull_request' && 15 || 60 }}"
-        ),
+        ("ci.yml", "quality-advisory"): fifteen_min,
+        ("ci.yml", "gates-crates"): thirty_min,
     }.get(
-        (workflow.name, name),
-        "${{ github.event_name == 'pull_request' && 10 || 60 }}",
+        (workflow.name, name), "${{ github.event_name == 'pull_request' && 10 || 60 }}"
     )
     if (workflow.name, name) in {
         ("ci.yml", "quality-advisory"),
