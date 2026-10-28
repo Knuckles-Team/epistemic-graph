@@ -75,13 +75,112 @@ def requires_code(event: str, base: str, head: str) -> bool:
     return not documentation_diff(result.stdout)
 
 
+_TOOLCHAIN_PATHS = ("Cargo.lock", "rust-toolchain.toml")
+# Any change to CI wiring or to this selector runs every path-gated job.
+_ALL_GATES_PATHS = (".github/", "scripts/ci_change_scope.py")
+# Pull-request jobs that run only when a path they exercise changed. Push,
+# schedule and dispatch events always run them.
+PATH_GATES: dict[str, tuple[str, ...]] = {
+    "clients": (
+        "clients/",
+        "contract/",
+        "crates/eg-method-codec/",
+        "crates/eg-types/",
+        "scripts/build_method_codec_wasm.py",
+        *_TOOLCHAIN_PATHS,
+    ),
+    "whisper": (
+        "crates/eg-asr-whisper/",
+        "crates/eg-audio/",
+        "crates/eg-resource/",
+        "scripts/fetch_whisper_test_fixture.sh",
+        *_TOOLCHAIN_PATHS,
+    ),
+    "tts": (
+        "crates/eg-tts-piper/",
+        "crates/eg-audio/",
+        "scripts/fetch_onnxruntime.sh",
+        *_TOOLCHAIN_PATHS,
+    ),
+    "packaging": (
+        "crates/eg-numeric/",
+        "crates/eg-pyengine/",
+        "packaging/",
+        "pyproject.toml",
+        "build.rs",
+        "build_backend.py",
+        "Cargo.toml",
+        "scripts/inject_numeric_kernel.py",
+        "scripts/inject_ontology.py",
+        "scripts/strip_wheel_executables.py",
+        "scripts/normalize_wheel_sbom.py",
+        "scripts/normalize_wheel_build_paths.py",
+        "scripts/check_wheel_privacy.py",
+        "scripts/check_wheel_completeness.py",
+        "scripts/configure_rust_path_remap.py",
+        *_TOOLCHAIN_PATHS,
+    ),
+}
+
+
+def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
+    return any(
+        path.startswith(prefix) if prefix.endswith("/") else path == prefix
+        for prefix in prefixes
+    )
+
+
+def gates_for_paths(paths: list[str]) -> dict[str, bool]:
+    """Select path-gated jobs for a known pull-request file list."""
+    if any(_matches(path, _ALL_GATES_PATHS) for path in paths):
+        return dict.fromkeys(PATH_GATES, True)
+    return {
+        gate: any(_matches(path, prefixes) for path in paths)
+        for gate, prefixes in PATH_GATES.items()
+    }
+
+
+def path_gates(event: str, base: str, head: str) -> dict[str, bool]:
+    """Unknown refs, unavailable history and non-PR events run every gate."""
+    if event != "pull_request" or not all(
+        re.fullmatch(r"[0-9a-f]{40}", ref) for ref in (base, head)
+    ):
+        return dict.fromkeys(PATH_GATES, True)
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "--no-renames", "-z", f"{base}...{head}"],
+            check=True,
+            capture_output=True,
+        )
+        paths = [p for p in result.stdout.decode("utf-8").split("\0") if p]
+    except (OSError, subprocess.CalledProcessError, UnicodeDecodeError):
+        return dict.fromkeys(PATH_GATES, True)
+    if not paths:
+        return dict.fromkeys(PATH_GATES, True)
+    return gates_for_paths(paths)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event", required=True)
     parser.add_argument("--base", default="")
     parser.add_argument("--head", default="")
+    parser.add_argument(
+        "--path-gates",
+        action="store_true",
+        help="also print one <gate>=true|false line per pull-request path gate",
+    )
     args = parser.parse_args()
-    print(f"code={str(requires_code(args.event, args.base, args.head)).lower()}")
+    code = requires_code(args.event, args.base, args.head)
+    print(f"code={str(code).lower()}")
+    if args.path_gates:
+        gates = (
+            path_gates(args.event, args.base, args.head)
+            if code
+            else dict.fromkeys(PATH_GATES, False)
+        )
+        for gate, selected in gates.items():
+            print(f"{gate}={str(selected).lower()}")
 
 
 if __name__ == "__main__":
