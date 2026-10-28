@@ -42,12 +42,17 @@ pub mod asr_wire;
 pub mod capacity_lease;
 // EG-DURABLE-KERNEL-R076.1 — authoritative scheduler policy data and validation.
 pub mod scheduler_config;
+// EG-TYPED-PACKS-R803.1 — typed sensitive-data detector and detection records.
+pub mod sensitive_detect;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 // EG-SRC-AUTH-R007.1 — typed audit entries for source selection evidence.
 pub mod authority_audit;
 pub mod change_envelope;
+// EG-DURABLE-KERNEL-R087.1 — typed semantic changeset-review model. The
+// authenticated producer/consumer route is a later R087.2 concern.
+pub mod changeset_review;
 // EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and
 // change-stream capture are later children.
@@ -228,6 +233,9 @@ pub mod postgres_adapter;
 // `row_predicate`, since `eg-core` needs it on both sides of its backend `#[cfg]`
 // split.
 pub mod embedding;
+// EG-FEDERATED-QUERY-R083.1 — typed prior/retrieved candidates and the closed
+// arbitration verdict value; support classification and policy live above.
+pub mod retrieval_arbitration;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
@@ -343,6 +351,9 @@ pub mod ontology_inspection;
 // F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
 pub mod rdf_report;
 pub mod row_predicate;
+// EG-FEDERATED-QUERY-R082.1 — typed calibration, bounded limits and closed
+// stop-verdict vocabulary; decision precedence lives in eg-plan.
+pub mod retrieval_stop;
 pub mod runtime_limit;
 // EH-558 — sealed record classes: content-addressed rows generic writes may not change.
 pub mod sealed_record;
