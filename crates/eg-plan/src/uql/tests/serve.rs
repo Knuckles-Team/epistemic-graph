@@ -248,6 +248,20 @@ fn budgets_refuse_with_a_typed_error() {
     assert!(err.starts_with(crate::budget::BUDGET_EXCEEDED), "{err}");
 }
 
+// Regression coverage for EG-FEDERATED-QUERY-R070; native acceptance remains pending.
+#[test]
+fn profile_refuses_when_final_rows_exceed_budget() {
+    let (view, semantic) = fixture();
+    let ctx = PlanCtx::new(&view, &semantic).with_budget(Budget {
+        max_result_rows: 1,
+        max_traversal_visits: 100,
+        max_series_work: Budget::DEFAULT_MAX_SERIES_WORK,
+    });
+    let err = run("PROFILE MATCH (:Doc)", &Params::new(), &ctx).unwrap_err();
+    assert!(err.starts_with(crate::budget::BUDGET_EXCEEDED), "{err}");
+    assert!(err.contains("max_result_rows = 1"), "{err}");
+}
+
 /// docs → cited (TRAVERSE) → JOIN docs, cited → RERANK MENTIONS → RETURN mentions: four
 /// nodes, the third joining the first two.
 const PROGRAM: &str = "LET docs = MATCH (:Doc); LET cited = FROM docs |> TRAVERSE CITES; \
