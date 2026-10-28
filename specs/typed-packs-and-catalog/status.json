@@ -2425,7 +2425,7 @@
         "crates/eg-types/src/connector_pack/index.rs:140",
         "src/server/handlers/admin/connector_pack/tests/scale.rs:140",
         "src/server/handlers/admin/connector_pack/tests/scale.rs:203",
-        "src/server/persistence/connector_pack/declaration.rs:101"
+        "src/server/persistence/connector_pack/declaration.rs:121"
       ]
     },
     {

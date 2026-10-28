@@ -3521,6 +3521,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "chacha20poly1305",
+ "chrono",
  "clap",
  "criterion",
  "cyclonedds",

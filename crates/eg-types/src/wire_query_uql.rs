@@ -355,8 +355,9 @@ pub fn uql_op(op: &Op) -> Printed {
         Op::ValidateShape {
             shape,
             shapes,
+            projection_base,
             keep,
-        } => super::wire_query_uql_modal::validate_shape(shape, shapes, *keep),
+        } => super::wire_query_uql_modal::validate_shape(shape, shapes, projection_base, *keep),
         #[cfg(feature = "wasm-udf")]
         Op::Udf { id } => keyword_quoted("UDF", id),
         #[cfg(feature = "federation")]

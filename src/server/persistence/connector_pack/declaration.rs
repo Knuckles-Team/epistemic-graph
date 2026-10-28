@@ -21,6 +21,8 @@ struct DeclaredMapping {
     ontology_class: Option<String>,
     #[serde(default)]
     fields: BTreeMap<String, String>,
+    #[serde(default)]
+    datatypes: BTreeMap<String, String>,
 }
 
 /// Decode `schema_mappings` from the declaration JSON, keyed by record type.
@@ -48,15 +50,33 @@ pub fn decode_schema_mappings(
         {
             return Err("schema mappings contain an empty key or field".to_string());
         }
+        validate_mapping_datatypes(&mapping)?;
         mappings.insert(
             key,
             ConnectorSchemaMapping {
                 ontology_class: mapping.ontology_class.unwrap_or_default(),
                 fields: mapping.fields,
+                datatypes: mapping.datatypes,
             },
         );
     }
     Ok(mappings)
+}
+
+fn validate_mapping_datatypes(mapping: &DeclaredMapping) -> Result<(), String> {
+    for (field, datatype) in &mapping.datatypes {
+        if !eg_types::connector_pack::source_datatype_supported(datatype) {
+            return Err("schema mapping contains an unsupported datatype".into());
+        }
+        if !mapping
+            .fields
+            .get(field)
+            .is_some_and(|target| !target.starts_with("xsd:"))
+        {
+            return Err("schema datatype requires an explicit mapped field target".into());
+        }
+    }
+    Ok(())
 }
 
 /// Relations declared by the pack ontologies' object properties, keyed
@@ -129,6 +149,20 @@ mod tests {
             br#"{"schema_mappings":[]}"#,
         ] {
             assert!(decode_schema_mappings(body).is_err(), "{body:?}");
+        }
+    }
+
+    #[test]
+    fn datatype_must_be_supported_and_bound_to_a_named_target() {
+        let valid = br#"{"schema_mappings":{"A":{"fields":{"time":"observationTime"},"datatypes":{"time":"xsd:dateTime"}}}}"#;
+        let mapping = decode_schema_mappings(valid).unwrap();
+        assert_eq!(mapping["A"].datatypes["time"], "xsd:dateTime");
+        for body in [
+            br#"{"schema_mappings":{"A":{"datatypes":{"time":"xsd:dateTime"}}}}"#.as_slice(),
+            br#"{"schema_mappings":{"A":{"fields":{"time":"observationTime"},"datatypes":{"time":"xsd:invented"}}}}"#,
+            br#"{"schema_mappings":{"A":{"fields":{"time":"xsd:string"},"datatypes":{"time":"xsd:dateTime"}}}}"#,
+        ] {
+            assert!(decode_schema_mappings(body).is_err());
         }
     }
 

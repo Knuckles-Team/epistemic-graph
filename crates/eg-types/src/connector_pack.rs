@@ -70,6 +70,28 @@ pub const CONNECTOR_PACK_RESULT_SCHEMA_ID: &str = "connector-pack-import-result.
 pub struct ConnectorSchemaMapping {
     pub ontology_class: String,
     pub fields: std::collections::BTreeMap<String, String>,
+    /// Datatype for a declared source field; target names remain in `fields`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub datatypes: std::collections::BTreeMap<String, String>,
+}
+
+/// Datatypes supported by authoritative connector source mappings.
+pub fn source_datatype_supported(value: &str) -> bool {
+    matches!(
+        value,
+        "xsd:string"
+            | "xsd:date"
+            | "xsd:dateTime"
+            | "xsd:anyURI"
+            | "xsd:boolean"
+            | "xsd:integer"
+            | "xsd:int"
+            | "xsd:long"
+            | "xsd:nonNegativeInteger"
+            | "xsd:decimal"
+            | "xsd:double"
+            | "xsd:float"
+    )
 }
 
 /// One relationship declared by a pack ontology object property.

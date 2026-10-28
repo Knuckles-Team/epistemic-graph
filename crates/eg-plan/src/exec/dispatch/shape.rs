@@ -24,14 +24,16 @@ pub(super) fn validate_shape(
     input: RowSet,
     shape: &str,
     shapes: &str,
+    projection_base: &str,
     keep: ShapeKeep,
 ) -> Result<RowSet, String> {
     if input.is_empty() {
         return Ok(input);
     }
     let shapes_graph = shapes_graph(ctx, shapes)?;
-    let data_graph = data_graph(ctx.view)?;
-    let focus = focus_terms(&input)?;
+    let projection = eg_rdf::sparql::Projection::from_wire(projection_base, "");
+    let data_graph = data_graph(ctx.view, &projection)?;
+    let focus = focus_terms(&input, &projection)?;
     let report = eg_shacl::validate_nodes(&shapes_graph, &data_graph, bare_iri(shape), &focus)
         .map_err(|error| format!("VALIDATE SHAPE: {error}"))?;
     let violating: HashSet<&str> = report
@@ -43,7 +45,9 @@ pub(super) fn validate_shape(
         .rows()
         .iter()
         .map(|row| row.id.as_str())
-        .filter(|id| violating.contains(id) == (keep == ShapeKeep::Violating))
+        .filter(|id| {
+            violating.contains(projection.node_iri(id).as_str()) == (keep == ShapeKeep::Violating)
+        })
         .collect();
     Ok(input.intersect_keep_order(&kept))
 }
@@ -67,8 +71,11 @@ fn shapes_graph(ctx: &PlanCtx, shapes: &str) -> Result<eg_shacl::Graph, String> 
 }
 
 /// The snapshot's RDF projection as a SHACL data graph.
-fn data_graph(view: &GraphView) -> Result<eg_shacl::Graph, String> {
-    let triples = eg_rdf::mapping::export_view_triples(view)
+fn data_graph(
+    view: &GraphView,
+    projection: &eg_rdf::sparql::Projection,
+) -> Result<eg_shacl::Graph, String> {
+    let triples = eg_rdf::mapping::export_view_projected(view, projection)
         .map_err(|error| format!("VALIDATE SHAPE: project the graph to RDF: {error}"))?;
     let mut graph = eg_shacl::Graph::new();
     for triple in &triples {
@@ -79,8 +86,15 @@ fn data_graph(view: &GraphView) -> Result<eg_shacl::Graph, String> {
 
 /// Every row id as an RDF term. A row whose id is not a term has no RDF identity and
 /// cannot be a focus node, so the stage refuses rather than guessing a verdict for it.
-fn focus_terms(input: &RowSet) -> Result<Vec<Term>, String> {
-    input.rows().iter().map(|row| term(&row.id)).collect()
+fn focus_terms(
+    input: &RowSet,
+    projection: &eg_rdf::sparql::Projection,
+) -> Result<Vec<Term>, String> {
+    input
+        .rows()
+        .iter()
+        .map(|row| term(&projection.node_iri(&row.id)))
+        .collect()
 }
 
 fn term(id: &str) -> Result<Term, String> {
