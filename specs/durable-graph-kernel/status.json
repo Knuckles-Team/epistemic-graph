@@ -2784,9 +2784,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R086.4",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f036b2e99be1"
+      ],
+      "verified_by": [
+        "src/server/persistence/read_through.rs:28"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.5",
