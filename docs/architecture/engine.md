@@ -2,9 +2,10 @@
 
 Super Intelligence (SI) is the Arbora project term for model-backed agents.
 
-This is the deep architectural reference for Medulla — the one durable engine that unifies
-graph, vector, SQL, RDF/SPARQL, OWL-2, time-series, content-addressed BLOB, full-text, and reasoning
-behind a single cross-modal planner, distributed and replicated from a Raspberry Pi to an HA cluster.
+This is the deep architectural reference for Medulla. It is the one durable engine that unifies
+graph, vector, SQL, RDF/SPARQL, OWL-2, time-series, content-addressed BLOB, full-text and reasoning.
+One cross-modal planner sits behind all of them. It is distributed and replicated from a Raspberry Pi
+to an HA cluster.
 
 For the entry-level map see [the overview](../overview.md); for build composition see
 [One build, opt-in layers](tiers.md); for the protocol see [Service Mode](../service_mode.md).

@@ -127,7 +127,7 @@ configuration.
 
 `GRAPH_SERVICE_ENDPOINTS` is the sole Agent Utilities client-topology selector.
 `GRAPH_SERVICE_TCP_ADDR` and `GRAPH_SERVICE_SOCKET` configure Medulla
-server listeners (and may be passed explicitly to the native client); they do
-not select an Agent Utilities resolver mode. See [Service Mode](service_mode.md)
+server listeners, and a caller may also pass them explicitly to the native client.
+Neither selects an Agent Utilities resolver mode. See [Service Mode](service_mode.md)
 for server variables and [Deployment](deployment.md) for the standalone-container
 path the `remote` mode connects to.

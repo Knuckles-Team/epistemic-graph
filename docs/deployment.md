@@ -42,9 +42,9 @@ truth** and a committed write survives `kill -9` (commit-before-ack). It targets
 
 For a smaller binary, build with the size-optimized `release-tiny` cargo profile (in the
 workspace `Cargo.toml`). It inherits `release` but uses `opt-level = "z"`, fat LTO, one
-codegen unit, `strip = true`, and `panic = "unwind"` (kept — this is a DB; unwind keeps a
-panic recoverable rather than aborting the process). The default `release` profile is
-untouched, so normal builds are unaffected.
+codegen unit, `strip = true`, and `panic = "unwind"`. Unwind is kept deliberately: this is
+a DB, so a panic stays recoverable instead of aborting the process. The default `release`
+profile keeps its defaults, so normal builds are unaffected.
 
 ```bash
 # the main build, smallest binary

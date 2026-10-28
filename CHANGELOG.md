@@ -243,10 +243,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Shed the lowest class first** — each class has a headroom ceiling; under
     pressure `Ingest` is shed (`BUSY`) before `Hydration` before `Orch`, leaving
     the reserved headroom for `Interactive`. Admission ordering, not FIFO.
-  - **Per-principal token buckets, per class** — a lazily-refilled
-    `(principal, class)` bucket bounds a single noisy principal's sustained rate
-    *inside its class*; a principal flooding `Ingest` is shed `RateLimited` while
-    its own `Interactive` bucket and every other principal's buckets stay full.
+  - **Per-principal token buckets, per class.** A lazily-refilled
+    `(principal, class)` bucket bounds one noisy principal's sustained rate
+    *inside its class*. A principal flooding `Ingest` is shed `RateLimited`;
+    its `Interactive` bucket and every other principal's buckets stay full.
     Bucket maps stay bounded by the live-principal set (freed when a principal
     drains to zero in-flight).
   - **Per-class Prometheus metrics** (feature `metrics`):
