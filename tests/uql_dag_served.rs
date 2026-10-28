@@ -76,6 +76,8 @@ async fn uql(state: &test_support::SharedState, id: u64, text: &str) -> Response
             Method::Uql {
                 text: text.to_string(),
                 params: Default::default(),
+                prepare: false,
+                foreign_execution: None,
             },
         ),
     )
