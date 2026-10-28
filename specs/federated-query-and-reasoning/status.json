@@ -2637,9 +2637,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R084.2",
       "title": "Behavior: data selection",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "56d670a5371b"
+      ],
+      "verified_by": [
+        "src/server/tests/shex_served.rs:71"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R084.3",
