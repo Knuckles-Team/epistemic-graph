@@ -644,6 +644,12 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "FACTOR_RECORD_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "decision",
       "code": "FEATURE_SCHEMA_INVALID",
       "http_status_hint": 400,
@@ -1515,6 +1521,12 @@
     },
     {
       "class": "server",
+      "code": "SEED_TURTLE_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "SELECTION_UNAVAILABLE",
       "http_status_hint": 400,
       "retryable": false
@@ -1545,6 +1557,30 @@
     },
     {
       "class": "server",
+      "code": "SOURCE_APPROVAL_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_APPROVAL_NOT_ADMITTED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_APPROVAL_SCHEMA_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_APPROVAL_STORE_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "SOURCE_AUTHORITATIVE_LIVE_ID_INVALID",
       "http_status_hint": 400,
       "retryable": false
@@ -1558,6 +1594,24 @@
     {
       "class": "server",
       "code": "SOURCE_AUTHORITATIVE_LIVE_ID_WITHDRAWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_BINDING_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_BINDING_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_BINDING_NOT_REGISTERED",
       "http_status_hint": 400,
       "retryable": false
     },
