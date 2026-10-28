@@ -711,8 +711,10 @@
     {
       "id": "EG-REPO-INGEST-R800.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "052265feef24"
+      ],
       "verified_by": [
         "crates/eg-document/src/transcript.rs:151",
         "crates/eg-document/src/transcript.rs:226",
@@ -782,7 +784,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-durable/src/hydration.rs:230",
+        "crates/eg-durable/src/hydration.rs:279"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R650.2",
