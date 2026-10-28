@@ -26,6 +26,12 @@ FinancialInstrument; a 'search' action actsOn a Concept.""" ;
     rdfs:domain :ActionInvocation ;
     rdfs:seeAlso prov:used .
 
+:failureReason a owl:DatatypeProperty ;
+    rdfs:label "failure reason" ;
+    rdfs:comment "The human-readable reason an ActionInvocation failed (Stirling-PDF)." ;
+    rdfs:domain :ActionInvocation ;
+    rdfs:range xsd:string .
+
 :hasParameter a owl:ObjectProperty ;
     rdfs:label "has parameter" ;
     rdfs:comment "Links an OntologyAction to one of its ActionParameter inputs." ;

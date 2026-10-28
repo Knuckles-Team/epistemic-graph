@@ -731,6 +731,14 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/core-foundation-v1.ttl")),
         },
+        // The core-foundation SHACL shapes are their own core source, the
+        // same pattern as orchestration-shapes and finance-shapes.
+        CoreSpec {
+            module: "foundation-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/core-foundation-v1.shapes.ttl")),
+            ontology: None,
+        },
         CoreSpec {
             module: "capability",
             version: 1,
@@ -820,6 +828,14 @@ fn core_specs() -> &'static [CoreSpec] {
             version: 1,
             shapes: None,
             ontology: Some(include_str!("../../ontology/government-v1.ttl")),
+        },
+        // The government SHACL shapes are their own core source, the same
+        // pattern as orchestration-shapes and finance-shapes.
+        CoreSpec {
+            module: "government-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/government-v1.shapes.ttl")),
+            ontology: None,
         },
         CoreSpec {
             module: "harness",
@@ -1410,11 +1426,11 @@ mod tests {
             ),
             (
                 "action",
-                "ecbbd3b188a10d231920d30a66dc9c69ebc659c4cfd857cfbd888d5bbc71f24c",
+                "eb539c1652be9fa0bc9c60881221e081a17c6afb9c3cdb9d21cd73521819c98a",
             ),
             (
                 "archimate",
-                "64da730d94db932bb679ae124b2fa6c2e4d490252b04a29f592b4dfef8e857d7",
+                "e6d754a3194e3a8d97504c366f82b31f8f3b04f0abb68c80e0e14dffdf6454ad",
             ),
             (
                 "capability",
@@ -1450,7 +1466,11 @@ mod tests {
             ),
             (
                 "foundation",
-                "c9bd8c1c66bcb6d142cf5d75659e87dc8c8c5b061d78ddcc370681a1c44ac41e",
+                "60aad5fa80fb5c30da26dbc3e89d28f39bfa61f333cfe311b568778a3dd1ab0e",
+            ),
+            (
+                "foundation-shapes",
+                "ba532a3f531cc41b195ef7bce35bde44676046928fa300ba46574ed3f8c75e23",
             ),
             (
                 "documentation",
@@ -1470,7 +1490,11 @@ mod tests {
             ),
             (
                 "government",
-                "7f3f909c1d726d5394a189115782d4eb6e9fa04f736eda8e6e1be10c8eb98e71",
+                "1603a25737cb7457590c0bf9a16564c0a8ba173316d09c65f0fa01a537f09fa4",
+            ),
+            (
+                "government-shapes",
+                "46bd34ae2277727244c99ff0bea6eaa15d781481ebe90f61443764b3d021cb40",
             ),
             (
                 "harness",

@@ -773,3 +773,43 @@
     rdfs:comment "The non-negative maintenance margin requirement." ;
     rdfs:domain :LeverageTerms ;
     rdfs:range xsd:decimal .
+
+# ── Finance method vocabulary: algorithms and analysis types (EG-CQ-CONN-R084.5) ──
+#
+# The selection vocabulary for "which algorithm applies to analysis type X for
+# instrument or position type Y" (EG-CQ-CONN-R084.1): a :FinanceAlgorithm is a
+# first-class, queryable method record. Its applicability is declared over the
+# analysis types it computes (appliesToAnalysis) and the instrument or position
+# classes it operates over (appliesToInstrumentType); requiresInput names the
+# record classes it needs before it can run. Informational only, like the rest
+# of the module: a method declaration authorises nothing.
+
+:FinanceAlgorithm a owl:Class ;
+    rdfs:label "Finance Algorithm" ;
+    rdfs:comment "A first-class financial analysis method (a valuation, risk or signal algorithm) as a governed, queryable record: the analysis types it applies to, the instrument or position classes it operates over, and the record classes it requires as input. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:AnalysisType a owl:Class ;
+    rdfs:label "Analysis Type" ;
+    rdfs:comment "The kind of financial analysis a finance algorithm computes (e.g. a risk, valuation or trend-signal analysis): the analysis half of the algorithm applicability question. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:appliesToAnalysis a owl:ObjectProperty ;
+    rdfs:label "applies to analysis" ;
+    rdfs:comment "The analysis type a finance algorithm computes." ;
+    rdfs:domain :FinanceAlgorithm ;
+    rdfs:range :AnalysisType .
+
+:appliesToInstrumentType a owl:ObjectProperty ;
+    rdfs:label "applies to instrument type" ;
+    rdfs:comment "The instrument or position class a finance algorithm operates over." ;
+    rdfs:domain :FinanceAlgorithm ;
+    rdfs:range [ a owl:Class ;
+            owl:unionOf ( :FinancialInstrument :Position ) ] .
+
+:requiresInput a owl:ObjectProperty ;
+    rdfs:label "requires input" ;
+    rdfs:comment "The instrument or position record class a finance algorithm requires as input before it can run." ;
+    rdfs:domain :FinanceAlgorithm ;
+    rdfs:range [ a owl:Class ;
+            owl:unionOf ( :FinancialInstrument :Position ) ] .
