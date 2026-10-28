@@ -137,6 +137,7 @@ closed_error_codes! {
         IdentityWeakPassword => "IDENTITY_WEAK_PASSWORD",
         ImporterMismatch => "IMPORTER_MISMATCH",
         Internal => "INTERNAL",
+        InvalidConfiguration => "INVALID_CONFIGURATION",
         InvalidFacts => "INVALID_FACTS",
         InvalidImporter => "INVALID_IMPORTER",
         InvalidRetirement => "INVALID_RETIREMENT",

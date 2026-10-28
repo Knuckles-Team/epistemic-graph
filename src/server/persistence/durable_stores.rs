@@ -314,6 +314,10 @@ mod tests {
             "eg-transaction graft destination unit-test fixture (tempdir)",
         ),
         (
+            "durability-admission.redb",
+            "eg-storage physical-store durability admission unit-test fixture (tempdir)",
+        ),
+        (
             "loser.redb",
             "eg-transaction competing graft loser unit-test fixture (tempdir)",
         ),
