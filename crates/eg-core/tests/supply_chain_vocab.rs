@@ -2058,3 +2058,124 @@ fn blocking_key_fixture_covers_each_concept_with_two_keys() {
         assert!(keys >= 2, "{keyset} lists at least two keys (found {keys})");
     }
 }
+// spec: EG-SUPPLY-VOCAB-R007.2
+#[test]
+fn digest_key_is_exact_name_only_key_is_a_proposal() {
+    use eg_types::entity_link_proposal::{
+        AttachedApplication, CannotAssert, EntityLinkProposal, EntityRef, MatchClass,
+    };
+
+    let triples =
+        parse_turtle(include_str!("fixtures/supply_chain_blocking_keys.ttl"))
+            .expect("the blocking-key fixture parses");
+    // The digest is the one exact key in the ContainerImage set; no key in
+    // the Supplier set is exact.
+    let exact_keys = |keyset: &str| -> usize {
+        triples
+            .iter()
+            .filter(|triple| {
+                subject_key(triple) == format!("<{BLOCKING}{keyset}>")
+                    && triple.predicate.as_str().ends_with("hasKey")
+            })
+            .filter_map(object_key)
+            .filter(|key| {
+                triples.iter().any(|triple| {
+                    subject_key(triple) == *key
+                        && triple.predicate.as_str().ends_with("exact")
+                        && literal_value(&triple.object) == "true"
+                })
+            })
+            .count()
+    };
+    assert_eq!(
+        exact_keys("containerImageKeys"),
+        1,
+        "the digest is the one exact key"
+    );
+    assert_eq!(
+        exact_keys("supplierKeys"),
+        0,
+        "no supplier key is exact"
+    );
+    // The fixture's two image rows share the digest value (the exact key).
+    let key_value = |row: &str, predicate: &str| -> String {
+        triples
+            .iter()
+            .find(|triple| {
+                subject_key(triple) == format!("<{BLOCKING}{row}>")
+                    && triple.predicate.as_str().ends_with(predicate)
+            })
+            .map(|triple| literal_value(&triple.object).to_string())
+            .unwrap_or_default()
+    };
+    let scout = key_value("scoutImage", "digestValue");
+    let mirror = key_value("mirrorImage", "digestValue");
+    assert_eq!(scout, mirror, "the two image rows share the exact digest key");
+    assert!(
+        scout.starts_with("sha256:"),
+        "the shared key is a sha256 digest"
+    );
+    // An exact digest match classifies as Match -- but a good score is never
+    // itself the approval.
+    let digest_proposal = EntityLinkProposal {
+        left: EntityRef {
+            application: AttachedApplication::Immich,
+            entity_id: "scoutImage".to_string(),
+        },
+        right: EntityRef {
+            application: AttachedApplication::Twenty,
+            entity_id: "mirrorImage".to_string(),
+        },
+        match_class: MatchClass::Match,
+        match_score_milli: 1000,
+        approved_by: None,
+    };
+    assert_eq!(
+        digest_proposal.assert_same_as(),
+        Err(CannotAssert::NotApproved),
+        "a digest match still needs approval"
+    );
+    let approved_digest = EntityLinkProposal {
+        approved_by: Some("operator".to_string()),
+        ..digest_proposal.clone()
+    };
+    assert!(
+        approved_digest.assert_same_as().is_ok(),
+        "an approved digest match asserts"
+    );
+    // The fixture's two supplier rows share only the name key, which is
+    // never exact: the candidate is an Ambiguous proposal, and an approval
+    // cannot override the classifier.
+    assert_eq!(
+        key_value("acmeRow", "legalName"),
+        key_value("acmeAltRow", "legalName"),
+        "the supplier rows share the normalized legal name"
+    );
+    let name_proposal = EntityLinkProposal {
+        left: EntityRef {
+            application: AttachedApplication::Firefly,
+            entity_id: "acmeRow".to_string(),
+        },
+        right: EntityRef {
+            application: AttachedApplication::Gramps,
+            entity_id: "acmeAltRow".to_string(),
+        },
+        match_class: MatchClass::Ambiguous,
+        match_score_milli: 620,
+        approved_by: None,
+    };
+    assert_eq!(
+        name_proposal.assert_same_as(),
+        Err(CannotAssert::NotAMatch),
+        "a name-only match is refused until approved"
+    );
+    let approved_name = EntityLinkProposal {
+        approved_by: Some("operator".to_string()),
+        ..name_proposal.clone()
+    };
+    assert_eq!(
+        approved_name.assert_same_as(),
+        Err(CannotAssert::NotAMatch),
+        "a name-only key stays a proposal even with an approver"
+    );
+}
