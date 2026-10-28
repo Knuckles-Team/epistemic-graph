@@ -713,7 +713,11 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-document/src/transcript.rs:151",
+        "crates/eg-document/src/transcript.rs:226",
+        "crates/eg-document/src/transcript.rs:248"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R800.2",
