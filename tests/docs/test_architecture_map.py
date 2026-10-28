@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
 
 import pytest
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 PLAN = ROOT / "specs/public-engine-contract-and-release/plan.md"
@@ -61,7 +61,9 @@ def test_module_inventory_matches_workspace_manifests() -> None:
         manifest = tomllib.loads(
             (ROOT / "crates" / crate / "Cargo.toml").read_text(encoding="utf-8")
         )
-        return {name for name in manifest.get("dependencies", {}) if name.startswith("eg-")}
+        return {
+            name for name in manifest.get("dependencies", {}) if name.startswith("eg-")
+        }
 
     assert deps("eg-types") == set()
     assert "eg-types" in deps("eg-modality")
@@ -109,7 +111,9 @@ def test_build_package_and_runtime_boundaries_match_source() -> None:
     assert "`_compose`" in section
 
 
-ANCHOR = re.compile(r"`(src/[\w/]+\.rs):(\d+)`, `(\w+)`|`(src/[\w/]+\.rs):(\d+)` exports `(\w+)`")
+ANCHOR = re.compile(
+    r"`(src/[\w/]+\.rs):(\d+)`, `(\w+)`|`(src/[\w/]+\.rs):(\d+)` exports `(\w+)`"
+)
 
 
 @pytest.mark.no_engine
@@ -119,7 +123,9 @@ def test_shared_contract_anchors_resolve_to_source() -> None:
     anchors = [
         (m[0] or m[3], int(m[1] or m[4]), m[2] or m[5]) for m in ANCHOR.findall(section)
     ]
-    assert len(anchors) >= 2, "the served mutation and planned query anchors are present"
+    assert len(anchors) >= 2, (
+        "the served mutation and planned query anchors are present"
+    )
     for path, line, symbol in anchors:
         lines = (ROOT / path).read_text(encoding="utf-8").splitlines()
         assert symbol in lines[line - 1], f"{path}:{line} names {symbol}"
@@ -137,5 +143,8 @@ def test_shared_contract_anchors_resolve_to_source() -> None:
         encoding="utf-8"
     )
     # The map adds no second authority and makes no universal-planner claim.
-    assert "adds no planner, identity registry, provenance store, or transaction authority" in section
+    assert (
+        "adds no planner, identity registry, provenance store, or transaction authority"
+        in section
+    )
     assert "both directly and through planning" in section
