@@ -10,12 +10,12 @@ copyright: "Copyright &copy; Knuckles-Team — MIT licensed"
 
 extra:
   ecosystem:
-    current: epistemic-graph
+    current: medulla
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/Knuckles-Team/medulla
     - icon: fontawesome/brands/python
-      link: https://pypi.org/project/epistemic-graph/
+      link: https://pypi.org/project/medulla/
 
 plugins:
   - search

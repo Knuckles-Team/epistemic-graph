@@ -46,7 +46,7 @@ Run the adapter from a clean EG checkout with an already-installed binary:
 
 ```sh
 python3 scripts/check_dupehound_census.py \
-  --repository agent-packages/epistemic-graph \
+  --repository agent-packages/medulla \
   --commit HEAD \
   --profile dupehound-full-tree-v1:epistemic-graph \
   --raw-output /tmp/eg-dupehound.raw.json \

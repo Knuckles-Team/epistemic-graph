@@ -1,6 +1,6 @@
 # Deployment topology — the engine, and what the operator can bolt onto it
 
-`epistemic-graph` runs **standalone**. It is a complete durable database on its own —
+Medulla runs **standalone**. It is a complete durable database on its own —
 the operator can deploy *only* the engine and talk to it over the Postgres wire (or any of the
 other wire protocols) with nothing else installed. Everything below the engine in the
 diagram is **optional** and additive: each component uses the engine, none is required
@@ -9,7 +9,7 @@ to run it.
 ```mermaid
 flowchart TD
     subgraph Core["Always required — the database"]
-        EG["epistemic-graph<br/>(epistemic-graph-server)<br/>durable multi-modal DB · pgwire/SQL/Cypher/SPARQL/vector/tsdb"]
+        EG["Medulla<br/>(epistemic-graph-server)<br/>durable multi-modal DB · pgwire/SQL/Cypher/SPARQL/vector/tsdb"]
     end
 
     subgraph Optional["Optional — enhance, never required"]
@@ -33,13 +33,13 @@ flowchart TD
 
 | Component | Repo | What it is | Needs | Talks to the engine via | Required? |
 |-----------|------|------------|-------|-------------------------|-----------|
-| **epistemic-graph** | `epistemic-graph` | The durable multi-modal database engine — the whole product. | nothing | *is* the engine | **Always** |
-| **agent-utilities** | `agent-utilities` | The orchestrator + Knowledge-Graph hub (`arbora`). Uses **every** engine feature — ontology/OWL reasoning, ingestion, agents, the loop engine — and exposes it to the fleet over MCP. | epistemic-graph | MessagePack RPC (`GRAPH_SERVICE_TCP_ADDR`) or UDS + the native `epistemic_graph` client | Optional |
+| **Medulla** | `medulla` | The durable multi-modal database engine — the whole product. | nothing | *is* the engine | **Always** |
+| **agent-utilities** | `agent-utilities` | The orchestrator + Knowledge-Graph hub (`arbora`). Uses **every** engine feature — ontology/OWL reasoning, ingestion, agents, the loop engine — and exposes it to the fleet over MCP. | Medulla | MessagePack RPC (`GRAPH_SERVICE_TCP_ADDR`) or UDS + the native `epistemic_graph` client | Optional |
 | **agent-webui** | `agent-webui` | A web UI to **visualize and explore the database** (graphs, tables, query results). | agent-utilities (and/or direct engine reads) | through agent-utilities; can also read the DB directly | Optional |
 | **agent-terminal-ui** | `agent-terminal-ui` | A terminal client for the fleet. | agent-utilities | through agent-utilities | Optional |
 | **geniusbot** | `geniusbot` | A desktop "cockpit" (PySide6/Qt) — visual command centre over the fleet. | agent-utilities | through agent-utilities | Optional |
 
-> **The line to hold:** epistemic-graph is a **stand-alone database**. It does not
+> **The line to hold:** Medulla is a **stand-alone database**. It does not
 > depend on any of the components above and never calls back into them. They are
 > *clients* of the engine. Deploy just the engine and the operator has a working, durable,
 > multi-wire DB.
@@ -61,7 +61,7 @@ it with the operator's own clients (psql, DBeaver, a BI tool, an app, an ORM).
 ### 2. Engine + agent-utilities (the full platform)
 
 Add the orchestrator/KG hub. The `agent-utilities` base install always carries the
-mandatory `epistemic-graph[full]` artifact. For a local dev box, Arbora autostarts and
+mandatory `medulla[full]` artifact. For a local dev box, Arbora autostarts and
 supervises its server binary over a private UDS socket; alternatively it connects to the
 **standalone engine container** the operator deployed in shape (1) for a shared, durable,
 separately-scaled database. It layers on ontology-driven ingestion, an agent fleet, MCP

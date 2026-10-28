@@ -11,7 +11,7 @@
 Claim/Evidence/`BeliefState` confidence propagation, plus a paraconsistent,
 justification-based TMS with genuine Dung abstract-argumentation semantics
 (grounded/preferred/stable extensions) reachable standalone via
-`Method::ResolveConflict` (see `epistemic-graph/AGENTS.md`, and
+`Method::ResolveConflict` (see `medulla/AGENTS.md`, and
 `agent_utilities/mcp/tools/epistemic_tools.py`'s `graph_epistemic` tool).
 
 AIF is the *interchange formalization* of exactly that argumentation model —
