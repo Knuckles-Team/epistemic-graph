@@ -3947,10 +3947,14 @@
     {
       "id": "EG-TYPED-PACKS-R085.4.3",
       "title": "Renewal contract and served qualification",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "63841f955e6f",
+        "746d29e2e17f"
+      ],
       "verified_by": [
-        "src/server/dispatch/identity_store/resolution_context/tests.rs:681"
+        "src/server/dispatch/identity_store/resolution_context/tests.rs:681",
+        "src/server/dispatch/identity_store/resolution_context/tests.rs:781"
       ]
     },
     {
