@@ -1,0 +1,47 @@
+# Virtual-mapping fixture: leanix Provider to kg:Supplier (rank 2) and
+# leanix `supports` to kg:supportsCapability (EG-SUPPLY-VOCAB-R005.4).
+#
+# Recorded over the leanix `leanix_source_factsheets` operation. LeanIX is the
+# rank-2 source for Supplier (erpnext is rank 1) and the rank-1 source for
+# the service-to-capability link: its connector-side `supports` relation
+# projects onto the shared kg:supportsCapability (Decision D1).
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-leanix#> .
+
+ex:leanixConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://leanix.invalid/api" ] .
+
+ex:leanixSourceFactsheets a vg:MetadataContract ;
+    vg:contractSource ex:leanixConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:5ff06bc7fa4f43c75e8514eba610a9e04d342882e2b4945ee883bd6a2a6ce614" ;
+    vg:discoveredEntity "Provider" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "title" ;
+    vg:discoveredField "supports" ;
+    vg:discoveredOperation "leanix_source_factsheets" .
+
+ex:providerMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:leanixSourceFactsheets ;
+    vg:mapsOntologyClass kg:Supplier ;
+    vg:mapsEntity "Provider" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "title" ] ;
+    # The connector-side `supports` relation projects onto the shared
+    # service-to-capability property (Decision D1).
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:supportsCapability ;
+        vg:field "supports" ] ;
+    vg:approved true .
+
+# LeanIX is the rank-2 authority for Supplier (erpnext is rank 1).
+ex:providerAuthority a vg:SourceAuthority ;
+    vg:authoritativeSource ex:leanixConnection ;
+    vg:authorityFor kg:Supplier ;
+    vg:authorityRank 2 .

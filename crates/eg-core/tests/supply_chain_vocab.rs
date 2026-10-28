@@ -47,6 +47,39 @@ fn literal_value(term: &Term) -> &str {
     }
 }
 
+/// Every predicate-field pair a virtual mapping declares, as
+/// `(predicate local name, discovered field name)`.
+fn pair_fields(triples: &[Triple], mapping_key: &str) -> Vec<(String, String)> {
+    triples
+        .iter()
+        .filter(|triple| {
+            subject_key(triple) == mapping_key
+                && triple.predicate.as_str().ends_with("hasPredicateFieldPair")
+        })
+        .filter_map(object_key)
+        .filter_map(|pair| {
+            let predicate = triples
+                .iter()
+                .find(|triple| {
+                    subject_key(triple) == pair
+                        && triple.predicate.as_str().ends_with("#predicate")
+                })
+                .and_then(object_key)?;
+            let field = triples
+                .iter()
+                .find(|triple| {
+                    subject_key(triple) == pair
+                        && triple.predicate.as_str().ends_with("#field")
+                })
+                .map(|triple| literal_value(&triple.object).to_string())?;
+            Some((
+                predicate.trim_matches(['<', '>']).rsplit('#').next().unwrap().to_string(),
+                field,
+            ))
+        })
+        .collect()
+}
+
 fn load_supply_chain() -> Vec<Triple> {
     parse_turtle(include_str!("../ontology/supply_chain-v1.ttl"))
         .expect("the supply-chain vocabulary parses")
@@ -1130,6 +1163,7 @@ fn declared_capacity_thresholds_pass_the_host_limit_shape() {
 const VG: &str = "http://knuckles.team/kg/virtual-graph#";
 
 const VM_ERPNEXT: &str = "http://knuckles.team/test/vm-erpnext#";
+const VM_LEANIX: &str = "http://knuckles.team/test/vm-leanix#";
 
 const VIRTUAL_SHAPES: &str = include_str!("../ontology/virtual_graph-v1.shapes.ttl");
 
@@ -1245,32 +1279,7 @@ fn erpnext_item_and_po_mapping_declares_the_lines_child_fetch() {
         ),
         "the Purchase Order doctype maps to kg:PurchaseOrder"
     );
-    let po_key = format!("<{VM_ERPNEXT}purchaseOrderMapping>");
-    let mut pairs: Vec<(String, String)> = triples
-        .iter()
-        .filter(|triple| {
-            subject_key(triple) == po_key
-                && triple.predicate.as_str().ends_with("hasPredicateFieldPair")
-        })
-        .filter_map(object_key)
-        .filter_map(|pair| {
-            let predicate = triples
-                .iter()
-                .find(|triple| {
-                    subject_key(triple) == pair
-                        && triple.predicate.as_str().ends_with("#predicate")
-                })
-                .and_then(object_key)?;
-            let field = triples
-                .iter()
-                .find(|triple| {
-                    subject_key(triple) == pair
-                        && triple.predicate.as_str().ends_with("#field")
-                })
-                .map(|triple| literal_value(&triple.object).to_string())?;
-            Some((predicate.trim_matches(['<', '>']).rsplit('#').next().unwrap().to_string(), field))
-        })
-        .collect();
+    let mut pairs = pair_fields(&triples, &format!("<{VM_ERPNEXT}purchaseOrderMapping>"));
     pairs.sort();
     assert_eq!(
         pairs,
@@ -1298,4 +1307,78 @@ fn erpnext_item_and_po_mapping_declares_the_lines_child_fetch() {
             "the PO contract declares {predicate} `{expected}`"
         );
     }
+}
+
+
+// spec: EG-SUPPLY-VOCAB-R005.4
+#[test]
+fn leanix_provider_maps_to_supplier_rank_two_with_supports_capability() {
+    let fixture = include_str!("fixtures/vm_leanix.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the leanix Provider mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_LEANIX}providerMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}Supplier")
+        ),
+        "the leanix Provider maps to the shared kg:Supplier"
+    );
+    // The connector-side `supports` relation projects onto the shared
+    // service-to-capability property (Decision D1).
+    let mut pairs = pair_fields(&triples, &format!("<{VM_LEANIX}providerMapping>"));
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![
+            ("label".to_string(), "title".to_string()),
+            ("supportsCapability".to_string(), "supports".to_string()),
+        ],
+        "the leanix mapping projects title and the supports relation"
+    );
+    // LeanIX is the rank-2 authority for Supplier, over the same connection.
+    let authority = format!("<{VM_LEANIX}providerAuthority>");
+    assert!(
+        triples
+            .iter()
+            .any(|triple| subject_key(triple) == authority
+                && triple.predicate.as_str().ends_with("type")
+                && matches!(&triple.object, Term::NamedNode(n) if n.as_str() == format!("{VG}SourceAuthority"))),
+        "the rank declaration is a vg:SourceAuthority"
+    );
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_LEANIX}providerAuthority"),
+            &format!("{VG}authorityFor"),
+            &format!("{KG}Supplier")
+        )
+    );
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_LEANIX}providerAuthority"),
+            &format!("{VG}authoritativeSource"),
+            &format!("{VM_LEANIX}leanixConnection")
+        )
+    );
+    let rank = triples
+        .iter()
+        .find(|triple| {
+            subject_key(triple) == authority
+                && triple.predicate.as_str().ends_with("authorityRank")
+        })
+        .expect("the authority declares its rank");
+    assert_eq!(
+        literal_value(&rank.object),
+        "2",
+        "leanix is the rank-2 source for Supplier"
+    );
 }
