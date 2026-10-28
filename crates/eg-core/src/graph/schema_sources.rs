@@ -1414,7 +1414,7 @@ mod tests {
             ),
             (
                 "swarm-topology",
-                "ef6e340dd1b9b4802dd3ddf5c11ba35aa73a68f753c91339d13b2105b2d06382",
+                "fa4b46dc24003cfd60cd1082d78a29b1638ab63477950d84e16dddcd8e47ceee",
             ),
             (
                 "swarm-topology-shapes",

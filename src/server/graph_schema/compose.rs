@@ -794,7 +794,7 @@ ex:parent a owl:AsymmetricProperty .
         // (EH-408/410 subsumption binding). +5: `:scheduledBy` (Pod → Workload).
         // +24: the EH-410 feed classes -- identity `:SecurityAuditEvent` and its four
         // subclasses, sdlc `:PipelineRunEvent` (4 triples each), and `:pipelineEventOf` (5).
-        // +123: the swarm-topology module (122) and its catalog import (1).
+        // +127: the swarm-topology module (126) and its catalog import (1).
         // +183: the finance module (182, EH-411) and its catalog import (1).
         // +30: the finance asset class, bar-series tick size and volume step, and the
         // analysis-snapshot record (EH-420/EH-421).
@@ -831,7 +831,7 @@ ex:parent a owl:AsymmetricProperty .
         // +5: the orchestration handsOffTo property (EG-CQ-ORCH-R006.1).
         // +95: the connector-pack ingest vocabulary (94) and its catalog import
         // (EG-TYPED-PACKS-R101.1).
-        assert_eq!(composed.ontology.len(), 15_748);
+        assert_eq!(composed.ontology.len(), 15_752);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -883,7 +883,7 @@ ex:parent a owl:AsymmetricProperty .
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
-        // classes, 4 axioms each; +5: `:pipelineEventOf`. +118: the swarm-topology module.
+        // classes, 4 axioms each; +5: `:pipelineEventOf`. +122: the swarm-topology module.
         // +178: the finance module (EH-411); +30: EH-420/EH-421 finance records.
         // +9: EH-517 trading-class skos mappings.
         // +84: the virtual-graph module (EG-UNIFIED-DATA-PLANE-R037).
@@ -902,7 +902,7 @@ ex:parent a owl:AsymmetricProperty .
         // +7: the shared versionOf relation's two module-local constrained
         // sub-properties (the shared predicate itself remains unconstrained).
         // +90: semantic axioms from the connector-pack ingest vocabulary (R101.1).
-        assert_eq!(semantic_axioms, 15_480);
+        assert_eq!(semantic_axioms, 15_484);
 
         let count_type = |object: &str| {
             composed
