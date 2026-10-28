@@ -291,6 +291,68 @@ ex:field a dp:DocumentField ;
     );
 }
 
+// spec: EG-DATAPLAT-VOCAB-R003.3
+#[test]
+fn vector_dimension_zero_rejected() {
+    // A zero-embedding-space (dimensions 0) is refused: dimensions is a
+    // positive integer.
+    let zero_dimensions = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:collection a dp:VectorCollection ;
+    dp:usesEmbeddingSpace ex:space .
+
+ex:space a dp:EmbeddingSpace ;
+    dp:embeddingModel "all-MiniLM-L6-v2" ;
+    dp:dimensions 0 .
+"#;
+    let report = validate_turtle(DP_SHAPES, zero_dimensions)
+        .expect("the zero-dimension document parses before validation");
+    assert!(
+        !report.conforms,
+        "a zero-dimensional embedding space must be rejected: {:?}",
+        report.results
+    );
+
+    // A collection without any embedding space is refused too.
+    let no_space = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:collection a dp:VectorCollection ;
+    dp:vectorCount 1000 .
+"#;
+    let report = validate_turtle(DP_SHAPES, no_space)
+        .expect("the missing-space document parses before validation");
+    assert!(
+        !report.conforms,
+        "a vector collection without an embedding space must be rejected: {:?}",
+        report.results
+    );
+
+    // A collection with exactly one positive-dimensional embedding space conforms.
+    let good = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:collection a dp:VectorCollection ;
+    dp:usesEmbeddingSpace ex:space .
+
+ex:space a dp:EmbeddingSpace ;
+    dp:embeddingModel "all-MiniLM-L6-v2" ;
+    dp:dimensions 1536 ;
+    dp:distanceMetric "cosine" .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, good).expect("the conforming document parses before validation");
+    assert!(
+        report.conforms,
+        "one positive-dimensional embedding space must conform: {:?}",
+        report.results
+    );
+}
+
 // spec: EG-DATAPLAT-VOCAB-R002.1
 #[test]
 fn relational_classes_present() {

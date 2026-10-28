@@ -27,3 +27,24 @@ dp:DocumentFieldShape a sh:NodeShape ;
         sh:maxInclusive 1 ;
         sh:message "presenceRatio is a decimal in [0,1]."
     ] .
+
+dp:EmbeddingSpaceShape a sh:NodeShape ;
+    sh:targetClass dp:EmbeddingSpace ;
+    sh:property [
+        sh:path dp:dimensions ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 1 ;
+        sh:message "An embedding space names exactly one positive-integer dimensionality."
+    ] .
+
+dp:VectorCollectionShape a sh:NodeShape ;
+    sh:targetClass dp:VectorCollection ;
+    sh:property [
+        sh:path dp:usesEmbeddingSpace ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node dp:EmbeddingSpaceShape ;
+        sh:message "A vector collection uses exactly one embedding space."
+    ] .
