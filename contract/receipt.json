@@ -1,10 +1,10 @@
 {
   "artifact_digests": {
-    "contract/errors.json": "273cae404dc9223f5a1b5b6721ae9559db8d7a1bf945d56c8eafc1cbec019e69",
+    "contract/errors.json": "cc10d3a4a63f90a9bdd7cf466f16ded00e8a7c6e94328f55618d2ff4192c0a3d",
     "contract/fixtures/connector_pack_digest_vectors.json": "a9ea1dc7bd0f15ec616317085e01642b0565774a1c3eec5476fd5274e8827523",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
     "contract/fixtures/method_body_vectors.json": "9d6dd554eff9ed97615cd9d01169ebe752975cdac820ad77df301307988829a3",
-    "contract/methods.json": "097206bf781698f356f8fb56513c893b32b0e4d76ca76bfb859f557ea9a9589f",
+    "contract/methods.json": "bbb964abb4014c2a8229174a89f064c9e56f817b144e8f06f46df9249bcf2fa8",
     "contract/schemas/method.request.json": "8abc13f587785dfa7450fcb6cf54ec40df6b36f3b53076ed07a8165e13ed610a",
     "contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
     "contract/schemas/result.compute.json": "e521cd956226b8a59ec6f09a756412495cf96720e9ef7be028b99a33669cc71d",
@@ -22,8 +22,8 @@
     "crates/eg-capabilities/generated/method_catalog.rs": "3e04af869c357a96f66e6e15dbdead709583d5b66a29d7154f2e1d99eac3eb8f",
     "docs/capabilities.generated.md": "b4edb8c089bd36d35d3b81c2d7c21378f89c0471c318c7dd225182e27dd910bc",
     "epistemic_graph/contract/__init__.py": "028357ea7c0ac35605ca94b4b2d2e7b4735077766a027519bc336b904bf8b3cf",
-    "epistemic_graph/contract/errors.json": "273cae404dc9223f5a1b5b6721ae9559db8d7a1bf945d56c8eafc1cbec019e69",
-    "epistemic_graph/contract/methods.json": "097206bf781698f356f8fb56513c893b32b0e4d76ca76bfb859f557ea9a9589f",
+    "epistemic_graph/contract/errors.json": "cc10d3a4a63f90a9bdd7cf466f16ded00e8a7c6e94328f55618d2ff4192c0a3d",
+    "epistemic_graph/contract/methods.json": "bbb964abb4014c2a8229174a89f064c9e56f817b144e8f06f46df9249bcf2fa8",
     "epistemic_graph/contract/schemas/method.request.json": "8abc13f587785dfa7450fcb6cf54ec40df6b36f3b53076ed07a8165e13ed610a",
     "epistemic_graph/contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
     "epistemic_graph/contract/schemas/result.compute.json": "e521cd956226b8a59ec6f09a756412495cf96720e9ef7be028b99a33669cc71d",
@@ -72,7 +72,7 @@
     "epistemic_graph/generated/transactions.py": "83174fd4a8d2032577c60bf61dacf08fbe3b5df8530da66a19d1b36eb9920335",
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "contract_digest": "f06ffa3af35a686680ef623b999f1d955860eaa3a37b74832a5483c4685a0e23",
+  "contract_digest": "f85aa3dd08799835fb43e54c2998a3a4265eb4b7acc4c7dfe59842f8d98be73c",
   "contract_version": 1,
   "feature_profile": [
     "contract",
