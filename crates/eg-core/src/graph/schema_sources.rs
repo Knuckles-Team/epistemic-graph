@@ -1326,7 +1326,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "9b86de53197e7c294fba6f7fb28efc9f32f95eb69d52d2d117316a23fb22426a",
+                "8fac3d843e19599d54c7a7bf2bb8e814444626b816b3dea59abaa42cc60023bf",
             ),
             (
                 "medical",
@@ -1382,7 +1382,7 @@ mod tests {
             ),
             (
                 "sdlc_lifecycle",
-                "a3acaecdc8df53c2fda939b643a63a1cc2c9a040c8a26062c9c47c52bc3428d2",
+                "4ab13d77447cd3d0daae61cdbfd884a0d3ec67ea7d165b8c689f79b7eda4de98",
             ),
             (
                 "software",

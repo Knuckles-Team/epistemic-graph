@@ -534,6 +534,68 @@ f:meeting-sync a :CalendarEvent ;
             include_str!("../../eg-core/ontology/calendar-v1.ttl"),
             include_str!("../../eg-core/ontology/core-foundation-v1.ttl"),
             include_str!("../../eg-core/ontology/identity-v1.ttl"),
+        ],
+        fixture,
+    );
+    let (vars, rows) = select(
+        &view,
+        r#"
+PREFIX : <http://knuckles.team/kg#>
+PREFIX dc: <http://purl.org/dc/terms/>
+SELECT ?attendee ?meeting ?source ?record ?asof WHERE {
+  ?meeting a :CalendarEvent ;
+           :scheduledStart ?s ;
+           :attendedBy ?attendee ;
+           dc:source ?source ;
+           dc:identifier ?record ;
+           dc:date ?asof .
+  FILTER(?source = "microsoft")
+  FILTER(YEAR(?s) = 2026 && MONTH(?s) = 1 && DAY(?s) >= 5)
+  # The absence halves of the question: no identity-provider account and no
+  # Mattermost presence on the shared person entity.
+  FILTER NOT EXISTS { ?attendee a :IdentityUser }
+  FILTER NOT EXISTS { ?attendee dc:source "mattermost" }
+}"#,
+    );
+    let idx = |col: &str| vars.iter().position(|v| v == col).unwrap();
+    let i_attendee = idx("attendee");
+    let i_meeting = idx("meeting");
+    let i_source = idx("source");
+    let i_record = idx("record");
+    let i_asof = idx("asof");
+    assert_eq!(rows.len(), 2, "exactly two attendees answer: {rows:?}");
+    let pairs: Vec<(String, String)> = rows
+        .iter()
+        .map(|row| {
+            (
+                local(&row[i_attendee]).to_string(),
+                local(&row[i_meeting]).to_string(),
+            )
+        })
+        .collect();
+    let mut sorted = pairs.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec![
+            ("carol".to_string(), "meeting-standup".to_string()),
+            ("dave".to_string(), "meeting-planning".to_string()),
+        ],
+        "only the unconnected attendees answer: {rows:?}"
+    );
+    // Provenance: every answer row carries the microsoft meeting record's
+    // source, record id and as-of from the virtual mapping.
+    for row in &rows {
+        assert_eq!(row[i_source], "microsoft", "{rows:?}");
+        assert_eq!(row[i_asof], "2026-01-05T00:00:00Z", "{rows:?}");
+        let record = row[i_record].as_str();
+        assert!(
+            record == "ms:rec:meeting-standup" || record == "ms:rec:meeting-planning",
+            "unexpected record id {record:?}: {rows:?}"
+        );
+    }
+}
+
 // Atlassian R006.1 criterion body; keep unbound until the native Rust test runs.
 #[test]
 fn atlassian_blocked_unassigned_issues_answer() {
@@ -615,58 +677,6 @@ f:issue-eng-104 a :JiraIssue, :Ticket ;
         r#"
 PREFIX : <http://knuckles.team/kg#>
 PREFIX dc: <http://purl.org/dc/terms/>
-SELECT ?attendee ?meeting ?source ?record ?asof WHERE {
-  ?meeting a :CalendarEvent ;
-           :scheduledStart ?s ;
-           :attendedBy ?attendee ;
-           dc:source ?source ;
-           dc:identifier ?record ;
-           dc:date ?asof .
-  FILTER(?source = "microsoft")
-  FILTER(YEAR(?s) = 2026 && MONTH(?s) = 1 && DAY(?s) >= 5)
-  # The absence halves of the question: no identity-provider account and no
-  # Mattermost presence on the shared person entity.
-  FILTER NOT EXISTS { ?attendee a :IdentityUser }
-  FILTER NOT EXISTS { ?attendee dc:source "mattermost" }
-}"#,
-    );
-    let idx = |col: &str| vars.iter().position(|v| v == col).unwrap();
-    let i_attendee = idx("attendee");
-    let i_meeting = idx("meeting");
-    let i_source = idx("source");
-    let i_record = idx("record");
-    let i_asof = idx("asof");
-    assert_eq!(rows.len(), 2, "exactly two attendees answer: {rows:?}");
-    let pairs: Vec<(String, String)> = rows
-        .iter()
-        .map(|row| {
-            (
-                local(&row[i_attendee]).to_string(),
-                local(&row[i_meeting]).to_string(),
-            )
-        })
-        .collect();
-    let mut sorted = pairs.clone();
-    sorted.sort();
-    assert_eq!(
-        sorted,
-        vec![
-            ("carol".to_string(), "meeting-standup".to_string()),
-            ("dave".to_string(), "meeting-planning".to_string()),
-        ],
-        "only the unconnected attendees answer: {rows:?}"
-    );
-    // Provenance: every answer row carries the microsoft meeting record's
-    // source, record id and as-of from the virtual mapping.
-    for row in &rows {
-        assert_eq!(row[i_source], "microsoft", "{rows:?}");
-        assert_eq!(row[i_asof], "2026-01-05T00:00:00Z", "{rows:?}");
-        let record = row[i_record].as_str();
-        assert!(
-            record == "ms:rec:meeting-standup" || record == "ms:rec:meeting-planning",
-            "unexpected record id {record:?}: {rows:?}"
-        );
-    }
 PREFIX f: <urn:eg-cq-conn:atlassian:fixture/>
 SELECT ?issue ?project ?blockedBy ?source ?record ?asof WHERE {
   ?issue a :JiraIssue, :Ticket ;
