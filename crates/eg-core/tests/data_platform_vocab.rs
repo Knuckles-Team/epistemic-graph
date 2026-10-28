@@ -1439,3 +1439,40 @@ fn alignment_object_vector_resolves() {
         &format!("{DP}dimensions")
     ));
 }
+
+// spec: EG-DATAPLAT-VOCAB-R008.3
+#[test]
+fn alignment_ops_ml_resolves() {
+    let document =
+        include_str!("../ontology/fixtures/data_platform/alignment_ops_ml.ttl");
+    assert!(
+        assert_alignment_resolves(document) >= 4,
+        "the ops/ML alignment carries at least 4 rows"
+    );
+
+    let triples = parse_turtle(document).expect("the alignment table parses");
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#ConsumerGroup",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}ConsumerGroup")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#BehaviorInsight",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}BehaviorMetric")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#TrainingRun",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}TrainingRun")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#trainedOn",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}trainedOn")
+    ));
+}
