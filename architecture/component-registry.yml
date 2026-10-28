@@ -3809,6 +3809,7 @@ components:
       - "tests/_decision_resident_fixture.py"
       - "tests/_harness_envelope.py"
       - "tests/_method_vectors.py"
+      - "tests/test_uql_foreign_execution.py"
       - "tests/_script_loader.py"
       - "tests/_untyped.py"
       - "tests/e2e_ca_cdc_kafka.rs"

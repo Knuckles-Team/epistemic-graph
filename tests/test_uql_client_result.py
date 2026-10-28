@@ -121,5 +121,16 @@ def test_rows_carry_channels_and_only_the_requested_annotations() -> None:
 
 @pytest.mark.no_engine
 def test_explain_has_no_rows() -> None:
-    wire = {"Explain": {"canonical": "MATCH ()", "optimized": "MATCH ()", "stages": []}}
-    assert _uql_result(wire)["kind"] == "explain"
+    wire = {
+        "Explain": {
+            "canonical": "MATCH ()",
+            "optimized": "MATCH ()",
+            "stages": [],
+            "plan_digest": "a" * 64,
+            "query_digest": "b" * 64,
+        }
+    }
+    result = _uql_result(wire)
+    assert result["kind"] == "explain"
+    assert result["plan_digest"] == "a" * 64
+    assert result["query_digest"] == "b" * 64

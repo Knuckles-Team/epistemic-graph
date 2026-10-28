@@ -21,6 +21,7 @@ use crate::server::auth::VerifiedRequestContext;
 use crate::server::state::ServerState;
 
 pub(crate) mod admin;
+mod approval;
 mod catalog_authority;
 #[cfg(all(feature = "redb", feature = "blob"))]
 mod import;
@@ -46,6 +47,9 @@ pub(crate) async fn handle_connector_pack(
     match op {
         ConnectorPackOp::Status { request } => serve_status(state, req_id, verified, request).await,
         ConnectorPackOp::Import { request } => serve_import(state, req_id, verified, request).await,
+        ConnectorPackOp::ApproveSource { request } => {
+            approval::serve(state, req_id, verified, request).await
+        }
         ConnectorPackOp::Bind { request } => {
             admin::serve_bind(state, req_id, verified, request).await
         }

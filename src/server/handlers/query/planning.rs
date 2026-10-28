@@ -710,18 +710,19 @@ impl ServedPlanLegs {
         graph_name: &str,
         read_authority: Option<&GraphReadAuthority>,
         plan: &eg_plan::Plan,
+        foreign_execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
     ) -> Result<Self, String> {
         #[cfg(not(feature = "tsdb"))]
         let _ = graph_name;
         #[cfg(not(any(feature = "federation", feature = "decide")))]
         let _ = state;
         #[cfg(not(any(feature = "tsdb", feature = "federation", feature = "decide")))]
-        let _ = (read_authority, plan);
+        let _ = (read_authority, plan, foreign_execution);
         Ok(Self {
             #[cfg(feature = "tsdb")]
             tsdb_scope: served_tsdb_scope(plan, graph_name, read_authority)?,
             #[cfg(feature = "federation")]
-            foreign: served_foreign_leg(state, plan, read_authority).await?,
+            foreign: served_foreign_leg(state, plan, read_authority, foreign_execution).await?,
             #[cfg(feature = "decide")]
             decisions: served_decision_leg(state, plan, read_authority).await?,
             #[cfg(feature = "result-cache")]
@@ -840,6 +841,55 @@ pub(crate) fn parse_uql(req_id: u64, text: &str) -> Result<eg_plan::Plan, Respon
         .map_err(|e| Response::err(req_id, format!("{}: {}", e.code, e.render(text))))
 }
 
+/// Digest convention for a host-driven UQL foreign read. Formatting and bound
+/// parameter values are part of the query identity; the parsed plan digest is
+/// checked separately by the served leg resolver.
+#[cfg(feature = "query")]
+pub(crate) fn foreign_uql_query_digest(
+    text: &str,
+    params: &std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
+) -> Result<eg_types::contract::Digest256, String> {
+    let params_bytes = rmp_serde::to_vec_named(params)
+        .map_err(|error| format!("INTERNAL: UQL parameter digest serialization failed: {error}"))?;
+    eg_types::contract::Digest256::framed(
+        b"eg/foreign-read/uql-query/v1",
+        &[text.as_bytes(), &params_bytes],
+    )
+}
+
+#[cfg(all(test, feature = "query"))]
+mod foreign_query_digest_tests {
+    use super::foreign_uql_query_digest;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn uql_query_digest_binds_text_and_typed_parameters() {
+        let empty = BTreeMap::new();
+        let baseline = foreign_uql_query_digest("MATCH (:Issue)", &empty).expect("digest");
+        assert_eq!(
+            baseline,
+            foreign_uql_query_digest("MATCH (:Issue)", &empty).expect("same digest")
+        );
+
+        let mut params = BTreeMap::new();
+        params.insert(
+            "state".to_string(),
+            eg_types::wire::UqlParam::Str("open".to_string()),
+        );
+        let bound = foreign_uql_query_digest("MATCH (:Issue)", &params).expect("bound digest");
+        assert_ne!(
+            baseline, bound,
+            "typed parameters are part of the query pin"
+        );
+        assert_ne!(
+            bound,
+            foreign_uql_query_digest("MATCH (:Issue) |> LIMIT 1", &params)
+                .expect("different text digest"),
+            "query text is part of the query pin"
+        );
+    }
+}
+
 #[cfg(feature = "query")]
 impl QueryHandlerCtx<'_> {
     /// [`ServedPlanLegs::resolve`] for this request's verified read authority; `Err`
@@ -848,10 +898,24 @@ impl QueryHandlerCtx<'_> {
         &self,
         plan: &eg_plan::Plan,
     ) -> Result<ServedPlanLegs, Response> {
-        ServedPlanLegs::resolve(self.state, self.graph_name, self.read_authority, plan)
-            .await
-            .map(|legs| legs.with_watermarks(self.core, plan))
-            .map_err(|denied| Response::err(self.req_id, denied))
+        self.served_legs_with_foreign_execution(plan, None).await
+    }
+
+    pub(crate) async fn served_legs_with_foreign_execution(
+        &self,
+        plan: &eg_plan::Plan,
+        foreign_execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
+    ) -> Result<ServedPlanLegs, Response> {
+        ServedPlanLegs::resolve(
+            self.state,
+            self.graph_name,
+            self.read_authority,
+            plan,
+            foreign_execution,
+        )
+        .await
+        .map(|legs| legs.with_watermarks(self.core, plan))
+        .map_err(|denied| Response::err(self.req_id, denied))
     }
 }
 

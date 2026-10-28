@@ -4,11 +4,11 @@ use crate::agent_component::DeclaredLatency;
 use crate::connector_pack::{
     ConnectorPackBindRequest, ConnectorPackImportRequest, ConnectorPackIndex, ConnectorPackOp,
     ConnectorPackReconcileRequest, ConnectorPackReprojectRequest, ConnectorPackRetireRequest,
-    ConnectorPackStatusRequest, ConnectorPackUnbindRequest, McpCatalogAuthorityStatusRequest,
-    McpCatalogReconcileRequest, McpCatalogSnapshotBinding, McpSelfServedCatalogAttestRequest,
-    PackAnnotations, PackArchiveRef, PackCost, PackDisposition, PackEntry, PackEntryKind,
-    PackHeadRef, PackModelFacts, PackProducer, PackRef, PackSection, PackToolMode,
-    PackViolationCode, PackWarningCode, CONNECTOR_PACK_SCHEMA_VERSION,
+    ConnectorPackSourceApprovalRequest, ConnectorPackStatusRequest, ConnectorPackUnbindRequest,
+    McpCatalogAuthorityStatusRequest, McpCatalogReconcileRequest, McpCatalogSnapshotBinding,
+    McpSelfServedCatalogAttestRequest, PackAnnotations, PackArchiveRef, PackCost, PackDisposition,
+    PackEntry, PackEntryKind, PackHeadRef, PackModelFacts, PackProducer, PackRef, PackSection,
+    PackToolMode, PackViolationCode, PackWarningCode, CONNECTOR_PACK_SCHEMA_VERSION,
 };
 use crate::contract::{Digest256, ResourceId};
 
@@ -160,6 +160,19 @@ pub fn ops() -> Vec<(&'static str, ConnectorPackOp)> {
                     expected_head: Some(head_ref()),
                     allow_mass_withdrawal: false,
                 }),
+            },
+        ),
+        (
+            "ConnectorPack.approve_source",
+            ConnectorPackOp::ApproveSource {
+                request: ConnectorPackSourceApprovalRequest {
+                    context: mutation_context(),
+                    connector: connector(),
+                    contract_iri: "urn:source-contract".to_string(),
+                    resource_uri: "urn:ontology".to_string(),
+                    expected_head: head_ref(),
+                    contract_digest: raw_digest(0xc8),
+                },
             },
         ),
         (

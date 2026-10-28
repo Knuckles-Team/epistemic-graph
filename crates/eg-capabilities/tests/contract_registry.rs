@@ -216,9 +216,12 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 468 -> 470: EG-DURABLE-KERNEL-R028.5 `PublishCurrentPlan` and `GetCurrentPlan`.
     // 470 -> 471: EG-DURABLE-KERNEL-R028.4.1 owner-bound GetRunWorkItem.
     // 471 -> 472: EG-FEDERATED-QUERY-R058.2.2.1 read-only `NlQueryExplain`.
+    // 472 -> 473: EG-FEDERATED-QUERY-R058.2.2.2 read-only `NlQueryPlan`.
+    // 473 -> 477: EG-FEDERATED-QUERY-R722.3's four public host-driven
+    // foreign-read lifecycle methods.
     assert_eq!(
         variants.len(),
-        472,
+        477,
         "the wire method census changed; update this exact count deliberately"
     );
 }

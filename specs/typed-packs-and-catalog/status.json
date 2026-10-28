@@ -670,7 +670,7 @@
         "bcbbe51307d8"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/ops.rs:249"
+        "crates/eg-types/src/connector_pack/ops.rs:287"
       ]
     },
     {
@@ -764,7 +764,7 @@
         "71533e899d52"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/ops.rs:275",
+        "crates/eg-types/src/connector_pack/ops.rs:313",
         "src/server/handlers/admin/connector_pack/tests/admin.rs:241"
       ]
     },

@@ -38,7 +38,7 @@ fn default_resource_stats_limit() -> usize {
 /// server's own re-serialization (`Method::canonical_body_bytes`) matches a
 /// client that never sent the key at all -- see `MineAssociate::as_claim`'s
 /// use for why this matters to the `eg2.` MAC, not just wire compactness.
-#[cfg(all(feature = "mining", feature = "epistemic"))]
+#[cfg(any(feature = "query", all(feature = "mining", feature = "epistemic")))]
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -51,8 +51,8 @@ fn is_false(value: &bool) -> bool {
 /// `eg2.` MAC's canonical body; without this, the server's own
 /// re-serialization used to recompute that MAC would emit an explicit
 /// `limit: 0` the client never sent, failing every such call with
-/// "Authentication failed" -- the same class of bug `is_false` above fixes
-/// for `MineAssociate::as_claim`.
+/// "Authentication failed" -- the same class of omission bug `is_false` also
+/// fixes for additive query flags such as UQL prepare.
 #[cfg(any(feature = "mining", feature = "graphlearn"))]
 fn is_zero_usize(value: &usize) -> bool {
     *value == 0

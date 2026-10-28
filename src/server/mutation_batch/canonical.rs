@@ -211,7 +211,11 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         Method::RegisterForeignSource { .. } => default_mutation_domain(surface),
         // EH-572 is a read-only, owner-scoped source query with no durable
         // effect; it belongs to the same surface-keyed default as other reads.
-        Method::QueryForeignColumns { .. } => default_mutation_domain(surface),
+        Method::QueryForeignColumns { .. }
+        | Method::ForeignReadOpen { .. }
+        | Method::ForeignReadChunk { .. }
+        | Method::ForeignReadComplete { .. }
+        | Method::ForeignReadAbort { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `full` does not
         // list `finance`, but `eg-capabilities` forces `eg-types/finance` on
         // regardless.
@@ -501,6 +505,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ReserveDevelopmentLane { .. }
         | Method::NlQuery { .. }
         | Method::NlQueryExplain { .. }
+        | Method::NlQueryPlan { .. }
         | Method::FinanceMeanReversion { .. }
         | Method::FinanceHardimanBouchaud { .. }
         | Method::DsDpoLoss { .. }

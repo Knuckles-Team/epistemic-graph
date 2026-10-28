@@ -36,6 +36,8 @@ pub(crate) struct ConnectorPackProjectionPlan {
     pub(crate) catalog: McpCatalogSnapshotBinding,
     pub(crate) record_id: String,
     pub(crate) bodies: Vec<PackProjectionBody>,
+    /// Held declarations pinned to the current tenant/head, never executable bindings.
+    pub(crate) source_registrations: Vec<eg_types::connector_pack::PackSourceRegistration>,
 }
 
 impl AgentLibraryStore {
@@ -71,6 +73,7 @@ impl AgentLibraryStore {
         validate_head_record(tenant_id, connector, &head, &record)?;
 
         let mut bodies = Vec::new();
+        let mut source_registrations = Vec::new();
         for row in members
             .range((tenant_id, connector.as_str(), "")..)
             .map_err(|error| error.to_string())?
@@ -123,6 +126,15 @@ impl AgentLibraryStore {
                     "BODY_MISSING: schema member body holder differs from its catalog row".into(),
                 );
             }
+            for source in &member.source_registrations {
+                if source.connector != *connector || source.resource_uri != member.uri {
+                    return Err(
+                        "CORRUPT_CONNECTOR_PACK: source registration differs from its member"
+                            .into(),
+                    );
+                }
+                source_registrations.push(source.clone());
+            }
             bodies.push(PackProjectionBody {
                 uri: member.uri,
                 kind: member.kind,
@@ -142,6 +154,7 @@ impl AgentLibraryStore {
             catalog: head.head.catalog,
             record_id: head.head.record_id,
             bodies,
+            source_registrations,
         })
     }
 
@@ -473,6 +486,7 @@ mod tests {
             },
             record_id: "pack-record-demo-7".into(),
             bodies: Vec::new(),
+            source_registrations: Vec::new(),
         }
     }
 

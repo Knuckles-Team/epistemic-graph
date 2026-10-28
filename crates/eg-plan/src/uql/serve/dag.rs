@@ -57,6 +57,8 @@ pub(super) fn explain(
     let program = crate::uql::print::dag_to_uql(nodes).map_err(|e| e.to_string())?;
     let stages = reports(nodes, ctx, None);
     Ok(UqlResult::Explain {
+        plan_digest: None,
+        query_digest: None,
         canonical: program.clone(),
         optimized: program,
         stages,

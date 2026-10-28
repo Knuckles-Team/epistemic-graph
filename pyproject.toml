@@ -263,8 +263,11 @@ include = [
     # The sdist must stay installable: pyproject points `backend-path` at the
     # in-tree PEP 517 backend and the helper it imports (scripts/inject_numeric_kernel.py).
     { path = "build_backend.py", format = "sdist" },
+    { path = "scripts/configure_rust_path_remap.py", format = "sdist" },
     { path = "scripts/inject_numeric_kernel.py", format = "sdist" },
     { path = "scripts/inject_ontology.py", format = "sdist" },
+    { path = "scripts/normalize_wheel_build_paths.py", format = "sdist" },
+    { path = "scripts/normalize_wheel_sbom.py", format = "sdist" },
     { path = "scripts/strip_wheel_executables.py", format = "sdist" },
     { path = "rust-toolchain.toml", format = "sdist" },
     # PKG-INFO declares `License-File: LICENSE` (Metadata 2.4) and PyPI rejects an

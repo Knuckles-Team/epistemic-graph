@@ -56,12 +56,17 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use eg_plan::federation::ForeignSourceRegistry;
+use eg_plan::federation::{ForeignSourceRegistry, SharedForeignSource};
+use eg_types::connector_pack::{
+    ConnectorPackSourceApprovalResult, PackSourceApproval, PackSourceRegistration,
+};
+use eg_types::contract::Digest256;
 use eg_types::wire::ForeignSourceSpec;
 use tokio::sync::RwLock;
 
 use super::access::{CarrierAuthority, GraphReadAuthority};
 use super::foreign_share::{may_use_shared, share_resource, shared_name};
+use super::persistence::agent_library::AgentLibraryStore;
 use super::state::ServerState;
 use crate::isolation::IsolationLayer;
 
@@ -77,6 +82,19 @@ struct CatalogKey {
 struct OwnedSpec {
     owner_agent: String,
     spec: ForeignSourceSpec,
+}
+
+/// Host-derived identity for one request-scoped foreign-driver binding.
+///
+/// The descriptor carries no authority. `bind_for` compares it with both the
+/// owner catalog entry and the durable approval result before it can reach the
+/// trusted Rust callback seam in `eg-plan`.
+#[derive(Clone, Debug)]
+pub(crate) struct ForeignSourceBindingDescriptor {
+    pub(crate) name: String,
+    pub(crate) spec: ForeignSourceSpec,
+    pub(crate) registration: PackSourceRegistration,
+    pub(crate) contract_digest: Digest256,
 }
 
 /// Every owner's registered foreign sources, partitioned by verified owner
@@ -184,6 +202,147 @@ impl ForeignSourceCatalog {
             cache_salt,
             registry,
         }
+    }
+
+    /// Build a request-scoped registry with one already-admitted driver bound.
+    ///
+    /// The network request never supplies the callback or the descriptor. A
+    /// trusted host adapter supplies both after deriving the carrier from the
+    /// verified request. This method still re-checks the durable approval and
+    /// the current owner catalog entry immediately before binding so a stale
+    /// receipt, another owner's catalog, or a descriptor mismatch fails closed.
+    pub(crate) fn bind_for(
+        &self,
+        caller: &CarrierAuthority,
+        store: &AgentLibraryStore,
+        isolation: &IsolationLayer,
+        receipt: &ConnectorPackSourceApprovalResult,
+        descriptor: &ForeignSourceBindingDescriptor,
+        driver: SharedForeignSource,
+    ) -> Result<OwnedForeignRegistry, String> {
+        self.verify_binding(caller, store, receipt, descriptor)?;
+
+        let mut scoped = self.registry_for(caller, isolation);
+        scoped.registry.register_bound_trusted_host(
+            descriptor.name.clone(),
+            descriptor.spec.clone(),
+            driver,
+        );
+        Ok(scoped)
+    }
+
+    /// Revalidate an already-open host execution without installing a driver.
+    /// Chunks and terminal transitions must observe the same current catalog
+    /// and durable approval as the eventual query bind.
+    #[cfg(feature = "federation")]
+    pub(crate) fn verify_registered_for(
+        &self,
+        caller: &CarrierAuthority,
+        store: &AgentLibraryStore,
+        receipt: &ConnectorPackSourceApprovalResult,
+        name: &str,
+    ) -> Result<(), String> {
+        let descriptor = self.registered_descriptor(caller, receipt, name)?;
+        self.verify_binding(caller, store, receipt, &descriptor)
+    }
+
+    fn verify_binding(
+        &self,
+        caller: &CarrierAuthority,
+        store: &AgentLibraryStore,
+        receipt: &ConnectorPackSourceApprovalResult,
+        descriptor: &ForeignSourceBindingDescriptor,
+    ) -> Result<(), String> {
+        if !caller.can_read() {
+            return Err(
+                "ACCESS_DENIED: a foreign source binding requires verified read authority"
+                    .to_string(),
+            );
+        }
+        let (tenant, principal) = caller.log_owner();
+        if tenant != receipt.tenant_id {
+            return Err("ACCESS_DENIED: source approval belongs to another tenant".to_string());
+        }
+        if principal.is_empty() || caller.owner_scope().is_empty() {
+            return Err("ACCESS_DENIED: source binding has no verified owner".to_string());
+        }
+        if descriptor.name.is_empty() {
+            return Err("SOURCE_BINDING_INVALID: source name is empty".to_string());
+        }
+        if receipt.registration.approval != PackSourceApproval::Approved {
+            return Err("SOURCE_APPROVAL_NOT_ADMITTED: registration is not approved".to_string());
+        }
+        if descriptor.registration != receipt.registration
+            || descriptor.contract_digest != receipt.contract_digest
+        {
+            return Err(
+                "SOURCE_BINDING_MISMATCH: descriptor differs from approved registration"
+                    .to_string(),
+            );
+        }
+
+        // The durable member/head/body and the exact stored registration are
+        // authoritative. The receipt is only the candidate reference.
+        store.verify_connector_pack_source_approval(receipt)?;
+
+        let key = CatalogKey {
+            owner_scope: caller.owner_scope().to_string(),
+            name: descriptor.name.clone(),
+        };
+        let entry = self.entries.get(&key).ok_or_else(|| {
+            "SOURCE_BINDING_NOT_REGISTERED: source is absent from the caller catalog".to_string()
+        })?;
+        if entry.value().spec != descriptor.spec {
+            return Err(
+                "SOURCE_BINDING_MISMATCH: descriptor differs from owner catalog".to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    /// Bind a host-driven page source after deriving the descriptor from the
+    /// caller's current catalog entry. The wire request supplies only the
+    /// source name and approval receipt; it cannot choose a `ForeignSourceSpec`
+    /// or smuggle authority through the callback seam.
+    #[cfg(feature = "federation")]
+    pub(crate) fn bind_registered_for(
+        &self,
+        caller: &CarrierAuthority,
+        store: &AgentLibraryStore,
+        isolation: &IsolationLayer,
+        receipt: &ConnectorPackSourceApprovalResult,
+        name: &str,
+        driver: SharedForeignSource,
+    ) -> Result<OwnedForeignRegistry, String> {
+        let descriptor = self.registered_descriptor(caller, receipt, name)?;
+        self.bind_for(caller, store, isolation, receipt, &descriptor, driver)
+    }
+
+    fn registered_descriptor(
+        &self,
+        caller: &CarrierAuthority,
+        receipt: &ConnectorPackSourceApprovalResult,
+        name: &str,
+    ) -> Result<ForeignSourceBindingDescriptor, String> {
+        let key = CatalogKey {
+            owner_scope: caller.owner_scope().to_string(),
+            name: name.to_string(),
+        };
+        let spec = self
+            .entries
+            .get(&key)
+            .map(|entry| entry.value().spec.clone())
+            .ok_or_else(|| {
+                "SOURCE_BINDING_NOT_REGISTERED: source is absent from the caller catalog"
+                    .to_string()
+            })?;
+        let descriptor = ForeignSourceBindingDescriptor {
+            name: name.to_string(),
+            spec,
+            registration: receipt.registration.clone(),
+            contract_digest: receipt.contract_digest,
+        };
+        Ok(descriptor)
     }
 
     /// Resolve the registry a served plan needs: `None` when the plan names no
@@ -294,13 +453,37 @@ pub(crate) async fn served_foreign_leg(
     state: &Arc<RwLock<ServerState>>,
     plan: &eg_plan::Plan,
     read_authority: Option<&GraphReadAuthority>,
+    execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
 ) -> Result<Option<OwnedForeignRegistry>, String> {
     let s = state.read().await;
-    s.foreign_sources.resolve_for_plan(
-        &plan.ops,
-        read_authority.and_then(GraphReadAuthority::carrier),
-        &s.isolation,
-    )
+    let caller = read_authority.and_then(GraphReadAuthority::carrier);
+    if execution.is_some() && !crate::server::handlers::query::plan_needs_foreign(&plan.ops) {
+        return Err(
+            "FOREIGN_READ_UNUSED: execution is attached to a plan without a foreign source".into(),
+        );
+    }
+    if let Some(execution) = execution {
+        let caller = caller.ok_or_else(|| {
+            "ACCESS_DENIED: a foreign read execution requires a verified tenant carrier".to_string()
+        })?;
+        let store = s.agent_library.as_deref().ok_or_else(|| {
+            "SOURCE_APPROVAL_STORE_UNAVAILABLE: foreign read requires the Agent Library".to_string()
+        })?;
+        let plan_digest = crate::server::foreign_read::canonical_plan_digest(plan)?;
+        return s
+            .foreign_reads
+            .bind_for_query(
+                caller,
+                *execution,
+                plan_digest,
+                &s.foreign_sources,
+                store,
+                &s.isolation,
+            )
+            .map(Some);
+    }
+    s.foreign_sources
+        .resolve_for_plan(&plan.ops, caller, &s.isolation)
 }
 
 /// `EG-UNIFIED-DATA-PLANE-R002.1` — the registration-time outbound gate. A `Sql` spec's

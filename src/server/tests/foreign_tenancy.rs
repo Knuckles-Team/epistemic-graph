@@ -66,6 +66,7 @@ fn named_scan_plan() -> Method {
             },
             eg_plan::Op::Limit { k: 10 },
         ]),
+        foreign_execution: None,
     }
 }
 
@@ -87,6 +88,8 @@ fn uql(text: impl Into<String>) -> Method {
     Method::Uql {
         text: text.into(),
         params: Default::default(),
+        prepare: false,
+        foreign_execution: None,
     }
 }
 

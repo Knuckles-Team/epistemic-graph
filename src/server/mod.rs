@@ -446,6 +446,9 @@ pub(crate) mod handlers;
 // place a caller's verified owner (tenant+principal) selects which sources a plan may resolve.
 #[cfg(feature = "federation")]
 pub mod foreign_catalog;
+// EG-FEDERATED-QUERY-R722.3 — bounded host-driven foreign-read executions.
+#[cfg(feature = "federation")]
+pub(crate) mod foreign_read;
 // Explicit RBAC-grant sharing of an owner-scoped foreign source (EH-378).
 #[cfg(feature = "federation")]
 pub(crate) mod foreign_share;
@@ -1709,6 +1712,7 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -1829,6 +1833,7 @@ mod tests {
                 },
                 tolerance_ns: None,
             }]),
+            foreign_execution: None,
         };
 
         // (1) A uniform 1s grid, linearly interpolated: rows at the GRID instants, carrying
@@ -1885,6 +1890,7 @@ mod tests {
                         streams: vec!["imu".into()],
                         tolerance_ns: (10 * NS) as u64,
                     }]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -1942,6 +1948,7 @@ mod tests {
                         },
                         tolerance_ns: None,
                     }]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2003,6 +2010,7 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2024,6 +2032,8 @@ mod tests {
                 Method::Uql {
                     text: uql.into(),
                     params: Default::default(),
+                    prepare: false,
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2089,6 +2099,8 @@ mod tests {
                 Method::Uql {
                     text: "MATCH (:Doc) |> FROBNICATE".into(),
                     params: Default::default(),
+                    prepare: false,
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2135,6 +2147,8 @@ mod tests {
                 Method::Uql {
                     text: "MATCH (:Paper)".into(),
                     params: Default::default(),
+                    prepare: false,
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2154,6 +2168,7 @@ mod tests {
                     plan: eg_plan::Plan::new(vec![eg_plan::Op::Scan {
                         label: "Paper".into(),
                     }]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2390,6 +2405,7 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2554,6 +2570,7 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(named_plan),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2581,6 +2598,7 @@ mod tests {
                         },
                         Op::Limit { k: 10 },
                     ]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2653,6 +2671,7 @@ mod tests {
                             join: true,
                         },
                     ]),
+                    foreign_execution: None,
                 },
             ),
         )
@@ -2679,6 +2698,7 @@ mod tests {
                     plan: eg_plan::Plan::new(vec![Op::Foreign {
                         name: "typo_docs".into(),
                     }]),
+                    foreign_execution: None,
                 },
             ),
         )

@@ -669,6 +669,84 @@
     },
     {
       "class": "server",
+      "code": "FOREIGN_READ_COLUMN_COLLISION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_EXPIRED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_NOT_COMPLETE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_NOT_FOUND",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_PLAN_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_QUERY_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_REPLAY",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_SCHEMA_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_SEQUENCE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_SOURCE_IDENTITY_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_SOURCE_IDENTITY_STALE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_TERMINAL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_READ_UNUSED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "FOREIGN_SOURCE_POLICY_UNBOOTSTRAPPED",
       "http_status_hint": 400,
       "retryable": false
@@ -1472,6 +1550,12 @@
       "retryable": false
     },
     {
+      "class": "connector",
+      "code": "SOURCE_CONTRACT_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "server",
       "code": "SOURCE_INGESTION_REPLAY_CONFLICT",
       "http_status_hint": 400,
@@ -1516,6 +1600,12 @@
     {
       "class": "server",
       "code": "SOURCE_RECONCILIATION_MARKER_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "connector",
+      "code": "SOURCE_REGISTRATION_NOT_FOUND",
       "http_status_hint": 400,
       "retryable": false
     },
