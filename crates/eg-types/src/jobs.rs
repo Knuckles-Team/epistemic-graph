@@ -336,6 +336,7 @@ impl TaskClaim {
     }
 
     /// Construct a claim with explicit lane and stage tier metadata.
+    #[allow(clippy::too_many_arguments)]
     pub fn for_lane(
         task_id: impl Into<String>,
         queue: impl Into<String>,
