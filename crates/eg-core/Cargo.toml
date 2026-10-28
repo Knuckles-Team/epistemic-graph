@@ -123,4 +123,9 @@ eg-modality = { path = "../eg-modality", optional = true }
 # the registered core documents with the native RDF stack. Dev-only: a default
 # build links nothing extra (the eg-plan test-target precedent).
 eg-rdf = { path = "../eg-rdf", features = ["rdf"] }
+# The connector-competency SHACL shape tests
+# (EG-CQ-CONN-R068.14, EG-CQ-CONN-R069.11, EG-CQ-CONN-R069.21) validate a
+# violating fixture against the closed-vocabulary shapes. Dev-only: a
+# dev-dep cycle (eg-shacl -> eg-rdf -> eg-core -> dev eg-shacl), which
+# Cargo permits and which affects only the eg-core test build.
 eg-shacl = { path = "../eg-shacl" }
