@@ -36,7 +36,10 @@ def test_stable_content_returns_body() -> None:
 
     async def exercise() -> None:
         connector = f"stable-content-{uuid.uuid4().hex[:10]}"
-        body = b"---\nname: body\ndescription: stable content fixture\n---\n\nbody from the signed pack\n"
+        body = (
+            b"---\nname: body\ndescription: stable content fixture\n---\n\n"
+            b"body from the signed pack\n"
+        )
         client = await EpistemicGraphClient.connect(
             socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
             verified_context=request_context(),
