@@ -1,0 +1,87 @@
+name: Native platform qualification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/platform-qualification.yml'
+      - '.github/workflows/release.yml'
+      - '.github/actions/folded-wheel/**'
+      - '.github/actions/build-server-wheel/**'
+      - '.github/actions/release-maturin/**'
+      - 'build_backend.py'
+      - 'tests/test_build_backend.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    name: Qualify ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            python_arch: x64
+            machine: x86_64
+          - name: windows-aarch64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            python_arch: arm64
+            machine: arm64
+    env:
+      EG_WHEEL_TARGET: ${{ matrix.target }}
+      EG_WHEEL_MANYLINUX: auto
+      EG_WHEEL_JOBS_ARG: '--jobs 2'
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_RELEASE_SERVER_LTO: thin
+      CARGO_PROFILE_RELEASE_SERVER_CODEGEN_UNITS: '16'
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/pinned-rust-toolchain
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: '.python-version'
+          architecture: ${{ matrix.python_arch }}
+      - name: Test the source build lock on the native OS
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+        run: |
+          python -c 'import os, platform; actual = platform.machine().lower(); expected = os.environ["EXPECTED_MACHINE"]; assert actual == expected, (actual, expected)'
+          python -m pip install 'pytest==9.2.0' 'maturin==1.15.0'
+          python -m pytest --noconftest -q tests/test_build_backend.py -k file_lock
+      - name: Configure identity-neutral paths and reproducible timestamp
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$EG_WHEEL_TARGET"
+      - name: Build and audit the engine wheel
+        uses: ./.github/actions/folded-wheel
+        with:
+          pass: primary
+      - name: Smoke-test the installed engine wheel
+        run: |
+          mkdir dist
+          cp dist-primary/medulla-*.whl dist/
+          bash scripts/release_wheel_smoke.sh
+      - name: Build the server wheel
+        uses: ./.github/actions/build-server-wheel
+      - name: Smoke-test the installed server wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/server-smoke"
+          if [ "$RUNNER_OS" = Windows ]; then bindir=Scripts; exe=epistemic-graph-server.exe; else bindir=bin; exe=epistemic-graph-server; fi
+          smoke="$RUNNER_TEMP/server-smoke/$bindir"
+          "$smoke/python" -m pip install dist-server/*.whl
+          "$smoke/$exe" --help >/dev/null
+          "$smoke/python" -c 'from epistemic_graph_server import binary_path; assert binary_path().is_file()'

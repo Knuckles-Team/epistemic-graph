@@ -739,3 +739,39 @@ def test_editable_cache_rejects_wheel_carrying_an_executable(tmp_path):
     )
     with pytest.raises(RuntimeError, match="executable"):
         build_backend._validate_editable_wheel(wheel)
+
+
+def test_file_lock_excludes_another_process(tmp_path: Path) -> None:
+    lock = tmp_path / "locks" / "build.lock"
+    ready = tmp_path / "ready"
+    acquired = tmp_path / "acquired"
+    child = (
+        "import sys; from pathlib import Path; "
+        "from build_backend import _exclusive_file_lock; "
+        "Path(sys.argv[2]).touch(); "
+        "exec('with _exclusive_file_lock(Path(sys.argv[1])):\\n "
+        "Path(sys.argv[3]).touch()')"
+    )
+    with build_backend._exclusive_file_lock(lock):
+        process = subprocess.Popen(
+            [sys.executable, "-c", child, str(lock), str(ready), str(acquired)],
+            cwd=REPO,
+        )
+        try:
+            deadline = time.monotonic() + 30
+            while (
+                not ready.exists()
+                and process.poll() is None
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.05)
+            assert ready.exists(), "child failed to start"
+            time.sleep(0.3)
+            assert process.poll() is None
+            assert not acquired.exists()
+        except BaseException:
+            process.kill()
+            process.wait()
+            raise
+    assert process.wait(timeout=30) == 0
+    assert acquired.exists()

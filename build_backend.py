@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import errno
 import hashlib
 import json
 import os
@@ -294,20 +295,40 @@ def _assert_stable_cache_inputs(
 
 @contextmanager
 def _exclusive_file_lock(lock_path: Path):
-    """Hold one process-safe POSIX lock without placing it in mutable build output."""
+    """Hold a process-safe lock without placing it in mutable build output."""
 
-    try:
-        import fcntl
-    except ImportError as exc:  # pragma: no cover - Linux deployment contract
-        raise RuntimeError("medulla builds require POSIX file locking") from exc
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    locked = False
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        if sys.platform == "win32":
+            import msvcrt
+
+            # LK_LOCK gives up after ten seconds; native builds can take much
+            # longer, so retry only the expected lock-contention error.
+            while True:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                try:
+                    msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EDEADLK):
+                        raise
+                    time.sleep(0.1)
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        locked = True
         yield
     finally:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            if locked:
+                if sys.platform == "win32":
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
         finally:
             os.close(descriptor)
 
