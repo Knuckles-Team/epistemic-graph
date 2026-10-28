@@ -2179,3 +2179,68 @@ fn digest_key_is_exact_name_only_key_is_a_proposal() {
         "a name-only key stays a proposal even with an approver"
     );
 }
+
+// spec: EG-SUPPLY-VOCAB-R008.1
+#[test]
+fn impact_query_is_class_only_and_parses() {
+    let query = include_str!("fixtures/supply_chain_impact.rq");
+    // The query parses as SPARQL 1.1.
+    eg_rdf::sparql::parse_query(query).expect("the impact query parses");
+    // The query text (comments stripped) names only the shared vocabulary
+    // and infra:Service -- no connector, tool or doctype name.
+    let query_only: String = query
+        .lines()
+        .map(|line| line.split_once('#').map_or(line, |(code, _)| code))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let lower = query_only.to_lowercase();
+    for name in [
+        "erpnext",
+        "dockerhub",
+        "hub_scout",
+        "leanix",
+        "servicenow",
+        "salesforce",
+        "twenty",
+        "gitlab",
+        "github",
+        "dependabot",
+        "container-manager",
+        "k8s",
+        "uptime",
+        "kuma",
+        "fan-manager",
+        "systems-manager",
+        "cmdb",
+        "soql",
+    ] {
+        assert!(!lower.contains(name), "the query names no source: {name}");
+    }
+    // Every prefixed name is under the two vocabulary namespaces.
+    let mut prefixes: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let bytes = query_only.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b':' && !(i + 1 < bytes.len() && bytes[i + 1] == b'/') {
+            let mut start = i;
+            while start > 0
+                && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_')
+            {
+                start -= 1;
+            }
+            if start < i {
+                prefixes.insert(String::from_utf8_lossy(&bytes[start..i]).to_string());
+            }
+        }
+        i += 1;
+    }
+    assert_eq!(
+        prefixes,
+        std::collections::BTreeSet::from(["kg".to_string(), "infra".to_string()]),
+        "the query uses only the kg and infra namespaces: {prefixes:?}"
+    );
+    assert!(
+        query_only.contains("infra:Service"),
+        "the query selects over infra:Service"
+    );
+}
