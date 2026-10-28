@@ -3822,6 +3822,7 @@ components:
       - "tests/incremental_spatial_index.rs"
       - "tests/integration_failure_baseline.txt"
       - "tests/lake-parity-requirements.txt"
+      - "tests/leiden_community_detection_served.rs"
       - "tests/mssql_roundtrip.rs"
       - "tests/multi_graph_batch_write.rs"
       - "tests/mutation_batch_commit_lifecycle.rs"
