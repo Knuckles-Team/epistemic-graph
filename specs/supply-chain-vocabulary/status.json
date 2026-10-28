@@ -97,7 +97,7 @@
         "ee2a3497659c"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:226",
+        "crates/eg-core/tests/commercial_vocabulary.rs:299",
         "crates/eg-rdf/tests/supply_chain_declarations.rs:112",
         "crates/eg-rdf/tests/supply_chain_declarations.rs:62",
         "crates/eg-rdf/tests/supply_chain_declarations.rs:94",
@@ -129,7 +129,7 @@
         "43bbb7464e07"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:226",
+        "crates/eg-core/tests/commercial_vocabulary.rs:299",
         "src/server/graph_schema/compose.rs:701"
       ]
     },
@@ -285,15 +285,19 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:23"
+        "crates/eg-rdf/tests/commercial_declarations.rs:24"
       ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.2",
       "title": "Add `:CustomerContract`, `:contractCustomer`, `:coversService`, `:contractStatus` and `:contractEnd`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c6c185bfdb23"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/commercial_declarations.rs:151"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.3",
@@ -305,9 +309,13 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.4",
       "title": "Add `:supportsCapability`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c6c185bfdb23"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/commercial_declarations.rs:205"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.5",
@@ -325,7 +333,7 @@
         "cf97853f7c39"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:89"
+        "crates/eg-rdf/tests/commercial_declarations.rs:90"
       ]
     },
     {
@@ -338,9 +346,13 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.8",
       "title": "Add `:PurchaseOrder`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c6c185bfdb23"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/commercial_declarations.rs:231"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.9",
@@ -357,7 +369,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:56"
+        "crates/eg-rdf/tests/commercial_declarations.rs:57"
       ]
     },
     {
@@ -421,9 +433,13 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.17",
       "title": "Restore the Opportunity date constraint",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c6c185bfdb23"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/commercial_vocabulary.rs:228"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R004",
@@ -622,9 +638,13 @@
     {
       "id": "EG-SUPPLY-VOCAB-R007.1",
       "title": "Blocking-key fixture for supplier, service, host, image and customer",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c6c185bfdb23"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_blocking_keys.rs:12"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R007.2",

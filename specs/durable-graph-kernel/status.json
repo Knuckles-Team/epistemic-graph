@@ -2585,9 +2585,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R083.1",
       "title": "`KvBlockKey` typed model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/src/version.rs:141"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.2",
@@ -2604,9 +2608,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R083.3",
       "title": "Budgeted eviction by importance",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/src/graph_importance.rs:147"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.4",
@@ -2888,7 +2896,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/rule_correction.rs:144",
+        "crates/eg-types/src/rule_correction.rs:170"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R088.2",
@@ -2913,7 +2924,10 @@
       "title": "Typed verdict",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/step_verdict.rs:78",
+        "crates/eg-types/src/step_verdict.rs:94"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R089.2",
@@ -3148,7 +3162,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/concept_id.rs:146",
+        "crates/eg-types/src/concept_id.rs:205"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.2",
@@ -3253,7 +3270,9 @@
       "title": "Model: served agent bus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-durable/tests/agent_bus.rs:3"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.1001",
@@ -3369,7 +3388,7 @@
         "a0357cb95dc8"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:448",
+        "crates/eg-capabilities/src/error_routing.rs:450",
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:353",
         "crates/eg-storage/src/owner/lineage_tests.rs:224",
         "crates/eg-storage/src/owner/lineage_tests.rs:245",
@@ -3673,7 +3692,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/mutation_batch/fanout.rs:40"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R099.2",
@@ -4215,7 +4236,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/retention_policy.rs:124",
+        "crates/eg-types/src/retention_policy.rs:99"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R700.2",
@@ -4312,16 +4336,25 @@
     {
       "id": "EG-DURABLE-KERNEL-R800.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/tests/tier_policy.rs:23"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/tests/tier_policy.rs:44",
+        "crates/eg-kvcache/tests/tier_policy.rs:76"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.3",
@@ -4333,9 +4366,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R800.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/tests/tier_policy.rs:103"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.5",
@@ -4371,7 +4408,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-durable/src/topic.rs:38"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R850.2",
@@ -4428,7 +4467,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/agent_peer.rs:33"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R851.2",
@@ -4485,14 +4526,18 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/health_incident.rs:201"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/health_incident.rs:231"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.3",
@@ -4506,7 +4551,9 @@
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/health_incident.rs:257"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.5",

@@ -1718,8 +1718,10 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "40eb47bf49ca"
+      ],
       "verified_by": []
     },
     {
@@ -1804,8 +1806,10 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "40eb47bf49ca"
+      ],
       "verified_by": []
     },
     {
@@ -1958,8 +1962,10 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "bdb61b3c137d"
+      ],
       "verified_by": []
     },
     {
@@ -2031,8 +2037,10 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "40eb47bf49ca"
+      ],
       "verified_by": []
     },
     {
