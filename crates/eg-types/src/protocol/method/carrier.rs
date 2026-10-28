@@ -112,6 +112,18 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn host_start_cannot_be_hidden_inside_a_generic_carrier() {
+        let request = crate::test_support::host_start::host_start_request("t");
+        let host = from_json(serde_json::json!({
+            "method": "IssueHostStartGrant", "params": {"request": request}
+        }));
+        assert_eq!(
+            host.carrier_refusal(),
+            Some(CarrierRefusal::NativeAuthority)
+        );
+    }
+
+    #[test]
     fn carriers_refuse_internal_and_native_kernel_methods_and_pass_graph_writes() {
         assert!(crate::contract::declared_error_code(ENGINE_INTERNAL_CODE));
         assert!(crate::contract::declared_error_code(CARRIER_REFUSAL_CODE));

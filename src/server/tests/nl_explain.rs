@@ -29,6 +29,13 @@ fn nl_explain(text: &str) -> Method {
     }
 }
 
+fn nl_plan(text: &str) -> Method {
+    Method::NlQueryPlan {
+        text: text.into(),
+        graph: "__commons__".into(),
+    }
+}
+
 async fn send(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) -> Response {
     dispatch_on_heap(state, request(id, "__commons__", None, method)).await
 }
@@ -40,6 +47,13 @@ fn explain_body(resp: &Response) -> eg_types::nl_query::NlQueryExplainResult {
             "expected Raw explain result, got {other:?} / {:?}",
             resp.error
         ),
+    }
+}
+
+fn plan_body(resp: &Response) -> eg_types::nl_query::NlQueryPlanResult {
+    match &resp.result {
+        Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(bytes).unwrap(),
+        other => panic!("expected Raw plan result, got {other:?} / {:?}", resp.error),
     }
 }
 
@@ -103,6 +117,32 @@ async fn nl_query_explain_refuses_exactly_like_nl_query() {
             "refusal detail is identical"
         );
     }
+}
+
+// spec: EG-FEDERATED-QUERY-R058.2.2.2
+#[tokio::test]
+async fn nl_query_plan_returns_pins_without_executing_rows() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let state = echo_planned_fixture().await;
+    let text = "MATCH (:Doc) |> LIMIT 3";
+    let response = send(&state, 945, nl_plan(text)).await;
+    assert_ok(&response);
+    let body = plan_body(&response);
+    assert_eq!(body.uql, text);
+    assert_ne!(body.plan_digest.to_hex(), "0".repeat(64));
+    assert_ne!(body.query_digest.to_hex(), "0".repeat(64));
+    let params = std::collections::BTreeMap::new();
+    let statement = eg_plan::uql::parse_statement(&body.uql, &params).expect("parse planned UQL");
+    let binding = eg_plan::uql::serve::binding_plan(&statement);
+    assert_eq!(
+        body.plan_digest,
+        crate::server::foreign_read::canonical_plan_digest(&binding).expect("plan digest")
+    );
+    assert_eq!(
+        body.query_digest,
+        crate::server::handlers::query::foreign_uql_query_digest(&body.uql, &params)
+            .expect("query digest")
+    );
 }
 
 // spec: EG-FEDERATED-QUERY-R058.3.2

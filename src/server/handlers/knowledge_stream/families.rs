@@ -245,6 +245,7 @@ async fn execute_vector(
             keywords: keywords.to_vec(),
             query_embedding: query_embedding.to_vec(),
             k: *k,
+            quality_policy_ref: None,
         },
     )
     .await;

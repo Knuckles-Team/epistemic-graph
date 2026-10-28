@@ -545,7 +545,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
 
     spawn_memory_and_lifecycle_sweeps(&state, host_capacity, txn_limits.0).await;
 
-    start_raft_and_matview_reload(&state).await?;
+    start_raft(&state).await?;
 
     // ── Graceful shutdown coordination (reference-counted) ────────────────
     // ONE coordinator shared by every accept loop, the SIGTERM/SIGINT handler,
@@ -1582,33 +1582,13 @@ async fn recover_durable_catalog(
         state.write().await.registry.set_materializer(materializer);
         info!("durable read-through and bounded lazy materialization enabled");
 
-        // ── Time-series STARTUP RECONCILIATION (CONCEPT:EG-KG.backend.ts-startup-reconcile, L16) ──
-        // EG-P0-4 replays a cross-modal-committed measurement into the served
-        // `series.redb` right after the graph-shard commit succeeds, but a crash
-        // strictly BETWEEN those two commits can leave the shard ahead of the served
-        // store (documented residual). Run this ONCE here — after the redb backend has
-        // (re)loaded and before the server accepts traffic — so any such residual from a
-        // prior crash never lingers. No-op when either the backend isn't redb or no
-        // tsdb store is configured; idempotent + a true no-op on a clean-shutdown boot
-        // (see `RedbBackend::reconcile_time_series`'s doc comment for the guarantee).
-        #[cfg(all(feature = "redb", feature = "tsdb"))]
-        if let Some(redb) = p.as_redb() {
-            if let Some(series) = state.read().await.tsdb_store.clone() {
-                match redb.reconcile_time_series(&series).await {
-                    Ok(report) if report.series_reconciled > 0 => info!(
-                        "time-series startup reconciliation (CONCEPT:EG-KG.backend.ts-startup-reconcile): {} \
-                         series / {} point(s) replayed into the served store (recovered \
-                         from a crash between the two EG-P0-4 commits)",
-                        report.series_reconciled, report.points_replayed
-                    ),
-                    Ok(_) => {}
-                    Err(error) => return Err(format!(
-                        "time-series startup reconciliation failed; refusing availability: {error}"
-                    )
-                    .into()),
-                }
-            }
-        }
+        // The time-series startup reconciliation (CONCEPT:EG-KG.backend.ts-
+        // startup-reconcile, L16) no longer runs here: it is crash-window
+        // residual closing, not a serving precondition, so it runs as post-bind
+        // background maintenance (`server::boot_maintenance::
+        // spawn_post_bind_maintenance`, EG-DURABLE-KERNEL-R006.4) — running it
+        // pre-listener is exactly what stalled the boot for minutes on a
+        // legacy store (G9).
     }
     Ok(())
 }
@@ -2034,10 +2014,19 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
     });
 }
 
-async fn start_raft_and_matview_reload(
+/// Start the in-engine Raft cluster node, when built + configured — the
+/// one remaining PRE-listener boot obligation: a configured node MUST be up
+/// before serving (writes route through consensus). The materialized-view
+/// reload that used to sit in this function (hence the old name) is RAM
+/// re-hydration, not a serving precondition, and moved to post-bind
+/// background maintenance (`server::boot_maintenance::
+/// spawn_post_bind_maintenance`, EG-DURABLE-KERNEL-R006.4) — running it here
+/// stalled the pre-listener path behind the projection drain for minutes on
+/// a large store (G9).
+async fn start_raft(
     _state: &Arc<tokio::sync::RwLock<ServerState>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(any(feature = "raft", feature = "compute-dist", feature = "matview"))]
+    #[cfg(feature = "raft")]
     let state = _state;
     // ── In-engine Raft replication (CONCEPT:AU-KG.ingest.source-sync-canonical) — cluster tier ──────
     // Only when built `--features raft` AND configured (EPISTEMIC_GRAPH_RAFT_NODE_ID
@@ -2114,19 +2103,6 @@ async fn start_raft_and_matview_reload(
                 std::process::exit(2);
             }
         }
-    }
-
-    // ── Distributed-compute materialized-view reload (CONCEPT:EG-KG.storage.feature) ───────
-    // On every boot, reload any persisted matviews from the redb durable tier into
-    // the in-RAM index so `GetMatView` serves them immediately. A no-op when no
-    // matviews were ever created / no redb backend is configured.
-    #[cfg(any(feature = "compute-dist", feature = "matview"))]
-    match epistemic_graph::server::reload_matviews(state).await {
-        Ok(0) => {}
-        Ok(n) => {
-            info!("Reloaded {n} materialized view(s) from redb (CONCEPT:EG-KG.storage.feature)")
-        }
-        Err(e) => tracing::warn!("materialized-view reload skipped: {e}"),
     }
 
     Ok(())

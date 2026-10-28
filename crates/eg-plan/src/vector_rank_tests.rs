@@ -139,6 +139,173 @@ fn traversal_then_rank_returns_the_exact_top_k() {
     }
 }
 
+/// R039.4's adversarial replenishment case: ten permitted documents sit below the
+/// unfiltered vector top ten. Traversal must constrain the ranking before top-k is
+/// selected, so high-scoring documents outside the reached set cannot starve it.
+#[test]
+fn traversal_recovers_ten_permitted_matches_below_unfiltered_top_k() {
+    use petgraph::visit::EdgeRef;
+
+    let core = GraphCore::new();
+    let mut semantic = SemanticStore::new();
+    let query = {
+        let mut q = vec![0.0; DIM];
+        q[0] = 1.0;
+        q
+    };
+    let unit_vector = |first: f32| {
+        let mut value = vec![0.0; DIM];
+        value[0] = first;
+        value[1] = (1.0 - first * first).sqrt();
+        value
+    };
+
+    core.add_node("seed".into(), blob(json!({"type": "Doc", "key": "seed"})));
+    core.add_node("hub".into(), blob(json!({"type": "Hub"})));
+    let edge = blob(json!({"relationship": "CITES"}));
+    let _ = core.add_edge("seed".into(), "hub".into(), edge.clone());
+    // Parallel edges retain separate stable graph identities; traversal still
+    // discovers the same hub once rather than multiplying candidate rows.
+    let _ = core.add_edge("seed".into(), "hub".into(), edge.clone());
+
+    let mut permitted = HashSet::new();
+    for index in 0..10 {
+        let id = format!("permitted-{index:02}");
+        core.add_node(id.clone(), blob(json!({"type": "Doc", "key": id})));
+        let _ = core.add_edge("hub".into(), id.clone(), edge.clone());
+        semantic
+            .add_embedding(id.clone(), unit_vector(0.10 + index as f32 * 0.01))
+            .unwrap();
+        permitted.insert(id);
+    }
+
+    let mut distractors = HashSet::new();
+    for index in 0..10 {
+        let id = format!("distractor-{index:02}");
+        core.add_node(id.clone(), blob(json!({"type": "Doc", "key": id})));
+        semantic
+            .add_embedding(id.clone(), unit_vector(0.99))
+            .unwrap();
+        distractors.insert(id);
+    }
+
+    let global_top = semantic.semantic_search(&query, 10);
+    assert_eq!(global_top.len(), 10);
+    assert!(
+        global_top.iter().all(|(id, _)| distractors.contains(id)),
+        "unfiltered top-k must be occupied by non-permitted distractors"
+    );
+
+    let view = core.analysis_snapshot();
+    let parallel_edge_ids: Vec<_> = view
+        .graph
+        .edges_connecting(view.node_map["seed"], view.node_map["hub"])
+        .map(|edge| edge.id().index())
+        .collect();
+    assert_eq!(parallel_edge_ids.len(), 2);
+    assert_ne!(parallel_edge_ids[0], parallel_edge_ids[1]);
+    let all_edge_ids_before: Vec<_> = view.graph.edge_indices().map(|id| id.index()).collect();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let plan = Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "key".into(),
+                value: "seed".into(),
+            }],
+        },
+        Op::Traverse {
+            rel: "CITES".into(),
+            min: 1,
+            max: 2,
+        },
+        Op::Rank {
+            query: query.clone(),
+        },
+        Op::Limit { k: 10 },
+    ]);
+    let reached: HashSet<String> = bfs_reached(&view, &["seed".into()], "CITES", 1, 2)
+        .into_iter()
+        .collect();
+    let got = ids(&plan, &ctx);
+    assert_eq!(reached.len(), 11, "one hub plus ten permitted documents");
+    assert_eq!(got.len(), 10, "all permitted matches survive the limit");
+    assert!(got.iter().all(|id| permitted.contains(id)));
+    assert_eq!(got, oracle(&semantic, &query, &reached, 10));
+    let all_edge_ids_after: Vec<_> = view.graph.edge_indices().map(|id| id.index()).collect();
+    assert_eq!(
+        all_edge_ids_after, all_edge_ids_before,
+        "query execution preserves stable parallel-edge identities"
+    );
+}
+
+/// The current Plan/RowSet surface carries rows only, not a typed shortfall. Keep
+/// under-k and zero-survivor candidate counts explicit here without treating those
+/// cases as typed-shortfall acceptance; that response contract remains unimplemented.
+#[test]
+fn traversal_under_k_and_zero_survivors_keep_exact_candidate_counts() {
+    let core = GraphCore::new();
+    let mut semantic = SemanticStore::new();
+    let mut query = vec![0.0; DIM];
+    query[0] = 1.0;
+    let unit_vector = |first: f32| {
+        let mut value = vec![0.0; DIM];
+        value[0] = first;
+        value[1] = (1.0 - first * first).sqrt();
+        value
+    };
+
+    for id in ["few-seed", "zero-seed", "few-hub"] {
+        let kind = if id.ends_with("hub") { "Hub" } else { "Doc" };
+        core.add_node(id.into(), blob(json!({"type": kind, "key": id})));
+    }
+    let edge = blob(json!({"relationship": "CITES"}));
+    let _ = core.add_edge("few-seed".into(), "few-hub".into(), edge.clone());
+
+    let mut permitted = HashSet::new();
+    for index in 0..2 {
+        let id = format!("few-{index}");
+        core.add_node(id.clone(), blob(json!({"type": "Doc", "key": id})));
+        let _ = core.add_edge("few-hub".into(), id.clone(), edge.clone());
+        semantic
+            .add_embedding(id.clone(), unit_vector(0.3 + index as f32 * 0.1))
+            .unwrap();
+        permitted.insert(id);
+    }
+
+    let view = core.analysis_snapshot();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let plan_for = |seed: &str| {
+        Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "key".into(),
+                    value: seed.into(),
+                }],
+            },
+            Op::Traverse {
+                rel: "CITES".into(),
+                min: 1,
+                max: 2,
+            },
+            Op::Rank {
+                query: query.clone(),
+            },
+            Op::Limit { k: 5 },
+        ])
+    };
+
+    let fewer_than_k = ids(&plan_for("few-seed"), &ctx);
+    assert_eq!(fewer_than_k.len(), 2);
+    assert!(fewer_than_k.iter().all(|id| permitted.contains(id)));
+    assert!(ids(&plan_for("zero-seed"), &ctx).is_empty());
+}
+
 /// The filtered-rank shape (EH-565): a category filter, then rank over its ~375
 /// members — exact, complete and ordered.
 #[test]

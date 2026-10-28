@@ -203,6 +203,31 @@ fn zig_function() {
     assert_eq!(f["language"], "zig");
 }
 
+// spec: EG-REPO-INGEST-R010
+#[test]
+fn cuda_cpp_fixture_preserves_cuda_label() {
+    // CUDA reuses the C++ grammar (there is no ABI-compatible CUDA grammar
+    // crate), but `.cu`/`.cuh` files retain their own stable graph label.
+    let src = r#"
+struct KernelArgs {
+    int width;
+    int height;
+};
+
+void launch_kernel(int count) {
+    int result = count;
+}
+"#;
+    let args = sym("kernel.cu", src, "KernelArgs");
+    assert_eq!(args["symbol_type"], "Class");
+    assert_eq!(args["kind_detail"], "struct");
+    assert_eq!(args["language"], "cuda");
+
+    let launch = sym("kernel.cuh", src, "launch_kernel");
+    assert_eq!(launch["symbol_type"], "Function");
+    assert_eq!(launch["language"], "cuda");
+}
+
 #[test]
 fn groovy_class_interface_and_method() {
     // Groovy's grammar shares Java's node-kind vocabulary, so it gets the

@@ -363,6 +363,11 @@ $($variants)*
         keywords: Vec<String>,
         query_embedding: Vec<f32>,
         k: usize,
+        /// Optional retrieval-quality policy identity.  The model-only slice
+        /// carries this reference; policy lookup and verdict computation are
+        /// served by the later R089 children.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quality_policy_ref: Option<String>,
     },
 
     /// CONCEPT:EG-ORCH.routing.lexical-capability-escalation — embedding-free lexical classification gate: which

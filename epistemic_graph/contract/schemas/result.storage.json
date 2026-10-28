@@ -3195,6 +3195,52 @@
       ],
       "type": "object"
     },
+    "ConnectorPackSourceApprovalResult": {
+      "additionalProperties": false,
+      "description": "What approving one held source declaration committed.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "contract_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "head": {
+          "$ref": "#/$defs/PackHeadRef"
+        },
+        "registration": {
+          "$ref": "#/$defs/PackSourceRegistration"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_id",
+        "connector",
+        "head",
+        "registration",
+        "contract_digest",
+        "batch_id",
+        "committed_version"
+      ],
+      "type": "object"
+    },
     "ConnectorPackStatus": {
       "additionalProperties": false,
       "description": "One connector's pack state.",
@@ -4989,6 +5035,25 @@
       ],
       "type": "object"
     },
+    "PackHeadRef": {
+      "additionalProperties": false,
+      "description": "The head a caller believes is current, for a compare-and-set import.",
+      "properties": {
+        "binding_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pack_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "binding_revision",
+        "pack_digest"
+      ],
+      "type": "object"
+    },
     "PackHeadView": {
       "additionalProperties": false,
       "description": "The current head, as `status` reports it.",
@@ -5338,6 +5403,74 @@
         "retired",
         "batch_id",
         "committed_version"
+      ],
+      "type": "object"
+    },
+    "PackSourceApproval": {
+      "description": "A connector declaration never supplies admission approval.",
+      "enum": [
+        "held",
+        "approved"
+      ],
+      "type": "string"
+    },
+    "PackSourceKind": {
+      "description": "Access kinds retain their SDK contract spelling.",
+      "enum": [
+        "mcp_tool",
+        "http_endpoint",
+        "graphql_query",
+        "a2a_skill",
+        "virtual_graph"
+      ],
+      "type": "string"
+    },
+    "PackSourceRegistration": {
+      "additionalProperties": false,
+      "description": "One source declaration, pinned by its containing member's body digest.\nImport always records `Held`; a publisher cannot approve its own mapping.",
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/PackSourceApproval",
+          "default": "held"
+        },
+        "class_iri": {
+          "type": "string"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "contract_iri": {
+          "type": "string"
+        },
+        "entity": {
+          "type": "string"
+        },
+        "key_field": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "resource_uri": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "source_kind": {
+          "$ref": "#/$defs/PackSourceKind"
+        }
+      },
+      "required": [
+        "connector",
+        "contract_iri",
+        "resource_uri",
+        "source_kind",
+        "class_iri",
+        "source_id",
+        "operation",
+        "entity",
+        "key_field"
       ],
       "type": "object"
     },
@@ -8459,6 +8592,13 @@
     },
     "ConnectorPack": {
       "bodies": {
+        "approve_source": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ConnectorPackSourceApprovalResult"
+          }
+        },
         "attest_self_served_catalog": {
           "dynamic": null,
           "encoding": "Raw",

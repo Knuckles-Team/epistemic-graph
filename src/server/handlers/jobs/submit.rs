@@ -216,7 +216,12 @@ pub(super) async fn resolve_job_store(
     };
     let store = job_store(persist_dir.as_deref()).map_err(|error| Response::err(req_id, error))?;
     if !clustered {
-        ensure_job_workers(state.clone(), store.clone());
+        ensure_job_workers(state.clone(), store.clone()).map_err(|error| {
+            Response::err(
+                req_id,
+                format!("INVALID_CONFIGURATION: analytics worker timing: {error}"),
+            )
+        })?;
     }
     Ok(store)
 }

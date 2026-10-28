@@ -110,10 +110,6 @@ pub enum QuestionKind {
     /// split that makes it fit (EG-DECISION-ENGINE-R137). Evaluate-only. See
     /// `decision::context_budget`.
     ContextBudget,
-    /// Keep or revert a candidate harness edit by the shipped edits on its
-    /// dimension inside the policy window (EG-DECISION-ENGINE-R173). See
-    /// `decision::concentration`.
-    EditConcentration,
     /// Whether an evolution round's observed flips verify or falsify its
     /// declaration (EG-DECISION-ENGINE-R136). See `decision::evolution_round`.
     RoundVerdict,
@@ -131,6 +127,10 @@ pub enum QuestionKind {
     /// How and when to use one connector for one job (EG-DECISION-ENGINE-R177).
     /// See `decision::usage_guidance`.
     UsageGuidance,
+    /// Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).
+    BranchOutcome,
+    /// Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).
+    EditConcentration,
 }
 
 /// What is at stake. Exploration is permitted only for

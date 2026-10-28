@@ -1,6 +1,6 @@
 # Test specification and acceptance evidence
 
-All tests run from the repository root with local fixtures, mock servers, or isolated ephemeral stores by default. Live foreign services are an optional integration profile with explicit provisioning; a cloud contributor can execute parser, optimizer, security, differential and contract gates without private infrastructure. For each accepted slice, record the exact commit, command, exit status, fixture version and relevant assertion count in a reviewed evidence entry.
+All tests run from the repository root with local fixtures, mock servers, or isolated ephemeral stores by default. Live foreign services are an optional integration profile with explicit provisioning. A cloud contributor can execute parser, optimizer, security, differential and contract gates without private infrastructure. For each accepted slice, record the exact commit, command, and exit status. Also record the fixture version and relevant assertion count in a reviewed evidence entry.
 
 | Case | Requirements | Fixture and action | Expected result |
 |---|---|---|---|
@@ -10,7 +10,7 @@ All tests run from the repository root with local fixtures, mock servers, or iso
 | Q-03a reconciliation | EG-FEDERATED-QUERY-R007 | Interrupt a semantic-index source scan before complete-snapshot proof, then replay a complete scan. | The partial scan creates no tombstone; the complete scan tombstones exactly the absent sources. The focused `missing_sources_become_tombstones_only_after_complete_snapshot_proof` regression passes repeatedly. |
 | Q-03b graph-free SQL | FQR-02 | DDL, DML, `COPY`, external-table statement and multi-statement payload through direct graph-free SQL and observability search. | Read-only guard refuses each mutation before execution; ordinary SELECT succeeds. |
 | Q-04 proof/trace | FQR-02/08/10 | SPARQL/rule derivation, `WITH PROOF`, nested `LET`/`JOIN`, source with secret-like label. | Proof premises verify against generation; channels survive wire; trace has remote/local rows and no secret/URL/DSN. |
-| F-01 result equivalence | FQR-03/06 | SQL, HTTP, RemoteEngine, SPARQL and OBDA mocks with duplicate rows, repeated predicate values, null/type edges, filter/order/limit/aggregate/join cases. Run optimized and naive full fetch. | Equal multisets, or equal ordered rows where ordered; no first-page truncation. Mock records lower or equal transfer where pushdown is declared. |
+| F-01 result equivalence | FQR-03/06 | SQL, HTTP, RemoteEngine, SPARQL and OBDA mocks cover duplicate rows, repeated predicates, nulls, types and filter/order/limit/aggregate/join cases. Run optimized and naive full fetch. | Equal multisets, or equal ordered rows where ordered. No first-page truncation. Mock records lower or equal transfer when pushdown is declared. |
 | F-02 budget and key source | FQR-03/04 | Set each request, row, key and wall limit one below needed work. Request full scan of `RequiresKeys`. | `FEDERATION_BUDGET_EXCEEDED:<dimension>` or `FEDERATION_SOURCE_REQUIRES_KEYS`. No partial success. |
 | F-03 outbound policy | FQR-04 | Local/private/CGNAT/6to4/Teredo, redirect, DNS rebind, host placeholder, SQL injection, ungranted source, cross-owner key. | Refused before request or redirected hop; zero cross-tenant rows, credential bytes or network access. |
 | F-04 capability fallback | FQR-03/05 | Source reports `Inexact` filter, lacks top-N, errors on batch, or has unknown stats; retry under rate limit. | Exact local residual; bounded fallback; trace names capability and estimate provenance. |
@@ -32,7 +32,7 @@ All tests run from the repository root with local fixtures, mock servers, or iso
 
 | ID | Positive proof | Negative and boundary proof |
 |---|---|---|
-| EG-FEDERATED-QUERY-R045 | Mock SQL/HTTP/RemoteEngine rows include duplicate names, nulls, numeric/date values and a foreign-only filter. Exact push and inexact push plus local residual equal full-fetch ordered/multiset oracles; projection retains hidden residual columns until evaluated. | Unsupported filter, ambiguous schema, changed type, inexact push missing a matching row and projection dropping an authorization/order column refuse or fall back; never silently return partial rows. |
+| EG-FEDERATED-QUERY-R045 | Mock SQL/HTTP/RemoteEngine rows include duplicate names, nulls, numeric/date values and a foreign-only filter. Exact push and inexact push plus local residual equal full-fetch ordered/multiset oracles. Projection retains hidden residual columns until evaluated. | Unsupported filters, ambiguous schemas, and changed types refuse or fall back. An inexact push missing a matching row also refuses or falls back. Projection dropping an authorization or ordering column refuses or falls back. The system never silently returns partial rows. |
 | EG-FEDERATED-QUERY-R052 | A recording second Medulla instance receives canonical `Method::Uql` with only authorized keys and a sound LIMIT, returns the same ordered result as no push, and reports lower transferred row count. | Residual filter/top-N interaction, pagination, missing UQL capability, invalid signature, ungranted key, redirect/private target and exhausted request/row budget refuse or use a safe bounded fallback; no secret appears in trace. |
 
 Run changed-file CCCC, Dupehound, KISS and differential jscpd from `.config/pre-commit.yaml`; the configured CCCC threshold is no new function above cyclomatic 10 or cognitive 15 and no regression. Differential jscpd must show zero newly introduced clone pairs. KISS and Dupehound use their checked-in configuration, with zero attributable violations. Run `cargo fmt --all -- --check`, targeted `cargo test --locked` for each changed crate, full-feature Clippy with `-D warnings`, generated-contract checks, and the repository's hosted CI matrix for the final PR head. `bash scripts/ci_parity.sh` is a local CI preview. Record any unavailable live-service profile separately; it cannot be replaced by a fabricated pass. Every new public source kind needs a mock conformance suite before a live environment is considered.
@@ -48,8 +48,8 @@ For each accepted stable ID: `ID | public merged SHA | test command/profile | ex
 | EG-FEDERATED-QUERY-R056 | `crates/eg-compute/src/mining/causal_impact.rs::tests::two_sided_p_keeps_relative_accuracy_in_the_far_tail` | Passed against exact production modules and real libm: independent literal probabilities for z = ±3, ±6, ±8, ±10, ±20 at relative error < 1e-12. Z = 0 and +infinity boundaries. All five causal-impact tests passed. |
 
 Canonical crate command: `cargo test -p eg-compute --lib mining::causal_impact::tests`.
-The 2026-10-11 bounded local run instead compiled the exact module with `rustc
---test --edition=2021`, importing production numeric modules by path and linking
+The 2026-10-11 bounded local run compiled the exact module with `rustc
+--test --edition=2021`. It imported production numeric modules by path and linked
 the cached real libm. This is pure-module acceptance, not a full-crate or hosted
 release result. See the owning plan's audit record for revision and limits.
 
@@ -510,8 +510,7 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 
 - `EG-FEDERATED-QUERY-R722`: See each child.
 - `EG-FEDERATED-QUERY-R722.1`: `crates/eg-types/tests/pack_source.rs::access_kinds_map_to_foreign_source_kinds`.
-- `EG-FEDERATED-QUERY-R722.2`: `crates/eg-plan/tests/pack_source.rs::held_serves_none_approved_serves_rows_and_changed_contract_returns_to_held`.
-- `EG-FEDERATED-QUERY-R722.3`: `tests/federated/test_pack_source_served.py::test_import_registers_through_the_one_catalog`.
+- `EG-FEDERATED-QUERY-R722.2`: `crates/eg-plan/tests/pack_source.rs::held_serves_none_approved_serves_rows_and_changed_contract_returns_to_held`; `src/server/handlers/admin/connector_pack/tests/source_approval.rs::approve_source_requires_current_head_and_contract_digest` proves the admitted approval CAS; `tests/federated/test_pack_source_served.py::test_import_registers_through_the_one_catalog` proves the served catalog import.
 - `EG-FEDERATED-QUERY-R722.4`: `tests/federated/test_pack_source_served.py::test_secret_guard_held_and_unavailable_refuse_with_named_codes`.
 - `EG-FEDERATED-QUERY-R722.5`: `tests/federated/test_pack_source_served.py::test_rows_carry_contract_provenance_and_nothing_is_copied`.
 - `EG-FEDERATED-QUERY-R722.6`: `tests/federated/test_pack_source_served.py::test_uql_joins_native_fact_to_live_connector_rows_with_zero_copy`.
@@ -525,3 +524,58 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 | Refusal | `EG-FEDERATED-QUERY-R058.5` | `nl_regressions::planner_refuses_invalid_request_config_with_typed_errors` returns each `NlConfigError` variant. |
 | Served refusal | `EG-FEDERATED-QUERY-R058.5` | `nl_config_refusal_tests::invalid_planner_config_is_refused_with_code_and_key` sees `ENGINE_UNAVAILABLE` and the bad key in the detail. |
 | Raw value | `EG-FEDERATED-QUERY-R058.5` | `nl::tests::unparseable_env_values_are_refused_with_source_and_raw_value` sees the env name or config key and the raw text in the detail. |
+
+### R722.1 import-held registration slice
+
+- `source::tests::access_kinds_map_to_foreign_source_kinds` checks the closed source kinds.
+- `sources::tests::imported_contract_is_held_and_identifies_its_authoritative_body` checks source claims and absent declarations.
+- `sources::tests::publisher_approval_and_literal_credentials_refuse` checks admission authority and credential references.
+- `ontology::source_claims_persist_held_and_old_or_other_tenant_members_stay_unbound` exercises signed import, tenant isolation, unchanged import and store reopen.
+
+These tests do not prove live source execution or completion of R722.2 through R722.6.
+
+### R722.2 admitted source approval contract
+
+- `src/server/handlers/admin/connector_pack/tests/source_approval.rs::approve_source_requires_current_head_and_contract_digest` sends the existing `ConnectorPackOp::ApproveSource` / `approve_source` operation with a read-only admitted context. It proves the `agent:pack-control` action, tenant/current-head/body-digest CAS, and the approved `ConnectorPackSourceApprovalResult` batch evidence.
+- The same test retries an exact approved target and gets the idempotent result. It then imports a changed contract and proves the new current member is held. The old approval cannot be reused. It also refuses an absent registration, stale `PackHeadRef`, and mismatched current member digest without changing the head.
+- `tests/federated/test_pack_source_served.py::test_import_registers_through_the_one_catalog` remains the served catalog proof. Arbora's R042.2 policy id/reason is recorded by Arbora; EG's approval result carries only the engine-owned registration/head/digest and durable batch evidence.
+
+This contract does not add a human approval step, a new capability scope, a publisher-supplied approval bit, a second source registry, or live driver execution. No acceptance claim is made until native execution and the served test pass.
+
+### R722.3 owner-bound execution seam (tracked, pending)
+
+The following matrix names the required evidence for the first runtime binding.
+The tests are planned and remain open; the existing R722.1/R722.2 tests do not
+prove any of these rows.
+
+| Case | Requirement | Planned proving test | Required observation |
+|---|---|---|---|
+| Registry identity and precedence | R722.3 | `crates/eg-plan/src/federation_registry_tests.rs::eg722_bound_driver_resolves_naively_and_retains_spec`; `crates/eg-plan/src/federation_opt/remote.rs::bound_driver_tests::bound_driver_precedes_spec_and_preserves_identity` | The bound driver retains the registered source kind, operation and fingerprint. Naive and optimized resolution select the same bound source; the spec fallback is never used. |
+| Registration and context binding | R722.3/R042/R085 | `src/server/foreign_catalog.rs::binding_requires_verified_owner_tenant_and_current_registration` | Verified context supplies tenant, owner, actor and delegation. Wrong tenant/owner, missing approval, stale head, changed body or contract digest refuse before a driver call. Revoked authority and changed plan/query digest also refuse. |
+| Four-phase lifecycle | R722.3/R043.7; SDK-SOURCE-INGEST-R004.7-.10 invariants mapped by the SDK owner | `tests/federated/test_pack_source_served.py::test_approved_source_open_chunk_complete_abort_is_bounded` | `ForeignReadOpen` issues one opaque bound handle. Chunks use monotone sequence and finite row/byte/deadline caps. Complete or Abort is the only terminal transition. Replay, expiry, cancellation and over-limit cases return named errors. Existing R004.7-.10 alone do not prove a generic pack receiver. |
+| Governed source call | R043.7/R722.3 | `tests/federated/test_pack_source_served.py::test_approved_source_reaches_fleet_call_once` | The served path calls `FleetSourceExecutor` through `fleet.call` with read effect and never opens a direct URL or second transport. |
+| Provenance and zero copy | R722.5 | `tests/federated/test_pack_source_served.py::test_bound_source_rows_keep_provenance_without_source_storage` | Live rows carry connector, contract, mapping and fetch-time provenance. A store audit finds no source-row writes for a non-materialised source. |
+| Refusal and partial availability | R722.4 | `tests/federated/test_pack_source_served.py::test_bound_source_refusals_and_unavailable_gap` | Held/unbound, forbidden destination and stale/revoked cases return stable typed errors. Source-down cases return an explicit source gap. Native rows remain correct. No silent empty result occurs. The path never falls back. |
+| Cross-source hot path | R722.6 | `tests/federated/test_pack_source_served.py::test_uql_dag_joins_native_and_live_bound_rows` | Served UQL/DAG joins native facts and live connector rows. It preserves dependency concurrency and cancellation. It produces equal answers for naive and optimized resolution. |
+
+No row above is an acceptance result yet. The named native and served tests must
+run against the same reviewed source tree and record positive and refusal
+evidence. R722.2 approval evidence remains separate from this runtime proof.
+
+### R722.3 EG native leaf evidence (tracked, pending served integration)
+
+These tests bind the current EG DTO, query-pin and mapped-cell implementation to
+the R722.3 contract. They record evidence for the EG leaf only. They do not
+mark the cross-owner rows above complete. They do not replace the served
+`FleetSourceExecutor`/SDK tests.
+
+| Case | Requirement | Proving test | Evidence boundary |
+|---|---|---|---|
+| Lifecycle DTO and bounded limits | R722.3 | `crates/eg-types/src/foreign_read.rs::tests::lifecycle_dtos_round_trip_with_digest_and_optional_provenance`; `::tests::bounded_limits_reject_zero_and_over_cap`; `src/server/foreign_read.rs::tests::foreign_read_rows_match_sdk_msgpack_golden_fixture` | MessagePack fields, mapped cells and provenance round-trip. Zero and over-cap limits refuse. Rust `rmp_serde` bytes and SHA match the connector SDK golden fixture. |
+| Historical ExplainPlan compatibility | R722.3 | `crates/eg-types/src/protocol/support_01.rs::explain_plan_result_tests::historical_response_without_plan_digest_still_decodes` | A response without the additive optional digest decodes as `None`; a foreign client must fail closed. |
+| Canonical plan/query binding pin | R722.3 | `src/server/foreign_read.rs::tests::canonical_plan_digest_is_the_query_binding_pin`; `src/server/handlers/query/planning.rs::foreign_query_digest_tests::uql_query_digest_binds_text_and_typed_parameters`; `src/server/handlers/query/uql_statement.rs::served_tests::explain_returns_server_owned_foreign_query_pins`; `src/server/handlers/query/uql_statement.rs::served_tests::prepare_returns_pins_for_the_exact_executable_text`; `tests/advanced_crossmodal_roundtrip.rs::explain_plan_surfaces_the_optimizer_rewrite` | The server helper and ExplainPlan use identical named-MessagePack bytes. Authenticated UQL `prepare=true` returns server-owned plan/query pins for the exact executable statement. This still does not prove a served host exchange or source approval. |
+| Owner/sequence/expiry refusal | R722.3/R085 | `src/server/foreign_read.rs::tests::owner_digest_and_sequence_are_checked_before_page_acceptance`; adjacent abort/expiry tests in the same module | Wrong owner, digest or sequence refuse before page acceptance. Expired or terminal handles do likewise. Served paths must revalidate durable approval. |
+| Existing mapped-cell projection | R722.3/R722.5 | `src/server/foreign_read.rs::tests::mapped_cells_use_existing_foreign_rows_residual_and_projection` | Existing `ForeignRows`/`ColumnPlan` keeps the approved `contract_iri` mapping and provenance through residual filtering and projection. Live connector rows and zero-copy store audit remain open. |
+
+No row in this leaf promotes R722.3--R722.6. Record positive tests and refusal
+cases against the same frozen source archive before composing this evidence.

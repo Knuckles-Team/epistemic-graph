@@ -258,7 +258,7 @@ creates and registers its companion. Shape children therefore have a home.
 - Ontology files: `crates/eg-core/ontology/<file>.ttl`; registration: `CoreSpec` entries in `crates/eg-core/src/graph/schema_sources.rs` (precedent `governance-shapes`, `personal`, `government`).
 - `catalog-v1.ttl` is generated; it is never hand-edited. The `commercial` module appears in it by regeneration.
 - Connector mappings to the new terms are `vg:VirtualMapping` rows (`virtual_graph-v1.ttl`: `mapsOntologyClass`, `mapsEntity`, `hasPredicateFieldPair`); they belong to the connector lanes, not here.
-- Reassignment rows change the Coverage table and `Vocabulary:` text in `specs/connector-competency` after their producer terms land, with exact row-level assertions in both documents.
+- Reassignment rows change the Coverage table and `Vocabulary:` text in `specs/connector-competency` after their producer terms land. They carry exact row-level assertions in both documents.
 - Scopes: none added; reads use the scopes the engine contract already lists.
 
 #### Worked example
@@ -345,3 +345,20 @@ express windows with the `YEAR()`, `MONTH()`, `DAY()`, `HOURS()` and
 `MINUTES()` accessors instead. The native query path has no typed-abstention
 mechanism, so the test-spec's "or a typed abstention" branch stays
 unexercised here.
+
+### 2026-10-27: fixture SPARQL answers for R039.2, R042.1
+
+`crates/eg-rdf/tests/connector_competency.rs` adds two fixture-backed tests
+over the vocabulary on main. No new vocabulary lands. The microsoft
+cross-source question (R039.2) federates `calendar-v1.ttl`
+`CalendarEvent`/`attendedBy` with the imported core `Person` link concept.
+The okta side is an identity-v1 `IdentityUser`, which subclasses `Person`.
+The mattermost side is a `Person` record with `dc:source "mattermost"`
+provenance on the shared person entity. Each absence half of the question is
+a `FILTER NOT EXISTS` pattern. The okta single-source question (R042.1)
+answers over identity-v1 `IdentityUser`, `memberOfGroup` and
+`assignedApp`. It pins the given application by IRI. The remaining 33
+question rows of this bulk lane stay blocked. Eighteen wait on the 23
+MISSING connectors' out-of-scope vocabulary. Fifteen wait on unlanded
+producer terms such as `FileShare`, `documentType`, `PrivacyAssessment`,
+`Worktree` and `desiredReplicas`.

@@ -11,7 +11,11 @@ use std::time::Duration;
 
 use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
 
-use super::capability::{KeyLookup, LimitPushdown, RemoteRequest, SourceCapabilities, SourceRate};
+use super::capability::{
+    connection_protocol_row, ConnectionProtocol, ForeignSourceCapability, KeyLookup, LimitPushdown,
+    PushdownKind, RemoteRequest, SourceCapabilities, SourceCostModel, SourceRate,
+    CONNECTION_PROTOCOL_MATRIX,
+};
 use super::remote::{Identity, RemoteFetch};
 use super::run::Fragment;
 use super::stats::fingerprint;
@@ -178,6 +182,44 @@ fn source_plan(spec: ForeignSourceSpec, limit: Option<usize>) -> Plan {
         ops.push(Op::Limit { k });
     }
     Plan::new(ops)
+}
+
+#[test]
+fn protocol_matrix_bounds_pushdown() {
+    let capability = ForeignSourceCapability::new(
+        SourceCapabilities::single_full_fetch(KeyLookup::Unsupported, LimitPushdown::Native),
+        SourceCostModel::new(100, 1),
+        true,
+        true,
+    );
+
+    // Every declared protocol must have exactly one planner row. This catches a
+    // newly declared transport that silently falls through to unrestricted pushdown.
+    assert_eq!(
+        CONNECTION_PROTOCOL_MATRIX.len(),
+        ConnectionProtocol::ALL.len()
+    );
+    for protocol in ConnectionProtocol::ALL {
+        let row = connection_protocol_row(*protocol)
+            .unwrap_or_else(|| panic!("declared protocol {protocol:?} has no matrix row"));
+        assert_eq!(row.protocol, *protocol);
+        assert!(!row.contract_term.is_empty());
+    }
+
+    // Streaming rows are deliberately narrow: a time range is the only
+    // pushdown they permit, and a source capability cannot widen that row.
+    let stream = connection_protocol_row(ConnectionProtocol::EventStream).unwrap();
+    assert_eq!(stream.pushdown, &[PushdownKind::TimeRange]);
+    assert!(stream.allows(PushdownKind::TimeRange));
+    assert!(!stream.allows(PushdownKind::Filter));
+    assert!(!capability.proves_sound_for(ConnectionProtocol::EventStream, PushdownKind::Filter));
+
+    // The same source capability is usable for a declared REST filter but not
+    // for a webhook, whose row has no planner pushdown at all.
+    assert!(capability.proves_sound_for(ConnectionProtocol::RestOpenApi, PushdownKind::Filter));
+    let webhook = connection_protocol_row(ConnectionProtocol::Webhook).unwrap();
+    assert!(webhook.pushdown.is_empty());
+    assert!(!capability.proves_sound_for(ConnectionProtocol::Webhook, PushdownKind::Filter));
 }
 
 // ── (E)+(B): HTTP through the executor ──────────────────────────────────────────

@@ -227,6 +227,81 @@ impl SemanticSqlSourceReadPort for CompletePage {
     }
 }
 
+// spec: EG-REPO-INGEST-R001
+#[test]
+fn reconcile_readmits_stranded_intent_after_originating_topic_retires() {
+    let dir = temp_dir("stranded-topic-retirement");
+    let revision = source_revision(170, 3);
+    let binding = binding(&revision);
+    let stranded_source = source(&binding, 41, b"stranded source intent");
+    let source_entity_id = stranded_source.source_entity_id();
+    let record = dirty_record("source-dirty-retired-topic", 91, 3, 4);
+    let page = CompletePage {
+        revision: revision.clone(),
+        complete_snapshot_receipt: digest(93),
+        sources: vec![stranded_source.clone()],
+    };
+
+    let service = open_service(&dir);
+    service.admit_binding(&binding, 1).unwrap();
+    let first = service
+        .admit_sql_source_dirty_reconcile(&record, &page, 2)
+        .unwrap();
+    assert!(first.complete);
+    assert!(first.wakeup_consumed);
+    assert_eq!(first.receipts.len(), 1);
+    assert!(!first.receipts[0].replayed);
+    // The source-dirty record has already produced a durable S1 intent. The
+    // originating notification topic is retired before a stage worker claims
+    // it, so the recovery path must use the committed record again.
+    assert!(service
+        .store
+        .source_entity_seen_at_revision(binding.generation, &source_entity_id, &revision)
+        .unwrap());
+    drop(service);
+
+    let service = open_service(&dir);
+    let retry = service
+        .admit_sql_source_dirty_reconcile(&record, &page, 3)
+        .unwrap();
+    assert!(retry.complete);
+    assert!(retry.wakeup_consumed);
+    assert_eq!(retry.receipts.len(), 1);
+    assert!(retry.receipts[0].replayed);
+    assert!(service
+        .sql_source_manifest(binding.generation, &source_entity_id)
+        .unwrap()
+        .is_none());
+
+    // Re-admission leaves the original S1 row intact; the ordinary durable
+    // stage consumer can now claim and commit that exact intent.
+    complete_source_stages(&service, &binding, &[stranded_source], 4);
+    let manifest = service
+        .sql_source_manifest(binding.generation, &source_entity_id)
+        .unwrap()
+        .expect("reconciled S1 retains the committed source manifest");
+    assert_eq!(manifest.source_revision, revision);
+    assert_eq!(manifest.source_entity_id, source_entity_id);
+    let statuses = service
+        .worker_stage_status("semantic-source-worker", 5)
+        .unwrap();
+    assert_eq!(
+        statuses.iter().map(|status| status.delivered).sum::<u64>(),
+        1,
+        "the stranded S1 is committed exactly once after reconcile"
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .map(|status| u64::from(status.inflight))
+            .sum::<u64>(),
+        0
+    );
+
+    drop(service);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn partial_checkpoint_resumes_after_reopen_and_replays_exact_s1() {
     let dir = temp_dir("checkpoint-reopen");
