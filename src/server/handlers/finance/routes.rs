@@ -12,6 +12,7 @@ enum FinanceRoute {
     MarketMaking,
     Microstructure,
     Sizing,
+    NumericKernels,
     Backtest,
     Forensic,
     StateSpace,
@@ -74,6 +75,15 @@ fn route_for_market(method: &Method) -> Option<FinanceRoute> {
         | Method::FinanceHardimanBouchaud { .. }
         | Method::FinanceKyleLambda { .. }
         | Method::FinanceSurveillanceRisk { .. } => Some(FinanceRoute::Microstructure),
+        Method::FinanceAmlScreen { .. }
+        | Method::FinanceCapitalRatios { .. }
+        | Method::FinanceExpectedLoss { .. }
+        | Method::FinanceSettlementChain { .. }
+        | Method::FinanceRegimeChain { .. }
+        | Method::FinanceExecutionSchedule { .. }
+        | Method::FinanceMarketMakingQuote { .. }
+        | Method::FinancePairsSignal { .. }
+        | Method::FinanceFactorRank { .. } => Some(FinanceRoute::NumericKernels),
         Method::FinanceKellyFraction { .. }
         | Method::FinancePositionSize { .. }
         | Method::FinanceDistributionShift { .. }
@@ -135,6 +145,9 @@ pub(super) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             super::route_families::handle_microstructure(req_id, method)
         }
         FinanceRoute::Sizing => super::route_families::handle_sizing(req_id, method),
+        FinanceRoute::NumericKernels => {
+            super::numeric_kernels::handle_numeric_kernels(req_id, method)
+        }
         FinanceRoute::Backtest => super::route_families::handle_backtest(req_id, method),
         FinanceRoute::Forensic => super::route_families::handle_forensic(req_id, method),
         FinanceRoute::StateSpace => super::route_families::handle_state_space(req_id, method),

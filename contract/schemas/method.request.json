@@ -28520,6 +28520,452 @@
           "additionalProperties": false,
           "properties": {
             "method": {
+              "const": "FinanceAmlScreen",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "amount_minor": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "rule_id": {
+                  "type": "string"
+                },
+                "threshold_minor": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "version": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "rule_id",
+                "version",
+                "threshold_minor",
+                "amount_minor"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "FinanceCapitalRatios",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "at1": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "cet1": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "risk_weighted_assets": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "tier2": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "total_exposure": {
+                  "format": "int64",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "cet1",
+                "at1",
+                "tier2",
+                "risk_weighted_assets",
+                "total_exposure"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "FinanceExpectedLoss",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "ead_minor": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "lgd": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "pd": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "pd",
+                "lgd",
+                "ead_minor"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "FinanceSettlementChain",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "amount_minor": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "beneficiary": {
+                  "type": "string"
+                },
+                "correspondents": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "origin": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "origin",
+                "correspondents",
+                "beneficiary",
+                "amount_minor"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "FinanceRegimeChain",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "horizon": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "returns": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "threshold": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "returns",
+                "threshold",
+                "horizon"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "FinanceExecutionSchedule",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "continuous": {
+                  "type": "boolean"
+                },
+                "horizon": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "permanent_impact": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "risk_aversion": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "slices": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "temporary_impact": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "total_shares": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "volatility": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "symbol",
+                "total_shares",
+                "horizon",
+                "slices",
+                "volatility",
+                "risk_aversion",
+                "temporary_impact",
+                "permanent_impact",
+                "continuous"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "FinanceMarketMakingQuote",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "inventory": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "mid": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "order_arrival_decay": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "risk_aversion": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "time_remaining": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "volatility": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "symbol",
+                "mid",
+                "inventory",
+                "risk_aversion",
+                "volatility",
+                "time_remaining",
+                "order_arrival_decay"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "FinancePairsSignal",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "entry_z": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "hedge_ratio": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "x": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "x_name": {
+                  "type": "string"
+                },
+                "y": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "y_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "y_name",
+                "x_name",
+                "y",
+                "x",
+                "hedge_ratio",
+                "entry_z"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Rank factors by absolute information ratio; `factor_ids`, `signals` and\n`provenance_keys` are parallel, one entry per factor.",
+          "properties": {
+            "method": {
+              "const": "FinanceFactorRank",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "factor_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "forward_returns": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "provenance_keys": {
+                  "items": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "signals": {
+                  "items": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "factor_ids",
+                "signals",
+                "provenance_keys",
+                "forward_returns"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
               "const": "FinanceBayesianKelly",
               "type": "string"
             },
@@ -59367,6 +59813,48 @@
       ],
       "type": "object"
     },
+    "FinanceAmlScreen": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "FinanceAmlScreen",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "amount_minor": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "rule_id": {
+              "type": "string"
+            },
+            "threshold_minor": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "rule_id",
+            "version",
+            "threshold_minor",
+            "amount_minor"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "FinanceAvellanedaStoikov": {
       "additionalProperties": false,
       "properties": {
@@ -59602,6 +60090,53 @@
           "required": [
             "forecasts",
             "outcomes"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "FinanceCapitalRatios": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "FinanceCapitalRatios",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "at1": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "cet1": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "risk_weighted_assets": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "tier2": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "total_exposure": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cet1",
+            "at1",
+            "tier2",
+            "risk_weighted_assets",
+            "total_exposure"
           ],
           "type": "object"
         }
@@ -60134,6 +60669,109 @@
       ],
       "type": "object"
     },
+    "FinanceExecutionSchedule": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "FinanceExecutionSchedule",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "continuous": {
+              "type": "boolean"
+            },
+            "horizon": {
+              "format": "double",
+              "type": "number"
+            },
+            "permanent_impact": {
+              "format": "double",
+              "type": "number"
+            },
+            "risk_aversion": {
+              "format": "double",
+              "type": "number"
+            },
+            "slices": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "symbol": {
+              "type": "string"
+            },
+            "temporary_impact": {
+              "format": "double",
+              "type": "number"
+            },
+            "total_shares": {
+              "format": "double",
+              "type": "number"
+            },
+            "volatility": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "symbol",
+            "total_shares",
+            "horizon",
+            "slices",
+            "volatility",
+            "risk_aversion",
+            "temporary_impact",
+            "permanent_impact",
+            "continuous"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "FinanceExpectedLoss": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "FinanceExpectedLoss",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "ead_minor": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "lgd": {
+              "format": "double",
+              "type": "number"
+            },
+            "pd": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "pd",
+            "lgd",
+            "ead_minor"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "FinanceExpectedPnlRate": {
       "additionalProperties": false,
       "properties": {
@@ -60181,6 +60819,65 @@
             "p",
             "v_h",
             "v_l"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "FinanceFactorRank": {
+      "additionalProperties": false,
+      "description": "Rank factors by absolute information ratio; `factor_ids`, `signals` and\n`provenance_keys` are parallel, one entry per factor.",
+      "properties": {
+        "method": {
+          "const": "FinanceFactorRank",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "factor_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "forward_returns": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "provenance_keys": {
+              "items": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "signals": {
+              "items": {
+                "items": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "factor_ids",
+            "signals",
+            "provenance_keys",
+            "forward_returns"
           ],
           "type": "object"
         }
@@ -60833,6 +61530,62 @@
       ],
       "type": "object"
     },
+    "FinanceMarketMakingQuote": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "FinanceMarketMakingQuote",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "inventory": {
+              "format": "double",
+              "type": "number"
+            },
+            "mid": {
+              "format": "double",
+              "type": "number"
+            },
+            "order_arrival_decay": {
+              "format": "double",
+              "type": "number"
+            },
+            "risk_aversion": {
+              "format": "double",
+              "type": "number"
+            },
+            "symbol": {
+              "type": "string"
+            },
+            "time_remaining": {
+              "format": "double",
+              "type": "number"
+            },
+            "volatility": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "symbol",
+            "mid",
+            "inventory",
+            "risk_aversion",
+            "volatility",
+            "time_remaining",
+            "order_arrival_decay"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "FinanceMarkovTransitionMatrix": {
       "additionalProperties": false,
       "properties": {
@@ -61345,6 +62098,62 @@
       ],
       "type": "object"
     },
+    "FinancePairsSignal": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "FinancePairsSignal",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "entry_z": {
+              "format": "double",
+              "type": "number"
+            },
+            "hedge_ratio": {
+              "format": "double",
+              "type": "number"
+            },
+            "x": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "x_name": {
+              "type": "string"
+            },
+            "y": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "y_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "y_name",
+            "x_name",
+            "y",
+            "x",
+            "hedge_ratio",
+            "entry_z"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "FinancePairsTrading": {
       "additionalProperties": false,
       "properties": {
@@ -61661,6 +62470,47 @@
       ],
       "type": "object"
     },
+    "FinanceRegimeChain": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "FinanceRegimeChain",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "horizon": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "returns": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "threshold": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "returns",
+            "threshold",
+            "horizon"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "FinanceRiskMetrics": {
       "additionalProperties": false,
       "properties": {
@@ -61889,6 +62739,48 @@
             "beta",
             "rho",
             "nu"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "FinanceSettlementChain": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "FinanceSettlementChain",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "amount_minor": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "beneficiary": {
+              "type": "string"
+            },
+            "correspondents": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "origin": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "correspondents",
+            "beneficiary",
+            "amount_minor"
           ],
           "type": "object"
         }

@@ -217,9 +217,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 470 -> 471: EG-DURABLE-KERNEL-R028.4.1 owner-bound GetRunWorkItem.
     // 471 -> 472: EG-FEDERATED-QUERY-R058.2.2.1 read-only `NlQueryExplain`.
     // 472 -> 474: EG-FINANCE-PRIMITIVES-R900.3 `FinancePositionSize`, `FinanceDistributionShift`.
+    // 474 -> 483: EG-FINANCE-PRIMITIVES-R901.3/R613.3/R018.3 banking, execution and factor-rank methods.
     assert_eq!(
         variants.len(),
-        474,
+        483,
         "the wire method census changed; update this exact count deliberately"
     );
 }
