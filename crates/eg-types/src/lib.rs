@@ -388,6 +388,8 @@ pub mod work_item_command_log;
 // the caller's row view, its three-bound page scan, and its cursor family.
 pub mod run_completion;
 pub mod work_item_read;
+// EG-IDENTITY-R610 — tenant parent chains, secured reads and ownership claims.
+pub mod tenancy;
 // The opaque tenant-bound keyset cursor shared by every paged read
 // (`AgentComponent.Search`, `ListWorkItems`).
 pub mod tenant_cursor;
