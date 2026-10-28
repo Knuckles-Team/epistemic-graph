@@ -83,10 +83,13 @@ fn attach_list_and_detach_share_one_authoritative_source_set() {
             .iter()
             .filter(|source| source.shapes_sha256.is_some())
             .count(),
-        9
+        11
     );
     for source in &initial.core_sources {
-        let expected = if source.source_id == "core:commercial@1" {
+        let expected = if matches!(
+            source.source_id.as_str(),
+            "core:commercial@1" | "core:harness@1" | "core:infrastructure@1"
+        ) {
             (true, true)
         } else {
             assert!(source.shapes_sha256.is_some() ^ source.ontology_sha256.is_some());
