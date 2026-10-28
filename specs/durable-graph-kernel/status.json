@@ -2581,9 +2581,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R083.2",
       "title": "Version-mismatch refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8823db907adf",
+        "c13fbabaca53"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/tests/version_mismatch.rs:3"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.3",
