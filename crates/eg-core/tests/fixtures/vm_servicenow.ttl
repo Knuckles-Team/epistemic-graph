@@ -1,0 +1,87 @@
+# Virtual-mapping fixture: servicenow Incident, Change and the CI relation
+# to kg:affectsService (EG-SUPPLY-VOCAB-R005.5).
+#
+# Recorded over the servicenow MCP operations `get_change_request_ci` and
+# `get_cmdb_instances`. Both change request and incident name their affected
+# configuration item; the CI list on a change request is a child fetch
+# (`get_change_request_ci` per change, not part of the listing). The CMDB
+# instance is what resolves a CI to a service record, so the CI-to-service
+# edge projects onto the shared kg:affectsService, whose domain is the union
+# of :Incident and :Change.
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-servicenow#> .
+
+ex:serviceNowConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://service-now.invalid/api" ] .
+
+ex:incidentAccess a vg:MetadataContract ;
+    vg:contractSource ex:serviceNowConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:9498be4077eda7e8cd5000d9ac4266ec0b75f121c821a87cb364b88649bdf559" ;
+    vg:discoveredEntity "Incident" ;
+    vg:discoveredField "number" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "ci" .
+
+ex:changeAccess a vg:MetadataContract ;
+    vg:contractSource ex:serviceNowConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:125eef152b6226c2ad8590ffcf2a14ba8e8dc6430d614ebf63171925a8469a8f" ;
+    vg:discoveredEntity "Change Request" ;
+    vg:discoveredField "number" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "ci" ;
+    # The affected CIs are read per change request, not from the listing.
+    vg:discoveredOperation "get_change_request_ci" .
+
+ex:cmdbAccess a vg:MetadataContract ;
+    vg:contractSource ex:serviceNowConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:25911c75a1c9ad6ea37433e0f89cfff3da750de1940c9146b3c8ca383c554cd9" ;
+    vg:discoveredEntity "CMDB Instance" ;
+    vg:discoveredField "sys_id" ;
+    vg:discoveredField "name" ;
+    vg:discoveredOperation "get_cmdb_instances" .
+
+ex:incidentMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:incidentAccess ;
+    vg:mapsOntologyClass kg:Incident ;
+    vg:mapsEntity "Incident" ;
+    vg:keyField "number" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:affectsService ;
+        vg:field "ci" ] ;
+    vg:approved true .
+
+ex:changeMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:changeAccess ;
+    vg:mapsOntologyClass kg:Change ;
+    vg:mapsEntity "Change Request" ;
+    vg:keyField "number" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:affectsService ;
+        vg:field "ci" ] ;
+    vg:approved true .
+
+# The CMDB instance is the CI's service identity: get_cmdb_instances is what
+# resolves a CI to the service record the incident or change affects.
+ex:cmdbServiceMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:cmdbAccess ;
+    vg:mapsOntologyClass infra:Service ;
+    vg:mapsEntity "CMDB Instance" ;
+    vg:keyField "sys_id" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:approved true .

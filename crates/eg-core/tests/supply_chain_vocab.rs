@@ -1382,3 +1382,73 @@ fn leanix_provider_maps_to_supplier_rank_two_with_supports_capability() {
         "leanix is the rank-2 source for Supplier"
     );
 }
+
+const VM_SERVICE_NOW: &str = "http://knuckles.team/test/vm-servicenow#";
+
+// spec: EG-SUPPLY-VOCAB-R005.5
+#[test]
+fn servicenow_incident_change_ci_maps_to_affects_service() {
+    let fixture = include_str!("fixtures/vm_servicenow.ttl");
+    let report =
+        eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the servicenow fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // Incident and Change each project their CI field onto kg:affectsService.
+    for (mapping, class) in [
+        ("incidentMapping", format!("{KG}Incident")),
+        ("changeMapping", format!("{KG}Change")),
+    ] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{VM_SERVICE_NOW}{mapping}"),
+                &format!("{VG}mapsOntologyClass"),
+                &class
+            ),
+            "{mapping} maps to {class}"
+        );
+        let mut pairs = pair_fields(&triples, &format!("<{VM_SERVICE_NOW}{mapping}>"));
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![
+                ("affectsService".to_string(), "ci".to_string()),
+                ("label".to_string(), "name".to_string()),
+            ],
+            "{mapping} projects its CI field onto affectsService"
+        );
+    }
+    // The change request's CI list is a per-change child fetch, and the CMDB
+    // instance is what resolves a CI to the service record.
+    let change_contract = format!("<{VM_SERVICE_NOW}changeAccess>");
+    assert!(
+        triples.iter().any(|triple| {
+            subject_key(triple) == change_contract
+                && triple.predicate.as_str().ends_with("discoveredOperation")
+                && literal_value(&triple.object) == "get_change_request_ci"
+        }),
+        "the change contract declares the get_change_request_ci child fetch"
+    );
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_SERVICE_NOW}cmdbServiceMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{INFRA}Service")
+        ),
+        "the CMDB instance mapping resolves a CI to a service record"
+    );
+    let cmdb_contract = format!("<{VM_SERVICE_NOW}cmdbAccess>");
+    assert!(
+        triples.iter().any(|triple| {
+            subject_key(triple) == cmdb_contract
+                && triple.predicate.as_str().ends_with("discoveredOperation")
+                && literal_value(&triple.object) == "get_cmdb_instances"
+        }),
+        "the CMDB contract declares get_cmdb_instances"
+    );
+}
