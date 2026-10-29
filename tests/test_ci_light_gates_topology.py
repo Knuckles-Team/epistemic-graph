@@ -23,6 +23,7 @@ REQUIRED_BLOCKING_JOBS = [
     "gates-contract",
     "gates-wheel",
     "gates-whisper",
+    "gates-ontology",
     "gates-crates",
     "gates-storage",
     "gates-pyo3",
@@ -44,6 +45,7 @@ PATH_GATED_JOBS = {
     "gates-wheel": "packaging",
     "gates-pyo3": "packaging",
     "gates-whisper": "whisper",
+    "gates-ontology": "ontology",
     "tts-piper-inference": "tts",
     "language-clients": "clients",
 }
@@ -89,6 +91,7 @@ def test_all_native_scope_consumers_keep_the_changes_output_edge() -> None:
         "gates-wheel",
         "gates-facade",
         "gates-whisper",
+        "gates-ontology",
         "gates-variants",
         "gates-crates",
         "gates-storage",
@@ -176,3 +179,14 @@ def test_ci_required_is_the_fail_closed_branch_protection_aggregate() -> None:
     assert "expected skipped for documentation-only scope" in run
     assert "failures=()" in run
     assert "exit 1" in run
+
+
+def test_auto_merge_is_the_shared_pipelines_caller() -> None:
+    source = (WORKFLOW.parent / "auto_merge.yml").read_text(encoding="utf-8")
+    workflow = yaml.safe_load(source)
+    events = workflow.get("on", workflow.get(True))
+    assert set(events) == {"pull_request_target", "check_run"}
+    assert "actions/checkout@" not in source
+    job = workflow["jobs"]["auto-merge"]
+    assert job["uses"].endswith("/auto_merge_pipeline.yml@main")
+    assert job["secrets"] == {"merge-token": "${{ secrets.GIT_TOKEN }}"}

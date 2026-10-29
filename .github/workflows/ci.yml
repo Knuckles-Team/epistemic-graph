@@ -79,6 +79,7 @@ jobs:
       whisper: ${{ steps.scope.outputs.whisper }}
       tts: ${{ steps.scope.outputs.tts }}
       packaging: ${{ steps.scope.outputs.packaging }}
+      ontology: ${{ steps.scope.outputs.ontology }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -649,6 +650,26 @@ jobs:
         run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/eg-whisper-test" >> "$GITHUB_ENV"
       - name: Test (Whisper real-model transcription and cancellation)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
+
+  # Ontology composition tests. They live in the facade lib, whose full suite
+  # (gates-facade) runs only on main, so a broken ontology could merge green.
+  # On a pull request this runs only the compose module, and only when ontology
+  # or graph_schema files changed.
+  gates-ontology:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
+    name: gates (ontology composition)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.ontology == 'true')
+    runs-on: *eg-native-validation-runner
+    env: *eg-validation-compiler-cache-backend
+    steps:
+      - *eg-gates-checkout
+      - *eg-native-validation-setup
+      - *eg-gates-cache-workspace
+      - *eg-validation-compiler-cache
+      - name: Test (ontology composition)
+        env: *eg-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --lib --no-fail-fast server::graph_schema::compose
 
   # Slim-server and raft-cluster variants run after merge (main pushes, the
   # nightly schedule, dispatch), not on pull requests: each is a separate cold
@@ -1538,6 +1559,7 @@ jobs:
       - gates-contract
       - gates-wheel
       - gates-whisper
+      - gates-ontology
       - gates-crates
       - gates-storage
       - gates-pyo3
@@ -1557,6 +1579,7 @@ jobs:
           CLIENTS_SCOPE: ${{ needs.changes.outputs.clients }}
           WHISPER_SCOPE: ${{ needs.changes.outputs.whisper }}
           TTS_SCOPE: ${{ needs.changes.outputs.tts }}
+          ONTOLOGY_SCOPE: ${{ needs.changes.outputs.ontology }}
           PACKAGING_SCOPE: ${{ needs.changes.outputs.packaging }}
           LIGHT_GATES_RESULT: ${{ needs.light-gates.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
@@ -1564,6 +1587,7 @@ jobs:
           GATES_CONTRACT_RESULT: ${{ needs.gates-contract.result }}
           GATES_WHEEL_RESULT: ${{ needs.gates-wheel.result }}
           GATES_WHISPER_RESULT: ${{ needs.gates-whisper.result }}
+          GATES_ONTOLOGY_RESULT: ${{ needs.gates-ontology.result }}
           GATES_CRATES_RESULT: ${{ needs.gates-crates.result }}
           GATES_STORAGE_RESULT: ${{ needs.gates-storage.result }}
           GATES_PYO3_RESULT: ${{ needs.gates-pyo3.result }}
@@ -1588,6 +1612,7 @@ jobs:
             [gates-wheel]="$PACKAGING_SCOPE"
             [gates-pyo3]="$PACKAGING_SCOPE"
             [gates-whisper]="$WHISPER_SCOPE"
+            [gates-ontology]="$ONTOLOGY_SCOPE"
             [tts-piper-inference]="$TTS_SCOPE"
             [language-clients]="$CLIENTS_SCOPE"
           )
@@ -1599,6 +1624,7 @@ jobs:
             "gates-contract=$GATES_CONTRACT_RESULT"
             "gates-wheel=$GATES_WHEEL_RESULT"
             "gates-whisper=$GATES_WHISPER_RESULT"
+            "gates-ontology=$GATES_ONTOLOGY_RESULT"
             "gates-crates=$GATES_CRATES_RESULT"
             "gates-storage=$GATES_STORAGE_RESULT"
             "gates-pyo3=$GATES_PYO3_RESULT"
