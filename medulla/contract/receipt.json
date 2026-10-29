@@ -72,7 +72,7 @@
     "medulla/generated/transactions.py": "83174fd4a8d2032577c60bf61dacf08fbe3b5df8530da66a19d1b36eb9920335",
     "medulla/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "contract_digest": "f9c5b98125f58ade27f1893f4571780317fdb80d386435d63825268d88cdcc75",
+  "contract_digest": "2871f320fcbdfefc36cb9bb799ec1521176efcedd5e6d72ede89dfec0f8b66b9",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -694,5 +694,5 @@
     "schematized": 481,
     "unclassified": 0
   },
-  "source_tree_oid": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  "source_tree_oid": "15fd67f5e30ec4297e81fcf6787e6a3c5bf4012e19764080b7f97d90caee97d1"
 }
