@@ -671,6 +671,10 @@ jobs:
         env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --lib --no-fail-fast server::graph_schema::compose
 
+      - name: Report ontology compiler cache reuse
+        if: always()
+        run: *eg-validation-compiler-cache-stats
+
   # Slim-server and raft-cluster variants run after merge (main pushes, the
   # nightly schedule, dispatch), not on pull requests: each is a separate cold
   # compile of the whole engine, slim's code paths are linted by `Clippy
