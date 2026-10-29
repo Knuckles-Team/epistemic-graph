@@ -78,9 +78,21 @@
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R001",
       "title": "Physical and commercial supply chain terms (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09e3e6be7df9",
+        "340d0c252754",
+        "43bbb7464e07",
+        "75dd94362178",
+        "ee2a3497659c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/commercial_vocabulary.rs:299",
+        "crates/eg-core/tests/supply_chain_vocab.rs:268",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:112",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:167",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:499"
+      ],
       "rollup_of": [
         "MEDULLA-SUPPLY-VOCAB-R001.1",
         "MEDULLA-SUPPLY-VOCAB-R001.2",
@@ -145,11 +157,18 @@
       ]
     },
     {
-      "id": "MEDULLA-SUPPLY-VOCAB-R001.3",
-      "title": "Add `:suppliesService` with the physical chain axiom",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "id": "EG-SUPPLY-VOCAB-R001.3",
+      "title": "Add `:suppliesService` and the physical chain sub-property",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "340d0c252754"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:499",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:578",
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:102",
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:128"
+      ]
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R001.4",
@@ -201,7 +220,7 @@
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:197",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:117"
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:197"
       ]
     },
     {
@@ -246,7 +265,7 @@
       ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:351",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:92"
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:172"
       ]
     },
     {
@@ -257,7 +276,7 @@
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:467"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:604"
       ]
     },
     {
@@ -274,9 +293,21 @@
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R003",
       "title": "Commercial and capability terms (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09e3e6be7df9",
+        "340d0c252754",
+        "75dd94362178",
+        "8fd835eb199a",
+        "c6c185bfdb23"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/commercial_vocabulary.rs:136",
+        "crates/eg-core/tests/commercial_vocabulary.rs:200",
+        "crates/eg-core/tests/commercial_vocabulary.rs:228",
+        "crates/eg-core/tests/commercial_vocabulary.rs:49",
+        "crates/eg-core/tests/commercial_vocabulary.rs:92"
+      ],
       "rollup_of": [
         "MEDULLA-SUPPLY-VOCAB-R003.1",
         "MEDULLA-SUPPLY-VOCAB-R003.2",
@@ -425,11 +456,15 @@
       ]
     },
     {
-      "id": "MEDULLA-SUPPLY-VOCAB-R003.12",
-      "title": "Add `:lastActivityAt`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "id": "EG-SUPPLY-VOCAB-R003.12",
+      "title": "Add `:customerLastActivityAt`",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "340d0c252754"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1995"
+      ]
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R003.13",
@@ -710,9 +745,13 @@
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R006.6",
       "title": "Mapping fixture: gitlab `dependencies` and github Dependabot alerts (rank 2)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "340d0c252754"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1895"
+      ]
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R006.7",

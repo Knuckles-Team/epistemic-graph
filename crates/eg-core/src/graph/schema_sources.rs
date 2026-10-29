@@ -1503,7 +1503,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "8fac3d843e19599d54c7a7bf2bb8e814444626b816b3dea59abaa42cc60023bf",
+                "1409accdee5cba8bea00c75fd37128947c59f16803d7123e8080f9494a7af892",
             ),
             (
                 "medical",
@@ -1637,11 +1637,11 @@ mod tests {
             // shapes companion) joins the catalog; the pin follows the ontology.
             (
                 "commercial",
-                "779d53f8bcf2155d8af2006d0265bc0161f01169bd0f20be67e9dd31b15c58fb",
+                "a1227d29e42a22461f44b06fae393cd3b808aedfa7ba4ed5dca89c6c67d35bda",
             ),
             (
                 "supply_chain",
-                "2cf4119c4348b57abbb792d7a32bf9173469e1ca9bf50d1b6e84fa163d1dcfdc",
+                "1845b8cfbe9ded296a785de466e422f186072868bccfaa528ac4b89b79e627e0",
             ),
             // MEDULLA-TYPED-PACKS-R101.1/R102.1: the connector-pack module (ontology
             // plus its surface shapes companion) joins the catalog; the pin

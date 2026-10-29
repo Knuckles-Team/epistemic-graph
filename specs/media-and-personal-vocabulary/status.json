@@ -252,9 +252,13 @@
     {
       "id": "MEDULLA-MEDIA-VOCAB-R002.3",
       "title": "Add `cv:MessageChannel` and `cv:ChatMessage`; reuse existing `kg:Team` from core-foundation-v1.ttl without redeclaration, with `cv:memberCount`, `cv:lastPostAt`, `cv:postedAt`, `cv:postedBy`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "340d0c252754"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3651"
+      ]
     },
     {
       "id": "MEDULLA-MEDIA-VOCAB-R002.4",

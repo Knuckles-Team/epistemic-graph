@@ -1889,3 +1889,164 @@ fn every_d4_concept_is_covered_or_carries_a_typed_abstention() {
         "the register lists the typed abstentions"
     );
 }
+
+const VM_GITLAB_GITHUB: &str = "http://knuckles.team/test/vm-gitlab-github#";
+
+// spec: EG-SUPPLY-VOCAB-R006.6
+#[test]
+fn gitlab_dependencies_and_github_dependabot_map_rank_two() {
+    let fixture = include_str!("fixtures/vm_gitlab_github.ttl");
+    let report = eg_shacl::validate_turtle(VIRTUAL_SHAPES, fixture).expect("the fixture parses");
+    assert!(
+        report.conforms,
+        "the gitlab/github mapping fixture passes the virtual-graph shapes: {:?}",
+        report.results
+    );
+    let triples = parse_turtle(fixture).expect("the fixture parses");
+    // The gitlab dependency list projects onto kg:ComponentVersion.
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{VM_GITLAB_GITHUB}gitlabComponentVersionMapping"),
+            &format!("{VG}mapsOntologyClass"),
+            &format!("{KG}ComponentVersion")
+        ),
+        "the gitlab dependency maps to kg:ComponentVersion"
+    );
+    let mut pairs = pair_fields(
+        &triples,
+        &format!("<{VM_GITLAB_GITHUB}gitlabComponentVersionMapping>"),
+    );
+    pairs.sort();
+    assert_eq!(
+        pairs,
+        vec![("versionString".to_string(), "version".to_string())],
+        "the gitlab dependency row projects its version string"
+    );
+    // The gitlab advisory and the github Dependabot alert each project onto
+    // kg:Vulnerability, affecting their package.
+    for (mapping, label_field) in [
+        ("gitlabVulnerabilityMapping", "id"),
+        ("dependabotVulnerabilityMapping", "number"),
+    ] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{VM_GITLAB_GITHUB}{mapping}"),
+                &format!("{VG}mapsOntologyClass"),
+                &format!("{KG}Vulnerability")
+            ),
+            "{mapping} maps to kg:Vulnerability"
+        );
+        let mut pairs = pair_fields(&triples, &format!("<{VM_GITLAB_GITHUB}{mapping}>"));
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![
+                ("affectsComponent".to_string(), "package".to_string()),
+                ("label".to_string(), label_field.to_string()),
+                ("severity".to_string(), "severity".to_string()),
+            ],
+            "{mapping} projects severity, label and its affected package"
+        );
+    }
+    // Both sources are rank 2 (dockerhub is rank 1).
+    for authority in [
+        "gitlabComponentAuthority",
+        "gitlabVulnerabilityAuthority",
+        "githubVulnerabilityAuthority",
+    ] {
+        let node = format!("<{VM_GITLAB_GITHUB}{authority}>");
+        assert!(
+            triples.iter().any(|triple| subject_key(triple) == node
+                && triple.predicate.as_str().ends_with("authorityRank")
+                && literal_value(&triple.object) == "2"),
+            "{authority} is rank 2"
+        );
+    }
+    // The confirmed operations.
+    for (contract, operation) in [
+        ("gitlabDependenciesAccess", "dependencies"),
+        ("gitlabVulnerabilitiesAccess", "vulnerabilities"),
+    ] {
+        let node = format!("<{VM_GITLAB_GITHUB}{contract}>");
+        assert!(
+            triples.iter().any(|triple| {
+                subject_key(triple) == node
+                    && triple.predicate.as_str().ends_with("discoveredOperation")
+                    && literal_value(&triple.object) == operation
+            }),
+            "the {contract} contract declares {operation}"
+        );
+    }
+    let github_contract = format!("<{VM_GITLAB_GITHUB}githubDependabotAccess>");
+    for operation in ["list", "get"] {
+        assert!(
+            triples.iter().any(|triple| {
+                subject_key(triple) == github_contract
+                    && triple.predicate.as_str().ends_with("discoveredOperation")
+                    && literal_value(&triple.object) == operation
+            }),
+            "the github_dependabot contract declares {operation}"
+        );
+    }
+}
+
+// spec: EG-SUPPLY-VOCAB-R003.12
+#[test]
+fn last_activity_at_declared_and_datatyped() {
+    let triples = load_commercial();
+    assert!(
+        has_iri(
+            &triples,
+            &format!("{KG}customerLastActivityAt"),
+            &format!("{RDF}type"),
+            &format!("{OWL}DatatypeProperty")
+        ),
+        "customerLastActivityAt is a datatype property"
+    );
+    assert_domain_range(
+        &triples,
+        "customerLastActivityAt",
+        "Customer",
+        "xsd:dateTime",
+    );
+    let shapes = commercial_shapes();
+    // A dateTime last activity is accepted.
+    let valid = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:acmeCustomer a kg:Customer ;
+    kg:customerLastActivityAt \"2026-10-01T09:30:00\"^^xsd:dateTime ."
+    );
+    let report = eg_shacl::validate_turtle(&shapes, &valid).expect("valid fixture parses");
+    assert!(
+        report.conforms,
+        "a dateTime last activity is accepted: {:?}",
+        report.results
+    );
+    // A plain string is refused on the datatype.
+    let plain_string = format!(
+        "{COMMERCE_DATA_PREFIX}
+ex:acmeCustomer a kg:Customer ;
+    kg:customerLastActivityAt \"yesterday\" ."
+    );
+    let report = eg_shacl::validate_turtle(&shapes, &plain_string).expect("fixture parses");
+    assert!(
+        !report.conforms,
+        "a non-dateTime last activity must be refused: {:?}",
+        report.results
+    );
+    assert!(
+        report.results.iter().any(|result| {
+            result
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("#customerLastActivityAt>"))
+                && result
+                    .constraint_component
+                    .ends_with("DatatypeConstraintComponent")
+        }),
+        "the refusal lands on the customerLastActivityAt datatype: {:?}",
+        report.results
+    );
+}

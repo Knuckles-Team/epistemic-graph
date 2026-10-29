@@ -99,10 +99,21 @@
 
 :suppliesService a owl:ObjectProperty ;
     rdfs:label "supplies service" ;
-    rdfs:comment "Links a service to the Supplier that supplies it: the runtime chain deployedAs, usesImage, containsComponent, supplyChainVersionOf, publishedBy. The service-to-image step reuses the existing terms (it is not redefined); the inferred edge runs service to supplier, the supplier end of the supplier-to-service relation (MEDULLA-CQ-XSRC-R004.1)." ;
-    rdfs:domain infra:Service ;
-    rdfs:range :Supplier ;
+    rdfs:comment "Links a Supplier to each Service it supplies. Only this property carries the domain and range; the inverse serviceSupplier and the sub-property suppliesServiceViaHost carry none. No property chain mentions this property or its inverse, so the chains cannot recurse (EG-CQ-XSRC-R004.1, EG-SUPPLY-VOCAB-R001.3)." ;
+    rdfs:domain :Supplier ;
+    rdfs:range infra:Service .
+
+:serviceSupplier a owl:ObjectProperty ;
+    rdfs:label "service supplier" ;
+    rdfs:comment "Links a Service to the Supplier that supplies it, through the runtime software path: deployedAs, usesImage, containsComponent, supplyChainVersionOf, publishedBy. It declares no domain or range. Inverse of suppliesService (EG-CQ-XSRC-R004.1)." ;
+    owl:inverseOf :suppliesService ;
     owl:propertyChainAxiom (:deployedAs :usesImage :containsComponent :supplyChainVersionOf :publishedBy) .
+
+:suppliesServiceViaHost a owl:ObjectProperty ;
+    rdfs:label "supplies service via host" ;
+    rdfs:comment "Links a Supplier to a Service through the physical path: the supplied item, its deployed asset, the asset host, and the Service that runs on that host. It declares no domain or range (EG-SUPPLY-VOCAB-R001.3)." ;
+    rdfs:subPropertyOf :suppliesService ;
+    owl:propertyChainAxiom (:suppliesItem :realizedByAsset :assetHost [ owl:inverseOf infra:serviceRunsOn ]) .
 
 :Vulnerability a owl:Class ;
     rdfs:label "Vulnerability" ;
