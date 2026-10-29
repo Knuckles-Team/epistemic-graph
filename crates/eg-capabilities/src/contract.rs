@@ -49,10 +49,7 @@ pub struct Artifact {
 /// binds file by file. Hashing their raw bytes (or `pyproject.toml`, or
 /// `Cargo.lock`) only made comment edits and dependency bumps look like
 /// contract changes.
-const HAND_WRITTEN_INPUTS: &[&str] = &[
-    "medulla/client.py",
-    "medulla/connector_pack.py",
-];
+const HAND_WRITTEN_INPUTS: &[&str] = &["medulla/client.py", "medulla/connector_pack.py"];
 
 /// The optional surfaces this build selected, in declaration order.
 fn feature_profile() -> Vec<&'static str> {
@@ -708,10 +705,7 @@ mod package_projection_tests {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
 
-        for relative in [
-            "medulla/client.py",
-            "medulla/connector_pack.py",
-        ] {
+        for relative in ["medulla/client.py", "medulla/connector_pack.py"] {
             let destination = root.join(relative);
             fs::create_dir_all(destination.parent().unwrap()).unwrap();
             fs::copy(source.join(relative), destination).unwrap();

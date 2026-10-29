@@ -71,8 +71,7 @@ fn question_kind_lists_harness_config() {
     }
     assert!(checked.contains("method.request.json"));
     assert!(checked.iter().any(|name| name.starts_with("result.")));
-    let models =
-        std::fs::read_to_string(repo_root().join("medulla/generated/models.py")).unwrap();
+    let models = std::fs::read_to_string(repo_root().join("medulla/generated/models.py")).unwrap();
     assert!(models.contains("Literal[\"harness_config\"]"));
     let vectors = committed_json("contract/fixtures/method_body_vectors.json");
     assert!(vectors["vectors"].as_array().unwrap().iter().any(|row| {

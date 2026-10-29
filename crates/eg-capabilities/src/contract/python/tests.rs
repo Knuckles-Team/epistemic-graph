@@ -693,11 +693,7 @@ fn a_request_envelope_never_shadows_its_dto_root() {
     let catalog = Catalog::collect();
     let module = |path: &str| generated_module(&catalog, path);
     for (path, dto, root) in [
-        (
-            "medulla/generated/compute.py",
-            "solve",
-            "SolveRequest",
-        ),
+        ("medulla/generated/compute.py", "solve", "SolveRequest"),
         (
             "medulla/generated/storage.py",
             "decision_commit",
