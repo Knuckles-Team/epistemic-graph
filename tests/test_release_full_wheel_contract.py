@@ -416,6 +416,7 @@ def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
         ("ci.yml", "quality-advisory"): thirty_min,
         ("ci.yml", "gates-crates"): thirty_min,
         ("ci.yml", "gates-storage"): thirty_min,
+        ("ci.yml", "gates-ontology"): thirty_min,
     }.get(
         (workflow.name, name), "${{ github.event_name == 'pull_request' && 10 || 60 }}"
     )
@@ -423,6 +424,7 @@ def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
         ("ci.yml", "quality-advisory"),
         ("ci.yml", "gates-crates"),
         ("ci.yml", "gates-storage"),
+        ("ci.yml", "gates-ontology"),
     }:
         assert job.get("timeout-minutes") == pr_scoped
     else:
