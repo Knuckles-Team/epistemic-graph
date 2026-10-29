@@ -1032,7 +1032,7 @@
       ],
       "verified_by": [
         "tests/test_build_backend.py:138",
-        "tests/test_check_wheel_completeness.py:216",
+        "tests/test_check_wheel_completeness.py:217",
         "tests/test_ci_change_scope.py:763",
         "tests/test_ci_change_scope.py:808",
         "tests/test_ci_change_scope.py:937"
@@ -1073,7 +1073,7 @@
       ],
       "verified_by": [
         "tests/test_build_backend.py:138",
-        "tests/test_check_wheel_completeness.py:216"
+        "tests/test_check_wheel_completeness.py:217"
       ]
     },
     {
@@ -1142,9 +1142,9 @@
       ],
       "verified_by": [
         "tests/test_wheel_extensions_only.py:23",
-        "tests/test_wheel_extensions_only.py:41",
-        "tests/test_wheel_extensions_only.py:63",
-        "tests/test_wheel_extensions_only.py:90"
+        "tests/test_wheel_extensions_only.py:46",
+        "tests/test_wheel_extensions_only.py:68",
+        "tests/test_wheel_extensions_only.py:95"
       ]
     },
     {
