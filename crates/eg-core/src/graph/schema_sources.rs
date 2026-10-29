@@ -1437,7 +1437,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "a5d2d681d7e80c27b2d6e8cb40409a2161099a7702d3457be41b3f000b37be88",
+                "2609d11179adc65fa951b045c656e1d0444bc5f9c6e9c7c2108e7096cc858ec6",
             ),
             (
                 "company",
