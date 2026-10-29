@@ -306,11 +306,21 @@ pub(crate) async fn handle_unified_query(
     ctx: &QueryHandlerCtx<'_>,
     plan: eg_plan::Plan,
     foreign_execution: Option<eg_types::foreign_read::ForeignReadExecutionRef>,
+    foreign_executions: eg_types::contract::BoundedVec<
+        eg_types::foreign_read::ForeignReadExecutionRef,
+        16,
+    >,
 ) -> Result<Response, Method> {
     let state = ctx.state;
     let req_id = ctx.req_id;
     let core = ctx.core.clone();
-    if let Some(execution) = foreign_execution.as_ref() {
+    if foreign_execution.is_some() && !foreign_executions.is_empty() {
+        return Ok(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: single and multiple foreign executions are mutually exclusive",
+        ));
+    }
+    if foreign_execution.is_some() || !foreign_executions.is_empty() {
         let bytes = match rmp_serde::to_vec_named(&plan) {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -321,7 +331,11 @@ pub(crate) async fn handle_unified_query(
             }
         };
         let expected = eg_types::contract::Digest256::sha256(&bytes);
-        if execution.query_digest != expected {
+        if foreign_execution
+            .iter()
+            .chain(foreign_executions.as_slice())
+            .any(|execution| execution.query_digest != expected)
+        {
             return Ok(Response::err(
                 req_id,
                 "FOREIGN_READ_QUERY_MISMATCH: query digest differs",
@@ -332,7 +346,11 @@ pub(crate) async fn handle_unified_query(
     let rls = ctx.rls;
     // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
     let legs = match ctx
-        .served_legs_with_foreign_execution(&plan, foreign_execution.as_ref())
+        .served_legs_with_foreign_executions(
+            &plan,
+            foreign_execution.as_ref(),
+            foreign_executions.as_slice(),
+        )
         .await
     {
         Ok(legs) => legs,
@@ -350,10 +368,11 @@ pub(crate) async fn handle_unified_query(
     // version (the decision log, a foreign source without a fresh watermark — EH-400) is
     // never cached; a fresh foreign source's watermark joins the key.
     #[cfg(feature = "result-cache")]
-    let key = match legs
-        .cache_admissible()
-        .then(|| msgpack_bytes(&plan))
-        .transpose()
+    let key = match (foreign_execution.is_none()
+        && foreign_executions.is_empty()
+        && legs.cache_admissible())
+    .then(|| msgpack_bytes(&plan))
+    .transpose()
     {
         Ok(bytes) => bytes.map(|bytes| {
             let hash = served_cache_hash(ctx, "unified", bytes, &legs);

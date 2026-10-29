@@ -1,0 +1,125 @@
+# Recorded virtual-graph mapping for the `audiobookshelf` connector
+# (audiobookshelf-mcp; EG-MEDIA-VOCAB-R007.1, EG-CQ-CONN-R007). The rows are the
+# `Connector mapping tables` entry for audiobookshelf in
+# specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
+# contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary
+# in virtual_graph-v1.ttl and shaped by virtual_graph-v1.shapes.ttl. `mv:` is a
+# documentation prefix for this section of the shared `http://knuckles.team/kg#`
+# namespace; every ontology IRI stays in `:`.
+#
+# notification_operations / email_operations are configuration, out of scope for
+# the read mapping (plan.md). The metadata contract is the discovery of the
+# recorded response (audiobookshelf_response.json, same directory);
+# vg:contentDigest is sha256 over its bytes.
+
+@prefix :    <http://knuckles.team/kg#> .
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f:   <urn:eg-media-vocab:audiobookshelf/> .
+
+f:connection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:declaredCapability "read" ;
+    vg:endpointRef [ a vg:EndpointRef ; vg:url "https://mcp.example.invalid/audiobookshelf" ] .
+
+f:contract a vg:MetadataContract ;
+    vg:contractSource f:connection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:06f0ca244f2db69889f5999c81a54ce4429350ecf72a4ae9342d64b776a5428b" ;
+    vg:discoveredEntity "Library", "Item", "Series", "Author", "PodcastShow", "PodcastEpisode" ;
+    vg:discoveredField "id", "name", "title", "isbn", "series", "sequence", "authors" ;
+    vg:discoveredOperation "library_operations/list", "library_operations/get_library_items", "series_operations/get_library_series", "series_operations/get_series", "author_operations/get_library_authors", "author_operations/get_author_by_id", "podcast_operations/get_shows", "podcast_operations/get_episodes" .
+
+# library_operations/list, get_library_items: the library
+f:row-library a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :MediaLibrary ;
+    vg:mapsEntity "Library" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ] .
+
+# library_operations/get_library_items: audiobook items
+f:row-item a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :Audiobook ;
+    vg:mapsEntity "Item" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :isbn ;
+        vg:field "isbn"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :partOfBookSeries ;
+        vg:field "series"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :seriesSequence ;
+        vg:field "sequence"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :contributor ;
+        vg:field "authors"
+    ] .
+
+# series_operations/get_library_series, get_series
+f:row-series a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :BookSeries ;
+    vg:mapsEntity "Series" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ] .
+
+# author_operations/get_library_authors, get_author_by_id: the author is a person
+f:row-author a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :Person ;
+    vg:mapsEntity "Author" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ] .
+
+# podcast_operations/*: shows
+f:row-podcast-show a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :PodcastShow ;
+    vg:mapsEntity "PodcastShow" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ] .
+
+# podcast_operations/*: episodes
+f:row-podcast-episode a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :PodcastEpisode ;
+    vg:mapsEntity "PodcastEpisode" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ] .

@@ -389,6 +389,7 @@ mod served_shapes_tests {
             Op::ValidateShape {
                 shape: "<http://example/Named>".into(),
                 shapes: String::new(),
+                projection_base: String::new(),
                 keep: ShapeKeep::Violating,
             },
         ]);

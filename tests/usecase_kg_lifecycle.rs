@@ -372,6 +372,8 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 Method::UnifiedQuery {
                     plan: reason,
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )

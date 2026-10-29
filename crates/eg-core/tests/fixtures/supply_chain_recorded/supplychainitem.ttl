@@ -1,0 +1,10 @@
+# Recorded response (D4 row SupplyChainItem): erpnext
+# `erpnext_agent_resource list_documents` (doctype Item), rank 1. Projected by
+# the approved mapping (vm_erpnext_item_po.ttl).
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:item-001 a kg:SupplyChainItem ;
+    rdfs:label "Power supply unit" .

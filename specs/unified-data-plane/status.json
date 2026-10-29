@@ -321,8 +321,8 @@
         "9a7674d1bae5"
       ],
       "verified_by": [
-        "src/server/foreign_catalog.rs:705",
-        "src/server/foreign_catalog.rs:729"
+        "src/server/foreign_catalog.rs:769",
+        "src/server/foreign_catalog.rs:793"
       ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R002.1",
@@ -341,8 +341,8 @@
         "d603182af742"
       ],
       "verified_by": [
-        "src/server/foreign_catalog.rs:706",
-        "src/server/foreign_catalog.rs:730"
+        "src/server/foreign_catalog.rs:770",
+        "src/server/foreign_catalog.rs:794"
       ]
     },
     {
@@ -444,9 +444,9 @@
         "79ba71d072a5"
       ],
       "verified_by": [
-        "crates/eg-plan/src/virtual_graph_mapping.rs:80",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:87",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:96"
+        "crates/eg-plan/src/virtual_graph_mapping.rs:120",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:127",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:136"
       ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R005.1"
@@ -461,9 +461,9 @@
         "3dd56fe53283"
       ],
       "verified_by": [
-        "crates/eg-plan/src/virtual_graph_mapping.rs:80",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:87",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:96"
+        "crates/eg-plan/src/virtual_graph_mapping.rs:120",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:127",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:136"
       ]
     },
     {

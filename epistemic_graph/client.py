@@ -9521,8 +9521,9 @@ class FinanceClient:
         ``op`` is one of ``encode_points``, ``resolve`` (over records and/or
         stored points), ``rollup``, ``indicators``, ``signal_replay``,
         ``signal_advance``, ``signal_scan``, ``flip_confidence``,
-        ``backtest_run``, ``decimate`` (M4 chart thinning) or
-        ``analysis_snapshot`` (seal or re-verify an analysis record);
+        ``backtest_run``, ``decimate`` (M4 chart thinning),
+        ``liquidity_panel`` (versioned FRED net liquidity and heat components),
+        or ``analysis_snapshot`` (seal or re-verify an analysis record);
         ``params`` are that op's fields. Prices are integer
         ticks and indicator values integer milli-ticks. Pure compute and
         informational only: no result authorises an order.
@@ -11630,6 +11631,9 @@ class QueryClient:
     async def unified(
         self,
         plan: list[dict[str, Any]],
+        *,
+        foreign_execution: dict[str, Any] | None = None,
+        foreign_executions: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Run ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209) and return ranked
         rows.
@@ -11655,9 +11659,16 @@ class QueryClient:
         Returns a list of ``{"id": str, "score": float | None}`` rows, in the plan's
         final order (descending score after a ``Rank``).
         """
-        result = (
-            await _gen.query.send_unified_query(self._client, {"plan": {"ops": plan}})
-        ).payload
+        body: dict[str, Any] = {"plan": {"ops": plan}}
+        if foreign_execution is not None and foreign_executions:
+            raise ValueError(
+                "single and multiple foreign executions are mutually exclusive"
+            )
+        if foreign_execution is not None:
+            body["foreign_execution"] = foreign_execution
+        if foreign_executions:
+            body["foreign_executions"] = foreign_executions
+        result = (await _gen.query.send_unified_query(self._client, body)).payload
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 

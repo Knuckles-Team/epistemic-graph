@@ -278,6 +278,8 @@ method_results! {
     #[cfg(feature = "finance")]
     FinanceMarketDecimate(FinanceMarket / "decimate") => Raw<market::DecimatedChart>;
     #[cfg(feature = "finance")]
+    FinanceMarketLiquidityPanel(FinanceMarket / "liquidity_panel") => Raw<market::LiquidityPanel>;
+    #[cfg(feature = "finance")]
     FinanceMarketAnalysisSnapshot(FinanceMarket / "analysis_snapshot") => Raw<market::AnalysisSnapshot>;
     // ── signal fusion and the strategic-insider model (EH-423 / AUD-30) ──
     #[cfg(feature = "finance")]

@@ -480,8 +480,8 @@
         "2b3e2738b5ff"
       ],
       "verified_by": [
-        "crates/eg-types/src/wire_query_core.rs:1128",
-        "crates/eg-types/src/wire_query_core.rs:1160"
+        "crates/eg-types/src/wire_query_core.rs:1131",
+        "crates/eg-types/src/wire_query_core.rs:1163"
       ]
     },
     {
@@ -518,6 +518,7 @@
       "landed_in": [
         "0265d3a41baf",
         "1ac87735b5a3",
+        "75dd94362178",
         "80c865971ea8",
         "a1bb9fb9503e"
       ],
@@ -622,7 +623,7 @@
         "f17f47ab300f"
       ],
       "verified_by": [
-        "src/server/graph_schema/compose.rs:1005"
+        "src/server/graph_schema/compose.rs:1004"
       ]
     },
     {
@@ -746,7 +747,7 @@
         "c3b87d31ac11"
       ],
       "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:234"
+        "crates/eg-capabilities/tests/contract_registry.rs:233"
       ]
     },
     {
@@ -775,7 +776,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2695",
-        "src/server/mod.rs:2119"
+        "src/server/mod.rs:2129"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R022.1"
@@ -792,7 +793,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2695",
-        "src/server/mod.rs:2119"
+        "src/server/mod.rs:2129"
       ]
     },
     {
@@ -2370,9 +2371,9 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/wire_query_core.rs:1058",
-        "crates/eg-types/src/wire_query_core.rs:1070",
-        "crates/eg-types/src/wire_query_core.rs:1097"
+        "crates/eg-types/src/wire_query_core.rs:1061",
+        "crates/eg-types/src/wire_query_core.rs:1073",
+        "crates/eg-types/src/wire_query_core.rs:1100"
       ]
     },
     {

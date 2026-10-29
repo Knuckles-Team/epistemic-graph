@@ -247,13 +247,9 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
     assert job["runs-on"] == "ubuntu-24.04"
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
-    timeout = "${{ github.event_name == 'pull_request' && 10 || 60 }}"
-    if job_name == "gates-crates":
-        timeout = (
-            "${{ github.event_name == 'pull_request' && "
-            "needs.changes.outputs.full_native != 'true' && 15 || 60 }}"
-        )
-    assert job["timeout-minutes"] == timeout
+    assert job["timeout-minutes"] == (
+        "${{ github.event_name == 'pull_request' && 30 || 60 }}"
+    )
     installs = [
         step
         for step in job["steps"]

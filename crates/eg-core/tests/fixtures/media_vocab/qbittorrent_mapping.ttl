@@ -1,0 +1,114 @@
+# Recorded virtual-graph mapping for the `qbittorrent` connector
+# (qbittorrent-agent; EG-MEDIA-VOCAB-R008.1, EG-CQ-CONN-R051). The rows are the
+# `Connector mapping tables` entry for qbittorrent in
+# specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
+# contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary
+# in virtual_graph-v1.ttl and shaped by virtual_graph-v1.shapes.ttl. `mv:` is a
+# documentation prefix for this section of the shared `http://knuckles.team/kg#`
+# namespace; every ontology IRI stays in `:`.
+#
+# The torrent infoHash is case-folded on the way in (R003.2 normalisation): the
+# recorded list carries one UPPER-CASE hash to prove the fold.
+# qbittorrent_rss / qbittorrent_search / qbittorrent_log / qbittorrent_app are
+# out of scope (plan.md). The metadata contract is the discovery of the
+# recorded response (qbittorrent_response.json, same directory);
+# vg:contentDigest is sha256 over its bytes.
+
+@prefix :    <http://knuckles.team/kg#> .
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f:   <urn:eg-media-vocab:qbittorrent/> .
+
+f:connection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:declaredCapability "read" ;
+    vg:endpointRef [ a vg:EndpointRef ; vg:url "https://mcp.example.invalid/qbittorrent" ] .
+
+f:contract a vg:MetadataContract ;
+    vg:contractSource f:connection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:a434143dd200830f93ccc179e43800a7efd33a9b51e40be04db439e39ac3a8f8" ;
+    vg:discoveredEntity "Torrent", "TorrentProperties", "TransferInfo", "SyncTorrent" ;
+    vg:discoveredField "hash", "name", "state", "ratio", "last_activity", "added_on", "url", "dl_speed", "up_speed", "id" ;
+    vg:discoveredOperation "qbittorrent_torrents/get_torrent_list", "qbittorrent_torrents/get_torrent_properties", "qbittorrent_torrents/get_torrent_trackers", "qbittorrent_transfer/info", "qbittorrent_sync/torrents" .
+
+# qbittorrent_torrents/get_torrent_list: the torrent is a download transfer
+f:row-torrent a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :DownloadTransfer ;
+    vg:mapsEntity "Torrent" ;
+    vg:keyField "hash" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :infoHash ;
+        vg:field "hash"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :transferState ;
+        vg:field "state"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :shareRatio ;
+        vg:field "ratio"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :lastActivityAt ;
+        vg:field "last_activity"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :addedAt ;
+        vg:field "added_on"
+    ] .
+
+# qbittorrent_torrents/get_torrent_properties, get_torrent_trackers: the
+# tracker the torrent announces to
+f:row-torrent-properties a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :DownloadTransfer ;
+    vg:mapsEntity "TorrentProperties" ;
+    vg:keyField "hash" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :trackerUrl ;
+        vg:field "url"
+    ] .
+
+# qbittorrent_transfer/*: the client-wide speed sample
+f:row-transfer-info a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :TransferSpeedSample ;
+    vg:mapsEntity "TransferInfo" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :downloadSpeedBytesPerSecond ;
+        vg:field "dl_speed"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :uploadSpeedBytesPerSecond ;
+        vg:field "up_speed"
+    ] .
+
+# qbittorrent_sync/*: the incremental delta of the torrent list
+f:row-sync-torrent a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :DownloadTransfer ;
+    vg:mapsEntity "SyncTorrent" ;
+    vg:keyField "hash" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :transferState ;
+        vg:field "state"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :lastActivityAt ;
+        vg:field "last_activity"
+    ] .

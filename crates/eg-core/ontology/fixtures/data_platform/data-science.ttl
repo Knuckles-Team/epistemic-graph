@@ -1,32 +1,126 @@
-# data-science dp:StoreMapping fixture (EG-DATAPLAT-VOCAB-R006.8).
+# data-science store-mapping fixture (EG-DATAPLAT-VOCAB-R006.8).
 #
-# One approved StoreMapping row per operation, virtual-first; run history is
-# materialised with the reason recorded (decision 4: the ML engine registry is
-# in-process, so run history must be recorded as TrainingRun / EvaluationResult
-# metadata when a run happens).
+# One attached ML engine registry. load_dataset, dataset_lineage,
+# rank_models and evaluate_model are named MCP operations served virtual
+# (call-time reads). Run history is different: the ML engine registry is
+# in-process (MLEngine) and resets, so training runs are recorded as
+# dp:TrainingRun / dp:EvaluationResult metadata when a run happens — the
+# run-history mapping is materialised via the R038 AccelerationPolicy
+# (decision 4). Baseline comparison is still BLOCKED on data-science-mcp
+# adding a run-registry read operation (R009.5).
+#
+# The dp: ML classes carry no scalar field of their own; a row's identity
+# rides on its links (trainedOn, producedModel, evaluatedOn, baselineRun),
+# so each binding projects its fields onto those links.
 
-@prefix dp:  <http://knuckles.team/kg/data-platform#> .
-@prefix ex:  <http://example.org/fixture/data-platform/data-science/> .
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://knuckles.team/kg/fixtures/data-platform/data-science/> .
 
-ex:load-dataset-mapping a dp:StoreMapping ;
+ex:store a dp:DataStore ;
+    dp:storeFamily "ml" .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://knuckles.team/kg/fixtures/data-platform/data-science/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:cc90a22072144a17268fd12be30de273271f744ebcb099eef25bdf16a298fc24" ;
+    vg:discoveredEntity "datasets" ;
+    vg:discoveredEntity "lineage" ;
+    vg:discoveredEntity "models" ;
+    vg:discoveredEntity "evaluation_results" ;
+    vg:discoveredEntity "training_runs" ;
+    vg:discoveredField "dataset_name" ;
+    vg:discoveredField "run_id" ;
+    vg:discoveredField "model_id" ;
+    vg:discoveredField "baseline_run_id" .
+
+ex:mapping_load_dataset a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:Dataset ;
+    vg:mapsEntity "datasets" ;
+    vg:keyField "dataset_name" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:trainedOn ;
+        vg:field "dataset_name"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
     dp:contractKind "mcp-operation" ;
     dp:viaOperation "load_dataset" ;
     dp:accelerationMode "virtual" .
 
-ex:dataset-lineage-mapping a dp:StoreMapping ;
+ex:mapping_dataset_lineage a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:TrainingRun ;
+    vg:mapsEntity "lineage" ;
+    vg:keyField "run_id" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:trainedOn ;
+        vg:field "dataset_name"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
     dp:contractKind "mcp-operation" ;
     dp:viaOperation "dataset_lineage" ;
     dp:accelerationMode "virtual" .
 
-ex:rank-models-mapping a dp:StoreMapping ;
+ex:mapping_rank_models a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:Model ;
+    vg:mapsEntity "models" ;
+    vg:keyField "model_id" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:producedModel ;
+        vg:field "run_id"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
     dp:contractKind "mcp-operation" ;
     dp:viaOperation "rank_models" ;
     dp:accelerationMode "virtual" .
 
-# Run history: the in-process ML engine registry (MLEngine) is not durable, so
-# the evaluation result is materialised as metadata at run time.
-ex:evaluate-model-mapping a dp:StoreMapping ;
+ex:mapping_evaluate_model a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:EvaluationResult ;
+    vg:mapsEntity "evaluation_results" ;
+    vg:keyField "model_id" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:evaluatedOn ;
+        vg:field "dataset_name"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
     dp:contractKind "mcp-operation" ;
     dp:viaOperation "evaluate_model" ;
+    dp:accelerationMode "virtual" .
+
+ex:mapping_run_history a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:TrainingRun ;
+    vg:mapsEntity "training_runs" ;
+    vg:keyField "run_id" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:trainedOn ;
+        vg:field "dataset_name"
+    ] ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:producedModel ;
+        vg:field "model_id"
+    ] ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:baselineRun ;
+        vg:field "baseline_run_id"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "fit_model:fit" ;
     dp:accelerationMode "materialised" ;
-    dp:materialisationReason "run history: the in-process ML engine registry is not durable; EvaluationResult metadata must be recorded at run time (plan decision 4)" .
+    dp:materialisationReason "The ML engine registry is in-process (MLEngine) and resets, so run history must be recorded as dp:TrainingRun / dp:EvaluationResult metadata when a run happens; materialised via the R038 AccelerationPolicy (EG-DATAPLAT-VOCAB-R006.8)." .

@@ -1488,6 +1488,7 @@ fn admit_record(
         record,
         &mapping.schema_mapping.ontology_class,
         &mapping.schema_mapping.fields,
+        &mapping.schema_mapping.datatypes,
         &record.mapping_reference,
         &raw_digest_hex,
         batch.strict_schema,
@@ -2026,6 +2027,7 @@ fn mapped_properties(
     record: &eg_types::source_ingestion::SourceRecord,
     ontology_class: &str,
     fields: &BTreeMap<String, String>,
+    datatypes: &BTreeMap<String, String>,
     mapping_reference: &str,
     raw_digest: &str,
     strict_schema: bool,
@@ -2047,6 +2049,7 @@ fn mapped_properties(
         "source_raw_sha256",
         "source_provenance",
         "source_updated_at",
+        "source_datatypes",
     ]
     .into_iter()
     .map(str::to_owned)
@@ -2054,9 +2057,60 @@ fn mapped_properties(
     validate_strict_source_fields(source, fields, strict_schema)?;
     validate_mapping_selector(source, mapping_reference)?;
     map_configured_fields(source, fields, &mut targets, &mut mapped)?;
+    insert_datatypes(source, fields, datatypes, &mut mapped)?;
     map_external_tool_id(source, &mut mapped);
     insert_source_metadata(&mut mapped, record, mapping_reference, raw_digest)?;
     Ok(mapped)
+}
+
+#[cfg(all(feature = "redb", feature = "blob"))]
+fn insert_datatypes(
+    source: &serde_json::Map<String, serde_json::Value>,
+    fields: &BTreeMap<String, String>,
+    datatypes: &BTreeMap<String, String>,
+    mapped: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let mut output = serde_json::Map::new();
+    for (field, datatype) in datatypes {
+        let target = fields
+            .get(field)
+            .filter(|target| !target.starts_with("xsd:"))
+            .ok_or_else(|| {
+                "CONNECTOR_SCHEMA_MAPPING_INVALID: datatype requires a mapped target".to_string()
+            })?;
+        validate_persisted_datatype(source.get(field), datatype, field)?;
+        if source.get(field).is_some_and(|value| !value.is_null()) {
+            output.insert(target.clone(), datatype.clone().into());
+        }
+    }
+    if !output.is_empty() {
+        mapped.insert("source_datatypes".into(), output.into());
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "redb", feature = "blob"))]
+fn validate_persisted_datatype(
+    value: Option<&serde_json::Value>,
+    datatype: &str,
+    field: &str,
+) -> Result<(), String> {
+    validate_xsd_value(value, datatype, field)?;
+    let Some(text) = value.and_then(serde_json::Value::as_str) else {
+        return Ok(());
+    };
+    let valid = match datatype {
+        "xsd:date" => chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok(),
+        "xsd:dateTime" => chrono::DateTime::parse_from_rfc3339(text).is_ok(),
+        _ => true,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "SOURCE_SCHEMA_TYPE_MISMATCH: {field} does not satisfy {datatype}"
+        ))
+    }
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
@@ -2374,6 +2428,7 @@ mod tests {
             &record(),
             "Document",
             &mapping,
+            &BTreeMap::new(),
             "connector:demo#mappings/item",
             &"a".repeat(64),
             false,
@@ -2391,6 +2446,7 @@ mod tests {
             &record(),
             "Document",
             &missing,
+            &BTreeMap::new(),
             "connector:demo#mappings/item",
             &"a".repeat(64),
             false,
@@ -2402,6 +2458,7 @@ mod tests {
             &record(),
             "Document",
             &reserved,
+            &BTreeMap::new(),
             "connector:demo#mappings/item",
             &"a".repeat(64),
             false,
@@ -2417,6 +2474,7 @@ mod tests {
             &record(),
             "Document",
             &xsd,
+            &BTreeMap::new(),
             "connector:demo#mappings/item",
             &"a".repeat(64),
             false,
@@ -2429,6 +2487,7 @@ mod tests {
             &record(),
             "Document",
             &strict,
+            &BTreeMap::new(),
             "connector:demo#mappings/item",
             &"a".repeat(64),
             true,
@@ -2441,6 +2500,7 @@ mod tests {
             &extra,
             "Document",
             &strict,
+            &BTreeMap::new(),
             "connector:demo#mappings/item",
             &"a".repeat(64),
             true,
@@ -2461,12 +2521,58 @@ mod tests {
             &selected,
             "Document",
             &BTreeMap::from([("name".to_string(), "xsd:string".to_string())]),
+            &BTreeMap::new(),
             "connector:demo#mappings/item",
             &"a".repeat(64),
             true,
         )
         .unwrap_err()
         .contains("SOURCE_MAPPING_SELECTOR_MISMATCH"));
+    }
+
+    #[test]
+    fn mapping_persists_explicit_datetime_type_and_refuses_invalid_values() {
+        let fields = BTreeMap::from([("name".to_string(), "observationTime".to_string())]);
+        let datatypes = BTreeMap::from([("name".to_string(), "xsd:dateTime".to_string())]);
+        let mut row = record();
+        row.payload = SourceJson::new(serde_json::json!({"name":"2025-01-01T12:00:00Z"})).unwrap();
+        let properties = mapped_properties(
+            &row,
+            "WeatherObservation",
+            &fields,
+            &datatypes,
+            "connector:demo#mappings/item",
+            &"a".repeat(64),
+            false,
+        )
+        .unwrap();
+        assert_eq!(properties["observationTime"], "2025-01-01T12:00:00Z");
+        assert_eq!(
+            properties["source_datatypes"]["observationTime"],
+            "xsd:dateTime"
+        );
+        row.payload = SourceJson::new(serde_json::json!({"name":"not-a-date"})).unwrap();
+        let error = mapped_properties(
+            &row,
+            "WeatherObservation",
+            &fields,
+            &datatypes,
+            "connector:demo#mappings/item",
+            &"a".repeat(64),
+            false,
+        )
+        .unwrap_err();
+        assert!(error.contains("SOURCE_SCHEMA_TYPE_MISMATCH"), "{error}");
+        assert!(mapped_properties(
+            &row,
+            "WeatherObservation",
+            &fields,
+            &BTreeMap::from([("missing".into(), "xsd:dateTime".into())]),
+            "connector:demo#mappings/item",
+            &"a".repeat(64),
+            false
+        )
+        .is_err());
     }
 
     /// Hydration can carry more than one ontology relation over the same
@@ -2559,6 +2665,7 @@ mod tests {
                     schema_mapping: ConnectorSchemaMapping {
                         ontology_class: "Document".into(),
                         fields: BTreeMap::new(),
+                        datatypes: BTreeMap::new(),
                     },
                     body_sha256: Digest256::from_bytes([8; 32]),
                     entry_revision: 1,

@@ -2,10 +2,10 @@
 //!
 //! ```text
 //! validate_shape = "VALIDATE" "SHAPE" ( iri | string | ident ) [ "USING" string ]
-//!                  [ "KEEP" ( "CONFORMING" | "VIOLATING" ) ] ;
+//!                  [ "PROJECT" string ] [ "KEEP" ( "CONFORMING" | "VIOLATING" ) ] ;
 //! ```
 //!
-//! → `Op::ValidateShape { shape, shapes, keep }`, `keep` defaulting to `CONFORMING`.
+//! → `Op::ValidateShape { shape, shapes, projection_base, keep }`, `keep` defaulting to `CONFORMING`.
 //! Without `USING` the shapes document is empty, which the executor resolves to the
 //! queried graph's composed GraphSchema shapes (bound server-side; eg-uql made `USING`
 //! optional once that binding existed).
@@ -60,10 +60,16 @@ impl Parser<'_> {
         } else {
             String::new()
         };
+        let projection_base = if self.eat_kw("PROJECT") {
+            self.string("the RDF projection namespace after `PROJECT`")?
+        } else {
+            String::new()
+        };
         let keep = self.parse_shape_keep()?;
         Ok(Op::ValidateShape {
             shape,
             shapes,
+            projection_base,
             keep,
         })
     }
@@ -109,6 +115,7 @@ mod tests {
             Op::ValidateShape {
                 shape: "<http://ex/Named>".into(),
                 shapes: "ttl".into(),
+                projection_base: String::new(),
                 keep: ShapeKeep::Conforming,
             }
         );
@@ -136,12 +143,23 @@ mod tests {
             Op::ValidateShape {
                 shape: "<http://ex/S>".into(),
                 shapes: String::new(),
+                projection_base: String::new(),
                 keep: ShapeKeep::Conforming,
             }
         );
         let bad_keep =
             parse("MATCH (:P) |> VALIDATE SHAPE <http://ex/S> USING 't' KEEP ALL").unwrap_err();
         assert!(bad_keep.msg.contains("CONFORMING"), "{}", bad_keep.msg);
+    }
+
+    #[test]
+    fn caller_can_select_an_explicit_rdf_projection() {
+        let op = stage(
+            r#"MATCH (:Taxon) |> VALIDATE SHAPE <http://ex/S> PROJECT 'http://ex/' KEEP VIOLATING"#,
+        );
+        assert!(
+            matches!(op, Op::ValidateShape { projection_base, keep: ShapeKeep::Violating, .. } if projection_base == "http://ex/")
+        );
     }
 
     #[test]

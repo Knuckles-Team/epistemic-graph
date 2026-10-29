@@ -290,7 +290,7 @@
         "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/src/graph/schema_sources.rs:1677"
+        "crates/eg-core/src/graph/schema_sources.rs:1679"
       ]
     },
     {

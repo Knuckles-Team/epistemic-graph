@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 493,
+  "method_count": 492,
   "methods": [
     {
       "consumer_profiles": [
@@ -1780,6 +1780,15 @@
         "REDIRECTED",
         "REGISTRY_CURSOR_STALE",
         "REGISTRY_LIMIT",
+        "SOURCE_APPROVAL_MISMATCH",
+        "SOURCE_APPROVAL_NOT_ADMITTED",
+        "SOURCE_APPROVAL_SCHEMA_MISMATCH",
+        "SOURCE_APPROVAL_STORE_UNAVAILABLE",
+        "SOURCE_BINDING_INVALID",
+        "SOURCE_BINDING_MISMATCH",
+        "SOURCE_BINDING_NOT_REGISTERED",
+        "SOURCE_CONTRACT_MISMATCH",
+        "SOURCE_REGISTRATION_NOT_FOUND",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
         "TIMEOUT"
@@ -8251,6 +8260,10 @@
             "dynamic": null,
             "encoding": "Raw"
           },
+          "liquidity_panel": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "resolve": {
             "dynamic": null,
             "encoding": "Raw"
@@ -11570,7 +11583,6 @@
         "READ_ONLY",
         "REDIRECTED",
         "REPLAY_NONCE_CONSUMED",
-        "RUN_ADMISSION_UNAVAILABLE",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
         "TIMEOUT"
@@ -13174,68 +13186,6 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.coordination.json#/methods/GetRunWorkItem",
-        "selected_by": null
-      },
-      "stability": "stable"
-    },
-    {
-      "consumer_profiles": [
-        "python"
-      ],
-      "domain": "coordination",
-      "error_set": [
-        "ACCESS_DENIED",
-        "AUTHENTICATION_REQUIRED",
-        "AUTH_AUDIENCE_MISMATCH",
-        "AUTH_BAD_SIGNATURE",
-        "AUTH_EXPIRED",
-        "AUTH_POLICY_VERSION_MISMATCH",
-        "AUTH_TENANT_MISMATCH",
-        "AUTH_UNKNOWN_PRINCIPAL",
-        "BUSY",
-        "CANCELLED",
-        "CAPACITY_DENIED",
-        "ENGINE_DEADLINE_EXCEEDED",
-        "ENGINE_INTERNAL_METHOD",
-        "ENGINE_RESOURCE_EXHAUSTED",
-        "ENGINE_UNAVAILABLE",
-        "INTERNAL",
-        "INVALID_ARGUMENT",
-        "METHOD_NOT_YET_SERVED",
-        "NODE_MISMATCH",
-        "OPERATION_REDIRECTED",
-        "RUN_ADMISSION_UNAVAILABLE",
-        "STALE_OUTBOX_LEASE",
-        "STALE_ROUTE",
-        "TIMEOUT"
-      ],
-      "format_identities": [],
-      "id": "GetConversationHead",
-      "is_wire_callable": true,
-      "note": "owner-bound ordered conversation head snapshot",
-      "policy": {
-        "audited": false,
-        "authz_action": "work:read",
-        "durability_domain": "None",
-        "emits_cdc": false,
-        "idempotent": true,
-        "mutates": false,
-        "txn_participation": "Snapshot"
-      },
-      "replay_class": "NotReplayable",
-      "request_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/method.request.json#/methods/GetConversationHead"
-      },
-      "result_schema": {
-        "bodies": {
-          "result": {
-            "dynamic": null,
-            "encoding": "Raw"
-          }
-        },
-        "kind": "declared",
-        "schema": "contract/schemas/result.coordination.json#/methods/GetConversationHead",
         "selected_by": null
       },
       "stability": "stable"
@@ -25082,6 +25032,8 @@
         "SOURCE_BINDING_INVALID",
         "SOURCE_BINDING_MISMATCH",
         "SOURCE_BINDING_NOT_REGISTERED",
+        "SOURCE_CONTRACT_MISMATCH",
+        "SOURCE_REGISTRATION_NOT_FOUND",
         "SQL_OWNER_REPAIR_PENDING",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
@@ -25251,6 +25203,8 @@
         "SOURCE_BINDING_INVALID",
         "SOURCE_BINDING_MISMATCH",
         "SOURCE_BINDING_NOT_REGISTERED",
+        "SOURCE_CONTRACT_MISMATCH",
+        "SOURCE_REGISTRATION_NOT_FOUND",
         "SQL_OWNER_REPAIR_PENDING",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
@@ -25339,6 +25293,8 @@
         "SOURCE_BINDING_INVALID",
         "SOURCE_BINDING_MISMATCH",
         "SOURCE_BINDING_NOT_REGISTERED",
+        "SOURCE_CONTRACT_MISMATCH",
+        "SOURCE_REGISTRATION_NOT_FOUND",
         "SQL_OWNER_REPAIR_PENDING",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
@@ -25427,6 +25383,8 @@
         "SOURCE_BINDING_INVALID",
         "SOURCE_BINDING_MISMATCH",
         "SOURCE_BINDING_NOT_REGISTERED",
+        "SOURCE_CONTRACT_MISMATCH",
+        "SOURCE_REGISTRATION_NOT_FOUND",
         "SQL_OWNER_REPAIR_PENDING",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
@@ -25515,6 +25473,8 @@
         "SOURCE_BINDING_INVALID",
         "SOURCE_BINDING_MISMATCH",
         "SOURCE_BINDING_NOT_REGISTERED",
+        "SOURCE_CONTRACT_MISMATCH",
+        "SOURCE_REGISTRATION_NOT_FOUND",
         "SQL_OWNER_REPAIR_PENDING",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
@@ -25604,6 +25564,8 @@
         "SOURCE_BINDING_INVALID",
         "SOURCE_BINDING_MISMATCH",
         "SOURCE_BINDING_NOT_REGISTERED",
+        "SOURCE_CONTRACT_MISMATCH",
+        "SOURCE_REGISTRATION_NOT_FOUND",
         "SQL_OWNER_REPAIR_PENDING",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
@@ -30774,6 +30736,10 @@
         "READ_ONLY",
         "REDIRECTED",
         "RESERVED_COMPONENT_ID",
+        "SEED_DIGEST_MISMATCH",
+        "SEED_INVALID",
+        "SEED_SHACL_VIOLATION",
+        "SEED_TOO_LARGE",
         "SEED_TURTLE_INVALID",
         "SOURCE_APPROVAL_MISMATCH",
         "SOURCE_APPROVAL_NOT_ADMITTED",
@@ -34386,6 +34352,7 @@
         "IDEMPOTENCY_CONFLICT",
         "INTERNAL",
         "INVALID_ARGUMENT",
+        "INVALID_CONFIGURATION",
         "METHOD_NOT_YET_SERVED",
         "NODE_MISMATCH",
         "OPERATION_REDIRECTED",

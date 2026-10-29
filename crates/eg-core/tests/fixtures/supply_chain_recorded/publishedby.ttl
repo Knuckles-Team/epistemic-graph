@@ -1,0 +1,11 @@
+# Recorded response (D4 row publishedBy): the dockerhub namespace/Organization
+# is rank 1; the github/gitlab owner is rank 2. Projected by the approved
+# mappings (vm_dockerhub.ttl).
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:openssl a kg:SoftwareComponent ;
+    kg:publishedBy ex:sup-001 .
+
+ex:sup-001 a kg:Supplier .

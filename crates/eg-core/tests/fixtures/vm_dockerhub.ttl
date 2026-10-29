@@ -1,0 +1,93 @@
+# Virtual-mapping fixture: dockerhub image, SBOM and Scout CVEs to
+# containsComponent and Vulnerability (EG-SUPPLY-VOCAB-R006.5).
+#
+# Recorded over the `hub_scout` actions `summary` (the image record),
+# `sbom` (the per-image component list, a child fetch) and `cves` (the
+# per-image vulnerability list, a child fetch). The image's SBOM child fetch
+# projects onto kg:containsComponent; each Scout CVE row projects onto
+# kg:Vulnerability, its affected package onto kg:affectsComponent.
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-dockerhub#> .
+
+ex:dockerhubConnection a vg:SourceConnection ;
+    vg:sourceKind "api" ;
+    vg:endpointRef [ vg:url "https://hub.docker.invalid/v2" ] .
+
+ex:hubScoutSummary a vg:MetadataContract ;
+    vg:contractSource ex:dockerhubConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:5ff06bc7fa4f43c75e8514eba610a9e04d342882e2b4945ee883bd6a2a6ce614" ;
+    vg:discoveredEntity "Image" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "tag" ;
+    # Child-fetch references: the component list and the CVE list are read
+    # per image, not from the summary record.
+    vg:discoveredField "sbom" ;
+    vg:discoveredField "cves" ;
+    vg:discoveredOperation "summary" .
+
+ex:hubScoutSbom a vg:MetadataContract ;
+    vg:contractSource ex:dockerhubConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:9498be4077eda7e8cd5000d9ac4266ec0b75f121c821a87cb364b88649bdf559" ;
+    vg:discoveredEntity "SbomComponent" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "version" ;
+    vg:discoveredOperation "sbom" .
+
+ex:hubScoutCves a vg:MetadataContract ;
+    vg:contractSource ex:dockerhubConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:125eef152b6226c2ad8590ffcf2a14ba8e8dc6430d614ebf63171925a8469a8f" ;
+    vg:discoveredEntity "Cve" ;
+    vg:discoveredField "cve" ;
+    vg:discoveredField "severity" ;
+    # The affected package name within the image's SBOM.
+    vg:discoveredField "component" ;
+    vg:discoveredOperation "cves" .
+
+ex:imageMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:hubScoutSummary ;
+    vg:mapsOntologyClass infra:ContainerImage ;
+    vg:mapsEntity "Image" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:containsComponent ;
+        vg:field "sbom" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:hasVulnerability ;
+        vg:field "cves" ] ;
+    vg:approved true .
+
+ex:componentVersionMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:hubScoutSbom ;
+    vg:mapsOntologyClass kg:ComponentVersion ;
+    vg:mapsEntity "SbomComponent" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:versionString ;
+        vg:field "version" ] ;
+    vg:approved true .
+
+ex:vulnerabilityMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:hubScoutCves ;
+    vg:mapsOntologyClass kg:Vulnerability ;
+    vg:mapsEntity "Cve" ;
+    vg:keyField "cve" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:cveId ;
+        vg:field "cve" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:severity ;
+        vg:field "severity" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:affectsComponent ;
+        vg:field "component" ] ;
+    vg:approved true .

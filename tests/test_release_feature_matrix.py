@@ -405,7 +405,7 @@ def test_default_pr_clippy_is_workspace_only_with_full_native_opt_in(release_mat
     workflow, _ = release_matrix
     job = workflow["jobs"]["quality-advisory"]
     assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && 15 || 60 }}"
+        "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     )
     assert job["if"] == "needs.changes.outputs.code == 'true'"
     assert job["strategy"]["fail-fast"] is False

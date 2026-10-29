@@ -74,6 +74,10 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
             "CONNECTOR_RELATIONSHIP_",
             "ARCHIVE_",
             "MALFORMED_",
+            "SEED_",
+            "SOURCE_APPROVAL_",
+            "SOURCE_CONTRACT_",
+            "SOURCE_REGISTRATION_",
             "IMPORTER_",
             "INVALID_IMPORTER",
             "INVALID_RETIREMENT",
@@ -116,24 +120,8 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
         &["CHANGE_BATCH_", "REPLAY_NONCE_", "STALE_GRAPH_"],
     ),
 ];
-// These phases and execution methods call the same verified approval/catalog boundary.
-const FOREIGN_SOURCE_BINDING_ERRORS: &[&str] = &[
-    "SOURCE_APPROVAL_MISMATCH",
-    "SOURCE_APPROVAL_NOT_ADMITTED",
-    "SOURCE_APPROVAL_SCHEMA_MISMATCH",
-    "SOURCE_APPROVAL_STORE_UNAVAILABLE",
-    "SOURCE_BINDING_INVALID",
-    "SOURCE_BINDING_MISMATCH",
-    "SOURCE_BINDING_NOT_REGISTERED",
-];
-
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
-    ("ForeignReadOpen", FOREIGN_SOURCE_BINDING_ERRORS),
-    ("ForeignReadChunk", FOREIGN_SOURCE_BINDING_ERRORS),
-    ("ForeignReadComplete", FOREIGN_SOURCE_BINDING_ERRORS),
-    ("ForeignReadAbort", FOREIGN_SOURCE_BINDING_ERRORS),
-    ("Uql", FOREIGN_SOURCE_BINDING_ERRORS),
-    ("UnifiedQuery", FOREIGN_SOURCE_BINDING_ERRORS),
+    ("AnalyticsJob", &["INVALID_CONFIGURATION"]),
     ("GetRunWorkItem", &["RUN_ADMISSION_UNAVAILABLE"]),
     ("GetConversationHead", &["RUN_ADMISSION_UNAVAILABLE"]),
     (
@@ -216,6 +204,7 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "MutationOutbox",
         &[
             "CORRUPT_OUTBOX",
+            "INVALID_CONFIGURATION",
             "OUTBOX_OWNER_UNAVAILABLE",
             "OUTBOX_OWNER_UNKNOWN",
             "OUTBOX_SCOPE_MISMATCH",
@@ -296,6 +285,27 @@ fn add_server_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
 }
 
 fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
+    // Foreign reads revalidate current connector-pack approvals at every step.
+    // Add those refusal families without replacing each method's domain errors.
+    let id = d.id.as_str();
+    if matches!(id, "Uql" | "UnifiedQuery" | "RegisterForeignSource")
+        || id.starts_with("ForeignRead")
+    {
+        let prefixes = [
+            "SOURCE_APPROVAL_",
+            "SOURCE_BINDING_",
+            "SOURCE_CONTRACT_",
+            "SOURCE_REGISTRATION_",
+        ];
+        codes.extend(
+            ServerErrorCode::ALL
+                .iter()
+                .map(|code| code.as_str())
+                .filter(|code| prefixes.iter().any(|prefix| code.starts_with(prefix))),
+        );
+        // These two codes already belong to the connector-pack typed catalog.
+        codes.extend(["SOURCE_CONTRACT_MISMATCH", "SOURCE_REGISTRATION_NOT_FOUND"]);
+    }
     if d.policy.is_durable() {
         codes.insert("CORRUPT_MUTATION_LEDGER");
     }
@@ -401,6 +411,34 @@ pub fn method_allows_error(method: &str, code: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::method_allows_error;
+
+    #[test]
+    fn connector_and_foreign_refusals_are_routed_to_their_served_methods() {
+        assert!(method_allows_error("ConnectorPack", "SEED_TURTLE_INVALID"));
+        assert!(method_allows_error(
+            "UnifiedQuery",
+            "SOURCE_APPROVAL_NOT_ADMITTED"
+        ));
+        assert!(method_allows_error(
+            "UnifiedQuery",
+            "SOURCE_BINDING_MISMATCH"
+        ));
+        assert!(method_allows_error("Uql", "SOURCE_APPROVAL_NOT_ADMITTED"));
+        assert!(method_allows_error(
+            "ForeignReadOpen",
+            "SOURCE_BINDING_MISMATCH"
+        ));
+        assert!(!method_allows_error(
+            "CreateGraph",
+            "SOURCE_BINDING_MISMATCH"
+        ));
+        assert!(method_allows_error("AnalyticsJob", "INVALID_CONFIGURATION"));
+        assert!(method_allows_error(
+            "MutationOutbox",
+            "INVALID_CONFIGURATION"
+        ));
+        assert!(!method_allows_error("CreateGraph", "INVALID_CONFIGURATION"));
+    }
 
     // spec: EG-DECISION-ENGINE-R073.5
     #[test]
