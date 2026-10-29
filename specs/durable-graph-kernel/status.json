@@ -428,6 +428,9 @@
     "EG-DURABLE-KERNEL-R862.3",
     "EG-DURABLE-KERNEL-R028.4.3",
     "EG-DURABLE-KERNEL-R028.4.4",
+    "EG-DURABLE-KERNEL-R028.4.5",
+    "EG-DURABLE-KERNEL-R028.4.6",
+    "EG-DURABLE-KERNEL-R028.4.7",
     "EG-DURABLE-KERNEL-R030.1.1",
     "EG-DURABLE-KERNEL-R030.1.2",
     "EG-DURABLE-KERNEL-R030.1.3",
@@ -646,7 +649,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:180"
+        "src/raft/command/native/tests.rs:181"
       ]
     },
     {
@@ -1249,7 +1252,7 @@
         "cd899a5c8c20"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:280"
+        "src/raft/command/native/tests.rs:281"
       ]
     },
     {
@@ -1258,9 +1261,12 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "15451958704f",
+        "97106a96b7ab",
         "a676823d2b54"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/adopt_workitem_metadata_cas_lifecycle.rs:224"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.1",
         "EG-DURABLE-KERNEL-R028.2",
@@ -1695,9 +1701,9 @@
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:191",
         "crates/eg-types/src/control_lease/tests.rs:225",
-        "src/redb_store/work_item/control_lease/tests.rs:439",
-        "src/redb_store/work_item/control_lease/tests.rs:467",
-        "src/redb_store/work_item/control_lease/tests.rs:492"
+        "src/redb_store/work_item/control_lease/tests.rs:440",
+        "src/redb_store/work_item/control_lease/tests.rs:468",
+        "src/redb_store/work_item/control_lease/tests.rs:493"
       ]
     },
     {
@@ -2028,6 +2034,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
+        "97106a96b7ab",
         "c143146d7855"
       ],
       "verified_by": [
@@ -3388,8 +3395,8 @@
         "a0357cb95dc8"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:512",
-        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:353",
+        "crates/eg-capabilities/src/error_routing.rs:516",
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:355",
         "crates/eg-storage/src/owner/lineage_tests.rs:224",
         "crates/eg-storage/src/owner/lineage_tests.rs:245",
         "crates/eg-storage/src/owner/lineage_tests.rs:283"
@@ -3798,7 +3805,7 @@
         "6aa2533a8865"
       ],
       "verified_by": [
-        "src/redb_store.rs:6294",
+        "src/redb_store.rs:6298",
         "src/redb_store/work_item/read/tests.rs:130",
         "src/redb_store/work_item/read/tests.rs:182",
         "src/redb_store/work_item/read/tests.rs:221",
@@ -4577,8 +4584,8 @@
         "d7c03a9c3606"
       ],
       "verified_by": [
-        "src/redb_store/work_item/row_guard.rs:266",
-        "tests/adopt_workitem_authenticated_replay.rs:459",
+        "src/redb_store/work_item/row_guard.rs:273",
+        "tests/adopt_workitem_authenticated_replay.rs:460",
         "tests/test_work_item_retry_identity.py:128",
         "tests/test_work_item_retry_identity.py:274"
       ],
@@ -4586,7 +4593,10 @@
         "EG-DURABLE-KERNEL-R028.4.1",
         "EG-DURABLE-KERNEL-R028.4.2",
         "EG-DURABLE-KERNEL-R028.4.3",
-        "EG-DURABLE-KERNEL-R028.4.4"
+        "EG-DURABLE-KERNEL-R028.4.4",
+        "EG-DURABLE-KERNEL-R028.4.5",
+        "EG-DURABLE-KERNEL-R028.4.6",
+        "EG-DURABLE-KERNEL-R028.4.7"
       ]
     },
     {
@@ -4599,11 +4609,11 @@
         "fc65d45d509d"
       ],
       "verified_by": [
-        "src/redb_store/work_item/row_guard.rs:316",
-        "src/redb_store/work_item/run_owner/tests.rs:106",
-        "src/redb_store/work_item/run_owner/tests.rs:138",
+        "src/redb_store/work_item/row_guard.rs:323",
+        "src/redb_store/work_item/run_owner/tests.rs:122",
+        "src/redb_store/work_item/run_owner/tests.rs:154",
         "src/redb_store/work_item/run_owner/tests.rs:39",
-        "src/redb_store/work_item/run_owner/tests.rs:437"
+        "src/redb_store/work_item/run_owner/tests.rs:458"
       ]
     },
     {
@@ -4622,7 +4632,7 @@
         "f9bfc0da8ae7"
       ],
       "verified_by": [
-        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:342",
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:344",
         "crates/eg-types/src/current_plan/tests.rs:110",
         "crates/eg-types/src/current_plan/tests.rs:3",
         "src/redb_store/work_item/current_plan/tests.rs:121",
@@ -4796,7 +4806,7 @@
       "landed_in": [],
       "verified_by": [
         "src/server/mutation_batch/digest.rs:379",
-        "tests/adopt_workitem_authenticated_replay.rs:608",
+        "tests/adopt_workitem_authenticated_replay.rs:609",
         "tests/decide/test_task_plan_served.py:239",
         "tests/decide/test_task_plan_served.py:360"
       ]
@@ -4820,11 +4830,11 @@
         "b286edc1b3bf"
       ],
       "verified_by": [
-        "src/redb_store/work_item/run_owner/tests.rs:191",
-        "src/redb_store/work_item/run_owner/tests.rs:216",
-        "src/redb_store/work_item/run_owner/tests.rs:240",
-        "src/redb_store/work_item/run_owner/tests.rs:316",
-        "src/redb_store/work_item/run_owner/tests.rs:437"
+        "src/redb_store/work_item/run_owner/tests.rs:209",
+        "src/redb_store/work_item/run_owner/tests.rs:234",
+        "src/redb_store/work_item/run_owner/tests.rs:258",
+        "src/redb_store/work_item/run_owner/tests.rs:336",
+        "src/redb_store/work_item/run_owner/tests.rs:458"
       ]
     },
     {
@@ -4914,11 +4924,11 @@
         "a1874ae34e29"
       ],
       "verified_by": [
-        "src/redb_store/work_item/conversation/tests.rs:123",
-        "src/redb_store/work_item/conversation/tests.rs:144",
-        "src/redb_store/work_item/conversation/tests.rs:160",
-        "src/redb_store/work_item/conversation/tests.rs:200",
-        "src/redb_store/work_item/conversation/tests.rs:220"
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:366",
+        "src/redb_store/work_item/conversation/tests.rs:124",
+        "src/redb_store/work_item/conversation/tests.rs:145",
+        "src/redb_store/work_item/conversation/tests.rs:161",
+        "src/redb_store/work_item/conversation/tests.rs:201"
       ]
     },
     {
@@ -4927,6 +4937,47 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.5",
+      "title": "Bounded terminal-only text continuation profile",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "966ec29a9eae",
+        "bab8928fa7a9"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/inline_history/tests.rs:232",
+        "tests/adopt_workitem_authenticated_replay.rs:1960",
+        "tests/adopt_workitem_authenticated_replay.rs:1966",
+        "tests/adopt_workitem_authenticated_replay.rs:1972"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.6",
+      "title": "Select completed prior text under one native snapshot",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "17107ea03740",
+        "966ec29a9eae"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/inline_history/tests.rs:1160",
+        "src/redb_store/work_item/inline_history/tests.rs:163",
+        "src/redb_store/work_item/inline_history/tests.rs:481"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.7",
+      "title": "A fresh claim is not replay permission",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "17107ea03740",
+        "966ec29a9eae"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/commit/work_item/fresh_claim_tests.rs:26"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R030.1.1",
