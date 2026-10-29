@@ -75,3 +75,62 @@ fn validate_shape_reports_conformance_and_violation_through_real_uql_text() {
         "bob has no ex:name, so he is the reported violation"
     );
 }
+
+#[test]
+fn projected_taxon_shape_checks_native_fields_and_typed_relationships() {
+    let core = GraphCore::new();
+    for (id, fields) in [
+        (
+            "source:child",
+            serde_json::json!({"type":"Taxon","scientificName":"Child","termCurie":"GBIF:1"}),
+        ),
+        (
+            "source:parent",
+            serde_json::json!({"type":"Taxon","scientificName":"Parent","termCurie":"GBIF:2"}),
+        ),
+        (
+            "source:bad",
+            serde_json::json!({"type":"Taxon","scientificName":"Bad"}),
+        ),
+        (
+            "source:rank",
+            serde_json::json!({"type":"TaxonRank","name":"species"}),
+        ),
+    ] {
+        core.add_node(id.to_string(), rmp_serde::to_vec_named(&fields).unwrap());
+    }
+    for (target, relation) in [
+        ("source:parent", "parentTaxon"),
+        ("source:rank", "taxonRank"),
+    ] {
+        let edge = rmp_serde::to_vec_named(&serde_json::json!({"relationship":relation})).unwrap();
+        core.add_edge("source:child".to_string(), target.to_string(), edge)
+            .unwrap();
+    }
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let shapes =
+        include_str!("../../../../eg-core/ontology/world_model-v1.shapes.ttl").replace('\'', "''");
+    let query = format!(
+        r#"MATCH (:Taxon) |> VALIDATE SHAPE <http://knuckles.team/kg#TaxonShape> USING '{shapes}' PROJECT 'http://knuckles.team/kg#' KEEP VIOLATING"#
+    );
+    assert_eq!(ids_of(&query, &ctx), vec!["source:bad".to_string()]);
+
+    let bad_edge =
+        rmp_serde::to_vec_named(&serde_json::json!({"relationship": "taxonRank"})).unwrap();
+    core.add_edge(
+        "source:child".to_string(),
+        "source:bad".to_string(),
+        bad_edge,
+    )
+    .unwrap();
+    let invalid_view = core.analysis_snapshot();
+    let invalid_ctx = PlanCtx::new(&invalid_view, &semantic);
+    let mut violating = ids_of(&query, &invalid_ctx);
+    violating.sort();
+    assert_eq!(
+        violating,
+        vec!["source:bad".to_string(), "source:child".to_string()]
+    );
+}

@@ -1,0 +1,47 @@
+# Virtual-mapping fixture: twenty Company to kg:Customer (rank 2)
+# (EG-SUPPLY-VOCAB-R005.8).
+#
+# Recorded over the twenty GraphQL `crm` tool. Twenty is the rank-2 source
+# for Customer (salesforce Account is rank 1). Twenty has no contract object
+# in its manifest (Company, Opportunity, CrmNote, CrmTask, PipelineStage), so
+# no CustomerContract mapping is declared: a contract query against twenty
+# yields only the typed abstention (Decision D4).
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-twenty#> .
+
+ex:twentyConnection a vg:SourceConnection ;
+    vg:sourceKind "graphql" ;
+    vg:endpointRef [ vg:url "https://twenty.invalid/graphql" ] .
+
+ex:twentyCrm a vg:MetadataContract ;
+    vg:contractSource ex:twentyConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:b9a2ffc6fd1db87914966d278bd023f4feb32788c05c27ed9bd223723af39653" ;
+    vg:discoveredEntity "Company" ;
+    vg:discoveredField "id" ;
+    vg:discoveredField "name" ;
+    vg:discoveredOperation "crm" .
+
+ex:companyMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:twentyCrm ;
+    vg:mapsOntologyClass kg:Customer ;
+    vg:mapsEntity "Company" ;
+    vg:keyField "id" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:approved true .
+
+# Twenty is the rank-2 authority for Customer (salesforce Account is rank 1).
+ex:companyAuthority a vg:SourceAuthority ;
+    vg:authoritativeSource ex:twentyConnection ;
+    vg:authorityFor kg:Customer ;
+    vg:authorityRank 2 ;
+    vg:authorityMapping ex:companyMapping ;
+    vg:authorityContract "virtual-graph" .
+
+# Deliberately absent: a CustomerContract mapping. Twenty has no contract
+# object, so the fixture declares none and the contract query abstains.

@@ -253,3 +253,167 @@ pub fn to_jsonld(triples: &[Triple], graph: Option<&str>) -> Result<String, Stri
     ser.finish().map_err(|e| format!("jsonld finish: {e}"))?;
     String::from_utf8(buf).map_err(|e| format!("jsonld utf8: {e}"))
 }
+
+/// Project property-graph keys under a caller-supplied RDF namespace for validation.
+/// RDF terms retain their identity; conflicting projected identities are refused.
+#[cfg(feature = "sparql")]
+pub fn export_view_projected(
+    view: &eg_core::graph::GraphView,
+    projection: &crate::sparql::Projection,
+) -> Result<Vec<Triple>, String> {
+    use std::collections::HashMap;
+    if projection.base_iri.is_none() {
+        return export_view_triples(view);
+    }
+    let mut identities = HashMap::new();
+    for id in view.node_properties.keys() {
+        let projected = projection.node_iri(id);
+        if identities.insert(projected, id).is_some() {
+            return Err("RDF projection has colliding node identities".into());
+        }
+    }
+    let mut out = Vec::new();
+    for ((s, o), blobs) in &view.edge_properties {
+        let subject = projection.node_iri(s);
+        let object = projection.node_iri(o);
+        for blob in blobs {
+            let relationship = eg_types::msgpack::decode_edge_relationship(blob)
+                .ok_or("edge missing relationship")?;
+            out.push(make_triple(
+                &subject,
+                &projection.pred_iri(&relationship),
+                &object,
+            )?);
+        }
+    }
+    for (id, props) in &view.node_properties {
+        if id.starts_with("__named_graph__:") {
+            continue;
+        }
+        let subject = projection.node_iri(id);
+        let value = eg_types::msgpack::decode_property_value(props).unwrap_or_default();
+        let Some(fields) = value.as_object() else {
+            continue;
+        };
+        if let Some(class) = fields.get("type").and_then(serde_json::Value::as_str) {
+            if !is_rdf_term(id) {
+                let class = projection
+                    .type_object_iri(class)
+                    .ok_or("missing projection")?;
+                out.push(make_triple(
+                    &subject,
+                    "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+                    &class,
+                )?);
+            }
+        }
+        let datatypes = fields
+            .get("source_datatypes")
+            .map(|value| value.as_object().ok_or("invalid source datatype metadata"))
+            .transpose()?;
+        for (key, cell) in fields {
+            if key == "type" || key == "graph_name" || key == "source_datatypes" {
+                continue;
+            }
+            if key == RDF_MULTI_VALUE_KEY {
+                export_multivalue_cell(&subject, cell, &mut out)?;
+            } else if let Some(literal) =
+                projected_literal(cell, datatypes.and_then(|values| values.get(key)))?
+            {
+                let predicate = NamedNode::new(projection.pred_iri(key))
+                    .map_err(|e| format!("bad projected predicate: {e}"))?;
+                out.push(Triple::new(parse_subject(&subject)?, predicate, literal));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Native JSON scalars have RDF literal types; typed RDF cells retain their datatype.
+#[cfg(feature = "sparql")]
+fn projected_literal(
+    cell: &serde_json::Value,
+    datatype: Option<&serde_json::Value>,
+) -> Result<Option<Literal>, String> {
+    if let Some(datatype) = datatype {
+        let datatype = datatype
+            .as_str()
+            .filter(|value| eg_types::connector_pack::source_datatype_supported(value))
+            .ok_or("invalid source datatype")?;
+        let lexical = match cell {
+            serde_json::Value::String(value) => value.clone(),
+            serde_json::Value::Bool(value) => value.to_string(),
+            serde_json::Value::Number(value) if datatype == "xsd:decimal" => {
+                decimal_lexical(&value.to_string())?
+            }
+            serde_json::Value::Number(value) => value.to_string(),
+            _ => return Err("source datatype requires a scalar".into()),
+        };
+        let iri = format!("http://www.w3.org/2001/XMLSchema#{}", &datatype[4..]);
+        let node =
+            NamedNode::new(iri).map_err(|error| format!("invalid source datatype: {error}"))?;
+        return Ok(Some(Literal::new_typed_literal(lexical, node)));
+    }
+    if let Some(value) = cell.as_str() {
+        return Ok(Some(Literal::new_simple_literal(value)));
+    }
+    let (lexical, datatype) = if let Some(value) = cell.as_bool() {
+        (
+            value.to_string(),
+            "http://www.w3.org/2001/XMLSchema#boolean",
+        )
+    } else if let Some(value) = cell.as_i64() {
+        (
+            value.to_string(),
+            "http://www.w3.org/2001/XMLSchema#integer",
+        )
+    } else if let Some(value) = cell.as_u64() {
+        (
+            value.to_string(),
+            "http://www.w3.org/2001/XMLSchema#integer",
+        )
+    } else if let Some(value) = cell.as_f64() {
+        (value.to_string(), "http://www.w3.org/2001/XMLSchema#double")
+    } else {
+        return Ok(cell_to_literal(cell));
+    };
+    let node = NamedNode::new(datatype).map_err(|error| format!("invalid datatype: {error}"))?;
+    Ok(Some(Literal::new_typed_literal(lexical, node)))
+}
+
+/// Expand JSON exponent notation to an XML Schema decimal lexical form.
+#[cfg(feature = "sparql")]
+fn decimal_lexical(value: &str) -> Result<String, String> {
+    let Some((mantissa, exponent)) = value.split_once(['e', 'E']) else {
+        return Ok(value.to_owned());
+    };
+    let exponent: i32 = exponent.parse().map_err(|_| "invalid decimal exponent")?;
+    let (sign, mantissa) = mantissa
+        .strip_prefix('-')
+        .map_or(("", mantissa), |v| ("-", v));
+    let point = mantissa.find('.').unwrap_or(mantissa.len()) as i32 + exponent;
+    let digits = mantissa.replace('.', "");
+    if point <= 0 {
+        return Ok(format!("{sign}0.{}{digits}", "0".repeat((-point) as usize)));
+    }
+    let point = point as usize;
+    if point >= digits.len() {
+        return Ok(format!(
+            "{sign}{digits}{}",
+            "0".repeat(point - digits.len())
+        ));
+    }
+    Ok(format!("{sign}{}.{}", &digits[..point], &digits[point..]))
+}
+
+#[cfg(all(test, feature = "sparql"))]
+mod projected_decimal_tests {
+    use super::decimal_lexical;
+
+    #[test]
+    fn exponent_form_becomes_valid_decimal_lexical() {
+        assert_eq!(decimal_lexical("1.25e-7").unwrap(), "0.000000125");
+        assert_eq!(decimal_lexical("-1.25e+4").unwrap(), "-12500");
+        assert_eq!(decimal_lexical("1.25").unwrap(), "1.25");
+    }
+}

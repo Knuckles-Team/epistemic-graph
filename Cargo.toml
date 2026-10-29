@@ -321,7 +321,7 @@ redb = ["dep:redb", "dep:eg-storage", "dep:eg-transaction"]
 # `blob.redb`) + `server` (the streaming protocol rides the Tokio transport). The
 # native redb-CAS links NO object-store SDK — that remains isolated behind the
 # explicit `blob-s3` source feature below. `blob` is included in the one main build.
-blob = ["server", "redb", "eg-types/blob"]
+blob = ["server", "redb", "eg-types/blob", "dep:chrono"]
 # Generic namespaced Key→Value surface (CONCEPT:EG-022): the `Method::Kv*` ops over a
 # redb-backed `(namespace, key) -> bytes` store, so the engine is a drop-in KV store.
 # Pulls `server` (the handler routes through the Tokio dispatch) + `redb` (the durable
@@ -1456,6 +1456,7 @@ quantum-agent-api = [
 ]
 
 [dependencies]
+chrono = { version = "0.4", optional = true, default-features = false, features = ["std"] }
 eg-resource = { path = "crates/eg-resource" }
 eg-types = { path = "crates/eg-types" }
 eg-core = { path = "crates/eg-core" }

@@ -1,0 +1,8 @@
+# Recorded response (D4 row Service health): uptime
+# `uptime_kuma_status get_heartbeats` is rank 1; lgtm is rank 2. Projected by
+# the approved mapping (vm_uptime.ttl).
+
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:heartbeat-001 a infra:HealthTrend .

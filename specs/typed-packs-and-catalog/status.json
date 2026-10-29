@@ -2430,6 +2430,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1441a36e7b30",
+        "75dd94362178",
         "81059c6ca5db"
       ],
       "verified_by": [
@@ -2437,7 +2438,7 @@
         "crates/eg-types/src/connector_pack/index.rs:140",
         "src/server/handlers/admin/connector_pack/tests/scale.rs:140",
         "src/server/handlers/admin/connector_pack/tests/scale.rs:203",
-        "src/server/persistence/connector_pack/declaration.rs:101"
+        "src/server/persistence/connector_pack/declaration.rs:121"
       ]
     },
     {

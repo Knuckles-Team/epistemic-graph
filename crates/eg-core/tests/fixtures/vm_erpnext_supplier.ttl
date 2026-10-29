@@ -1,0 +1,38 @@
+# Virtual-mapping fixture: erpnext Supplier to kg:Supplier
+# (EG-SUPPLY-VOCAB-R005.1).
+#
+# Recorded over the erpnext `supplierAccess` access contract (mcp_tool
+# erpnext_agent_resource, action list_documents, doctype Supplier). The
+# mapping is approved: the Supplier doctype projects onto the shared
+# kg:Supplier class, keyed by `name`, with the label read from
+# `supplier_name`.
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-erpnext#> .
+
+ex:erpnextConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    # The endpoint reference bnode carries only vg:url: vg:EndpointRefShape is
+    # sh:closed, so any extra predicate (an rdf:type included) is a violation.
+    vg:endpointRef [ vg:url "https://erpnext.invalid/api/resource" ] .
+
+ex:supplierAccess a vg:MetadataContract ;
+    vg:contractSource ex:erpnextConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:1f3a8c92d4b6e0a75c2f9d1e8b34a0c6d5e7f8219b4a3c0d6e5f8a7b2c1d0e3f" ;
+    vg:discoveredEntity "Supplier" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "supplier_name" ;
+    vg:discoveredOperation "list_documents" .
+
+ex:supplierMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:supplierAccess ;
+    vg:mapsOntologyClass kg:Supplier ;
+    vg:mapsEntity "Supplier" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [ a vg:PredicateFieldPair ;
+        vg:predicate rdfs:label ;
+        vg:field "supplier_name" ] ;
+    vg:approved true .
