@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 
-from epistemic_graph import client as client_mod
+from medulla import client as client_mod
 
 pytestmark = pytest.mark.no_engine
 

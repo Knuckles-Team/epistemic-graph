@@ -200,7 +200,7 @@ def start_server(
 
 
 async def add_node(conn: Any, graph: str, node_id: str, props: dict[str, Any]) -> None:
-    from epistemic_graph.client import _pack_binary_msgpack
+    from medulla.client import _pack_binary_msgpack
 
     await conn._send(
         "AddNode",
@@ -223,7 +223,7 @@ async def get_node_properties(
 async def claim_next(
     conn: Any, graph: str, label: str, updates: dict[str, Any]
 ) -> tuple[str, dict[str, Any]] | None:
-    from epistemic_graph.client import _pack_binary_msgpack
+    from medulla.client import _pack_binary_msgpack
 
     raw = await conn._send(
         "ClaimNext",
@@ -253,7 +253,7 @@ async def compare_and_set(
     conditions: dict[str, Any],
     updates: dict[str, Any],
 ) -> bool:
-    from epistemic_graph.client import _pack_binary_msgpack
+    from medulla.client import _pack_binary_msgpack
 
     return await conn._send(
         "CompareAndSetNodeFields",
@@ -345,7 +345,7 @@ def _slo_pass(measured: dict[str, float], target: dict[str, float]) -> dict[str,
 
 
 async def open_pool(sock: str, n: int) -> list[Any]:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import EpistemicGraphClient
 
     conns = []
     for _ in range(n):

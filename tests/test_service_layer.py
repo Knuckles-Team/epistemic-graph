@@ -71,7 +71,7 @@ def service():
     )
     wait_for_server(proc, socket_path, name="service-layer server", log_path=log_path)
 
-    from epistemic_graph.client import SyncEpistemicGraphClient
+    from medulla.client import SyncEpistemicGraphClient
 
     bootstrap = SyncEpistemicGraphClient.connect(
         socket_path=socket_path,
@@ -134,7 +134,7 @@ def service():
 @pytest.fixture
 def client_factory(service):
     """Factory for creating connected clients."""
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import EpistemicGraphClient
 
     clients = []
 
@@ -361,7 +361,7 @@ def test_service_auth_required(service):
     """Test that unauthenticated requests are rejected."""
 
     async def _test():
-        from epistemic_graph.client import EpistemicGraphClient
+        from medulla.client import EpistemicGraphClient
 
         client = await EpistemicGraphClient.connect(
             socket_path=service["socket_path"],

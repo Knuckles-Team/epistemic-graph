@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from epistemic_graph import client as client_module
-from epistemic_graph.generated.models import (
+from medulla import client as client_module
+from medulla.generated.models import (
     IssueControlLeaseRequest,
     PendingCallConsumption,
     PendingCallRegistration,

@@ -44,7 +44,7 @@ def test_blob_begin_on_a_fresh_connection_after_a_prior_upload_committed(
     prior, unrelated connection completed an upload and disconnected."""
     import os
 
-    from epistemic_graph.client import SyncEpistemicGraphClient
+    from medulla.client import SyncEpistemicGraphClient
 
     socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
 
@@ -92,7 +92,7 @@ def test_three_sequential_independent_connections_each_upload_successfully(
     #2 -- every sequential connection's first BlobBegin succeeds."""
     import os
 
-    from epistemic_graph.client import SyncEpistemicGraphClient
+    from medulla.client import SyncEpistemicGraphClient
 
     socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
     digests = []

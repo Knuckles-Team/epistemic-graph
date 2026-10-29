@@ -14,7 +14,7 @@ publishes as a self-contained wheel (`pip install medulla` alone,
 no extras needed for the full engine — see this repo's own
 `pyproject.toml` "FULL-BY-DEFAULT" comment on `[project.dependencies]`) and
 `agent-utilities` already depends on `epistemic-graph` (`agent_utilities.
-numeric`'s `xp` shim binds `epistemic_graph.numeric`, CONCEPT:KG-2.315) —
+numeric`'s `xp` shim binds `medulla.numeric`, CONCEPT:KG-2.315) —
 so an `epistemic-graph` -> `agent-utilities` dependency, even a dev/test
 one, would create a two-repo circular dependency at install/CI-checkout
 time. A gate or CI job in THIS repo must be runnable from a bare clone of

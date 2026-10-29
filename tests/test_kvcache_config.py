@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from epistemic_graph.kvcache import KvCacheConfig
+from medulla.kvcache import KvCacheConfig
 
 pytestmark = pytest.mark.no_engine
 

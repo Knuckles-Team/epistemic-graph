@@ -17,7 +17,7 @@ from conftest import (
 )
 from test_work_item_retry_identity import _submit_request
 
-from epistemic_graph.client import EngineResponseError, SyncEpistemicGraphClient
+from medulla.client import EngineResponseError, SyncEpistemicGraphClient
 
 pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-DURABLE-KERNEL-R028.4.1")]
 

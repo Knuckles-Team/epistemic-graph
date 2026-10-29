@@ -2,7 +2,7 @@
 
 use super::HEADER;
 
-/// `epistemic_graph/contract/__init__.py` -- the ONE entry point a consumer pins.
+/// `medulla/contract/__init__.py` -- the ONE entry point a consumer pins.
 /// Keep the verifier stdlib-only and the Python literal independently testable.
 pub(super) fn package_contract_module() -> String {
     format!("{HEADER}{PACKAGE_CONTRACT_MODULE}")
@@ -26,7 +26,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from epistemic_graph.contract_errors import (
+from medulla.contract_errors import (
     ContractArtifactMissing,
     ContractDigestMismatch,
 )
@@ -41,8 +41,8 @@ __all__ = [
 ]
 
 RECEIPT_PATH = Path(__file__).with_name("receipt.json")
-_CONTRACT_PREFIX = "epistemic_graph/contract/"
-_ERRORS_ARTIFACT = "epistemic_graph/contract_errors.py"
+_CONTRACT_PREFIX = "medulla/contract/"
+_ERRORS_ARTIFACT = "medulla/contract_errors.py"
 
 
 def _read_contained_bytes(relative: str, *, contract_only: bool) -> bytes:

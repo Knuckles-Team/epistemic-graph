@@ -5,8 +5,8 @@ import msgpack
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.pool import ConnectionPool, ShardRouter
+from medulla.client import EpistemicGraphClient
+from medulla.pool import ConnectionPool, ShardRouter
 
 
 # We mock a small echo/health server to test transport without running the full daemon.
@@ -286,7 +286,7 @@ async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
     # path must be bounded just like the read path, and a stalled drain is
     # connection-fatal (it ran under the send lock, so it would otherwise wedge
     # every subsequent RPC on this connection).
-    monkeypatch.setattr("epistemic_graph.client._WRITE_TIMEOUT", 0.2)
+    monkeypatch.setattr("medulla.client._WRITE_TIMEOUT", 0.2)
 
     class _HangingWriter:
         def write(self, _data):

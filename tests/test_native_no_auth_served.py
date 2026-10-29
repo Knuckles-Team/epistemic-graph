@@ -293,7 +293,7 @@ def test_anonymous_refuses_invalid_mode_marker(tmp_path, kind):
 def test_real_python_anonymous_client_reads_and_writes(tmp_path):
     import asyncio
 
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import EpistemicGraphClient
 
     async def exercise(sock):
         client = await EpistemicGraphClient.connect(
@@ -316,7 +316,7 @@ def test_real_python_anonymous_client_reads_and_writes(tmp_path):
 def test_real_anonymous_blob_store_fetch_and_restart(tmp_path):
     import asyncio
 
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import EpistemicGraphClient
 
     payload = b"actual anonymous durable tool content"
 
@@ -363,9 +363,9 @@ def test_anonymous_connector_sweep_projects_committed_pack(tmp_path):
 
     from test_connector_pack_planted import _context, _upload
 
-    from epistemic_graph.client import EpistemicGraphClient
-    from epistemic_graph.testing.synthetic.packs.malformed import base_spec
-    from epistemic_graph.testing.synthetic.packs.spec import assemble
+    from medulla.client import EpistemicGraphClient
+    from medulla.testing.synthetic.packs.malformed import base_spec
+    from medulla.testing.synthetic.packs.spec import assemble
 
     async def exercise(sock):
         client = await EpistemicGraphClient.connect(

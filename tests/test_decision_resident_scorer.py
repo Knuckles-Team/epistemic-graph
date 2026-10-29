@@ -32,7 +32,7 @@ from conftest import (
 )
 from pydantic import BaseModel
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 SECRET = secrets.token_hex(32)
 
@@ -169,7 +169,7 @@ def test_wire_fixture_matches_generated_request_contracts():
         schema_body,
     )
 
-    from epistemic_graph.generated import models
+    from medulla.generated import models
 
     schema = {
         "component_id": "schema",

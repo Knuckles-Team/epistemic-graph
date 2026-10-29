@@ -67,7 +67,7 @@ def test_injects_platform_extension_and_preserves_server_mode(
 
     inject(server, engine)
 
-    target = f"epistemic_graph/{extension}"
+    target = f"medulla/{extension}"
     with zipfile.ZipFile(server) as archive:
         assert archive.read(target) == payload
         server_info = archive.getinfo(
@@ -94,7 +94,7 @@ def test_replaces_stale_kernel_and_rebuilds_record_exactly(tmp_path: Path) -> No
     server = tmp_path / "server.whl"
     engine = tmp_path / "engine.whl"
     _server_wheel(server)
-    target = "epistemic_graph/engine.abi3.so"
+    target = "medulla/engine.abi3.so"
     stale = b"stale-engine-kernel"
 
     with zipfile.ZipFile(server, "a") as archive:
@@ -142,8 +142,8 @@ def test_numeric_and_engine_injections_compose_freely(tmp_path: Path) -> None:
 
     with zipfile.ZipFile(server) as archive:
         names = archive.namelist()
-        assert archive.read("epistemic_graph/numeric.abi3.so") == numeric_payload
-        assert archive.read("epistemic_graph/engine.abi3.so") == engine_payload
+        assert archive.read("medulla/numeric.abi3.so") == numeric_payload
+        assert archive.read("medulla/engine.abi3.so") == engine_payload
         record_name = "medulla_stem-0.dist-info/RECORD"
         rows = {
             row[0]: row[1:]

@@ -11,7 +11,7 @@ from _client_send_stub import CapturingEngine
 from test_work_item_read_client import VIEW
 from test_work_item_retry_identity import _submit_request
 
-from epistemic_graph.client import EpistemicGraphClient, WorkItemClient
+from medulla.client import EpistemicGraphClient, WorkItemClient
 
 pytestmark = pytest.mark.no_engine
 

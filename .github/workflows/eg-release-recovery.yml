@@ -130,8 +130,8 @@ jobs:
         python - <<'PYTHON'
         import importlib.metadata
         import re
-        import epistemic_graph.numeric as numeric
-        import epistemic_graph.engine as engine
+        import medulla.numeric as numeric
+        import medulla.engine as engine
         dependencies = importlib.metadata.requires('medulla') or []
         for requirement in dependencies:
             package = re.split(r'[\[<>=!~;]', requirement, maxsplit=1)[0]

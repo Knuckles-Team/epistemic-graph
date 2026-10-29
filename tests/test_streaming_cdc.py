@@ -15,7 +15,7 @@ import os
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 
 @pytest.fixture

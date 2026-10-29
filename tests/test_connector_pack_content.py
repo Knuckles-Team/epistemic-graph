@@ -12,14 +12,14 @@ from conftest import TEST_TENANT, request_context
 from test_connector_pack_client import _catalog
 from test_connector_pack_planted import IMPORTER, _bind, _context
 
-from epistemic_graph import (
+from medulla import (
     ConnectorPackArchiveBuilder,
     ConnectorPackClient,
     ConnectorPackEntryContent,
 )
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.connector_pack import connector_pack_import_key
-from epistemic_graph.generated.connector_pack import (
+from medulla.client import EpistemicGraphClient
+from medulla.connector_pack import connector_pack_import_key
+from medulla.generated.connector_pack import (
     PackAnnotations,
     PackEntryKind,
     PackProducer,

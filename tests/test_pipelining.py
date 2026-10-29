@@ -6,7 +6,7 @@ per-connection *serialization* so ONE TCP/UDS connection carries many in-flight
 requests at once. The engine (``src/server/transport.rs::handle_connection``) now
 reads frames in a loop and ``tokio::spawn``s a dispatch task per request, writing
 the id-tagged responses back OUT OF ORDER through a single writer task; the Python
-client (``epistemic_graph/client.py``) runs a background reader that demultiplexes
+client (``medulla/client.py``) runs a background reader that demultiplexes
 each ``Response`` to its caller by ``Response.id``.
 
 Two layers of proof:
@@ -33,7 +33,7 @@ import msgpack
 import pytest
 from conftest import WRITE_SEQUENCE, request_context
 
-from epistemic_graph.client import EpistemicGraphClient, StaleRouteError
+from medulla.client import EpistemicGraphClient, StaleRouteError
 
 # ── Deterministic client-demux proof against a mock of the pipelined engine ──
 

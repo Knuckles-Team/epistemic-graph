@@ -85,7 +85,7 @@ def test_failed_generator_never_exports(exporter, monkeypatch, tmp_path):
         "/secret",
         "contract/../../secret.json",
         "source.rs",
-        "epistemic_graph/generated/key.pem",
+        "medulla/generated/key.pem",
     ],
 )
 def test_path_allowlist_refuses_non_contracts(exporter, name):

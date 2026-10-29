@@ -89,9 +89,7 @@ class RecoveryBoundary(unittest.TestCase):
         self.assertTrue(
             any("compare_wheel_reproducibility.py" in s.get("run", "") for s in steps)
         )
-        self.assertTrue(
-            any("epistemic_graph.engine" in s.get("run", "") for s in steps)
-        )
+        self.assertTrue(any("medulla.engine" in s.get("run", "") for s in steps))
         self.assertEqual(self.job["runs-on"]["group"], "eg-release-recovery")
         for step in steps:
             use = step.get("uses", "")

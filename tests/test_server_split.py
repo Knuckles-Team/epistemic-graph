@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import tomllib
 
-from epistemic_graph import server_binary
+from medulla import server_binary
 
 REPO = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.no_engine

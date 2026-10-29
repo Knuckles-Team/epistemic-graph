@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from epistemic_graph import ontology
+from medulla import ontology
 from scripts import inject_ontology
 
 pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-CONTRACT-R015.1")]
@@ -19,7 +19,7 @@ SOURCE = Path(__file__).resolve().parent.parent / "crates/eg-core/ontology"
 def _bare_wheel(path: Path) -> Path:
     record = "pkg-1.dist-info/RECORD"
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("epistemic_graph/__init__.py", b"")
+        archive.writestr("medulla/__init__.py", b"")
         archive.writestr(record, "")
     return path
 
@@ -48,7 +48,7 @@ def test_inject_packages_exact_source_set(tmp_path: Path) -> None:
     assert inject_ontology.packaged_set(wheel) == inject_ontology.source_set()
     with zipfile.ZipFile(wheel) as archive:
         record = archive.read("pkg-1.dist-info/RECORD").decode()
-    assert "epistemic_graph/ontology/catalog-v1.ttl,sha256=" in record
+    assert "medulla/ontology/catalog-v1.ttl,sha256=" in record
 
 
 def test_verify_rejects_missing_changed_and_extra(tmp_path: Path) -> None:

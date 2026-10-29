@@ -124,7 +124,7 @@ Replaces `scikit-learn` on the hot path (parity-validated). Served via
 ## Usage from Python
 
 ```python
-import epistemic_graph
+import medulla
 
 # Create a graph
 g = epistemic_graph.EpistemicGraph()

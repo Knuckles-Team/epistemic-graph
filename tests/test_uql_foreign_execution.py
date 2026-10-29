@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, QueryClient
+from medulla.client import EpistemicGraphClient, QueryClient
 
 pytestmark = pytest.mark.no_engine
 

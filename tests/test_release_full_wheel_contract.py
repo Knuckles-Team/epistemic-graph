@@ -54,7 +54,7 @@ def test_maturin_default_and_python_extra_are_full() -> None:
     # The public wheel is the eg-pyengine extension crate, not the server bin.
     assert maturin["features"] == ["python", "security"]
     assert maturin["manifest-path"] == "crates/eg-pyengine/Cargo.toml"
-    assert maturin["module-name"] == "epistemic_graph.engine"
+    assert maturin["module-name"] == "medulla.engine"
     assert maturin.get("bindings") != "bin"
     dependencies = project["project"]["dependencies"]
     assert not any(
@@ -109,9 +109,9 @@ def test_agent_skills_have_one_canonical_owner() -> None:
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     entry_points = project["project"].get("entry-points", {})
     assert entry_points["agent_utilities.skill_providers"] == {
-        "epistemic-graph": "epistemic_graph.skills"
+        "epistemic-graph": "medulla.skills"
     }
-    skills = REPO / "epistemic_graph" / "skills"
+    skills = REPO / "medulla" / "skills"
     assert (skills / "__init__.py").is_file()
     try:
         out = subprocess.run(
@@ -192,7 +192,7 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
     both = raw + CI_WORKFLOW.read_text(encoding="utf-8")
     assert "scripts/inject_numeric_kernel.py" in both
     assert "scripts/normalize_wheel_build_paths.py" in both
-    assert "import epistemic_graph.numeric" in both
+    assert "import medulla.numeric" in both
     # The release smoke test must exercise the native module without importing
     # or installing NumPy; parity keeps its reference dependency isolated in the
     # separate gates job.

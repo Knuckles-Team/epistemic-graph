@@ -4,7 +4,7 @@ Every scenario below goes through the SAME path a real client uses: connect
 over the socket (`clean_graph`, `tests/conftest.py`), stage a cross-modal
 transaction (`ingest_memory_corpus`), commit it, then issue signed
 `UnifiedQuery`/analytics/time-series RPCs and assert on CONCRETE values the
-generator (`epistemic_graph.testing.synthetic.graph_corpus_generate`) planted
+generator (`medulla.testing.synthetic.graph_corpus_generate`) planted
 and knows the answer to -- never "did not error". This is the served-path
 counterpart to the library-internal `tests/usecase_agent_memory.rs` fixture
 (CONCEPT:EG-KG.query.usecase-agent-memory); see that file's fixture docstring
@@ -13,15 +13,15 @@ for the ranking-signal design this corpus reproduces.
 
 from __future__ import annotations
 
-from epistemic_graph.testing.synthetic.graph_corpus import (
+from medulla.testing.synthetic.graph_corpus import (
     MEMORY_CLASS_IRI,
     QUERY_TEXT,
     QUERY_VECTOR,
 )
-from epistemic_graph.testing.synthetic.graph_corpus_generate import (
+from medulla.testing.synthetic.graph_corpus_generate import (
     generate_memory_corpus,
 )
-from epistemic_graph.testing.synthetic.graph_corpus_ingest import ingest_memory_corpus
+from medulla.testing.synthetic.graph_corpus_ingest import ingest_memory_corpus
 
 SEED = 20260917
 

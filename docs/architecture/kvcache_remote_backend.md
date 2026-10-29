@@ -131,7 +131,7 @@ rather than being copied into adapter JSON.
 Direct use (custom L1→remote hierarchy) is equally supported:
 
 ```python
-from epistemic_graph.kvcache import RemoteKVConnector
+from medulla.kvcache import RemoteKVConnector
 
 with RemoteKVConnector.from_env() as kv:  # reads EG-KG.backend.is-configured-so-co env
     if not kv.contains(token_hash):  # HEAD /kv/<hash>

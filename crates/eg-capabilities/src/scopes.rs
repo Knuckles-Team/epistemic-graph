@@ -5,7 +5,7 @@
 //! ledger action and every op-level action must be registered here (the rot
 //! test `every_authorized_action_is_registered` fails otherwise); the contract
 //! generator publishes it as `contract/scopes.json` (and the packaged
-//! `epistemic_graph/contract/scopes.json`), from which agent-utilities
+//! `medulla/contract/scopes.json`), from which agent-utilities
 //! GENERATES its session-scope allowlist. A hand-maintained list anywhere
 //! else is drift.
 //!

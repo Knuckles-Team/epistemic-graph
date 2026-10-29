@@ -8,7 +8,7 @@ from typing import Any, cast
 import pytest
 from _client_send_stub import CapturingEngine
 
-from epistemic_graph.client import EpistemicGraphClient, WorkItemClient
+from medulla.client import EpistemicGraphClient, WorkItemClient
 
 pytestmark = pytest.mark.no_engine
 

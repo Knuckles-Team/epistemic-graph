@@ -86,11 +86,11 @@ say "engine runs on node=$NODE_LABEL ip=$NODE_IP  bind-path=$BIND_SRC"
 preflight() {
   local fail=0
   # (a) numeric kernel importable via the repo's editable tree
-  if PYTHONPATH="$REPO:${PYTHONPATH:-}" python3 -c "import epistemic_graph.numeric as n; assert getattr(n,'__kernel__','')=='eg-numeric'" 2>/dev/null; then
+  if PYTHONPATH="$REPO:${PYTHONPATH:-}" python3 -c "import medulla.numeric as n; assert getattr(n,'__kernel__','')=='eg-numeric'" 2>/dev/null; then
     say "preflight: eg-numeric kernel importable ✓"
   else
-    echo "!! preflight: eg-numeric kernel NOT importable ($REPO/epistemic_graph/numeric.abi3.so missing)." >&2
-    echo "   fix: pip download --no-deps medulla==<ver>; unzip epistemic_graph/numeric.abi3.so into $REPO/epistemic_graph/" >&2
+    echo "!! preflight: eg-numeric kernel NOT importable ($REPO/medulla/numeric.abi3.so missing)." >&2
+    echo "   fix: pip download --no-deps medulla==<ver>; unzip medulla/numeric.abi3.so into $REPO/medulla/" >&2
     fail=1
   fi
   # (c) client-node config.json shadowing check (best-effort)
@@ -183,7 +183,7 @@ served_verify() {  # returns 0 if the engine answers a real query through the de
   python3 - "$tcp" "$VERIFY_GRAPH" <<'PY'
 import asyncio, sys
 try:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import EpistemicGraphClient
 except Exception as e:
     print(f"(skip) client not importable: {e}"); sys.exit(0)
 tcp, graph = sys.argv[1], sys.argv[2]

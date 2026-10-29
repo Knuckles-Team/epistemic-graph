@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from epistemic_graph import decision_stat as ds
-from epistemic_graph.testing.synthetic import decision_export as export
-from epistemic_graph.testing.synthetic.assembly import Solved
-from epistemic_graph.testing.synthetic.assembly_generate import generate_gold_set
-from epistemic_graph.testing.synthetic.outcomes_generate import generate_outcome_stream
+from medulla import decision_stat as ds
+from medulla.testing.synthetic import decision_export as export
+from medulla.testing.synthetic.assembly import Solved
+from medulla.testing.synthetic.assembly_generate import generate_gold_set
+from medulla.testing.synthetic.outcomes_generate import generate_outcome_stream
 
 pytestmark = pytest.mark.no_engine
 

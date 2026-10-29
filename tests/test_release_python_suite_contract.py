@@ -441,7 +441,7 @@ def test_native_artifact_roundtrip_fails_closed(
     sha = _init_fixture_checkout(root)
     env = {**os.environ, "RUNNER_TEMP": str(tmp_path / "artifacts"), "GITHUB_SHA": sha}
     paths = (
-        ["epistemic_graph/numeric.test.so", "epistemic_graph/engine.test.so"]
+        ["medulla/numeric.test.so", "medulla/engine.test.so"]
         if kind == "kernels"
         else ["target-isolated/debug/epistemic-graph-server"]
     )

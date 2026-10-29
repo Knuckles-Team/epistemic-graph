@@ -27,8 +27,8 @@ from pathlib import Path
 import pytest
 from conftest import find_server_binary, spawn_server, stop_server, wait_for_server
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.generated.cluster import (
+from medulla.client import EpistemicGraphClient
+from medulla.generated.cluster import (
     decode_list_graphs,
     send_create_graph,
     send_list_graphs,

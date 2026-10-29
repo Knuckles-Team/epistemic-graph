@@ -3594,7 +3594,7 @@ components:
       - "crates/eg-pyengine/src/wasm_udf.rs"
       - "src/embedded.rs"
       - "src/embedded"
-      - "epistemic_graph"
+      - "medulla"
       - "clients"
     public_contract_roots:
       - "crates/eg-pyengine/src/lib.rs"
@@ -3937,7 +3937,7 @@ components:
       - "tests/test_durable_table_registration_census.py"
       - "tests/test_e1_guard_wiring.py"
       - "tests/test_epi_gapfill_roundtrip.py"
-      - "tests/test_epistemic_graph.py"
+      - "tests/test_medulla_client.py"
       - "tests/test_generated_union_variants.py"
       - "tests/test_index_repository_result_contract.py"
       - "tests/test_exact_fault_restart_harness.py"

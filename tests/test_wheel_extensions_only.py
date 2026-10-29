@@ -24,7 +24,7 @@ def _yaml(path: Path) -> dict:
 def test_wheel_base_is_the_extension_crate_not_the_server_bin() -> None:
     maturin = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["maturin"]
     assert maturin["manifest-path"] == "crates/eg-pyengine/Cargo.toml"
-    assert maturin["module-name"] == "epistemic_graph.engine"
+    assert maturin["module-name"] == "medulla.engine"
     assert maturin.get("bindings") != "bin"
     root = tomllib.loads((ROOT / "Cargo.toml").read_text())
     pyengine = tomllib.loads((ROOT / "crates/eg-pyengine/Cargo.toml").read_text())

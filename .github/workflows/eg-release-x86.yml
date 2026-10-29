@@ -202,7 +202,7 @@ jobs:
     - name: Verify reproduction when requested and stage sole candidate
       shell: bash
       run: python scripts/release_build_metadata.py stage --reproduction "${{ github.event_name == 'workflow_dispatch' }}"
-    - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})
+    - name: Smoke test (server --help + import medulla.{numeric,engine})
       shell: bash
       run: bash scripts/release_wheel_smoke.sh
     - name: Upload wheel artifact

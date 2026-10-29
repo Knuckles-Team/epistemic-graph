@@ -733,7 +733,7 @@ def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> N
     consumers = {
         "numpy-parity gate (compiled kernel vs numpy)",
         "numpy-free boundary contract (NE-249)",
-        "engine kernel smoke test (import epistemic_graph.engine)",
+        "engine kernel smoke test (import medulla.engine)",
         "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
     }
     actual = {
@@ -778,7 +778,7 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
         "(numeric + engine kernels + no executables + RECORD)",
         "numpy-parity gate (compiled kernel vs numpy)",
         "numpy-free boundary contract (NE-249)",
-        "engine kernel smoke test (import epistemic_graph.engine)",
+        "engine kernel smoke test (import medulla.engine)",
         "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
     ):
         index = names.index(prerequisite)

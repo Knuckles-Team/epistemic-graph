@@ -7,9 +7,9 @@ mounted/editable path -- the one the MCP fleet actually runs on -- had no
 equivalent, and failed in precisely the same silent way the wheel path did.
 
 The failure mode, stated exactly. Every ``*-mcp`` pod hostPath-mounts this repo's
-``epistemic_graph/`` directory over its own ``site-packages/epistemic_graph``, so
+``medulla/`` directory over its own ``site-packages/medulla``, so
 the working tree is the deployment artifact. Checked-in ``.py`` files therefore
-reach every pod for free. ``epistemic_graph/numeric.abi3.so`` does NOT: it is a
+reach every pod for free. ``medulla/numeric.abi3.so`` does NOT: it is a
 compiled pyo3 cdylib, and ``*.so`` is gitignored on purpose (a committed
 platform-specific binary would ride into wheels for every OS and make the wheel
 gate's kernel invariant pass falsely). So the kernel exists in a checkout only
@@ -26,7 +26,7 @@ a deploy preflight without a Rust toolchain present.
 
 Invariants:
 
-1. **A kernel extension exists** in ``epistemic_graph/`` (``numeric*.{so,pyd}``).
+1. **A kernel extension exists** in ``medulla/`` (``numeric*.{so,pyd}``).
    The regression above.
 2. **Exactly one** exists. Two extensions (e.g. a stale ``numeric.abi3.so`` beside
    a newly cpython-tagged one) let import order decide which kernel the fleet
@@ -49,7 +49,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TARGET_PACKAGE = REPO_ROOT / "epistemic_graph"
+TARGET_PACKAGE = REPO_ROOT / "medulla"
 KERNEL_GLOB = "numeric*"
 EXTENSION_SUFFIXES = (".so", ".pyd")
 CERTIFIED_STAMP = "eg-numeric"
@@ -104,7 +104,7 @@ def check(package_dir: Path, *, verify_import: bool = True) -> list[str]:
 
     sys.path.insert(0, str(package_dir.parent))
     try:
-        import epistemic_graph.numeric as kernel
+        import medulla.numeric as kernel
     except ImportError as exc:
         # Presence is proven; loadability here is not required, because the
         # artifact may be cross-built for the deployment host. Do NOT fail --
@@ -139,7 +139,7 @@ def main() -> int:
         nargs="?",
         type=Path,
         default=TARGET_PACKAGE,
-        help="the epistemic_graph package directory the fleet mounts",
+        help="the medulla package directory the fleet mounts",
     )
     parser.add_argument(
         "--no-import",

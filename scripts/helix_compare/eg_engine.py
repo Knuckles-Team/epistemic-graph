@@ -204,7 +204,7 @@ class EgEngine:
         raise TimeoutError(f"graph never materialized: {self.materialization[-5:]}")
 
     async def _connect(self, context: dict[str, Any], graph: str) -> Any:
-        from epistemic_graph.client import EpistemicGraphClient
+        from medulla.client import EpistemicGraphClient
 
         return await EpistemicGraphClient.connect(
             socket_path=str(self.socket),

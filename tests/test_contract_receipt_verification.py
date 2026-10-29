@@ -34,7 +34,7 @@ class _FixtureReceipt(_FixtureManifest, total=False):
 
 _ROOT = Path(__file__).resolve().parent.parent
 _TEMPLATE = _ROOT / "crates/eg-capabilities/src/contract/python/package.rs"
-_PREFIX = "epistemic_graph/contract/"
+_PREFIX = "medulla/contract/"
 
 
 def _literal_source(name: str) -> str:
@@ -65,7 +65,7 @@ def _mutate_manifest(target, schema, case, receipt_bytes):
     import hashlib
     import json
 
-    prefix = "epistemic_graph/contract/"
+    prefix = "medulla/contract/"
     changed = json.loads(receipt_bytes)
     if case == "manifest_entry_removal":
         del changed["artifact_digests"][prefix + schema]
@@ -129,7 +129,7 @@ def _prepare_contract_import(target, case, trusted_pin, errors):
     if case == "malformed_receipt_import":
         (target / "receipt.json").write_bytes(b"\xff")
         return None
-    module = importlib.import_module("epistemic_graph.contract")
+    module = importlib.import_module("medulla.contract")
     assert module.ContractDigestMismatch is errors.ContractDigestMismatch
     assert module.ContractArtifactMissing is errors.ContractArtifactMissing
     module.verify_receipt(trusted_pin)  # Establish valid baseline.
@@ -146,7 +146,7 @@ def _verify_contract_case(case, module, errors, pin):
     )
     try:
         if case in {"missing_receipt_import", "malformed_receipt_import"}:
-            importlib.import_module("epistemic_graph.contract")
+            importlib.import_module("medulla.contract")
         else:
             module.verify_receipt(pin)
     except Exception as error:
@@ -169,7 +169,7 @@ def _exercise_contract_case(
     import sys
     from pathlib import Path
 
-    target = scratch / "site/epistemic_graph/contract"
+    target = scratch / "site/medulla/contract"
     shutil.copytree(
         contract_root,
         target,
@@ -183,7 +183,7 @@ def _exercise_contract_case(
     saved_modules = {
         name: module
         for name, module in sys.modules.items()
-        if name == "epistemic_graph" or name.startswith("epistemic_graph.")
+        if name == "medulla" or name.startswith("medulla.")
     }
     saved_path = sys.path[:]
     original_cwd = Path.cwd()
@@ -192,7 +192,7 @@ def _exercise_contract_case(
     sys.path.insert(0, str(scratch / "site"))
     try:
         os.chdir(scratch)
-        errors = importlib.import_module("epistemic_graph.contract_errors")
+        errors = importlib.import_module("medulla.contract_errors")
         module = _prepare_contract_import(target, case, trusted_pin, errors)
         pin = trusted_pin
         if case == "wrong_pin":
@@ -202,7 +202,7 @@ def _exercise_contract_case(
     finally:
         os.chdir(original_cwd)
         for name in list(sys.modules):
-            if name == "epistemic_graph" or name.startswith("epistemic_graph."):
+            if name == "medulla" or name.startswith("medulla."):
                 del sys.modules[name]
         sys.modules.update(saved_modules)
         sys.path[:] = saved_path
@@ -215,7 +215,7 @@ def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
     from pathlib import Path
 
     contract_root = Path(contract_root).resolve()
-    prefix = "epistemic_graph/contract/"
+    prefix = "medulla/contract/"
     receipt_bytes = (contract_root / "receipt.json").read_bytes()
     receipt = json.loads(receipt_bytes)
     schema = next(
@@ -301,8 +301,8 @@ def _installed_distribution(venv):
 def _installed_package(venv, distribution, checkout):
     from pathlib import Path
 
-    import epistemic_graph as package
-    from epistemic_graph import contract
+    import medulla as package
+    from medulla import contract
 
     package_root = Path(package.__file__).resolve().parent
     root = Path(contract.__file__).resolve().parent
@@ -312,37 +312,32 @@ def _installed_package(venv, distribution, checkout):
     assert all(
         Path(path).resolve().is_relative_to(venv) for path in package.__path__
     ), "package search path is source-linked outside candidate venv"
-    assert (
-        package_root == Path(str(distribution.locate_file("epistemic_graph"))).resolve()
-    )
-    assert (
-        root
-        == Path(str(distribution.locate_file("epistemic_graph/contract"))).resolve()
-    )
+    assert package_root == Path(str(distribution.locate_file("medulla"))).resolve()
+    assert root == Path(str(distribution.locate_file("medulla/contract"))).resolve()
     assert not root.is_relative_to(Path(checkout).resolve())
     return package_root, root, contract
 
 
 def _contract_archive_names(archive):
-    prefix = "epistemic_graph/contract/"
+    prefix = "medulla/contract/"
     names = [
         name
         for name in archive.namelist()
         if (name.startswith(prefix) and not name.endswith("/"))
-        or name == "epistemic_graph/contract_errors.py"
+        or name == "medulla/contract_errors.py"
     ]
     return names
 
 
 def _installed_contract_inventory(archive, root, package_root, recorded):
-    prefix = "epistemic_graph/contract/"
+    prefix = "medulla/contract/"
     names = _contract_archive_names(archive)
     assert len(names) == len(set(names)), "duplicate wheel contract entry"
     assert set(names) <= recorded, "installed RECORD omits contract files"
     assert {
         prefix + name
         for name in ["__init__.py", "receipt.json", "methods.json", "errors.json"]
-    } | {"epistemic_graph/contract_errors.py"} <= set(names)
+    } | {"medulla/contract_errors.py"} <= set(names)
     actual = {
         prefix + path.relative_to(root).as_posix()
         for path in root.rglob("*")
@@ -351,7 +346,7 @@ def _installed_contract_inventory(archive, root, package_root, recorded):
         and path.suffix not in {".pyc", ".pyo"}
     }
     if (package_root / "contract_errors.py").is_file():
-        actual.add("epistemic_graph/contract_errors.py")
+        actual.add("medulla/contract_errors.py")
     assert actual == set(names), "installed contract inventory differs from wheel"
     return names
 
@@ -360,13 +355,13 @@ def _installed_contract_hashes(wheel, package_root, root, venv, recorded):
     import hashlib
     import zipfile
 
-    prefix = "epistemic_graph/contract/"
+    prefix = "medulla/contract/"
     with zipfile.ZipFile(wheel) as archive:
         names = _installed_contract_inventory(archive, root, package_root, recorded)
         before = {}
         for name in names:
             installed_file = package_root.joinpath(
-                name.removeprefix("epistemic_graph/")
+                name.removeprefix("medulla/")
             ).resolve()
             boundary = root if name.startswith(prefix) else package_root
             assert installed_file.is_relative_to(
@@ -403,16 +398,14 @@ def _qualify_installed_contract(config: dict) -> dict:
     package_root, root, contract = _installed_package(
         venv, distribution, config["checkout"]
     )
-    prefix = "epistemic_graph/contract/"
+    prefix = "medulla/contract/"
     before = _installed_contract_hashes(wheel, package_root, root, venv, recorded)
     contract.verify_receipt(config["expected_digest"])
     results = _exercise_contract_copies(root, config["expected_digest"])
     for name, digest in before.items():
         assert (
             hashlib.sha256(
-                package_root.joinpath(
-                    name.removeprefix("epistemic_graph/")
-                ).read_bytes()
+                package_root.joinpath(name.removeprefix("medulla/")).read_bytes()
             ).hexdigest()
             == digest
         )
@@ -427,7 +420,7 @@ def _qualify_installed_contract(config: dict) -> dict:
         "contract_digest": config["expected_digest"],
         "receipt_sha256": before[prefix + "receipt.json"],
         "module_sha256": before[prefix + "__init__.py"],
-        "errors_module_sha256": before["epistemic_graph/contract_errors.py"],
+        "errors_module_sha256": before["medulla/contract_errors.py"],
         "contract_files_checked": len(before),
         "installed_bytes_unchanged": True,
         "cases": results,
@@ -502,7 +495,7 @@ class ReceiptVerifier(unittest.TestCase):
         temp = tempfile.TemporaryDirectory(prefix="eg-receipt-verifier-")
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
-        self.contract = self.root / "epistemic_graph/contract"
+        self.contract = self.root / "medulla/contract"
         self.contract.joinpath("schemas").mkdir(parents=True)
         import sys
 
@@ -512,7 +505,7 @@ class ReceiptVerifier(unittest.TestCase):
         modules.start()
         self.addCleanup(modules.stop)
         for name in list(sys.modules):
-            if name == "epistemic_graph" or name.startswith("epistemic_graph."):
+            if name == "medulla" or name.startswith("medulla."):
                 del sys.modules[name]
         path_patch = patch.object(sys, "path", [str(self.root), *sys.path])
         path_patch.start()
@@ -534,9 +527,9 @@ class ReceiptVerifier(unittest.TestCase):
                 for name, data in files.items()
             },
         }
-        self.receipt["artifact_digests"]["epistemic_graph/contract_errors.py"] = (
-            hashlib.sha256(_errors_source().encode()).hexdigest()
-        )
+        self.receipt["artifact_digests"]["medulla/contract_errors.py"] = hashlib.sha256(
+            _errors_source().encode()
+        ).hexdigest()
         # Bind a repository-only artifact that deliberately does not exist here.
         self.receipt["artifact_digests"]["contract/schemas/example.json"] = (
             hashlib.sha256(files["schemas/example.json"]).hexdigest()
@@ -561,7 +554,7 @@ class ReceiptVerifier(unittest.TestCase):
 
     def _new_module(self):
         spec = importlib.util.spec_from_file_location(
-            "epistemic_graph.contract", self.contract / "__init__.py"
+            "medulla.contract", self.contract / "__init__.py"
         )
         assert spec is not None and spec.loader is not None
         return importlib.util.module_from_spec(spec), spec.loader
@@ -615,9 +608,9 @@ class ReceiptVerifier(unittest.TestCase):
                     names.append(name)
             archive.write(
                 self.contract.parent / "contract_errors.py",
-                "epistemic_graph/contract_errors.py",
+                "medulla/contract_errors.py",
             )
-            names.append("epistemic_graph/contract_errors.py")
+            names.append("medulla/contract_errors.py")
         info = self.root / "medulla-0.dist-info"
         info.mkdir()
         info.joinpath("METADATA").write_text("Name: medulla\nVersion: 0\n")
@@ -626,7 +619,7 @@ class ReceiptVerifier(unittest.TestCase):
                 f"{name},,\n"
                 for name in [
                     *names,
-                    "epistemic_graph/__init__.py",
+                    "medulla/__init__.py",
                     info.name + "/METADATA",
                     info.name + "/RECORD",
                 ]
@@ -634,10 +627,10 @@ class ReceiptVerifier(unittest.TestCase):
         )
         package_init = self.contract.parent / "__init__.py"
         package_init.write_text("")
-        package = ModuleType("epistemic_graph")
+        package = ModuleType("medulla")
         package.__file__ = str(package_init)
         package.__path__ = [str(package_init.parent)]
-        contract = ModuleType("epistemic_graph.contract")
+        contract = ModuleType("medulla.contract")
         vars(contract).update(self.namespace)
         vars(package)["contract"] = contract
         config = {
@@ -654,7 +647,7 @@ class ReceiptVerifier(unittest.TestCase):
 
         config, package, distribution = self._synthetic_wheel_binding()
         with (
-            patch.dict(sys.modules, {"epistemic_graph": package}),
+            patch.dict(sys.modules, {"medulla": package}),
             patch("importlib.metadata.distribution", return_value=distribution),
             patch.object(sys, "prefix", str(self.root)),
         ):
@@ -674,7 +667,7 @@ class ReceiptVerifier(unittest.TestCase):
         config, package, distribution = self._synthetic_wheel_binding()
         info = self.root / "medulla-0.dist-info"
         with (
-            patch.dict(sys.modules, {"epistemic_graph": package}),
+            patch.dict(sys.modules, {"medulla": package}),
             patch("importlib.metadata.distribution", return_value=distribution),
             patch.object(sys, "prefix", str(self.root)),
         ):
@@ -698,7 +691,7 @@ class ReceiptVerifier(unittest.TestCase):
         info = self.root / "medulla-0.dist-info"
         with (
             tempfile.TemporaryDirectory(prefix="eg-external-source-") as temp,
-            patch.dict(sys.modules, {"epistemic_graph": package}),
+            patch.dict(sys.modules, {"medulla": package}),
             patch("importlib.metadata.distribution", return_value=distribution),
             patch.object(sys, "prefix", str(self.root)),
         ):
@@ -735,9 +728,9 @@ class ReceiptVerifier(unittest.TestCase):
             "from pathlib import Path\n"
             "sys.prefix = sys.argv[1]\n"
             "site.addsitedir(sys.argv[2])\n"
-            "import epistemic_graph\n"
+            "import medulla\n"
             "from importlib import metadata\n"
-            "package_root = Path(epistemic_graph.__file__).resolve().parent\n"
+            "package_root = Path(medulla.__file__).resolve().parent\n"
             "assert package_root.parent == Path(sys.argv[3])\n"
             "dist_root = metadata.distribution('medulla').locate_file('')\n"
             "assert Path(dist_root).resolve() == Path(sys.argv[4])\n"
@@ -864,7 +857,7 @@ class ReceiptVerifier(unittest.TestCase):
         import importlib
         import sys
 
-        errors = importlib.import_module("epistemic_graph.contract_errors")
+        errors = importlib.import_module("medulla.contract_errors")
         self.assertIs(
             self.namespace["ContractDigestMismatch"], errors.ContractDigestMismatch
         )
@@ -874,16 +867,16 @@ class ReceiptVerifier(unittest.TestCase):
         original = self.receipt_path.read_bytes()
         for bad in [None, b"{", b"\xff"]:
             with self.subTest(receipt=bad):
-                sys.modules.pop("epistemic_graph.contract", None)
+                sys.modules.pop("medulla.contract", None)
                 if bad is None:
                     self.receipt_path.unlink()
                 else:
                     self.receipt_path.write_bytes(bad)
                 with self.assertRaises(errors.ContractDigestMismatch):
-                    importlib.import_module("epistemic_graph.contract")
-                self.assertNotIn("epistemic_graph.contract", sys.modules)
+                    importlib.import_module("medulla.contract")
+                self.assertNotIn("medulla.contract", sys.modules)
                 self.receipt_path.write_bytes(original)
-                module = importlib.import_module("epistemic_graph.contract")
+                module = importlib.import_module("medulla.contract")
                 self.assertIs(
                     module.ContractDigestMismatch, errors.ContractDigestMismatch
                 )
@@ -899,18 +892,18 @@ class ReceiptVerifier(unittest.TestCase):
         import importlib
         import sys
 
-        errors = importlib.import_module("epistemic_graph.contract_errors")
+        errors = importlib.import_module("medulla.contract_errors")
 
         def consume(pin):
             try:
-                module = importlib.import_module("epistemic_graph.contract")
+                module = importlib.import_module("medulla.contract")
                 module.verify_receipt(pin)
             except errors.ContractDigestMismatch as exc:
                 raise ValueError("EG contract unavailable") from exc
 
         original = self.receipt_path.read_bytes()
         for bad in [None, b"{"]:
-            sys.modules.pop("epistemic_graph.contract", None)
+            sys.modules.pop("medulla.contract", None)
             if bad is None:
                 self.receipt_path.unlink()
             else:
@@ -945,13 +938,13 @@ class ReceiptVerifier(unittest.TestCase):
         self.contract.parent.joinpath("__init__.py").unlink()
         with patch.dict(sys.modules), patch.object(sys, "path", [str(self.root)]):
             for name in list(sys.modules):
-                if name == "epistemic_graph" or name.startswith("epistemic_graph."):
+                if name == "medulla" or name.startswith("medulla."):
                     del sys.modules[name]
-            errors = importlib.import_module("epistemic_graph.contract_errors")
-            self.assertNotIn("epistemic_graph.contract", sys.modules)
-            self.assertIsNone(sys.modules["epistemic_graph"].__file__)
+            errors = importlib.import_module("medulla.contract_errors")
+            self.assertNotIn("medulla.contract", sys.modules)
+            self.assertIsNone(sys.modules["medulla"].__file__)
             with self.assertRaises(errors.ContractArtifactMissing):
-                importlib.import_module("epistemic_graph.contract")
+                importlib.import_module("medulla.contract")
 
     def test_sibling_integrity_missing_corrupt_unlisted_and_escape(self) -> None:
         sibling = self.contract.parent / "contract_errors.py"
@@ -972,7 +965,7 @@ class ReceiptVerifier(unittest.TestCase):
             self._verify()
         sibling.unlink()
         sibling.write_bytes(original)
-        del self.receipt["artifact_digests"]["epistemic_graph/contract_errors.py"]
+        del self.receipt["artifact_digests"]["medulla/contract_errors.py"]
         pin = self._seal()
         self._assert_no_artifact_reads(pin)
 
@@ -1151,14 +1144,14 @@ class ReceiptVerifier(unittest.TestCase):
 
 class GeneratedVerifierParity(unittest.TestCase):
     def test_generated_verifier_matches_source_literal(self) -> None:
-        shipped = (_ROOT / "epistemic_graph/contract/__init__.py").read_text()
+        shipped = (_ROOT / "medulla/contract/__init__.py").read_text()
         self.assertTrue(
             shipped.endswith(_template_source()),
             "generated verifier is stale; await authorized gen_contract run",
         )
 
     def test_generated_exception_module_matches_source_literal(self) -> None:
-        path = _ROOT / "epistemic_graph/contract_errors.py"
+        path = _ROOT / "medulla/contract_errors.py"
         self.assertTrue(path.is_file(), "exception module awaits authorized generation")
         self.assertTrue(path.read_text().endswith(_errors_source()))
 

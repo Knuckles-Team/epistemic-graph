@@ -64,10 +64,8 @@ def _make_wheel(
 
 
 _BASE_MEMBERS = {
-    "epistemic_graph/__init__.py": b"print('hello')\n",
-    "epistemic_graph/server.exe": b"\x00" * 32
-    + b"NATIVE-BINARY-PAYLOAD"
-    + b"\x00" * 32,
+    "medulla/__init__.py": b"print('hello')\n",
+    "medulla/server.exe": b"\x00" * 32 + b"NATIVE-BINARY-PAYLOAD" + b"\x00" * 32,
     "medulla-9.9.9.dist-info/METADATA": b"Metadata-Version: 2.3\nName: medulla\n",
 }
 
@@ -145,7 +143,7 @@ def test_digest_mismatch_raises_the_exact_protected_message(tmp_path: Path):
     reproduction_dir.mkdir()
     _make_wheel(primary_dir, members=_BASE_MEMBERS)
     reproduction_members = dict(_BASE_MEMBERS)
-    reproduction_members["epistemic_graph/__init__.py"] = b"print('different')\n"
+    reproduction_members["medulla/__init__.py"] = b"print('different')\n"
     _make_wheel(reproduction_dir, members=reproduction_members)
 
     with pytest.raises(AssertionError, match="^release wheel digest mismatch$"):
@@ -162,7 +160,7 @@ def test_cli_mismatch_exits_nonzero_as_a_subprocess(tmp_path: Path):
     reproduction_dir.mkdir()
     _make_wheel(primary_dir, members=_BASE_MEMBERS)
     reproduction_members = dict(_BASE_MEMBERS)
-    reproduction_members["epistemic_graph/__init__.py"] = b"print('different')\n"
+    reproduction_members["medulla/__init__.py"] = b"print('different')\n"
     _make_wheel(reproduction_dir, members=reproduction_members)
 
     script = (
@@ -179,7 +177,7 @@ def test_cli_mismatch_exits_nonzero_as_a_subprocess(tmp_path: Path):
 
     assert result.returncode != 0
     assert "release wheel digest mismatch" in result.stderr
-    assert "CONTENT DIFFERS: epistemic_graph/__init__.py" in result.stdout
+    assert "CONTENT DIFFERS: medulla/__init__.py" in result.stdout
     assert (
         "SUMMARY: content_differing_members=1 container_only_members=0" in result.stdout
     )
@@ -194,7 +192,7 @@ def test_content_difference_is_classified_as_content(tmp_path: Path, capsys):
     reproduction_dir.mkdir()
     _make_wheel(primary_dir, members=_BASE_MEMBERS)
     reproduction_members = dict(_BASE_MEMBERS)
-    reproduction_members["epistemic_graph/server.exe"] = (
+    reproduction_members["medulla/server.exe"] = (
         b"\x00" * 32 + b"NATIVE-BINARY-DIFFERS" + b"\x00" * 32
     )
     _make_wheel(reproduction_dir, members=reproduction_members)
@@ -203,12 +201,12 @@ def test_content_difference_is_classified_as_content(tmp_path: Path, capsys):
         compare(primary_dir, reproduction_dir)
 
     out = capsys.readouterr().out
-    assert "CONTENT DIFFERS: epistemic_graph/server.exe" in out
+    assert "CONTENT DIFFERS: medulla/server.exe" in out
     assert "first differing byte offset:" in out
     assert "SUMMARY: content_differing_members=1 container_only_members=0" in out
     # Only the touched member is classified -- an untouched member must never
     # get its own CONTENT DIFFERS / CONTAINER-ONLY section.
-    assert "CONTENT DIFFERS: epistemic_graph/__init__.py" not in out
+    assert "CONTENT DIFFERS: medulla/__init__.py" not in out
     assert "CONTAINER-ONLY" not in out
 
 
@@ -231,26 +229,23 @@ def test_container_only_difference_is_classified_separately_from_content(
     # a different digest-relevant member elsewhere so the overall wheel digest
     # still differs and the report actually runs.
     reproduction_members = dict(_BASE_MEMBERS)
-    reproduction_members["epistemic_graph/README-EXTRA.txt"] = (
+    reproduction_members["medulla/README-EXTRA.txt"] = (
         b"padding to force a digest change\n"
     )
     _make_wheel(
         reproduction_dir,
         members=reproduction_members,
-        modes={"epistemic_graph/server.exe": 0o755},
+        modes={"medulla/server.exe": 0o755},
     )
 
     with pytest.raises(AssertionError, match="^release wheel digest mismatch$"):
         compare(primary_dir, reproduction_dir)
 
     out = capsys.readouterr().out
-    assert (
-        "CONTAINER-ONLY (decompressed bytes IDENTICAL): epistemic_graph/server.exe"
-        in out
-    )
-    assert "CONTENT DIFFERS: epistemic_graph/server.exe" not in out
+    assert "CONTAINER-ONLY (decompressed bytes IDENTICAL): medulla/server.exe" in out
+    assert "CONTENT DIFFERS: medulla/server.exe" not in out
     assert "members ONLY in reproduction (1):" in out
-    assert "epistemic_graph/README-EXTRA.txt" in out
+    assert "medulla/README-EXTRA.txt" in out
     assert "SUMMARY: content_differing_members=0 container_only_members=1" in out
 
 

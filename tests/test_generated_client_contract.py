@@ -1,7 +1,7 @@
 """The generated Python client is exactly what the engine contract publishes.
 
 Pure stdlib and pure static: it reads ``contract/methods.json`` and parses the
-generated modules plus ``epistemic_graph/client.py`` as text. It never imports
+generated modules plus ``medulla/client.py`` as text. It never imports
 the client, builds the engine, or opens a socket, so it runs anywhere
 ``python3 -m unittest`` does. It is the Python half of what the deleted
 ``tests/test_protocol_parity.py`` asserted; the Rust half is ``gen_contract
@@ -20,8 +20,8 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CONTRACT = _ROOT / "contract" / "methods.json"
-_GENERATED = _ROOT / "epistemic_graph" / "generated"
-_CLIENT = _ROOT / "epistemic_graph" / "client.py"
+_GENERATED = _ROOT / "medulla" / "generated"
+_CLIENT = _ROOT / "medulla" / "client.py"
 
 # One engine method may expose operation-specific typed adapters in addition to
 # its mandatory generic sender. These names are generated from Rust's

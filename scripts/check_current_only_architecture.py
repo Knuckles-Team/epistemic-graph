@@ -43,7 +43,7 @@ RETIRED_TOPOLOGY = (
     "kafka_graph_" + "sync.py",
     "L0/L1/" + "L2/L3",
 )
-RETIRED_TOPOLOGY_ROOTS = ("src", "crates", "epistemic_graph", "tests", "docs")
+RETIRED_TOPOLOGY_ROOTS = ("src", "crates", "medulla", "tests", "docs")
 
 LEGACY_PROTOCOL_DEFAULT_HELPERS = (
     "default_shuffle",

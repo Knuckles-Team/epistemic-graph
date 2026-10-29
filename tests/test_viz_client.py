@@ -34,7 +34,7 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 AUTH_SECRET = "test-viz-client-roundtrip-secret"

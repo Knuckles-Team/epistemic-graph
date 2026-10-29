@@ -5,7 +5,7 @@ features `streaming` + `stream`, both folded into `full`).
 Proves the `StreamingClient.cep_subscribe` / `cep_poll` / `cep_unsubscribe` bindings
 (added for B-1 — the engine's live CEP surface, `Method::CepSubscribe`/`CepPoll`/
 `CepUnsubscribe`, was handler-complete and compiled into the default `full` build but
-had zero occurrences in `epistemic_graph/client.py`) actually work end-to-end over the
+had zero occurrences in `medulla/client.py`) actually work end-to-end over the
 SAME framed-MessagePack transport the rest of the client uses: subscribe a pattern,
 cause a matching mutation to flow through the CDC hub that feeds the live NFA engine,
 poll and receive the match, then unsubscribe. A subscribe call that merely returns a
@@ -20,7 +20,7 @@ import os
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 
 @pytest.fixture

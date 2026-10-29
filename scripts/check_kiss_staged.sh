@@ -174,7 +174,7 @@ try:
     from scanner_contract import load_contract
     value = load_contract(root / "pyproject.toml").kiss_version
 except Exception as exc:
-    print(f"invalid [tool.epistemic_graph.scanners] KISS contract: {exc}", file=sys.stderr)
+    print(f"invalid [tool.medulla.scanners] KISS contract: {exc}", file=sys.stderr)
     raise SystemExit(2)
 print(value.strip())
 PY

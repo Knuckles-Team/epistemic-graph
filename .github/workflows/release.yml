@@ -275,9 +275,9 @@ jobs:
 
       # Smoke test: install the wheel and assert it carries NO executables (the
       # server ships in epistemic-graph-server), then prove the extension modules
-      # `epistemic_graph.numeric` (computing) and `epistemic_graph.engine`
+      # `medulla.numeric` (computing) and `medulla.engine`
       # (BUG-PE-002) import from the INSTALLED wheel.
-      - name: Smoke test (no executables + import epistemic_graph.{numeric,engine})
+      - name: Smoke test (no executables + import medulla.{numeric,engine})
         shell: bash
         run: bash scripts/release_wheel_smoke.sh
 
@@ -299,14 +299,14 @@ jobs:
   # NOTE (CONCEPT:EG-371): the old pi/pi-max tier wheels (`wheels-pi`) and the
   # size-optimized "contains-all" tier wheels (`wheels-full-tiny`) are GONE. Those legs
   # existed only because the deployment tiers produced DIFFERENT binaries that all shared
-  # the SAME wheel filename (`epistemic_graph-<ver>-py3-none-<platform>`), so only one
+  # the SAME wheel filename (`medulla-<ver>-py3-none-<platform>`), so only one
   # could ever publish. The tiers are collapsed into ONE main build (the `build` job
   # above), which is what publishes — no more per-tier legs, no more filename collision.
 
   # NOTE: the eg-numeric kernel is NO LONGER a separately-published package. Its
   # Surface-A pyo3 `.so` is FOLDED INTO the `medulla` main wheel in the
   # `build` job above, so a BARE `pip install medulla` (no extra tag)
-  # provides `epistemic_graph.numeric` from ONE published package (CONCEPT:EG-346).
+  # provides `medulla.numeric` from ONE published package (CONCEPT:EG-346).
   # `medulla[numeric]` still resolves for old pins, but is a no-op alias —
   # it is not what makes the kernel present.
 

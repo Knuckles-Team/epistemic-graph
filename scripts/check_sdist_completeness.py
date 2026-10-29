@@ -37,7 +37,9 @@ _BASE_SOURCES = (
     "rust-toolchain.toml",
     "README.md",
 )
-_SOURCE_DIRECTORIES = ("crates", "epistemic_graph")
+# `epistemic_graph` is the pre-rename compatibility shim: the sdist must carry it
+# so a built-from-source install keeps the old import name resolvable.
+_SOURCE_DIRECTORIES = ("crates", "medulla", "epistemic_graph")
 # The root crate (`src/`, `build.rs`, `benches/`, `.cargo/`) only belongs in the
 # archive when maturin builds it. Since the extensions-only wheel (#587) maturin
 # builds `[tool.maturin] manifest-path`, a member crate; the server binary ships

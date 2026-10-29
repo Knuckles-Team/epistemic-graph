@@ -22,7 +22,7 @@ SERVER = REPO / "target" / "release" / "epistemic-graph-server"
 
 
 async def _run(ops: int) -> dict[str, float]:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import EpistemicGraphClient
 
     sock = os.path.join(tempfile.mkdtemp(), "bench.sock")
     proc = subprocess.Popen(

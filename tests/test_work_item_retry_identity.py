@@ -9,7 +9,7 @@ import msgpack
 import pytest
 from _client_fixtures import unused_reader, unused_writer
 
-from epistemic_graph.client import EpistemicGraphClient
+from medulla.client import EpistemicGraphClient
 
 pytestmark = pytest.mark.no_engine
 

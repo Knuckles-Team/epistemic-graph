@@ -20,8 +20,8 @@ from _harness_envelope import draft_envelope as _envelope
 from _harness_envelope import graph_name as _graph_name
 from _harness_envelope import op
 
-from epistemic_graph.client import EngineResponseError
-from epistemic_graph.decision import digest_text
+from medulla.client import EngineResponseError
+from medulla.decision import digest_text
 
 TASK_CLASS = "task:served"
 DEFICIENCY = "deficiency:retries"

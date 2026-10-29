@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# This harness must certify THIS checkout's own `epistemic_graph.client`, not
+# This harness must certify THIS checkout's own `medulla.client`, not
 # whatever copy happens to be resolved by an editable install elsewhere on
 # sys.path (e.g. a different worktree's checkout registered as the editable
 # `medulla` distribution) -- prepending the repository root makes the
@@ -46,7 +46,7 @@ from typing import Any
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
 SyncEpistemicGraphClient = importlib.import_module(
-    "epistemic_graph.client"
+    "medulla.client"
 ).SyncEpistemicGraphClient
 
 SCHEMA_VERSION = 1

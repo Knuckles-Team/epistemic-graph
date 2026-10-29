@@ -4,8 +4,8 @@ The same boundary contract NE-249 (``crates/eg-numeric/tests/test_builtin_
 boundary.py``) and BUG-PE-002 (the release workflow's "engine kernel smoke
 test" step) already prove for the compiled numeric and engine kernels,
 applied to the pure-Python modules EG-CONTRACT-R002.1/.2 exercise against a
-live engine: ``epistemic_graph.decision_client``, ``epistemic_graph.
-connector_pack`` and ``epistemic_graph.client`` must resolve from the
+live engine: ``medulla.decision_client``, ``medulla.
+connector_pack`` and ``medulla.client`` must resolve from the
 INSTALLED wheel, not this checkout's source tree, when imported under the
 release workflow's ``.gates-wheel-venv``.
 
@@ -35,9 +35,9 @@ pytestmark = pytest.mark.no_engine
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _BOUNDARY_MODULES = (
-    "epistemic_graph.decision_client",
-    "epistemic_graph.connector_pack",
-    "epistemic_graph.client",
+    "medulla.decision_client",
+    "medulla.connector_pack",
+    "medulla.client",
 )
 
 

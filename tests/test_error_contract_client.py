@@ -2,8 +2,8 @@
 
 import pytest
 
-from epistemic_graph import EngineResponseError
-from epistemic_graph.client import (
+from medulla import EngineResponseError
+from medulla.client import (
     ResultTooLargeError,
     StaleRouteError,
     _raise_send_error,

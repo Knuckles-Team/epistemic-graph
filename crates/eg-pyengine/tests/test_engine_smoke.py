@@ -2,7 +2,7 @@
 (unified-binary program, workstream W-A).
 
 Mirrors ``crates/eg-numeric/tests/test_kernel_parity.py``'s discovery convention
-exactly: it imports the compiled ``epistemic_graph.engine`` extension DIRECTLY
+exactly: it imports the compiled ``medulla.engine`` extension DIRECTLY
 (no socket, no server subprocess) and drives the same create-graph / add-node /
 get-node-properties sequence the design doc (``docs/architecture/
 unified-inprocess-engine.md``) walks through, asserting the round trip is
@@ -20,7 +20,7 @@ Run against the freshly-built wheel::
 Each test explicitly chooses a disposable in-memory engine. Filesystem stores are
 refused until the binding implements durable storage.
 
-The module is discovered as ``epistemic_graph.engine`` (folded build) or
+The module is discovered as ``medulla.engine`` (folded build) or
 ``engine`` (standalone wheel) — if neither imports, the test is SKIPPED (a
 no-wheel checkout stays green); a CI job that builds+installs the wheel first
 always runs the real binding.
@@ -34,10 +34,10 @@ from typing import Any
 import msgpack
 import pytest
 
-from epistemic_graph.client import EngineResponseError
+from medulla.client import EngineResponseError
 
 _e: Any = None
-for _name in ("epistemic_graph.engine", "engine"):
+for _name in ("medulla.engine", "engine"):
     try:
         _m = importlib.import_module(_name)
     except ImportError:

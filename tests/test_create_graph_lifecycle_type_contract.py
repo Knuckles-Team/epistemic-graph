@@ -34,7 +34,7 @@ import time
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient
+from medulla.client import EpistemicGraphClient
 
 
 @pytest.mark.concept("CONCEPT:EG-KG.security.signed-request-envelope")

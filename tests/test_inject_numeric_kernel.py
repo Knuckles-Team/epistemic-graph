@@ -68,7 +68,7 @@ def test_injects_platform_extension_and_preserves_server_mode(
 
     inject(server, numeric)
 
-    target = f"epistemic_graph/{extension}"
+    target = f"medulla/{extension}"
     with zipfile.ZipFile(server) as archive:
         assert archive.read(target) == payload
         server_info = archive.getinfo(
@@ -95,7 +95,7 @@ def test_replaces_stale_kernel_and_rebuilds_record_exactly(tmp_path: Path) -> No
     server = tmp_path / "server.whl"
     numeric = tmp_path / "numeric.whl"
     _server_wheel(server)
-    target = "epistemic_graph/numeric.abi3.so"
+    target = "medulla/numeric.abi3.so"
     stale = b"stale-kernel"
 
     with zipfile.ZipFile(server, "a") as archive:

@@ -24,7 +24,7 @@ from __future__ import annotations
 import pytest
 from _client_fixtures import unused_reader, unused_writer
 
-from epistemic_graph.client import VALID_GRAPH_TYPES, EpistemicGraphClient
+from medulla.client import VALID_GRAPH_TYPES, EpistemicGraphClient
 
 # Pure client-side logic: `EpistemicGraphClient` is constructed over dummy
 # `object()` reader/writer and `_send` is monkeypatched -- never a real

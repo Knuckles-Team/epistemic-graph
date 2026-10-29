@@ -7,7 +7,7 @@
 /// How a consumer proposes to reach an EG decision method.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConsumerCallPath {
-    /// The published, versioned client contract (`epistemic_graph.client`),
+    /// The published, versioned client contract (`medulla.client`),
     /// the only route a consumer may use.
     Contract { contract_version: String },
     /// A bespoke in-process facade, a private transport, or a direct engine
@@ -32,7 +32,7 @@ pub fn admit_call_path(path: &ConsumerCallPath) -> Result<(), CallPathRefusal> {
         }),
         ConsumerCallPath::BespokeFacade { facade_name } => Err(CallPathRefusal {
             reason: format!(
-                "bespoke facade '{facade_name}' bypasses the published client contract; use epistemic_graph.client instead"
+                "bespoke facade '{facade_name}' bypasses the published client contract; use medulla.client instead"
             ),
         }),
     }

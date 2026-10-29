@@ -367,7 +367,7 @@ def test_persisted_blob_guard_rejects_split_refcount_commit() -> None:
 
 
 def test_ingest_stream_client_bound_matches_the_server_constant() -> None:
-    """`epistemic_graph/client.py`'s ingest_stream item ceiling must equal the
+    """`medulla/client.py`'s ingest_stream item ceiling must equal the
     server's `MAX_INGEST_STREAM_ITEMS`. Regression coverage for the item limit
     moving 61 -> 49 (the wire-derived worst case the Raft result envelope
     admits, see `src/raft/modality.rs`) while the client's validation,
@@ -377,7 +377,7 @@ def test_ingest_stream_client_bound_matches_the_server_constant() -> None:
     module = _load_gate(
         "check_p2_modality_architecture.py", "e1_p2_ingest_stream_bound"
     )
-    python_client = module.read("epistemic_graph/client.py")
+    python_client = module.read("medulla/client.py")
     module.require_ingest_stream_item_bound(python_client)
 
 
@@ -385,7 +385,7 @@ def test_ingest_stream_client_bound_rejects_drift_from_the_server() -> None:
     module = _load_gate(
         "check_p2_modality_architecture.py", "e1_p2_ingest_stream_bound_drift"
     )
-    python_client = module.read("epistemic_graph/client.py")
+    python_client = module.read("medulla/client.py")
     drifted = _replace_once(
         python_client, "not 2 <= len(items) <= 49", "not 2 <= len(items) <= 61"
     )

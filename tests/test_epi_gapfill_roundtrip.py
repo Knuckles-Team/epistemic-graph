@@ -55,7 +55,7 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 AUTH_SECRET = "test-epi-gapfill-roundtrip-secret"
@@ -207,7 +207,7 @@ def test_explain_belief_disclosure_level_round_trip(gapfill_client):
 def _job_state_name(state) -> str:
     """``JobState`` is externally-tagged: the bare string ``"Submitted"`` for that
     one unit variant, or ``{"VariantName": {...fields...}}`` for the rest — see
-    :class:`~epistemic_graph.client.JobsClient`'s docstring."""
+    :class:`~medulla.client.JobsClient`'s docstring."""
     if isinstance(state, str):
         return state
     assert isinstance(state, dict) and len(state) == 1, (

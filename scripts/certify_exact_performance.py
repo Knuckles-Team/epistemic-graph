@@ -1437,7 +1437,7 @@ async def _bootstrap_and_connect(
     deadline_seconds: float,
     started_ns: int,
 ) -> tuple[Any, float, dict[str, Any]]:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import EpistemicGraphClient
 
     deadline = time.monotonic() + deadline_seconds
     bootstrap = None
@@ -3274,8 +3274,8 @@ async def _run_measurement_steps(
     )
     state.client = client
     state.bootstrap_verified = True
-    from epistemic_graph import __version__ as package_version
-    from epistemic_graph import client as client_module
+    from medulla import __version__ as package_version
+    from medulla import client as client_module
 
     client_file = Path(client_module.__file__ or "")
     if not client_file.is_file():

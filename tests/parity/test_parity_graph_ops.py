@@ -4,7 +4,7 @@ the harness shape here first, using the prototype's 5 existing methods:
 
 Every test here needs the shared out-of-process server (started by the
 parent `tests/conftest.py`'s autouse fixture, `--features full`) AND the
-compiled `epistemic_graph.engine` pyo3 extension (`crates/eg-pyengine
+compiled `medulla.engine` pyo3 extension (`crates/eg-pyengine
 --features python`, plus its `graph_ops()` accessor, plan §4.1) -- neither is
 built in this session (Wave 0's Python half deliberately does not run
 `cargo`, see the task brief). These tests are written to collect cleanly
@@ -95,7 +95,7 @@ async def test_get_node_properties_rls_isolation(
     is UNCHANGED otherwise and is still not forced green (no `xfail`/`skip`,
     GOC-70 rule 4): it now has what it needs to construct the two-principal
     condition, but whether it actually PASSES still depends on the native
-    `epistemic_graph.engine` extension being built (`crates/eg-pyengine
+    `medulla.engine` extension being built (`crates/eg-pyengine
     --features python`), which this session does not do -- see the Wave 0
     report.
     """

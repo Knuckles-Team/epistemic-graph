@@ -26,7 +26,7 @@ from typing import Any
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import (
+from medulla.client import (
     AdminClient,
     BrokerClient,
     EpistemicGraphClient,

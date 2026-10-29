@@ -13,8 +13,8 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, RdfClient
-from epistemic_graph.generated import ContractViolation, models, reasoning
+from medulla.client import EpistemicGraphClient, RdfClient
+from medulla.generated import ContractViolation, models, reasoning
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,

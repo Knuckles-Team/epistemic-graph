@@ -1,4 +1,4 @@
-//! Emit the generated Python client surface (`epistemic_graph/generated/`).
+//! Emit the generated Python client surface (`medulla/generated/`).
 //!
 //! One module per domain, each holding a pydantic v2 request model and a typed send
 //! function per method the contract publishes to the `python` consumer profile. The
@@ -956,12 +956,12 @@ pub(super) fn artifacts(catalog: &Catalog) -> Vec<Artifact> {
     let surfaces = Surfaces::new(&space.definitions);
     // Not added to the package's eager imports: `models` loads on first use.
     out.push(Artifact {
-        path: "epistemic_graph/generated/models.py".to_string(),
+        path: "medulla/generated/models.py".to_string(),
         bytes: normalize(surfaces.models_module()),
     });
     // Private: every surface module that re-exports a shared definition imports it.
     out.push(Artifact {
-        path: format!("epistemic_graph/generated/{SHARED_MODULE}.py"),
+        path: format!("medulla/generated/{SHARED_MODULE}.py"),
         bytes: normalize(surfaces.shared_module()),
     });
     push_domain_artifacts(&mut out, &by_domain, &schemas, catalog, &space);
@@ -1003,15 +1003,15 @@ fn python_inventory() -> PythonInventory {
 fn base_artifacts(published: &[&str]) -> Vec<Artifact> {
     vec![
         Artifact {
-            path: "epistemic_graph/generated/_ids.py".to_string(),
+            path: "medulla/generated/_ids.py".to_string(),
             bytes: normalize(ids_module(published)),
         },
         Artifact {
-            path: "epistemic_graph/generated/_runtime.py".to_string(),
+            path: "medulla/generated/_runtime.py".to_string(),
             bytes: normalize(runtime_module()),
         },
         Artifact {
-            path: "epistemic_graph/generated/digest.py".to_string(),
+            path: "medulla/generated/digest.py".to_string(),
             bytes: normalize(digest_module()),
         },
     ]
@@ -1026,7 +1026,7 @@ fn push_domain_artifacts(
 ) {
     for (domain, descriptors) in by_domain {
         out.push(Artifact {
-            path: format!("epistemic_graph/generated/{domain}.py"),
+            path: format!("medulla/generated/{domain}.py"),
             bytes: normalize(domain_module(domain, descriptors, schemas, catalog, space)),
         });
     }
@@ -1038,7 +1038,7 @@ fn push_dto_artifacts(out: &mut Vec<Artifact>, modules: &mut Vec<String>, surfac
         .filter(|surface| surfaces.generates(surface))
     {
         out.push(Artifact {
-            path: format!("epistemic_graph/generated/{}.py", surface.module),
+            path: format!("medulla/generated/{}.py", surface.module),
             bytes: normalize(surfaces.dto_module(surface)),
         });
         modules.push(surface.module.to_string());
@@ -1054,15 +1054,15 @@ fn push_package_artifacts(
     modules.sort();
     modules.dedup();
     out.push(Artifact {
-        path: "epistemic_graph/generated/__init__.py".to_string(),
+        path: "medulla/generated/__init__.py".to_string(),
         bytes: normalize(init_module(modules, sends)),
     });
     out.push(Artifact {
-        path: "epistemic_graph/contract_errors.py".to_string(),
+        path: "medulla/contract_errors.py".to_string(),
         bytes: normalize(package_contract_errors_module()),
     });
     out.push(Artifact {
-        path: "epistemic_graph/contract/__init__.py".to_string(),
+        path: "medulla/contract/__init__.py".to_string(),
         bytes: normalize(package_contract_module()),
     });
 }

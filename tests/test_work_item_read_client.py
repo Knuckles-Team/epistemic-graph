@@ -11,7 +11,7 @@ from typing import Any, cast
 import pytest
 from _client_send_stub import CapturingEngine as FakeEngine
 
-from epistemic_graph.client import (
+from medulla.client import (
     ControlLeaseClient,
     EpistemicGraphClient,
     WorkItemClient,
@@ -360,7 +360,7 @@ def test_session_usage_rejects_malformed_native_receipts(patch: dict[str, Any]) 
 @pytest.fixture
 def session_response_transport(monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate response validation; the unpatched transport test stays separate."""
-    from epistemic_graph import client as client_module
+    from medulla import client as client_module
 
     async def send(
         engine: FakeEngine, params: object, graph: str | None
@@ -404,7 +404,7 @@ def test_session_response_validation_preserves_unknown_zero_and_exact_maximum(
 def test_session_usage_forwards_explicit_owner_graph(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from epistemic_graph import client as client_module
+    from medulla import client as client_module
 
     seen: list[str | None] = []
     result = {

@@ -4,7 +4,7 @@ set -euo pipefail
 mode="${1:?pack or unpack}"
 kind="${2:?kernels or server}"
 case "$kind" in
-  kernels) files=(epistemic_graph/numeric*.so epistemic_graph/engine*.so) ;;
+  kernels) files=(medulla/numeric*.so medulla/engine*.so) ;;
   server) files=(target-isolated/debug/epistemic-graph-server) ;;
   *) echo "Unknown artifact kind: $kind" >&2; exit 1 ;;
 esac
@@ -31,7 +31,7 @@ case "$mode" in
       # Expand after extraction: both extensions must be present and nonempty.
       for module in numeric engine; do
         found=false
-        for file in epistemic_graph/"$module"*.so; do
+        for file in medulla/"$module"*.so; do
           test -s "$file"
           found=true
         done

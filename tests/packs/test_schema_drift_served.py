@@ -24,9 +24,9 @@ import uuid
 import pytest
 from conftest import TEST_TENANT, request_context
 
-from epistemic_graph.client import EngineResponseError, EpistemicGraphClient
-from epistemic_graph.generated import coordination, reasoning
-from epistemic_graph.generated.graph_schema import (
+from medulla.client import EngineResponseError, EpistemicGraphClient
+from medulla.generated import coordination, reasoning
+from medulla.generated.graph_schema import (
     GraphSchemaSourcesView,
     SchemaSourceOriginViewApproved,
 )

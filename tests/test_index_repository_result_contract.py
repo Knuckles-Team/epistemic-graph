@@ -8,8 +8,8 @@ import pytest
 from _client_fixtures import RecordingTransport, SentCall
 from pydantic import ValidationError
 
-from epistemic_graph.client import GraphOperationsClient
-from epistemic_graph.generated.index_repository import IndexFileStatus, IndexResult
+from medulla.client import GraphOperationsClient
+from medulla.generated.index_repository import IndexFileStatus, IndexResult
 
 _ZERO_DIGEST = "sha256:" + ("0" * 64)
 _ONE_DIGEST = "sha256:" + ("1" * 64)
@@ -95,7 +95,7 @@ def test_diagnostics_bound_is_enforced_by_generated_type() -> None:
 @pytest.mark.asyncio
 @pytest.mark.no_engine
 async def test_branch_aware_scope_travels_as_the_typed_wire_field() -> None:
-    from epistemic_graph.generated.index_repository import IndexRepositoryScope
+    from medulla.generated.index_repository import IndexRepositoryScope
 
     scope = IndexRepositoryScope.model_validate(
         {

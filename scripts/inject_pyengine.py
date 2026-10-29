@@ -3,8 +3,8 @@
 
 There is exactly ONE published package — ``medulla`` — and the
 in-process engine binding ships INSIDE its wheel as a native
-``epistemic_graph.engine`` extension (``.abi3.so`` on Unix or ``.pyd`` on
-Windows), the module ``epistemic_graph.embedded``'s ``EmbeddedTransport``
+``medulla.engine`` extension (``.abi3.so`` on Unix or ``.pyd`` on
+Windows), the module ``medulla.embedded``'s ``EmbeddedTransport``
 imports (``docs/architecture/unified-inprocess-engine.md``). There is NO
 separately published ``eg-pyengine`` package.
 
@@ -13,7 +13,7 @@ ships the ``epistemic-graph-server`` binary, no pyo3). The engine binding is a
 SEPARATE maturin pyo3 cdylib build (``crates/eg-pyengine --features python``).
 This script takes the already-built engine wheel, lifts its compiled
 extension, and injects it into the server wheel as package data under the
-existing ``epistemic_graph`` package — recomputing ``RECORD`` so the wheel
+existing ``medulla`` package — recomputing ``RECORD`` so the wheel
 stays valid. The server wheel is rewritten in place.
 
 This is a near-mechanical copy of ``scripts/inject_numeric_kernel.py`` (the
@@ -29,7 +29,7 @@ Usage::
     python scripts/inject_pyengine.py <server_wheel> <engine_wheel>
 
 Both paths point at real ``.whl`` files. On success the server wheel contains
-the platform-native extension and ``import epistemic_graph.engine`` works
+the platform-native extension and ``import medulla.engine`` works
 from the installed wheel.
 """
 
@@ -43,7 +43,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-TARGET_PACKAGE = "epistemic_graph"
+TARGET_PACKAGE = "medulla"
 EXTENSION_SUFFIXES = (".so", ".pyd")
 
 
@@ -58,9 +58,9 @@ def _find_kernel_extension(engine_whl: Path) -> tuple[bytes, int, str]:
     Maturin names the pyo3 extension ``engine.abi3.so`` on Unix and
     ``engine.pyd`` (or an ABI-tagged equivalent) on Windows, inside a
     top-level ``engine`` package (``crates/eg-pyengine/pyproject.toml``'s
-    ``module-name = "epistemic_graph.engine"``). We preserve that
+    ``module-name = "medulla.engine"``). We preserve that
     platform-native basename when re-homing the extension under
-    ``epistemic_graph``.
+    ``medulla``.
 
     We also lift its mode (the high 16 bits of the zip ``external_attr``) so
     the re-homed extension keeps sane permissions in the rewritten wheel.

@@ -19,8 +19,8 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import EngineResponseError, SyncEpistemicGraphClient
-from epistemic_graph.decision_client import task_plan_request, verify_task_plan_receipt
+from medulla.client import EngineResponseError, SyncEpistemicGraphClient
+from medulla.decision_client import task_plan_request, verify_task_plan_receipt
 
 # Public loopback fixture value shared with tests/conftest.py; not a credential.
 TEST_AUTH_FIXTURE_VALUE = "-".join(("test", "epistemic", "graph", "secret"))

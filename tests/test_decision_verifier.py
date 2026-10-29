@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph import decision
+from medulla import decision
 
 pytestmark = pytest.mark.no_engine
 

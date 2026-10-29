@@ -1,7 +1,7 @@
 """PEP 517 composition backend for the complete epistemic-graph artifact.
 
 Maturin builds the wheel from the ``eg-pyengine`` PyO3 crate (the
-``epistemic_graph.engine`` module plus the pure-Python package, selected by
+``medulla.engine`` module plus the pure-Python package, selected by
 ``[tool.maturin] manifest-path``); the numeric PyO3 module is built from its own
 crate. Every PEP 517 and editable build folds the numeric module into that wheel
 using the same injector as the release pipeline. No server crate or bin target is
@@ -445,7 +445,7 @@ def _validate_editable_wheel(wheel: Path) -> None:
 def _validate_editable_source(archive: zipfile.ZipFile, names: list[str]) -> None:
     """Bind the wheel's single source pointer to this resolved checkout."""
 
-    pth = "epistemic_graph.pth"
+    pth = "medulla.pth"
     if pth not in names:
         raise RuntimeError("cached editable wheel does not point at source")
     embedded_source = _resolved_editable_source(archive.read(pth))
@@ -459,8 +459,8 @@ def _native_module_members(names: list[str], module: str) -> list[str]:
     return [
         name
         for name in names
-        if Path(name).parent.as_posix() == "epistemic_graph"
-        and name.startswith(f"epistemic_graph/{module}.")
+        if Path(name).parent.as_posix() == "medulla"
+        and name.startswith(f"medulla/{module}.")
         and name.endswith((".so", ".pyd"))
     ]
 

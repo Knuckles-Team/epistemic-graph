@@ -9,8 +9,8 @@ import hashlib
 
 import pytest
 
-from epistemic_graph import decision_client as dc
-from epistemic_graph.decision._digest import digest_text
+from medulla import decision_client as dc
+from medulla.decision._digest import digest_text
 
 pytestmark = pytest.mark.no_engine
 

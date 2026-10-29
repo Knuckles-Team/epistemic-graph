@@ -39,7 +39,7 @@ from certify_exact_fault_restart import (
     _write_evidence,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 SCHEMA_VERSION = 1
 AUTH_GRAPH = "authorization-matrix"

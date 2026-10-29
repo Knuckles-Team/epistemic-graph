@@ -15,8 +15,8 @@ from typing import Any, cast
 import msgpack
 import pytest
 
-import epistemic_graph.client as client_module
-from epistemic_graph.client import (
+import medulla.client as client_module
+from medulla.client import (
     EpistemicGraphClient,
     QueryClient,
     SqlSourceBatchPreparation,
@@ -24,7 +24,7 @@ from epistemic_graph.client import (
     _snapshot_sql_source_input,
     _sql_source_native_codec,
 )
-from epistemic_graph.client_capabilities import (
+from medulla.client_capabilities import (
     SQL_SOURCE_PREPARATION_CAPABILITY,
     require_client_capabilities,
 )

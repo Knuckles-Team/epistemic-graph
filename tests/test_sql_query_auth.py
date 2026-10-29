@@ -59,7 +59,7 @@ def test_sql_query_omitting_params_msgpack_signs_the_server_canonical_body(
     import asyncio
     import os
 
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import EpistemicGraphClient
 
     clean_graph.nodes.add("A", {"label": "sql-fixture"})
     query = "SELECT count(*) AS n FROM nodes"

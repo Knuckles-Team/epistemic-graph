@@ -122,7 +122,7 @@ def _bench_context(agent: str) -> dict[str, object]:
 
 
 async def _run_agent(sock: str, agent: str, nodes: int) -> int:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import EpistemicGraphClient
 
     client = await EpistemicGraphClient.connect(
         socket_path=sock,

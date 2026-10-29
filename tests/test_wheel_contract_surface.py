@@ -5,7 +5,7 @@ Stdlib only: static package checks plus an isolated contract-resource probe. The
 staged probe is not wheel-install evidence; set EG_CONTRACT_INSTALLED_PYTHON to an
 already installed candidate's interpreter for the independent installed check.
 It exists because the generated client added `pydantic` as a
-module-scope import of `epistemic_graph/__init__.py`'s own import chain while
+module-scope import of `medulla/__init__.py`'s own import chain while
 `[project].dependencies` still listed three packages: `pip install medulla` then
 raised `ModuleNotFoundError` for every consumer, and a dev checkout that already had
 pydantic installed could never notice.
@@ -42,7 +42,7 @@ class _FixtureReceipt(_FixtureManifest, total=False):
 
 
 _ROOT = Path(__file__).resolve().parent.parent
-_PACKAGE = _ROOT / "epistemic_graph"
+_PACKAGE = _ROOT / "medulla"
 _PYPROJECT = _ROOT / "pyproject.toml"
 _ROOT_RECEIPT = _ROOT / "contract" / "receipt.json"
 
@@ -69,13 +69,13 @@ recorded = None
 
 if sys.argv[1]:
     sys.path.insert(0, str(Path(sys.argv[1]).parent.parent))
-    module = importlib.import_module("epistemic_graph.contract")
+    module = importlib.import_module("medulla.contract")
     root = resources.files(module)
 else:
-    from epistemic_graph import contract as module
-    root = resources.files("epistemic_graph").joinpath("contract")
+    from medulla import contract as module
+    root = resources.files("medulla").joinpath("contract")
     distribution = metadata.distribution("medulla")
-    installed = Path(distribution.locate_file("epistemic_graph/contract")).resolve()
+    installed = Path(distribution.locate_file("medulla/contract")).resolve()
     assert Path(str(root)).resolve() == installed, "package is outside distribution"
     record_text = distribution.read_text("RECORD")
     assert record_text is not None, "installed distribution has no RECORD"
@@ -85,7 +85,7 @@ assert root.joinpath("receipt.json").read_bytes() == authoritative_receipt, (
     "installed receipt differs from source authority"
 )
 receipt = json.loads(authoritative_receipt)
-errors_module = "epistemic_graph/contract_errors.py"
+errors_module = "medulla/contract_errors.py"
 if errors_module in receipt["artifact_digests"]:
     sibling = Path(str(root)).parent / "contract_errors.py"
     assert hashlib.sha256(sibling.read_bytes()).hexdigest() == (
@@ -93,7 +93,7 @@ if errors_module in receipt["artifact_digests"]:
     )
     if recorded is not None:
         assert errors_module in recorded, "RECORD omits exception module"
-prefix = "epistemic_graph/contract/"
+prefix = "medulla/contract/"
 expected_hashes = {
     path.removeprefix(prefix): digest
     for path, digest in receipt["artifact_digests"].items()
@@ -191,7 +191,7 @@ def _module_scope_imports(tree: ast.Module) -> set[str]:
     are
     optional integrations the package already guards, and only an unconditional
     module-scope
-    import can break `import epistemic_graph`.
+    import can break `import medulla`.
     """
     found: set[str] = set()
     for node in tree.body:
@@ -210,7 +210,7 @@ class ContractProbeFixtures(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.scratch = Path(temp.name)
         self.site = self.scratch / "fixture-site"
-        self.contract = self.site / "epistemic_graph/contract"
+        self.contract = self.site / "medulla/contract"
         self.contract.joinpath("schemas").mkdir(parents=True)
         self.contract.parent.joinpath("__init__.py").write_text("")
         schema = "contract/schemas/fixture.json#/methods/Fixture"
@@ -239,7 +239,7 @@ class ContractProbeFixtures(unittest.TestCase):
             "contract_version": 1,
             "source_tree_oid": "b" * 64,
             "artifact_digests": {
-                f"epistemic_graph/contract/{name}": hashlib.sha256(data).hexdigest()
+                f"medulla/contract/{name}": hashlib.sha256(data).hexdigest()
                 for name, data in files.items()
             },
         }
@@ -247,9 +247,9 @@ class ContractProbeFixtures(unittest.TestCase):
         if sibling.is_file():
             data = sibling.read_bytes()
             self.contract.parent.joinpath("contract_errors.py").write_bytes(data)
-            manifest["artifact_digests"]["epistemic_graph/contract_errors.py"] = (
-                hashlib.sha256(data).hexdigest()
-            )
+            manifest["artifact_digests"]["medulla/contract_errors.py"] = hashlib.sha256(
+                data
+            ).hexdigest()
         fields = [manifest["source_tree_oid"]]
         for name, digest in sorted(manifest["artifact_digests"].items()):
             fields.extend([name, digest])
@@ -266,15 +266,12 @@ class ContractProbeFixtures(unittest.TestCase):
         info.joinpath("METADATA").write_text("Name: medulla\nVersion: 0\n")
         self.record = info / "RECORD"
         self.record.write_text(
-            "".join(
-                f"epistemic_graph/contract/{name},,\n"
-                for name in [*files, "receipt.json"]
-            )
+            "".join(f"medulla/contract/{name},,\n" for name in [*files, "receipt.json"])
         )
 
         if sibling.is_file():
             with self.record.open("a") as record:
-                record.write("epistemic_graph/contract_errors.py,,\n")
+                record.write("medulla/contract_errors.py,,\n")
 
     def _run_fixture(self) -> subprocess.CompletedProcess[str]:
         # -I -S excludes checkout and installed packages; only this synthetic site
@@ -320,8 +317,7 @@ class ContractProbeFixtures(unittest.TestCase):
                     extra.write_text("{}")
                 if location != "filesystem":
                     self.record.write_text(
-                        original_record
-                        + "epistemic_graph/contract/schemas/extra.json,,\n"
+                        original_record + "medulla/contract/schemas/extra.json,,\n"
                     )
                 self._assert_rejected(
                     "RECORD schema inventory mismatch"
@@ -334,7 +330,7 @@ class ContractProbeFixtures(unittest.TestCase):
         self.contract.joinpath("schemas/fixture.json").write_bytes(changed)
         receipt_path = self.contract / "receipt.json"
         receipt = json.loads(receipt_path.read_bytes())
-        receipt["artifact_digests"]["epistemic_graph/contract/schemas/fixture.json"] = (
+        receipt["artifact_digests"]["medulla/contract/schemas/fixture.json"] = (
             hashlib.sha256(changed).hexdigest()
         )
         self.assertEqual(receipt["contract_digest"], self.pin)
@@ -344,7 +340,7 @@ class ContractProbeFixtures(unittest.TestCase):
     def test_missing_expected_file_or_record_entry_is_rejected(self) -> None:
         original_record = self.record.read_text()
         self.record.write_text(
-            original_record.replace("epistemic_graph/contract/errors.json,,\n", "")
+            original_record.replace("medulla/contract/errors.json,,\n", "")
         )
         self._assert_rejected("RECORD omits expected contract files")
         self.record.write_text(original_record)
@@ -354,7 +350,7 @@ class ContractProbeFixtures(unittest.TestCase):
     def test_removed_manifest_entry_and_file_are_rejected(self) -> None:
         receipt_path = self.contract / "receipt.json"
         receipt = json.loads(receipt_path.read_bytes())
-        del receipt["artifact_digests"]["epistemic_graph/contract/errors.json"]
+        del receipt["artifact_digests"]["medulla/contract/errors.json"]
         receipt_path.write_text(json.dumps(receipt))
         self.contract.joinpath("errors.json").unlink()
         self._assert_rejected(
@@ -371,20 +367,20 @@ class WheelContractSurface(unittest.TestCase):
         text = _PYPROJECT.read_text(encoding="utf-8")
         includes = tomllib.loads(text)["tool"]["maturin"]["include"]
         for required in (
-            "epistemic_graph/contract/receipt.json",
-            "epistemic_graph/contract/errors.json",
-            "epistemic_graph/contract/methods.json",
-            "epistemic_graph/contract/schemas/**/*.json",
+            "medulla/contract/receipt.json",
+            "medulla/contract/errors.json",
+            "medulla/contract/methods.json",
+            "medulla/contract/schemas/**/*.json",
         ):
             self.assertIn(required, includes)
 
     def test_missing_or_sdist_only_contract_include_is_rejected(self) -> None:
         original = _PYPROJECT.read_text(encoding="utf-8")
         for required in (
-            "epistemic_graph/contract/receipt.json",
-            "epistemic_graph/contract/errors.json",
-            "epistemic_graph/contract/methods.json",
-            "epistemic_graph/contract/schemas/**/*.json",
+            "medulla/contract/receipt.json",
+            "medulla/contract/errors.json",
+            "medulla/contract/methods.json",
+            "medulla/contract/schemas/**/*.json",
         ):
             for replacement in ("", f'{{ path = "{required}", format = "sdist" }},'):
                 with self.subTest(required=required, replacement=replacement):
@@ -423,7 +419,7 @@ class WheelContractSurface(unittest.TestCase):
     def _probe_outside_checkout(self, interpreter: str, *, staged: bool) -> None:
         with tempfile.TemporaryDirectory(prefix="eg-contract-probe-") as temp:
             scratch = Path(temp)
-            package = scratch / "epistemic_graph/contract"
+            package = scratch / "medulla/contract"
             flags = ["-I"]
             if staged:
                 shutil.copytree(_SHIPPED_RECEIPT.parent, package)
@@ -489,7 +485,7 @@ class WheelContractSurface(unittest.TestCase):
         for path in _package_modules():
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for module in _module_scope_imports(tree):
-                if module in stdlib or module == "epistemic_graph":
+                if module in stdlib or module == "medulla":
                     continue
                 if module.lower() not in declared:
                     undeclared.setdefault(module, []).append(

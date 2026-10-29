@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from epistemic_graph.generated import models
+from medulla.generated import models
 
 pytestmark = pytest.mark.no_engine
 

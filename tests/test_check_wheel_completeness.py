@@ -29,8 +29,8 @@ from scripts.check_wheel_completeness import check_wheel, main
 pytestmark = pytest.mark.no_engine
 
 VERSION = "9.9.9"
-DIST_INFO = f"epistemic_graph-{VERSION}.dist-info"
-DATA_SCRIPTS = f"epistemic_graph-{VERSION}.data/scripts"
+DIST_INFO = f"medulla-{VERSION}.dist-info"
+DATA_SCRIPTS = f"medulla-{VERSION}.data/scripts"
 
 METADATA_COMPLETE = f"""Metadata-Version: 2.3
 Name: medulla
@@ -123,11 +123,14 @@ def _build_wheel(
 
 def _complete_members(metadata: str = METADATA_COMPLETE) -> dict[str, bytes]:
     return {
+        "medulla/__init__.py": b"",
+        "medulla/client.py": b"",
+        "medulla/numeric.abi3.so": b"\x7fELF-kernel",
+        "medulla/kvcache/__init__.py": b"",
+        "medulla/skills/kg-modality-sql/SKILL.md": b"# skill",
+        # The pre-rename import name: re-exports `medulla` for one release.
         "epistemic_graph/__init__.py": b"",
-        "epistemic_graph/client.py": b"",
-        "epistemic_graph/numeric.abi3.so": b"\x7fELF-kernel",
-        "epistemic_graph/kvcache/__init__.py": b"",
-        "epistemic_graph/skills/kg-modality-sql/SKILL.md": b"# skill",
+        "epistemic_graph/engine.py": b"",
         f"{DIST_INFO}/METADATA": metadata.encode(),
         f"{DIST_INFO}/WHEEL": b"Wheel-Version: 1.0\n",
     }
@@ -136,7 +139,7 @@ def _complete_members(metadata: str = METADATA_COMPLETE) -> dict[str, bytes]:
 @pytest.fixture
 def complete_wheel(tmp_path: Path) -> Path:
     return _build_wheel(
-        tmp_path / f"epistemic_graph-{VERSION}-py3-none-linux_x86_64.whl",
+        tmp_path / f"medulla-{VERSION}-py3-none-linux_x86_64.whl",
         members=_complete_members(),
         executable=set(),
     )
@@ -150,7 +153,7 @@ def test_a_correctly_folded_wheel_passes(complete_wheel: Path) -> None:
 def test_a_wheel_without_the_numeric_kernel_is_rejected(tmp_path: Path) -> None:
     """The 2.14.0-2.23.0 regression: the inject silently did not happen."""
     members = _complete_members()
-    del members["epistemic_graph/numeric.abi3.so"]
+    del members["medulla/numeric.abi3.so"]
     wheel = _build_wheel(
         tmp_path / "kernel-less.whl",
         members=members,
@@ -168,7 +171,7 @@ def test_a_wheel_without_the_engine_kernel_passes_by_default(tmp_path: Path) -> 
         members=_complete_members(),
         executable=set(),
     )
-    assert "epistemic_graph/engine.abi3.so" not in _complete_members()
+    assert "medulla/engine.abi3.so" not in _complete_members()
     assert check_wheel(wheel) == []
     assert main([str(wheel)]) == 0
 
@@ -192,7 +195,7 @@ def test_a_wheel_without_the_engine_kernel_is_rejected_when_required(
 def test_a_wheel_with_the_engine_kernel_passes_when_required(tmp_path: Path) -> None:
     """A correctly folded engine kernel satisfies --require-engine-kernel."""
     members = _complete_members()
-    members["epistemic_graph/engine.abi3.so"] = b"\x7fELF-engine-kernel"
+    members["medulla/engine.abi3.so"] = b"\x7fELF-engine-kernel"
     wheel = _build_wheel(
         tmp_path / "with-engine.whl",
         members=members,
@@ -205,9 +208,7 @@ def test_a_wheel_with_the_engine_kernel_passes_when_required(tmp_path: Path) -> 
 def test_a_windows_wheel_is_accepted(tmp_path: Path) -> None:
     """`.pyd` kernel + no POSIX mode bits is a valid wheel."""
     members = _complete_members()
-    members["epistemic_graph/numeric.pyd"] = members.pop(
-        "epistemic_graph/numeric.abi3.so"
-    )
+    members["medulla/numeric.pyd"] = members.pop("medulla/numeric.abi3.so")
     wheel = _build_wheel(tmp_path / "windows.whl", members=members)
     assert check_wheel(wheel) == []
 
@@ -251,13 +252,25 @@ def test_numpy_behind_an_extra_is_rejected(tmp_path: Path) -> None:
 
 def test_missing_package_data_is_rejected(tmp_path: Path) -> None:
     members = _complete_members()
-    del members["epistemic_graph/kvcache/__init__.py"]
+    del members["medulla/kvcache/__init__.py"]
     wheel = _build_wheel(
         tmp_path / "no-kvcache.whl",
         members=members,
         executable=set(),
     )
     assert any("kvcache" in failure for failure in check_wheel(wheel))
+
+
+def test_a_wheel_without_the_pre_rename_shim_is_rejected(tmp_path: Path) -> None:
+    members = _complete_members()
+    del members["epistemic_graph/engine.py"]
+    wheel = _build_wheel(
+        tmp_path / "shim-without-engine-alias.whl",
+        members=members,
+        executable=set(),
+    )
+    failures = check_wheel(wheel)
+    assert any("epistemic_graph" in failure for failure in failures), failures
 
 
 def test_an_inconsistent_record_is_rejected(tmp_path: Path) -> None:
@@ -289,8 +302,8 @@ def test_an_inconsistent_record_is_rejected(tmp_path: Path) -> None:
         ),
         pytest.param(
             METADATA_COMPLETE,
-            "epistemic_graph/client.py",
-            "RECORD size mismatch for epistemic_graph/client.py",
+            "medulla/client.py",
+            "RECORD size mismatch for medulla/client.py",
             id="record-size-wrong-with-correct-hash",
         ),
     ],
@@ -319,7 +332,7 @@ def test_main_reports_every_incomplete_wheel(tmp_path: Path, capsys) -> None:
         executable=set(),
     )
     members = _complete_members()
-    del members["epistemic_graph/numeric.abi3.so"]
+    del members["medulla/numeric.abi3.so"]
     bad = _build_wheel(
         tmp_path / "bad.whl",
         members=members,

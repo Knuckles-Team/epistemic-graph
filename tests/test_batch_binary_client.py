@@ -15,8 +15,8 @@ from typing import Any
 import msgpack
 import pytest
 
-from epistemic_graph import client as client_module
-from epistemic_graph.client import (
+from medulla import client as client_module
+from medulla.client import (
     EdgeClient,
     EpistemicGraphClient,
     LifecycleClient,

@@ -28,7 +28,7 @@ import msgpack
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import (
+from medulla.client import (
     EpistemicGraphClient,
     SyncEpistemicGraphClient,
     _TlsDecision,

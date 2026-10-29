@@ -2,7 +2,7 @@
 """Fold the core ontology, shapes and catalog into the medulla wheel.
 
 ``crates/eg-core/ontology/*.ttl`` is the only copy in git. This step copies those
-files into ``epistemic_graph/ontology/`` inside the built wheel (RECORD recomputed)
+files into ``medulla/ontology/`` inside the built wheel (RECORD recomputed)
 and then verifies the packaged set equals the source set by name and sha256, so the
 wheel cannot drift from the source or silently lose a file.
 
@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.inject_numeric_kernel import _record_bytes
 
-PACKAGE_DIR = "epistemic_graph/ontology"
+PACKAGE_DIR = "medulla/ontology"
 DEFAULT_SOURCE = Path(__file__).resolve().parent.parent / "crates/eg-core/ontology"
 
 

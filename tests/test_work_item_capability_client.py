@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import (
+from medulla.client import (
     EpistemicGraphClient,
     WorkItemClient,
     _work_item_capability_result,

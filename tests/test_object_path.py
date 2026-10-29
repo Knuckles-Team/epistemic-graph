@@ -2,7 +2,7 @@
 
 import pytest
 
-from epistemic_graph.object_path import find_object_path
+from medulla.object_path import find_object_path
 
 # Pure unit tests over a mock graph reader -- never needs the shared native
 # engine (see conftest.py's session-scoped `start_epistemic_graph_server`

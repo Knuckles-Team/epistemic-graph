@@ -1,7 +1,7 @@
 """PA6: every validation rule G1-G21 refuses its planted defect in the live engine.
 
 Each case of the synthetic planted-pack catalogue differs from a well-formed
-pack by exactly one defect (``epistemic_graph.testing.synthetic.packs``). This
+pack by exactly one defect (``medulla.testing.synthetic.packs``). This
 test binds an importer through the admin surface, uploads the case's archive
 through the Blob CAS, imports it through ``ConnectorPack.import`` and requires
 the engine to name the planted rule:
@@ -32,10 +32,10 @@ from typing import Any, Protocol, cast
 import pytest
 from conftest import TEST_AGENT_ID, TEST_TENANT, request_context
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.testing.synthetic.packs.catalogue import MUTATIONS
-from epistemic_graph.testing.synthetic.packs.malformed import MalformedPack, base_spec
-from epistemic_graph.testing.synthetic.packs.model import BuiltPack
+from medulla.client import EpistemicGraphClient
+from medulla.testing.synthetic.packs.catalogue import MUTATIONS
+from medulla.testing.synthetic.packs.malformed import MalformedPack, base_spec
+from medulla.testing.synthetic.packs.model import BuiltPack
 
 #: Codes a request decoder enforces through the closed wire types, before any
 #: validation rule can run.

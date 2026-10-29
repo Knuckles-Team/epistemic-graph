@@ -8,13 +8,13 @@ from typing import Any, cast
 import pytest
 from _client_fixtures import RecordingTransport, SentCall
 
-import epistemic_graph
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.generated.policy_evolution import (
+import medulla
+from medulla.client import EpistemicGraphClient
+from medulla.generated.policy_evolution import (
     OpenWeightPolicyCapability,
     PolicyCapture,
 )
-from epistemic_graph.policy_evolution import (
+from medulla.policy_evolution import (
     PolicyEvolutionClient,
     PolicyEvolutionRefused,
     refusal_of,
@@ -132,5 +132,5 @@ def test_get_answers_none_for_an_absent_record() -> None:
 
 
 def test_the_client_is_exported_and_mounted() -> None:
-    assert epistemic_graph.PolicyEvolutionClient is PolicyEvolutionClient
-    assert epistemic_graph.PolicyEvolutionRefused is PolicyEvolutionRefused
+    assert medulla.PolicyEvolutionClient is PolicyEvolutionClient
+    assert medulla.PolicyEvolutionRefused is PolicyEvolutionRefused

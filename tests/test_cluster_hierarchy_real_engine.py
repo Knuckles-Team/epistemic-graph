@@ -21,7 +21,7 @@ import os
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient
+from medulla.client import EpistemicGraphClient
 
 TENANT = "viz1_cluster_hierarchy_e2e"
 

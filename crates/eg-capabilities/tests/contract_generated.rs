@@ -2,7 +2,7 @@
 //!
 //! `gen_contract --check` is the same assertion as a shell command; running it here as
 //! well means a stale `contract/`, `docs/capabilities.generated.md` or
-//! `epistemic_graph/generated/**` fails `cargo test`, not only the pre-push hook.
+//! `medulla/generated/**` fails `cargo test`, not only the pre-push hook.
 //!
 //! It needs the schemas, so it can only exist under the generator's own profile:
 //! `cargo test -p eg-capabilities --features contract`. A plain `cargo test
@@ -72,7 +72,7 @@ fn question_kind_lists_harness_config() {
     assert!(checked.contains("method.request.json"));
     assert!(checked.iter().any(|name| name.starts_with("result.")));
     let models =
-        std::fs::read_to_string(repo_root().join("epistemic_graph/generated/models.py")).unwrap();
+        std::fs::read_to_string(repo_root().join("medulla/generated/models.py")).unwrap();
     assert!(models.contains("Literal[\"harness_config\"]"));
     let vectors = committed_json("contract/fixtures/method_body_vectors.json");
     assert!(vectors["vectors"].as_array().unwrap().iter().any(|row| {
@@ -167,7 +167,7 @@ fn split_transaction_result_marker_is_collected_by_the_generator() {
 
     let transactions = artifacts
         .iter()
-        .find(|artifact| artifact.path == "epistemic_graph/generated/transactions.py")
+        .find(|artifact| artifact.path == "medulla/generated/transactions.py")
         .expect("the generator renders the transactions client");
     let transactions = String::from_utf8_lossy(&transactions.bytes);
     // `chore: normalize generated Python contracts` (53039e03f) legitimately split every

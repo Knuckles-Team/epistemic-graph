@@ -402,7 +402,7 @@ jobs:
       #
       # There is exactly ONE published package, `medulla` (CONCEPT:EG-346,
       # see the injector under scripts/) — the numeric kernel ships INSIDE its
-      # wheel as a native `epistemic_graph.numeric` extension. There is NO
+      # wheel as a native `medulla.numeric` extension. There is NO
       # separately published/installed `eg-numeric` package. This job used to
       # `pip install --no-index --find-links target/wheels eg-numeric`, which
       # installed the intermediate build artifact as a standalone top-level
@@ -420,7 +420,7 @@ jobs:
       # exact same fold the real release path performs per-platform below —
       # see "Fold primary/reproduction numeric kernel into the epistemic-graph
       # wheel") — and installs THAT into a clean throwaway venv. The parity and
-      # boundary-contract tests then exercise `epistemic_graph.numeric` from the
+      # boundary-contract tests then exercise `medulla.numeric` from the
       # natively-injected wheel, never a standalone `eg-numeric` install.
       - name: Install maturin + parity deps
         run: pip install 'maturin>=1,<2' numpy pytest
@@ -472,8 +472,8 @@ jobs:
           "$EG_GATES_WHEEL_VENV/bin/pip" install --upgrade pip
           "$EG_GATES_WHEEL_VENV/bin/pip" install numpy pytest "$(ls dist-gates/medulla-*.whl)"
       # Run from a scratch directory, NOT the repo root. `python -m pytest` puts
-      # CWD first on sys.path, so from the root `import epistemic_graph.numeric`
-      # resolves the SOURCE TREE's `epistemic_graph/numeric.abi3.so` — a
+      # CWD first on sys.path, so from the root `import medulla.numeric`
+      # resolves the SOURCE TREE's `medulla/numeric.abi3.so` — a
       # gitignored build artifact — instead of the wheel just installed into the
       # venv. That silently inverts the entire point of these two steps, which
       # exist to test the INSTALLED artifact.
@@ -505,16 +505,38 @@ jobs:
           cd "$(mktemp -d)"
           PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
             "$REPO/crates/eg-numeric/tests/test_builtin_boundary.py" --noconftest -q
-      # BUG-PE-002: `import epistemic_graph.engine` must succeed from the INSTALLED
+      # BUG-PE-002: `import medulla.engine` must succeed from the INSTALLED
       # wheel, exactly the same shadowing-avoidance discipline as the numeric smoke
       # check above (a bare `python -c` at the repo root would resolve the SOURCE
       # tree instead of the venv's installed wheel).
-      - name: engine kernel smoke test (import epistemic_graph.engine)
+      - name: engine kernel smoke test (import medulla.engine)
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
           PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -c \
-            "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
+            "import medulla.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
+      # The pre-rename import name ships for ONE release: `epistemic_graph` must
+      # import (with a DeprecationWarning) from the INSTALLED wheel, re-export
+      # `medulla`'s public surface, and alias the SAME `medulla.engine` module.
+      - name: pre-rename shim smoke test (import epistemic_graph)
+        run: |
+          REPO="$PWD"
+          cd "$(mktemp -d)"
+          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" - <<'PY'
+          import sys, warnings
+          with warnings.catch_warnings(record=True) as caught:
+              warnings.simplefilter("always")
+              import epistemic_graph
+          assert [w for w in caught if issubclass(w.category, DeprecationWarning)], caught
+          import medulla
+          import epistemic_graph.engine as alias
+          import medulla.engine as engine
+          assert alias is engine, (alias, engine)
+          assert alias is sys.modules["epistemic_graph.engine"]
+          missing = [name for name in medulla.__all__ if not hasattr(epistemic_graph, name)]
+          assert not missing, missing
+          print("pre-rename shim OK:", epistemic_graph.__file__)
+          PY
       # EG-CONTRACT-R002.3: the Decide/pack-import client surface that the
       # EG-CONTRACT-R002.1/.2 served tests exercise must itself resolve from this
       # installed wheel, not the source tree -- same shadowing-avoidance
@@ -865,7 +887,7 @@ jobs:
   # Environment prerequisites that manual run needed and a bare checkout does
   # not otherwise provide — each satisfied HERE, not by skipping the tests that
   # need them:
-  #   * distribution metadata — `epistemic_graph/client_capabilities.py` calls
+  #   * distribution metadata — `medulla/client_capabilities.py` calls
   #     `importlib.metadata.version("medulla")`, which
   #     `PackageNotFoundError`s against an uninstalled source checkout. Rather
   #     than a real (and, for this `bindings = "bin"` project, ~minutes-long)
@@ -888,7 +910,7 @@ jobs:
   #     Fixed in the test itself (not skipped) in the same change that adds
   #     this job.
   #
-  # `tests/parity/` additionally needs the in-process `epistemic_graph.engine`
+  # `tests/parity/` additionally needs the in-process `medulla.engine`
   # pyo3 extension (`crates/eg-pyengine --features python,security`) built into the
   # tree — see that test module's own docstring ("NOT expected to pass in this
   # session"). `scripts/build_pyengine_kernel.py` is the mounted/editable-path
@@ -1041,7 +1063,7 @@ jobs:
       # The build script only WARNS when it cannot load what it built (it also
       # serves cross-builds). Here the interpreter that runs pytest must load it.
       - name: Prove the pytest interpreter imports the pyengine extension
-        run: python3 -c "import epistemic_graph.engine as e; assert e.__engine__ == 'eg-pyengine', e.__engine__; print(e.__file__)"
+        run: python3 -c "import medulla.engine as e; assert e.__engine__ == 'eg-pyengine', e.__engine__; print(e.__file__)"
 
       - name: Generate installed-distribution metadata (maturin write-dist-info — no compile)
         run: |
@@ -1503,7 +1525,7 @@ jobs:
           cp dist-primary/medulla-*.whl dist/
           (cd dist && sha256sum medulla-*.whl > SHA256SUMS)
 
-      - name: Smoke test (no executables + import epistemic_graph.{numeric,engine})
+      - name: Smoke test (no executables + import medulla.{numeric,engine})
         shell: bash
         run: bash scripts/release_wheel_smoke.sh
 

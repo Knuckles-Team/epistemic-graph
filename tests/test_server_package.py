@@ -110,7 +110,7 @@ def test_package_ships_binary_path_and_its_tests() -> None:
     assert "def binary_path()" in init
     assert "class BinaryNotFoundError(FileNotFoundError)" in init
     assert (PACKAGE / "tests/test_binary_path.py").is_file()
-    server_binary = (ROOT / "epistemic_graph/server_binary.py").read_text()
+    server_binary = (ROOT / "medulla/server_binary.py").read_text()
     assert "from epistemic_graph_server import binary_path" in server_binary
 
 

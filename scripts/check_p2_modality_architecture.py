@@ -238,7 +238,7 @@ def main() -> None:
         read_module_tree("src/server/mutation.rs", root_dir=ROOT)
     )
     require_modality_raft_replication()
-    require_ingest_stream_item_bound(read("epistemic_graph/client.py"))
+    require_ingest_stream_item_bound(read("medulla/client.py"))
     print("P2 modality architecture gate passed")
 
 

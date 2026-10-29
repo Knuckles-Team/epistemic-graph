@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import ConsensusClient, EpistemicGraphClient
+from medulla.client import ConsensusClient, EpistemicGraphClient
 
 pytestmark = pytest.mark.no_engine
 

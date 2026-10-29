@@ -10,7 +10,7 @@ from typing import Any, cast
 import pytest
 from _client_send_stub import CapturingEngine
 
-from epistemic_graph.client import (
+from medulla.client import (
     ControlLeaseClient,
     EpistemicGraphClient,
     _control_lease_view,

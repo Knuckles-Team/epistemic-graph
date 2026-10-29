@@ -8,8 +8,8 @@ from typing import Any, cast
 import pytest
 from _client_send_stub import CapturingEngine as FakeEngine
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.work_market import GapClient, WorkMarketClient
+from medulla.client import EpistemicGraphClient
+from medulla.work_market import GapClient, WorkMarketClient
 
 pytestmark = pytest.mark.no_engine
 

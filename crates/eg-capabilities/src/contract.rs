@@ -37,7 +37,7 @@ pub struct Artifact {
 /// The HAND-WRITTEN client surfaces consumers depend on, digested into
 /// `receipt.json.source_tree_oid`.
 ///
-/// `epistemic_graph/client.py` is the transport every one of agent-utilities'
+/// `medulla/client.py` is the transport every one of agent-utilities'
 /// import lines consumes (`SyncEpistemicGraphClient`, framing, auth, pooling), and
 /// `connector_pack.py` implements the Rust-owned ConnectorPack framed identity and
 /// replay key the SDK consumes. Neither is generated, so nothing else would bind
@@ -45,13 +45,13 @@ pub struct Artifact {
 ///
 /// The Rust sources the contract is generated FROM are deliberately not listed:
 /// every effect they have on the contract shows up in the generated half --
-/// `contract/**` and `epistemic_graph/generated/**` -- which `artifact_digests`
+/// `contract/**` and `medulla/generated/**` -- which `artifact_digests`
 /// binds file by file. Hashing their raw bytes (or `pyproject.toml`, or
 /// `Cargo.lock`) only made comment edits and dependency bumps look like
 /// contract changes.
 const HAND_WRITTEN_INPUTS: &[&str] = &[
-    "epistemic_graph/client.py",
-    "epistemic_graph/connector_pack.py",
+    "medulla/client.py",
+    "medulla/connector_pack.py",
 ];
 
 /// The optional surfaces this build selected, in declaration order.
@@ -362,11 +362,11 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     // The packaged copy is what agent-utilities generates its session-scope
     // allowlist from; both are digested, so neither can drift.
     out.push(Artifact {
-        path: "epistemic_graph/contract/scopes.json".to_string(),
+        path: "medulla/contract/scopes.json".to_string(),
         bytes: scopes,
     });
     out.push(Artifact {
-        path: "epistemic_graph/generated/_task_plan_feature_schema.py".to_string(),
+        path: "medulla/generated/_task_plan_feature_schema.py".to_string(),
         bytes: task_plan_feature_schema_module(),
     });
     out.extend(package_contract_artifacts(&out));
@@ -442,7 +442,7 @@ fn package_contract_artifacts(artifacts: &[Artifact]) -> Vec<Artifact> {
             ) || artifact.path.starts_with("contract/schemas/")
         })
         .map(|artifact| Artifact {
-            path: format!("epistemic_graph/{}", artifact.path),
+            path: format!("medulla/{}", artifact.path),
             bytes: artifact.bytes.clone(),
         })
         .collect()
@@ -475,7 +475,7 @@ fn scopes_json() -> Vec<u8> {
 /// Render every committed contract artifact, receipt last.
 ///
 /// The receipt is written TWICE, byte-identically: once at the repo root and once inside
-/// the published package as `epistemic_graph/contract/receipt.json`, which is the only
+/// the published package as `medulla/contract/receipt.json`, which is the only
 /// copy a `pip install`ed consumer can read. Neither copy appears in `artifact_digests`
 /// (a digest cannot contain itself); `--check` compares both against the tree, so the
 /// shipped copy can never drift from the root one.
@@ -489,7 +489,7 @@ pub fn render_all(root: &Path) -> Vec<Artifact> {
         bytes: receipt.clone(),
     });
     artifacts.push(Artifact {
-        path: "epistemic_graph/contract/receipt.json".to_string(),
+        path: "medulla/contract/receipt.json".to_string(),
         bytes: receipt,
     });
     // Written LAST and outside `artifact_digests`, exactly like the receipt it
@@ -550,8 +550,8 @@ pub fn write_all(root: &Path) -> std::io::Result<usize> {
 const GENERATED_DIRS: &[&str] = &[
     "contract/fixtures",
     "contract/schemas",
-    "epistemic_graph/contract/schemas",
-    "epistemic_graph/generated",
+    "medulla/contract/schemas",
+    "medulla/generated",
 ];
 
 /// Files under [`GENERATED_DIRS`] that no artifact renders.
@@ -685,7 +685,7 @@ mod package_projection_tests {
         );
         assert!(expected.len() > 2, "schema projection cannot be empty");
         for path in expected {
-            let packaged = format!("epistemic_graph/{path}");
+            let packaged = format!("medulla/{path}");
             assert_eq!(by_path[path], by_path[packaged.as_str()], "{path}");
             for bound in [path, packaged.as_str()] {
                 assert_eq!(
@@ -697,7 +697,7 @@ mod package_projection_tests {
         }
         assert_eq!(
             by_path["contract/receipt.json"],
-            by_path["epistemic_graph/contract/receipt.json"]
+            by_path["medulla/contract/receipt.json"]
         );
     }
 
@@ -709,8 +709,8 @@ mod package_projection_tests {
         let root = temp.path();
 
         for relative in [
-            "epistemic_graph/client.py",
-            "epistemic_graph/connector_pack.py",
+            "medulla/client.py",
+            "medulla/connector_pack.py",
         ] {
             let destination = root.join(relative);
             fs::create_dir_all(destination.parent().unwrap()).unwrap();
@@ -738,7 +738,7 @@ mod package_projection_tests {
             "fresh generated receipt must check clean"
         );
 
-        let client = root.join("epistemic_graph/client.py");
+        let client = root.join("medulla/client.py");
         fs::write(&client, b"# changed client fixture\n").unwrap();
         let client_drift = check(root).unwrap_err();
         assert!(
@@ -747,7 +747,7 @@ mod package_projection_tests {
                 .any(|finding| finding.contains("contract/receipt.json")),
             "Python client edit must make the full receipt stale: {client_drift:?}"
         );
-        fs::copy(source.join("epistemic_graph/client.py"), &client).unwrap();
+        fs::copy(source.join("medulla/client.py"), &client).unwrap();
 
         let rust_source = root.join("crates/eg-types/src/receipt_fixture.rs");
         let mut changed = fs::read(&rust_source).unwrap();
@@ -780,7 +780,7 @@ mod package_projection_tests {
             "contract/scopes.json",
             "contract/receipt.json",
             "contract/fixtures/example.json",
-            "epistemic_graph/contract/methods.json",
+            "medulla/contract/methods.json",
             "docs/capabilities.generated.md",
         ]
         .into_iter()

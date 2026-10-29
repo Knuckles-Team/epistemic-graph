@@ -14,7 +14,7 @@ That check had no test anywhere in this repository before R002.1 -- not a
 Rust unit test, and no served Python test at all exercised ``Decide`` or
 ``DecisionLog`` against a live engine (checked: no ``tests/served_*.{py,rs}``
 file names ``Decide``). R002.1 proved the refusal side end-to-end through the
-generated sender (``epistemic_graph.decision_client.DecisionClient``, over
+generated sender (``medulla.decision_client.DecisionClient``, over
 the installed wire client, no source-tree import) against the real server
 binary this suite's session fixture starts, not an in-process reasoning
 check.
@@ -41,10 +41,10 @@ import pytest
 from conftest import TEST_TENANT, request_context
 from test_connector_pack_planted import IMPORTER, _bind, _import, _pack_op
 
-from epistemic_graph import decision_client as dc
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.testing.synthetic.packs.malformed import base_spec
-from epistemic_graph.testing.synthetic.packs.spec import assemble
+from medulla import decision_client as dc
+from medulla.client import EpistemicGraphClient
+from medulla.testing.synthetic.packs.malformed import base_spec
+from medulla.testing.synthetic.packs.spec import assemble
 
 #: A structurally valid, semantically empty DecideRequest: the tenant check
 #: in `serve()` runs before any candidate/feature resolution, so a minimal

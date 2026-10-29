@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 TEST_AGENT_ID = "service:test-suite"
 TEST_SIGNER_KEY = "test-operation-signer-key"  # sanitizer:ignore — test-only value
@@ -175,7 +175,7 @@ def find_server_binary() -> str | None:
     for candidate in candidates:
         if os.path.isfile(candidate):
             return candidate
-    from epistemic_graph.server_binary import (
+    from medulla.server_binary import (
         ServerBinaryNotFoundError,
         resolve_server_binary,
     )

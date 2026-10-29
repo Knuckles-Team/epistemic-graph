@@ -73,7 +73,7 @@ itemsets (asserted by a parity test), so rule generation is shared. The metrics:
 graph-derived `source` — never both (explicit wins).
 
 ```python
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 c = SyncEpistemicGraphClient.connect(socket_path="/run/epistemic-graph/shard-0.sock")
 
@@ -159,7 +159,7 @@ IMPLEMENTS a `Capability`; each paper's neighborhood is one transaction over
 implement Z"):
 
 ```python
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 c = SyncEpistemicGraphClient.connect(socket_path="/run/epistemic-graph/shard-0.sock")
 c.graph.clear()
@@ -281,7 +281,7 @@ score}` (score = mean member→centroid distance; GMM also returns
 `responsibilities`).
 
 ```python
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 c = SyncEpistemicGraphClient.connect(socket_path="/run/epistemic-graph/shard-0.sock")
 

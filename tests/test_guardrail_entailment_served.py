@@ -14,8 +14,8 @@ import pytest
 from conftest import TEST_TENANT, request_context
 from test_canonical_body_served import _library_context, _skill_draft
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.generated import storage
+from medulla.client import EpistemicGraphClient
+from medulla.generated import storage
 
 
 async def _publish_rule(

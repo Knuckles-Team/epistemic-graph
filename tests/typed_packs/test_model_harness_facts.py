@@ -14,18 +14,18 @@ from pydantic import ValidationError
 from test_connector_pack_client import _catalog
 from test_connector_pack_planted import IMPORTER, _bind, _context
 
-from epistemic_graph import (
+from medulla import (
     ConnectorPackArchiveBuilder,
     ConnectorPackClient,
     ConnectorPackEntryContent,
 )
-from epistemic_graph.client import (
+from medulla.client import (
     EpistemicGraphClient,
     _canonical_method_body,
     _decode_send_result,
 )
-from epistemic_graph.connector_pack import connector_pack_import_key
-from epistemic_graph.generated.connector_pack import (
+from medulla.connector_pack import connector_pack_import_key
+from medulla.generated.connector_pack import (
     PackAnnotations,
     PackEntryKind,
     PackModelFacts,

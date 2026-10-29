@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from _untyped import untyped
 
-from epistemic_graph.client import (
+from medulla.client import (
     EpistemicGraphClient,
     KnowledgeStreamClient,
     ServedModalityClient,

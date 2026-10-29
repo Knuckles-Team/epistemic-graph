@@ -12,8 +12,8 @@ from typing import Any
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient, NodeClient
-from epistemic_graph.pool import ShardRouter
+from medulla.client import EpistemicGraphClient, NodeClient
+from medulla.pool import ShardRouter
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,

@@ -19,7 +19,7 @@
 # Published ports (all bound to 127.0.0.1 — bind a routable host explicitly and put
 # TLS at the edge before exposing beyond localhost):
 #   5433  Postgres wire (psql / DBeaver / BI / ORMs)
-#   9100  MessagePack RPC (native epistemic_graph client — optional)
+#   9100  MessagePack RPC (native medulla client — optional)
 #   9101  Prometheus /metrics
 #
 # The durable redb-authoritative store lives in the named volume `eg-standalone-data`

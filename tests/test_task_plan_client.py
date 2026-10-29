@@ -2,7 +2,7 @@
 
 import pytest
 
-from epistemic_graph.decision_client import task_plan_request
+from medulla.decision_client import task_plan_request
 
 pytestmark = pytest.mark.no_engine
 

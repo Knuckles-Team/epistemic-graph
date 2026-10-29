@@ -112,7 +112,7 @@ jobs:
           import hashlib, subprocess, textwrap
           from pathlib import Path
           source = Path('.github/workflows/release.yml').read_text()
-          marker = '      - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})\n'
+          marker = '      - name: Smoke test (server --help + import medulla.{numeric,engine})\n'
           assert source.count(marker) == 1
           block = source.split(marker, 1)[1].split('      - name:', 1)[0]
           commands = textwrap.dedent(block.split('        run: |\n', 1)[1]).rstrip() + '\n'

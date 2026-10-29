@@ -12,7 +12,7 @@ import pytest
 from _client_fixtures import unused_reader, unused_writer
 from _untyped import untyped
 
-from epistemic_graph.client import (
+from medulla.client import (
     ChangeEnvelopeClient,
     EpistemicGraphClient,
     TimeSeriesClient,
@@ -391,7 +391,7 @@ def test_v2_token_oidc_token_does_not_change_the_mac(monkeypatch) -> None:
     reason alone regardless of `oidc_token` -- freeze both to isolate
     `oidc_token` as the ONLY variable between calls.
     """
-    import epistemic_graph.client as client_module
+    import medulla.client as client_module
 
     monkeypatch.setattr(client_module.time, "time", lambda: 1_700_000_000)
     monkeypatch.setattr(client_module.secrets, "token_hex", lambda _n: "fixed-nonce")

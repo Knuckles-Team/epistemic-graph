@@ -101,7 +101,7 @@ node operations without starting a service:
 
 ```python
 import msgpack
-from epistemic_graph.engine import Engine
+from medulla.engine import Engine
 
 engine = Engine(persist_dir=":memory:")
 engine.create_graph("demo")

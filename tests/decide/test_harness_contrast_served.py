@@ -35,10 +35,10 @@ from _harness_envelope import graph_name as _graph_name
 from _harness_envelope import op
 from conftest import TEST_TENANT, request_context
 
-from epistemic_graph import decision_client as dc
-from epistemic_graph import decision_stat as ds
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.decision import digest_text
+from medulla import decision_client as dc
+from medulla import decision_stat as ds
+from medulla.client import EpistemicGraphClient
+from medulla.decision import digest_text
 
 Q32 = 1 << 32
 #: The two components whose versions the contrast candidates are: one

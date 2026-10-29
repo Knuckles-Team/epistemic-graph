@@ -21,7 +21,7 @@ from urllib.parse import unquote, urlsplit
 
 import pytest
 
-from epistemic_graph.kvcache import (
+from medulla.kvcache import (
     HTTPX_AVAILABLE,
     HttpxTransport,
     KvCacheConfig,

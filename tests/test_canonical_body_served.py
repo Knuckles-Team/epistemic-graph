@@ -22,14 +22,14 @@ from conftest import (
     request_context,
 )
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.generated.agent_component import (
+from medulla.client import EpistemicGraphClient
+from medulla.generated.agent_component import (
     AgentComponentContentRequest,
     AgentComponentKind,
     AgentComponentOpCurrent,
     AgentComponentSearchRequest,
 )
-from epistemic_graph.generated.storage import (
+from medulla.generated.storage import (
     send_agent_component,
     send_agent_component_content,
     send_agent_component_current,

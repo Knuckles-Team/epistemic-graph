@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from epistemic_graph import decision_stat as ds
+from medulla import decision_stat as ds
 
 pytestmark = pytest.mark.no_engine
 
@@ -82,7 +82,7 @@ def test_body_json_preserves_constant_names_as_strings(constant: str) -> None:
 def test_task_plan_feature_schema_export_is_the_engine_body_and_digest():
     """The exported schema is self-consistent: its digest is the body's digest
     under the same codec the engine uses, and its publish identity is stable."""
-    from epistemic_graph.decision_client import TASK_PLAN_FEATURE_SCHEMA as pin
+    from medulla.decision_client import TASK_PLAN_FEATURE_SCHEMA as pin
 
     assert pin["kind"] == "feature_schema"
     assert pin["component_id"] == "task-plan-features"

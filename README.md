@@ -135,7 +135,7 @@ python -m pip install medulla
 python -m epistemic_graph.cli status  # no server is expected in embedded mode
 python - <<'PY'
 import msgpack
-from epistemic_graph.engine import Engine
+from medulla.engine import Engine
 
 engine = Engine(persist_dir=":memory:")
 engine.create_graph("demo")

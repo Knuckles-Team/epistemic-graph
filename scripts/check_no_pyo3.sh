@@ -10,7 +10,7 @@
 #
 #   (a) Out-of-process (the horizontal-scale default, what THIS gate covers) —
 #       Python talks to the engine over a socket. No pyo3 anywhere: `src/`,
-#       `epistemic_graph/` (the pure-Python client package), and the top-level
+#       `medulla/` (the pure-Python client package), and the top-level
 #       `Cargo.toml`/`pyproject.toml` (the server is not a maturin target).
 #   (b) Unified single binary (opt-in, the self-contained shape) — the engine
 #       is embedded in-process via pyo3, in `crates/eg-pyengine` (its OWN
@@ -41,7 +41,7 @@ fail=0
 hits="$(grep -rn --include='*.rs' --include='*.py' --include='*.toml' \
      -e 'pyo3' -e 'PyO3' -e '#\[pymethod' -e '#\[pyclass' \
      -e '#\[pymodule' -e 'allow_threads' \
-     src epistemic_graph Cargo.toml pyproject.toml 2>/dev/null \
+     src medulla Cargo.toml pyproject.toml 2>/dev/null \
      | grep -v -e 'pyo3-engine' -e 'eg-pyengine' -e 'eg_pyengine' \
                -e 'check_no_pyo3' -e 'pyo3_inprocess_vs_uds' || true)"
 if [[ -n "$hits" ]]; then
@@ -52,19 +52,19 @@ fi
 
 # 2. No compiled PyO3 extension shipped in the package dir. Scoped to the
 #    filenames the pre-Plan-01 whole-package extension used
-#    (`_epistemic_graph*`/`epistemic_graph*.so`) — the two KNOWN, ALLOWED,
-#    opt-in native extensions (`epistemic_graph/numeric*.so`, the eg-numeric
-#    kernel; `epistemic_graph/engine*.so`, the eg-pyengine unified binding) are
+#    (`_epistemic_graph*`/`medulla*.so`) — the two KNOWN, ALLOWED,
+#    opt-in native extensions (`medulla/numeric*.so`, the eg-numeric
+#    kernel; `medulla/engine*.so`, the eg-pyengine unified binding) are
 #    module-named differently on purpose and are never produced by this
 #    (scale-out) build path anyway — only an explicit
 #    `maturin build -m crates/{eg-numeric,eg-pyengine}/Cargo.toml --features
 #    python` + injection step produces them, never `cargo build`/plain
 #    `maturin build` at the repo root.
-if compgen -G "epistemic_graph/_epistemic_graph*.so" > /dev/null \
-   || compgen -G "epistemic_graph/_epistemic_graph*.pyi" > /dev/null \
-   || compgen -G "epistemic_graph/epistemic_graph*.so" > /dev/null; then
-  echo "FAIL: compiled PyO3 extension / stub present in epistemic_graph/:" >&2
-  ls -1 epistemic_graph/_epistemic_graph* epistemic_graph/epistemic_graph*.so 2>/dev/null >&2 || true
+if compgen -G "medulla/_epistemic_graph*.so" > /dev/null \
+   || compgen -G "medulla/_epistemic_graph*.pyi" > /dev/null \
+   || compgen -G "medulla/medulla*.so" > /dev/null; then
+  echo "FAIL: compiled PyO3 extension / stub present in medulla/:" >&2
+  ls -1 medulla/_epistemic_graph* medulla/medulla*.so 2>/dev/null >&2 || true
   fail=1
 fi
 

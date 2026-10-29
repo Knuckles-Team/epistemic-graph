@@ -58,7 +58,7 @@ runs:
         workspaces: ". -> ${{ runner.temp }}/epistemic-graph-release-target"
         save-if: ${{ inputs.cache-save == 'true' }}
 
-    # The base wheel is the eg-pyengine PyO3 crate (`epistemic_graph.engine`) plus
+    # The base wheel is the eg-pyengine PyO3 crate (`medulla.engine`) plus
     # the pure-Python package, selected by `[tool.maturin] manifest-path` in
     # pyproject.toml. Nothing that is not an extension module is compiled.
     - name: Build engine extension wheel
@@ -75,7 +75,7 @@ runs:
     # ── Fold the eg-numeric Surface-A kernel INTO this same wheel (CONCEPT:EG-346).
     #    Build the pyo3 cdylib kernel (`crates/eg-numeric --features python`) for the
     #    SAME target, then inject its compiled extension (`.so`/`.pyd`) as
-    #    `epistemic_graph.numeric`. Result: ONE published `medulla` wheel that
+    #    `medulla.numeric`. Result: ONE published `medulla` wheel that
     #    ships BOTH extension modules and no executable -- no separate `eg-numeric`
     #    package on PyPI.
     - name: Build eg-numeric kernel (same target)

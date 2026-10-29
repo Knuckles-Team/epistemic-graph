@@ -2,7 +2,7 @@
 """Fold the eg-numeric Surface-A kernel into the medulla wheel (EG-346).
 
 There is exactly ONE published package — ``medulla`` — and the numeric
-kernel ships INSIDE its wheel as a native ``epistemic_graph.numeric`` extension
+kernel ships INSIDE its wheel as a native ``medulla.numeric`` extension
 (``.abi3.so`` on Unix or ``.pyd`` on Windows), the module the
 ``agent_utilities.numeric`` ``xp`` shim probes. There is NO separately published
 ``eg-numeric`` package.
@@ -11,7 +11,7 @@ The main ``medulla`` wheel is a maturin ``bindings="bin"`` wheel (it ships
 the ``epistemic-graph-server`` binary, no pyo3). The kernel is a SEPARATE maturin
 pyo3 cdylib build (``crates/eg-numeric --features python``). This script takes the
 already-built kernel wheel, lifts its compiled extension, and injects it
-into the server wheel as package data under the existing ``epistemic_graph``
+into the server wheel as package data under the existing ``medulla``
 package — recomputing ``RECORD`` so the wheel stays valid. The server wheel is
 rewritten in place.
 
@@ -20,7 +20,7 @@ Usage::
     python scripts/inject_numeric_kernel.py <server_wheel> <numeric_wheel>
 
 Both paths point at real ``.whl`` files. On success the server wheel contains the
-platform-native extension and ``import epistemic_graph.numeric`` works from the
+platform-native extension and ``import medulla.numeric`` works from the
 installed wheel.
 """
 
@@ -34,7 +34,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-TARGET_PACKAGE = "epistemic_graph"
+TARGET_PACKAGE = "medulla"
 EXTENSION_SUFFIXES = (".so", ".pyd")
 
 
@@ -49,7 +49,7 @@ def _find_kernel_extension(numeric_whl: Path) -> tuple[bytes, int, str]:
     Maturin names the pyo3 extension ``numeric.abi3.so`` on Unix and
     ``numeric.pyd`` (or an ABI-tagged equivalent) on Windows, inside a top-level
     ``numeric`` package. We preserve that platform-native basename when re-homing
-    the extension under ``epistemic_graph``.
+    the extension under ``medulla``.
 
     We also lift its mode (the high 16 bits of the zip ``external_attr``) so the
     re-homed extension keeps sane permissions in the rewritten wheel.

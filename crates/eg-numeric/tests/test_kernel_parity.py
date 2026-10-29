@@ -21,7 +21,7 @@ Run against the freshly-built, folded wheel — there is NO separately published
     pip install dist/medulla-*.whl
     pytest crates/eg-numeric/tests/test_kernel_parity.py --noconftest -q
 
-The module is discovered ONLY as ``epistemic_graph.numeric`` (the folded-in, natively
+The module is discovered ONLY as ``medulla.numeric`` (the folded-in, natively
 injected extension) — the same name the ``xp`` shim probes first. There is deliberately
 no fallback to a bare top-level ``numeric`` import: that name only resolves when
 ``eg-numeric`` was installed as its own standalone package, which is the exact
@@ -51,7 +51,7 @@ _kernel_module: Any = None
 # way.
 _m: Any = None
 try:
-    _m = importlib.import_module("epistemic_graph.numeric")
+    _m = importlib.import_module("medulla.numeric")
 except ImportError:
     pass
 if _m is not None and getattr(_m, "__kernel__", None) == "eg-numeric":

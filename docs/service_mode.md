@@ -18,7 +18,7 @@ epistemic-graph-server
 
 # 3. Use from Python
 python -c "
-from epistemic_graph import EpistemicGraphClient
+from medulla import EpistemicGraphClient
 import asyncio
 
 async def main():

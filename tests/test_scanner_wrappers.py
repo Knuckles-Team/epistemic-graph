@@ -88,7 +88,7 @@ def test_exclusions_match_root_and_nested_junk_without_erasing_dot_names(contrac
 
 def test_directory_exclusions_are_root_anchored_unless_recursive(contract):
     assert contract.is_excluded("contract/methods.json")
-    assert contract.is_excluded("epistemic_graph/contract/receipt.json")
+    assert contract.is_excluded("medulla/contract/receipt.json")
     assert not contract.is_excluded("crates/eg-types/src/contract/crypto.rs")
     assert not contract.is_excluded("nested/contract/generated.rs")
 
@@ -561,8 +561,8 @@ def test_contract_rejects_unknown_scanner_keys(tmp_path):
     scanner_contract = load_script("scanner_contract")
     source = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     changed = source.replace(
-        "[tool.epistemic_graph.scanners]\n",
-        "[tool.epistemic_graph.scanners]\nunknown_scanner_key = true\n",
+        "[tool.medulla.scanners]\n",
+        "[tool.medulla.scanners]\nunknown_scanner_key = true\n",
         1,
     )
     path = tmp_path / "pyproject.toml"

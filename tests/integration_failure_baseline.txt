@@ -47,7 +47,7 @@ tests/test_persisted_mutation_contract.py::test_inventory_drift_fails_closed  # 
 
 # --- Viz client ⇄ engine encoding (5) ---------------------------------------
 # Every viz round-trip is refused by the live engine with
-# `INVALID_ARGUMENT: invalid request encoding` (epistemic_graph/client.py:13353).
+# `INVALID_ARGUMENT: invalid request encoding` (medulla/client.py:13353).
 # tests/test_viz_client.py, src/server/viz.rs and the client's viz methods are
 # all unchanged since origin/main, so this is the V4 viz integration landing
 # incomplete rather than anything on this branch.

@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from epistemic_graph.testing.synthetic import vocabulary as vocab
-from epistemic_graph.testing.synthetic._digest import canonical_json, framed
-from epistemic_graph.testing.synthetic._rng import SeededStream
+from medulla.testing.synthetic import vocabulary as vocab
+from medulla.testing.synthetic._digest import canonical_json, framed
+from medulla.testing.synthetic._rng import SeededStream
 
 pytestmark = pytest.mark.no_engine
 

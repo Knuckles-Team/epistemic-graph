@@ -1,5 +1,5 @@
 //! EH-192 — strict nested Pydantic models for every method and every nested request
-//! and result type, in one generated module (`epistemic_graph/generated/models.py`).
+//! and result type, in one generated module (`medulla/generated/models.py`).
 //!
 //! Before this, only the methods listed in `DTO_SURFACES` had nested models: every
 //! other request typed its nested fields as `Any` and returned an `OpaqueResult`.

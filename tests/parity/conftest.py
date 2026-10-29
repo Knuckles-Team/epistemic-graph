@@ -18,8 +18,8 @@ import uuid
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.embedded import EmbeddedTransport
+from medulla.client import EpistemicGraphClient
+from medulla.embedded import EmbeddedTransport
 
 # BUG-CX-002 fix: `tests/parity/__init__.py` now makes this directory a
 # real package (`parity`), imported under a dotted module name distinct

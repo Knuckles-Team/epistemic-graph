@@ -21,7 +21,7 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 SERVER_BIN = find_server_binary() or os.path.join(
     os.path.dirname(__file__), "..", "target", "debug", "epistemic-graph-server"

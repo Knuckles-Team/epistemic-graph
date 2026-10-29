@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.generated import storage
+from medulla.generated import storage
 
 pytestmark = pytest.mark.no_engine
 

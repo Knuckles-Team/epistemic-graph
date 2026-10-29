@@ -209,7 +209,7 @@ selectors.
 ```
 
 ```python
-from epistemic_graph import EpistemicGraphClient
+from medulla import EpistemicGraphClient
 import asyncio
 
 

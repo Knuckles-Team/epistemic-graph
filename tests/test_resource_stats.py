@@ -12,7 +12,7 @@ import os
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 
 def _client(graph_name):
@@ -29,7 +29,7 @@ def test_resource_stats_reports_accurate_counts():
     if not hasattr(c, "resource_stats"):
         c.close()
         pytest.skip(
-            "installed epistemic_graph client predates resource_stats "
+            "installed medulla client predates resource_stats "
             "(CONCEPT:EG-KG.compute.lane-v); skip until the worktree client is "
             "installed"
         )

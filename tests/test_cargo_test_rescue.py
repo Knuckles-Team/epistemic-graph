@@ -29,7 +29,7 @@ ERROR = "\x1b[1m\x1b[91merror\x1b[0m: test failed, to rerun pass "
 LIB_CRASH = (
     "thread 'server::bolt_wire::tests::bolt_atomic' (1) has overflowed its stack\n"
     f"{ERROR}`-p epistemic-graph --lib`\n\nCaused by:\n"
-    "  process didn't exit successfully: `/t/deps/epistemic_graph-1d4e` "
+    "  process didn't exit successfully: `/t/deps/medulla-1d4e` "
     "(signal: 6, SIGABRT: process abort signal)\n"
 )
 IT_FAILURE = (

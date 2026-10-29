@@ -34,7 +34,7 @@ def test_no_pyo3_gate_passes():
 
 def test_no_compiled_extension_ships():
     """No stale `_epistemic_graph*.so` may sit in the package dir."""
-    pkg = REPO / "epistemic_graph"
+    pkg = REPO / "medulla"
     leftovers = list(pkg.glob("_epistemic_graph*.so")) + list(
         pkg.glob("_epistemic_graph*.pyi")
     )
@@ -43,7 +43,7 @@ def test_no_compiled_extension_ships():
 
 def test_quant_imports_without_pyo3():
     """quant.py must import with no compiled extension present."""
-    from epistemic_graph import quant
+    from medulla import quant
 
     assert quant.moving_average([1, 2, 3, 4], 2) == [1.0, 1.5, 2.5, 3.5]
     ema = quant.exponential_moving_average([1.0, 2.0, 3.0], 0.5)
@@ -51,7 +51,7 @@ def test_quant_imports_without_pyo3():
 
 
 def test_quant_rolling_variance_and_zscore():
-    from epistemic_graph import quant
+    from medulla import quant
 
     var = quant.rolling_variance([2.0, 4.0, 6.0], 3)
     assert var[0] == 0.0  # single-element window -> 0
@@ -61,7 +61,7 @@ def test_quant_rolling_variance_and_zscore():
 
 
 def test_quant_order_matching_crosses_book():
-    from epistemic_graph import quant
+    from medulla import quant
 
     bids, asks, trades = quant.simulate_order_matching(
         bids=[(99.0, 5.0)],
@@ -77,7 +77,7 @@ def test_quant_order_matching_crosses_book():
 
 
 def test_quant_order_matching_sell_crosses_best_bids_first():
-    from epistemic_graph import quant
+    from medulla import quant
 
     bids, asks, trades = quant.simulate_order_matching(
         bids=[(99.0, 2.0), (101.0, 3.0), (100.0, 4.0)],
@@ -123,7 +123,7 @@ def test_length_prefixed_framing_is_binary_safe():
 
 
 def test_group_relative_advantage_grpo_and_dr_grpo():
-    from epistemic_graph.quant import group_relative_advantage
+    from medulla.quant import group_relative_advantage
 
     # GRPO: (r−μ)/σ — symmetric, mean maps to 0.
     adv = group_relative_advantage([1.0, 2.0, 3.0])

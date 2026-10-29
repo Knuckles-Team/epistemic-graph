@@ -18,7 +18,7 @@ fn execute_source_ingestion_modules(generated: &BTreeMap<String, String>) {
         std::process::id(),
         NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
     ));
-    let package = root.join("epistemic_graph");
+    let package = root.join("medulla");
     let generated_package = package.join("generated");
     fs::create_dir_all(&generated_package).expect("create generated Python test package");
     fs::write(package.join("__init__.py"), "").expect("write package init");
@@ -26,7 +26,7 @@ fn execute_source_ingestion_modules(generated: &BTreeMap<String, String>) {
     // re-exports every surface module's definitions (EH-377).
     for (path, text) in generated
         .iter()
-        .filter(|(path, _)| path.starts_with("epistemic_graph/generated/"))
+        .filter(|(path, _)| path.starts_with("medulla/generated/"))
     {
         let file = root.join(path);
         fs::create_dir_all(file.parent().expect("generated module directory"))
@@ -38,9 +38,9 @@ fn execute_source_ingestion_modules(generated: &BTreeMap<String, String>) {
 import asyncio
 import sys
 
-from epistemic_graph.generated import ingestion
-from epistemic_graph.generated.ingestion import SourceIngestStatusRequest
-from epistemic_graph.generated.source_ingestion import (
+from medulla.generated import ingestion
+from medulla.generated.ingestion import SourceIngestStatusRequest
+from medulla.generated.source_ingestion import (
     SourceIngestStatus,
     SourceIngestionReceipt,
     SourceIngestionRequest,
@@ -237,7 +237,7 @@ fn generated_send_docs_list_errors_individually() {
         if !descriptor.serves(ConsumerProfile::PythonClient) {
             continue;
         }
-        let path = format!("epistemic_graph/generated/{}.py", descriptor.domain);
+        let path = format!("medulla/generated/{}.py", descriptor.domain);
         let module = generated.get(&path).expect("generated domain module");
         let send_marker = format!("async def send_{}(", snake_case(descriptor.id.as_str()));
         let send = module
@@ -279,7 +279,7 @@ fn nested_ref_surface_emits_concrete_models_and_typed_request() {
         })
         .collect();
     let module = generated
-        .get("epistemic_graph/generated/write_back.py")
+        .get("medulla/generated/write_back.py")
         .expect("write-back DTO module");
     for declaration in [
         "class SourceChangeSet(BaseModel):",
@@ -297,7 +297,7 @@ fn nested_ref_surface_emits_concrete_models_and_typed_request() {
     assert!(module.contains("PROPOSAL_APPROVAL = \"proposal_approval\""));
     assert!(module.contains("OUTCOME_UNCERTAIN = \"outcome_uncertain\""));
     let storage = generated
-        .get("epistemic_graph/generated/storage.py")
+        .get("medulla/generated/storage.py")
         .expect("storage domain module");
     assert!(storage.contains("from .write_back import (\n    WriteBackOp,"));
     let request = storage
@@ -324,7 +324,7 @@ fn agent_component_search_emits_typed_kind_only_adapter() {
         })
         .collect();
     let dto = generated
-        .get("epistemic_graph/generated/agent_component.py")
+        .get("medulla/generated/agent_component.py")
         .expect("agent-component DTO module");
     assert!(dto.contains("class AgentComponentSearchRequest(BaseModel):"));
     assert!(dto.contains("class AgentComponentSearchPage(BaseModel):"));
@@ -332,12 +332,12 @@ fn agent_component_search_emits_typed_kind_only_adapter() {
     // the agent-component module re-exports it (EH-377).
     assert!(exports(dto, "AgentComponentKind"));
     let shared = generated
-        .get("epistemic_graph/generated/_shared.py")
+        .get("medulla/generated/_shared.py")
         .expect("shared DTO module");
     assert!(shared.contains("class AgentComponentKind(str, Enum):"));
 
     let storage = generated
-        .get("epistemic_graph/generated/storage.py")
+        .get("medulla/generated/storage.py")
         .expect("storage domain module");
     assert!(storage.contains("    op: AgentComponentOp"));
     assert!(storage.contains(
@@ -366,7 +366,7 @@ fn connector_pack_status_emits_typed_catalog_reconciliation_adapter() {
         })
         .collect();
     let dto = generated
-        .get("epistemic_graph/generated/connector_pack.py")
+        .get("medulla/generated/connector_pack.py")
         .expect("connector-pack DTO module");
     assert!(exports(dto, "McpCatalogSnapshotBinding"));
     assert!(dto.contains("CONNECTOR_PACK_SCHEMA_VERSION = 2"));
@@ -379,7 +379,7 @@ fn connector_pack_status_emits_typed_catalog_reconciliation_adapter() {
     assert!(dto.contains("    PACK_HEAD_CONFLICT = \"PACK_HEAD_CONFLICT\""));
 
     let storage = generated
-        .get("epistemic_graph/generated/storage.py")
+        .get("medulla/generated/storage.py")
         .expect("storage domain module");
     assert!(storage.contains(
         "async def send_connector_pack_status(\n    client: Any,\n    request: ConnectorPackStatusRequest,"
@@ -406,14 +406,14 @@ fn agent_component_content_emits_typed_body_adapter() {
         })
         .collect();
     let dto = generated
-        .get("epistemic_graph/generated/agent_component.py")
+        .get("medulla/generated/agent_component.py")
         .expect("agent-component DTO module");
     assert!(dto.contains("class AgentComponentContentRequest(BaseModel):"));
     assert!(dto.contains("class AgentComponentContentResult(BaseModel):"));
     assert!(dto.contains("    body: _EgOctets"));
 
     let storage = generated
-        .get("epistemic_graph/generated/storage.py")
+        .get("medulla/generated/storage.py")
         .expect("storage domain module");
     assert!(storage.contains(
         "async def send_agent_component_content(\n    client: Any,\n    request: AgentComponentContentRequest,"
@@ -435,7 +435,7 @@ fn agent_component_current_uses_the_exact_flattened_operation_shape() {
         })
         .collect();
     let storage = generated
-        .get("epistemic_graph/generated/storage.py")
+        .get("medulla/generated/storage.py")
         .expect("storage domain module");
     assert!(storage.contains(
         "async def send_agent_component_current(\n    client: Any,\n    request: AgentComponentOpCurrent,"
@@ -463,7 +463,7 @@ fn registered_server_list_emits_typed_request_page_and_sender() {
         })
         .collect();
     let dto = generated
-        .get("epistemic_graph/generated/server_registry.py")
+        .get("medulla/generated/server_registry.py")
         .expect("server-registry DTO module");
     assert!(dto.contains("class RegisteredServerListRequest(BaseModel):"));
     assert!(dto.contains("class RegisteredServerCursor(BaseModel):"));
@@ -471,7 +471,7 @@ fn registered_server_list_emits_typed_request_page_and_sender() {
     assert!(dto.contains("class RegisteredServerListPage(BaseModel):"));
 
     let cluster = generated
-        .get("epistemic_graph/generated/cluster.py")
+        .get("medulla/generated/cluster.py")
         .expect("cluster domain module");
     assert!(cluster.contains("    request: RegisteredServerListRequest"));
     assert!(cluster.contains("async def send_list_registered_servers(\n    client: Any,"));
@@ -493,7 +493,7 @@ fn generated_source_ingestion_imports_and_executes_with_rust_digest_parity() {
         .collect();
 
     let dto = generated
-        .get("epistemic_graph/generated/source_ingestion.py")
+        .get("medulla/generated/source_ingestion.py")
         .expect("source ingestion DTO module");
     assert!(dto.contains("SourceJson = Any"));
     assert!(dto.contains("last_receipt_id: str | None = None"));
@@ -506,7 +506,7 @@ fn generated_source_ingestion_imports_and_executes_with_rust_digest_parity() {
         .expect("bounded SourceRecord alias");
     assert!(source_record < record_alias);
     let domain = generated
-        .get("epistemic_graph/generated/ingestion.py")
+        .get("medulla/generated/ingestion.py")
         .expect("ingestion domain module");
     assert!(domain.contains(") -> SourceIngestionReceipt:"));
     assert!(domain.contains("return SourceIngestionReceipt.model_validate(payload)"));
@@ -531,7 +531,7 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
         .collect();
 
     let dto = generated
-        .get("epistemic_graph/generated/index_repository.py")
+        .get("medulla/generated/index_repository.py")
         .expect("IndexRepository DTO module");
     for declaration in [
         "class IndexDiagnostic(BaseModel):",
@@ -556,13 +556,13 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
     ));
     // Request models are rendered once, in the strict model module.
     let models = generated
-        .get("epistemic_graph/generated/models.py")
+        .get("medulla/generated/models.py")
         .expect("strict request models");
     assert!(models.contains("params_msgpack: _EgOctets = Field(default_factory=bytes)"));
     assert!(dto.contains("max_length=8"));
 
     let ingestion = generated
-        .get("epistemic_graph/generated/ingestion.py")
+        .get("medulla/generated/ingestion.py")
         .expect("ingestion domain module");
     assert!(ingestion
         .contains("from .index_repository import (\n    IndexRepositoryScope,\n    IndexResult,"));
@@ -664,7 +664,7 @@ fn generated_module(catalog: &Catalog, path: &str) -> String {
 fn generated_imports_are_in_isort_form_with_explicit_reexports() {
     let catalog = Catalog::collect();
     let module = |path: &str| generated_module(&catalog, path);
-    let reasoning = module("epistemic_graph/generated/reasoning.py");
+    let reasoning = module("medulla/generated/reasoning.py");
     let reexport = "from .rdf_report import OwlPropertyFact as OwlPropertyFact\n";
     assert!(reasoning.contains(&format!(")\n{reexport}")));
     assert!(!reasoning.contains("    OwlPropertyFact,\n"));
@@ -678,7 +678,7 @@ fn generated_imports_are_in_isort_form_with_explicit_reexports() {
         severity < result,
         "re-exports must be in case-insensitive isort order"
     );
-    let ingestion = module("epistemic_graph/generated/ingestion.py");
+    let ingestion = module("medulla/generated/ingestion.py");
     assert!(ingestion.contains(
         "    SourceIngestionReceipt,\n    SourceIngestionRequest,\n    SourceIngestStatus,\n"
     ));
@@ -694,12 +694,12 @@ fn a_request_envelope_never_shadows_its_dto_root() {
     let module = |path: &str| generated_module(&catalog, path);
     for (path, dto, root) in [
         (
-            "epistemic_graph/generated/compute.py",
+            "medulla/generated/compute.py",
             "solve",
             "SolveRequest",
         ),
         (
-            "epistemic_graph/generated/storage.py",
+            "medulla/generated/storage.py",
             "decision_commit",
             "DecisionCommitRequest",
         ),
@@ -798,7 +798,7 @@ fn sql_source_batch_validates_only_the_structured_batch() {
     let catalog = Catalog::collect();
     let storage = artifacts(&catalog)
         .into_iter()
-        .find(|artifact| artifact.path == "epistemic_graph/generated/storage.py")
+        .find(|artifact| artifact.path == "medulla/generated/storage.py")
         .map(|artifact| String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"))
         .expect("storage domain module");
     assert!(storage.contains(
@@ -819,7 +819,7 @@ fn sql_source_batch_validates_only_the_structured_batch() {
 #[test]
 fn decide_fit_and_eval_each_generate_a_typed_client_wrapper() {
     let catalog = Catalog::collect();
-    let query = generated_module(&catalog, "epistemic_graph/generated/query.py");
+    let query = generated_module(&catalog, "medulla/generated/query.py");
     assert!(
         query.contains("async def send_decide("),
         "Decide must generate a typed send wrapper"
@@ -828,7 +828,7 @@ fn decide_fit_and_eval_each_generate_a_typed_client_wrapper() {
         query.contains("def decode_decide("),
         "Decide must generate a typed decode wrapper"
     );
-    let coordination = generated_module(&catalog, "epistemic_graph/generated/coordination.py");
+    let coordination = generated_module(&catalog, "medulla/generated/coordination.py");
     for method in ["decision_fit", "decision_eval"] {
         assert!(
             coordination.contains(&format!("async def send_{method}(")),

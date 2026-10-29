@@ -27,7 +27,7 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import ResultTooLargeError, SyncEpistemicGraphClient
+from medulla.client import ResultTooLargeError, SyncEpistemicGraphClient
 
 _SECRET = "test-epistemic-graph-secret"
 _CAP = 2

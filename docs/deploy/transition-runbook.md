@@ -136,7 +136,7 @@ required` — but only on **restart** (a long-running process imported once, bef
 pip download --no-deps 'medulla==<engine-version>'
 python3 -c "import zipfile,glob; z=zipfile.ZipFile(glob.glob('medulla-*.whl')[0]); z.extract('epistemic_graph/numeric.abi3.so', '<repo>/medulla')"
 # → <repo>/medulla/epistemic_graph/numeric.abi3.so  (visible to every container mounting /eg)
-python3 -c "import epistemic_graph.numeric as n; assert n.__kernel__=='eg-numeric'"
+python3 -c "import medulla.numeric as n; assert n.__kernel__=='eg-numeric'"
 ```
 
 The clean long-term fix is to make these **true editable installs with extras** — `pip install -e

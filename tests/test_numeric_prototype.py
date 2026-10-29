@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib.machinery
 import math
 
-import epistemic_graph.numeric as numeric
+import medulla.numeric as numeric
 import pytest
 
 pytestmark = pytest.mark.no_engine

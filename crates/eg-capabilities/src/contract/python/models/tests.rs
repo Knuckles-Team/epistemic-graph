@@ -135,7 +135,7 @@ fn the_package_does_not_import_models_eagerly() {
     let catalog = Catalog::collect();
     let init = super::super::artifacts(&catalog)
         .into_iter()
-        .find(|artifact| artifact.path == "epistemic_graph/generated/__init__.py")
+        .find(|artifact| artifact.path == "medulla/generated/__init__.py")
         .expect("generated package init");
     let text = String::from_utf8(init.bytes).expect("UTF-8 Python");
     assert!(
@@ -166,8 +166,8 @@ fn generated_python_is_ruff_clean_and_formatter_stable() {
     )
     .expect("write ruff settings");
     for arguments in [
-        &["check", "--no-cache", "epistemic_graph"][..],
-        &["format", "--check", "--no-cache", "epistemic_graph"][..],
+        &["check", "--no-cache", "medulla"][..],
+        &["format", "--check", "--no-cache", "medulla"][..],
     ] {
         let output = Command::new("ruff")
             .args(arguments)

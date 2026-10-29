@@ -13,8 +13,8 @@ import msgpack
 import pytest
 from conftest import request_context
 
-from epistemic_graph import client as client_module
-from epistemic_graph.client import EpistemicGraphClient, SyncEpistemicGraphClient
+from medulla import client as client_module
+from medulla.client import EpistemicGraphClient, SyncEpistemicGraphClient
 
 pytestmark = pytest.mark.no_engine
 

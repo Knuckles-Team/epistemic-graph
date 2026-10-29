@@ -1,6 +1,6 @@
 import pytest
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")

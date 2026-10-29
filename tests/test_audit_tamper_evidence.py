@@ -4,7 +4,7 @@ feature `security`, folded into `full`).
 
 Proves the `AdminClient.audit_verify` / `audit_prove_inclusion` bindings (added for
 B-2 — `Method::AuditVerify`/`AuditProveInclusion` were handler-complete and compiled
-into the default `full` build but had zero occurrences in `epistemic_graph/client.py`)
+into the default `full` build but had zero occurrences in `medulla/client.py`)
 actually work end-to-end: commit real mutations, prove the hash-chained audit log
 verifies clean, prove a Merkle inclusion proof for a real anchored node, and prove
 verification actually FAILS when that node's durable content is changed after
@@ -39,7 +39,7 @@ from conftest import (
     wait_for_server,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 _SERVER_BIN = find_server_binary()
 

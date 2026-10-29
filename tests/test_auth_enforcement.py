@@ -16,7 +16,7 @@ from conftest import (
     wait_for_server,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncEpistemicGraphClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 # `find_server_binary()` honors `CARGO_TARGET_DIR`/the repo's own

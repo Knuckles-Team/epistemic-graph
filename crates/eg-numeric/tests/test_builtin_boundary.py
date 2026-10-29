@@ -22,11 +22,11 @@ def _kernel() -> Any:
     # six-week-old build masquerade as "already satisfied" and silently mask a
     # real regression (see scripts/ci_gate_replica.py's 2026-08-21 incident note).
     try:
-        module = importlib.import_module("epistemic_graph.numeric")
+        module = importlib.import_module("medulla.numeric")
     except ImportError:
-        pytest.skip("epistemic_graph.numeric is not installed (folded wheel missing)")
+        pytest.skip("medulla.numeric is not installed (folded wheel missing)")
     if getattr(module, "__kernel__", None) != "eg-numeric":
-        pytest.skip("epistemic_graph.numeric is not installed (folded wheel missing)")
+        pytest.skip("medulla.numeric is not installed (folded wheel missing)")
     return module
 
 

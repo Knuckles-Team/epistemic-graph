@@ -28,8 +28,8 @@ CONSUMED = [
 def test_a_consumed_variant_is_exported_where_its_union_is(
     module: str, union: str, variant: str
 ) -> None:
-    surface = importlib.import_module(f"epistemic_graph.generated.{module}")
-    models = importlib.import_module("epistemic_graph.generated.models")
+    surface = importlib.import_module(f"medulla.generated.{module}")
+    models = importlib.import_module("medulla.generated.models")
     assert union in surface.__all__
     assert variant in surface.__all__
     assert variant in models.__all__

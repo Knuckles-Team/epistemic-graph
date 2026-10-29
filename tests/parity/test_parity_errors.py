@@ -11,7 +11,7 @@ from __future__ import annotations
 import msgpack
 import pytest
 
-from epistemic_graph.client import EngineResponseError
+from medulla.client import EngineResponseError
 
 from ._harness import _try_send
 

@@ -109,8 +109,8 @@ _GENERIC_SUFFIX_RE = re.compile(r"::<.*$", re.DOTALL)
 def base_function_name(demangled: str) -> str:
     """Collapse a demangled, possibly-monomorphized Rust symbol down to its
     logical (base) function path, e.g.
-    `epistemic_graph[c3571a...]::server::mutation::commit_mutation::<...
-    ::tests::some_test::{closure#0}>` -> `epistemic_graph::server::
+    `medulla[c3571a...]::server::mutation::commit_mutation::<...
+    ::tests::some_test::{closure#0}>` -> `medulla::server::
     mutation::commit_mutation`.
 
     This matters because a generic/async function produces one lcov

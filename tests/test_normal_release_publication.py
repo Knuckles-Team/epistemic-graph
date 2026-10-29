@@ -248,7 +248,7 @@ class ReleasePublication(unittest.TestCase):
             "metadata.requires",
             "numpy",
             "n.sum(values)==10.0",
-            "import epistemic_graph.engine",
+            "import medulla.engine",
         ):
             self.assertIn(proof, script)
         hosted_steps = self.workflow["jobs"]["build"]["steps"]

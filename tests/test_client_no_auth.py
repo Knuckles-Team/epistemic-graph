@@ -9,7 +9,7 @@ import msgpack
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient
+from medulla.client import EpistemicGraphClient
 
 pytestmark = pytest.mark.no_engine
 
@@ -270,7 +270,7 @@ def test_generated_authentication_method_preserves_closed_enum():
     """EG-IDENTITY-R003.1 adds none without weakening authenticated contracts."""
     from enum import Enum
 
-    from epistemic_graph.generated.models import RequestContextAuthenticationMethod
+    from medulla.generated.models import RequestContextAuthenticationMethod
 
     assert isinstance(RequestContextAuthenticationMethod, type)
     assert issubclass(RequestContextAuthenticationMethod, Enum)
@@ -329,7 +329,7 @@ def test_connection_authority_refactor_preserves_refusal_order(
 def test_connection_tls_hostname_refactor_preserves_precedence(
     monkeypatch, explicit, environment, expected
 ):
-    from epistemic_graph.client import _connection_tls_server_hostname
+    from medulla.client import _connection_tls_server_hostname
 
     monkeypatch.setenv("GRAPH_SERVICE_TLS_SERVER_NAME", environment)
     assert _connection_tls_server_hostname(explicit) == expected

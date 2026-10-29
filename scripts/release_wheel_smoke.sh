@@ -13,7 +13,7 @@ if command -v epistemic-graph-server >/dev/null 2>&1; then
   exit 1
 fi
 # (2) Import + compute the kernel FROM THE INSTALLED WHEEL. Run from a neutral
-#     dir ($RUNNER_TEMP) — the repo checkout root holds the `epistemic_graph/`
+#     dir ($RUNNER_TEMP) — the repo checkout root holds the `medulla/`
 #     SOURCE package (no compiled `.so`), and cwd is on sys.path for `python -c`,
 #     so importing at the repo root would shadow the wheel and always fail.
 cd "${RUNNER_TEMP:-/tmp}"
@@ -27,5 +27,5 @@ assert not any(
     for requirement in requirements
 ), requirements
 PY
-python -c "import epistemic_graph.numeric as n; values=[1.,2.,3.,4.]; assert n.sum(values)==10.0 and n.mean(values)==2.5, (n.sum(values), n.mean(values)); print('numeric kernel OK:', n.__file__, '| sum=', n.sum(values), 'mean=', n.mean(values), 'std=', n.std(values))"
-python -c "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
+python -c "import medulla.numeric as n; values=[1.,2.,3.,4.]; assert n.sum(values)==10.0 and n.mean(values)==2.5, (n.sum(values), n.mean(values)); print('numeric kernel OK:', n.__file__, '| sum=', n.sum(values), 'mean=', n.mean(values), 'std=', n.std(values))"
+python -c "import medulla.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"

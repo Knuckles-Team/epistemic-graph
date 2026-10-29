@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import (
+from medulla.client import (
     ClusterTopologyClient,
     EpistemicGraphClient,
     RequestContextClaims,
