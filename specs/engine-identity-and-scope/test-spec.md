@@ -55,8 +55,8 @@ Use `cargo run -q --locked -p eg-capabilities --features contract --bin gen_cont
 
 ## Semantic owner registry validation
 
-Published source: [cf7010728682663f735516ee276f423476d3690b](https://github.com/Knuckles-Team/epistemic-graph/commit/cf7010728682663f735516ee276f423476d3690b).
-Review: [PR 445](https://github.com/Knuckles-Team/epistemic-graph/pull/445).
+Published source: [cf7010728682663f735516ee276f423476d3690b](https://github.com/Knuckles-Team/medulla/commit/cf7010728682663f735516ee276f423476d3690b).
+Review: [PR 445](https://github.com/Knuckles-Team/medulla/pull/445).
 
 `semantic_owner_registry_is_scoped_to_persistence_root` checks distinct-root isolation and canonical path-alias reuse.
 `dispatch_attributes_every_queue_class_to_the_one_verified_principal` retains its verified-principal and spoofed-consumer assertions.

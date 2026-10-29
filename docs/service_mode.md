@@ -1,4 +1,4 @@
-# Epistemic Graph: Service Mode Reference
+# Medulla: Service Mode Reference
 
 ## Quick Start
 

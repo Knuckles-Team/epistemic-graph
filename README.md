@@ -1,6 +1,6 @@
 # Medulla
 
-The `epistemic-graph` distribution provides Medulla; import it as `epistemic_graph`.
+The `medulla` distribution provides Medulla; import it as `epistemic_graph`.
 The repository is `medulla`. Package, CLI and API identifiers remain unchanged.
 
 <p align="center">
@@ -14,7 +14,7 @@ The repository is `medulla`. Package, CLI and API identifiers remain unchanged.
 
 <p align="center">
 
-[![PyPI - Version](https://img.shields.io/pypi/v/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
+[![PyPI - Version](https://img.shields.io/pypi/v/medulla)](https://pypi.org/project/medulla/)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-526cff)](https://knuckles-team.github.io/medulla/)
 [![GitHub license](https://img.shields.io/github/license/Knuckles-Team/medulla)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.27.10-blue)](https://github.com/Knuckles-Team/medulla/releases)
@@ -30,10 +30,10 @@ The repository is `medulla`. Package, CLI and API identifiers remain unchanged.
 [![GitHub language count](https://img.shields.io/github/languages/count/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla)
 [![GitHub repo size](https://img.shields.io/github/repo-size/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla)
 [![GitHub repo file count (file type)](https://img.shields.io/github/directory-file-count/Knuckles-Team/medulla)](https://github.com/Knuckles-Team/medulla)
-[![PyPI - Downloads](https://img.shields.io/pypi/dd/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
-[![PyPI - License](https://img.shields.io/pypi/l/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
-[![PyPI - Wheel](https://img.shields.io/pypi/wheel/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
-[![PyPI - Implementation](https://img.shields.io/pypi/implementation/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dd/medulla)](https://pypi.org/project/medulla/)
+[![PyPI - License](https://img.shields.io/pypi/l/medulla)](https://pypi.org/project/medulla/)
+[![PyPI - Wheel](https://img.shields.io/pypi/wheel/medulla)](https://pypi.org/project/medulla/)
+[![PyPI - Implementation](https://img.shields.io/pypi/implementation/medulla)](https://pypi.org/project/medulla/)
 
 </p>
 
@@ -78,15 +78,15 @@ for the current behavior of each operation.
 
 This repository publishes two PyPI packages and one container image, all at the same version.
 
-**Medulla Stem** is the native server, distributed as `epistemic-graph-server`.
-The package, executable and container image identifiers remain unchanged.
+**Medulla Stem** is the native server, distributed as `medulla-stem`.
+The server executable, module and packaging-path identifiers remain unchanged.
 
 | Artifact | Contents | Install |
 |---|---|---|
-| `epistemic-graph` | The Python client, the in-process engine module and the numeric kernel. Carries no executable. | `pip install epistemic-graph` |
-| `epistemic-graph-server` | The native `epistemic-graph-server` executable (Linux x86_64 and aarch64) and `epistemic_graph_server.binary_path()`. Source in [`packaging/epistemic-graph-server`](packaging/epistemic-graph-server). | `pip install epistemic-graph-server` |
-| `epistemic-graph[server]` | The client plus the server package pinned to the same version. | `pip install "epistemic-graph[server]"` |
-| `epistemic-graph-server` image | The server binary on a slim base, one tag for `linux/amd64` and `linux/arm64`, built from the server wheel. | `docker pull <registry-user>/epistemic-graph-server:<version>` |
+| `medulla` | The Python client, the in-process engine module and the numeric kernel. Carries no executable. | `pip install medulla` |
+| `medulla-stem` | The native `epistemic-graph-server` executable (Linux x86_64 and aarch64) and `epistemic_graph_server.binary_path()`. Source in [`packaging/epistemic-graph-server`](packaging/epistemic-graph-server). | `pip install medulla-stem` |
+| `medulla[server]` | The client plus the server package pinned to the same version. | `pip install "medulla[server]"` |
+| `medulla-stem` image | The server binary on a slim base, one tag for `linux/amd64` and `linux/arm64`, built from the server wheel. | `docker pull <registry-user>/medulla-stem:<version>` |
 
 ## Documentation
 
@@ -131,7 +131,7 @@ Install the release wheel and open an in-process graph. This mode is explicit,
 ephemeral, and needs no server or TLS configuration.
 
 ```bash
-python -m pip install epistemic-graph
+python -m pip install medulla
 python -m epistemic_graph.cli status  # no server is expected in embedded mode
 python - <<'PY'
 import msgpack

@@ -1,6 +1,6 @@
 # SPARQL & RDF interface
 
-epistemic-graph is an RDF triple-store: the operator loads RDF (OWL/RDFS or plain triples), the engine maps it
+Medulla is an RDF triple-store: the operator loads RDF (OWL/RDFS or plain triples), the engine maps it
 onto the property graph, and SPARQL `SELECT` runs over it. RDF and the property graph are **the same
 data** — a triple is a node, an edge, or a property depending on its object.
 

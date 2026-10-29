@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { encode } from "@msgpack/msgpack";
 
-import { EpistemicGraphThinClient, validateRequestContext } from "./index.mjs";
+import { MedullaThinClient, validateRequestContext } from "./index.mjs";
 
 function context() {
   return {
@@ -18,7 +18,7 @@ function context() {
 }
 
 function client(options = {}) {
-  return new EpistemicGraphThinClient({
+  return new MedullaThinClient({
     host: "engine.invalid",
     port: 9100,
     authSecret: "test-envelope-secret",
@@ -46,7 +46,7 @@ test("request context rejects missing and duplicate claims", () => {
 });
 
 test("signer emits the current bound envelope", () => {
-  const client = new EpistemicGraphThinClient({
+  const client = new MedullaThinClient({
     host: "engine.invalid",
     port: 9100,
     authSecret: "test-envelope-secret",
@@ -73,7 +73,7 @@ test("bootstrap signs without retaining its operation key", async () => {
     roles: [],
     scopes: ["security:bootstrap"],
   };
-  const client = new EpistemicGraphThinClient({
+  const client = new MedullaThinClient({
     host: "engine.invalid",
     port: 9100,
     authSecret: "test-envelope-secret",
@@ -98,7 +98,7 @@ test("bootstrap signs without retaining its operation key", async () => {
 });
 
 test("tag operations carry the current owner and explicit clock", async () => {
-  const client = new EpistemicGraphThinClient({
+  const client = new MedullaThinClient({
     host: "engine.invalid",
     port: 9100,
     authSecret: "test-envelope-secret",
@@ -146,7 +146,7 @@ test("tag operations carry the current owner and explicit clock", async () => {
 });
 
 test("restore requires the explicit current shard layout", async () => {
-  const client = new EpistemicGraphThinClient({
+  const client = new MedullaThinClient({
     host: "engine.invalid",
     port: 9100,
     authSecret: "test-envelope-secret",
@@ -167,7 +167,7 @@ test("restore requires the explicit current shard layout", async () => {
 });
 
 test("constructor preserves endpoint selection and authority validation order", () => {
-  assert.throws(() => new EpistemicGraphThinClient(null), /options are required/);
+  assert.throws(() => new MedullaThinClient(null), /options are required/);
   assert.throws(
     () => client({ authSecret: "", verifiedContext: null }),
     /authentication secret is required/,

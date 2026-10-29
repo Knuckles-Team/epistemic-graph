@@ -132,8 +132,8 @@ Use `RAFT_LOAD_WORKERS=2 RAFT_LOAD_REPEATS=2 scripts/validate-raft-cluster.sh` o
 
 ### Lifecycle and fixture validation
 
-Published source: [cf7010728682663f735516ee276f423476d3690b](https://github.com/Knuckles-Team/epistemic-graph/commit/cf7010728682663f735516ee276f423476d3690b).
-Review: [PR 445](https://github.com/Knuckles-Team/epistemic-graph/pull/445).
+Published source: [cf7010728682663f735516ee276f423476d3690b](https://github.com/Knuckles-Team/medulla/commit/cf7010728682663f735516ee276f423476d3690b).
+Review: [PR 445](https://github.com/Knuckles-Team/medulla/pull/445).
 
 `control_maintenance_reused_label_admits_at_the_current_version` checks fresh control admission for a reused label.
 `delete_purges_receipts_of_a_prior_incarnation` checks receipt removal, restart, fresh recreation, and the new incarnation's stable replay.

@@ -1,6 +1,6 @@
 # DBeaver / psql quickstart — SQL over the Postgres wire
 
-epistemic-graph speaks the **Postgres wire protocol** (`pgwire`, in the `node` and
+Medulla speaks the **Postgres wire protocol** (`pgwire`, in the `node` and
 `full` tiers). Any Postgres client — **DBeaver**, `psql`, DataGrip, a BI tool, or an
 ORM driver — connects to it **unmodified** and runs real SQL: `CREATE TABLE`,
 `INSERT`, `SELECT`, joins to the graph `nodes`/`edges`, the works. No

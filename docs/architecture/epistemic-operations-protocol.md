@@ -1,7 +1,7 @@
 # Epistemic Operations Protocol
 
 The Epistemic Operations Protocol is the current, language-neutral contract
-between agent-utilities and epistemic-graph. It replaces parallel ad hoc
+between agent-utilities and Medulla. It replaces parallel ad hoc
 envelopes with twelve strict JSON Schemas and generated Python/Rust projections.
 
 The authoritative catalog ships inside `agent_utilities.protocols.epistemic_operations`.
@@ -64,7 +64,7 @@ Run the full workspace proof from agent-utilities:
 
 ```bash
 python3 scripts/check_epistemic_operations_protocol.py \
-  --epistemic-graph-root ../epistemic-graph
+  --epistemic-graph-root ../medulla
 ```
 
 An isolated agent-utilities CI checkout uses `--self-only`. After an intentional

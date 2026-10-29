@@ -1,10 +1,10 @@
-# Epistemic Graph Service Layer Architecture
+# Medulla Service Layer Architecture
 
 > CONCEPT:AU-KG.query.vendor-agnostic-traversal — Tokio-first graph service
 
 ## Overview
 
-The epistemic-graph service layer is a long-running Tokio process that holds multiple named graphs in memory and serves requests over Unix Domain Socket (UDS) or TCP. It replaces the previous PyO3 in-process FFI approach as the primary compute backend.
+The Medulla service layer is a long-running Tokio process that holds multiple named graphs in memory and serves requests over Unix Domain Socket (UDS) or TCP. It replaces the previous PyO3 in-process FFI approach as the primary compute backend.
 
 The Python `agent-utilities` API gateway's `GraphComputeEngine` (an async
 UDS/TCP client) calls the `epistemic-graph-server` (Tokio, long-running),

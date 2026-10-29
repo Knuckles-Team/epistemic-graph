@@ -1,6 +1,6 @@
 # Messaging & broker interface
 
-epistemic-graph carries a **RabbitMQ-class message broker** as a native modality (feature `broker`),
+Medulla carries a **RabbitMQ-class message broker** as a native modality (feature `broker`),
 built on the EG-KG.compute.atomically-claim-oldest-pending in-engine claim/ack work-queue: exchanges, queues, bindings, DLQ, TTL, priority,
 delayed delivery, consumer groups, replayable streams, and publisher confirms — all as nodes in the
 isolated `__control__` graph, Raft-safe and redb-durable. Three protocol wires front it: **AMQP 0.9.1**, **MQTT**,

@@ -2,7 +2,7 @@
 
 > **Every cross-modal seam is fully implemented at EVERY surface — never merely flagged.**
 
-The epistemic-graph engine unifies OWL/RDF, vectors, graph, timeseries, relational
+The Medulla engine unifies OWL/RDF, vectors, graph, timeseries, relational
 SQL, and blobs into ONE store. A *cross-modal seam* is any write→read path that
 crosses those modalities — e.g. *stage a graph node + its embedding + an OWL axiom in
 one transaction, then read them back together*. The engine exposes multiple surfaces: the
