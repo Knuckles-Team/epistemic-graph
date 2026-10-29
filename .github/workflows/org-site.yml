@@ -1,10 +1,12 @@
 name: Org site
 
-# Ask the organization site to rebuild the architecture explorer on every push to main.
+# Ask the organization site to rebuild the architecture explorer on every version tag (v*) push.
+# Also runs on demand.
 # A no-op until the org-site GitHub App secrets exist.
 on:
   push:
-    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
