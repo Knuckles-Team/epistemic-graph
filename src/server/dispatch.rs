@@ -536,8 +536,7 @@ pub(crate) async fn ensure_internal_global_graph(
         // refused it with "not resident". Re-materialize the cold graph
         // through the same lazy-open the routed graph operations get;
         // genuinely unknown names are no-ops.
-        ensure_graph_resident(state, graph_name).await;
-        return Ok(());
+        return ensure_known_graph_resident(state, graph_name).await;
     }
     let create_identity = eg_types::contract::Digest256::framed(
         b"eg/internal-graph-lifecycle/v1",
@@ -564,8 +563,7 @@ pub(crate) async fn ensure_internal_global_graph(
         // lifecycle as ensured — same re-materialization as the short-circuit
         // above.
         if state.read().await.registry.exists(graph_name) {
-            ensure_graph_resident(state, graph_name).await;
-            return Ok(());
+            return ensure_known_graph_resident(state, graph_name).await;
         }
         return Err(error);
     }
@@ -574,6 +572,23 @@ pub(crate) async fn ensure_internal_global_graph(
     } else {
         Err(format!(
             "internal graph lifecycle acknowledged without publishing '{graph_name}'"
+        ))
+    }
+}
+
+/// Materialize a catalog-known graph that may be COLD and confirm it is now
+/// resident. A failed lazy open is reported here instead of surfacing later
+/// as a "not resident" refusal in a resident-only consumer.
+async fn ensure_known_graph_resident(
+    state: &Arc<RwLock<ServerState>>,
+    graph_name: &str,
+) -> Result<(), String> {
+    ensure_graph_resident(state, graph_name).await;
+    if state.read().await.registry.is_resident(graph_name) {
+        Ok(())
+    } else {
+        Err(format!(
+            "internal global graph '{graph_name}' is known to the catalog but could not be materialized"
         ))
     }
 }
