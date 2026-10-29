@@ -582,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_worker_configuration_is_published_only_for_analytics_jobs() {
+    fn invalid_worker_configuration_is_published_for_analytics_jobs_and_the_outbox() {
         let code = ServerErrorCode::InvalidConfiguration.as_str();
         assert_eq!(code, "INVALID_CONFIGURATION");
         assert_eq!(class(code, "server"), "internal");
@@ -592,7 +592,9 @@ mod tests {
             .filter(|method| method_error_set(method).contains(&code))
             .map(|method| method.id.as_str())
             .collect();
-        assert_eq!(routes, BTreeSet::from(["AnalyticsJob"]));
+        // MutationOutbox already routes INVALID_CONFIGURATION on main (error_routing.rs,
+        // pinned by method_allows_error there); AnalyticsJob is the worker route.
+        assert_eq!(routes, BTreeSet::from(["AnalyticsJob", "MutationOutbox"]));
     }
 
     #[test]
