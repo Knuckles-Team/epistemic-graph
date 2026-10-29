@@ -1188,15 +1188,17 @@ mod tests {
         let r = HierarchicalRetriever::new(&f, &f);
         // Query tilted toward all three topics but strongest on T0.
         let q = [1.0, 0.9, 0.8];
-        let res = r.retrieve(
-            &q,
-            RetrievalParams {
-                k: 3,
-                drill_depth: 1,
-                drill_breadth: 2,
-                leaf_budget: 6,
-            },
-        ).unwrap();
+        let res = r
+            .retrieve(
+                &q,
+                RetrievalParams {
+                    k: 3,
+                    drill_depth: 1,
+                    drill_breadth: 2,
+                    leaf_budget: 6,
+                },
+            )
+            .unwrap();
 
         // (a) top-3 retrieved nodes are the three SUMMARIES, all summary-labelled.
         assert_eq!(res.summaries.len(), 3, "expected the 3 summary nodes");
@@ -1234,15 +1236,17 @@ mod tests {
         // A query on the T0/T1 seam so BOTH S0 and S1 rank high and both drill into
         // L_shared, and L_shared is relevant enough to survive the budget.
         let q = [0.7, 0.7, 0.0];
-        let res = r.retrieve(
-            &q,
-            RetrievalParams {
-                k: 3,
-                drill_depth: 1,
-                drill_breadth: 5,
-                leaf_budget: 12,
-            },
-        ).unwrap();
+        let res = r
+            .retrieve(
+                &q,
+                RetrievalParams {
+                    k: 3,
+                    drill_depth: 1,
+                    drill_breadth: 5,
+                    leaf_budget: 12,
+                },
+            )
+            .unwrap();
 
         let shared_in_leaves = res.leaves.iter().filter(|s| s.id == "L_shared").count();
         assert_eq!(
@@ -1280,15 +1284,17 @@ mod tests {
 
         // Hierarchical with the SAME total budget: k summaries + drilled leaves,
         // capped so summaries + leaves ~= budget worth of context.
-        let res = r.retrieve(
-            &q,
-            RetrievalParams {
-                k: 3,
-                drill_depth: 1,
-                drill_breadth: 1,
-                leaf_budget: budget.saturating_sub(3),
-            },
-        ).unwrap();
+        let res = r
+            .retrieve(
+                &q,
+                RetrievalParams {
+                    k: 3,
+                    drill_depth: 1,
+                    drill_breadth: 1,
+                    leaf_budget: budget.saturating_sub(3),
+                },
+            )
+            .unwrap();
         let hier_topics = distinct_topics(&res.context_ids());
 
         assert!(
@@ -1316,15 +1322,17 @@ mod tests {
         let q = [1.0, 0.0, 0.0];
         // breadth=1, so at most one child per summary is drilled; k=1 summary → <=1
         // leaf even though S0 has 5 children.
-        let res = r.retrieve(
-            &q,
-            RetrievalParams {
-                k: 1,
-                drill_depth: 1,
-                drill_breadth: 1,
-                leaf_budget: 10,
-            },
-        ).unwrap();
+        let res = r
+            .retrieve(
+                &q,
+                RetrievalParams {
+                    k: 1,
+                    drill_depth: 1,
+                    drill_breadth: 1,
+                    leaf_budget: 10,
+                },
+            )
+            .unwrap();
         assert_eq!(res.summaries.len(), 1);
         assert!(
             res.leaves.len() <= 1,

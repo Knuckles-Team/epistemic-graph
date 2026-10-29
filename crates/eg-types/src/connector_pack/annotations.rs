@@ -222,10 +222,13 @@ mod tests {
     #[test]
     fn unknown_closed_values_are_refused_naming_the_field() {
         for (field, value) in [("side_effects", "filesystem"), ("declared_by", "vendor")] {
-            let error = serde_json::from_value::<PackAnnotations>(serde_json::json!({ field: value }))
-                .expect_err("an unknown closed value must refuse");
+            let error =
+                serde_json::from_value::<PackAnnotations>(serde_json::json!({ field: value }))
+                    .expect_err("an unknown closed value must refuse");
             assert!(
-                error.to_string().contains(&format!("{field}: unknown value `{value}`")),
+                error
+                    .to_string()
+                    .contains(&format!("{field}: unknown value `{value}`")),
                 "{error}"
             );
         }

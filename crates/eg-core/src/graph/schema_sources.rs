@@ -465,12 +465,7 @@ fn document_claims_virtual_graph_approval(document: &str) -> bool {
                     // continuation the value, if any, starts the next line.
                     next_line_first_term(&lines[index + 1..])
                 } else {
-                    Some(
-                        rest.split([';', '.'])
-                            .next()
-                            .unwrap_or("")
-                            .trim(),
-                    )
+                    Some(rest.split([';', '.']).next().unwrap_or("").trim())
                 };
                 if value.is_some_and(is_truthy_approval_literal) {
                     return true;
@@ -515,12 +510,7 @@ fn next_line_first_term<'a>(lines: &'a [&'a str]) -> Option<&'a str> {
         if text.is_empty() {
             continue;
         }
-        return Some(
-            text.split([';', '.'])
-                .next()
-                .unwrap_or("")
-                .trim(),
-        );
+        return Some(text.split([';', '.']).next().unwrap_or("").trim());
     }
     None
 }

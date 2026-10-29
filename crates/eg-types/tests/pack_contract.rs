@@ -87,10 +87,7 @@ fn invalid_versions_and_incomplete_grants_are_refused() {
         supersedes: Some("2.0.0".into()),
         ..release()
     };
-    assert_eq!(
-        self_superseding.validate().unwrap_err().field,
-        "supersedes"
-    );
+    assert_eq!(self_superseding.validate().unwrap_err().field, "supersedes");
     let mut extra = serde_json::to_value(release()).unwrap();
     extra["package_version"] = "9.9.9".into();
     assert!(serde_json::from_value::<PackContractVersion>(extra).is_err());

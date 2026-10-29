@@ -166,7 +166,10 @@ impl DataContract {
         if hex.len() != 64 || !hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
             return Err(invalid("schema_digest"));
         }
-        members("quality_rules", self.quality_rules.iter().map(String::as_str))?;
+        members(
+            "quality_rules",
+            self.quality_rules.iter().map(String::as_str),
+        )?;
         if self.freshness_s == 0 {
             return Err(invalid("freshness_s"));
         }

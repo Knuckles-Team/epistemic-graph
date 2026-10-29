@@ -184,25 +184,25 @@ pub fn annotations_digest(annotations: &PackAnnotations) -> Result<Digest256, St
         tri(annotations.open_world_hint),
     ];
     let mut fields: Vec<&[u8]> = vec![
-            lists[0].as_bytes(),
-            lists[1].as_bytes(),
-            lists[2].as_bytes(),
-            lists[3].as_bytes(),
-            lists[4].as_bytes(),
-            &hints[0],
-            &hints[1],
-            &hints[2],
-            &hints[3],
-            contract_version,
-            currency,
-            prices[0].as_slice(),
-            prices[1].as_slice(),
-            prices[2].as_slice(),
-            latencies[0].as_slice(),
-            latencies[1].as_slice(),
-            model.as_slice(),
-            sdk_pin,
-            tool_mode,
+        lists[0].as_bytes(),
+        lists[1].as_bytes(),
+        lists[2].as_bytes(),
+        lists[3].as_bytes(),
+        lists[4].as_bytes(),
+        &hints[0],
+        &hints[1],
+        &hints[2],
+        &hints[3],
+        contract_version,
+        currency,
+        prices[0].as_slice(),
+        prices[1].as_slice(),
+        prices[2].as_slice(),
+        latencies[0].as_slice(),
+        latencies[1].as_slice(),
+        model.as_slice(),
+        sdk_pin,
+        tool_mode,
     ];
     // Harness tool facts are framed by name and only when present, so an entry
     // that declares none keeps its published golden vector.
@@ -496,6 +496,10 @@ mod harness_tool_fact_tests {
             .map(|annotations| annotations_digest(annotations).unwrap().to_hex())
             .chain([baseline.to_hex()])
             .collect();
-        assert_eq!(digests.len(), variants.len() + 1, "each field must be bound");
+        assert_eq!(
+            digests.len(),
+            variants.len() + 1,
+            "each field must be bound"
+        );
     }
 }

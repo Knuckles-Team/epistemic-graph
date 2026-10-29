@@ -55,12 +55,7 @@ fn assert_subclass_of(triples: &[Triple], local: &str, parent: &str) {
 
 fn assert_domain_range(triples: &[Triple], local: &str, domain: &str, range: &str) {
     assert!(
-        has_iri(
-            triples,
-            &kg(local),
-            &format!("{RDFS}domain"),
-            &kg(domain)
-        ),
+        has_iri(triples, &kg(local), &format!("{RDFS}domain"), &kg(domain)),
         "{local} domain is {domain}"
     );
     let range_iri = if let Some(data_type) = range.strip_prefix("xsd:") {
@@ -69,12 +64,7 @@ fn assert_domain_range(triples: &[Triple], local: &str, domain: &str, range: &st
         kg(range)
     };
     assert!(
-        has_iri(
-            triples,
-            &kg(local),
-            &format!("{RDFS}range"),
-            &range_iri
-        ),
+        has_iri(triples, &kg(local), &format!("{RDFS}range"), &range_iri),
         "{local} range is {range}"
     );
 }
