@@ -101,6 +101,7 @@ def _build_wheel(
     executable: AbstractSet[str] = frozenset(),
     corrupt_record: bool = False,
     misreported_size: str | None = None,
+    dist_info: str = DIST_INFO,
 ) -> Path:
     rows: list[tuple[str, bytes]] = []
     with zipfile.ZipFile(path, "w") as archive:
@@ -116,8 +117,8 @@ def _build_wheel(
             writer.writerow(
                 _record_row(name, payload, corrupt_record, misreported_size)
             )
-        writer.writerow((f"{DIST_INFO}/RECORD", "", ""))
-        archive.writestr(f"{DIST_INFO}/RECORD", buffer.getvalue())
+        writer.writerow((f"{dist_info}/RECORD", "", ""))
+        archive.writestr(f"{dist_info}/RECORD", buffer.getvalue())
     return path
 
 
@@ -271,6 +272,32 @@ def test_a_wheel_without_the_pre_rename_shim_is_rejected(tmp_path: Path) -> None
     )
     failures = check_wheel(wheel)
     assert any("epistemic_graph" in failure for failure in failures), failures
+
+
+def test_the_shim_is_not_required_of_a_different_distribution(
+    tmp_path: Path,
+) -> None:
+    """Only `medulla` upgrades an `import epistemic_graph` consumer.
+
+    The `medulla-stem` wheel also installs a `medulla` package (the server
+    facade) but is a separate distribution: requiring the shim there would
+    reject a correct stem wheel built from its own project metadata.
+    """
+    stem_info = f"medulla_stem-{VERSION}.dist-info"
+    members = {
+        name: payload
+        for name, payload in _complete_members().items()
+        if not name.startswith(("epistemic_graph/", f"{DIST_INFO}/"))
+    }
+    members[f"{stem_info}/METADATA"] = METADATA_COMPLETE.encode()
+    members[f"{stem_info}/WHEEL"] = b"Wheel-Version: 1.0\n"
+    wheel = _build_wheel(
+        tmp_path / "stem-without-shim.whl",
+        members=members,
+        executable=set(),
+        dist_info=stem_info,
+    )
+    assert check_wheel(wheel) == []
 
 
 def test_an_inconsistent_record_is_rejected(tmp_path: Path) -> None:

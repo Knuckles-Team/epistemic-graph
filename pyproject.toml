@@ -251,6 +251,13 @@ python-source = "."
 # or bin target is built here -- the server ships in `medulla-stem`.
 manifest-path = "crates/eg-pyengine/Cargo.toml"
 module-name = "medulla.engine"
+# `python-packages` defaults to the single package owning `module-name`, so the
+# one-release `epistemic_graph` compatibility shim (`__init__` + `engine`) would
+# be dropped from every wheel and sdist. Both packages are Python source trees at
+# `python-source` and both must ship: the shim's whole purpose is that an
+# installed wheel still answers `import epistemic_graph`. The wheel/sdist
+# completeness gates assert both are present (COMPAT_SHIM_PACKAGE).
+python-packages = ["medulla", "epistemic_graph"]
 strip = true
 # Never carry interpreter caches from a reused checkout into a wheel or sdist.
 # These are source-level Maturin globs, so the checkout itself remains untouched.

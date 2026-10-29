@@ -80,7 +80,12 @@ static CLIENT_MODULE: OnceLock<Option<Py<PyModule>>> = OnceLock::new();
 
 fn client_module(py: Python<'_>) -> Option<Bound<'_, PyModule>> {
     let cached: &Option<Py<PyModule>> = CLIENT_MODULE.get_or_init_py_attached(py, || {
-        py.import("epistemic_graph.client").ok().map(Bound::unbind)
+        // The package was renamed `epistemic_graph` -> `medulla`; the shim
+        // deliberately ships only `__init__`/`engine`, so the typed exception
+        // classes must be resolved from their real module. A stale name here
+        // degrades every embedded refusal to a plain `RuntimeError`, breaking
+        // socket/embedded exception parity (tests/parity/test_parity_errors.py).
+        py.import("medulla.client").ok().map(Bound::unbind)
     });
     cached.as_ref().map(|module| module.bind(py).clone())
 }

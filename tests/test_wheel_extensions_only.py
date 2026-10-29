@@ -26,6 +26,11 @@ def test_wheel_base_is_the_extension_crate_not_the_server_bin() -> None:
     assert maturin["manifest-path"] == "crates/eg-pyengine/Cargo.toml"
     assert maturin["module-name"] == "medulla.engine"
     assert maturin.get("bindings") != "bin"
+    # Maturin would package ONLY the package owning `module-name`. The
+    # one-release `epistemic_graph` compatibility shim is a second pure-Python
+    # package, so it must be declared explicitly or every published wheel and
+    # sdist silently drops it (and `import epistemic_graph` breaks on upgrade).
+    assert maturin["python-packages"] == ["medulla", "epistemic_graph"]
     root = tomllib.loads((ROOT / "Cargo.toml").read_text())
     pyengine = tomllib.loads((ROOT / "crates/eg-pyengine/Cargo.toml").read_text())
     # maturin takes the wheel version from the manifest it builds.
