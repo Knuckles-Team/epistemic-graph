@@ -8,9 +8,12 @@ binds the SAME module object the ``medulla`` name binds.
 
 from __future__ import annotations
 
+import importlib
 import sys
 
-from medulla import engine as _engine
+# Resolved through the import system, not `from medulla import engine`: the engine is
+# a compiled extension, so a static attribute import is not type-checkable here.
+_engine = importlib.import_module("medulla.engine")
 
 __all__ = list(getattr(_engine, "__all__", ()))
 
