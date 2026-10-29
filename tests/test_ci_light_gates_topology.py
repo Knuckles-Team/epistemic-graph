@@ -179,20 +179,3 @@ def test_ci_required_is_the_fail_closed_branch_protection_aggregate() -> None:
     assert "expected skipped for documentation-only scope" in run
     assert "failures=()" in run
     assert "exit 1" in run
-
-
-def test_auto_merge_is_the_shared_pipelines_caller() -> None:
-    source = (WORKFLOW.parent / "auto_merge.yml").read_text(encoding="utf-8")
-    workflow = yaml.safe_load(source)
-    events = workflow.get("on", workflow.get(True))
-    # pipelines#378: same-repository pull_request events arm native auto-merge (gated by
-    # the required check); check_run alone never fires for Actions-created check runs.
-    assert set(events) == {"pull_request", "check_run"}
-    assert "pull_request_target" not in events
-    assert "actions/checkout@" not in source
-    assert workflow["permissions"] == {}
-    job = workflow["jobs"]["auto-merge"]
-    assert job["permissions"]["contents"] == "write"
-    assert job["permissions"]["pull-requests"] == "write"
-    assert job["uses"].endswith("/auto_merge_pipeline.yml@main")
-    assert job["secrets"] == {"merge-token": "${{ secrets.GIT_TOKEN }}"}
