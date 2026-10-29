@@ -3923,6 +3923,137 @@
       ],
       "type": "object"
     },
+    "LiquidityDirection": {
+      "description": "Direction of a signed liquidity contribution since its previous period.",
+      "enum": [
+        "increasing",
+        "decreasing",
+        "unchanged",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "LiquidityHeatCell": {
+      "additionalProperties": false,
+      "description": "One signed contribution and its change from the preceding available period.",
+      "properties": {
+        "change_usd": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "contribution_usd": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "direction": {
+          "$ref": "#/$defs/LiquidityDirection"
+        },
+        "observation_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "observed_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "previous_observation_ms": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "previous_observed_ms": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "previous_source_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "previous_vintage_ms": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "series": {
+          "$ref": "#/$defs/LiquiditySeries"
+        },
+        "source_ref": {
+          "type": "string"
+        },
+        "vintage_ms": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "series",
+        "contribution_usd",
+        "direction",
+        "observation_ms",
+        "vintage_ms",
+        "observed_ms",
+        "source_ref"
+      ],
+      "type": "object"
+    },
+    "LiquidityPanel": {
+      "additionalProperties": false,
+      "description": "Composite and heat strip in exact USD, with source times retained.",
+      "properties": {
+        "as_of_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "heat": {
+          "items": {
+            "$ref": "#/$defs/LiquidityHeatCell"
+          },
+          "type": "array"
+        },
+        "max_age_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "net_liquidity_usd": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "as_of_ms",
+        "max_age_ms",
+        "net_liquidity_usd",
+        "heat"
+      ],
+      "type": "object"
+    },
+    "LiquiditySeries": {
+      "description": "The three series in the Bellwether net-liquidity definition.",
+      "enum": [
+        "walcl",
+        "wdtgal",
+        "rrpontsyd"
+      ],
+      "type": "string"
+    },
     "MarketMakingQuoteResult": {
       "description": "A market-making quote around a reservation price.",
       "properties": {
@@ -7748,6 +7879,13 @@
               "$ref": "#/$defs/IndicatorPoint"
             },
             "type": "array"
+          }
+        },
+        "liquidity_panel": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/LiquidityPanel"
           }
         },
         "resolve": {
