@@ -1,10 +1,15 @@
 name: Auto-merge green PRs
 
 # Copy to .github/workflows/auto_merge.yml (reference/ci-standard.md).
-# Arms only when the required `CI required` check run completes green on the PR
-# head. No pull_request_target trigger (supply-chain SC-GHA-005) and no
+# Arms native auto-merge on the PR; main's required `CI required` check gates the merge. No pull_request_target trigger (supply-chain SC-GHA-005) and no
 # repository-wide write permission (SC-GHA-004): the job alone holds write.
 on:
+  # Arms GitHub's native auto-merge when a same-repository PR opens or moves; GitHub then
+  # merges once every required check passes. check_run alone never fires: events from
+  # Actions-created check runs do not start workflows.
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, ready_for_review, synchronize]
   check_run:
     types: [completed]
 
