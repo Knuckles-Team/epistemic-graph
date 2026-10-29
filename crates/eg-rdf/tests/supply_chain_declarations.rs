@@ -426,42 +426,148 @@ fn vulnerability_and_affects_component_terms_are_listed() {
     ));
 }
 
+/// The ordered steps of every `owl:propertyChainAxiom` list on `subject`;
+/// an inverse step `[ owl:inverseOf p ]` appears as `inv:<p>`.
+fn chain_steps(triples: &[eg_rdf::oxrdf::Triple], subject: &str) -> Vec<Vec<String>> {
+    let mut chains = Vec::new();
+    for head in triples.iter().filter(|t| {
+        t.subject == NamedNode::new(subject).unwrap().into()
+            && t.predicate.as_str() == format!("{OWL}propertyChainAxiom")
+    }) {
+        let mut steps = Vec::new();
+        let mut list = Some(head.object.clone());
+        while let Some(Term::BlankNode(cell)) = list {
+            let cell = NamedOrBlankNode::BlankNode(cell);
+            for t in triples.iter().filter(|t| t.subject == cell) {
+                if t.predicate.as_str() != format!("{RDF}first") {
+                    continue;
+                }
+                match &t.object {
+                    Term::NamedNode(n) => steps.push(n.as_str().to_string()),
+                    Term::BlankNode(b) => {
+                        let inner = NamedOrBlankNode::BlankNode(b.clone());
+                        for inv in triples.iter().filter(|x| {
+                            x.subject == inner && x.predicate.as_str() == format!("{OWL}inverseOf")
+                        }) {
+                            if let Term::NamedNode(n) = &inv.object {
+                                steps.push(format!("inv:{}", n.as_str()));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            list = triples
+                .iter()
+                .find(|t| t.subject == cell && t.predicate.as_str() == format!("{RDF}rest"))
+                .map(|t| t.object.clone());
+        }
+        chains.push(steps);
+    }
+    chains
+}
+
 // spec: EG-CQ-XSRC-R004.1
 #[test]
-fn supplies_service_declares_the_supplier_chain_axiom() {
+fn supplier_service_carries_the_software_chain_and_inverts_supplies_service() {
     let triples = parse_turtle(DOCUMENT).unwrap();
-    let subject = format!("{KG}suppliesService");
+    let subject = format!("{KG}serviceSupplier");
     assert!(has_iri(
         &triples,
         &subject,
         RDF_TYPE,
         &format!("{OWL}ObjectProperty")
     ));
+    assert!(has_iri(
+        &triples,
+        &subject,
+        &format!("{OWL}inverseOf"),
+        &format!("{KG}suppliesService")
+    ));
+    assert_eq!(
+        chain_steps(&triples, &subject),
+        vec![vec![
+            format!("{KG}deployedAs"),
+            format!("{KG}usesImage"),
+            format!("{KG}containsComponent"),
+            format!("{KG}supplyChainVersionOf"),
+            format!("{KG}publishedBy"),
+        ]]
+    );
+}
+
+// spec: EG-SUPPLY-VOCAB-R001.3
+#[test]
+fn supplies_service_has_the_only_domain_and_range_and_no_chain_recurses() {
+    let triples = parse_turtle(DOCUMENT).unwrap();
+    let supplies = format!("{KG}suppliesService");
     let domain = format!("{RDFS}domain");
     let range = format!("{RDFS}range");
-    assert!(has_iri(
-        &triples,
-        &subject,
-        &domain,
-        &format!("{INFRA}Service")
-    ));
-    assert!(has_iri(
-        &triples,
-        &subject,
-        &range,
-        &format!("{KG}Supplier")
-    ));
-    let chain = union_members(&triples, &subject, &format!("{OWL}propertyChainAxiom"));
-    assert_eq!(
-        chain,
-        vec![
-            format!("{KG}containsComponent"),
-            format!("{KG}deployedAs"),
-            format!("{KG}publishedBy"),
-            format!("{KG}supplyChainVersionOf"),
-            format!("{KG}usesImage"),
-        ]
+    assert!(has_iri(&triples, &supplies, &domain, &format!("{KG}Supplier")));
+    assert!(has_iri(&triples, &supplies, &range, &format!("{INFRA}Service")));
+    assert!(
+        chain_steps(&triples, &supplies).is_empty(),
+        "suppliesService carries no property chain"
     );
+    let via_host = format!("{KG}suppliesServiceViaHost");
+    assert!(has_iri(
+        &triples,
+        &via_host,
+        &format!("{RDFS}subPropertyOf"),
+        &supplies
+    ));
+    assert_eq!(
+        chain_steps(&triples, &via_host),
+        vec![vec![
+            format!("{KG}suppliesItem"),
+            format!("{KG}realizedByAsset"),
+            format!("{KG}assetHost"),
+            format!("inv:{INFRA}serviceRunsOn"),
+        ]]
+    );
+    let family = [
+        supplies.clone(),
+        format!("{KG}serviceSupplier"),
+        via_host.clone(),
+    ];
+    // Only suppliesService declares a domain or range.
+    for member in &family[1..] {
+        for predicate in [&domain, &range] {
+            assert!(
+                !triples.iter().any(|t| t.subject
+                    == NamedNode::new(member.as_str()).unwrap().into()
+                    && t.predicate.as_str() == predicate.as_str()),
+                "{member} must not declare {predicate}"
+            );
+        }
+    }
+    // No chain on any property mentions a family member (no recursion).
+    let owners: std::collections::BTreeSet<String> = triples
+        .iter()
+        .filter(|t| t.predicate.as_str() == format!("{OWL}propertyChainAxiom"))
+        .map(|t| t.subject.to_string().trim_matches(|c| c == '<' || c == '>').to_string())
+        .collect();
+    for owner in owners {
+        for steps in chain_steps(&triples, &owner) {
+            for step in steps {
+                let bare = step.trim_start_matches("inv:");
+                assert!(
+                    !family.iter().any(|m| m == bare),
+                    "chain of {owner} mentions {bare}"
+                );
+            }
+        }
+    }
+}
+
+// spec: EG-SUPPLY-VOCAB-R001.3
+#[test]
+fn service_runs_on_is_a_service_scoped_runs_on() {
+    let triples = parse_turtle(include_str!("../../eg-core/ontology/infrastructure-v1.ttl")).unwrap();
+    let subject = format!("{INFRA}serviceRunsOn");
+    assert!(has_iri(&triples, &subject, &format!("{RDFS}subPropertyOf"), &format!("{INFRA}runsOn")));
+    assert!(has_iri(&triples, &subject, &format!("{RDFS}domain"), &format!("{INFRA}Service")));
+    assert!(has_iri(&triples, &subject, &format!("{RDFS}range"), &format!("{INFRA}Host")));
 }
 
 // spec: EG-SUPPLY-VOCAB-R002.6

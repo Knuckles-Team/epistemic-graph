@@ -53,7 +53,7 @@ fn container_image_entails_software_component_under_the_native_reasoner() {
 
 // spec: EG-CQ-XSRC-R004.1
 #[test]
-fn supplies_service_infers_the_supplier_end_of_the_runtime_chain() {
+fn supplies_service_infers_supplier_to_service_from_the_software_path() {
     let mut triples = documents();
     triples.extend(
         parse_turtle(include_str!(
@@ -61,9 +61,8 @@ fn supplies_service_infers_the_supplier_end_of_the_runtime_chain() {
         ))
         .unwrap(),
     );
-    // The fixture asserts the shared `versionOf` link; the `suppliesService`
-    // chain needs the supply-chain module property between version and
-    // component, so the test asserts it alongside.
+    // The fixture asserts the shared `versionOf` link; the software chain
+    // needs the supply-chain module property between version and component.
     triples.extend(
         parse_turtle(
             r#"
@@ -77,16 +76,93 @@ fn supplies_service_infers_the_supplier_end_of_the_runtime_chain() {
     );
     let service = format!("<{EX}checkoutService>");
     let supplier = format!("<{EX}opensslSupplier>");
-    let chain = format!("<{KG}suppliesService>");
     let entailed = saturate_object_properties(&triples);
-    let derived = entailed
-        .iter()
-        .find(|fact| fact.subject == service && fact.predicate == chain && fact.object == supplier);
+    let inbound = entailed.iter().find(|fact| {
+        fact.subject == service
+            && fact.predicate == format!("<{KG}serviceSupplier>")
+            && fact.object == supplier
+    });
+    let Some(inbound) = inbound else {
+        panic!("the software chain must derive {service} serviceSupplier {supplier}");
+    };
+    assert!(!inbound.asserted, "the edge is inferred, not asserted");
+    assert_eq!(inbound.rule, "RL-propertyChain");
+    let derived = entailed.iter().find(|fact| {
+        fact.subject == supplier
+            && fact.predicate == format!("<{KG}suppliesService>")
+            && fact.object == service
+    });
     let Some(derived) = derived else {
-        panic!("the runtime chain must derive {service} {chain} {supplier}");
+        panic!("the inverse must derive {supplier} suppliesService {service}");
     };
     assert!(!derived.asserted, "the edge is inferred, not asserted");
-    assert_eq!(derived.rule, "RL-propertyChain");
+    assert_eq!(derived.rule, "RL-inverseOf");
+}
+
+// spec: EG-SUPPLY-VOCAB-R001.3
+#[test]
+fn supplies_service_infers_supplier_to_service_from_the_physical_path() {
+    let mut triples = documents();
+    triples.extend(
+        parse_turtle(include_str!(
+            "../../eg-core/tests/fixtures/supply_chain_service_chain.ttl"
+        ))
+        .unwrap(),
+    );
+    let supplier = format!("<{EX}acmeSupplier>");
+    let service = format!("<{EX}payrollService>");
+    let entailed = saturate_object_properties(&triples);
+    for predicate in ["suppliesServiceViaHost", "suppliesService"] {
+        let found = entailed.iter().find(|fact| {
+            fact.subject == supplier
+                && fact.predicate == format!("<{KG}{predicate}>")
+                && fact.object == service
+        });
+        let Some(found) = found else {
+            panic!("the physical path must derive {supplier} {predicate} {service}");
+        };
+        assert!(!found.asserted, "the edge is inferred, not asserted");
+    }
+}
+
+// spec: EG-SUPPLY-VOCAB-R001.3
+#[test]
+fn container_or_pod_runs_on_path_infers_no_supplier_service_edge() {
+    let mut triples = documents();
+    triples.extend(
+        parse_turtle(
+            r#"
+            @prefix : <http://knuckles.team/kg#> .
+            @prefix infra: <http://knuckles.team/kg/infrastructure#> .
+            @prefix ex: <http://knuckles.team/test/supply-chain#> .
+
+            ex:acmeSupplier a :Supplier ;
+                :suppliesItem ex:psuItem .
+            ex:psuItem a :SupplyChainItem ;
+                :realizedByAsset ex:psuAsset .
+            ex:psuAsset a :AssetInstance ;
+                :assetHost ex:rackHost .
+            ex:rackHost a infra:Host .
+            ex:someContainer infra:containerRunsOn ex:rackHost .
+            ex:somePod infra:podRunsOn ex:rackHost .
+            "#,
+        )
+        .unwrap(),
+    );
+    let entailed = saturate_object_properties(&triples);
+    for predicate in ["suppliesService", "suppliesServiceViaHost", "serviceSupplier"] {
+        assert!(
+            !entailed
+                .iter()
+                .any(|fact| fact.predicate == format!("<{KG}{predicate}>")),
+            "a container-only or pod-only path must not derive {predicate}"
+        );
+    }
+    let service_type = "<http://knuckles.team/kg/infrastructure#Service>";
+    assert!(
+        !entailed.iter().any(|fact| fact.object == service_type),
+        "no endpoint is retyped as a Service"
+    );
 }
 
 // spec: EG-SUPPLY-VOCAB-R002.5
