@@ -2,8 +2,9 @@
 
 A `.3` row says "the typed model and kernel exist; serve them". This recipe turns one
 kernel function into a served method. The method has a generated contract, generated
-clients and a served integration test. It was proven on `EG-FINANCE-PRIMITIVES-R900.3`
-and repeated for the banking, execution and factor-rank rows.
+clients and a served integration test. This recipe proved it on
+`EG-FINANCE-PRIMITIVES-R900.3` and repeated it for the banking, execution and
+factor-rank rows.
 
 Do not hand-edit anything generated. Do not run `git add -A`; stage explicit paths.
 
@@ -27,8 +28,8 @@ only through `eg-compute`:
 - `crates/eg-compute/Cargo.toml`: the `finance` feature already lists `dep:eg-numeric`. Add
   any kernel feature it needs (the first row needed the numeric crate's analytics feature).
 - `crates/eg-compute/src/finance/mod.rs`: `pub use eg_numeric::{banking, execution, sizing};`
-  The handler then calls `crate::finance::sizing::...`. (`crate::finance` is
-  `eg_compute::finance` when the root `finance` feature is on.)
+  The handler then calls `crate::finance::sizing::...`. (The root `finance`
+  feature makes `crate::finance` an alias for `eg_compute::finance`.)
 
 ## 2. Declare the method and its result (eg-types)
 
