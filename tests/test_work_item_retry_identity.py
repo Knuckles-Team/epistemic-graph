@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any
 
 import msgpack
@@ -288,3 +289,35 @@ async def test_run_owned_submission_keeps_closed_request_validation() -> None:
         await client.work_items.submit({**request, "run_id": 1})
     with pytest.raises(ValueError, match="SubmitWorkItem.run_id"):
         await client.work_items.submit({**request, "run_id": " "})
+
+
+# spec: EG-DURABLE-KERNEL-R028.4
+@pytest.mark.asyncio
+async def test_submit_accepts_optional_conversation_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The generated request and the engine accept ``conversation``; the client must not reject it."""
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+    )
+    sent: list[dict[str, Any]] = []
+
+    async def fake_send(_method: str, payload: dict[str, Any], **_kw: Any) -> Any:
+        sent.append(payload)
+        return SimpleNamespace(payload=_submit_result())
+
+    async def supports(_method: str) -> bool:
+        return True
+
+    monkeypatch.setattr(client, "supports", supports)
+    monkeypatch.setattr(
+        "epistemic_graph.client._gen.coordination.send_submit_work_item",
+        lambda _c, payload, **kw: fake_send("SubmitWorkItem", payload, **kw),
+    )
+    conversation = {"turn": "opaque"}
+    await client.work_items.submit({**_submit_request(), "conversation": conversation})
+    assert sent[0]["request"]["conversation"] == conversation

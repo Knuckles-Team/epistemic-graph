@@ -3917,7 +3917,7 @@ class WorkItemClient:
             "SubmitWorkItem request",
             request,
             _SUBMIT_WORK_ITEM_REQUEST_FIELDS,
-            frozenset({"run_id"}),
+            frozenset({"run_id", "conversation"}),
         )
         if value["schema_version"] != "1":
             raise ValueError("SubmitWorkItem schema_version must be 1")
