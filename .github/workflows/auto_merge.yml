@@ -1,20 +1,21 @@
 name: Auto-merge green PRs
 
 # Copy to .github/workflows/auto_merge.yml (reference/ci-standard.md).
+# Arms only when the required `CI required` check run completes green on the PR
+# head. No pull_request_target trigger (supply-chain SC-GHA-005) and no
+# repository-wide write permission (SC-GHA-004): the job alone holds write.
 on:
-  pull_request_target:
-    branches: [main]
-    types: [opened, reopened, ready_for_review, synchronize]
   check_run:
     types: [completed]
 
-permissions:
-  contents: write
-  pull-requests: write
-  checks: read
+permissions: {}
 
 jobs:
   auto-merge:
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
     uses: Knuckles-Team/pipelines/.github/workflows/auto_merge_pipeline.yml@main
     secrets:
       merge-token: ${{ secrets.GIT_TOKEN }}
