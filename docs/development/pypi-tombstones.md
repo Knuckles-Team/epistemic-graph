@@ -31,7 +31,8 @@ gh workflow run publish-tombstones.yml -f confirm=publish-tombstones
 ```
 
 `.github/workflows/publish-tombstones.yml` builds each tree with `python -m build` and
-uploads it with PyPI trusted publishing. It stays separate from `release.yml`.
+uploads both with `twine` using the org-level `PYPI_API_TOKEN` secret, the same token
+every ecosystem release uses. It stays separate from `release.yml`.
 `release.yml` publishes only from a canonical `v*` tag push: its uploader calls
 `scripts/verify_release_tag.py` and refuses anything else. A tombstone is a one-off
 manual act.
@@ -42,9 +43,8 @@ The workflow refuses to run unless:
 * the `confirm` input is exactly `publish-tombstones`, and
 * each built wheel contains nothing outside its `.dist-info/` directory.
 
-Before the first run, a maintainer must point both PyPI projects' trusted publisher at
-`Knuckles-Team/medulla` and `publish-tombstones.yml`, with an empty environment field.
-Otherwise PyPI rejects the OIDC exchange as `invalid-publisher`.
+No PyPI trusted-publisher setting needs to change: the upload authenticates with the
+secret token, not OIDC, so the workflow requests no `id-token` permission.
 
 The version is a fixed floor, not a value wired to `Cargo.toml`. It must sort above the
 last release published under the retired name, which is 2.27.7. Nothing in the release
