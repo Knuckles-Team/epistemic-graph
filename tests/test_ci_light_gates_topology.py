@@ -399,8 +399,7 @@ def test_full_native_label_does_not_expand_events_or_permissions() -> None:
 def test_full_native_workspace_uses_full_sweep_not_pr_subset() -> None:
     job = _jobs()["gates-crates"]
     assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && "
-        "needs.changes.outputs.full_native != 'true' && 15 || 60 }}"
+        "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     )
     steps = {step.get("name"): step for step in job["steps"]}
     full = steps[

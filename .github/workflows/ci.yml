@@ -730,7 +730,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
     name: gates (ontology composition)
     needs: changes
-    if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.ontology == 'true')
+    if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.full_native == 'true' || needs.changes.outputs.ontology == 'true')
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:

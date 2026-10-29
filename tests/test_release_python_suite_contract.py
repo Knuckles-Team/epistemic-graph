@@ -302,10 +302,7 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     )
     expected = {
         "gates-facade": 60,
-        "gates-crates": (
-            "${{ github.event_name == 'pull_request' && "
-            "needs.changes.outputs.full_native != 'true' && 15 || 60 }}"
-        ),
+        "gates-crates": ("${{ github.event_name == 'pull_request' && 30 || 60 }}"),
     }.get(
         job_name,
         "${{ github.event_name == 'pull_request' && " + str(budget) + " || 60 }}",
