@@ -752,7 +752,11 @@
     rdfs:domain :MediaFile ;
     rdfs:range xsd:string .
 
-:sizeBytes rdfs:domain :MediaFile .
+:mediaFileSizeBytes a owl:DatatypeProperty ;
+    rdfs:label "media file size bytes" ;
+    rdfs:comment "Size of a media file in bytes. A module-local sub-property of the shared :sizeBytes, which the data-platform module alone constrains." ;
+    rdfs:subPropertyOf :sizeBytes ;
+    rdfs:domain :MediaFile .
 
 :contentSha256 a owl:DatatypeProperty ;
     rdfs:label "content SHA-256" ;
