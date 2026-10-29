@@ -79,6 +79,7 @@ nav:
       - Operations runbook: operations/runbook.md
       - Fault and restart certification: operations/exact-fault-restart-certification.md
       - Release campaigns: operations/exact-release-campaigns.md
+      - PyPI tombstones: development/pypi-tombstones.md
       - Performance certification: performance_certification.md
   - Reference:
       - Capabilities: capabilities.md
