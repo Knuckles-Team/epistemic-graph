@@ -750,7 +750,7 @@
       ],
       "verified_by": [
         "tests/test_ci_change_scope.py:607",
-        "tests/test_ci_change_scope.py:959",
+        "tests/test_ci_change_scope.py:961",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -1033,9 +1033,9 @@
       "verified_by": [
         "tests/test_build_backend.py:138",
         "tests/test_check_wheel_completeness.py:216",
-        "tests/test_ci_change_scope.py:762",
-        "tests/test_ci_change_scope.py:806",
-        "tests/test_ci_change_scope.py:935"
+        "tests/test_ci_change_scope.py:763",
+        "tests/test_ci_change_scope.py:808",
+        "tests/test_ci_change_scope.py:937"
       ],
       "rollup_of": [
         "EG-CONTRACT-R053.1",
@@ -1226,9 +1226,9 @@
         "be072c1cf996"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:762",
-        "tests/test_ci_change_scope.py:806",
-        "tests/test_ci_change_scope.py:935"
+        "tests/test_ci_change_scope.py:763",
+        "tests/test_ci_change_scope.py:808",
+        "tests/test_ci_change_scope.py:937"
       ]
     }
   ]
