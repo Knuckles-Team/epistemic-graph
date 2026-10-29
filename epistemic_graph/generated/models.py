@@ -5487,6 +5487,13 @@ class FinanceMarketOpDecimate(BaseModel):
     request: DecimateRequest
 
 
+class FinanceMarketOpLiquidityPanel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["liquidity_panel"]
+    request: LiquidityPanelRequest
+
+
 class FinanceMarketOpAnalysisSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5505,6 +5512,7 @@ FinanceMarketOp = Annotated[
     | FinanceMarketOpFlipConfidence
     | FinanceMarketOpBacktestRun
     | FinanceMarketOpDecimate
+    | FinanceMarketOpLiquidityPanel
     | FinanceMarketOpAnalysisSnapshot,
     Field(discriminator="op"),
 ]
@@ -9111,6 +9119,66 @@ class Linkage(str, Enum):
     SINGLE = "single"
     COMPLETE = "complete"
     AVERAGE = "average"
+
+
+class LiquidityDirection(str, Enum):
+    INCREASING = "increasing"
+    DECREASING = "decreasing"
+    UNCHANGED = "unchanged"
+    UNAVAILABLE = "unavailable"
+
+
+class LiquidityHeatCell(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_usd: int | None = None
+    contribution_usd: int
+    direction: LiquidityDirection
+    observation_ms: int
+    observed_ms: int
+    previous_observation_ms: int | None = None
+    previous_observed_ms: int | None = None
+    previous_source_ref: str | None = None
+    previous_vintage_ms: int | None = None
+    series: LiquiditySeries
+    source_ref: str
+    vintage_ms: int
+
+
+class LiquidityObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    observation_ms: int
+    observed_ms: int
+    series: LiquiditySeries
+    source_ref: str
+    value_milliunits: int
+    vintage_ms: int
+
+
+class LiquidityPanel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of_ms: int
+    heat: list[LiquidityHeatCell]
+    max_age_ms: int
+    net_liquidity_usd: int
+    version: Annotated[int, Field(ge=0)]
+
+
+class LiquidityPanelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of_ms: int
+    max_age_ms: int
+    observations: list[LiquidityObservation]
+    version: Annotated[int, Field(ge=0)]
+
+
+class LiquiditySeries(str, Enum):
+    WALCL = "walcl"
+    WDTGAL = "wdtgal"
+    RRPONTSYD = "rrpontsyd"
 
 
 class ListControlLeasesRequest(BaseModel):
@@ -27367,6 +27435,7 @@ __all__ = [
     "FinanceMarketOpEncodePoints",
     "FinanceMarketOpFlipConfidence",
     "FinanceMarketOpIndicators",
+    "FinanceMarketOpLiquidityPanel",
     "FinanceMarketOpResolve",
     "FinanceMarketOpRollup",
     "FinanceMarketOpSignalAdvance",
@@ -27932,6 +28001,12 @@ __all__ = [
     "LinkPredictorFit",
     "LinkRequest",
     "Linkage",
+    "LiquidityDirection",
+    "LiquidityHeatCell",
+    "LiquidityObservation",
+    "LiquidityPanel",
+    "LiquidityPanelRequest",
+    "LiquiditySeries",
     "ListChannelsResult",
     "ListControlLeasesRequest",
     "ListGraphsResult",

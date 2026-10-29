@@ -159,20 +159,22 @@ pub(crate) mod worker {
     /// the first sweep held the `ServerState` write lock across it — queueing
     /// the pre-listener critical path (matview reload, listener bind) behind
     /// the whole drain. A read lock adopts an already-ensured handle; the open
-    /// itself runs unlocked, and only the publish takes a short write —
-    /// re-checked so a concurrent `ensure_agent_library` winner is adopted
-    /// rather than shadowed by a second open.
+    /// itself runs unlocked, and only the publish takes a short write. The
+    /// shared open slot also serializes it with request-side initialization.
     async fn open_agent_library(
         state: &Arc<RwLock<ServerState>>,
     ) -> Result<Arc<AgentLibraryStore>, String> {
         if let Some(store) = state.read().await.agent_library.clone() {
             return Ok(store);
         }
-        let persist_dir =
-            state.read().await.persist_dir.clone().ok_or_else(|| {
+        let (persist_dir, slot) = {
+            let guard = state.read().await;
+            let persist_dir = guard.persist_dir.clone().ok_or_else(|| {
                 "Agent Library requires a configured persist directory".to_string()
             })?;
-        let opened = Arc::new(AgentLibraryStore::open(&persist_dir)?);
+            (persist_dir, Arc::clone(&guard.agent_library_open))
+        };
+        let opened = crate::server::state::open_shared_agent_library(&slot, &persist_dir)?;
         let mut guard = state.write().await;
         if let Some(existing) = guard.agent_library.as_ref() {
             return Ok(Arc::clone(existing));

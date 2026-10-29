@@ -2432,7 +2432,7 @@
         "a0743ba9b542"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:384",
+        "crates/eg-capabilities/src/error_routing.rs:439",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:29",
@@ -2504,7 +2504,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:384",
+        "crates/eg-capabilities/src/error_routing.rs:439",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:45"

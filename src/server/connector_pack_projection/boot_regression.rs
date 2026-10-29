@@ -445,7 +445,10 @@ async fn boot_listener_binds_before_the_projection_drain_completes() {
     // The seeding dispatches ensured the Agent Library store: drop the cached
     // handle so the worker's first sweep exercises the open-OUTSIDE-the-write-
     // lock path (EG-DURABLE-KERNEL-R006.4).
-    state.write().await.agent_library = None;
+    let mut guard = state.write().await;
+    guard.agent_library = None;
+    *guard.agent_library_open.lock() = None;
+    drop(guard);
 
     // ── Boot the real wiring: the worker first (as `run_inner` does), then
     // the UDS listener, then the post-bind maintenance after the bind. ──
