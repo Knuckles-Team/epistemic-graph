@@ -259,10 +259,11 @@
       "title": "Add `:usesComponent` (service to component version) and `:suppliesService`",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "340d0c252754",
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:429",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:470",
         "crates/eg-rdf/tests/supply_chain_reasoning.rs:54"
       ]
     },
