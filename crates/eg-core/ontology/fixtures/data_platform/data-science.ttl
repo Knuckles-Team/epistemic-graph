@@ -1,4 +1,4 @@
-# data-science store-mapping fixture (EG-DATAPLAT-VOCAB-R006.8).
+# data-science store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.8).
 #
 # One attached ML engine registry. load_dataset, dataset_lineage,
 # rank_models and evaluate_model are named MCP operations served virtual
@@ -123,4 +123,4 @@ ex:mapping_run_history a dp:StoreMapping ;
     dp:contractKind "mcp-operation" ;
     dp:viaOperation "fit_model:fit" ;
     dp:accelerationMode "materialised" ;
-    dp:materialisationReason "The ML engine registry is in-process (MLEngine) and resets, so run history must be recorded as dp:TrainingRun / dp:EvaluationResult metadata when a run happens; materialised via the R038 AccelerationPolicy (EG-DATAPLAT-VOCAB-R006.8)." .
+    dp:materialisationReason "The ML engine registry is in-process (MLEngine) and resets, so run history must be recorded as dp:TrainingRun / dp:EvaluationResult metadata when a run happens; materialised via the R038 AccelerationPolicy (MEDULLA-DATAPLAT-VOCAB-R006.8)." .

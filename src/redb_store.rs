@@ -6291,7 +6291,7 @@ mod mutation_batch_tests {
         let _ = std::fs::remove_file(path);
     }
 
-    // spec: EG-DURABLE-KERNEL-R028.2
+    // spec: MEDULLA-DURABLE-KERNEL-R028.2
     #[test]
     fn terminal_extension_commits_rows_outbox_and_replays_after_reopen() {
         let path = temp_path("terminal-extension-success-reopen");

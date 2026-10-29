@@ -137,7 +137,7 @@ pub struct ConnectorPackIndex {
 mod kind_wire_tests {
     use super::PackEntryKind;
 
-    // spec: EG-TYPED-PACKS-R101.10
+    // spec: MEDULLA-TYPED-PACKS-R101.10
     #[test]
     fn the_manifest_kind_is_not_on_the_wire() {
         assert!(serde_json::from_str::<PackEntryKind>("\"manifest\"").is_err());

@@ -113,7 +113,7 @@ mod tests {
         (record, config, input)
     }
 
-    // spec: EG-PLACEMENT-R002.3
+    // spec: MEDULLA-PLACEMENT-R002.3
     #[test]
     fn each_hard_bound_limits_the_grant() {
         let (mut record, mut config, mut input) = fixture();
@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(granted_slots(&record, &config, input, 9).slots(), 2);
     }
 
-    // spec: EG-PLACEMENT-R002.3
+    // spec: MEDULLA-PLACEMENT-R002.3
     #[test]
     fn floor_one_never_overrides_a_zero_hard_limit() {
         use WorkerCapacityRefusal::*;
@@ -185,7 +185,7 @@ mod tests {
         );
     }
 
-    // spec: EG-PLACEMENT-R002.3
+    // spec: MEDULLA-PLACEMENT-R002.3
     #[test]
     fn disabled_resources_invalid_policy_and_large_values_are_safe() {
         use WorkerCapacityRefusal::*;

@@ -1,8 +1,8 @@
 # Supply-chain entity-resolution blocking keys with rank and exactness, plus
-# the two entity pairs EG-SUPPLY-VOCAB-R007.2 exercises over
+# the two entity pairs MEDULLA-SUPPLY-VOCAB-R007.2 exercises over
 # EntityLinkProposal::assert_same_as: an exact digest-key pair (the digest is
 # an exact key) and a name-only pair (a name-only key is always a proposal,
-# never auto-approved). The key-set table itself (EG-SUPPLY-VOCAB-R007.1) is
+# never auto-approved). The key-set table itself (MEDULLA-SUPPLY-VOCAB-R007.1) is
 # supply_chain_blocking_keys.ttl; the sets here restate it with rank/exact
 # annotations for the R007.2 test.
 #

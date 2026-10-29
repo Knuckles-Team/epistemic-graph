@@ -1,4 +1,4 @@
-//! Defect intake (EG-SDLC-R003.2): symptom normalization, the signature digest
+//! Defect intake (MEDULLA-SDLC-R003.2): symptom normalization, the signature digest
 //! and deduplication. An open defect with the same signature absorbs a new
 //! symptom; a closed one reopens.
 

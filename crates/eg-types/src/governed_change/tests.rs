@@ -51,7 +51,7 @@ fn proposed() -> GovernedLedger {
     ledger
 }
 
-// spec: EG-SRC-AUTH-R003.1
+// spec: MEDULLA-SRC-AUTH-R003.1
 #[test]
 fn source_authority_kind_has_exact_scopes() {
     assert_eq!(
@@ -64,7 +64,7 @@ fn source_authority_kind_has_exact_scopes() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R027.1
+// spec: MEDULLA-DURABLE-KERNEL-R027.1
 #[test]
 fn proposing_needs_the_proposer_scope_and_a_registered_kind() {
     let mut ledger = GovernedLedger::default();
@@ -87,7 +87,7 @@ fn proposing_needs_the_proposer_scope_and_a_registered_kind() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R027.1
+// spec: MEDULLA-DURABLE-KERNEL-R027.1
 #[test]
 fn the_approver_must_be_a_second_direct_person_with_the_exact_scope() {
     let mut ledger = proposed();
@@ -120,7 +120,7 @@ fn the_approver_must_be_a_second_direct_person_with_the_exact_scope() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R027.1
+// spec: MEDULLA-DURABLE-KERNEL-R027.1
 #[test]
 fn an_approval_is_consumed_once_for_the_exact_candidate_inside_its_window() {
     let mut ledger = proposed();
@@ -158,7 +158,7 @@ fn an_approval_is_consumed_once_for_the_exact_candidate_inside_its_window() {
     assert_eq!(ledger.audit().entries().count(), 3);
 }
 
-// spec: EG-DURABLE-KERNEL-R027.1
+// spec: MEDULLA-DURABLE-KERNEL-R027.1
 #[test]
 fn a_stranger_cannot_revoke_but_the_proposer_or_an_approver_can() {
     let mut ledger = proposed();
@@ -193,7 +193,7 @@ fn an_unapproved_proposal_expires() {
     );
 }
 
-// spec: EG-CONTRACT-R014
+// spec: MEDULLA-CONTRACT-R014
 #[test]
 fn governed_refusals_preserve_their_declared_wire_codes() {
     use crate::protocol::Response;

@@ -24,7 +24,7 @@ use eg_types::lake_catalog::ProjectionAccess;
 use serde_json::{json, Value};
 
 /// The refusal code for a write that arrives through a projection
-/// (EG-FEDERATED-QUERY-R080.4).
+/// (MEDULLA-FEDERATED-QUERY-R080.4).
 pub const PROJECTION_READ_ONLY: &str = "PROJECTION_READ_ONLY";
 
 /// One registered table's catalog entry (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
@@ -38,12 +38,12 @@ pub struct TableEntry {
     /// so a client need not do a second fetch.
     pub metadata_json: Option<String>,
     /// Always [`ProjectionAccess::ReadOnly`] for a published projection
-    /// (EG-FEDERATED-QUERY-R080.1).
+    /// (MEDULLA-FEDERATED-QUERY-R080.1).
     pub access: ProjectionAccess,
 }
 
 /// An Iceberg-REST catalog operation, classified for the projection write
-/// boundary (EG-FEDERATED-QUERY-R080.2).
+/// boundary (MEDULLA-FEDERATED-QUERY-R080.2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogOperation {
     ListNamespaces,
@@ -99,7 +99,7 @@ pub struct ProjectionWriteRefusal {
     pub operation: String,
 }
 
-/// Refuse any write through a read-only projection (EG-FEDERATED-QUERY-R080.2).
+/// Refuse any write through a read-only projection (MEDULLA-FEDERATED-QUERY-R080.2).
 /// Reads pass. Create, commit, schema update, rename and drop are writes, and
 /// an unknown operation fails closed even on an authoritative table. Internal
 /// publication ([`IcebergRestCatalog::register`]) never flips an entry to
@@ -231,7 +231,7 @@ impl IcebergRestCatalog {
     }
 }
 
-/// The caller of a catalog route (EG-UNIFIED-DATA-PLANE-R039.1). Its fields
+/// The caller of a catalog route (MEDULLA-UNIFIED-DATA-PLANE-R039.1). Its fields
 /// are private: the only constructor reads a verified request envelope, so
 /// a principal never comes from unverified client input.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -308,7 +308,7 @@ impl CatalogPrincipal {
     }
 }
 
-/// Authorize one catalog call (EG-UNIFIED-DATA-PLANE-R039.2): refuse an
+/// Authorize one catalog call (MEDULLA-UNIFIED-DATA-PLANE-R039.2): refuse an
 /// absent principal, a principal of another tenant than the table's, and a
 /// principal without `required_scope`.
 pub fn authorize_catalog_call(
@@ -339,7 +339,7 @@ mod principal_tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R039.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R039.1
     #[test]
     fn principal_builds_only_from_verified_envelope() {
         let principal = CatalogPrincipal::from_verified_envelope(&envelope(true)).unwrap();
@@ -356,7 +356,7 @@ mod principal_tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R039.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R039.2
     #[test]
     fn cross_tenant_call_is_refused() {
         let principal = CatalogPrincipal::from_verified_envelope(&envelope(true)).unwrap();
@@ -370,7 +370,7 @@ mod principal_tests {
         assert_eq!(error.code(), "CATALOG_SCOPE_MISSING");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R039.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R039.2
     #[test]
     fn absent_principal_is_refused() {
         let error = authorize_catalog_call(None, "acme", "catalog.read").unwrap_err();
@@ -407,7 +407,7 @@ mod tests {
         catalog
     }
 
-    // spec: EG-FEDERATED-QUERY-R080.1
+    // spec: MEDULLA-FEDERATED-QUERY-R080.1
     #[test]
     fn every_registered_entry_is_read_only() {
         let catalog = catalog();
@@ -417,7 +417,7 @@ mod tests {
             .all(|entry| entry.access == ProjectionAccess::ReadOnly));
     }
 
-    // spec: EG-FEDERATED-QUERY-R080.2
+    // spec: MEDULLA-FEDERATED-QUERY-R080.2
     #[test]
     fn refuse_projection_write_classifies_each_operation() {
         let catalog = catalog();

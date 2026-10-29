@@ -1,5 +1,5 @@
 //! Per-modality promotion gate for a candidate embedding model
-//! (EG-UNIFIED-DATA-PLANE-R040). A candidate model and version promote only
+//! (MEDULLA-UNIFIED-DATA-PLANE-R040). A candidate model and version promote only
 //! when every modality it serves holds its recall on that modality's probe
 //! set. One regressed modality blocks promotion even when the mean improves.
 //!
@@ -167,7 +167,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R040.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R040.1
     #[test]
     fn checks_round_trip() {
         let original = check(PromotionModality::Image, 0.91);
@@ -178,7 +178,7 @@ mod tests {
         assert!(serde_json::from_str::<ModalityCheck>(&unknown).is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R040.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R040.2
     #[test]
     fn one_regression_blocks_promotion() {
         use PromotionModality::{Audio, Image, Text};
@@ -204,7 +204,7 @@ mod tests {
         assert!(verdict.promoted, "a drop within the tolerance promotes");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R040.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R040.2
     #[test]
     fn modality_without_probe_set_blocks_promotion() {
         use PromotionModality::{Audio, Text};

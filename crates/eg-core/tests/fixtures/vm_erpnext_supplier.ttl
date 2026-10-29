@@ -1,5 +1,5 @@
 # Virtual-mapping fixture: erpnext Supplier to kg:Supplier
-# (EG-SUPPLY-VOCAB-R005.1).
+# (MEDULLA-SUPPLY-VOCAB-R005.1).
 #
 # Recorded over the erpnext `supplierAccess` access contract (mcp_tool
 # erpnext_agent_resource, action list_documents, doctype Supplier). The

@@ -1783,7 +1783,7 @@ mod tests {
         fn shutdown(&self) {}
     }
 
-    /// spec: EG-FEDERATED-QUERY-R004
+    /// spec: MEDULLA-FEDERATED-QUERY-R004
     ///
     /// A claim that dead-letters a row ahead of the leases it returned means
     /// the projection silently skipped applying that mutation. The projection

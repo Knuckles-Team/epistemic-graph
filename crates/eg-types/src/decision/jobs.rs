@@ -612,7 +612,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R015.2.2
+    // spec: MEDULLA-DECISION-ENGINE-R015.2.2
     #[test]
     fn admits_a_closed_statistical_head_kind() {
         let request = DecisionFitRequest::new(
@@ -632,7 +632,7 @@ mod tests {
         assert_eq!(request.head_kind, HeadKind::ListwiseLogistic);
     }
 
-    // spec: EG-DECISION-ENGINE-R015.2.2
+    // spec: MEDULLA-DECISION-ENGINE-R015.2.2
     #[test]
     fn refuses_a_fit_request_naming_option_attention() {
         let refusal = DecisionFitRequest::new(

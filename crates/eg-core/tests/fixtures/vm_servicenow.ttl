@@ -1,5 +1,5 @@
 # Virtual-mapping fixture: servicenow Incident, Change and the CI relation
-# to kg:affectsService (EG-SUPPLY-VOCAB-R005.5).
+# to kg:affectsService (MEDULLA-SUPPLY-VOCAB-R005.5).
 #
 # Recorded over the servicenow MCP operations `get_change_request_ci` and
 # `get_cmdb_instances`. Both change request and incident name their affected

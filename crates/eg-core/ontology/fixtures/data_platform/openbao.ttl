@@ -1,4 +1,4 @@
-# openbao store-mapping fixture (EG-DATAPLAT-VOCAB-R006.6).
+# openbao store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.6).
 #
 # One attached OpenBao (Vault-compatible) secrets engine. Only control-plane
 # metadata is mapped: the mounted engines (get_mounts) and the logical keys

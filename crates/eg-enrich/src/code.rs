@@ -1,10 +1,10 @@
 //! Code, test and feature facts from the parser's structural facts
-//! (EG-REPO-INGEST-R600).
+//! (MEDULLA-REPO-INGEST-R600).
 //!
 //! Edges are rung-ranked: a lower rung never overwrites a higher one, and an
 //! attempt is refused with `ENRICH_RUNG_CONFLICT`, counted, and never applied.
 //! Features are the call-graph communities the shared community detector
-//! (EG-REPO-INGEST-R011) assigned; this module groups them, it does not run a
+//! (MEDULLA-REPO-INGEST-R011) assigned; this module groups them, it does not run a
 //! second detector.
 
 use std::collections::BTreeMap;
@@ -393,7 +393,7 @@ mod tests {
         }
     }
 
-    // spec: EG-REPO-INGEST-R600.1
+    // spec: MEDULLA-REPO-INGEST-R600.1
     #[test]
     fn each_type_round_trips_and_an_invalid_identifier_is_refused() {
         let feature = Feature {
@@ -438,7 +438,7 @@ mod tests {
         assert!(serde_json::from_value::<EnrichmentEdge>(bad).is_err());
     }
 
-    // spec: EG-REPO-INGEST-R600.2
+    // spec: MEDULLA-REPO-INGEST-R600.2
     #[test]
     fn rules_cover_rungs_patterns_features_and_test_quality() {
         let mut edges = EdgeSet::default();
@@ -521,7 +521,7 @@ mod tests {
         );
     }
 
-    // spec: EG-REPO-INGEST-R600.4
+    // spec: MEDULLA-REPO-INGEST-R600.4
     #[test]
     fn a_lower_rung_overwrite_is_refused_counted_and_not_applied() {
         let mut edges = EdgeSet::default();
@@ -536,7 +536,7 @@ mod tests {
         );
     }
 
-    // spec: EG-REPO-INGEST-R600.5
+    // spec: MEDULLA-REPO-INGEST-R600.5
     #[test]
     fn the_run_report_counts_success_and_refusal() {
         let input = EnrichInput {

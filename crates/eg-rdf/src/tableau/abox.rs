@@ -478,7 +478,7 @@ mod tests {
 
     /// The pack check names what is wrong: an unsatisfiable class, an inconsistent
     /// individual, or a spent budget.
-    // spec: EG-FEDERATED-QUERY-R001
+    // spec: MEDULLA-FEDERATED-QUERY-R001
     #[test]
     fn check_pack_ontology_reports_a_typed_refusal() {
         let ttl = |body: &str| {
@@ -534,7 +534,7 @@ mod tests {
 
     /// EH-363: `owl:AllDisjointClasses` reaches the tableau (pairwise), and its axiom
     /// node is not an individual.
-    // spec: EG-FEDERATED-QUERY-R012
+    // spec: MEDULLA-FEDERATED-QUERY-R012
     #[test]
     fn all_disjoint_classes_constrain_individuals() {
         let parse = |body: &str| {

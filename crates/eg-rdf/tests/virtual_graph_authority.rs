@@ -1,5 +1,5 @@
 //! Native-parser contract for the cross-source authority vocabulary
-//! (EG-CQ-XSRC-R001.1).
+//! (MEDULLA-CQ-XSRC-R001.1).
 #![cfg(feature = "rdf")]
 
 mod common;
@@ -14,7 +14,7 @@ const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const OWL: &str = "http://www.w3.org/2002/07/owl#";
 const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
 
-// spec: EG-CQ-XSRC-R001.1
+// spec: MEDULLA-CQ-XSRC-R001.1
 #[test]
 fn source_authority_vocabulary_declared_with_domain_and_range() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -52,7 +52,7 @@ fn source_authority_vocabulary_declared_with_domain_and_range() {
     }
 }
 
-// spec: EG-CQ-XSRC-R005.4
+// spec: MEDULLA-CQ-XSRC-R005.4
 #[test]
 fn allow_fallback_is_declared_on_the_authority_vocabulary() {
     let triples = parse_turtle(DOCUMENT).unwrap();

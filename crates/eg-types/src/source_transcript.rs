@@ -1,4 +1,4 @@
-//! Source transcript threads and messages (EG-INGEST-WORKER-R003.13).
+//! Source transcript threads and messages (MEDULLA-INGEST-WORKER-R003.13).
 //!
 //! Tenant and policy identity are not fields: the server derives them from
 //! verified authority. The connector and stream must match the validated
@@ -198,7 +198,7 @@ mod tests {
         }
     }
 
-    // spec: EG-INGEST-WORKER-R003.13
+    // spec: MEDULLA-INGEST-WORKER-R003.13
     #[test]
     fn transcript_round_trips() {
         let request = request();

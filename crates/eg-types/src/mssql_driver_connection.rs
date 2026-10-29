@@ -1,9 +1,9 @@
-//! EG-UNIFIED-DATA-PLANE-R016.2.1 — adapter skeleton for the Microsoft SQL
+//! MEDULLA-UNIFIED-DATA-PLANE-R016.2.1 — adapter skeleton for the Microsoft SQL
 //! Server attached-source adapter: a typed connection config, its mapping to
 //! the tiberius `Config`-shaped driver config, and the refusal path before
 //! any network attempt. T-SQL TOP/OFFSET-FETCH rendering and the
 //! LSN-polled CDC/Change Tracking capture loop are
-//! EG-UNIFIED-DATA-PLANE-R016.2.2+.
+//! MEDULLA-UNIFIED-DATA-PLANE-R016.2.2+.
 
 use crate::mssql_attached_catalog::MssqlCaptureMode;
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ pub struct MssqlConnectionConfig {
 /// `tiberius::Config` itself) so this crate — the bottom of the crate DAG —
 /// stays dependency-free; the crate that links `tiberius` behind its own
 /// feature gate converts this into the real driver config at connect time
-/// (EG-UNIFIED-DATA-PLANE-R016.2.2+).
+/// (MEDULLA-UNIFIED-DATA-PLANE-R016.2.2+).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MssqlDriverConfig {
     pub host: String,
@@ -110,7 +110,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R016.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R016.2.1
     #[test]
     fn cdc_and_change_tracking_both_map_to_a_driver_config() {
         for capture_mode in [MssqlCaptureMode::Cdc, MssqlCaptureMode::ChangeTracking] {
@@ -121,7 +121,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R016.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R016.2.1
     #[test]
     fn refuses_empty_host_before_any_connect_attempt() {
         let mut config = valid(MssqlCaptureMode::Unsupported);
@@ -132,7 +132,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R016.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R016.2.1
     #[test]
     fn refuses_empty_database() {
         let mut config = valid(MssqlCaptureMode::Cdc);
@@ -143,7 +143,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R016.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R016.2.1
     #[test]
     fn refuses_zero_port() {
         let mut config = valid(MssqlCaptureMode::ChangeTracking);
@@ -154,7 +154,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R016.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R016.2.1
     #[test]
     fn refuses_trusting_server_certificate_under_strict_encryption() {
         let mut config = valid(MssqlCaptureMode::Unsupported);

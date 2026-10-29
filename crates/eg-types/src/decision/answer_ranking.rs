@@ -1,5 +1,5 @@
 //! Verifier-free pairwise ranking of answer candidates
-//! (EG-DECISION-ENGINE-R134.104 to R134.108).
+//! (MEDULLA-DECISION-ENGINE-R134.104 to R134.108).
 //!
 //! Each pairwise comparison is a caller claim. The engine derives one global
 //! order from the complete round robin, retains the top `k` and proposes one

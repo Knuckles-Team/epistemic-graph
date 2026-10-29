@@ -1,77 +1,77 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-SDLC",
+  "spec_id": "MEDULLA-SDLC",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-SDLC-R001",
-    "EG-SDLC-R001.1",
-    "EG-SDLC-R001.2",
-    "EG-SDLC-R001.3",
-    "EG-SDLC-R001.4",
-    "EG-SDLC-R001.5",
-    "EG-SDLC-R001.6",
-    "EG-SDLC-R002",
-    "EG-SDLC-R002.1",
-    "EG-SDLC-R002.2",
-    "EG-SDLC-R002.3",
-    "EG-SDLC-R002.4",
-    "EG-SDLC-R002.5",
-    "EG-SDLC-R002.6",
-    "EG-SDLC-R003",
-    "EG-SDLC-R003.1",
-    "EG-SDLC-R003.2",
-    "EG-SDLC-R003.3",
-    "EG-SDLC-R003.4",
-    "EG-SDLC-R003.5",
-    "EG-SDLC-R003.6",
-    "EG-SDLC-R004",
-    "EG-SDLC-R004.1",
-    "EG-SDLC-R004.2",
-    "EG-SDLC-R004.3",
-    "EG-SDLC-R004.4",
-    "EG-SDLC-R004.5",
-    "EG-SDLC-R004.6",
-    "EG-SDLC-R005",
-    "EG-SDLC-R005.1",
-    "EG-SDLC-R005.2",
-    "EG-SDLC-R005.3",
-    "EG-SDLC-R005.4",
-    "EG-SDLC-R005.5",
-    "EG-SDLC-R005.6",
-    "EG-SDLC-R006",
-    "EG-SDLC-R006.1",
-    "EG-SDLC-R006.2",
-    "EG-SDLC-R006.3",
-    "EG-SDLC-R006.4",
-    "EG-SDLC-R006.5",
-    "EG-SDLC-R006.6"
+    "MEDULLA-SDLC-R001",
+    "MEDULLA-SDLC-R001.1",
+    "MEDULLA-SDLC-R001.2",
+    "MEDULLA-SDLC-R001.3",
+    "MEDULLA-SDLC-R001.4",
+    "MEDULLA-SDLC-R001.5",
+    "MEDULLA-SDLC-R001.6",
+    "MEDULLA-SDLC-R002",
+    "MEDULLA-SDLC-R002.1",
+    "MEDULLA-SDLC-R002.2",
+    "MEDULLA-SDLC-R002.3",
+    "MEDULLA-SDLC-R002.4",
+    "MEDULLA-SDLC-R002.5",
+    "MEDULLA-SDLC-R002.6",
+    "MEDULLA-SDLC-R003",
+    "MEDULLA-SDLC-R003.1",
+    "MEDULLA-SDLC-R003.2",
+    "MEDULLA-SDLC-R003.3",
+    "MEDULLA-SDLC-R003.4",
+    "MEDULLA-SDLC-R003.5",
+    "MEDULLA-SDLC-R003.6",
+    "MEDULLA-SDLC-R004",
+    "MEDULLA-SDLC-R004.1",
+    "MEDULLA-SDLC-R004.2",
+    "MEDULLA-SDLC-R004.3",
+    "MEDULLA-SDLC-R004.4",
+    "MEDULLA-SDLC-R004.5",
+    "MEDULLA-SDLC-R004.6",
+    "MEDULLA-SDLC-R005",
+    "MEDULLA-SDLC-R005.1",
+    "MEDULLA-SDLC-R005.2",
+    "MEDULLA-SDLC-R005.3",
+    "MEDULLA-SDLC-R005.4",
+    "MEDULLA-SDLC-R005.5",
+    "MEDULLA-SDLC-R005.6",
+    "MEDULLA-SDLC-R006",
+    "MEDULLA-SDLC-R006.1",
+    "MEDULLA-SDLC-R006.2",
+    "MEDULLA-SDLC-R006.3",
+    "MEDULLA-SDLC-R006.4",
+    "MEDULLA-SDLC-R006.5",
+    "MEDULLA-SDLC-R006.6"
   ],
   "requirements": [
     {
-      "id": "EG-SDLC-R001",
+      "id": "MEDULLA-SDLC-R001",
       "title": "Lifecycle record vocabulary and derived edges (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R001.1",
-        "EG-SDLC-R001.2",
-        "EG-SDLC-R001.3",
-        "EG-SDLC-R001.4",
-        "EG-SDLC-R001.5",
-        "EG-SDLC-R001.6"
+        "MEDULLA-SDLC-R001.1",
+        "MEDULLA-SDLC-R001.2",
+        "MEDULLA-SDLC-R001.3",
+        "MEDULLA-SDLC-R001.4",
+        "MEDULLA-SDLC-R001.5",
+        "MEDULLA-SDLC-R001.6"
       ]
     },
     {
-      "id": "EG-SDLC-R001.1",
+      "id": "MEDULLA-SDLC-R001.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R001.2",
+      "id": "MEDULLA-SDLC-R001.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -82,14 +82,14 @@
       ]
     },
     {
-      "id": "EG-SDLC-R001.3",
+      "id": "MEDULLA-SDLC-R001.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R001.4",
+      "id": "MEDULLA-SDLC-R001.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -100,7 +100,7 @@
       ]
     },
     {
-      "id": "EG-SDLC-R001.5",
+      "id": "MEDULLA-SDLC-R001.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -111,29 +111,29 @@
       ]
     },
     {
-      "id": "EG-SDLC-R001.6",
+      "id": "MEDULLA-SDLC-R001.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R002",
+      "id": "MEDULLA-SDLC-R002",
       "title": "Release and deployment records (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R002.1",
-        "EG-SDLC-R002.2",
-        "EG-SDLC-R002.3",
-        "EG-SDLC-R002.4",
-        "EG-SDLC-R002.5",
-        "EG-SDLC-R002.6"
+        "MEDULLA-SDLC-R002.1",
+        "MEDULLA-SDLC-R002.2",
+        "MEDULLA-SDLC-R002.3",
+        "MEDULLA-SDLC-R002.4",
+        "MEDULLA-SDLC-R002.5",
+        "MEDULLA-SDLC-R002.6"
       ]
     },
     {
-      "id": "EG-SDLC-R002.1",
+      "id": "MEDULLA-SDLC-R002.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -144,7 +144,7 @@
       ]
     },
     {
-      "id": "EG-SDLC-R002.2",
+      "id": "MEDULLA-SDLC-R002.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -155,50 +155,50 @@
       ]
     },
     {
-      "id": "EG-SDLC-R002.3",
+      "id": "MEDULLA-SDLC-R002.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R002.4",
+      "id": "MEDULLA-SDLC-R002.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R002.5",
+      "id": "MEDULLA-SDLC-R002.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R002.6",
+      "id": "MEDULLA-SDLC-R002.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R003",
+      "id": "MEDULLA-SDLC-R003",
       "title": "Defect records and intake (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R003.1",
-        "EG-SDLC-R003.2",
-        "EG-SDLC-R003.3",
-        "EG-SDLC-R003.4",
-        "EG-SDLC-R003.5",
-        "EG-SDLC-R003.6"
+        "MEDULLA-SDLC-R003.1",
+        "MEDULLA-SDLC-R003.2",
+        "MEDULLA-SDLC-R003.3",
+        "MEDULLA-SDLC-R003.4",
+        "MEDULLA-SDLC-R003.5",
+        "MEDULLA-SDLC-R003.6"
       ]
     },
     {
-      "id": "EG-SDLC-R003.1",
+      "id": "MEDULLA-SDLC-R003.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -209,7 +209,7 @@
       ]
     },
     {
-      "id": "EG-SDLC-R003.2",
+      "id": "MEDULLA-SDLC-R003.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -220,50 +220,50 @@
       ]
     },
     {
-      "id": "EG-SDLC-R003.3",
+      "id": "MEDULLA-SDLC-R003.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R003.4",
+      "id": "MEDULLA-SDLC-R003.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R003.5",
+      "id": "MEDULLA-SDLC-R003.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R003.6",
+      "id": "MEDULLA-SDLC-R003.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004",
+      "id": "MEDULLA-SDLC-R004",
       "title": "Defect triage decision (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R004.1",
-        "EG-SDLC-R004.2",
-        "EG-SDLC-R004.3",
-        "EG-SDLC-R004.4",
-        "EG-SDLC-R004.5",
-        "EG-SDLC-R004.6"
+        "MEDULLA-SDLC-R004.1",
+        "MEDULLA-SDLC-R004.2",
+        "MEDULLA-SDLC-R004.3",
+        "MEDULLA-SDLC-R004.4",
+        "MEDULLA-SDLC-R004.5",
+        "MEDULLA-SDLC-R004.6"
       ]
     },
     {
-      "id": "EG-SDLC-R004.1",
+      "id": "MEDULLA-SDLC-R004.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -274,7 +274,7 @@
       ]
     },
     {
-      "id": "EG-SDLC-R004.2",
+      "id": "MEDULLA-SDLC-R004.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -285,50 +285,50 @@
       ]
     },
     {
-      "id": "EG-SDLC-R004.3",
+      "id": "MEDULLA-SDLC-R004.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004.4",
+      "id": "MEDULLA-SDLC-R004.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004.5",
+      "id": "MEDULLA-SDLC-R004.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004.6",
+      "id": "MEDULLA-SDLC-R004.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R005",
+      "id": "MEDULLA-SDLC-R005",
       "title": "Requirement state derived from the graph (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R005.1",
-        "EG-SDLC-R005.2",
-        "EG-SDLC-R005.3",
-        "EG-SDLC-R005.4",
-        "EG-SDLC-R005.5",
-        "EG-SDLC-R005.6"
+        "MEDULLA-SDLC-R005.1",
+        "MEDULLA-SDLC-R005.2",
+        "MEDULLA-SDLC-R005.3",
+        "MEDULLA-SDLC-R005.4",
+        "MEDULLA-SDLC-R005.5",
+        "MEDULLA-SDLC-R005.6"
       ]
     },
     {
-      "id": "EG-SDLC-R005.1",
+      "id": "MEDULLA-SDLC-R005.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -339,7 +339,7 @@
       ]
     },
     {
-      "id": "EG-SDLC-R005.2",
+      "id": "MEDULLA-SDLC-R005.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -350,50 +350,50 @@
       ]
     },
     {
-      "id": "EG-SDLC-R005.3",
+      "id": "MEDULLA-SDLC-R005.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R005.4",
+      "id": "MEDULLA-SDLC-R005.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R005.5",
+      "id": "MEDULLA-SDLC-R005.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R005.6",
+      "id": "MEDULLA-SDLC-R005.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R006",
+      "id": "MEDULLA-SDLC-R006",
       "title": "Lifecycle competency queries (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R006.1",
-        "EG-SDLC-R006.2",
-        "EG-SDLC-R006.3",
-        "EG-SDLC-R006.4",
-        "EG-SDLC-R006.5",
-        "EG-SDLC-R006.6"
+        "MEDULLA-SDLC-R006.1",
+        "MEDULLA-SDLC-R006.2",
+        "MEDULLA-SDLC-R006.3",
+        "MEDULLA-SDLC-R006.4",
+        "MEDULLA-SDLC-R006.5",
+        "MEDULLA-SDLC-R006.6"
       ]
     },
     {
-      "id": "EG-SDLC-R006.1",
+      "id": "MEDULLA-SDLC-R006.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -404,7 +404,7 @@
       ]
     },
     {
-      "id": "EG-SDLC-R006.2",
+      "id": "MEDULLA-SDLC-R006.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -415,28 +415,28 @@
       ]
     },
     {
-      "id": "EG-SDLC-R006.3",
+      "id": "MEDULLA-SDLC-R006.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R006.4",
+      "id": "MEDULLA-SDLC-R006.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R006.5",
+      "id": "MEDULLA-SDLC-R006.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R006.6",
+      "id": "MEDULLA-SDLC-R006.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

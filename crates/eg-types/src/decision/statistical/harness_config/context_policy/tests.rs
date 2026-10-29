@@ -4,7 +4,7 @@ fn decided(value: ContextPolicy) -> HarnessPart<ContextPolicy> {
     HarnessPart::Decided { value }
 }
 
-// spec: EG-DECISION-ENGINE-R128.5
+// spec: MEDULLA-DECISION-ENGINE-R128.5
 #[test]
 fn context_policy_none_only_when_overflow_impossible() {
     let defaults = HarnessDefaults::default();
@@ -24,7 +24,7 @@ fn context_policy_none_only_when_overflow_impossible() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R128.5
+// spec: MEDULLA-DECISION-ENGINE-R128.5
 #[test]
 fn context_pressure_measurements_are_unclamped_and_deterministic() {
     let defaults = HarnessDefaults::default();
@@ -47,7 +47,7 @@ fn context_pressure_measurements_are_unclamped_and_deterministic() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R128.5
+// spec: MEDULLA-DECISION-ENGINE-R128.5
 #[test]
 fn missing_context_inputs_abstain_with_named_defaults() {
     let defaults = HarnessDefaults::default();
@@ -75,7 +75,7 @@ fn missing_context_inputs_abstain_with_named_defaults() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R128.5
+// spec: MEDULLA-DECISION-ENGINE-R128.5
 #[test]
 fn context_policy_refuses_zero_window_and_contradictory_bounds() {
     let defaults = HarnessDefaults::default();
@@ -87,7 +87,7 @@ fn context_policy_refuses_zero_window_and_contradictory_bounds() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R128.5
+// spec: MEDULLA-DECISION-ENGINE-R128.5
 #[test]
 fn context_policy_preserves_supplied_thresholds_and_refuses_invalid_ones() {
     let defaults = HarnessDefaults::default();

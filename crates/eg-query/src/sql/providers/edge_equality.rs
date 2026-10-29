@@ -1,6 +1,6 @@
 //! `EdgeEquality` adjacency-column equality classifier, split out of
 //! `providers.rs` to keep that file under the repository's line-count
-//! limit (EG-FEDERATED-QUERY-R057). Behavior is unchanged from before
+//! limit (MEDULLA-FEDERATED-QUERY-R057). Behavior is unchanged from before
 //! the split.
 
 use datafusion::logical_expr::Expr;

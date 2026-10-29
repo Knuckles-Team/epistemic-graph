@@ -36,7 +36,7 @@ pub struct TextIngestAuthorized<'a> {
 /// supplies a stricter source-specific cap.  The parser consumes a borrowed
 /// line at a time; it never builds an unbounded collection of source records.
 //
-// spec: EG-REPO-INGEST-R800.2
+// spec: MEDULLA-REPO-INGEST-R800.2
 pub const DEFAULT_TRANSCRIPT_MAX_LINE_BYTES: usize = 1_048_576;
 
 /// A borrowed, digest-addressed line from a line-delimited transcript source.
@@ -69,7 +69,7 @@ pub enum TranscriptLineError {
 /// than by the complete transcript. Dialect parsers can consume this primitive
 /// and project each accepted line into the canonical `TranscriptTurn` model.
 //
-// spec: EG-REPO-INGEST-R800.2
+// spec: MEDULLA-REPO-INGEST-R800.2
 pub struct TranscriptLineReader<'a> {
     bytes: &'a [u8],
     offset: usize,
@@ -166,7 +166,7 @@ pub struct TranscriptPrefixDelta {
 /// the authority for the restart ordinal; this helper only performs the
 /// file-level identity check.
 //
-// spec: EG-REPO-INGEST-R800.2
+// spec: MEDULLA-REPO-INGEST-R800.2
 pub fn transcript_file_matches_checkpoint(
     checkpoint: &eg_types::source_ingestion::SourceCheckpoint,
     bytes: &[u8],
@@ -180,7 +180,7 @@ pub fn transcript_file_matches_checkpoint(
 /// The prior digest slice is owned by the checkpointing layer, so this function
 /// does not allocate proportional to the current source.
 //
-// spec: EG-REPO-INGEST-R800.2
+// spec: MEDULLA-REPO-INGEST-R800.2
 pub fn compare_transcript_prefix(
     bytes: &[u8],
     previous_line_digests: &[Digest256],
@@ -343,7 +343,7 @@ mod tests {
         assert_eq!(value.lexical_postings.len(), 3);
     }
 
-    // spec: EG-REPO-INGEST-R800.2
+    // spec: MEDULLA-REPO-INGEST-R800.2
     #[test]
     fn transcript_reader_keeps_line_bounds_and_normalizes_crlf_digest() {
         let source = b"alpha\r\nbeta\n";
@@ -366,7 +366,7 @@ mod tests {
         assert_eq!(lf_digests, vec![first.digest, second.digest]);
     }
 
-    // spec: EG-REPO-INGEST-R800.2
+    // spec: MEDULLA-REPO-INGEST-R800.2
     #[test]
     fn transcript_reader_refuses_zero_or_overlong_or_non_utf8_lines() {
         assert!(matches!(
@@ -392,7 +392,7 @@ mod tests {
         );
     }
 
-    // spec: EG-REPO-INGEST-R800.2
+    // spec: MEDULLA-REPO-INGEST-R800.2
     #[test]
     fn transcript_prefix_delta_restarts_at_first_changed_or_removed_line() {
         let baseline = b"one\ntwo\nthree\n";

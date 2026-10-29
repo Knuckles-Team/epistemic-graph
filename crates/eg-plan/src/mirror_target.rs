@@ -1,11 +1,11 @@
-//! Write-side mirror targets (EG-DURABLE-KERNEL-R024's mirror-target half).
+//! Write-side mirror targets (MEDULLA-DURABLE-KERNEL-R024's mirror-target half).
 //!
 //! A read-side federation source ([`crate::federation::ForeignSource`]) pulls rows
 //! IN; a mirror target pushes a committed row OUT to a downstream destination fanned
 //! out from the local mutation outbox. The seam is the same shape: one trait,
 //! [`MirrorTarget`], built from one wire spec, [`eg_types::wire::MirrorTargetSpec`].
 //!
-//! This is the typed-model slice (`EG-DURABLE-KERNEL-R024.2.1`): the `FanOut` spec
+//! This is the typed-model slice (`MEDULLA-DURABLE-KERNEL-R024.2.1`): the `FanOut` spec
 //! (in `eg-types`) plus a registration-refusal builder here, mirroring how
 //! `federation::source_for` refuses an [`eg_types::wire::ForeignSourceSpec::Trino`]
 //! /`SparkBatch`/unbuilt-`Cypher` spec through `Oq2Unbound` before its dedicated
@@ -34,14 +34,14 @@ pub fn target_for(spec: &MirrorTargetSpec) -> Result<Box<dyn MirrorTarget + '_>,
             kind: "fan-out",
             target_count: targets.len(),
         })),
-        // EG-DURABLE-KERNEL-R024.4: a single, directly-addressable mirror
+        // MEDULLA-DURABLE-KERNEL-R024.4: a single, directly-addressable mirror
         // target. Same unbound refusal shape as `FanOut` until a driver
         // registers under this name.
         MirrorTargetSpec::Named { .. } => Ok(Box::new(MirrorUnbound {
             kind: "named",
             target_count: 1,
         })),
-        // EG-DURABLE-KERNEL-R024.5: an outbox-based mirror. Replaying the
+        // MEDULLA-DURABLE-KERNEL-R024.5: an outbox-based mirror. Replaying the
         // local mutation outbox under `consumer` is the delivery mechanism
         // the outbox contract (R001/R002/R052) already guarantees committed,
         // per-consumer, idempotently-replayable rows for; no separate bound
@@ -71,7 +71,7 @@ impl MirrorTarget for MirrorUnbound {
     }
 }
 
-/// The registration entry point (`EG-DURABLE-KERNEL-R024.2.2`): where a
+/// The registration entry point (`MEDULLA-DURABLE-KERNEL-R024.2.2`): where a
 /// mirror-sink driver registers a named target spec, and where the outbox
 /// fan-out path resolves a name to a bound (or, pre-driver, refused) send.
 /// Mirrors `federation::ForeignSourceRegistry::register_spec`/`resolve`.
@@ -135,7 +135,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.2.1
+    // spec: MEDULLA-DURABLE-KERNEL-R024.2.1
     #[test]
     fn fan_out_spec_round_trips_and_validates() {
         let spec = fan_out(&["lake", "audit-sink"]);
@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(round_trip, spec);
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.2.1
+    // spec: MEDULLA-DURABLE-KERNEL-R024.2.1
     #[test]
     fn empty_fan_out_is_refused() {
         let spec = fan_out(&[]);
@@ -156,7 +156,7 @@ mod tests {
         assert!(error.contains("no downstream target"), "{error}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.2.1
+    // spec: MEDULLA-DURABLE-KERNEL-R024.2.1
     #[test]
     fn duplicate_fan_out_target_is_refused() {
         let spec = fan_out(&["lake", "lake"]);
@@ -166,7 +166,7 @@ mod tests {
         assert!(error.contains("more than once"), "{error}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.2.1
+    // spec: MEDULLA-DURABLE-KERNEL-R024.2.1
     #[test]
     fn unbound_fan_out_fails_closed_without_reaching_any_target() {
         let spec = fan_out(&["lake", "audit-sink"]);
@@ -177,7 +177,7 @@ mod tests {
         assert!(error.contains("verified registration and bound driver"));
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.2.2
+    // spec: MEDULLA-DURABLE-KERNEL-R024.2.2
     #[test]
     fn registry_refuses_an_invalid_spec_at_registration_time() {
         let mut registry = MirrorTargetRegistry::new();
@@ -186,7 +186,7 @@ mod tests {
         assert!(registry.is_empty());
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.2.2
+    // spec: MEDULLA-DURABLE-KERNEL-R024.2.2
     #[test]
     fn registry_send_to_reaches_the_real_validate_and_dispatch_path() {
         let mut registry = MirrorTargetRegistry::new();
@@ -204,7 +204,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.2.2
+    // spec: MEDULLA-DURABLE-KERNEL-R024.2.2
     #[test]
     fn registry_send_to_an_unknown_name_is_a_distinct_clean_error() {
         let registry = MirrorTargetRegistry::new();
@@ -212,7 +212,7 @@ mod tests {
         assert!(error.contains("no mirror target registered"), "{error}");
     }
 
-    // EG-DURABLE-KERNEL-R024.4: the single, directly-addressable mirror
+    // MEDULLA-DURABLE-KERNEL-R024.4: the single, directly-addressable mirror
     // target. Same shape as the `FanOut` coverage above.
 
     fn named(name: &str) -> MirrorTargetSpec {
@@ -221,7 +221,7 @@ mod tests {
         }
     }
 
-    // Partial refusal coverage for EG-DURABLE-KERNEL-R024.4; successful-operation acceptance remains open.
+    // Partial refusal coverage for MEDULLA-DURABLE-KERNEL-R024.4; successful-operation acceptance remains open.
     #[test]
     fn named_spec_round_trips_and_validates() {
         let spec = named("warehouse");
@@ -231,7 +231,7 @@ mod tests {
         assert_eq!(round_trip, spec);
     }
 
-    // Partial refusal coverage for EG-DURABLE-KERNEL-R024.4; successful-operation acceptance remains open.
+    // Partial refusal coverage for MEDULLA-DURABLE-KERNEL-R024.4; successful-operation acceptance remains open.
     #[test]
     fn empty_named_target_is_refused() {
         let spec = named("");
@@ -242,7 +242,7 @@ mod tests {
         assert!(error.contains("no downstream target"), "{error}");
     }
 
-    // Partial refusal coverage for EG-DURABLE-KERNEL-R024.4; successful-operation acceptance remains open.
+    // Partial refusal coverage for MEDULLA-DURABLE-KERNEL-R024.4; successful-operation acceptance remains open.
     #[test]
     fn unbound_named_target_fails_closed_without_reaching_any_target() {
         let spec = named("warehouse");
@@ -252,7 +252,7 @@ mod tests {
         assert!(error.contains("verified registration and bound driver"));
     }
 
-    // EG-DURABLE-KERNEL-R024.5: the outbox-based mirror target. Same shape
+    // MEDULLA-DURABLE-KERNEL-R024.5: the outbox-based mirror target. Same shape
     // as the `FanOut`/`Named` coverage above.
 
     fn outbox(consumer: &str) -> MirrorTargetSpec {
@@ -261,7 +261,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.5
+    // spec: MEDULLA-DURABLE-KERNEL-R024.5
     #[test]
     fn outbox_spec_round_trips_and_validates() {
         let spec = outbox("warehouse-mirror");
@@ -271,7 +271,7 @@ mod tests {
         assert_eq!(round_trip, spec);
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.5
+    // spec: MEDULLA-DURABLE-KERNEL-R024.5
     #[test]
     fn empty_outbox_consumer_is_refused() {
         let spec = outbox("");
@@ -282,7 +282,7 @@ mod tests {
         assert!(error.contains("empty or padded"), "{error}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.5
+    // spec: MEDULLA-DURABLE-KERNEL-R024.5
     #[test]
     fn padded_outbox_consumer_is_refused() {
         let spec = outbox(" warehouse-mirror ");
@@ -292,7 +292,7 @@ mod tests {
         assert!(error.contains("empty or padded"), "{error}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.5
+    // spec: MEDULLA-DURABLE-KERNEL-R024.5
     #[test]
     fn unbound_outbox_target_fails_closed_without_reaching_any_target() {
         let spec = outbox("warehouse-mirror");

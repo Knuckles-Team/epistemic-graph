@@ -1,4 +1,4 @@
-//! EG-UNIFIED-DATA-PLANE-R011 — routing queries by freshness across native, live, and
+//! MEDULLA-UNIFIED-DATA-PLANE-R011 — routing queries by freshness across native, live, and
 //! accelerated paths (Decision 4 of `docs/architecture/unified_data_plane_adr.md`: a bounded
 //! wait for read-your-writes, never a silent stale result). This is the `.1` typed-model slice:
 //! the named route, and a bounded wait that refuses an unbounded (zero-timeout) declaration.
@@ -69,26 +69,26 @@ pub enum WaitOutcome {
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R011.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R011.1
     #[test]
     fn a_positive_timeout_constructs() {
         let wait = ReadYourWritesWait::new(2_000).unwrap();
         assert_eq!(wait.timeout_ms, 2_000);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R011.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R011.1
     #[test]
     fn a_zero_timeout_is_refused() {
         assert_eq!(ReadYourWritesWait::new(0).unwrap_err(), UnboundedWait);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R011.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R011.1
     #[test]
     fn the_two_wait_outcomes_are_distinct() {
         assert_ne!(WaitOutcome::Satisfied, WaitOutcome::TimedOutTyped);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R011.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R011.1
     #[test]
     fn all_three_routes_are_known() {
         assert_eq!(FreshnessRoute::label(FreshnessRoute::Native), "native");

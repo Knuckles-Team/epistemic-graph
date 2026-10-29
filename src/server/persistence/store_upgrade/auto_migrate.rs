@@ -1,5 +1,5 @@
 //! Automatic migration of an older but supported store when the engine opens
-//! its data directory (`EG-DURABLE-KERNEL-R070.1`).
+//! its data directory (`MEDULLA-DURABLE-KERNEL-R070.1`).
 //!
 //! The engine runs the same registered upgrades as `store-upgrade apply`,
 //! through the same per-store inspection and single-commit transition. It

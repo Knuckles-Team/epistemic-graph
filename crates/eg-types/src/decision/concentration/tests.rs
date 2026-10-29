@@ -21,7 +21,7 @@ fn edit(id: &str, round: u32, status: EditStatus) -> EditFact {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R173.1
+// spec: MEDULLA-DECISION-ENGINE-R173.1
 #[test]
 fn policy_round_trips() {
     let value = serde_json::to_value(policy()).unwrap();
@@ -54,7 +54,7 @@ fn policy_round_trips() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R173.2
+// spec: MEDULLA-DECISION-ENGINE-R173.2
 #[test]
 fn third_edit_in_window_reverts_and_two_keep() {
     let facts = [
@@ -102,7 +102,7 @@ fn third_edit_in_window_reverts_and_two_keep() {
     assert_eq!(kept.action, ConcentrationAction::Keep);
 }
 
-// spec: EG-DECISION-ENGINE-R173.2
+// spec: MEDULLA-DECISION-ENGINE-R173.2
 #[test]
 fn ledger_evicts_rounds_outside_the_window() {
     let mut ledger = ConcentrationLedger::new(3);
@@ -114,7 +114,7 @@ fn ledger_evicts_rounds_outside_the_window() {
     assert!(ledger.window("urn:none", 8).is_empty());
 }
 
-// spec: EG-DECISION-ENGINE-R173.4
+// spec: MEDULLA-DECISION-ENGINE-R173.4
 #[test]
 fn missing_policy_and_mixed_revisions_abstain() {
     let candidate = edit("e4", 4, EditStatus::Proposed);

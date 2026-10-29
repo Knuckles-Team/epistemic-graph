@@ -1,9 +1,9 @@
-//! EG-UNIFIED-DATA-PLANE-R025.3.1 — adapter skeleton for reviewing the pgrx
+//! MEDULLA-UNIFIED-DATA-PLANE-R025.3.1 — adapter skeleton for reviewing the pgrx
 //! spike's recorded decision into an approved architecture-decision record:
 //! a typed review request, its mapping to the approved ADR record, and the
 //! refusal path before any further pgrx work is authorized. Running the
-//! live spike itself is EG-UNIFIED-DATA-PLANE-R025.2+; recording full-scope
-//! evidence is R025.1. Filing the ADR document is EG-UNIFIED-DATA-PLANE-R025.3.2+.
+//! live spike itself is MEDULLA-UNIFIED-DATA-PLANE-R025.2+; recording full-scope
+//! evidence is R025.1. Filing the ADR document is MEDULLA-UNIFIED-DATA-PLANE-R025.3.2+.
 
 use crate::pgrx_spike::{InvalidPgrxDecision, PgrxSpikeDecision, PgrxSpikeOutcome};
 use serde::{Deserialize, Serialize};
@@ -94,7 +94,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.3.1
     #[test]
     fn well_formed_review_approves_the_adr() {
         let request = valid_request();
@@ -103,7 +103,7 @@ mod tests {
         assert_eq!(adr.reviewer, "arch-review-board");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.3.1
     #[test]
     fn refuses_an_invalid_decision() {
         let mut request = valid_request();
@@ -116,7 +116,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.3.1
     #[test]
     fn refuses_an_empty_reviewer() {
         let mut request = valid_request();
@@ -127,7 +127,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.3.1
     #[test]
     fn refuses_an_empty_adr_title() {
         let mut request = valid_request();
@@ -138,7 +138,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.3.1
     #[test]
     fn approved_adr_serializes_round_trip() {
         let adr = valid_request().approve().unwrap();

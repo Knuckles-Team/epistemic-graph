@@ -1,6 +1,6 @@
 # Infrastructure shapes: the ABox records the container-registry and
 # home-assistant connectors write under the infrastructure module, and the
-# host-limit rows (EG-SUPPLY-VOCAB-R004.2). SHACL Core only (DECIDE §4.8).
+# host-limit rows (MEDULLA-SUPPLY-VOCAB-R004.2). SHACL Core only (DECIDE §4.8).
 # Counters are bounded from below so a negative registry pull count is a
 # violation, not a plausible metric (precedent: finance-v1.shapes.ttl).
 # Further infrastructure shapes land beside these, never replacing them.

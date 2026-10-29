@@ -252,7 +252,7 @@ fn external_mode_signs_in_only_the_break_glass_administrator_locally() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R026
+// spec: MEDULLA-DURABLE-KERNEL-R026
 #[test]
 fn all_auth_modes_resolve_to_one_principal_and_rbac_evaluation_path() {
     // ── Local mode: one user, one group-granted role, native user store.

@@ -301,7 +301,7 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
 // server. It went unnoticed because this repo has not pushed in a long time,
 // so CI never ran that feature-matrix row. Restoring the attribute here is
 // the fix (AGENTS.md "Feature-gating gates three sites").
-// Post-bind boot maintenance (EG-DURABLE-KERNEL-R006.4): the background
+// Post-bind boot maintenance (MEDULLA-DURABLE-KERNEL-R006.4): the background
 // materialized-view reload + time-series startup reconciliation that run
 // AFTER the primary listeners bind — never on the pre-listener critical
 // path. Both tasks are feature-gated inside; without either, a no-op.
@@ -446,7 +446,7 @@ pub(crate) mod handlers;
 // place a caller's verified owner (tenant+principal) selects which sources a plan may resolve.
 #[cfg(feature = "federation")]
 pub mod foreign_catalog;
-// EG-FEDERATED-QUERY-R722.3 — bounded host-driven foreign-read executions.
+// MEDULLA-FEDERATED-QUERY-R722.3 — bounded host-driven foreign-read executions.
 #[cfg(feature = "federation")]
 pub(crate) mod foreign_read;
 // Explicit RBAC-grant sharing of an owner-scoped foreign source (EH-378).
@@ -464,10 +464,10 @@ pub mod udf_catalog;
 // the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
 pub(crate) mod mutation;
 pub(crate) mod mutation_batch;
-// EG-ORCH-VOCAB-R801 — engine-side admission of the versioned
+// MEDULLA-ORCH-VOCAB-R801 — engine-side admission of the versioned
 // harness-component writes on both write paths (direct AddNode and
 // ChangeEnvelope). `pub` (not `pub(crate)`) so the hot-path receipt
-// (`benches/harness_components.rs`, EG-ORCH-VOCAB-R801.6) measures the
+// (`benches/harness_components.rs`, MEDULLA-ORCH-VOCAB-R801.6) measures the
 // engine's real per-write path. See the module docs for the shared rules.
 pub mod harness_admission;
 // Per-graph batching worker for the five coalescable GATEWAY_ROUTED structural
@@ -809,7 +809,7 @@ pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
 // calls this on startup to repopulate the in-RAM matview index from redb.
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub use handlers::dist_compute::reload_matviews;
-// Post-bind maintenance hook (EG-DURABLE-KERNEL-R006.4): the binary calls this
+// Post-bind maintenance hook (MEDULLA-DURABLE-KERNEL-R006.4): the binary calls this
 // from `serve_transports` right after the listeners bind.
 pub use boot_maintenance::spawn_post_bind_maintenance;
 pub use persistence::PersistenceBackend;
@@ -2126,7 +2126,7 @@ mod tests {
     /// A label Scan served through `Method::Uql` and `Method::UnifiedQuery` sees nodes
     /// whose writer stored the label under `node_type` (the AU/connector convention),
     /// not only under `type`.
-    // spec: EG-FEDERATED-QUERY-R022.1
+    // spec: MEDULLA-FEDERATED-QUERY-R022.1
     #[cfg(feature = "query")]
     #[tokio::test]
     async fn test_served_scan_reads_node_type_labels() {
@@ -2195,7 +2195,7 @@ mod tests {
     /// request boundary into the `ApplyChangeEnvelope` it continues as) whose document
     /// text carries `@` and `\\` commits, and one carrying an e-mail address is refused
     /// with the declared `INVALID_ARGUMENT` code, a diagnostic detail, and no echo.
-    // spec: EG-DURABLE-KERNEL-R043.7, EG-DURABLE-KERNEL-R043.8
+    // spec: MEDULLA-DURABLE-KERNEL-R043.7, MEDULLA-DURABLE-KERNEL-R043.8
     #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_served_change_envelope_admits_document_text_and_codes_refusals() {
@@ -2739,13 +2739,13 @@ mod tests {
     // EH-373 foreign-source tenancy proofs through the full served dispatch chain.
     #[cfg(all(feature = "federation", feature = "nl-query"))]
     mod foreign_tenancy;
-    // EG-FEDERATED-QUERY-R058.2.2.1 NlQueryExplain proofs through the full served chain.
+    // MEDULLA-FEDERATED-QUERY-R058.2.2.1 NlQueryExplain proofs through the full served chain.
     #[cfg(all(feature = "query", feature = "nl-query"))]
     mod nl_explain;
     // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
     #[cfg(feature = "wasm-udf")]
     mod udf_tenancy;
-    // Served ShEx data-selection proof for EG-FEDERATED-QUERY-R084.2.
+    // Served ShEx data-selection proof for MEDULLA-FEDERATED-QUERY-R084.2.
     #[cfg(feature = "shex")]
     mod shex_served;
 

@@ -1,4 +1,4 @@
-//! Stored, versioned queries (EG-FEDERATED-QUERY-R708.1).
+//! Stored, versioned queries (MEDULLA-FEDERATED-QUERY-R708.1).
 
 use std::collections::BTreeMap;
 
@@ -38,7 +38,7 @@ pub enum RefreshPolicy {
     Period { seconds: u64 },
 }
 
-/// A stored query (EG-FEDERATED-QUERY-R708.1).
+/// A stored query (MEDULLA-FEDERATED-QUERY-R708.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StoredQuery {
@@ -89,7 +89,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R708.1
+    // spec: MEDULLA-FEDERATED-QUERY-R708.1
     #[test]
     fn stored_query_round_trips() {
         for refresh in [

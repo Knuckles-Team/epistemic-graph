@@ -560,7 +560,7 @@ pub(super) async fn route_change_envelope_ops(
     }
 }
 
-/// EG-ORCH-VOCAB-R801.3 — the request-boundary check of one envelope's
+/// MEDULLA-ORCH-VOCAB-R801.3 — the request-boundary check of one envelope's
 /// harness-component writes against the live graph (see
 /// `crate::server::harness_admission` for the rules). Runs under the graph
 /// write lock, before the durable commit.
@@ -636,7 +636,7 @@ async fn apply_one_change_envelope_inner(
     }
 
     let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-    // EG-ORCH-VOCAB-R801.3: the harness-component writes of this envelope are
+    // MEDULLA-ORCH-VOCAB-R801.3: the harness-component writes of this envelope are
     // graph-relative (a supersession must name the CURRENT version, a
     // published version must not mutate), so they are verified under the
     // write lock, before any durable work.
@@ -711,7 +711,7 @@ async fn apply_one_change_envelope_inner(
             // Keep a declared admission code (e.g. INVALID_ARGUMENT from
             // `ChangeEnvelope::validate`) first so `Response::err` keeps it and its
             // detail; an uncoded storage failure is reported as INTERNAL with its
-            // detail, not as an unclassified refusal (spec: EG-DURABLE-KERNEL-R043.8).
+            // detail, not as an unclassified refusal (spec: MEDULLA-DURABLE-KERNEL-R043.8).
             return Response::err(
                 req_id,
                 eg_types::contract::classify_refusal(
@@ -820,7 +820,7 @@ async fn apply_change_envelope_batch(
             );
         }
     }
-    // EG-ORCH-VOCAB-R801.3: the harness-component writes of the batch are
+    // MEDULLA-ORCH-VOCAB-R801.3: the harness-component writes of the batch are
     // graph-relative, so they are verified under the write lock, before the
     // atomic commit. ONE boundary state spans the batch, in envelope order,
     // so a supersession may name a version written by an earlier envelope of

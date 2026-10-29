@@ -233,10 +233,10 @@ def _persist_and_read(
     return run_id, restored
 
 
-# spec: EG-DECISION-ENGINE-R134.111
-# spec: EG-DECISION-ENGINE-R134.111.3
-# spec: EG-DECISION-ENGINE-R134.111.5
-# spec: EG-DURABLE-KERNEL-R028.5.3
+# spec: MEDULLA-DECISION-ENGINE-R134.111
+# spec: MEDULLA-DECISION-ENGINE-R134.111.3
+# spec: MEDULLA-DECISION-ENGINE-R134.111.5
+# spec: MEDULLA-DURABLE-KERNEL-R028.5.3
 def test_explicit_plan_end_to_end(authenticated_plan_client):
     client = authenticated_plan_client
     try:
@@ -302,7 +302,7 @@ def test_explicit_plan_end_to_end(authenticated_plan_client):
         client.close()
 
 
-# spec: EG-DECISION-ENGINE-R134.111.4
+# spec: MEDULLA-DECISION-ENGINE-R134.111.4
 def test_task_plan_refuses_noncanonical_requests(authenticated_plan_client):
     client = authenticated_plan_client
     try:
@@ -356,8 +356,8 @@ def test_task_plan_refuses_noncanonical_requests(authenticated_plan_client):
         client.close()
 
 
-# spec: EG-DECISION-ENGINE-R134.111.3
-# spec: EG-DURABLE-KERNEL-R028.5.3
+# spec: MEDULLA-DECISION-ENGINE-R134.111.3
+# spec: MEDULLA-DURABLE-KERNEL-R028.5.3
 @pytest.mark.no_engine
 def test_anonymous_task_plan_publication_and_restart(tmp_path):
     from test_native_no_auth_served import server

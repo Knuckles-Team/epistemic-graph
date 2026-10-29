@@ -291,10 +291,10 @@ fn as_of_clause_parses_to_asof_op() {
 }
 
 /// `AS OF` takes only a Unix-second `ts` (CONCEPT:EG-KG.query.unix-second-as-of,
-/// EG-FEDERATED-QUERY-R016): an ISO-8601 date or a Cypher-shaped temporal call is
+/// MEDULLA-FEDERATED-QUERY-R016): an ISO-8601 date or a Cypher-shaped temporal call is
 /// not an alternate `ts` production, so both are rejected as invalid syntax rather
 /// than silently parsed as a timestamp.
-// spec: EG-FEDERATED-QUERY-R016
+// spec: MEDULLA-FEDERATED-QUERY-R016
 #[test]
 fn as_of_rejects_iso_date_and_cypher_shaped_text() {
     let iso_date = parse("MATCH (:Event) |> AS OF 2023-01-01T00:00:00Z").unwrap_err();
@@ -671,7 +671,7 @@ fn epistemic_clauses_not_in_build() {
     }
 }
 
-// Regression for EG-FEDERATED-QUERY-R024; native acceptance remains pending.
+// Regression for MEDULLA-FEDERATED-QUERY-R024; native acceptance remains pending.
 #[test]
 fn outbound_traversal_spellings_compile_to_the_same_canonical_plan() {
     let arrow = parse("MATCH (:N) |> TRAVERSE -[:R]->{1,2}").unwrap();
@@ -686,7 +686,7 @@ fn outbound_traversal_spellings_compile_to_the_same_canonical_plan() {
     assert_eq!(arrow.ops, vec![Op::Scan { label: "N".into() }, expected]);
 }
 
-// Regression coverage for EG-FEDERATED-QUERY-R024; managed native acceptance remains pending.
+// Regression coverage for MEDULLA-FEDERATED-QUERY-R024; managed native acceptance remains pending.
 #[test]
 fn wildcard_and_edge_predicate_traversals_compile_to_expand() {
     let wildcard = parse("MATCH (:N) |> TRAVERSE -[*]->{1,2}").unwrap();

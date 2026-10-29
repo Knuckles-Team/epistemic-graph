@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R015: the decision engine's head vocabulary is closed
+//! MEDULLA-DECISION-ENGINE-R015: the decision engine's head vocabulary is closed
 //! and purely numeric. There is no generative-model-weight head kind and no
 //! free-text generation anywhere a head is read: `Evaluated`'s only fields
 //! are `f64` vectors, so there is no channel through which any head kind
@@ -72,7 +72,7 @@ fn matrix() -> FeatureMatrix {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R015
+// spec: MEDULLA-DECISION-ENGINE-R015
 #[test]
 fn every_head_kind_produces_only_numeric_output_never_free_text() {
     for kind in [

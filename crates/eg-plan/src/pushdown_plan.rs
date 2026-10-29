@@ -1,4 +1,4 @@
-//! EG-UNIFIED-DATA-PLANE-R006 — pushing down virtual-graph queries to source SQL. This is the
+//! MEDULLA-UNIFIED-DATA-PLANE-R006 — pushing down virtual-graph queries to source SQL. This is the
 //! `.1` typed-model slice: the typed pushdown decision and its explicit fallback reason, and the
 //! refusal of a self-contradictory decision (claiming both success and a fallback reason).
 //! Rendering actual joins/aggregates/ORDER BY/LIMIT into source SQL is a later child.
@@ -67,7 +67,7 @@ impl PushdownDecision {
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R006.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R006.1
     #[test]
     fn a_pushed_down_decision_with_no_fallback_validates() {
         let decision = PushdownDecision {
@@ -77,7 +77,7 @@ mod tests {
         decision.validate().unwrap();
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R006.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R006.1
     #[test]
     fn a_fallback_decision_validates() {
         let decision = PushdownDecision {
@@ -87,7 +87,7 @@ mod tests {
         decision.validate().unwrap();
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R006.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R006.1
     #[test]
     fn a_contradictory_decision_is_refused() {
         let decision = PushdownDecision {

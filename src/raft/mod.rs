@@ -88,7 +88,7 @@ pub mod drain;
 #[cfg(feature = "query")]
 pub mod exchange;
 /// Typed flake-budget / retry-policy model for running cluster tests reliably
-/// under representative load (EG-DURABLE-KERNEL-R014.1): bounds how many
+/// under representative load (MEDULLA-DURABLE-KERNEL-R014.1): bounds how many
 /// transient failures a run under load may absorb and at what backoff,
 /// refusing a malformed budget rather than silently retrying forever or not
 /// at all. The load-test harness and representative-load generator that

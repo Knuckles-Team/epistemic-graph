@@ -16,7 +16,7 @@ All fixtures run against a disposable local data directory and generated credent
 | T-KG-09 approval | KG-09 | Two distinct principals approve exact digest before expiry. | Self-approval, generic lease, altered digest, expiry and replay all deny and audit refusal |
 | T-KG-10 Raft | KG-10 | Repeated 3-node multi-group writes/failover preserve independent progress and one committed result | Inject slow peer/leader loss. Unaffected groups progress. Failed assertion emits causal ring-buffer trace |
 | T-KG-11 durability | KG-11, KG-12 | Sync survives kill. Async oldest-unflushed age stays ≤100 ms. Hot structures rebuild from log | Ephemeral disappears on restart. Forced flush lag yields explicit degraded/refusal, never silent class change. Concurrent primitive history linearizes |
-| T-KG-11a control-lease expiry | EG-DURABLE-KERNEL-R039.2 | `native_record_consumption_checks_commit_time_and_preserves_expired_rows` enters native-record dispatch over a real shard and consumes strictly before expiry. Existing row-applier tests prove single use; the new regression also proves revocation after expiry. | At or after either deadline, consumption returns `Conflict`. It reports no changed IDs. The persisted lease and revision remain unchanged. Time is the engine-owned mutation timestamp, not caller input or physical commit wall-clock. Runtime execution is required; source presence alone is not acceptance. |
+| T-KG-11a control-lease expiry | MEDULLA-DURABLE-KERNEL-R039.2 | `native_record_consumption_checks_commit_time_and_preserves_expired_rows` enters native-record dispatch over a real shard and consumes strictly before expiry. Existing row-applier tests prove single use; the new regression also proves revocation after expiry. | At or after either deadline, consumption returns `Conflict`. It reports no changed IDs. The persisted lease and revision remain unchanged. Time is the engine-owned mutation timestamp, not caller input or physical commit wall-clock. Runtime execution is required; source presence alone is not acceptance. |
 | T-KG-12 wire batches | KG-13, KG-14 | RESP and pgwire batches return N ordered replies after one commit. Point route avoids DataFusion session | Middle operation fails. No earlier reply promises a commit. Schema/policy change invalidates cached SQL plan |
 | T-KG-13 parity and benchmark | KG-15 | Differential corpus, restore drill and benchmark report include exact config, hardware class, code revision and digest | Accepted deviation is named/reviewed; a regression fails instead of rewriting baseline; missing benchmark row blocks superiority claim |
 
@@ -36,7 +36,7 @@ R074.2 remains pending: exercise these transitions through real authenticated di
 
 ## T-KG-14 scheduler configuration producer
 
-R076.1 and EG-PLACEMENT-R002.2 bind native tests in `crates/eg-types/src/scheduler_config.rs`: real-serde default and override round trips. Exact floor sum. Over-subscription. U32::MAX floor overflow. Zero disabling bounds. CPU >1000, memory=0 and blank-lane refusals. Missing/unknown/negative/out-of-range wire fields. Run `cargo test -p eg-types scheduler_config::tests` on a warm build, or compile that exact source with real serde/serde_json dependencies for isolated producer evidence. The latter is not full-crate or server validation. R076.2 still requires the served settings/admission scenario.
+R076.1 and MEDULLA-PLACEMENT-R002.2 bind native tests in `crates/eg-types/src/scheduler_config.rs`: real-serde default and override round trips. Exact floor sum. Over-subscription. U32::MAX floor overflow. Zero disabling bounds. CPU >1000, memory=0 and blank-lane refusals. Missing/unknown/negative/out-of-range wire fields. Run `cargo test -p eg-types scheduler_config::tests` on a warm build, or compile that exact source with real serde/serde_json dependencies for isolated producer evidence. The latter is not full-crate or server validation. R076.2 still requires the served settings/admission scenario.
 
 ## T-KG-15 association submission schema
 
@@ -62,7 +62,7 @@ and its other children remain open. Normal warm-tree reproduction is
 
 | Requirement | Proving tests | Evidence |
 |---|---|---|
-| EG-DURABLE-KERNEL-R082.6 | `deleted_au_six_transaction_order_and_thresholds`; `minimum_count_and_zero_consequent_lift_boundaries` | Six historical transaction cases cover all three engines, stable ordering, thresholds, metrics, and zero lift. |
+| MEDULLA-DURABLE-KERNEL-R082.6 | `deleted_au_six_transaction_order_and_thresholds`; `minimum_count_and_zero_consequent_lift_boundaries` | Six historical transaction cases cover all three engines, stable ordering, thresholds, metrics, and zero lift. |
 
 Run `cargo test -p eg-compute mining::association`.
 Isolated compilation includes the complete production association and math modules with real serde_json.
@@ -75,13 +75,13 @@ The producer children retain their current evidence. Neither producer proves run
 
 | Requirement | Proving tests and source | Acceptance |
 |---|---|---|
-| EG-DURABLE-KERNEL-R011.2 | `crates/eg-types/src/pre_merge_test_module.rs`: `required_manifest_covers_runtime_categories`, `required_manifest_rejects_empty_selection`, and `required_manifest_anchors_exist_in_source`. | Eight source-module tests passed with Rust 1.96.0. Runtime acceptance remains open under R011.3 and R011.4. |
-| EG-DURABLE-KERNEL-R011.3 | Planned tests in `tests/test_required_runtime_gate.py`: `test_pull_request_executes_required_categories` and `test_failed_or_empty_category_blocks_acceptance`. | Pending runtime acceptance. |
-| EG-DURABLE-KERNEL-R011.4 | CI receipts must name `published-full`, `workspace-all-features`, and every selected runtime test. R011.2 and R011.3 test names define the gate checks. | Pending runtime acceptance. |
-| EG-DURABLE-KERNEL-R014.2 | Process tests in `tests/test_validate_raft_cluster.py`: `test_cpu_load_runs_during_cluster_test`, `test_zero_load_workers_refused`, and `test_load_workers_stop_on_failure`. | Process lifecycle tested; loaded Rust acceptance remains in R014.4 and R014.5. |
-| EG-DURABLE-KERNEL-R014.3 | Planned tests in `tests/test_validate_raft_cluster.py`: `test_repeats_both_cluster_tests`, `test_retry_budget_is_bounded`, and `test_retry_preserves_failure_and_trace`. | Pending runtime acceptance. |
-| EG-DURABLE-KERNEL-R014.4 | `src/raft/tests.rs::multi_node_group_join_then_leader_rebalance` must pass every recorded loaded repetition without flaky failures. The record must include at least two repetitions. | Pending runtime acceptance. |
-| EG-DURABLE-KERNEL-R014.5 | `src/raft/tests.rs::placement_admin_wire_rpc::placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster` must pass every recorded loaded repetition without flaky failures. The record must include at least two repetitions. | Pending runtime acceptance. |
+| MEDULLA-DURABLE-KERNEL-R011.2 | `crates/eg-types/src/pre_merge_test_module.rs`: `required_manifest_covers_runtime_categories`, `required_manifest_rejects_empty_selection`, and `required_manifest_anchors_exist_in_source`. | Eight source-module tests passed with Rust 1.96.0. Runtime acceptance remains open under R011.3 and R011.4. |
+| MEDULLA-DURABLE-KERNEL-R011.3 | Planned tests in `tests/test_required_runtime_gate.py`: `test_pull_request_executes_required_categories` and `test_failed_or_empty_category_blocks_acceptance`. | Pending runtime acceptance. |
+| MEDULLA-DURABLE-KERNEL-R011.4 | CI receipts must name `published-full`, `workspace-all-features`, and every selected runtime test. R011.2 and R011.3 test names define the gate checks. | Pending runtime acceptance. |
+| MEDULLA-DURABLE-KERNEL-R014.2 | Process tests in `tests/test_validate_raft_cluster.py`: `test_cpu_load_runs_during_cluster_test`, `test_zero_load_workers_refused`, and `test_load_workers_stop_on_failure`. | Process lifecycle tested; loaded Rust acceptance remains in R014.4 and R014.5. |
+| MEDULLA-DURABLE-KERNEL-R014.3 | Planned tests in `tests/test_validate_raft_cluster.py`: `test_repeats_both_cluster_tests`, `test_retry_budget_is_bounded`, and `test_retry_preserves_failure_and_trace`. | Pending runtime acceptance. |
+| MEDULLA-DURABLE-KERNEL-R014.4 | `src/raft/tests.rs::multi_node_group_join_then_leader_rebalance` must pass every recorded loaded repetition without flaky failures. The record must include at least two repetitions. | Pending runtime acceptance. |
+| MEDULLA-DURABLE-KERNEL-R014.5 | `src/raft/tests.rs::placement_admin_wire_rpc::placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster` must pass every recorded loaded repetition without flaky failures. The record must include at least two repetitions. | Pending runtime acceptance. |
 
 R011.2 must list each selected module and its feature flags before R011.3 execution.
 Existing runtime anchors include `src/raft/tests.rs::durable_log_replays_from_redb_after_restart`.
@@ -159,7 +159,7 @@ The parent binding records partial declaration coverage; it does not prove nativ
 
 Shared KV-cache tier (R083): two consumers share one content-addressed block. A model-version mismatch refuses. An over-budget insert evicts the coldest block by recency and graph importance.
 
-## EG-DURABLE-KERNEL-R084 acceptance
+## MEDULLA-DURABLE-KERNEL-R084 acceptance
 
 | Scenario | Requirement | Fixture |
 |---|---|---|
@@ -174,14 +174,14 @@ Use the real server binary, authenticated public client and disposable durable d
 Transport, graph authorization, mutation dispatch and persistence must remain real.
 Read durable state through an independent authorized client after restart.
 
-- `EG-DURABLE-KERNEL-R085.1`: Planned: tests/memory_sync_contract.rs::bounded_contract_round_trips_and_refuses_invalid_fields.
-- `EG-DURABLE-KERNEL-R085.2`: Planned: tests/memory_sync_served.rs::authorized_read_list_and_cursor_isolation.
-- `EG-DURABLE-KERNEL-R085.3`: Planned: tests/memory_sync_served.rs::competing_saves_retain_both_and_resolve_once.
-- `EG-DURABLE-KERNEL-R085.4`: Planned: tests/memory_sync_served.rs::wire_methods_reach_durable_gateway.
-- `EG-DURABLE-KERNEL-R085.5`: Planned: tests/memory_sync_served.rs::denied_and_malformed_requests_have_no_effects.
-- `EG-DURABLE-KERNEL-R085.6`: Planned: tests/memory_sync_served.rs::provenance_and_materialization_ack_survive_restart.
-- `EG-DURABLE-KERNEL-R085.7`: Planned: tests/memory_sync_served.rs::conflicts_survive_gc_and_retention_refusal.
-- `EG-DURABLE-KERNEL-R085.8`: Planned: tests/memory_sync_served.rs::complete_memory_sync_journey.
+- `MEDULLA-DURABLE-KERNEL-R085.1`: Planned: tests/memory_sync_contract.rs::bounded_contract_round_trips_and_refuses_invalid_fields.
+- `MEDULLA-DURABLE-KERNEL-R085.2`: Planned: tests/memory_sync_served.rs::authorized_read_list_and_cursor_isolation.
+- `MEDULLA-DURABLE-KERNEL-R085.3`: Planned: tests/memory_sync_served.rs::competing_saves_retain_both_and_resolve_once.
+- `MEDULLA-DURABLE-KERNEL-R085.4`: Planned: tests/memory_sync_served.rs::wire_methods_reach_durable_gateway.
+- `MEDULLA-DURABLE-KERNEL-R085.5`: Planned: tests/memory_sync_served.rs::denied_and_malformed_requests_have_no_effects.
+- `MEDULLA-DURABLE-KERNEL-R085.6`: Planned: tests/memory_sync_served.rs::provenance_and_materialization_ack_survive_restart.
+- `MEDULLA-DURABLE-KERNEL-R085.7`: Planned: tests/memory_sync_served.rs::conflicts_survive_gc_and_retention_refusal.
+- `MEDULLA-DURABLE-KERNEL-R085.8`: Planned: tests/memory_sync_served.rs::complete_memory_sync_journey.
 
 The complete journey creates a document, reads an exact revision and lists it across pages.
 First observe a host edit and check file_ahead without changing the accepted head.
@@ -218,16 +218,16 @@ Each child is focused; the rollup waits for all children and the complete served
 
 | Requirement | Planned proving test |
 |---|---|
-| EG-DURABLE-KERNEL-R086 | `served_safe_eviction_read_through_journey` |
-| EG-DURABLE-KERNEL-R086.1 | `read_through_model_outcomes` |
-| EG-DURABLE-KERNEL-R086.2 | `selected_residents_leave_durable_rows_unchanged` |
-| EG-DURABLE-KERNEL-R086.3 | `evicted_blob_reads_without_resident_growth` |
-| EG-DURABLE-KERNEL-R086.4 | `startup_attaches_graph_scoped_read_through` |
-| EG-DURABLE-KERNEL-R086.5 | `served_evicted_reads_preserve_scope` |
-| EG-DURABLE-KERNEL-R086.6 | `production_eviction_retains_unconfirmed_candidates` |
-| EG-DURABLE-KERNEL-R086.7 | `backend_failure_is_not_absence_evidence` |
-| EG-DURABLE-KERNEL-R086.8 | `restarted_engine_reads_an_evicted_node` |
-| EG-DURABLE-KERNEL-R086.9 | `served_safe_eviction_read_through_journey` |
+| MEDULLA-DURABLE-KERNEL-R086 | `served_safe_eviction_read_through_journey` |
+| MEDULLA-DURABLE-KERNEL-R086.1 | `read_through_model_outcomes` |
+| MEDULLA-DURABLE-KERNEL-R086.2 | `selected_residents_leave_durable_rows_unchanged` |
+| MEDULLA-DURABLE-KERNEL-R086.3 | `evicted_blob_reads_without_resident_growth` |
+| MEDULLA-DURABLE-KERNEL-R086.4 | `startup_attaches_graph_scoped_read_through` |
+| MEDULLA-DURABLE-KERNEL-R086.5 | `served_evicted_reads_preserve_scope` |
+| MEDULLA-DURABLE-KERNEL-R086.6 | `production_eviction_retains_unconfirmed_candidates` |
+| MEDULLA-DURABLE-KERNEL-R086.7 | `backend_failure_is_not_absence_evidence` |
+| MEDULLA-DURABLE-KERNEL-R086.8 | `restarted_engine_reads_an_evicted_node` |
+| MEDULLA-DURABLE-KERNEL-R086.9 | `served_safe_eviction_read_through_journey` |
 
 The served journey uses a real authenticated engine, disposable durable directory and independent clients.
 Acknowledge distinct node-property writes before requesting EvictLRU with a small cap.
@@ -266,12 +266,12 @@ This specification batch makes no runtime execution or implementation-complete c
 
 Planned cases only. None have run. Medulla producer acceptance stops at its authenticated durable memory contract. Cross-owner cases remain blocked where called out.
 
-- **`EG-DURABLE-KERNEL-R028.1` / AU:21:** Write a checkpoint and both referenced memory revisions through R085. Restart and read back the same revision and digests. Refuse wrong tenant/graph, stale head or stale WorkItem fence. Also refuse a crash/race between snapshot write and WorkItem pointer update. Refuse digest mismatch, changed-body replay identity or unavailable storage without advancing the head. Meristem must resume the same run and fence. Arbora must continue from the exact existing host-issued stream cursor without duplicate or skipped output. Those cases remain blocked on the atomic snapshot/pointer transaction or crash-recovery contract. Short-/long-term kind and retention decisions, Meristem resume-binding and host cursor/replay semantics also remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `ARBORA-A2A-R001`, `ARBORA-A2A-R001.1`, `ARBORA-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
-- **`EG-DURABLE-KERNEL-R085.9` / AU:48:** Store all required search-state fields and evict context. Restart or use an independent client. Read back byte-identical exact UTF-8 JSON content at its bound revision. Validate the envelope field types and the equality of state revision and snapshot revision. Refuse missing/malformed fields, oversize content, wrong authority, stale graph, digest mismatch, and unavailable storage without changing the head. Stale expected revision preserves the accepted head and retains the candidate conflict. Meristem continuation must restore all four fields using the exact returned document ID/revision before compacted context is used. That last case is blocked on Meristem’s per-entry schema/source identity and continuation receipt decision. Preserve Meristem R013.13/R020.1 and Medulla R085.1/.4/.7. Source hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
-- **`EG-DURABLE-KERNEL-R085.10` / AU:49:** Write/read an authorized note across restart with source revision, digest, and provenance intact. Ensure cross-tenant/revoked reads are redacted. Stale writes must retain conflict without replacing the accepted head. Capacity exhaustion must refuse before effects. Meristem must separately test the decided capture trigger, relevance/staleness rule, and conflict presentation without using unresolved content. That acceptance is blocked on Meristem defining those semantics. Preserve Meristem R022.3 and Medulla R085.2/.5/.7. Source hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
+- **`MEDULLA-DURABLE-KERNEL-R028.1` / AU:21:** Write a checkpoint and both referenced memory revisions through R085. Restart and read back the same revision and digests. Refuse wrong tenant/graph, stale head or stale WorkItem fence. Also refuse a crash/race between snapshot write and WorkItem pointer update. Refuse digest mismatch, changed-body replay identity or unavailable storage without advancing the head. Meristem must resume the same run and fence. Arbora must continue from the exact existing host-issued stream cursor without duplicate or skipped output. Those cases remain blocked on the atomic snapshot/pointer transaction or crash-recovery contract. Short-/long-term kind and retention decisions, Meristem resume-binding and host cursor/replay semantics also remain open. Preserve `MEDULLA-DURABLE-KERNEL-R028`, `MEDULLA-IDENTITY-R006`, `ARBORA-A2A-R001`, `ARBORA-A2A-R001.1`, `ARBORA-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
+- **`MEDULLA-DURABLE-KERNEL-R085.9` / AU:48:** Store all required search-state fields and evict context. Restart or use an independent client. Read back byte-identical exact UTF-8 JSON content at its bound revision. Validate the envelope field types and the equality of state revision and snapshot revision. Refuse missing/malformed fields, oversize content, wrong authority, stale graph, digest mismatch, and unavailable storage without changing the head. Stale expected revision preserves the accepted head and retains the candidate conflict. Meristem continuation must restore all four fields using the exact returned document ID/revision before compacted context is used. That last case is blocked on Meristem’s per-entry schema/source identity and continuation receipt decision. Preserve Meristem R013.13/R020.1 and Medulla R085.1/.4/.7. Source hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
+- **`MEDULLA-DURABLE-KERNEL-R085.10` / AU:49:** Write/read an authorized note across restart with source revision, digest, and provenance intact. Ensure cross-tenant/revoked reads are redacted. Stale writes must retain conflict without replacing the accepted head. Capacity exhaustion must refuse before effects. Meristem must separately test the decided capture trigger, relevance/staleness rule, and conflict presentation without using unresolved content. That acceptance is blocked on Meristem defining those semantics. Preserve Meristem R022.3 and Medulla R085.2/.5/.7. Source hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
 
-- **`EG-DURABLE-KERNEL-R028.1.1`:** Run `checkpoint_native_authenticated_cas_replay_and_owner_isolation` through authenticated dispatch and MutationBatch. Exact nonce reuse returns `REPLAY_NONCE_CONSUMED`. Live-claim and expected-head refusals return `CONFLICT`, not `INTERNAL`. Closed error-routing tests preserve only the declared method codes. A fresh nonce with identical canonical retry identity returns the original receipt, including after expiry/reopen, without another snapshot/version. Changed content/references/fence conflict; wrong owner/context/tenant/run refuse before ledger replay. Run `run_checkpoint` DTO tests, native `work_item/checkpoint/tests.rs` for immutable admitted-context authority despite metadata replacement, wrong graph/tenant/run and missing admission/node-type refusals, CAS/digest/fence and rollback tests. Run graph predecessor/offline upgrade/reopen tests and regenerate owner layout/public contracts from the exact candidate. Python `tests/test_run_checkpoint_client.py` requires those fresh generated methods. Hosted job 120276448287 passes the full authenticated checkpoint fixture after the refusal fixes. Replay, expiry, owner isolation, claim-bearing read refusal and reopen now have native evidence for head `c065ad9a`. The integrated final source still requires a fresh complete gate run. Hosted storage predecessor and migration-preservation tests pass, as recorded in the plan. Both Python facade tests pass with the hosted generated send methods. Final composed-head export, parity and complete gate qualification remain pending.
-- **`EG-DURABLE-KERNEL-R028.1.2` / AU:21:** Resolve and read back both referenced memory revisions after restart. AU must resume the same run and current fence, preferring its current-run checkpoint. Shared served paths must enforce durable context ordering and continue the exact host-issued cursor without duplicate or skipped output. Retention/release, memory existence and host replay authority remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `ARBORA-A2A-R001`, `ARBORA-A2A-R001.1`, `ARBORA-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
+- **`MEDULLA-DURABLE-KERNEL-R028.1.1`:** Run `checkpoint_native_authenticated_cas_replay_and_owner_isolation` through authenticated dispatch and MutationBatch. Exact nonce reuse returns `REPLAY_NONCE_CONSUMED`. Live-claim and expected-head refusals return `CONFLICT`, not `INTERNAL`. Closed error-routing tests preserve only the declared method codes. A fresh nonce with identical canonical retry identity returns the original receipt, including after expiry/reopen, without another snapshot/version. Changed content/references/fence conflict; wrong owner/context/tenant/run refuse before ledger replay. Run `run_checkpoint` DTO tests, native `work_item/checkpoint/tests.rs` for immutable admitted-context authority despite metadata replacement, wrong graph/tenant/run and missing admission/node-type refusals, CAS/digest/fence and rollback tests. Run graph predecessor/offline upgrade/reopen tests and regenerate owner layout/public contracts from the exact candidate. Python `tests/test_run_checkpoint_client.py` requires those fresh generated methods. Hosted job 120276448287 passes the full authenticated checkpoint fixture after the refusal fixes. Replay, expiry, owner isolation, claim-bearing read refusal and reopen now have native evidence for head `c065ad9a`. The integrated final source still requires a fresh complete gate run. Hosted storage predecessor and migration-preservation tests pass, as recorded in the plan. Both Python facade tests pass with the hosted generated send methods. Final composed-head export, parity and complete gate qualification remain pending.
+- **`MEDULLA-DURABLE-KERNEL-R028.1.2` / AU:21:** Resolve and read back both referenced memory revisions after restart. AU must resume the same run and current fence, preferring its current-run checkpoint. Shared served paths must enforce durable context ordering and continue the exact host-issued cursor without duplicate or skipped output. Retention/release, memory existence and host replay authority remain open. Preserve `MEDULLA-DURABLE-KERNEL-R028`, `MEDULLA-IDENTITY-R006`, `ARBORA-A2A-R001`, `ARBORA-A2A-R001.1`, `ARBORA-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->
@@ -279,7 +279,7 @@ Planned cases only. None have run. Medulla producer acceptance stops at its auth
 
 No cases listed here have run. They describe required future acceptance, not evidence.
 
-- **`EG-DURABLE-KERNEL-R038.100` / EG:60. Source `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`:** Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace. Confirm no persistent namespace is silently downgraded. Start served mode against its configured endpoint and confirm its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch. Read back profile and namespace declarations. Producer/consumer: Medulla owns profile and storage selection. Transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation. Parent `EG-DURABLE-KERNEL-R038` remains intact.
+- **`MEDULLA-DURABLE-KERNEL-R038.100` / EG:60. Source `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`:** Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace. Confirm no persistent namespace is silently downgraded. Start served mode against its configured endpoint and confirm its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch. Read back profile and namespace declarations. Producer/consumer: Medulla owns profile and storage selection. Transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation. Parent `MEDULLA-DURABLE-KERNEL-R038` remains intact.
 <!-- /spec-definition-patch -->
 
 
@@ -288,123 +288,123 @@ No cases listed here have run. They describe required future acceptance, not evi
 
 No test in this section has run. It is a future contract.
 
-- `EG-DURABLE-KERNEL-R043.100`: Use two authenticated served GraphView clients to take a consistent snapshot. Commit concurrent `ApplyChangeEnvelope` mutations and consume ordered events without refresh. Reconnect from the opaque cursor and independently read back committed state. Exercise stable dedup ids, tombstones, expired cursor recovery, stale graph incarnation and revoked permissions without denied counts/edges. Measure Medulla commit-to-visible p95 only through first authorized feed read. Arbora/Overstory acceptance must separately set and confirm a versioned browser commit-to-visible p95. It must also set explicit numeric readable-layout limits for visible node/edge budget, interaction and label bounds. Medulla feed latency is not end-to-end evidence.
+- `MEDULLA-DURABLE-KERNEL-R043.100`: Use two authenticated served GraphView clients to take a consistent snapshot. Commit concurrent `ApplyChangeEnvelope` mutations and consume ordered events without refresh. Reconnect from the opaque cursor and independently read back committed state. Exercise stable dedup ids, tombstones, expired cursor recovery, stale graph incarnation and revoked permissions without denied counts/edges. Measure Medulla commit-to-visible p95 only through first authorized feed read. Arbora/Overstory acceptance must separately set and confirm a versioned browser commit-to-visible p95. It must also set explicit numeric readable-layout limits for visible node/edge budget, interaction and label bounds. Medulla feed latency is not end-to-end evidence.
 - Exercise tombstones, expired cursor recovery, graph-incarnation mismatch and authorization revocation. Denied edges/counts remain invisible. Measure p95 commit acknowledgement to first authorized read ≤1000 ms using the recorded latency-profile revision. Overstory R030.8 separately proves concurrent layout remains readable.
 <!-- /spec-definition-patch -->
 
 ## Planned served acceptance — benchmark measurement
 
-- `EG-DURABLE-KERNEL-R042.100`: read back benchmark input and measured-result bindings for at least two releases. Independently recompute input-token TPS and currency-rounded per-query cost, proving startup is excluded. Refuse missing full input-token count/tokenizer/price, zero or invalid inference time, invalid currency exponent and different workload/profile settings. This does not assert that any performance comparison passes.
+- `MEDULLA-DURABLE-KERNEL-R042.100`: read back benchmark input and measured-result bindings for at least two releases. Independently recompute input-token TPS and currency-rounded per-query cost, proving startup is excluded. Refuse missing full input-token count/tokenizer/price, zero or invalid inference time, invalid currency exponent and different workload/profile settings. This does not assert that any performance comparison passes.
 
-## EG-DURABLE-KERNEL-R099 acceptance
-
-| Case | Row | Proving test and observation |
-|---|---|---|
-| Model | `EG-DURABLE-KERNEL-R099.1` | A serde round trip keeps every field. |
-| Behavior | `EG-DURABLE-KERNEL-R099.2` | A unit test with four graphs on four shards observes overlapping commit windows. |
-| Wiring | `EG-DURABLE-KERNEL-R099.3` | A dispatch test asserts one report per sub-batch from the served arm. |
-| Refusal | `EG-DURABLE-KERNEL-R099.4` | Tests cover the size refusal and one failed sub-batch beside committed ones. |
-| Evidence | `EG-DURABLE-KERNEL-R099.5` | A test reads the reports and scrapes the two metrics. |
-| Hot-path proof | `EG-DURABLE-KERNEL-R099.6` | The served test passes, and the benchmark receipt meets the budget. |
-
-Hot-path proof for `EG-DURABLE-KERNEL-R099`: `tests/shard_write_fanout.rs::cross_graph_writes_fan_across_shard_writers`.
-
-## EG-DURABLE-KERNEL-R100 acceptance
+## MEDULLA-DURABLE-KERNEL-R099 acceptance
 
 | Case | Row | Proving test and observation |
 |---|---|---|
-| Model | `EG-DURABLE-KERNEL-R100.1` | A serde round trip keeps every field. An inline credential is rejected. |
-| Behavior | `EG-DURABLE-KERNEL-R100.2` | Unit tests replay one batch twice and observe one target state. |
-| Wiring | `EG-DURABLE-KERNEL-R100.3` | A served test registers each kind and observes outbox delivery. |
-| Refusal | `EG-DURABLE-KERNEL-R100.4` | Tests cover both refusals and an unchanged cursor. |
-| Evidence | `EG-DURABLE-KERNEL-R100.5` | A test reads the receipts and one digest comparison. |
-| Hot-path proof | `EG-DURABLE-KERNEL-R100.6` | The served test passes against real targets, and the benchmark receipt meets the budget. |
+| Model | `MEDULLA-DURABLE-KERNEL-R099.1` | A serde round trip keeps every field. |
+| Behavior | `MEDULLA-DURABLE-KERNEL-R099.2` | A unit test with four graphs on four shards observes overlapping commit windows. |
+| Wiring | `MEDULLA-DURABLE-KERNEL-R099.3` | A dispatch test asserts one report per sub-batch from the served arm. |
+| Refusal | `MEDULLA-DURABLE-KERNEL-R099.4` | Tests cover the size refusal and one failed sub-batch beside committed ones. |
+| Evidence | `MEDULLA-DURABLE-KERNEL-R099.5` | A test reads the reports and scrapes the two metrics. |
+| Hot-path proof | `MEDULLA-DURABLE-KERNEL-R099.6` | The served test passes, and the benchmark receipt meets the budget. |
 
-Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs::each_sink_replays_after_outage`.
+Hot-path proof for `MEDULLA-DURABLE-KERNEL-R099`: `tests/shard_write_fanout.rs::cross_graph_writes_fan_across_shard_writers`.
 
-- EG-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Receipt 2026-10-19 UTC on main `ed1f25ba023c29a8da6734819005c38bb34f18b9`: the five wired native tests from `2835f06de` (PR #622) ran and all passed (5 passed, 0 failed): `redb_store::mutation_batch_tests::terminal_extension_commits_rows_outbox_and_replays_after_reopen`, `redb_store::work_item::read::tests::an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item`, `redb_store::work_item::read::tests::event_bindings_cannot_be_forged_and_missing_bound_event_is_not_legacy`, `redb_store::work_item::read::tests::a_bound_event_read_refuses_a_committed_batch_without_its_event`, `redb_store::work_item::read::tests::present_event_payload_corruption_is_refused`; `tests/test_work_item_read_client.py` passed 14/14, including `test_get_outcome_returns_the_verified_provenance_view`. Every acceptance bullet of the row is proven by these tests, so the pending condition is cleared.
-## EG-DURABLE-KERNEL-R101 acceptance
+## MEDULLA-DURABLE-KERNEL-R100 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `MEDULLA-DURABLE-KERNEL-R100.1` | A serde round trip keeps every field. An inline credential is rejected. |
+| Behavior | `MEDULLA-DURABLE-KERNEL-R100.2` | Unit tests replay one batch twice and observe one target state. |
+| Wiring | `MEDULLA-DURABLE-KERNEL-R100.3` | A served test registers each kind and observes outbox delivery. |
+| Refusal | `MEDULLA-DURABLE-KERNEL-R100.4` | Tests cover both refusals and an unchanged cursor. |
+| Evidence | `MEDULLA-DURABLE-KERNEL-R100.5` | A test reads the receipts and one digest comparison. |
+| Hot-path proof | `MEDULLA-DURABLE-KERNEL-R100.6` | The served test passes against real targets, and the benchmark receipt meets the budget. |
+
+Hot-path proof for `MEDULLA-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs::each_sink_replays_after_outage`.
+
+- MEDULLA-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Receipt 2026-10-19 UTC on main `ed1f25ba023c29a8da6734819005c38bb34f18b9`: the five wired native tests from `2835f06de` (PR #622) ran and all passed (5 passed, 0 failed): `redb_store::mutation_batch_tests::terminal_extension_commits_rows_outbox_and_replays_after_reopen`, `redb_store::work_item::read::tests::an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item`, `redb_store::work_item::read::tests::event_bindings_cannot_be_forged_and_missing_bound_event_is_not_legacy`, `redb_store::work_item::read::tests::a_bound_event_read_refuses_a_committed_batch_without_its_event`, `redb_store::work_item::read::tests::present_event_payload_corruption_is_refused`; `tests/test_work_item_read_client.py` passed 14/14, including `test_get_outcome_returns_the_verified_provenance_view`. Every acceptance bullet of the row is proven by these tests, so the pending condition is cleared.
+## MEDULLA-DURABLE-KERNEL-R101 acceptance
 
 | Case | Row | Proving test and observation |
 |---|---|---|
 
-| Model | `EG-DURABLE-KERNEL-R101.1` | `crates/eg-jobs/src/downtime.rs::tests::job_type_round_trips`: A serde round trip keeps every field, and the shape refuses a job type without a budget. |
+| Model | `MEDULLA-DURABLE-KERNEL-R101.1` | `crates/eg-jobs/src/downtime.rs::tests::job_type_round_trips`: A serde round trip keeps every field, and the shape refuses a job type without a budget. |
 
-| Behavior | `EG-DURABLE-KERNEL-R101.2` | `crates/eg-jobs/src/downtime.rs::tests::priority_then_budget_fit`: Three job types run in priority order, and one with a false precondition is skipped. |
+| Behavior | `MEDULLA-DURABLE-KERNEL-R101.2` | `crates/eg-jobs/src/downtime.rs::tests::priority_then_budget_fit`: Three job types run in priority order, and one with a false precondition is skipped. |
 
-| Wiring | `EG-DURABLE-KERNEL-R101.3` | `crates/eg-jobs/src/downtime.rs::tests::tick_enqueues_leased_jobs`: A served tick enqueues the selected jobs under background leases. |
+| Wiring | `MEDULLA-DURABLE-KERNEL-R101.3` | `crates/eg-jobs/src/downtime.rs::tests::tick_enqueues_leased_jobs`: A served tick enqueues the selected jobs under background leases. |
 
-| Refusal | `EG-DURABLE-KERNEL-R101.4` | `crates/eg-jobs/src/downtime.rs::tests::downtime_refusals`: Each case returns its code, and no foreground lane runs downtime work. |
+| Refusal | `MEDULLA-DURABLE-KERNEL-R101.4` | `crates/eg-jobs/src/downtime.rs::tests::downtime_refusals`: Each case returns its code, and no foreground lane runs downtime work. |
 
-| Evidence | `EG-DURABLE-KERNEL-R101.5` | `crates/eg-jobs/src/downtime.rs::tests::selection_recorded`: A served read finds the selection and the budget use of each job. |
+| Evidence | `MEDULLA-DURABLE-KERNEL-R101.5` | `crates/eg-jobs/src/downtime.rs::tests::selection_recorded`: A served read finds the selection and the budget use of each job. |
 
-| Hot-path proof | `EG-DURABLE-KERNEL-R101.6` | `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`: Jobs run in priority order, and the foreground query preempts them within 250 ms. |
+| Hot-path proof | `MEDULLA-DURABLE-KERNEL-R101.6` | `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`: Jobs run in priority order, and the foreground query preempts them within 250 ms. |
 
 
-Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`.
+Hot-path proof for `MEDULLA-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`.
 
-## EG-DURABLE-KERNEL-R102 acceptance
+## MEDULLA-DURABLE-KERNEL-R102 acceptance
 
 | Case | Row | Proving test and observation |
 |---|---|---|
-| Served contract | `EG-DURABLE-KERNEL-R102.1` | `src/server/kv/dispatch_tests.rs::kv_dispatch_put_get_scan_delete_cas`: every KV method answers its typed result through the real dispatch. |
-| Scope and authorization | `EG-DURABLE-KERNEL-R102.2` | `src/server/kv/dispatch_tests.rs::kv_keys_are_scoped_by_graph_and_writes_need_kv_write`: another graph sees nothing; a `kv:read` caller is refused a write. |
-| CAS and scan | `EG-DURABLE-KERNEL-R102.3` | `src/server/kv/dispatch_tests.rs::kv_scan_pages_are_bounded_and_resume_from_the_cursor`: 25 keys arrive in bounded pages in order; a foreign cursor refuses. |
-| Durable mutations | `EG-DURABLE-KERNEL-R102.4` | `src/server/kv/dispatch_tests.rs::kv_fresh_nonce_replays_stable_operation_without_duplicate_write`: the retried CAS returns the stored verdict and writes once. |
-| Hot-path proof | `EG-DURABLE-KERNEL-R102.5` | `src/server/kv/dispatch_tests.rs::kv_served_hot_path_meets_latency_budgets`: measured p50/p99 within the budgets. |
-| Shared namespace | `EG-DURABLE-KERNEL-R102.6` | `src/server/kv/dispatch_tests.rs::kv_shared_namespace_spans_principals_and_needs_kv_shared_write`: private keys never cross principals; a shared key does, and a coarse-write principal is refused. |
-- **EG-DURABLE-KERNEL-R028.3:** `src/redb_store/work_item/lease/tests.rs` tests live, expired and missing worker lease expiry against engine time, unchanged refused rows and unfenced compatibility. Runtime execution pending hosted CI.
+| Served contract | `MEDULLA-DURABLE-KERNEL-R102.1` | `src/server/kv/dispatch_tests.rs::kv_dispatch_put_get_scan_delete_cas`: every KV method answers its typed result through the real dispatch. |
+| Scope and authorization | `MEDULLA-DURABLE-KERNEL-R102.2` | `src/server/kv/dispatch_tests.rs::kv_keys_are_scoped_by_graph_and_writes_need_kv_write`: another graph sees nothing; a `kv:read` caller is refused a write. |
+| CAS and scan | `MEDULLA-DURABLE-KERNEL-R102.3` | `src/server/kv/dispatch_tests.rs::kv_scan_pages_are_bounded_and_resume_from_the_cursor`: 25 keys arrive in bounded pages in order; a foreign cursor refuses. |
+| Durable mutations | `MEDULLA-DURABLE-KERNEL-R102.4` | `src/server/kv/dispatch_tests.rs::kv_fresh_nonce_replays_stable_operation_without_duplicate_write`: the retried CAS returns the stored verdict and writes once. |
+| Hot-path proof | `MEDULLA-DURABLE-KERNEL-R102.5` | `src/server/kv/dispatch_tests.rs::kv_served_hot_path_meets_latency_budgets`: measured p50/p99 within the budgets. |
+| Shared namespace | `MEDULLA-DURABLE-KERNEL-R102.6` | `src/server/kv/dispatch_tests.rs::kv_shared_namespace_spans_principals_and_needs_kv_shared_write`: private keys never cross principals; a shared key does, and a coarse-write principal is refused. |
+- **MEDULLA-DURABLE-KERNEL-R028.3:** `src/redb_store/work_item/lease/tests.rs` tests live, expired and missing worker lease expiry against engine time, unchanged refused rows and unfenced compatibility. Runtime execution pending hosted CI.
 
 ## Pending envelope storage
 
-`EG-DURABLE-KERNEL-R039.3`: use a native shard to register an immutable envelope and consume it with the exact WorkItem preimage. Check native provenance, stale fence/revision, expiry, changed metadata/envelope, duplicate registration and replay. Refuse a plausible NODES-only lease tuple without native claim authority. Every refusal preserves both rows. This is storage acceptance, not human approval or execution acceptance.
-`EG-DURABLE-KERNEL-R039.4`: register an exact same-tenant active plan preimage with a pending envelope. Consume both leases and clear the WorkItem reference atomically. Refuse omitted or changed pairs, expired or revoked plans, and replay without partial writes. Check that paired served requests refuse before dispatch; ordinary unpaired requests retain their policy checks. This storage proof does not authenticate human approval or task hierarchy. Check the inherited 64 KiB preimage, 512-byte identifier and 24-hour lifetime bounds. The transaction changes three rows. Extend `benches/redb_write_latency_bench.rs` with a paired-consumption scenario before reporting performance evidence. That scenario and its measurements remain pending.
+`MEDULLA-DURABLE-KERNEL-R039.3`: use a native shard to register an immutable envelope and consume it with the exact WorkItem preimage. Check native provenance, stale fence/revision, expiry, changed metadata/envelope, duplicate registration and replay. Refuse a plausible NODES-only lease tuple without native claim authority. Every refusal preserves both rows. This is storage acceptance, not human approval or execution acceptance.
+`MEDULLA-DURABLE-KERNEL-R039.4`: register an exact same-tenant active plan preimage with a pending envelope. Consume both leases and clear the WorkItem reference atomically. Refuse omitted or changed pairs, expired or revoked plans, and replay without partial writes. Check that paired served requests refuse before dispatch; ordinary unpaired requests retain their policy checks. This storage proof does not authenticate human approval or task hierarchy. Check the inherited 64 KiB preimage, 512-byte identifier and 24-hour lifetime bounds. The transaction changes three rows. Extend `benches/redb_write_latency_bench.rs` with a paired-consumption scenario before reporting performance evidence. That scenario and its measurements remain pending.
 
-`EG-DURABLE-KERNEL-R039.4.1`: run the existing typed preimage tests, native three-row consumption and unchanged-row refusal tests, and paired served-entry refusal test. Preserve the original replay, tenant, lifetime and unpaired compatibility assertions. These tests do not prove performance or authorized served execution.
+`MEDULLA-DURABLE-KERNEL-R039.4.1`: run the existing typed preimage tests, native three-row consumption and unchanged-row refusal tests, and paired served-entry refusal test. Preserve the original replay, tenant, lifetime and unpaired compatibility assertions. These tests do not prove performance or authorized served execution.
 
-`EG-DURABLE-KERNEL-R039.4.2`: pending benchmark coverage in `benches/redb_write_latency_bench.rs` must exercise paired consumption through the durable path. Retain workload configuration and commit-phase measurements with the source revision. Generic write results are not paired-call evidence.
+`MEDULLA-DURABLE-KERNEL-R039.4.2`: pending benchmark coverage in `benches/redb_write_latency_bench.rs` must exercise paired consumption through the durable path. Retain workload configuration and commit-phase measurements with the source revision. Generic write results are not paired-call evidence.
 
-- **EG-DURABLE-KERNEL-R028.4:** Native admission tests cover immutable caller attribution, duplicate run refusal, and generic-write refusal. Native execution remains pending.
+- **MEDULLA-DURABLE-KERNEL-R028.4:** Native admission tests cover immutable caller attribution, duplicate run refusal, and generic-write refusal. Native execution remains pending.
 
-- **EG-DURABLE-KERNEL-R028.5:** `current_plan_publication_readback`, `current_plan_refusals_preserve_row`, `renewal_does_not_extend_snapshot_and_generic_nodes_carry_no_plan` exercise private storage; `current_plan_native_publish_read_and_receipt_replay` exercises authenticated admission, native claim, ordered publication, foreign-owner refusal, replay and reopen. Native acceptance remains pending.
+- **MEDULLA-DURABLE-KERNEL-R028.5:** `current_plan_publication_readback`, `current_plan_refusals_preserve_row`, `renewal_does_not_extend_snapshot_and_generic_nodes_carry_no_plan` exercise private storage; `current_plan_native_publish_read_and_receipt_replay` exercises authenticated admission, native claim, ordered publication, foreign-owner refusal, replay and reopen. Native acceptance remains pending.
 
 ## Agent-memory substrate claims (2026-10-22)
 
 | Case | Requirement | Proving test |
 |---|---|---|
-| Tier ladder from accelerator memory to durable storage | `EG-DURABLE-KERNEL-R083.5` | `crates/eg-kvcache/tests/tier_ladder.rs::demote_then_promote_keeps_bytes` |
-| Graph-guided paging policy | `EG-DURABLE-KERNEL-R083.6` | `crates/eg-kvcache/tests/graph_paging.rs::central_blocks_stay_hot_and_neighbors_prefetch` |
-| Long-context coherence across tiers | `EG-DURABLE-KERNEL-R083.7` | `crates/eg-kvcache/tests/long_context.rs::ten_million_token_context_pages_in_coherent` |
-| Tier refusals | `EG-DURABLE-KERNEL-R083.8` | `crates/eg-kvcache/tests/tier_ladder.rs::cold_write_failure_and_digest_mismatch_refuse` |
-| Cross-modal query latency benchmark | `EG-DURABLE-KERNEL-R042.2` | `crates/eg-plan/benches/hybrid_queries.rs` |
-| KV-cache tiering benchmark | `EG-DURABLE-KERNEL-R042.3` | `crates/eg-kvcache/benches/tiering.rs` |
-| Ingest throughput benchmark | `EG-DURABLE-KERNEL-R042.4` | `benches/ingest_throughput.rs` |
-| Wire protocol benchmark | `EG-DURABLE-KERNEL-R042.5` | `benches/wire_protocols.rs` |
-| Benchmark publication and regression gate | `EG-DURABLE-KERNEL-R042.6` | `tests/test_benchmark_receipts.py::test_regression_over_ten_percent_fails` |
-| Served wire protocol listeners (rollup) | `EG-DURABLE-KERNEL-R860` | Rollup: satisfied when the test of every child passes. |
-| PostgreSQL wire listener | `EG-DURABLE-KERNEL-R860.1` | `tests/pgwire_roundtrip.rs` |
-| Bolt listener | `EG-DURABLE-KERNEL-R860.2` | `tests/bolt_roundtrip.rs::run_returns_records` |
-| RESP listener | `EG-DURABLE-KERNEL-R860.3` | `tests/resp_roundtrip.rs::set_get_maps_to_kv_methods` |
-| S3-compatible object API | `EG-DURABLE-KERNEL-R860.4` | `tests/s3_roundtrip.rs::put_get_list_delete` |
-| Listener refusals | `EG-DURABLE-KERNEL-R860.5` | `tests/wire_listeners_one_store.rs::unauthenticated_sessions_refuse` |
-| Hot-path proof: one store behind four protocols | `EG-DURABLE-KERNEL-R860.6` | `tests/wire_listeners_one_store.rs::write_one_protocol_read_all` |
-| Lifecycle replay and listing survive a patch upgrade (rollup) | `EG-DURABLE-KERNEL-R861` | Rollup: satisfied when the test of every child passes. |
-| Lifecycle replay compares the stored identity | `EG-DURABLE-KERNEL-R861.1` | `src/server/mutation_batch/lifecycle_tests.rs::lifecycle_replay_compares_identity_not_recompiled_bytes` |
-| Graph listing survives a restart and a patch upgrade | `EG-DURABLE-KERNEL-R861.2` | `tests/test_upgrade_store_listing.py::test_reopened_store_lists_graphs_for_the_stored_policy` |
-| Engine migrates an older supported store at open | `EG-DURABLE-KERNEL-R070.1` | `src/server/persistence/store_upgrade/auto_migrate_tests.rs::an_interrupted_migration_resumes_at_the_next_open` and the other tests of that file |
-| Previous-patch store migrates and serves at open | `EG-DURABLE-KERNEL-R070.2` | `tests/test_store_auto_migrate.py::test_open_migrates_a_previous_patch_store_and_serves` |
-| Copied store or bundle restores onto new files (rollup) | `EG-DURABLE-KERNEL-R862` | Rollup: satisfied when the test of every child passes. |
-| Restore reads bundle sources by content | `EG-DURABLE-KERNEL-R862.1` | Copied-bundle restore unit test (not yet written; see #709). |
-| Explicit rebind of a copied data directory | `EG-DURABLE-KERNEL-R862.2` | `store-upgrade rebind` command tests (not yet written; see #709). |
-| Copied bundle restores and serves | `EG-DURABLE-KERNEL-R862.3` | `tests/test_store_copy_restore.py` (not yet written; see #709). |
-- **EG-DURABLE-KERNEL-R028.5.1:** `current_plan_task_plan_validation_and_legacy_roundtrip` checks JSON and named MessagePack compatibility. `current_plan_task_plan_rejects_unpaired_or_changed_content` refuses unpaired fields, tampered executable fields, policy, digests and ordering. The original proposal must reproduce every TaskPlan field.
-- **EG-DURABLE-KERNEL-R028.5.2:** `current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it` checks initial and later attachment. `current_plan_attachment_refusals_preserve_rows` checks conflicting plans, malformed digests, foreign owners, stale fences and expiry. Refusals leave both private snapshot and owner rows unchanged.
-- **EG-DURABLE-KERNEL-R028.5.3:** `publication_attachment_changes_content_not_retry_identity` checks stable identity and changed canonical content. `current_plan_native_publish_read_and_receipt_replay` exercises authenticated attachment, unchanged replay receipts, conflict and exact restart readback. Expired replay returns historical evidence only.
-- **EG-DURABLE-KERNEL-R028.5.4:** Planned benchmark `current_plan_publication_readback` must measure attached-plan latency and transient memory against the parent budgets. No benchmark implementation or measurement receipt is claimed by the functional attachment tests.
+| Tier ladder from accelerator memory to durable storage | `MEDULLA-DURABLE-KERNEL-R083.5` | `crates/eg-kvcache/tests/tier_ladder.rs::demote_then_promote_keeps_bytes` |
+| Graph-guided paging policy | `MEDULLA-DURABLE-KERNEL-R083.6` | `crates/eg-kvcache/tests/graph_paging.rs::central_blocks_stay_hot_and_neighbors_prefetch` |
+| Long-context coherence across tiers | `MEDULLA-DURABLE-KERNEL-R083.7` | `crates/eg-kvcache/tests/long_context.rs::ten_million_token_context_pages_in_coherent` |
+| Tier refusals | `MEDULLA-DURABLE-KERNEL-R083.8` | `crates/eg-kvcache/tests/tier_ladder.rs::cold_write_failure_and_digest_mismatch_refuse` |
+| Cross-modal query latency benchmark | `MEDULLA-DURABLE-KERNEL-R042.2` | `crates/eg-plan/benches/hybrid_queries.rs` |
+| KV-cache tiering benchmark | `MEDULLA-DURABLE-KERNEL-R042.3` | `crates/eg-kvcache/benches/tiering.rs` |
+| Ingest throughput benchmark | `MEDULLA-DURABLE-KERNEL-R042.4` | `benches/ingest_throughput.rs` |
+| Wire protocol benchmark | `MEDULLA-DURABLE-KERNEL-R042.5` | `benches/wire_protocols.rs` |
+| Benchmark publication and regression gate | `MEDULLA-DURABLE-KERNEL-R042.6` | `tests/test_benchmark_receipts.py::test_regression_over_ten_percent_fails` |
+| Served wire protocol listeners (rollup) | `MEDULLA-DURABLE-KERNEL-R860` | Rollup: satisfied when the test of every child passes. |
+| PostgreSQL wire listener | `MEDULLA-DURABLE-KERNEL-R860.1` | `tests/pgwire_roundtrip.rs` |
+| Bolt listener | `MEDULLA-DURABLE-KERNEL-R860.2` | `tests/bolt_roundtrip.rs::run_returns_records` |
+| RESP listener | `MEDULLA-DURABLE-KERNEL-R860.3` | `tests/resp_roundtrip.rs::set_get_maps_to_kv_methods` |
+| S3-compatible object API | `MEDULLA-DURABLE-KERNEL-R860.4` | `tests/s3_roundtrip.rs::put_get_list_delete` |
+| Listener refusals | `MEDULLA-DURABLE-KERNEL-R860.5` | `tests/wire_listeners_one_store.rs::unauthenticated_sessions_refuse` |
+| Hot-path proof: one store behind four protocols | `MEDULLA-DURABLE-KERNEL-R860.6` | `tests/wire_listeners_one_store.rs::write_one_protocol_read_all` |
+| Lifecycle replay and listing survive a patch upgrade (rollup) | `MEDULLA-DURABLE-KERNEL-R861` | Rollup: satisfied when the test of every child passes. |
+| Lifecycle replay compares the stored identity | `MEDULLA-DURABLE-KERNEL-R861.1` | `src/server/mutation_batch/lifecycle_tests.rs::lifecycle_replay_compares_identity_not_recompiled_bytes` |
+| Graph listing survives a restart and a patch upgrade | `MEDULLA-DURABLE-KERNEL-R861.2` | `tests/test_upgrade_store_listing.py::test_reopened_store_lists_graphs_for_the_stored_policy` |
+| Engine migrates an older supported store at open | `MEDULLA-DURABLE-KERNEL-R070.1` | `src/server/persistence/store_upgrade/auto_migrate_tests.rs::an_interrupted_migration_resumes_at_the_next_open` and the other tests of that file |
+| Previous-patch store migrates and serves at open | `MEDULLA-DURABLE-KERNEL-R070.2` | `tests/test_store_auto_migrate.py::test_open_migrates_a_previous_patch_store_and_serves` |
+| Copied store or bundle restores onto new files (rollup) | `MEDULLA-DURABLE-KERNEL-R862` | Rollup: satisfied when the test of every child passes. |
+| Restore reads bundle sources by content | `MEDULLA-DURABLE-KERNEL-R862.1` | Copied-bundle restore unit test (not yet written; see #709). |
+| Explicit rebind of a copied data directory | `MEDULLA-DURABLE-KERNEL-R862.2` | `store-upgrade rebind` command tests (not yet written; see #709). |
+| Copied bundle restores and serves | `MEDULLA-DURABLE-KERNEL-R862.3` | `tests/test_store_copy_restore.py` (not yet written; see #709). |
+- **MEDULLA-DURABLE-KERNEL-R028.5.1:** `current_plan_task_plan_validation_and_legacy_roundtrip` checks JSON and named MessagePack compatibility. `current_plan_task_plan_rejects_unpaired_or_changed_content` refuses unpaired fields, tampered executable fields, policy, digests and ordering. The original proposal must reproduce every TaskPlan field.
+- **MEDULLA-DURABLE-KERNEL-R028.5.2:** `current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it` checks initial and later attachment. `current_plan_attachment_refusals_preserve_rows` checks conflicting plans, malformed digests, foreign owners, stale fences and expiry. Refusals leave both private snapshot and owner rows unchanged.
+- **MEDULLA-DURABLE-KERNEL-R028.5.3:** `publication_attachment_changes_content_not_retry_identity` checks stable identity and changed canonical content. `current_plan_native_publish_read_and_receipt_replay` exercises authenticated attachment, unchanged replay receipts, conflict and exact restart readback. Expired replay returns historical evidence only.
+- **MEDULLA-DURABLE-KERNEL-R028.5.4:** Planned benchmark `current_plan_publication_readback` must measure attached-plan latency and transient memory against the parent budgets. No benchmark implementation or measurement receipt is claimed by the functional attachment tests.
 
-- **EG-DURABLE-KERNEL-R028.4.1:** `run_admission_recovery_preserves_original_request`, `run_admission_recovery_checks_complete_owner`, `run_admission_recovery_refuses_missing_evidence` and `run_admission_snapshot_cannot_be_planted_or_removed` check durable records and refusal. Served and client tests check typed owner-only reads.
-- **EG-DURABLE-KERNEL-R028.4.2:** Record a dedicated native recovery benchmark; acceptance remains pending.
-## Ordinary terminal completion acceptance (EG-DURABLE-KERNEL-R028.6)
+- **MEDULLA-DURABLE-KERNEL-R028.4.1:** `run_admission_recovery_preserves_original_request`, `run_admission_recovery_checks_complete_owner`, `run_admission_recovery_refuses_missing_evidence` and `run_admission_snapshot_cannot_be_planted_or_removed` check durable records and refusal. Served and client tests check typed owner-only reads.
+- **MEDULLA-DURABLE-KERNEL-R028.4.2:** Record a dedicated native recovery benchmark; acceptance remains pending.
+## Ordinary terminal completion acceptance (MEDULLA-DURABLE-KERNEL-R028.6)
 
 - Commit success with observed counters. Preserve the exact input and receipt.
 - Commit failure with observed counters and with empty usage. Empty stays empty.
@@ -420,12 +420,12 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - Keep current-source native tests, generated freshness and served tests separate.
   No historical test receipt establishes acceptance for a new source revision.
 
-- **`EG-DURABLE-KERNEL-R028.1.3`:** Record exact-source hosted native, migration, fresh layout/export and generated Python client results for the R028.1.1 fixtures. No local native build or test was run for this slice; no broad successful conversation continuation is claimed.
+- **`MEDULLA-DURABLE-KERNEL-R028.1.3`:** Record exact-source hosted native, migration, fresh layout/export and generated Python client results for the R028.1.1 fixtures. No local native build or test was run for this slice; no broad successful conversation continuation is claimed.
 
-- **`EG-DURABLE-KERNEL-R028.1.3.1`:** Validate the hosted source, recipe and artifact hashes against the import. Run `tests/test_run_checkpoint_client.py` and the neighboring read and retry facade suites from the plan.
-- **`EG-DURABLE-KERNEL-R028.1.3.2`:** Run the R028.1.1 native fixtures and predecessor migration against the final reviewed source. Regenerate the layout and public contracts. Attach full repository gate receipts. Pending, not satisfied by the export or Python facade checks.
+- **`MEDULLA-DURABLE-KERNEL-R028.1.3.1`:** Validate the hosted source, recipe and artifact hashes against the import. Run `tests/test_run_checkpoint_client.py` and the neighboring read and retry facade suites from the plan.
+- **`MEDULLA-DURABLE-KERNEL-R028.1.3.2`:** Run the R028.1.1 native fixtures and predecessor migration against the final reviewed source. Regenerate the layout and public contracts. Attach full repository gate receipts. Pending, not satisfied by the export or Python facade checks.
 
-## Admission retry replay (EG-DURABLE-KERNEL-R028.4.4)
+## Admission retry replay (MEDULLA-DURABLE-KERNEL-R028.4.4)
 
 Tests live beside `tests/adopt_workitem_authenticated_replay.rs`.
 They drive the served MutationBatch path with authenticated requests.
@@ -436,7 +436,7 @@ They drive the served MutationBatch path with authenticated requests.
 - Refuse missing or corrupt retained evidence with `RUN_ADMISSION_UNAVAILABLE`.
 - Open a store written by the server before this change and replay one of its admissions.
 
-## Ordered conversation admission (EG-DURABLE-KERNEL-R028.4.3)
+## Ordered conversation admission (MEDULLA-DURABLE-KERNEL-R028.4.3)
 
 Source tests live in `src/redb_store/work_item/conversation/tests.rs`.
 They use the existing native row applier inside a maintenance transaction.
@@ -469,7 +469,7 @@ messages, and prove no repeated tool effect. It must also prove fresh new-turn
 budgets, exact same-run checkpoint precedence, bounded context and explicit
 conflict handling. Those checks remain open under the existing parent rows.
 
-- **EG-DURABLE-KERNEL-R030.1:** Typed host-start tests cover bounded bindings,
+- **MEDULLA-DURABLE-KERNEL-R030.1:** Typed host-start tests cover bounded bindings,
   expiry clamping and caller provenance injection. Native shard tests cover
   absent issuer refusal, immutable issuer stamping, collision, tenant read
   isolation, revocation and generic consumption refusal. The signed dispatch
@@ -489,7 +489,7 @@ R030.1.4 retains the complete parent qualification. Old canonical outputs do not
 The authored R030.1.3 signed negative fixture sends a foreign body tenant through the signed issuer request path. It also attempts generic host-start issuance with forged provenance inside grant JSON. Each must refuse with no grant or graph-version change. A subsequent legitimate dedicated issue must still succeed with native issuer attribution. This test remains unexecuted locally and does not complete R030.1.3 or R030.1.4.
 
 
-### Original context binding bridge (EG-DURABLE-KERNEL-R028.1.1)
+### Original context binding bridge (MEDULLA-DURABLE-KERNEL-R028.1.1)
 
 - Publish and read under a typed-only original conversation admission.
 - Accept matching typed and original A2A metadata bindings.

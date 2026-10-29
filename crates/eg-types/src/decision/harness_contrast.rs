@@ -1,4 +1,4 @@
-//! The contrastive harness composition decision (EG-DECISION-ENGINE-R803).
+//! The contrastive harness composition decision (MEDULLA-DECISION-ENGINE-R803).
 //!
 //! The engine composes the adopted harness of one task from the probed
 //! candidates. A caller presents two to eight candidate component versions,
@@ -575,7 +575,7 @@ mod tests {
         )
     }
 
-    // spec: EG-DECISION-ENGINE-R803.1
+    // spec: MEDULLA-DECISION-ENGINE-R803.1
     #[test]
     fn decision_round_trips() {
         let (held, runs, stored) = two_candidate_evidence();
@@ -627,7 +627,7 @@ mod tests {
         assert!(broken.check().is_err());
     }
 
-    // spec: EG-DECISION-ENGINE-R803.2
+    // spec: MEDULLA-DECISION-ENGINE-R803.2
     #[test]
     fn adoption_requires_positive_delta() {
         let (held, runs, stored) = evidence_set(
@@ -720,7 +720,7 @@ mod tests {
         assert_eq!(adoption_index(&[neutral.clone(), worse.clone()]), None);
     }
 
-    // spec: EG-DECISION-ENGINE-R803.4
+    // spec: MEDULLA-DECISION-ENGINE-R803.4
     #[test]
     fn contrast_refusals() {
         let improving = contrast("trace:baseline", "trace:a", 0, 0, 1 << 32, 0);
@@ -942,7 +942,7 @@ mod tests {
         record
     }
 
-    // spec: EG-DECISION-ENGINE-R803.5
+    // spec: MEDULLA-DECISION-ENGINE-R803.5
     #[test]
     fn record_pins_evidence_and_replays() {
         let improving = contrast("trace:baseline", "trace:a", -1 << 32, 0, 2 << 32, -1 << 30);

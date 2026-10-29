@@ -53,7 +53,7 @@ fn validate_rdf_triple(
 }
 
 /// Refuse imports outside the supplied pack ontology identities and the parent
-/// catalog (EG-TYPED-PACKS-R105), including self-imports.
+/// catalog (MEDULLA-TYPED-PACKS-R105), including self-imports.
 /// This policy performs no I/O and never resolves an import.
 pub fn validate_ontology_imports(
     text: &str,
@@ -82,7 +82,7 @@ pub fn validate_ontology_imports(
     Ok(())
 }
 
-/// The parent catalog every connector vocabulary joins (EG-TYPED-PACKS-R105).
+/// The parent catalog every connector vocabulary joins (MEDULLA-TYPED-PACKS-R105).
 pub const PARENT_CATALOG_IRI: &str = "http://knuckles.team/kg";
 
 const RDF_TYPE_IRI: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";

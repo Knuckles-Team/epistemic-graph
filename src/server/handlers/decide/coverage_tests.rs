@@ -1,5 +1,5 @@
 //! Served acceptance of `Method::CapabilityCoverage`
-//! (EG-DECISION-ENGINE-R126.2.1): closure, per-capability covering
+//! (MEDULLA-DECISION-ENGINE-R126.2.1): closure, per-capability covering
 //! components, premise classes, visibility filtering and the absence of
 //! invisible components, driven through the dispatcher's handler.
 
@@ -149,7 +149,7 @@ async fn ask(
     }
 }
 
-// spec: EG-DECISION-ENGINE-R126.2.1
+// spec: MEDULLA-DECISION-ENGINE-R126.2.1
 #[tokio::test]
 async fn capability_coverage_is_served_with_closure_premises_and_visibility() {
     let h = harness().await;
@@ -229,7 +229,7 @@ async fn capability_coverage_is_served_with_closure_premises_and_visibility() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R126.2.1
+// spec: MEDULLA-DECISION-ENGINE-R126.2.1
 #[tokio::test]
 async fn capability_coverage_refuses_a_foreign_tenant_and_abstains_on_unknown_tasks() {
     let h = harness().await;

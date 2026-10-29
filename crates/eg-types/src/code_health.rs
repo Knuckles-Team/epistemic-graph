@@ -1,4 +1,4 @@
-//! Periodic code-health sweep findings (EG-REPO-INGEST-R700).
+//! Periodic code-health sweep findings (MEDULLA-REPO-INGEST-R700).
 //!
 //! A bounded, model-free reachability pass from declared entry points over a
 //! repository's symbol references. A symbol no entry point reaches is
@@ -182,7 +182,7 @@ mod tests {
         }
     }
 
-    // spec: EG-REPO-INGEST-R700.1
+    // spec: MEDULLA-REPO-INGEST-R700.1
     #[test]
     fn the_types_refuse_undecidable_dead_findings_and_the_golden_vector_round_trips() {
         let evidence = CodeHealthEvidence {
@@ -229,7 +229,7 @@ mod tests {
         .is_err());
     }
 
-    // spec: EG-REPO-INGEST-R700.2
+    // spec: MEDULLA-REPO-INGEST-R700.2
     #[test]
     fn reachability_is_linear_and_bounded_on_10_1000_and_100000_symbols() {
         for n in [10usize, 1_000, 100_000] {
@@ -249,7 +249,7 @@ mod tests {
         assert_eq!(bounded[0].evidence.visited, 10);
     }
 
-    // spec: EG-REPO-INGEST-R700.4
+    // spec: MEDULLA-REPO-INGEST-R700.4
     #[test]
     fn no_entry_points_reports_unknown_never_dead() {
         let findings = sweep(&graph(10, false), u64::MAX);
@@ -257,7 +257,7 @@ mod tests {
         assert!(findings.iter().all(|f| f.kind == CodeHealthKind::Unknown));
     }
 
-    // spec: EG-REPO-INGEST-R700.5
+    // spec: MEDULLA-REPO-INGEST-R700.5
     #[test]
     fn each_finding_lists_its_entry_points_and_reproduces_from_its_inputs() {
         let g = graph(10, true);

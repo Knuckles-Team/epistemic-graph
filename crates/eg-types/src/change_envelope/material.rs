@@ -7,7 +7,7 @@
 //! characters it contains: ordinary document text legitimately carries `@`
 //! (a decorator, a handle, `a @ b`) and `\` (a LaTeX macro, an escape, a
 //! regex), so refusing those characters refused normal documents
-//! (spec: EG-DURABLE-KERNEL-R043.7).
+//! (spec: MEDULLA-DURABLE-KERNEL-R043.7).
 //!
 //! Caller-attested material is screened for a host path ANYWHERE in the text
 //! (a document can mention one mid-sentence), a local file URI, a Windows
@@ -17,7 +17,7 @@
 //! Property keys and envelope identifiers are engine-chosen names and keep
 //! the strict character rule in every class. Every refusal carries the
 //! declared `INVALID_ARGUMENT` code and names the shape it found without
-//! echoing the value (spec: EG-DURABLE-KERNEL-R043.8).
+//! echoing the value (spec: MEDULLA-DURABLE-KERNEL-R043.8).
 
 use serde::{Deserialize, Serialize};
 
@@ -158,7 +158,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R043.7
+    // spec: MEDULLA-DURABLE-KERNEL-R043.7
     #[test]
     fn attested_material_admits_ordinary_document_text() {
         let rule = MaterialClass::Attested.value_rule();
@@ -178,7 +178,7 @@ mod tests {
         assert!(MaterialClass::default().is_attested());
     }
 
-    // spec: EG-DURABLE-KERNEL-R043.7
+    // spec: MEDULLA-DURABLE-KERNEL-R043.7
     #[test]
     fn attested_material_still_refuses_host_identity() {
         let rule = MaterialClass::Attested.value_rule();
@@ -195,7 +195,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R043.8
+    // spec: MEDULLA-DURABLE-KERNEL-R043.8
     #[test]
     fn host_identity_refusals_are_coded_and_do_not_echo_the_value() {
         let address = "dev@example.com";

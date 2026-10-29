@@ -1,7 +1,7 @@
 //! Typed property-graph view over approved R2RML mappings
-//! (EG-UNIFIED-DATA-PLANE-R038.6.1). A node label maps to one ontology
+//! (MEDULLA-UNIFIED-DATA-PLANE-R038.6.1). A node label maps to one ontology
 //! class. A relationship type maps to a join between two mapped labels
-//! through approved mappings (EG-UNIFIED-DATA-PLANE-R005). The view is read
+//! through approved mappings (MEDULLA-UNIFIED-DATA-PLANE-R005). The view is read
 //! only; openCypher and Gremlin patterns resolve against it.
 
 use serde::{Deserialize, Serialize};
@@ -134,7 +134,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R038.6.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.6.1
     #[test]
     fn graph_view_round_trips() {
         let original = view();

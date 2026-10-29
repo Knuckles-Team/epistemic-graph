@@ -166,7 +166,7 @@ fn uncalibrated_head() -> DecisionHeadBody {
     }
 }
 
-/// EG-DECISION-ENGINE-R089: a statistical rung may only rank or narrow the
+/// MEDULLA-DECISION-ENGINE-R089: a statistical rung may only rank or narrow the
 /// option set the constraint, entailment and optimization steps already
 /// produced -- it is never the mechanism that decides which options are
 /// legal. Disabling the scorer (`head: None`) must leave the legal option
@@ -248,13 +248,13 @@ fn an_explored_choice_carries_no_risk_claim() {
     }
 }
 
-/// EG-DECISION-ENGINE-R089: a statistical rung in the decision ladder may
+/// MEDULLA-DECISION-ENGINE-R089: a statistical rung in the decision ladder may
 /// only rank or narrow the legal option set the constraint, entailment and
 /// optimization steps already produced -- it is never the mechanism that
 /// determines which options are legal. Disabling the statistical scorer
 /// (no head) must leave the same candidate set in place, and a head that
 /// does act must never introduce an option outside it.
-// spec: EG-DECISION-ENGINE-R089
+// spec: MEDULLA-DECISION-ENGINE-R089
 #[test]
 fn disabling_the_statistical_scorer_never_changes_the_legal_option_set() {
     let ids = option_ids();
@@ -299,7 +299,7 @@ fn disabling_the_statistical_scorer_never_changes_the_legal_option_set() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R025
+// spec: MEDULLA-DECISION-ENGINE-R025
 #[test]
 fn an_out_of_distribution_reading_abstains_even_when_advisory_is_allowed() {
     let ids = option_ids();
@@ -323,7 +323,7 @@ fn an_out_of_distribution_reading_abstains_even_when_advisory_is_allowed() {
     ));
 }
 
-// spec: EG-DECISION-ENGINE-R026
+// spec: MEDULLA-DECISION-ENGINE-R026
 #[test]
 fn audit_sampling_flags_decisions_at_the_fixed_five_percent_rate() {
     let rate = rational(1, 20);

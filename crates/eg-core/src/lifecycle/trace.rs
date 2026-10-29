@@ -1,4 +1,4 @@
-//! The lifecycle trace (EG-SDLC-R006.2): a breadth-first walk of the derived
+//! The lifecycle trace (MEDULLA-SDLC-R006.2): a breadth-first walk of the derived
 //! edge set from one anchor, bounded by depth and node budget.
 
 use std::collections::{BTreeSet, VecDeque};

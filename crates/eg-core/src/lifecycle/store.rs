@@ -1,4 +1,4 @@
-//! The in-memory lifecycle edge set the derivation pass writes (EG-SDLC-R001).
+//! The in-memory lifecycle edge set the derivation pass writes (MEDULLA-SDLC-R001).
 //! Derived edges enter only through [`LifecycleStore::accept_changeset`]; a
 //! direct write of a derived kind refuses.
 

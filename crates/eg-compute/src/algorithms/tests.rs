@@ -130,7 +130,7 @@ mod community_tests {
         assert_eq!(total, ids.len(), "every node must be assigned a community");
     }
 
-    // spec: EG-REPO-INGEST-R011
+    // spec: MEDULLA-REPO-INGEST-R011
     #[test]
     fn every_community_induces_a_connected_subgraph() {
         // community_detection is the ingestion path's facade over the pure
@@ -197,7 +197,7 @@ mod community_tests {
     /// existing `separates_two_disconnected_cliques` fixture above): the
     /// excluded edge contributes zero weight, so the two triangles are
     /// disconnected in the weighted graph the kernel actually sees.
-    // spec: EG-DECISION-ENGINE-R081
+    // spec: MEDULLA-DECISION-ENGINE-R081
     #[test]
     fn similar_to_edge_does_not_bridge_communities() {
         let g = GraphCore::new();
@@ -659,8 +659,8 @@ mod community_tests {
     /// endpoints (not by the exact overall partition shape, which a
     /// disproportionately heavy single edge is free to reshape in ways
     /// beyond "everyone merges", e.g. isolating the bridge pair itself).
-    // spec: EG-DECISION-ENGINE-R096
-    // spec: EG-DECISION-ENGINE-R081
+    // spec: MEDULLA-DECISION-ENGINE-R096
+    // spec: MEDULLA-DECISION-ENGINE-R081
     #[test]
     fn higher_confidence_edge_binds_communities_harder_than_lower_confidence() {
         let nodes: Vec<String> = ["a", "b", "c", "x", "y", "z"]
@@ -714,7 +714,7 @@ mod community_tests {
     /// on the ephemeral path must agree EXACTLY with calling `leiden` directly
     /// with `QualityFunction::Cpm` on the identical adjacency, proving
     /// faithful passthrough rather than a reimplementation.
-    // spec: EG-DECISION-ENGINE-R096
+    // spec: MEDULLA-DECISION-ENGINE-R096
     #[test]
     fn quality_function_selector_reaches_the_kernel() {
         let nodes: Vec<String> = (0..6).map(|i| format!("n{i}")).collect();

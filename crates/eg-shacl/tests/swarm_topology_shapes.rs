@@ -14,7 +14,7 @@ fn task_report(facts: &str) -> ValidationReport {
     .expect("registered swarm shapes and task facts must validate")
 }
 
-// spec: EG-TYPED-PACKS-R066.2
+// spec: MEDULLA-TYPED-PACKS-R066.2
 #[test]
 fn shell_centric_accepts_absent_or_one_boolean() {
     for fact in [
@@ -27,7 +27,7 @@ fn shell_centric_accepts_absent_or_one_boolean() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R066.2
+// spec: MEDULLA-TYPED-PACKS-R066.2
 #[test]
 fn shell_centric_must_be_boolean() {
     for value in [r#""true""#, "1", "ex:unknown"] {
@@ -44,7 +44,7 @@ fn shell_centric_must_be_boolean() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R066.2
+// spec: MEDULLA-TYPED-PACKS-R066.2
 #[test]
 fn shell_centric_is_single_valued_on_task_classes() {
     let class = "ex:ShellTask a <http://www.w3.org/2002/07/owl#Class> ; \

@@ -106,7 +106,7 @@ fn the_fixed_point_kernels_are_accurate_where_it_matters() {
     assert!(p[3] > p[0] && p[0] > p[1] && p[1] > p[2]);
 }
 
-// spec: EG-DECISION-ENGINE-R091, EG-DECISION-ENGINE-R055
+// spec: MEDULLA-DECISION-ENGINE-R091, MEDULLA-DECISION-ENGINE-R055
 #[test]
 fn the_golden_vector_is_bit_identical_across_hosts() {
     let head = head(3);
@@ -137,7 +137,7 @@ fn the_golden_vector_is_bit_identical_across_hosts() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R009
+// spec: MEDULLA-DECISION-ENGINE-R009
 #[test]
 fn an_eliminated_option_is_never_scored_and_moves_nothing() {
     let head = head(8);
@@ -168,7 +168,7 @@ fn an_eliminated_option_is_never_scored_and_moves_nothing() {
     assert!((legal_mass - ONE).abs() < 8);
 }
 
-// spec: EG-DECISION-ENGINE-R087
+// spec: MEDULLA-DECISION-ENGINE-R087
 #[test]
 fn the_shortlist_bounds_what_is_scored_and_breaks_ties_by_option_order() {
     // Top two: option 1 (9), then the 5-5 tie between options 0 and 2 goes to
@@ -189,7 +189,7 @@ fn the_shortlist_bounds_what_is_scored_and_breaks_ties_by_option_order() {
     assert_eq!(scored, 2, "a shortlist of two scores two options");
 }
 
-// spec: EG-DECISION-ENGINE-R082
+// spec: MEDULLA-DECISION-ENGINE-R082
 #[test]
 fn one_encode_serves_several_questions_exactly() {
     let head = head(4);
@@ -212,7 +212,7 @@ fn one_encode_serves_several_questions_exactly() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R088
+// spec: MEDULLA-DECISION-ENGINE-R088
 #[test]
 fn trajectory_belief_reads_one_state_over_time() {
     let head = head(4);
@@ -306,7 +306,7 @@ fn parameter_count(head: &DecisionHeadBody) -> usize {
         })
 }
 
-/// EG-DECISION-ENGINE-R090: the resident scorer is a small compiled-in Rust
+/// MEDULLA-DECISION-ENGINE-R090: the resident scorer is a small compiled-in Rust
 /// struct, not a GPU or sidecar model. The largest shape
 /// `OptionAttentionParams::check` ever admits still holds far under the
 /// declared "a few megabytes" footprint, and a served reading over the
@@ -357,14 +357,14 @@ fn the_largest_legal_scorer_stays_inside_its_resident_cpu_and_memory_budget() {
     );
 }
 
-/// EG-DECISION-ENGINE-R083: the scorer reads each option's STRUCTURED
+/// MEDULLA-DECISION-ENGINE-R083: the scorer reads each option's STRUCTURED
 /// feature row only (EH-292) -- never a serialized text label -- so its
 /// per-option width is the feature schema's fixed cardinality. An option
 /// count this large would overrun any plausible text-token budget if an
 /// option were instead described to a model as text; scored from structured
 /// facts, width never depends on option count or label length, and scoring
 /// still succeeds.
-// spec: EG-DECISION-ENGINE-R083
+// spec: MEDULLA-DECISION-ENGINE-R083
 #[test]
 fn a_large_option_set_scores_because_width_is_bounded_by_cardinality_not_text() {
     const LARGE_OPTION_COUNT: usize = 5_000;

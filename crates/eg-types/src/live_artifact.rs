@@ -1,4 +1,4 @@
-//! Live artifacts (EG-FEDERATED-QUERY-R701.1, R701.2, R701.4): a bounded JSON
+//! Live artifacts (MEDULLA-FEDERATED-QUERY-R701.1, R701.2, R701.4): a bounded JSON
 //! document rendered from a template and re-derived from a query source.
 //!
 //! A refresh is compare-and-set on the artifact version. A failed refresh
@@ -88,7 +88,7 @@ pub struct ArtifactProvenance {
     pub last_attempt: Option<RefreshRecord>,
 }
 
-/// A live artifact (EG-FEDERATED-QUERY-R701.1).
+/// A live artifact (MEDULLA-FEDERATED-QUERY-R701.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -129,7 +129,7 @@ fn check_data(data: &Value) -> Result<(), LiveArtifactRefusal> {
 }
 
 /// Refuse a template that executes code or exceeds the size bound
-/// (EG-FEDERATED-QUERY-R701.4).
+/// (MEDULLA-FEDERATED-QUERY-R701.4).
 pub fn check_template(template: &str) -> Result<(), LiveArtifactRefusal> {
     if template.len() > MAX_LIVE_ARTIFACT_TEMPLATE_BYTES {
         return Err(refuse(LIVE_ARTIFACT_SIZE_EXCEEDED, "template too large"));
@@ -161,7 +161,7 @@ fn render_value(value: Option<&Value>) -> String {
 }
 
 impl LiveArtifact {
-    /// Validate the artifact's bounds (EG-FEDERATED-QUERY-R701.1, R701.4).
+    /// Validate the artifact's bounds (MEDULLA-FEDERATED-QUERY-R701.1, R701.4).
     pub fn validate(&self) -> Result<(), LiveArtifactRefusal> {
         if self.id.trim().is_empty() {
             return Err(refuse(LIVE_ARTIFACT_INVALID, "id is required"));
@@ -192,7 +192,7 @@ impl LiveArtifact {
     }
 
     /// Apply one refresh outcome if `expected_version` is current
-    /// (EG-FEDERATED-QUERY-R701.2). A failed or out-of-bounds result keeps
+    /// (MEDULLA-FEDERATED-QUERY-R701.2). A failed or out-of-bounds result keeps
     /// the prior data and is recorded as the latest attempt.
     pub fn refresh(
         &mut self,
@@ -260,7 +260,7 @@ mod tests {
 
     const GOLDEN: &str = r#"{"id":"dash-1","version":1,"template":"Open: {{summary.open}} / {{rows.0.name}}","source":{"language":"uql","text":"MATCH (:Incident) RETURN count"},"data":{"rows":[{"name":"db"}],"summary":{"open":3}},"provenance":{}}"#;
 
-    // spec: EG-FEDERATED-QUERY-R701.1
+    // spec: MEDULLA-FEDERATED-QUERY-R701.1
     #[test]
     fn live_artifact_golden_vector_round_trips_and_bounds_hold() {
         let a = artifact();
@@ -290,7 +290,7 @@ mod tests {
         assert_eq!(blank.validate().unwrap_err().code, LIVE_ARTIFACT_INVALID);
     }
 
-    // spec: EG-FEDERATED-QUERY-R701.2
+    // spec: MEDULLA-FEDERATED-QUERY-R701.2
     #[test]
     fn refresh_is_compare_and_set_and_interpolation_is_one_pass() {
         let mut a = artifact();
@@ -319,7 +319,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R701.4
+    // spec: MEDULLA-FEDERATED-QUERY-R701.4
     #[test]
     fn unsafe_templates_refuse_and_failed_refresh_keeps_data() {
         for template in [

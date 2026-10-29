@@ -1,5 +1,5 @@
 //! Registered-source acceptance for the sdlc_lifecycle-v1 term additions
-//! (EG-CQ-CONN-R069.4 to R069.6, R069.10 to R069.14, R069.20 to R069.23).
+//! (MEDULLA-CQ-CONN-R069.4 to R069.6, R069.10 to R069.14, R069.20 to R069.23).
 //!
 //! Each test loads the registered `core:sdlc_lifecycle@1` source through the
 //! CoreSpec registry, asserts the added term with its stated domain and range,
@@ -51,7 +51,7 @@ fn lifecycle_ontology() -> Vec<Triple> {
     .expect("registered sdlc_lifecycle ontology parses")
 }
 
-/// The SHACL companion (EG-CQ-CONN-R069.11/R069.21 closed vocabularies).
+/// The SHACL companion (MEDULLA-CQ-CONN-R069.11/R069.21 closed vocabularies).
 fn lifecycle_shapes() -> &'static str {
     include_str!("../ontology/sdlc_lifecycle-v1.shapes.ttl")
 }
@@ -60,7 +60,7 @@ fn lifecycle_shapes() -> &'static str {
 mod ontology_audit_sdlc_lifecycle_v1 {
     use super::*;
 
-    // spec: EG-CQ-CONN-R069.4
+    // spec: MEDULLA-CQ-CONN-R069.4
     #[test]
     fn branchOf_declared() {
         let triples = lifecycle_ontology();
@@ -79,7 +79,7 @@ mod ontology_audit_sdlc_lifecycle_v1 {
         );
     }
 
-    // spec: EG-CQ-CONN-R069.5
+    // spec: MEDULLA-CQ-CONN-R069.5
     #[test]
     fn headCommit_declared() {
         let triples = lifecycle_ontology();
@@ -98,7 +98,7 @@ mod ontology_audit_sdlc_lifecycle_v1 {
         );
     }
 
-    // spec: EG-CQ-CONN-R069.6
+    // spec: MEDULLA-CQ-CONN-R069.6
     #[test]
     fn isDefaultBranch_declared() {
         let triples = lifecycle_ontology();
@@ -117,7 +117,7 @@ mod ontology_audit_sdlc_lifecycle_v1 {
         );
     }
 
-    // spec: EG-CQ-CONN-R069.10
+    // spec: MEDULLA-CQ-CONN-R069.10
     #[test]
     fn closesTicket_declared() {
         let triples = lifecycle_ontology();
@@ -141,7 +141,7 @@ mod ontology_audit_sdlc_lifecycle_v1 {
         );
     }
 
-    // spec: EG-CQ-CONN-R069.11
+    // spec: MEDULLA-CQ-CONN-R069.11
     #[test]
     fn proposalState_declared() {
         let triples = lifecycle_ontology();
@@ -199,7 +199,7 @@ ex:pr-1 a :CodeChangeProposal ;
         );
     }
 
-    // spec: EG-CQ-CONN-R069.12
+    // spec: MEDULLA-CQ-CONN-R069.12
     #[test]
     fn requestedReviewer_declared() {
         let triples = lifecycle_ontology();
@@ -223,7 +223,7 @@ ex:pr-1 a :CodeChangeProposal ;
         );
     }
 
-    // spec: EG-CQ-CONN-R069.13
+    // spec: MEDULLA-CQ-CONN-R069.13
     #[test]
     fn PipelineJob_declared() {
         let triples = lifecycle_ontology();
@@ -234,7 +234,7 @@ ex:pr-1 a :CodeChangeProposal ;
         );
     }
 
-    // spec: EG-CQ-CONN-R069.14
+    // spec: MEDULLA-CQ-CONN-R069.14
     #[test]
     fn pipelineJobOf_declared() {
         let triples = lifecycle_ontology();
@@ -253,7 +253,7 @@ ex:pr-1 a :CodeChangeProposal ;
         );
     }
 
-    // spec: EG-CQ-CONN-R069.20
+    // spec: MEDULLA-CQ-CONN-R069.20
     #[test]
     fn Worktree_declared() {
         let triples = lifecycle_ontology();
@@ -264,7 +264,7 @@ ex:pr-1 a :CodeChangeProposal ;
         );
     }
 
-    // spec: EG-CQ-CONN-R069.21
+    // spec: MEDULLA-CQ-CONN-R069.21
     #[test]
     fn worktreeState_declared() {
         let triples = lifecycle_ontology();
@@ -317,7 +317,7 @@ ex:wt-1 a :Worktree ;
         );
     }
 
-    // spec: EG-CQ-CONN-R069.22
+    // spec: MEDULLA-CQ-CONN-R069.22
     #[test]
     fn tracksBranch_declared() {
         let triples = lifecycle_ontology();
@@ -336,7 +336,7 @@ ex:wt-1 a :Worktree ;
         );
     }
 
-    // spec: EG-CQ-CONN-R069.23
+    // spec: MEDULLA-CQ-CONN-R069.23
     #[test]
     fn proposalBranch_declared() {
         let triples = lifecycle_ontology();

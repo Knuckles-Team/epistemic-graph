@@ -1,5 +1,5 @@
 //! The disclosed natural-language query result on the wire
-//! (EG-FEDERATED-QUERY-R058.2.2.1).
+//! (MEDULLA-FEDERATED-QUERY-R058.2.2.1).
 //!
 //! `Method::NlQueryExplain` answers with the exact UQL text the configured planner
 //! produced and the engine executed, alongside the SAME `[node id, score | nil]` rows
@@ -40,7 +40,7 @@ pub struct NlQueryPlanResult {
 mod tests {
     use super::*;
 
-    // spec: EG-FEDERATED-QUERY-R058.2.2.1
+    // spec: MEDULLA-FEDERATED-QUERY-R058.2.2.1
     #[test]
     fn explain_result_encodes_uql_and_rows_by_name() {
         let result = NlQueryExplainResult {

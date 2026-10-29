@@ -7,7 +7,7 @@
 
 <http://knuckles.team/kg/it4it_delivery> a owl:Ontology ;
     rdfs:label "IT4IT Delivery Ontology" ;
-    rdfs:comment "IT4IT value-stream data objects not covered by the service-operations core: Strategy to Portfolio and Requirement to Deploy (portfolio backlog item, backlog, build, build package, deployment, environment), Request to Fulfil (service catalog entry, subscription, service request) and Detect to Correct (alert, known error, service-level target, monitor, heartbeat, status page, dashboard, panel, configuration item collection). Release, Job, Runner, Problem and Incident are reused, not redeclared (EG-TYPED-PACKS-R105.6)." ;
+    rdfs:comment "IT4IT value-stream data objects not covered by the service-operations core: Strategy to Portfolio and Requirement to Deploy (portfolio backlog item, backlog, build, build package, deployment, environment), Request to Fulfil (service catalog entry, subscription, service request) and Detect to Correct (alert, known error, service-level target, monitor, heartbeat, status page, dashboard, panel, configuration item collection). Release, Job, Runner, Problem and Incident are reused, not redeclared (MEDULLA-TYPED-PACKS-R105.6)." ;
     dcterms:source "Open Group IT4IT Reference Architecture, value-stream data objects" ;
     owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/sdlc_lifecycle>, <http://knuckles.team/kg/software>, <http://knuckles.team/kg/service_operations>, <http://knuckles.team/kg/orchestration>, <http://knuckles.team/kg/sdd> .
 

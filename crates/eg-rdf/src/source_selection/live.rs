@@ -1,5 +1,5 @@
 //! Live read of authority rows from the composed graph schema sources
-//! (EG-SRC-AUTH-R004.5): the same [`CoverageFixture`] the unit tests build by
+//! (MEDULLA-SRC-AUTH-R004.5): the same [`CoverageFixture`] the unit tests build by
 //! hand, parsed from `vg:SourceAuthority` rows, `vg:SourceConnection` facts and
 //! `rdfs:subClassOf` axioms. Each row carries the origin of the schema source it
 //! was read from, so a pack or ingestion row stays a proposal (R003.4).

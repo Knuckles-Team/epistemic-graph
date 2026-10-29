@@ -1,5 +1,5 @@
 //! Banking risk calculations: AML screening, capital ratios, credit loss and
-//! settlement legs (EG-FINANCE-PRIMITIVES-R901).
+//! settlement legs (MEDULLA-FINANCE-PRIMITIVES-R901).
 //!
 //! Money is an integer count of minor units; threshold and capital-minimum
 //! comparisons use exact integer arithmetic so a boundary value is never
@@ -272,7 +272,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R901.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R901.1
     #[test]
     fn banking_types_round_trip_and_an_unknown_severity_is_rejected() {
         let alert = screen_transaction(&rule(), 1_000_000).unwrap().unwrap();
@@ -331,7 +331,7 @@ mod tests {
         assert!(serde_json::from_str::<Severity>("\"fatal\"").is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R901.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R901.2
     #[test]
     fn screening_alerts_at_below_and_above_each_boundary() {
         let rule = rule();
@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(above.rule_version, 3);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R901.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R901.2
     #[test]
     fn capital_minimums_are_decided_at_exact_boundaries() {
         // CET1 4.5 percent of RWA, total capital 8 percent, Tier 1 3 percent of exposure.
@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(ratios.total_capital_ratio, 0.11);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R901.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R901.2
     #[test]
     fn expected_loss_is_pd_times_lgd_times_ead() {
         let loss = expected_loss(&CreditExposure {
@@ -425,7 +425,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R901.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R901.2
     #[test]
     fn settlement_chain_orders_legs_through_the_correspondents() {
         let legs = settlement_chain("origin", &["corr-1", "corr-2"], "beneficiary", 250).unwrap();
@@ -445,7 +445,7 @@ mod tests {
         assert_eq!(settlement_chain("a", &[], "b", 1).unwrap().len(), 1);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R901.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R901.4
     #[test]
     fn zero_or_negative_rwa_is_refused_with_its_code() {
         for rwa in [0, -1] {
@@ -461,7 +461,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R901.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R901.4
     #[test]
     fn pd_or_lgd_outside_the_unit_interval_is_refused_with_its_code() {
         for (pd, lgd) in [

@@ -85,7 +85,7 @@ method_results! {
     #[cfg(feature = "query")]
     TxnUql(TxnUql) => Raw<crate::wire::UqlResult>;
     Decide(Decide) => Raw<DecisionBatch>;
-    // EG-DECISION-ENGINE-R802: ordered selection with reasons, and the skips.
+    // MEDULLA-DECISION-ENGINE-R802: ordered selection with reasons, and the skips.
     SelectWebPages(SelectWebPages) => Raw<crate::decision::web_fetch_selection::SelectWebPagesAnswer>;
     // Every op answers the request graph's edge indexes after it.
     EdgeIndex(EdgeIndex) => Raw<EdgeIndexStatusView>;

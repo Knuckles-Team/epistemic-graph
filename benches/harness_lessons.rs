@@ -1,4 +1,4 @@
-//! EG-ORCH-VOCAB-R802.6 hot-path receipt: lesson writes into a 10k-lesson
+//! MEDULLA-ORCH-VOCAB-R802.6 hot-path receipt: lesson writes into a 10k-lesson
 //! improvement library.
 //!
 //! Budget (spec): p99 under 10 ms per write as the library grows to 10,000

@@ -144,7 +144,7 @@ mod tests {
     /// Three equally sized blocks over a two-block budget: the hub is central, one
     /// leaf is recently read, and the other leaf is neither. The block lowest in
     /// recency plus importance is the one evicted from HOT.
-    // spec: EG-DURABLE-KERNEL-R083.3
+    // spec: MEDULLA-DURABLE-KERNEL-R083.3
     #[test]
     fn over_budget_insert_evicts_the_block_lowest_in_recency_and_importance() {
         let g = star_graph(4);

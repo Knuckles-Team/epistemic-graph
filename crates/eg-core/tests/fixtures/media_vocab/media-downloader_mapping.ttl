@@ -1,5 +1,5 @@
 # Recorded virtual-graph mapping for the `media-downloader` connector
-# (media-downloader; EG-MEDIA-VOCAB-R011.1, EG-CQ-CONN-R038). The rows are the
+# (media-downloader; MEDULLA-MEDIA-VOCAB-R011.1, MEDULLA-CQ-CONN-R038). The rows are the
 # `Connector mapping tables` entry for media-downloader in
 # specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
 # contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary

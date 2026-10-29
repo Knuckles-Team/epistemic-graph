@@ -120,7 +120,7 @@ pub struct DieboldMariano {
     pub a_better: bool,
 }
 
-/// Two-sample distribution-shift verdict (EG-FINANCE-PRIMITIVES-R900.3).
+/// Two-sample distribution-shift verdict (MEDULLA-FINANCE-PRIMITIVES-R900.3).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DistributionShift {
@@ -230,7 +230,7 @@ pub struct SabrFit {
     pub converged: bool,
 }
 
-/// One raised AML alert (EG-FINANCE-PRIMITIVES-R901.3).
+/// One raised AML alert (MEDULLA-FINANCE-PRIMITIVES-R901.3).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct AmlAlertResult {
@@ -250,7 +250,7 @@ pub struct AmlScreenResult {
     pub alert: Option<AmlAlertResult>,
 }
 
-/// Basel-style capital ratios and their minimum checks (EG-FINANCE-PRIMITIVES-R901.3).
+/// Basel-style capital ratios and their minimum checks (MEDULLA-FINANCE-PRIMITIVES-R901.3).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapitalRatiosResult {
@@ -273,7 +273,7 @@ pub struct SettlementLegResult {
     pub amount_minor: i64,
 }
 
-/// A fitted three-state regime chain and its forecast (EG-FINANCE-PRIMITIVES-R613.3).
+/// A fitted three-state regime chain and its forecast (MEDULLA-FINANCE-PRIMITIVES-R613.3).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RegimeChainResult {
@@ -331,7 +331,7 @@ pub struct PairsSignalResult {
     pub side: String,
 }
 
-/// One ranked factor with the provenance of its inputs (EG-FINANCE-PRIMITIVES-R018.3).
+/// One ranked factor with the provenance of its inputs (MEDULLA-FINANCE-PRIMITIVES-R018.3).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct FactorRecordResult {

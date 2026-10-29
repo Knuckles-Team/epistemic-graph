@@ -1,5 +1,5 @@
 # Virtual-mapping fixture: container-manager workload and image to
-# kg:deployedAs and kg:usesImage (EG-SUPPLY-VOCAB-R006.3).
+# kg:deployedAs and kg:usesImage (MEDULLA-SUPPLY-VOCAB-R006.3).
 #
 # Recorded over the container-manager MCP operations `list_pods`
 # (workloads) and `list_images` (images). The K8sService record's workload
@@ -7,7 +7,7 @@
 # between the service and its workload, plan.md entity-resolution table:
 # namespace+name); the Deployment's image field projects onto kg:usesImage.
 # The container-manager access-contract .ttl rows are added cross-repo by
-# EG-SUPPLY-VOCAB-R006.1 (agent-packages); this fixture records the mapping
+# MEDULLA-SUPPLY-VOCAB-R006.1 (agent-packages); this fixture records the mapping
 # against the discovered operations.
 
 @prefix vg:    <http://knuckles.team/kg/virtual-graph#> .

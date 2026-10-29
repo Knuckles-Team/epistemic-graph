@@ -1463,7 +1463,7 @@ fn status_reports_liveness_lag_and_the_oldest_pending_age() {
     assert_eq!(live.oldest_pending_age_ms, 4_000);
 }
 
-// spec: EG-TYPED-PACKS-R054
+// spec: MEDULLA-TYPED-PACKS-R054
 #[test]
 fn a_consumer_may_not_change_the_topic_its_cursor_already_names() {
     let dir = tempfile::tempdir().unwrap();
@@ -1574,8 +1574,8 @@ fn claim_all(
 /// position. After the fix, only the head is dead-lettered and the
 /// successors -- never having spent an attempt while blocked -- are claimed
 /// and ackable immediately.
-// spec: EG-DURABLE-KERNEL-R001
-// spec: EG-DURABLE-KERNEL-R004
+// spec: MEDULLA-DURABLE-KERNEL-R001
+// spec: MEDULLA-DURABLE-KERNEL-R004
 #[test]
 fn a_failing_head_never_dead_letters_a_healthy_successor() {
     let dir = tempfile::tempdir().unwrap();
@@ -1718,7 +1718,7 @@ fn releasing_a_successor_row_never_consumes_its_own_retry_budget() {
 /// X10-T3: `reject` on the head enacts the dead-letter terminal state at
 /// once, is reported in the claim outcome that follows, and the successor is
 /// ackable right after -- surviving a reopen.
-// spec: EG-DURABLE-KERNEL-R001
+// spec: MEDULLA-DURABLE-KERNEL-R001
 #[test]
 fn reject_dead_letters_the_head_at_once_and_the_stream_continues() {
     let dir = tempfile::tempdir().unwrap();
@@ -1890,8 +1890,8 @@ fn reject_in_is_discarded_by_the_callers_abort() {
 /// leaves the never-claimed successor untouched until the head resolves, so
 /// its later appearance in one pass proves it became claimable exactly when
 /// the head was dead-lettered, not before.
-// spec: EG-DURABLE-KERNEL-R001
-// spec: EG-DURABLE-KERNEL-R004
+// spec: MEDULLA-DURABLE-KERNEL-R001
+// spec: MEDULLA-DURABLE-KERNEL-R004
 #[test]
 fn releasing_the_head_sixteen_times_dead_letters_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -2031,7 +2031,7 @@ fn dead_letters_are_listed_across_bounded_pages() {
 /// X10-T7: rewinding to a mid-stream position re-delivers everything from
 /// there on, in order, and a pre-rewind lease on a row past the target is
 /// refused both during and after.
-// spec: EG-DURABLE-KERNEL-R001
+// spec: MEDULLA-DURABLE-KERNEL-R001
 #[test]
 fn rewind_redelivers_in_order_from_a_mid_stream_target() {
     let dir = tempfile::tempdir().unwrap();
@@ -2259,7 +2259,7 @@ fn assert_topic_b_attempts(fixture: &Fixture, owner: &OwnedStoreHandle<LedgerOnl
     );
 }
 
-// spec: EG-TYPED-PACKS-R055
+// spec: MEDULLA-TYPED-PACKS-R055
 #[test]
 fn two_topics_retry_exhaustion_preserves_other_topic_attempts_and_progress() {
     let dir = tempfile::tempdir().unwrap();
@@ -2305,8 +2305,8 @@ fn two_topics_retry_exhaustion_preserves_other_topic_attempts_and_progress() {
     assert_eq!(outbox_status(&read, "class-b", 120).unwrap().pending, 0);
 }
 
-// spec: EG-DURABLE-KERNEL-R052
-// spec: EG-DURABLE-KERNEL-R002
+// spec: MEDULLA-DURABLE-KERNEL-R052
+// spec: MEDULLA-DURABLE-KERNEL-R002
 #[test]
 fn two_topics_reject_restart_and_rewind_preserve_independent_replay() {
     let dir = tempfile::tempdir().unwrap();

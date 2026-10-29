@@ -1,5 +1,5 @@
 //! Typed `ChangeEnvelope` model for the unified-data-plane CDC framework
-//! (`EG-UNIFIED-DATA-PLANE-R008.1`, child of `EG-UNIFIED-DATA-PLANE-R008`).
+//! (`MEDULLA-UNIFIED-DATA-PLANE-R008.1`, child of `MEDULLA-UNIFIED-DATA-PLANE-R008`).
 //!
 //! This module ships ONLY the typed shape an adapter would emit into the future
 //! `CdcHub` plus the refusal rule that proves it can carry the parent
@@ -7,7 +7,7 @@
 //! tables explicitly" language. It deliberately does **not** implement
 //! `CdcHub` itself, durable position storage, replay, lag metrics, the WAL
 //! retention cap, or catalog-drift detection — those stay with the parent row
-//! `EG-UNIFIED-DATA-PLANE-R008` (BLOCKED on `EG-UNIFIED-DATA-PLANE-R002`,
+//! `MEDULLA-UNIFIED-DATA-PLANE-R008` (BLOCKED on `MEDULLA-UNIFIED-DATA-PLANE-R002`,
 //! itself still `BUILDING`) and its other children (`R009`/`R010`/`R021`).
 //! `before`/`after` row payloads are likewise out of scope for this slice; a
 //! `BTreeMap<String, String>` key is enough to prove the shape without
@@ -110,7 +110,7 @@ impl ChangeEnvelope {
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R008.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R008.1
     #[test]
     fn insert_with_no_key_on_a_keyed_table_validates() {
         let envelope = ChangeEnvelope {
@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(envelope.validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R008.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R008.1
     #[test]
     fn update_with_a_key_on_a_keyed_table_validates() {
         let mut key = BTreeMap::new();
@@ -138,7 +138,7 @@ mod tests {
         assert_eq!(envelope.validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R008.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R008.1
     #[test]
     fn empty_source_position_is_refused() {
         let envelope = ChangeEnvelope {
@@ -154,7 +154,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R008.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R008.1
     #[test]
     fn update_with_no_key_on_a_keyed_table_is_refused() {
         let envelope = ChangeEnvelope {
@@ -173,7 +173,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R008.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R008.1
     #[test]
     fn update_with_no_key_on_an_explicitly_keyless_table_validates() {
         let envelope = ChangeEnvelope {

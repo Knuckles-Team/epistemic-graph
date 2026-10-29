@@ -111,7 +111,7 @@ mod tests {
             r#"@prefix ac: <{AC}> . <urn:contract> a ac:AccessContract ; ac:classIri <urn:Supplier> ; ac:sourceId "suppliers" ; ac:accessKind "mcp_tool" ; ac:operation "list_suppliers" ; ac:entity "Supplier" ; ac:keyField "id" {extra} ."#
         )
     }
-    // spec: EG-FEDERATED-QUERY-R722.1
+    // spec: MEDULLA-FEDERATED-QUERY-R722.1
     #[test]
     fn imported_contract_is_held_and_identifies_its_authoritative_body() {
         let rows = declared_sources(
@@ -133,7 +133,7 @@ mod tests {
         .unwrap()
         .is_empty());
     }
-    // spec: EG-FEDERATED-QUERY-R722.4
+    // spec: MEDULLA-FEDERATED-QUERY-R722.4
     #[test]
     fn publisher_approval_and_literal_credentials_refuse() {
         let connector = ResourceId::new("erpnext").unwrap();

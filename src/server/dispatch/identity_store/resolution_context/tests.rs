@@ -647,7 +647,7 @@ async fn pending_mfa_refusal_preserves_a_completable_ceremony_after_touch() {
     assert!(!resolved(&response).session_mfa_pending);
 }
 
-// spec: EG-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.1
 #[test]
 fn session_record_creation_requires_matching_deployment_context() {
     let valid = live_broker();
@@ -678,7 +678,7 @@ fn session_authority(response: &Response) -> IdentityReply<RequestContextClaims>
     reply
 }
 
-// spec: EG-TYPED-PACKS-R085.4.3
+// spec: MEDULLA-TYPED-PACKS-R085.4.3
 #[tokio::test]
 async fn reference_renewal_rechecks_boundary_and_global_revision() {
     use eg_types::identity::IDENTITY_SELF_SCOPE;
@@ -778,7 +778,7 @@ async fn reference_renewal_rechecks_boundary_and_global_revision() {
     assert_eq!(after.mfa_at_ms, record.mfa_at_ms);
 }
 
-// spec: EG-TYPED-PACKS-R085.4.3
+// spec: MEDULLA-TYPED-PACKS-R085.4.3
 #[tokio::test]
 async fn served_reference_renewal_refuses_scope_mismatch_without_touching_authority() {
     use eg_types::identity::IDENTITY_SELF_SCOPE;

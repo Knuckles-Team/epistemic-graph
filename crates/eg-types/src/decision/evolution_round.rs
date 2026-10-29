@@ -1,5 +1,5 @@
 //! Evolution round verdicts and per-stage model allocation types
-//! (EG-DECISION-ENGINE-R136.1 and R136.2).
+//! (MEDULLA-DECISION-ENGINE-R136.1 and R136.2).
 //!
 //! A round declares which tasks it expects to fix and which it expects to
 //! regress. The verdict compares the observed flips with that declaration.

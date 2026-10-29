@@ -1,5 +1,5 @@
 //! The declared durability class for a KV namespace or table
-//! (EG-DURABLE-KERNEL-R038): `ephemeral` (in-memory with TTL, no durable
+//! (MEDULLA-DURABLE-KERNEL-R038): `ephemeral` (in-memory with TTL, no durable
 //! log), `async` (group commit with a measured loss-window bound), or
 //! `sync` (commit before acknowledgment -- the default). This is the typed
 //! model slice (`.1`): the enum, its declared bound, and the refusal for an
@@ -12,7 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 /// Milliseconds. `DurabilityClass::Async`'s declared ceiling on its measured
-/// commit loss window (EG-DURABLE-KERNEL-R038's acceptance clause).
+/// commit loss window (MEDULLA-DURABLE-KERNEL-R038's acceptance clause).
 pub const ASYNC_MAX_LOSS_WINDOW_MS: u64 = 100;
 
 /// A KV namespace or table's declared durability class. Serialized as its
@@ -73,7 +73,7 @@ impl DurabilityClass {
 }
 
 /// How a write-path commit must be driven for one class
-/// (EG-DURABLE-KERNEL-R038.2's write-path entry point). The write path calls
+/// (MEDULLA-DURABLE-KERNEL-R038.2's write-path entry point). The write path calls
 /// [`DurabilityClass::write_plan`] once per namespace open / write admission
 /// to decide whether it must wait for its own durable commit before
 /// acknowledging, and how wide a group-commit window it may batch into.
@@ -180,7 +180,7 @@ impl std::error::Error for LossWindowExceeded {}
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R038.1
+    // spec: MEDULLA-DURABLE-KERNEL-R038.1
     #[test]
     fn declared_classes_round_trip_through_their_wire_name() {
         for (class, name) in [
@@ -196,13 +196,13 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R038.1
+    // spec: MEDULLA-DURABLE-KERNEL-R038.1
     #[test]
     fn sync_is_the_declared_default() {
         assert_eq!(DurabilityClass::default(), DurabilityClass::Sync);
     }
 
-    // spec: EG-DURABLE-KERNEL-R038.1
+    // spec: MEDULLA-DURABLE-KERNEL-R038.1
     #[test]
     fn unknown_class_name_is_refused_not_downgraded() {
         for bad in ["Async", " async", "asynchronous", "", "none"] {
@@ -211,7 +211,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R038.1
+    // spec: MEDULLA-DURABLE-KERNEL-R038.1
     #[test]
     fn async_loss_window_within_bound_is_accepted() {
         DurabilityClass::Async
@@ -222,7 +222,7 @@ mod tests {
             .unwrap();
     }
 
-    // spec: EG-DURABLE-KERNEL-R038.1
+    // spec: MEDULLA-DURABLE-KERNEL-R038.1
     #[test]
     fn async_loss_window_past_bound_is_refused() {
         let err = DurabilityClass::Async
@@ -248,7 +248,7 @@ mod tests {
             .unwrap();
     }
 
-    // spec: EG-DURABLE-KERNEL-R038.2
+    // spec: MEDULLA-DURABLE-KERNEL-R038.2
     #[test]
     fn sync_write_plan_waits_for_its_own_commit_with_no_batch_window() {
         let plan = DurabilityClass::Sync.write_plan();
@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(plan.max_batch_delay_ms, None);
     }
 
-    // spec: EG-DURABLE-KERNEL-R038.2
+    // spec: MEDULLA-DURABLE-KERNEL-R038.2
     #[test]
     fn async_write_plan_batches_within_the_declared_loss_window() {
         let plan = DurabilityClass::Async.write_plan();
@@ -264,7 +264,7 @@ mod tests {
         assert_eq!(plan.max_batch_delay_ms, Some(ASYNC_MAX_LOSS_WINDOW_MS));
     }
 
-    // spec: EG-DURABLE-KERNEL-R038.2
+    // spec: MEDULLA-DURABLE-KERNEL-R038.2
     #[test]
     fn ephemeral_write_plan_never_waits_and_never_batches_into_a_log() {
         let plan = DurabilityClass::Ephemeral.write_plan();
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(plan.max_batch_delay_ms, None);
     }
 
-    // spec: EG-DURABLE-KERNEL-R038.2
+    // spec: MEDULLA-DURABLE-KERNEL-R038.2
     #[test]
     fn ephemeral_write_path_refuses_a_durable_log_append() {
         let err = DurabilityClass::Ephemeral
@@ -281,7 +281,7 @@ mod tests {
         assert!(err.to_string().contains("no durable log"));
     }
 
-    // spec: EG-DURABLE-KERNEL-R038.2
+    // spec: MEDULLA-DURABLE-KERNEL-R038.2
     #[test]
     fn sync_and_async_write_paths_allow_a_durable_log_append() {
         DurabilityClass::Sync.refuse_if_durable_log_write().unwrap();

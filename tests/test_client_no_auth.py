@@ -1,4 +1,4 @@
-"""EG-IDENTITY-R003.1: explicit anonymous local wire, without invented claims."""
+"""MEDULLA-IDENTITY-R003.1: explicit anonymous local wire, without invented claims."""
 
 import asyncio
 import contextlib
@@ -267,7 +267,7 @@ def test_anonymous_highlevel_changes_carry_replay_and_local_namespace():
 
 
 def test_generated_authentication_method_preserves_closed_enum():
-    """EG-IDENTITY-R003.1 adds none without weakening authenticated contracts."""
+    """MEDULLA-IDENTITY-R003.1 adds none without weakening authenticated contracts."""
     from enum import Enum
 
     from epistemic_graph.generated.models import RequestContextAuthenticationMethod

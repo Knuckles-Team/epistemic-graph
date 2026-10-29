@@ -1,6 +1,6 @@
 """EH-219 typed WorkItem reads through ``EpistemicGraphClient.work_items``."""
 
-# spec: EG-DECISION-ENGINE-R801.8
+# spec: MEDULLA-DECISION-ENGINE-R801.8
 
 from __future__ import annotations
 
@@ -173,7 +173,7 @@ def test_a_lease_answer_outside_the_contract_is_refused() -> None:
 # -- graph-os EG-3 committed provenance ---------------------------------------
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R028.2")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R028.2")
 def test_get_outcome_returns_the_verified_provenance_view() -> None:
     outcome = {
         "work_item": VIEW,

@@ -1,4 +1,4 @@
-# The supply-chain impact question, classes only (EG-CQ-XSRC-R005.2).
+# The supply-chain impact question, classes only (MEDULLA-CQ-XSRC-R005.2).
 #
 # Source choice comes from the ontology's vg:SourceAuthority rows, never from
 # this text: no source, endpoint or connector is named here. A test fails if

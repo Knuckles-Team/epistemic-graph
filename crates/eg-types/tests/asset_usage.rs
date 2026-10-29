@@ -1,6 +1,6 @@
 use eg_types::asset_usage::{fuse_with_usage_prior, AssetUsage, CatalogSearchHit, USAGE_PRIOR_CAP};
 
-// spec: EG-UNIFIED-DATA-PLANE-R764.1
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R764.1
 #[test]
 fn usage_round_trips() {
     let usage = AssetUsage {
@@ -29,7 +29,7 @@ fn usage_round_trips() {
     assert!(serde_json::from_str::<AssetUsage>(&json).is_err());
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R764.2
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R764.2
 #[test]
 fn usage_prior_is_capped() {
     for relevance in [0.0, 0.01, 0.1, 0.5, 1.0] {

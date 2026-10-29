@@ -1,9 +1,9 @@
 //! A connector pack release as a versioned contract, and the time-boxed grant
-//! that lets an ontology stand alone (EG-TYPED-PACKS-R107.1).
+//! that lets an ontology stand alone (MEDULLA-TYPED-PACKS-R107.1).
 //!
 //! Pure data and field validation. The import-time diff, the pending
 //! breaking release and `OrphanReport` are later children of
-//! `EG-TYPED-PACKS-R107`.
+//! `MEDULLA-TYPED-PACKS-R107`.
 
 use serde::{Deserialize, Serialize};
 

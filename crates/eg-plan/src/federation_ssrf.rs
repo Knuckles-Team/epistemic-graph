@@ -375,7 +375,7 @@ fn sql_default_port(dsn: &str) -> Option<u16> {
 /// A DSN with no host (a local socket default) or a `host=`/`hostaddr=` override is refused.
 ///
 /// `pub` (not `pub(crate)`): also the registration-time gate for
-/// `EG-UNIFIED-DATA-PLANE-R002.1` — `server::foreign_catalog::ForeignSourceCatalog::register`
+/// `MEDULLA-UNIFIED-DATA-PLANE-R002.1` — `server::foreign_catalog::ForeignSourceCatalog::register`
 /// calls this before a `ForeignSourceSpec::Sql` entry is persisted, so a disallowed
 /// destination is refused at `RegisterForeignSource` time, not only when the query later runs.
 #[cfg(feature = "federation-sql")]

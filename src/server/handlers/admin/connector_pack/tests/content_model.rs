@@ -75,7 +75,7 @@ async fn one_changed_tool_revises_only_that_tool() {
     );
 }
 
-/// EG-DECISION-ENGINE-R075: a component id is minted from an entry's
+/// MEDULLA-DECISION-ENGINE-R075: a component id is minted from an entry's
 /// connector, kind and name, not its URI, so two entries of the same kind and
 /// name collide even when their URIs differ. Import must refuse the pack
 /// before any state change, naming `DuplicateComponentId`.
@@ -100,7 +100,7 @@ async fn two_entries_minting_the_same_component_id_are_rejected() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R050
+// spec: MEDULLA-TYPED-PACKS-R050
 #[tokio::test]
 async fn a_package_release_with_identical_content_is_unchanged() {
     let served = Served::new();
@@ -212,7 +212,7 @@ async fn package_versions_produce_equal_pins_in_independent_stores() {
     );
 }
 
-/// EG-TYPED-PACKS-R016: vary exactly one declared server field while keeping
+/// MEDULLA-TYPED-PACKS-R016: vary exactly one declared server field while keeping
 /// its component identity and package version fixed. Rebuild honest sections
 /// and archive digests, then exercise the served import and persisted pin.
 async fn assert_server_contract_change_revises_pin(field: &str, value: &str) {
@@ -262,7 +262,7 @@ async fn assert_server_contract_change_revises_pin(field: &str, value: &str) {
     );
 }
 
-// spec: EG-TYPED-PACKS-R050
+// spec: MEDULLA-TYPED-PACKS-R050
 #[tokio::test]
 async fn a_server_contract_version_change_revises_its_pin() {
     assert_server_contract_change_revises_pin("contract_version", "2").await;
@@ -369,7 +369,7 @@ async fn assert_chain_body_holders(served: &Served, entries: &[AgentComponentEnt
     }
 }
 
-// spec: EG-DECISION-ENGINE-R073.5
+// spec: MEDULLA-DECISION-ENGINE-R073.5
 #[tokio::test]
 async fn a_changed_leaf_revises_transitive_reference_pins_once() {
     let served = Served::new();
@@ -404,7 +404,7 @@ async fn a_changed_leaf_revises_transitive_reference_pins_once() {
     assert_repeat_is_unchanged(&served, &changed, &second).await;
 }
 
-// spec: EG-DECISION-ENGINE-R073.5
+// spec: MEDULLA-DECISION-ENGINE-R073.5
 #[tokio::test]
 async fn a_shared_descendant_diamond_revises_each_component_once() {
     let served = Served::new();
@@ -546,7 +546,7 @@ async fn four_tools_imported() -> (
     (served, tools, first)
 }
 
-// spec: EG-TYPED-PACKS-R014
+// spec: MEDULLA-TYPED-PACKS-R014
 #[tokio::test]
 async fn an_absent_entry_is_withdrawn_and_returns_under_the_same_id() {
     let (served, tools, first) = four_tools_imported().await;
@@ -596,7 +596,7 @@ async fn withdrawing_most_of_a_connector_needs_the_admin_override() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R042.2
+// spec: MEDULLA-TYPED-PACKS-R042.2
 /// Signed admission persists the G12 partition, including exact foreign text.
 #[tokio::test]
 async fn capability_annotations_remain_declared_after_import() {
@@ -648,12 +648,12 @@ async fn capability_annotations_remain_declared_after_import() {
     assert_eq!(entry.declared_required_capabilities, ["urn:vendor:execute"]);
 }
 
-/// EG-TYPED-PACKS-R019: only SKILL.md is imported as skill content. A
+/// MEDULLA-TYPED-PACKS-R019: only SKILL.md is imported as skill content. A
 /// supporting file may reference its skill without failing the import, but
 /// its bytes never enter the skill's stored body content: the skill component
 /// reads back exactly its SKILL.md, and the file's bytes live only under the
 /// file's own bounded component.
-// spec: EG-TYPED-PACKS-R019
+// spec: MEDULLA-TYPED-PACKS-R019
 #[tokio::test]
 async fn supporting_files_are_never_stored_as_skill_body_content() {
     let served = Served::new();

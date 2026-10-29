@@ -1,7 +1,7 @@
-//! The mirror-SINK side (EG-DURABLE-KERNEL-R036): a durable per-mirror
+//! The mirror-SINK side (MEDULLA-DURABLE-KERNEL-R036): a durable per-mirror
 //! cursor and sink-kind declaration for EG's own mirror sinks (fan-out
 //! parity + PostgreSQL table mirroring). Distinct from `eg-plan`'s
-//! federation `MirrorTargetSpec` (EG-DURABLE-KERNEL-R024.2), which is the
+//! federation `MirrorTargetSpec` (MEDULLA-DURABLE-KERNEL-R024.2), which is the
 //! SOURCE side: naming an external system a federation query mirrors
 //! writes TO. This module owns the sink's own cursor and kind, not the
 //! federation source registration.
@@ -94,7 +94,7 @@ impl std::error::Error for EmptyCursorPosition {}
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R036.1
+    // spec: MEDULLA-DURABLE-KERNEL-R036.1
     #[test]
     fn sink_kinds_round_trip_through_their_wire_name() {
         for (kind, name) in [
@@ -108,7 +108,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R036.1
+    // spec: MEDULLA-DURABLE-KERNEL-R036.1
     #[test]
     fn cursor_new_succeeds_with_nonempty_position_for_both_kinds() {
         for kind in [MirrorSinkKind::FanOut, MirrorSinkKind::Postgres] {
@@ -118,7 +118,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R036.1
+    // spec: MEDULLA-DURABLE-KERNEL-R036.1
     #[test]
     fn cursor_new_refuses_empty_position_for_both_kinds() {
         for kind in [MirrorSinkKind::FanOut, MirrorSinkKind::Postgres] {
@@ -127,7 +127,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R036.1
+    // spec: MEDULLA-DURABLE-KERNEL-R036.1
     #[test]
     fn advance_succeeds_to_a_new_nonempty_position() {
         let mut cursor = MirrorCursor::new(MirrorSinkKind::FanOut, "offset-1".to_string()).unwrap();
@@ -135,7 +135,7 @@ mod tests {
         assert_eq!(cursor.position(), "offset-2");
     }
 
-    // spec: EG-DURABLE-KERNEL-R036.1
+    // spec: MEDULLA-DURABLE-KERNEL-R036.1
     #[test]
     fn advance_refuses_empty_next_position() {
         let mut cursor =
@@ -144,7 +144,7 @@ mod tests {
         assert_eq!(err.kind, MirrorSinkKind::Postgres);
     }
 
-    // spec: EG-DURABLE-KERNEL-R036.1
+    // spec: MEDULLA-DURABLE-KERNEL-R036.1
     #[test]
     fn refused_advance_leaves_prior_position_unchanged() {
         let mut cursor = MirrorCursor::new(MirrorSinkKind::FanOut, "offset-1".to_string()).unwrap();

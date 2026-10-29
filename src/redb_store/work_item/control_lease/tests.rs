@@ -243,7 +243,7 @@ fn the_pending_approval_queue_lists_only_the_tenants_active_approvals() {
     assert_eq!(page.next_cursor, None);
 }
 
-// spec: EG-DURABLE-KERNEL-R039.2
+// spec: MEDULLA-DURABLE-KERNEL-R039.2
 #[test]
 fn native_record_consumption_checks_commit_time_and_preserves_expired_rows() {
     use super::super::market::{apply_native_record_rows, NativeRecordRequest};
@@ -436,7 +436,7 @@ fn assert_registration_unchanged(shard: &Shard, before: &NodeRow) {
     assert!(get(shard, "tenant-a", "pending-a").is_none());
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_registration_and_consumption_change_both_rows_once() {
     let temp = open("pending-pair");
@@ -464,7 +464,7 @@ fn pending_registration_and_consumption_change_both_rows_once() {
     assert_eq!(stored_work(&temp.shard), after);
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_registration_refuses_stale_worker_without_writing_either_row() {
     let temp = open("pending-register-fenced");
@@ -489,7 +489,7 @@ fn pending_registration_refuses_stale_worker_without_writing_either_row() {
     assert_registration_unchanged(&temp.shard, &before);
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_consume_refuses_missing_fence_changed_envelope_or_metadata_atomically() {
     let (temp, request) = registered_pending_fixture("pending-consume-fenced");
@@ -538,7 +538,7 @@ fn pending_consume_refuses_missing_fence_changed_envelope_or_metadata_atomically
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_expiry_preserves_pair_and_revocation_clears_it() {
     let (temp, request) = registered_pending_fixture("pending-expired");
@@ -567,7 +567,7 @@ fn pending_expiry_preserves_pair_and_revocation_clears_it() {
     assert!(!stored_work(&temp.shard).contains_key("pending_call_lease_ref"));
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_consume_refuses_a_reclaimed_worker_even_with_fresh_row_revision() {
     for expired in [false, true] {
@@ -613,7 +613,7 @@ fn pending_consume_refuses_a_reclaimed_worker_even_with_fresh_row_revision() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_pair_refuses_foreign_tenant_and_generic_pointer_writes() {
     use super::super::test_shard::check_guard;
@@ -649,7 +649,7 @@ fn pending_pair_refuses_foreign_tenant_and_generic_pointer_writes() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_registration_refuses_a_nodes_only_lease_tuple() {
     let temp = open("pending-no-native-claim");
@@ -664,7 +664,7 @@ fn pending_registration_refuses_a_nodes_only_lease_tuple() {
     assert_registration_unchanged(&temp.shard, &before);
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_consumption_refuses_missing_native_provenance() {
     use super::super::test_shard::with_write;
@@ -691,7 +691,7 @@ fn pending_consumption_refuses_missing_native_provenance() {
     assert_eq!(get(&temp.shard, "tenant-a", "pending-a"), lease);
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_worker_refuses_incomplete_fences_and_fractional_deadline() {
     let temp = open("pending-worker-shape");

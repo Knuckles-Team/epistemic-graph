@@ -1,6 +1,6 @@
 //! Contract tests for the registered connector-pack core module: the
-//! ingest-contract vocabulary (EG-TYPED-PACKS-R101.1) and the connector
-//! surface vocabulary (EG-TYPED-PACKS-R102.1).
+//! ingest-contract vocabulary (MEDULLA-TYPED-PACKS-R101.1) and the connector
+//! surface vocabulary (MEDULLA-TYPED-PACKS-R102.1).
 
 use std::sync::Arc;
 
@@ -48,7 +48,7 @@ fn connector_pack_source() -> (GraphSchemaSources, Arc<str>, Arc<str>) {
     (sources, ontology, shapes)
 }
 
-// spec: EG-TYPED-PACKS-R101.1
+// spec: MEDULLA-TYPED-PACKS-R101.1
 #[test]
 fn contract_terms_resolve_with_domain_and_range() {
     let (sources, ontology, _shapes) = connector_pack_source();
@@ -218,7 +218,7 @@ fn contract_terms_resolve_with_domain_and_range() {
     ));
 }
 
-// spec: EG-TYPED-PACKS-R102.1
+// spec: MEDULLA-TYPED-PACKS-R102.1
 #[test]
 fn surface_terms_resolve_with_domain_and_range() {
     let (_sources, ontology, shapes) = connector_pack_source();

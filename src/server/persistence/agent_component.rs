@@ -882,7 +882,7 @@ mod tests {
             .is_some());
     }
 
-    // spec: EG-DECISION-ENGINE-R050.1
+    // spec: MEDULLA-DECISION-ENGINE-R050.1
     #[test]
     fn model_input_capabilities_survive_owner_restart_and_tenant_reads() {
         let dir = tempfile::tempdir().unwrap();
@@ -1147,7 +1147,7 @@ mod tests {
         assert!(unfiltered.iter().any(|c| c.is_side_effecting()));
     }
 
-    // spec: EG-DECISION-ENGINE-R013
+    // spec: MEDULLA-DECISION-ENGINE-R013
     #[test]
     fn a_search_is_scoped_to_its_tenant() {
         // Searching the HIGHER-sorting tenant proves nothing: the scan is

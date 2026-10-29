@@ -1,4 +1,4 @@
-//! Typed, request/response foreign-read lifecycle (EG-FEDERATED-QUERY-R722.3).
+//! Typed, request/response foreign-read lifecycle (MEDULLA-FEDERATED-QUERY-R722.3).
 //!
 //! The engine transport remains one authenticated request and one response.  A
 //! host therefore opens a bounded execution, appends pages with monotone

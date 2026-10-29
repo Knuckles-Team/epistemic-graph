@@ -1,4 +1,4 @@
-# EG-CONTRACT-R011.1: land-gate fan-out host-group manifest.
+# MEDULLA-CONTRACT-R011.1: land-gate fan-out host-group manifest.
 #
 # Validated by scripts/check_fanout_host_groups.py before any fan-out work is
 # dispatched. Each group names a persistent warm target and a headroom

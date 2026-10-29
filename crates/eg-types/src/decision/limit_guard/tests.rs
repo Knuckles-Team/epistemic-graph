@@ -31,7 +31,7 @@ fn observe(metric: LimitMetric, scope: &str, value: i64) -> LimitObservation {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R131.1
+// spec: MEDULLA-DECISION-ENGINE-R131.1
 #[test]
 fn limit_types_round_trip() {
     let rule = rules().remove(2);
@@ -57,7 +57,7 @@ fn limit_types_round_trip() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R131.2
+// spec: MEDULLA-DECISION-ENGINE-R131.2
 #[test]
 fn check_returns_all_breaches() {
     let action = GuardedAction {

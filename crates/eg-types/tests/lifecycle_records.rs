@@ -1,4 +1,4 @@
-//! Lifecycle record models (EG-SDLC-R002.1, R002.2, R003.1, R005.1, R006.1).
+//! Lifecycle record models (MEDULLA-SDLC-R002.1, R002.2, R003.1, R005.1, R006.1).
 
 use eg_types::lifecycle::{
     record_deployment, release_range, Defect, DefectIntake, DefectStatus, Deployment,
@@ -28,7 +28,7 @@ fn input(digest: &str, outcome: DeploymentOutcome) -> DeploymentInput {
     }
 }
 
-// spec: EG-SDLC-R002.1
+// spec: MEDULLA-SDLC-R002.1
 #[test]
 fn records_round_trip() {
     let rel = release("1.0.0", &["sha256:aa"]);
@@ -44,7 +44,7 @@ fn records_round_trip() {
     assert!(serde_json::from_str::<Deployment>(&bad).is_err());
 }
 
-// spec: EG-SDLC-R002.2
+// spec: MEDULLA-SDLC-R002.2
 #[test]
 fn unknown_digest_stays_unattributed() {
     let releases = [
@@ -72,7 +72,7 @@ fn unknown_digest_stays_unattributed() {
     );
 }
 
-// spec: EG-SDLC-R003.1
+// spec: MEDULLA-SDLC-R003.1
 #[test]
 fn defect_round_trips() {
     let defect = Defect {
@@ -98,14 +98,14 @@ fn defect_round_trips() {
     assert!(serde_json::from_str::<Defect>(&json.replace("gate_failure", "telepathy")).is_err());
 }
 
-// spec: EG-SDLC-R005.1
+// spec: MEDULLA-SDLC-R005.1
 #[test]
 fn status_answer_round_trips() {
     let answer = SpecStatusAnswer {
         repo: "medulla".into(),
         rev: "c9".into(),
         rows: vec![SpecRowState {
-            id: "EG-X-R001".into(),
+            id: "MEDULLA-X-R001".into(),
             state: SpecState::Verified,
             landed_by: vec!["c1".into()],
             verified_by: vec!["t1".into()],
@@ -122,7 +122,7 @@ fn status_answer_round_trips() {
     assert!(SpecState::Specified < SpecState::Landed && SpecState::Landed < SpecState::Verified);
 }
 
-// spec: EG-SDLC-R006.1
+// spec: MEDULLA-SDLC-R006.1
 #[test]
 fn trace_request_bounds() {
     assert!(LifecycleTraceRequest::new("r".into(), 1, vec![]).is_ok());

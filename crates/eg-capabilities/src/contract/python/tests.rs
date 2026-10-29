@@ -815,7 +815,7 @@ fn sql_source_batch_validates_only_the_structured_batch() {
 /// the domain module the method registry assigns it to. The row's other
 /// half -- documentation and usage examples -- is NOT generated anywhere in
 /// `docs/` for `Decide`; see verify-gaps.tsv.
-// spec: EG-DECISION-ENGINE-R063
+// spec: MEDULLA-DECISION-ENGINE-R063
 #[test]
 fn decide_fit_and_eval_each_generate_a_typed_client_wrapper() {
     let catalog = Catalog::collect();

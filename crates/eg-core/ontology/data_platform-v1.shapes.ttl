@@ -1,4 +1,4 @@
-# Data-platform shapes (EG-DATAPLAT-VOCAB-R002.4, EG-DATAPLAT-VOCAB-R005.2).
+# Data-platform shapes (MEDULLA-DATAPLAT-VOCAB-R002.4, MEDULLA-DATAPLAT-VOCAB-R005.2).
 #
 # SHACL Core plus aggregate-free `sh:sparql` only, in the same style as
 # `core:virtual-graph-shapes@1` (DECIDE §4.8): an absence check uses the
@@ -141,7 +141,7 @@ dp:PolicyPathGrantShape a sh:NodeShape ;
     sh:message "A policy-path grant carries only its policy, path and capabilities -- permissions are scoped to that policy/path pair." .
 
 # Store mapping: the operation a mapping routes reads through may never read a
-# secret value (EG-DATAPLAT-VOCAB-R005.4). The denylist below mirrors
+# secret value (MEDULLA-DATAPLAT-VOCAB-R005.4). The denylist below mirrors
 # `eg_plan::virtual_graph_mapping::REFUSED_VALUE_OPERATIONS` — the engine-side
 # check at mapping-approval time; this shape refuses the same rows at
 # graph-validation time.
@@ -165,7 +165,7 @@ dp:StoreMappingShape a sh:NodeShape ;
     ] ;
     sh:sparql [
         a sh:SPARQLConstraint ;
-        sh:message "An mcp-operation contract requires the named viaOperation (EG-DATAPLAT-VOCAB-R007.2)." ;
+        sh:message "An mcp-operation contract requires the named viaOperation (MEDULLA-DATAPLAT-VOCAB-R007.2)." ;
         sh:prefixes dp:DataPlatformPrefixes ;
         sh:select """
             SELECT $this WHERE {
@@ -177,7 +177,7 @@ dp:StoreMappingShape a sh:NodeShape ;
     ] ;
     sh:sparql [
         a sh:SPARQLConstraint ;
-        sh:message "A materialised mapping must record why it is materialised; virtual needs no reason (EG-DATAPLAT-VOCAB-R007.1)." ;
+        sh:message "A materialised mapping must record why it is materialised; virtual needs no reason (MEDULLA-DATAPLAT-VOCAB-R007.1)." ;
         sh:prefixes dp:DataPlatformPrefixes ;
         sh:select """
             SELECT $this WHERE {
@@ -189,7 +189,7 @@ dp:StoreMappingShape a sh:NodeShape ;
     ] ;
     sh:sparql [
         a sh:SPARQLConstraint ;
-        sh:message "A mapping that routes reads through a secret-value operation is refused: kv read, logical read and unwrap are never mapped (EG-DATAPLAT-VOCAB-R005.4)." ;
+        sh:message "A mapping that routes reads through a secret-value operation is refused: kv read, logical read and unwrap are never mapped (MEDULLA-DATAPLAT-VOCAB-R005.4)." ;
         sh:prefixes dp:DataPlatformPrefixes ;
         sh:select """
             SELECT $this WHERE {

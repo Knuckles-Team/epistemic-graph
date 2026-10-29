@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R056: the exact 0-1 solver and its certificate
+//! MEDULLA-DECISION-ENGINE-R056: the exact 0-1 solver and its certificate
 //! verification carry the same deterministic guarantees on a
 //! statistical-feature-set-shaped model (many scored candidate variables,
 //! several covering/budget constraints) as on the core assembly solver's own

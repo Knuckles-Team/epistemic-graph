@@ -1,6 +1,6 @@
 """A previous-patch store migrates when this build opens it (R070.2).
 
-Spec row: EG-DURABLE-KERNEL-R070.2. A writer engine bootstraps a store and creates a
+Spec row: MEDULLA-DURABLE-KERNEL-R070.2. A writer engine bootstraps a store and creates a
 tenant graph the way arbora does. This build then opens the same store with no offline
 step in between. It migrates every older but supported store under its own lock, then
 serves: `ListGraphs` returns both graphs for the System identity. A second restart
@@ -36,7 +36,7 @@ from test_upgrade_store_listing import (
 
 pytestmark = [
     pytest.mark.no_engine,  # Each case owns its engines on its own store.
-    pytest.mark.spec("EG-DURABLE-KERNEL-R070.2"),
+    pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R070.2"),
 ]
 
 SWITCH = "EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE"

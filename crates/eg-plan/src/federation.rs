@@ -177,7 +177,7 @@ impl ForeignSource for Oq2Unbound {
 
 #[cfg(test)]
 mod operation_bound_source_kinds {
-    //! EG-FEDERATED-QUERY-R073.1 — typed model only: the four new operation-bound
+    //! MEDULLA-FEDERATED-QUERY-R073.1 — typed model only: the four new operation-bound
     //! `ForeignSourceSpec` kinds (API, MCP, A2A, GraphQL) wire-round-trip with their
     //! declared `ForeignOperationCapabilities`, and an unbound/ungranted spec of any of
     //! these kinds refuses with a typed error rather than a panic or a silent empty
@@ -226,7 +226,7 @@ mod operation_bound_source_kinds {
         ]
     }
 
-    // spec: EG-FEDERATED-QUERY-R073.1
+    // spec: MEDULLA-FEDERATED-QUERY-R073.1
     #[test]
     fn each_new_source_kind_wire_round_trips_with_its_declared_capability() {
         for pushdown in [false, true] {
@@ -246,7 +246,7 @@ mod operation_bound_source_kinds {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R073.1
+    // spec: MEDULLA-FEDERATED-QUERY-R073.1
     #[test]
     fn an_unbound_ungranted_source_of_any_new_kind_refuses_typed_not_panics() {
         for (spec, label) in specs_with_pushdown(true) {

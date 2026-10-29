@@ -1,8 +1,8 @@
 //! Stewardship roles, change requests and certification records
-//! (EG-TYPED-PACKS-R802.1).
+//! (MEDULLA-TYPED-PACKS-R802.1).
 //!
 //! Pure data and field validation. Scope resolution, the change-request flow
-//! and served admission are later children of `EG-TYPED-PACKS-R802`.
+//! and served admission are later children of `MEDULLA-TYPED-PACKS-R802`.
 
 use serde::{Deserialize, Serialize};
 

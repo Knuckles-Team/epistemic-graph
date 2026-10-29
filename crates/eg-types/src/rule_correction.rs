@@ -1,10 +1,10 @@
 //! Typed rule-output correction with two-principal approval
-//! (EG-DURABLE-KERNEL-R088.1).
+//! (MEDULLA-DURABLE-KERNEL-R088.1).
 //!
 //! A correction names the rule, the input pattern and the expected output, the
 //! original output it corrects, and whether it replaces or revokes that output.
 //! An approval names two distinct principals, the approved rule version and the
-//! approval time. Served submission and approval are EG-DURABLE-KERNEL-R088.2.
+//! approval time. Served submission and approval are MEDULLA-DURABLE-KERNEL-R088.2.
 
 use serde::{Deserialize, Serialize};
 
@@ -141,7 +141,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R088.1
+    // spec: MEDULLA-DURABLE-KERNEL-R088.1
     #[test]
     fn approval_requires_two_distinct_principals() {
         let fix = correction(CorrectionBinding::Revocation {
@@ -167,7 +167,7 @@ mod tests {
         assert_eq!(approved.approval().approved_at_ms, 1_700_000_000_000);
     }
 
-    // spec: EG-DURABLE-KERNEL-R088.1
+    // spec: MEDULLA-DURABLE-KERNEL-R088.1
     #[test]
     fn replacement_and_revocation_states_bind_and_round_trip() {
         let replace = correction(CorrectionBinding::Replacement {

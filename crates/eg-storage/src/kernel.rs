@@ -194,7 +194,7 @@ impl StorageKernel {
     }
 
     /// Create an owner file with `scopes` already bound in the single create
-    /// commit (EG-DURABLE-KERNEL-R006.1). Binding them again through
+    /// commit (MEDULLA-DURABLE-KERNEL-R006.1). Binding them again through
     /// [`Self::bind_serving_scope`] afterwards is a no-write re-entry.
     pub fn create_owner_bound<D: OwnerDomain>(
         path: &Path,
@@ -622,7 +622,7 @@ pub(crate) fn bind_serving_scope_in<D: OwnerDomain>(
     }
     // Read first: an already-bound scope (every clean reopen) is proved in a
     // read transaction and takes no write transaction and no fsync
-    // (EG-DURABLE-KERNEL-R006.1). Anything else falls through to the write.
+    // (MEDULLA-DURABLE-KERNEL-R006.1). Anything else falls through to the write.
     {
         let rtx = store.begin_read()?;
         if scope_binding_is_current(&store.handle, &rtx, grant.identity(), initial_version)? {

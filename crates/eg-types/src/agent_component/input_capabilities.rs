@@ -103,7 +103,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R050.1
+    // spec: MEDULLA-DECISION-ENGINE-R050.1
     #[test]
     fn selected_profile_enforces_exact_decoded_bounds() {
         let caps = capabilities();
@@ -121,7 +121,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R050.1
+    // spec: MEDULLA-DECISION-ENGINE-R050.1
     #[test]
     fn declarations_reject_unknown_media_duplicates_and_unbounded_limits() {
         let wire = serde_json::to_value(capabilities()).unwrap();

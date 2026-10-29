@@ -2088,7 +2088,7 @@ mod tests {
         ("ApplyChangeEnvelopeDrafts", "client draft batch compiled at the request boundary into ApplyChangeEnvelopes under the verified context, then committed by that same native coordinator"),
         ("SourceIngest", "RF-ADR-009 stages raw CAS and an authoritative Connector Manifest mapping, then delegates its sole canonical graph/provenance/cursor commit to ApplyChangeEnvelope"),
         ("IndexRepository", "EH-280 runtime-conditional: an unscoped batch is a stateless parse; a scoped batch lowers its :Blob/:FileVersion/:Branch projection and delegates its sole graph commit to ApplyChangeEnvelope, exactly like SourceIngest"),
-        ("EnrichDocument", "EG-UNIFIED-DATA-PLANE-R651.7 lowers chunk nodes, chunkOf edges, vectors and one enrichment record of a held Document and delegates its sole graph commit to ApplyChangeEnvelope, exactly like IndexRepository"),
+        ("EnrichDocument", "MEDULLA-UNIFIED-DATA-PLANE-R651.7 lowers chunk nodes, chunkOf edges, vectors and one enrichment record of a held Document and delegates its sole graph commit to ApplyChangeEnvelope, exactly like IndexRepository"),
         ("RecomputeMaterialization", "fenced reasoning-projection coordinator resolves authoritative graph provenance and fsyncs its projection watermark"),
         // ── Server lifecycle: TxnParticipation::None, not a graph mutation. ──
         ("Shutdown", "server-lifecycle control-plane action, not a graph mutation"),
@@ -2384,7 +2384,7 @@ mod tests {
         );
     }
 
-    /// EG-TYPED-PACKS-R012: `ConnectorPack` and its four agent-layer write
+    /// MEDULLA-TYPED-PACKS-R012: `ConnectorPack` and its four agent-layer write
     /// methods -- the exact set named in the requirement, not the broader
     /// decision/outbox half of [`LOCAL_ONLY_METHODS`] -- are `LocalOnly` and
     /// refuse in clustered mode until a separately specified clustered writer
@@ -2395,7 +2395,7 @@ mod tests {
     /// saga or store -- the same classifier
     /// `source_batch_is_a_local_only_cluster_route` already relies on as its
     /// clustered-mode proof for `SqlSourceBatch`.
-    // spec: EG-TYPED-PACKS-R012
+    // spec: MEDULLA-TYPED-PACKS-R012
     #[test]
     fn pack_and_agent_layer_write_methods_are_the_local_only_five() {
         // Only the mutating ops are LocalOnly: the capability policy is

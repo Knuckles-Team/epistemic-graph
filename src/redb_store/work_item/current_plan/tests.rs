@@ -49,7 +49,7 @@ fn read(shard: &Shard, actor: &str, now: u64) -> Option<CurrentPlanSnapshot> {
     )
     .unwrap()
 }
-// spec: EG-DURABLE-KERNEL-R028.5
+// spec: MEDULLA-DURABLE-KERNEL-R028.5
 #[test]
 fn current_plan_publication_readback() {
     let tmp = open("current-plan-roundtrip");
@@ -82,7 +82,7 @@ fn current_plan_publication_readback() {
     });
     assert!(read(shard, "owner", 2000).is_none());
 }
-// spec: EG-DURABLE-KERNEL-R028.5
+// spec: MEDULLA-DURABLE-KERNEL-R028.5
 #[test]
 fn current_plan_refusals_preserve_row() {
     let tmp = open("current-plan-refusals");
@@ -118,7 +118,7 @@ fn current_plan_refusals_preserve_row() {
     assert_eq!(private_before, stored_plan(shard));
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5
+// spec: MEDULLA-DURABLE-KERNEL-R028.5
 #[test]
 fn renewal_does_not_extend_snapshot_and_generic_nodes_carry_no_plan() {
     let tmp = open("current-plan-private");

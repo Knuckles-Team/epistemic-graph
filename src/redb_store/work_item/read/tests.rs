@@ -127,7 +127,7 @@ fn listing_pages_resume_by_seek_and_skip_other_tenants_and_node_types() {
     assert!(error.contains("not minted for this tenant"), "{error}");
 }
 
-// spec: EG-DURABLE-KERNEL-R028.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.2
 #[test]
 fn an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item() {
     use sha2::{Digest, Sha256};
@@ -179,7 +179,7 @@ fn an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item()
     assert!(read("tenant-a").is_err(), "an altered receipt is refused");
 }
 
-// spec: EG-DURABLE-KERNEL-R028.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.2
 #[test]
 fn event_bindings_cannot_be_forged_and_missing_bound_event_is_not_legacy() {
     use eg_types::work_item_read::{WORK_ITEM_EVENT_BATCH, WORK_ITEM_EVENT_DIGEST};
@@ -218,7 +218,7 @@ fn event_bindings_cannot_be_forged_and_missing_bound_event_is_not_legacy() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.2
 #[test]
 fn a_bound_event_read_refuses_a_committed_batch_without_its_event() {
     use eg_types::work_item_read::{WORK_ITEM_EVENT_BATCH, WORK_ITEM_EVENT_DIGEST};
@@ -243,7 +243,7 @@ fn a_bound_event_read_refuses_a_committed_batch_without_its_event() {
     assert!(error.contains("terminal event is missing"), "{error}");
 }
 
-// spec: EG-DURABLE-KERNEL-R028.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.2
 #[test]
 fn present_event_payload_corruption_is_refused() {
     use eg_types::{MutationOutboxIntent, MutationOutboxRecord};
@@ -291,7 +291,7 @@ fn present_event_payload_corruption_is_refused() {
     assert!(check(&actual_digest).contains("event is malformed"));
 }
 
-// spec: EG-DURABLE-KERNEL-R028.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.2
 #[test]
 fn a_generic_write_cannot_forge_the_outcome_digest_of_a_bound_item() {
     use sha2::{Digest, Sha256};

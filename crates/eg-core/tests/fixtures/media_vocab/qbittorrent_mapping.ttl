@@ -1,5 +1,5 @@
 # Recorded virtual-graph mapping for the `qbittorrent` connector
-# (qbittorrent-agent; EG-MEDIA-VOCAB-R008.1, EG-CQ-CONN-R051). The rows are the
+# (qbittorrent-agent; MEDULLA-MEDIA-VOCAB-R008.1, MEDULLA-CQ-CONN-R051). The rows are the
 # `Connector mapping tables` entry for qbittorrent in
 # specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
 # contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary

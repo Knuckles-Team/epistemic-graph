@@ -1,4 +1,4 @@
-//! SHACL coverage for measured model facts (EG-TYPED-PACKS-R066.1).
+//! SHACL coverage for measured model facts (MEDULLA-TYPED-PACKS-R066.1).
 
 use eg_shacl::validate_turtle;
 

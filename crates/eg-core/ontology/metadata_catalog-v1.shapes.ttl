@@ -5,7 +5,7 @@
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-# Connector-backed catalog assets name exactly one connector (EG-TYPED-PACKS-R106.1).
+# Connector-backed catalog assets name exactly one connector (MEDULLA-TYPED-PACKS-R106.1).
 # AgentAsset is an Agent Library asset governed by R108 and is intentionally
 # outside this connector requirement.
 cat:ConnectorAssetShape a sh:NodeShape ;
@@ -23,7 +23,7 @@ cat:FieldShape a sh:NodeShape ;
     sh:targetClass cat:Field ;
     sh:property [ sh:path cp:servesProperty ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] .
 
-# A system-prompt candidate names at least one task it frames (EG-DECISION-ENGINE-R814.4).
+# A system-prompt candidate names at least one task it frames (MEDULLA-DECISION-ENGINE-R814.4).
 :PromptCandidateShape a sh:NodeShape ;
     sh:targetClass :PromptCandidate ;
     sh:property [ sh:path :systemPromptFor ; sh:minCount 1 ; sh:nodeKind sh:IRI ] .

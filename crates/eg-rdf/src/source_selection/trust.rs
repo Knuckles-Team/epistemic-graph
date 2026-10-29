@@ -1,4 +1,4 @@
-//! Untrusted taint mark on content that enters a run (EG-SRC-AUTH-R011).
+//! Untrusted taint mark on content that enters a run (MEDULLA-SRC-AUTH-R011).
 //!
 //! Content from a tool result, a retrieved document or an upload is
 //! `untrusted`; content from a `live_truth` source with an approved mapping is
@@ -44,7 +44,7 @@ pub trait TrustMarkPolicy {
     fn mark(&self, origin: &ContentOrigin, role: Option<SourceRole>) -> (TrustMark, &'static str);
 }
 
-/// The default rules of EG-SRC-AUTH-R011.2.
+/// The default rules of MEDULLA-SRC-AUTH-R011.2.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultTrustMarkPolicy;
 
@@ -78,7 +78,7 @@ pub fn mark_for_origin(origin: &ContentOrigin, role: Option<SourceRole>) -> Trus
     DefaultTrustMarkPolicy.mark(origin, role).0
 }
 
-/// A stored mark with its evidence (EG-SRC-AUTH-R011.5).
+/// A stored mark with its evidence (MEDULLA-SRC-AUTH-R011.5).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StoredTrustMark {
@@ -132,7 +132,7 @@ impl std::error::Error for TrustMarkRefusal {}
 
 /// Apply a requested mark to `node`. Raising to `untrusted` is always allowed;
 /// lowering `untrusted` to `trusted` needs a non-blank operator approval id
-/// (EG-SRC-AUTH-R011.4).
+/// (MEDULLA-SRC-AUTH-R011.4).
 pub fn change_trust_mark(
     node: &str,
     current: &StoredTrustMark,

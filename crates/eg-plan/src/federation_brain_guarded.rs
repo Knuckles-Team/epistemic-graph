@@ -1,4 +1,4 @@
-//! EG-DURABLE-KERNEL-R024.6: the brain-guarded backend's `ForeignSourceSpec`
+//! MEDULLA-DURABLE-KERNEL-R024.6: the brain-guarded backend's `ForeignSourceSpec`
 //! source.
 //!
 //! A brain-guarded spec names a `guard_policy` that MUST evaluate against the
@@ -29,7 +29,7 @@ pub fn register_brain_guarded(
     validate_brain_guarded_shape(spec)?;
     Err(
         "federation: brain-guarded source has no bound guard driver yet \
-         (EG-DURABLE-KERNEL-R024.6); a spec naming a guard policy is never run unguarded"
+         (MEDULLA-DURABLE-KERNEL-R024.6); a spec naming a guard policy is never run unguarded"
             .into(),
     )
 }
@@ -92,7 +92,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.6
+    // spec: MEDULLA-DURABLE-KERNEL-R024.6
     #[test]
     fn well_formed_spec_is_refused_not_silently_run_unguarded() {
         let mut registry = ForeignSourceRegistry::default();
@@ -100,7 +100,7 @@ mod tests {
         assert!(err.contains("no bound guard driver"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.6
+    // spec: MEDULLA-DURABLE-KERNEL-R024.6
     #[test]
     fn empty_guard_policy_is_rejected_before_reaching_the_refusal() {
         let mut registry = ForeignSourceRegistry::default();
@@ -112,7 +112,7 @@ mod tests {
         assert!(err.contains("invalid brain-guarded guard policy"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.6
+    // spec: MEDULLA-DURABLE-KERNEL-R024.6
     #[test]
     fn score_field_matching_id_field_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();
@@ -129,7 +129,7 @@ mod tests {
         assert!(err.contains("must differ"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.6
+    // spec: MEDULLA-DURABLE-KERNEL-R024.6
     #[test]
     fn wrong_spec_variant_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();

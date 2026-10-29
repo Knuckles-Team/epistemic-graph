@@ -254,7 +254,7 @@ fn runtime_conditional_policy_uses_query_mode_and_modality_operation() {
 /// Table-driven rather than ten near-identical tests: ten copies of the same
 /// three assertions are ten structural clones, and a table makes the ROW the
 /// reviewable thing, which is what actually differs between them.
-// spec: EG-DECISION-ENGINE-R047
+// spec: MEDULLA-DECISION-ENGINE-R047
 #[test]
 fn contract_wave_rows_declare_their_static_policy() {
     let flags = |mutates, domain, action, txn| MethodPolicy {
@@ -501,7 +501,7 @@ fn decide_governance_kinds_publish_under_admin_actions() {
 /// UQL-12: every UQL/unified-query surface is READ-ONLY by policy — no mutation, no
 /// durable domain, idempotent, snapshot-isolated. (The executor is read-only by
 /// construction too: `eg_plan`'s op dispatch takes the snapshot by shared reference.)
-// spec: EG-DURABLE-KERNEL-R023
+// spec: MEDULLA-DURABLE-KERNEL-R023
 #[test]
 fn uql_surfaces_are_read_only() {
     let surfaces = ["UnifiedQuery", "Uql"];
@@ -533,7 +533,7 @@ fn uql_surfaces_are_read_only() {
 /// registry (`eg_capabilities::contract::check` emits only `contract/*.json`
 /// and the Python client, no `.ttl`/`.shapes.ttl`), so that half is not
 /// exercised here -- see verify-gaps.tsv.
-// spec: EG-DECISION-ENGINE-R054
+// spec: MEDULLA-DECISION-ENGINE-R054
 #[test]
 fn decide_decision_fit_and_decision_eval_are_served_and_listed_together() {
     use eg_capabilities::{method_descriptors, ConsumerProfile, Stability};

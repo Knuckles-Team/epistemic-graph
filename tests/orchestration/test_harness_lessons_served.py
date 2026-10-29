@@ -1,4 +1,4 @@
-"""EG-ORCH-VOCAB-R802.6 served receipt: contrast, adoption, lesson, and refusals.
+"""MEDULLA-ORCH-VOCAB-R802.6 served receipt: contrast, adoption, lesson, and refusals.
 
 The entry point is the generated client write through
 ``ApplyChangeEnvelopes`` (``changes.apply_batch`` compiles to it): one
@@ -151,7 +151,7 @@ def _single_op_apply(
     clean_graph.changes.apply(envelope)
 
 
-# spec: EG-ORCH-VOCAB-R802.6
+# spec: MEDULLA-ORCH-VOCAB-R802.6
 def test_contrast_lesson_and_retrieval_served(clean_graph):
     graph = _graph_name(clean_graph)
     contrast_id = contrast_node_id(CONDITIONS_DIGEST, TRACE_A, TRACE_B)

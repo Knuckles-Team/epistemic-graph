@@ -1,5 +1,5 @@
 //! Typed model for the pgrx companion-extension spike's go/no-go decision
-//! (EG-UNIFIED-DATA-PLANE-R025): the spike's declared evaluation scope and
+//! (MEDULLA-UNIFIED-DATA-PLANE-R025): the spike's declared evaluation scope and
 //! its recorded decision. This is the typed-model slice (`.1`): the closed
 //! scope-area vocabulary and the refusal for a decision recorded without
 //! evidence for every declared area. `.2.1` adds the spike runner that
@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 /// One area the pgrx spike must evaluate before a decision is recorded.
-/// Closed per EG-UNIFIED-DATA-PLANE-R025's defined scope.
+/// Closed per MEDULLA-UNIFIED-DATA-PLANE-R025's defined scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PgrxSpikeArea {
@@ -104,7 +104,7 @@ pub trait PgrxSpikeAreaEvaluator {
 }
 
 /// Run the spike across every evaluator supplied, then record the given
-/// outcome. This is the runner slice (`EG-UNIFIED-DATA-PLANE-R025.2.1`):
+/// outcome. This is the runner slice (`MEDULLA-UNIFIED-DATA-PLANE-R025.2.1`):
 /// it assembles a `PgrxSpikeDecision` from one evidence source per area and
 /// defers to `PgrxSpikeDecision::validate` for the full-scope refusal, so a
 /// caller supplying evaluators for fewer than all declared areas gets the
@@ -168,7 +168,7 @@ mod tests {
         PgrxSpikeArea::ALL.into_iter().map(evidence).collect()
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.1
     #[test]
     fn complete_decision_validates_with_its_outcome() {
         let decision = PgrxSpikeDecision {
@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(decision.validate(), Ok(PgrxSpikeOutcome::NoGo));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.1
     #[test]
     fn missing_area_is_refused_and_named() {
         let mut evidence = full_evidence();
@@ -194,7 +194,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.1
     #[test]
     fn decision_without_outcome_is_refused() {
         let decision = PgrxSpikeDecision {
@@ -204,7 +204,7 @@ mod tests {
         assert_eq!(decision.validate(), Err(InvalidPgrxDecision::NoOutcome));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.1
     #[test]
     fn empty_decision_names_every_missing_area() {
         let decision = PgrxSpikeDecision::default();
@@ -214,7 +214,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.1
     #[test]
     fn decision_serializes_round_trip() {
         let decision = PgrxSpikeDecision {
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(decoded, decision);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.2.1
     #[test]
     fn run_spike_assembles_a_valid_decision_from_every_declared_area() {
         let evaluators = fake_evaluators();
@@ -239,7 +239,7 @@ mod tests {
         assert_eq!(decision.validate(), Ok(PgrxSpikeOutcome::Go));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.2.1
     #[test]
     fn run_spike_refuses_a_decision_missing_an_area() {
         let evaluators = fake_evaluators();
@@ -254,7 +254,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R025.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R025.2.1
     #[test]
     fn run_spike_refuses_a_decision_with_no_outcome() {
         let evaluators = fake_evaluators();

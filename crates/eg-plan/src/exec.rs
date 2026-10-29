@@ -2692,7 +2692,7 @@ mod scan_order_tests {
         assert_eq!(plan.execute(&ctx).unwrap().ids(), vec!["a", "b"]);
     }
 
-    // spec: EG-FEDERATED-QUERY-R022.1
+    // spec: MEDULLA-FEDERATED-QUERY-R022.1
     #[test]
     fn scan_matches_every_label_field_writers_store() {
         let core = GraphCore::new();
@@ -2718,7 +2718,7 @@ mod scan_order_tests {
         assert!(scan("Missing").is_empty());
     }
 
-    // spec: EG-FEDERATED-QUERY-R070
+    // spec: MEDULLA-FEDERATED-QUERY-R070
     #[test]
     fn traverse_budget_counts_intermediate_hops_before_returning_rows() {
         let core = GraphCore::new();

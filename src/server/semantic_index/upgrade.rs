@@ -1276,7 +1276,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    // spec: EG-DURABLE-KERNEL-R006.3
+    // spec: MEDULLA-DURABLE-KERNEL-R006.3
     #[test]
     fn tenant_census_removes_only_ordinary_named_clean_markers() {
         let root = tempfile::tempdir().unwrap();
@@ -1304,7 +1304,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R006.3
+    // spec: MEDULLA-DURABLE-KERNEL-R006.3
     #[test]
     fn source_census_accepts_only_ordinary_named_clean_markers() {
         let root = tempfile::tempdir().unwrap();

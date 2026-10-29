@@ -248,7 +248,7 @@ fn budgets_refuse_with_a_typed_error() {
     assert!(err.starts_with(crate::budget::BUDGET_EXCEEDED), "{err}");
 }
 
-// Regression coverage for EG-FEDERATED-QUERY-R070; native acceptance remains pending.
+// Regression coverage for MEDULLA-FEDERATED-QUERY-R070; native acceptance remains pending.
 #[test]
 fn profile_refuses_when_final_rows_exceed_budget() {
     let (view, semantic) = fixture();

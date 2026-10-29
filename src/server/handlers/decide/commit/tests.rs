@@ -118,7 +118,7 @@ fn owner_bytes(dir: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
     files
 }
 
-// spec: EG-DECISION-ENGINE-R113.2.1
+// spec: MEDULLA-DECISION-ENGINE-R113.2.1
 #[tokio::test]
 async fn topology_commit_refuses_uncoordinated_owners() {
     #[cfg(any(feature = "security", feature = "raft"))]

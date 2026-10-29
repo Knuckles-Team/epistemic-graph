@@ -1,5 +1,5 @@
 //! Typed model for metadata materialization and selective acceleration
-//! (EG-UNIFIED-DATA-PLANE-R038): the versioned, hashed `MetadataContract`
+//! (MEDULLA-UNIFIED-DATA-PLANE-R038): the versioned, hashed `MetadataContract`
 //! every registered source kind's discovery writes (metadata only, never
 //! copied entity rows), and the `AccelerationPolicy` that alone decides
 //! whether a mapping's query fragment may run from a copy instead of live.
@@ -26,7 +26,7 @@ pub struct MetadataContract {
 }
 
 /// The closed set of attached-source categories. Each category is one row of
-/// the source-category coverage matrix (EG-UNIFIED-DATA-PLANE-R022.4); an
+/// the source-category coverage matrix (MEDULLA-UNIFIED-DATA-PLANE-R022.4); an
 /// unknown category refuses at deserialization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -205,13 +205,13 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R038.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn well_formed_contract_validates() {
         assert_eq!(validate_contract(&contract()), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R038.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn contract_with_empty_source_kind_is_refused() {
         let mut bad = contract();
@@ -219,7 +219,7 @@ mod tests {
         assert!(validate_contract(&bad).is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R038.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn fully_declared_policy_resolves_to_copy() {
         let p = policy(
@@ -231,21 +231,21 @@ mod tests {
         assert_eq!(p.resolve_mode(), FragmentExecutionMode::Copy);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R038.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn missing_watermark_falls_back_to_live() {
         let p = policy(true, "updated_at > now() - interval '1 day'", None);
         assert_eq!(p.resolve_mode(), FragmentExecutionMode::Live);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R038.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn cold_mapping_with_no_predicate_is_live() {
         let p = policy(true, "", None);
         assert_eq!(p.resolve_mode(), FragmentExecutionMode::Live);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R038.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn predicate_without_copy_capability_is_refused() {
         let p = policy(
@@ -259,7 +259,7 @@ mod tests {
         assert!(error.0.contains("copy capability"), "{error}");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R038.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.3.1
     #[test]
     fn snapshot_semantics_round_trip() {
         let semantics = SnapshotSemantics {

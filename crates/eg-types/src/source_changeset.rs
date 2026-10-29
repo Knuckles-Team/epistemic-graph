@@ -1,8 +1,8 @@
-//! The source changeset record (EG-SCM-R002): one commit-shaped change to a
-//! repository, with its structured trailers (EG-SCM-R002.1).
+//! The source changeset record (MEDULLA-SCM-R002): one commit-shaped change to a
+//! repository, with its structured trailers (MEDULLA-SCM-R002.1).
 //!
 //! Pure data. Acceptance, rebase and git import and export live above this
-//! crate; EG-SDLC derivation reads the typed trailer fields.
+//! crate; MEDULLA-SDLC derivation reads the typed trailer fields.
 
 use serde::{Deserialize, Serialize};
 
@@ -117,14 +117,14 @@ pub struct Changeset {
 mod tests {
     use super::*;
 
-    // spec: EG-SCM-R002.1
+    // spec: MEDULLA-SCM-R002.1
     #[test]
     fn trailers_parse_and_render_round_trip() {
-        let message = "feat: x\n\nbody\n\nSpec: EG-A-R001, EG-A-R002.1\nFixes: DEF-7\nSpec-Withdraw: EG-A-R009 (superseded)";
+        let message = "feat: x\n\nbody\n\nSpec: MEDULLA-A-R001, MEDULLA-A-R002.1\nFixes: DEF-7\nSpec-Withdraw: MEDULLA-A-R009 (superseded)";
         let trailers = Trailers::parse(message);
-        assert_eq!(trailers.spec_ids, ["EG-A-R001", "EG-A-R002.1"]);
+        assert_eq!(trailers.spec_ids, ["MEDULLA-A-R001", "MEDULLA-A-R002.1"]);
         assert_eq!(trailers.fixes, ["DEF-7"]);
-        assert_eq!(trailers.withdraw, ["EG-A-R009"]);
+        assert_eq!(trailers.withdraw, ["MEDULLA-A-R009"]);
         assert_eq!(trailers.withdraw_reason.as_deref(), Some("superseded"));
         assert_eq!(Trailers::parse(&trailers.render()), trailers);
         assert!(Trailers::parse("fix\n\nSpec: none (ci)")

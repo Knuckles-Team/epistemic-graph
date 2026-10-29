@@ -1,4 +1,4 @@
-//! Data product, contract and access-request records (EG-TYPED-PACKS-R805.1).
+//! Data product, contract and access-request records (MEDULLA-TYPED-PACKS-R805.1).
 
 use eg_types::data_product::{
     parse_product_version, AccessRequest, AccessRequestState, DataContract, DataProduct,
@@ -35,7 +35,7 @@ fn product() -> DataProduct {
     }
 }
 
-// spec: EG-TYPED-PACKS-R805.1
+// spec: MEDULLA-TYPED-PACKS-R805.1
 #[test]
 fn records_round_trip() {
     let product = product();
@@ -67,7 +67,7 @@ fn records_round_trip() {
     assert_eq!(parse_product_version("2.1.0"), Some((2, 1, 0)));
 }
 
-// spec: EG-TYPED-PACKS-R805.1
+// spec: MEDULLA-TYPED-PACKS-R805.1
 #[test]
 fn invalid_records_are_refused() {
     for version in ["2.1", "2.1.0.1", "v2.1.0", "2..0", ""] {

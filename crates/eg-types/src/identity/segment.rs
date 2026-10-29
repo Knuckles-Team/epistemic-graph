@@ -206,7 +206,7 @@ mod tests {
         lineage
     }
 
-    // spec: EG-IDENTITY-R023.2
+    // spec: MEDULLA-IDENTITY-R023.2
     #[test]
     fn superseded_and_foreign_units_hidden() {
         let alice = principal("usr:alice", "p1", "t1");

@@ -84,7 +84,7 @@ def _sources() -> dict[str, str]:
     }
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R123")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R123")
 def test_solve_dtos_have_no_second_definition() -> None:
     assert not _duplicate_dtos(_sources())
 
@@ -142,7 +142,7 @@ def _kind_sources() -> tuple[str, str]:
     return component, "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R074")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R074")
 def test_agent_slot_kinds_are_documented_in_closure_rule() -> None:
     _assert_kind_closure(*_kind_sources())
 

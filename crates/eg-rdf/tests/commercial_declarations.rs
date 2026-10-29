@@ -1,5 +1,5 @@
 //! Native-parser and reasoner contract for the commercial vocabulary
-//! (EG-SUPPLY-VOCAB-R003.1/R003.10, EG-CQ-XSRC-R008.3.1).
+//! (MEDULLA-SUPPLY-VOCAB-R003.1/R003.10, MEDULLA-CQ-XSRC-R008.3.1).
 #![cfg(feature = "owl")]
 
 mod common;
@@ -21,7 +21,7 @@ fn documents() -> Vec<Triple> {
     ])
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.1
+// spec: MEDULLA-SUPPLY-VOCAB-R003.1
 #[test]
 fn customer_entails_organization_and_business_actor() {
     let triples = documents();
@@ -54,7 +54,7 @@ fn customer_entails_organization_and_business_actor() {
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.10
+// spec: MEDULLA-SUPPLY-VOCAB-R003.10
 #[test]
 fn opportunity_terms_listed_with_domain_and_range() {
     let triples = documents();
@@ -86,8 +86,8 @@ fn opportunity_terms_listed_with_domain_and_range() {
     ));
 }
 
-// spec: EG-CQ-XSRC-R008.3.1
-// spec: EG-SUPPLY-VOCAB-R003.6
+// spec: MEDULLA-CQ-XSRC-R008.3.1
+// spec: MEDULLA-SUPPLY-VOCAB-R003.6
 #[test]
 fn customer_contract_and_covers_service_declared() {
     let triples = documents();
@@ -115,7 +115,7 @@ fn customer_contract_and_covers_service_declared() {
         &format!("{RDFS}range"),
         &format!("{INFRA}Service")
     ));
-    // The EG-SUPPLY-VOCAB amendment (plan.md D3, recorded by R003.6 after both
+    // The MEDULLA-SUPPLY-VOCAB amendment (plan.md D3, recorded by R003.6 after both
     // PRs) replaces the commercial `:ChangeRequest` plan with the existing
     // `kg:Change`. This fixture is intentionally scoped to the commercial
     // documents below; service_operations-v1.ttl retains its distinct
@@ -148,7 +148,7 @@ fn customer_contract_and_covers_service_declared() {
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.2
+// spec: MEDULLA-SUPPLY-VOCAB-R003.2
 #[test]
 fn customer_contract_terms_listed_with_domain_and_range() {
     let triples = documents();
@@ -202,7 +202,7 @@ fn customer_contract_terms_listed_with_domain_and_range() {
     ));
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.4
+// spec: MEDULLA-SUPPLY-VOCAB-R003.4
 #[test]
 fn supports_capability_listed_with_domain_and_range() {
     let triples = documents();
@@ -228,7 +228,7 @@ fn supports_capability_listed_with_domain_and_range() {
     ));
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.8
+// spec: MEDULLA-SUPPLY-VOCAB-R003.8
 #[test]
 fn purchase_order_listed_with_exactly_one_declaration() {
     let triples = documents();

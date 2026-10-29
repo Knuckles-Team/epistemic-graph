@@ -27,7 +27,7 @@ pub use oxrdf;
 #[cfg(feature = "rdf")]
 pub mod mapping;
 
-/// EG-FEDERATED-QUERY-R072.1 — the typed, read-only model of ontology-driven
+/// MEDULLA-FEDERATED-QUERY-R072.1 — the typed, read-only model of ontology-driven
 /// cross-source coverage: a [`source_selection::CoverageResult`] names, per
 /// queried class, the approved virtual mapping that serves it (directly or via an
 /// entailed `subClassOf` superclass), the class itself as uncovered, or a
@@ -37,7 +37,7 @@ pub mod mapping;
 /// R073 mapping-type lane this builds toward.
 pub mod source_selection;
 
-/// EG-CQ-XSRC-R006.5 — Medulla's side of the served supply-chain impact
+/// MEDULLA-CQ-XSRC-R006.5 — Medulla's side of the served supply-chain impact
 /// method: plans the question's ontology classes through
 /// [`source_selection::select_sources`] and assembles the typed
 /// `SupplyChainImpactReport` (eg-types) from the planned rows and premises.

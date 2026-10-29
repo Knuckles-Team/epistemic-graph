@@ -14,7 +14,7 @@ pub(super) fn decode_json_object(blob: &[u8]) -> serde_json::Map<String, serde_j
     eg_types::msgpack::decode_property_object(blob).unwrap_or_default()
 }
 
-// EG-ORCH-VOCAB-R801.3 — the versioned harness-component write attaches to
+// MEDULLA-ORCH-VOCAB-R801.3 — the versioned harness-component write attaches to
 // the existing AddNode path at the pre-commit point in `try_handle_gateway`
 // (beside the owner-id stamp), through
 // `crate::server::harness_admission::direct_add_node`: the method is mutated

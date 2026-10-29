@@ -231,7 +231,7 @@ class GeneratedClientContract(unittest.TestCase):
         self.trees = _module_trees()
         self.sends = _generated_sends(self.trees)
 
-    @pytest.mark.spec("EG-CONTRACT-R016")
+    @pytest.mark.spec("MEDULLA-CONTRACT-R016")
     def test_every_python_profile_method_has_exactly_one_generated_function(
         self,
     ) -> None:

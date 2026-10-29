@@ -1,4 +1,4 @@
-//! Pure worker registry producer for EG-DURABLE-KERNEL-R074.1.
+//! Pure worker registry producer for MEDULLA-DURABLE-KERNEL-R074.1.
 //! This module does not serve RPCs, authenticate workers, or persist records.
 
 mod grants;
@@ -188,8 +188,8 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R074.1
-    // spec: EG-PLACEMENT-R002.1
+    // spec: MEDULLA-DURABLE-KERNEL-R074.1
+    // spec: MEDULLA-PLACEMENT-R002.1
     #[test]
     fn capacity_round_trips_and_heartbeat_extends_expiry() {
         let mut registry = WorkerRegistry::default();
@@ -209,7 +209,7 @@ mod tests {
         assert!(registry.expire(190).is_empty());
     }
 
-    // spec: EG-DURABLE-KERNEL-R074.1
+    // spec: MEDULLA-DURABLE-KERNEL-R074.1
     #[test]
     fn invalid_registration_never_inserts_a_worker() {
         let mut registry = WorkerRegistry::default();
@@ -254,7 +254,7 @@ mod tests {
         assert!(registry.records.is_empty());
     }
 
-    // spec: EG-DURABLE-KERNEL-R074.1
+    // spec: MEDULLA-DURABLE-KERNEL-R074.1
     #[test]
     fn unknown_expired_and_regressing_heartbeats_are_refused_without_mutation() {
         let mut registry = WorkerRegistry::default();
@@ -274,7 +274,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R074.1
+    // spec: MEDULLA-DURABLE-KERNEL-R074.1
     #[test]
     fn live_duplicate_refused_and_expired_identity_can_reregister() {
         let mut registry = WorkerRegistry::default();

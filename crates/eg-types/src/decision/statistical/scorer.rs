@@ -53,7 +53,7 @@ fn within(name: &str, value: usize, maximum: usize) -> Result<(), String> {
     Err(format!("scorer {name} {value} is outside 1..={maximum}"))
 }
 
-/// EG-DECISION-ENGINE-R090.1: the declared resident budget a compiled scorer
+/// MEDULLA-DECISION-ENGINE-R090.1: the declared resident budget a compiled scorer
 /// must stay inside -- "on the order of 700,000 parameters and a few
 /// megabytes", serving a decision in single-digit milliseconds on CPU, with
 /// no Python runtime, sidecar process, inter-process hop or GPU. Split out
@@ -153,7 +153,7 @@ mod budget_tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R090.1
+    // spec: MEDULLA-DECISION-ENGINE-R090.1
     #[test]
     fn a_budget_at_the_ceiling_is_declared() {
         let budget = ResidentScorerBudget::declare(700_000, 8 * 1024 * 1024, 9_999)
@@ -161,7 +161,7 @@ mod budget_tests {
         assert_eq!(budget, RESIDENT_SCORER_CEILING);
     }
 
-    // spec: EG-DECISION-ENGINE-R090.1
+    // spec: MEDULLA-DECISION-ENGINE-R090.1
     #[test]
     fn a_budget_over_the_parameter_ceiling_is_refused() {
         let err = ResidentScorerBudget::declare(700_001, 1024, 1_000)
@@ -169,7 +169,7 @@ mod budget_tests {
         assert!(err.contains("700001"));
     }
 
-    // spec: EG-DECISION-ENGINE-R090.1
+    // spec: MEDULLA-DECISION-ENGINE-R090.1
     #[test]
     fn a_budget_over_the_latency_ceiling_is_refused() {
         let err = ResidentScorerBudget::declare(1, 1024, 10_000)
@@ -177,7 +177,7 @@ mod budget_tests {
         assert!(err.contains("10000"));
     }
 
-    // spec: EG-DECISION-ENGINE-R090.1
+    // spec: MEDULLA-DECISION-ENGINE-R090.1
     #[test]
     fn a_budget_over_the_byte_ceiling_is_refused() {
         let ceiling = RESIDENT_SCORER_CEILING;
@@ -186,7 +186,7 @@ mod budget_tests {
         assert!(err.contains("8388609"));
     }
 
-    // spec: EG-DECISION-ENGINE-R090.1
+    // spec: MEDULLA-DECISION-ENGINE-R090.1
     #[test]
     fn each_budget_axis_accepts_its_boundary_and_refuses_overflow() {
         let ceiling = RESIDENT_SCORER_CEILING;

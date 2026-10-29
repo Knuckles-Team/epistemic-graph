@@ -38,7 +38,7 @@ impl<'a> GraphTxn<'a> {
     }
 
     /// Add (or idempotently overwrite) the edge identified by the
-    /// `(source_id, target_id, relation_type)` triple (spec: EG-REPO-INGEST-R009.1
+    /// `(source_id, target_id, relation_type)` triple (spec: MEDULLA-REPO-INGEST-R009.1
     /// — edge identity is this triple, not the bare endpoint pair). Writes
     /// `relation_type` into the stored blob's canonical `relationship` field,
     /// overriding any value already present in `properties_msgpack`. If an
@@ -84,7 +84,7 @@ impl<'a> GraphTxn<'a> {
 
     /// Remove only the edge(s) between `source_id` and `target_id` whose
     /// [`blob_relation_type`] equals `relation_type`, leaving any other typed
-    /// edge between the same endpoints untouched (spec: EG-REPO-INGEST-R009.1).
+    /// edge between the same endpoints untouched (spec: MEDULLA-REPO-INGEST-R009.1).
     /// A no-op if no edge of that type exists between these endpoints.
     pub fn remove_typed_edge(&mut self, source_id: &str, target_id: &str, relation_type: &str) {
         let key = (source_id.to_string(), target_id.to_string());

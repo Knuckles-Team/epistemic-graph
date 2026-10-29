@@ -1,5 +1,5 @@
 //! Typed model for the Postgres compatibility-gap inventory
-//! (EG-UNIFIED-DATA-PLANE-R027): a feature is fixed only once captured
+//! (MEDULLA-UNIFIED-DATA-PLANE-R027): a feature is fixed only once captured
 //! application traffic proves it is needed, with a test shown failing
 //! before the fix and passing after. This is the typed-model slice (`.1`):
 //! the closed feature inventory and the refusal to mark a feature fixed
@@ -98,7 +98,7 @@ impl FeatureFixRecord {
 }
 
 /// A source of captured application traffic for one feature, pluggable so
-/// the capture runner (`EG-UNIFIED-DATA-PLANE-R027.2.1`) needs no live
+/// the capture runner (`MEDULLA-UNIFIED-DATA-PLANE-R027.2.1`) needs no live
 /// candidate application. Needs no live service: driven against a fake
 /// capture source in tests.
 pub trait TrafficCaptureSource {
@@ -129,7 +129,7 @@ impl std::error::Error for CaptureProofError {}
 
 /// Assemble one feature's `FeatureFixRecord` from a pluggable
 /// `TrafficCaptureSource`, refusing to mark it fixed unless the source
-/// supplies a complete, valid proof (`EG-UNIFIED-DATA-PLANE-R027.2.1`).
+/// supplies a complete, valid proof (`MEDULLA-UNIFIED-DATA-PLANE-R027.2.1`).
 pub fn capture_feature_fix(
     source: &dyn TrafficCaptureSource,
     feature: PgCompatFeature,
@@ -161,7 +161,7 @@ impl std::fmt::Display for FixNotProven {
 impl std::error::Error for FixNotProven {}
 
 /// Apply a feature's fix only once its record carries a complete, valid
-/// proof (`EG-UNIFIED-DATA-PLANE-R027.3.1`); refuses -- without invoking
+/// proof (`MEDULLA-UNIFIED-DATA-PLANE-R027.3.1`); refuses -- without invoking
 /// `apply` -- to apply a fix the record does not yet prove needed. Needs no
 /// live Postgres-compatible target: the caller's actual fix is injected as
 /// `apply`, called only after the proof check passes.
@@ -190,7 +190,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.1
     #[test]
     fn unfixed_feature_with_no_proof_validates() {
         let record = FeatureFixRecord {
@@ -201,7 +201,7 @@ mod tests {
         assert!(!record.is_fixed());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.1
     #[test]
     fn fixed_feature_with_complete_proof_validates() {
         let record = FeatureFixRecord {
@@ -212,7 +212,7 @@ mod tests {
         assert!(record.is_fixed());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.1
     #[test]
     fn proof_with_empty_traffic_ref_is_refused() {
         let mut bad_proof = proof();
@@ -225,7 +225,7 @@ mod tests {
         assert!(!record.is_fixed());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.1
     #[test]
     fn proof_with_empty_failing_test_ref_is_refused() {
         let mut bad_proof = proof();
@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(record.validate(), Err(InvalidFeatureFix::IncompleteProof));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.1
     #[test]
     fn record_serializes_round_trip() {
         let record = FeatureFixRecord {
@@ -259,7 +259,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.2.1
     #[test]
     fn capture_with_complete_proof_produces_a_valid_fixed_record() {
         let source = FakeCaptureSource {
@@ -269,7 +269,7 @@ mod tests {
         assert!(record.is_fixed());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.2.1
     #[test]
     fn capture_with_no_traffic_yet_is_not_proven() {
         let source = FakeCaptureSource { proof: None };
@@ -277,7 +277,7 @@ mod tests {
         assert_eq!(err, CaptureProofError::NotProven);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.2.1
     #[test]
     fn capture_with_incomplete_proof_is_refused() {
         let mut bad_proof = proof();
@@ -292,7 +292,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.3.1
     #[test]
     fn apply_proven_fix_invokes_apply_exactly_once_when_proven() {
         let record = FeatureFixRecord {
@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(calls, 1);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R027.3.1
     #[test]
     fn apply_proven_fix_refuses_an_unproven_record_without_calling_apply() {
         let record = FeatureFixRecord {

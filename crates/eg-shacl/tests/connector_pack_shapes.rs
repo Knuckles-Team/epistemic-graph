@@ -1,5 +1,5 @@
 //! Native SHACL acceptance for the connector-pack surface shapes
-//! (EG-TYPED-PACKS-R102.1).
+//! (MEDULLA-TYPED-PACKS-R102.1).
 
 use eg_shacl::validate_turtle;
 
@@ -42,7 +42,7 @@ ex:billingFeature a cp:Feature{} .
     )
 }
 
-// spec: EG-TYPED-PACKS-R102.1
+// spec: MEDULLA-TYPED-PACKS-R102.1
 #[test]
 fn surface_shapes_accept_valid_and_refuse_invalid() {
     // A tool with one component id and one operatesOn domain class conforms.

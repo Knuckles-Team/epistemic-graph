@@ -256,7 +256,7 @@ proptest! {
 
 /// A concrete regression for the Scan-over-matches bug: an incremental `Scan{Doc}` must
 /// select the SAME nodes as `execute` — those carrying `Doc` under `type`, `node_type`
-/// or `label` (EG-FEDERATED-QUERY-R022.1), never another label. (Deterministic, so it
+/// or `label` (MEDULLA-FEDERATED-QUERY-R022.1), never another label. (Deterministic, so it
 /// pins the exact fix without proptest.)
 #[test]
 fn scan_type_only_matches_execute() {

@@ -1,4 +1,4 @@
-# Media shapes (EG-MEDIA-VOCAB-R004.1 to R004.3).
+# Media shapes (MEDULLA-MEDIA-VOCAB-R004.1 to R004.3).
 #
 # SHACL Core plus aggregate-free `sh:sparql` only (the virtual-graph shapes
 # convention, DECIDE §4.8): the absence check uses the

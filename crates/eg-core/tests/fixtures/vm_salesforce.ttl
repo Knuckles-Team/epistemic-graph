@@ -1,10 +1,10 @@
 # Virtual-mapping fixture: salesforce Account to kg:Customer and Contract
-# to kg:CustomerContract (EG-SUPPLY-VOCAB-R005.6).
+# to kg:CustomerContract (MEDULLA-SUPPLY-VOCAB-R005.6).
 #
 # Recorded over the `salesforce_soql` operation. The standard `Account`
 # sObject is rank 1 for Customer; the standard `Contract` sObject is read by
 # SOQL directly -- the connector ontology declares no `Contract` class today
-# (row EG-SUPPLY-VOCAB-R005.7, agent-packages), so the mapping is approved
+# (row MEDULLA-SUPPLY-VOCAB-R005.7, agent-packages), so the mapping is approved
 # against the discovered SOQL contract, not a declared class.
 
 @prefix vg:    <http://knuckles.team/kg/virtual-graph#> .

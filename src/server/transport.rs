@@ -640,7 +640,7 @@ pub async fn serve_uds(
 }
 
 /// Bind the private UDS listener WITHOUT accepting — the startup-ordering
-/// hook (EG-DURABLE-KERNEL-R006.4): the post-bind maintenance tasks are
+/// hook (MEDULLA-DURABLE-KERNEL-R006.4): the post-bind maintenance tasks are
 /// spawned between this and the accept loop, so the listener is already up
 /// when they start.
 #[cfg(unix)]
@@ -721,7 +721,7 @@ pub async fn serve_tcp(
 }
 
 /// Bind the native TCP listener WITHOUT accepting — the startup-ordering
-/// hook (EG-DURABLE-KERNEL-R006.4), the TCP half of [`bind_uds`].
+/// hook (MEDULLA-DURABLE-KERNEL-R006.4), the TCP half of [`bind_uds`].
 pub async fn bind_tcp(addr: &str, tls: &Option<PreparedTcpTls>) -> std::io::Result<TcpListener> {
     #[cfg(feature = "server-tls")]
     let acceptor = tls.as_ref().map(|value| value.acceptor.clone());

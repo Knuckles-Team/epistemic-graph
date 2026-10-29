@@ -1,6 +1,6 @@
 use super::*;
 
-// spec: EG-DURABLE-KERNEL-R028.5
+// spec: MEDULLA-DURABLE-KERNEL-R028.5
 #[test]
 fn current_plan_status_matches_scaffold_contract() {
     assert_eq!(
@@ -17,7 +17,7 @@ fn current_plan_status_matches_scaffold_contract() {
     assert!(request.validate().is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.1
 #[test]
 fn current_plan_task_plan_validation_and_legacy_roundtrip() {
     for request in [sample_publish_request(), sample_task_plan_publish_request()] {
@@ -53,7 +53,7 @@ fn current_plan_task_plan_validation_and_legacy_roundtrip() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.1
 #[test]
 fn current_plan_task_plan_rejects_unpaired_or_changed_content() {
     let request = sample_task_plan_publish_request();
@@ -107,7 +107,7 @@ fn current_plan_task_plan_rejects_unpaired_or_changed_content() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5
+// spec: MEDULLA-DURABLE-KERNEL-R028.5
 #[test]
 fn current_plan_identifier_byte_boundary_and_error_precedence() {
     let mut request = sample_publish_request();

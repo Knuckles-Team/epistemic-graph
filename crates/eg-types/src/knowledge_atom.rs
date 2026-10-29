@@ -1,4 +1,4 @@
-//! Typed knowledge atoms with mandatory provenance (EG-INGEST-WORKER-R003.1).
+//! Typed knowledge atoms with mandatory provenance (MEDULLA-INGEST-WORKER-R003.1).
 //!
 //! Decomposition, selection and storage are later rows (R003.2 to R003.6).
 
@@ -32,7 +32,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // spec: EG-INGEST-WORKER-R003.1
+    // spec: MEDULLA-INGEST-WORKER-R003.1
     #[test]
     fn atom_round_trips_and_rejects_unknown_kind() {
         let atom = KnowledgeAtom {

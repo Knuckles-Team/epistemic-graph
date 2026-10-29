@@ -1,4 +1,4 @@
-//! Typed semantic changeset-review data (EG-DURABLE-KERNEL-R087.1).
+//! Typed semantic changeset-review data (MEDULLA-DURABLE-KERNEL-R087.1).
 //!
 //! This module deliberately contains only the model: a graph mutation and
 //! reviewer scope, a severity/class filter, and findings bound to exact code
@@ -231,7 +231,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R087.1
+    // spec: MEDULLA-DURABLE-KERNEL-R087.1
     #[test]
     fn every_flaw_class_and_evidence_round_trips() {
         let classes = [
@@ -252,7 +252,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R087.1
+    // spec: MEDULLA-DURABLE-KERNEL-R087.1
     #[test]
     fn request_round_trips_mutation_reviewer_scope_and_policy() {
         let request = ChangesetReviewRequest {
@@ -270,7 +270,7 @@ mod tests {
         assert_eq!(request.validate(), Ok(()));
     }
 
-    // spec: EG-DURABLE-KERNEL-R087.1
+    // spec: MEDULLA-DURABLE-KERNEL-R087.1
     #[test]
     fn impact_and_class_filters_are_applied_without_losing_evidence() {
         let policy = ImpactFilterPolicy {
@@ -296,7 +296,7 @@ mod tests {
         assert_eq!(accepted.evidence, evidence());
     }
 
-    // spec: EG-DURABLE-KERNEL-R087.1
+    // spec: MEDULLA-DURABLE-KERNEL-R087.1
     #[test]
     fn malformed_mutation_scope_and_evidence_refuse() {
         let mut bad_mutation = mutation();

@@ -1,4 +1,4 @@
-# EG-CQ-CONN — Design and implementation plan
+# MEDULLA-CQ-CONN — Design and implementation plan
 
 Owner: Medulla. The governing behavior and requirement
 IDs are in [spec.md](spec.md) and [requirements.md](requirements.md). The complete
@@ -247,7 +247,7 @@ Terms to add, by file. Each is one child row (a 5-minute unit: one class or prop
 | `enterprise-v1.ttl` | 3 | `:factSheetType`, `:lifecyclePhase`, `:activeUserCount` |
 | `nutrition-v1.ttl` | 8 | `:Recipe`, `:usesIngredient`, `:ShoppingListItem`, `:MealPlanEntry`, `:WorkoutRoutine`, `:Exercise`, `:includesExercise`, `:WorkoutSession` |
 | `action-v1.ttl` | 1 | `:failureReason` |
-| `commercial-v1.ttl` | See `EG-SUPPLY-VOCAB-R003` | Commercial declarations belong to the supply-chain vocabulary. |
+| `commercial-v1.ttl` | See `MEDULLA-SUPPLY-VOCAB-R003` | Commercial declarations belong to the supply-chain vocabulary. |
 
 Only `finance-v1` has a `.shapes.ttl` companion today. Other files register
 `shapes: None`. Each constrained file rollup has a first child. That child
@@ -292,14 +292,14 @@ Ciso Assistant and OneTrust use `government-v1.ttl`.
 OneTrust derives overdue status from assessmentDueDate and assessmentStatus; assessedVendor refers to the existing TRM Vendor class.
 ServiceNow uses the shared kg Incident and Change anchors in `archimate-v1.ttl`.
 GitHub, GitLab, and Repository Manager use canonical Repository and Branch classes from `software-v1.ttl` together with the lifecycle-specific Worktree and other terms in `sdlc_lifecycle-v1.ttl`.
-DockerHub uses `infrastructure-v1.ttl` and the canonical `software-v1.ttl` Repository via `EG-CQ-CONN-R069.2`.
+DockerHub uses `infrastructure-v1.ttl` and the canonical `software-v1.ttl` Repository via `MEDULLA-CQ-CONN-R069.2`.
 Egeria and Legal Peripherals use `core-foundation-v1.ttl`; the generated catalog remains term-free.
 Gramps, Paperless, and Nextcloud use `personal-v1.ttl`.
 StirlingPDF uses `action-v1.ttl`.
-Erpnext, Salesforce, and Twenty use `commercial-v1.ttl`, owned by `EG-SUPPLY-VOCAB-R003`.
+Erpnext, Salesforce, and Twenty use `commercial-v1.ttl`, owned by `MEDULLA-SUPPLY-VOCAB-R003`.
 Commercial Party and Contact representations reuse Organization and Person under that owner's current requirements.
 
-`EG-CQ-CONN-R083` requires exact commercial vocabulary cells, registered IRIs, and missing-producer refusal fixtures.
+`MEDULLA-CQ-CONN-R083` requires exact commercial vocabulary cells, registered IRIs, and missing-producer refusal fixtures.
 The fifteen noncommercial `.3` acceptance rows list exact producer dependencies in requirements.md.
 Their tests check exact coverage and requirement cells, registered IRIs, and refusal fixtures.
 Tests must resolve full IRIs from registered modules, including cross-module prerequisites.
@@ -309,7 +309,7 @@ Vocabulary declarations alone do not prove runtime competency.
 
 ## Connector-pack competency questions (R084)
 
-Every connector ships an OWL/RDF ontology pack with its domain ontology, ingest contract and surface. The engine imports it as native relationships (`EG-TYPED-PACKS-R101`, `EG-TYPED-PACKS-R102`). R084 states the acceptance questions for that design. The engine answers each by SPARQL over imported packs. The method-selection question also runs through `Decide` (`EG-DECISION-ENGINE-R172.12`). Call path: `ConnectorPack.Import` → pack graph → `SourceIngest` → served SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `handle_decide` (`src/server/handlers/decide/stat_decide.rs:50`).
+Every connector ships an OWL/RDF ontology pack with its domain ontology, ingest contract and surface. The engine imports it as native relationships (`MEDULLA-TYPED-PACKS-R101`, `MEDULLA-TYPED-PACKS-R102`). R084 states the acceptance questions for that design. The engine answers each by SPARQL over imported packs. The method-selection question also runs through `Decide` (`MEDULLA-DECISION-ENGINE-R172.12`). Call path: `ConnectorPack.Import` → pack graph → `SourceIngest` → served SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `handle_decide` (`src/server/handlers/decide/stat_decide.rs:50`).
 
 ## Amendments
 
@@ -336,7 +336,7 @@ four named bulk rows:
   not exist on main.
 - R069.2 (`:Repository`), R069.3 (`:Branch`) and R069.11 (`:proposalState`)
   need `sdlc_lifecycle-v1.ttl`; R084.5 needs `finance-v1.ttl` and
-  `finance-v1.shapes.ttl`. The vocabulary lane (EG-SUPPLY-VOCAB-R003.x)
+  `finance-v1.shapes.ttl`. The vocabulary lane (MEDULLA-SUPPLY-VOCAB-R003.x)
   owns those ontology files, not this delivery lane.
 
 Engine gaps observed. The ordering comparator parses operands as f64, so a

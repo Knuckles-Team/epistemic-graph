@@ -7,7 +7,7 @@
 
 <http://knuckles.team/kg/content> a owl:Ontology ;
     rdfs:label "Content Channel Ontology" ;
-    rdfs:comment "Content-channel concepts: feeds and articles, research papers, search queries and results, social posts and channels, email campaigns and mailing lists, and message channels with chat. Reuses CreativeWork, Document, Message, Person, Team and the search terms from the core and retrieval modules (EG-MEDIA-VOCAB-R002)." ;
+    rdfs:comment "Content-channel concepts: feeds and articles, research papers, search queries and results, social posts and channels, email campaigns and mailing lists, and message channels with chat. Reuses CreativeWork, Document, Message, Person, Team and the search terms from the core and retrieval modules (MEDULLA-MEDIA-VOCAB-R002)." ;
     owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/retrieval> .
 
 # --- content vocab lane A ---

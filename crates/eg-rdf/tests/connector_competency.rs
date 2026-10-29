@@ -1,4 +1,4 @@
-//! Connector competency questions (EG-CQ-CONN): fixture SPARQL answers over the
+//! Connector competency questions (MEDULLA-CQ-CONN): fixture SPARQL answers over the
 //! connector's assigned ontology vocabulary.
 //!
 //! Each test records a disposable fixture (no live credentials, no network —
@@ -219,7 +219,7 @@ fn fan_duty_answer(view: &GraphView) -> (Vec<String>, Vec<Vec<String>>) {
     select(view, FAN_DUTY_QUERY)
 }
 
-// spec: EG-CQ-CONN-R020.1
+// spec: MEDULLA-CQ-CONN-R020.1
 #[test]
 fn fan_manager_duty_above_threshold_answers() {
     // "Which fans ran above 80 percent duty while the host temperature stayed
@@ -250,7 +250,7 @@ fn fan_manager_duty_above_threshold_answers() {
     assert_eq!(row[i_asof], "2026-01-03T00:00:00Z");
 }
 
-// spec: EG-CQ-CONN-R026.1
+// spec: MEDULLA-CQ-CONN-R026.1
 #[test]
 fn home_assistant_out_of_range_sensors_answer() {
     // "Which sensors reported a value outside their normal range in the last 24
@@ -340,7 +340,7 @@ SELECT ?entity ?signal ?observed ?p95 ?source ?record ?asof WHERE {
     assert_eq!(row[i_asof], "2026-01-03T00:00:00Z");
 }
 
-// spec: EG-CQ-CONN-R039.1
+// spec: MEDULLA-CQ-CONN-R039.1
 #[test]
 fn microsoft_overlapping_meetings_answer() {
     // "Which meetings tomorrow overlap, and which attendees are double-booked?"
@@ -503,7 +503,7 @@ f:alert-host-5 a infra:HealthAnomaly ; infra:affectsEntity f:host-5 ; infra:sign
 "#;
 
 // The alert instance vocabulary (`:Alert`, `:alertState`, ...) is a producer
-// row (EG-CQ-CONN-R068.8..) and is not on main, so the Grafana alert is a
+// row (MEDULLA-CQ-CONN-R068.8..) and is not on main, so the Grafana alert is a
 // lgtm-sourced `:HealthAnomaly` on the host; the window is the fan trend's
 // `observedAt` .. `observedAt + windowS`, both pinned to one day.
 const FAN_CROSS_QUERY: &str = r#"
@@ -540,7 +540,7 @@ fn assert_fan_cross_row(vars: &[String], rows: &[Vec<String>]) {
     assert_eq!(row[idx("asof")], "2026-01-03T00:00:00Z");
 }
 
-// spec: EG-CQ-CONN-R020.2
+// spec: MEDULLA-CQ-CONN-R020.2
 #[test]
 fn fan_manager_max_duty_during_grafana_alert_answers() {
     // "Which hosts had fan duty at maximum during a window in which Grafana
@@ -554,7 +554,7 @@ fn fan_manager_max_duty_during_grafana_alert_answers() {
     assert_fan_cross_row(&vars, &rows);
 }
 
-// spec: EG-CQ-CONN-R020.3
+// spec: MEDULLA-CQ-CONN-R020.3
 #[test]
 fn fan_manager_acceptance_through_declared_contracts() {
     // Both questions run against records served through the connectors'
@@ -661,7 +661,7 @@ f:anomaly-hot a infra:HealthAnomaly ; infra:affectsEntity f:container-hot ; infr
     dc:source "container-manager" ; dc:identifier "cm:rec:anomaly-hot" ; dc:date "2026-01-03T00:00:00Z"^^xsd:dateTime .
 "#;
 
-// spec: EG-CQ-CONN-R013.1
+// spec: MEDULLA-CQ-CONN-R013.1
 #[test]
 fn container_manager_repeated_restarts_answer() {
     // "Which containers or pods are restarting repeatedly, and from which
@@ -776,7 +776,7 @@ SELECT ?service ?downSeconds ?source ?record ?asof WHERE {
   FILTER(YEAR(?t) = 2026 && MONTH(?t) = 1 && DAY(?t) >= 2)
 }"#;
 
-// spec: EG-CQ-CONN-R064.1
+// spec: MEDULLA-CQ-CONN-R064.1
 #[test]
 fn uptime_services_down_in_window_answer() {
     // "Which monitored services were down in the last 24 hours and for how
@@ -919,7 +919,7 @@ fn assert_uptime_cross_rows(vars: &[String], rows: &[Vec<String>]) {
     }
 }
 
-// spec: EG-CQ-CONN-R064.2
+// spec: MEDULLA-CQ-CONN-R064.2
 #[test]
 fn uptime_down_with_grafana_alert_or_route_error_answers() {
     // "Which services Uptime Kuma saw down had a Grafana alert or a Caddy route
@@ -933,7 +933,7 @@ fn uptime_down_with_grafana_alert_or_route_error_answers() {
     assert_uptime_cross_rows(&vars, &rows);
 }
 
-// spec: EG-CQ-CONN-R064.3
+// spec: MEDULLA-CQ-CONN-R064.3
 #[test]
 fn uptime_acceptance_through_declared_contracts() {
     // Both questions run against records served through the connectors'
@@ -992,7 +992,7 @@ fn uptime_acceptance_through_declared_contracts() {
     );
 }
 
-// spec: EG-CQ-CONN-R042.1
+// spec: MEDULLA-CQ-CONN-R042.1
 #[test]
 fn okta_assignment_through_group_answers() {
     // "Which users hold a given application assignment through which group?" —
@@ -1071,7 +1071,7 @@ SELECT ?user ?group ?app ?source ?record ?asof WHERE {
     assert_eq!(row[i_asof], "2026-01-03T00:00:00Z");
 }
 
-// spec: EG-CQ-CONN-R039.2
+// spec: MEDULLA-CQ-CONN-R039.2
 #[test]
 fn microsoft_attendees_without_idp_or_mattermost_answer() {
     // "Which attendees of an upcoming meeting have no identity-provider account

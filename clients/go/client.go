@@ -962,7 +962,7 @@ func (c *Client) NlQuery(text, graph string) (any, error) {
 }
 
 // NlQueryExplain answers {uql, rows}: the executed UQL with the same rows as NlQuery
-// (EG-FEDERATED-QUERY-R058.2.2.1).
+// (MEDULLA-FEDERATED-QUERY-R058.2.2.1).
 func (c *Client) NlQueryExplain(text, graph string) (any, error) {
 	targetGraph := graph
 	if targetGraph == "" {

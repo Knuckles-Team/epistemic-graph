@@ -16,14 +16,14 @@ pub mod agent_graph;
 pub mod agent_library;
 pub mod agent_ontology;
 pub mod agent_template;
-// EG-CQ-ORCH-R010.1 — pure data model for graph-derived architecture views.
+// MEDULLA-CQ-ORCH-R010.1 — pure data model for graph-derived architecture views.
 pub mod architecture_view;
-// EG-UNIFIED-DATA-PLANE-R012.1 — typed model for governed attached-source write-back.
+// MEDULLA-UNIFIED-DATA-PLANE-R012.1 — typed model for governed attached-source write-back.
 pub mod attached_source_governance;
-// EG-UNIFIED-DATA-PLANE-R014.1 — typed model distinguishing the MySQL and
+// MEDULLA-UNIFIED-DATA-PLANE-R014.1 — typed model distinguishing the MySQL and
 // MariaDB attached-source dialect entries. See module docs.
 pub mod attached_source_dialect;
-// EG-UNIFIED-DATA-PLANE-R014.2.1 — MySQL/MariaDB adapter skeleton: typed
+// MEDULLA-UNIFIED-DATA-PLANE-R014.2.1 — MySQL/MariaDB adapter skeleton: typed
 // connection config → sqlx-shaped driver config, with a connect refusal
 // path that needs no live database. Binlog/GTID capture and the per-engine
 // conformance entries are R014.2.2+.
@@ -42,175 +42,175 @@ pub mod asr_wire;
 // wire contract + pure fencing/admission algorithm (cross-host capacity
 // authority for the AU fair scheduler). Unconditional, like `acl`/`jobs`.
 pub mod capacity_lease;
-// EG-DURABLE-KERNEL-R076.1 — authoritative scheduler policy data and validation.
+// MEDULLA-DURABLE-KERNEL-R076.1 — authoritative scheduler policy data and validation.
 pub mod scheduler_config;
-// EG-INGEST-WORKER-R001.1/.2/.3/.7/.8 — ingest job envelope, lanes, partition key, retry.
+// MEDULLA-INGEST-WORKER-R001.1/.2/.3/.7/.8 — ingest job envelope, lanes, partition key, retry.
 pub mod ingest_job;
-// EG-INGEST-WORKER-R002.1/.2 — induced ontology proposals and admission scores.
+// MEDULLA-INGEST-WORKER-R002.1/.2 — induced ontology proposals and admission scores.
 pub mod ontology_proposal;
-// EG-INGEST-WORKER-R003.1 — typed knowledge atoms with mandatory provenance.
+// MEDULLA-INGEST-WORKER-R003.1 — typed knowledge atoms with mandatory provenance.
 pub mod knowledge_atom;
-// EG-INGEST-WORKER-R701.1 — extracted facts, candidate claims and evidence spans.
+// MEDULLA-INGEST-WORKER-R701.1 — extracted facts, candidate claims and evidence spans.
 pub mod extracted_fact;
-// EG-INGEST-WORKER-R900.1/R902.1/R903.1/R904.1 — source governance records.
+// MEDULLA-INGEST-WORKER-R900.1/R902.1/R903.1/R904.1 — source governance records.
 pub mod source_governance;
-// EG-INGEST-WORKER-R003.7 — normalized documents and accepted/quarantined outcomes.
+// MEDULLA-INGEST-WORKER-R003.7 — normalized documents and accepted/quarantined outcomes.
 pub mod source_document;
-// EG-INGEST-WORKER-R003.13 — source transcript threads and messages.
+// MEDULLA-INGEST-WORKER-R003.13 — source transcript threads and messages.
 pub mod source_transcript;
-// EG-TYPED-PACKS-R803.1 — typed sensitive-data detector and detection records.
+// MEDULLA-TYPED-PACKS-R803.1 — typed sensitive-data detector and detection records.
 pub mod sensitive_detect;
-// EG-TYPED-PACKS-R804.1 — ontology revision difference and impact records.
+// MEDULLA-TYPED-PACKS-R804.1 — ontology revision difference and impact records.
 pub mod ontology_diff;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
-// EG-SRC-AUTH-R007.1 — typed audit entries for source selection evidence.
+// MEDULLA-SRC-AUTH-R007.1 — typed audit entries for source selection evidence.
 pub mod authority_audit;
-// EG-REPO-INGEST-R700 — code-health findings from a bounded reachability sweep.
+// MEDULLA-REPO-INGEST-R700 — code-health findings from a bounded reachability sweep.
 pub mod change_envelope;
 pub mod code_health;
-// EG-DURABLE-KERNEL-R087.1 — typed semantic changeset-review model. The
+// MEDULLA-DURABLE-KERNEL-R087.1 — typed semantic changeset-review model. The
 // authenticated producer/consumer route is a later R087.2 concern.
 pub mod changeset_review;
-// EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
+// MEDULLA-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and
 // change-stream capture are later children.
 pub mod document_source_catalog;
-// EG-UNIFIED-DATA-PLANE-R019.3.1 — typed conformance-entry constructor for the
+// MEDULLA-UNIFIED-DATA-PLANE-R019.3.1 — typed conformance-entry constructor for the
 // MongoDB/DocumentDB adapter, over the generic R022.1 report entry. Pure
 // data; actually running the comparison is a later child.
 pub mod document_conformance;
-// EG-UNIFIED-DATA-PLANE-R020.1 — typed federated warehouse/lake source-kind
+// MEDULLA-UNIFIED-DATA-PLANE-R020.1 — typed federated warehouse/lake source-kind
 // model (Snowflake, BigQuery, DuckDB, Iceberg) and its per-kind required-field
 // refusal. Pure data; query pushdown and the conformance entry are later
 // children.
 pub mod warehouse_federation;
-// EG-UNIFIED-DATA-PLANE-R020.3.1 — typed conformance-entry constructor for the
+// MEDULLA-UNIFIED-DATA-PLANE-R020.3.1 — typed conformance-entry constructor for the
 // Snowflake/BigQuery/DuckDB/Iceberg warehouse adapters, over the generic
 // R022.1 report entry. Pure data; actually running the comparison is a later
 // child.
 pub mod warehouse_conformance;
-// EG-UNIFIED-DATA-PLANE-R021.1 — typed Debezium Kafka change-event envelope
+// MEDULLA-UNIFIED-DATA-PLANE-R021.1 — typed Debezium Kafka change-event envelope
 // shape and its op-code/before-after refusal rules. Pure data; the Kafka
 // consumer and the real ChangeEnvelope conversion are later children.
 pub mod debezium_bridge;
-// EG-UNIFIED-DATA-PLANE-R022.1 — typed per-dialect conformance report entry
+// MEDULLA-UNIFIED-DATA-PLANE-R022.1 — typed per-dialect conformance report entry
 // and deviation shape, refusing an auto-suppressed (unreviewed) deviation.
 // Pure data; running the containerized matrix is a later child.
 pub mod dialect_conformance;
-// EG-UNIFIED-DATA-PLANE-R022.3.1 — pure comparison of a change-capture
+// MEDULLA-UNIFIED-DATA-PLANE-R022.3.1 — pure comparison of a change-capture
 // replay's resulting row state against a source snapshot, building a
 // `dialect_conformance::DialectConformanceEntry`. No live replay stream or
 // source connection; running the comparison against a real replay is a
 // later child.
 pub mod replay_conformance;
-// EG-UNIFIED-DATA-PLANE-R023.1 — typed shared CloudNativePG/MariaDB cluster
+// MEDULLA-UNIFIED-DATA-PLANE-R023.1 — typed shared CloudNativePG/MariaDB cluster
 // group and per-application role-set shape, refusing a Postgres group
 // without logical wal_level and an aliased application role. Pure data;
 // operator wiring, PITR scheduling and the restore drill are later children.
 pub mod shared_db_platform;
-// EG-UNIFIED-DATA-PLANE-R023.2.1 — typed PITR schedule contract to object
+// MEDULLA-UNIFIED-DATA-PLANE-R023.2.1 — typed PITR schedule contract to object
 // storage, refusing an archiving mode mismatched to its engine, zero
 // retention, or a blank cron/destination. No operator wired; installing the
 // real schedule is a later child.
 pub mod pitr_schedule;
-// EG-UNIFIED-DATA-PLANE-R023.3.1 — typed restore-drill result, refusing a
+// MEDULLA-UNIFIED-DATA-PLANE-R023.3.1 — typed restore-drill result, refusing a
 // `data_matched` flag that disagrees with the actual pre/post-restore
 // digest comparison. No restore is run yet; automating the real drill is a
 // later child.
 pub mod restore_drill;
-// EG-UNIFIED-DATA-PLANE-R024.1 — typed one-at-a-time application admission
+// MEDULLA-UNIFIED-DATA-PLANE-R024.1 — typed one-at-a-time application admission
 // stage machine, refusing to retire an ingest connector before parity is
 // confirmed. Pure data; the admission runner, rollback path, and the
 // per-application admission test are later children.
 pub mod platform_admission;
-// EG-UNIFIED-DATA-PLANE-R025.1 — typed pgrx companion-extension spike
+// MEDULLA-UNIFIED-DATA-PLANE-R025.1 — typed pgrx companion-extension spike
 // decision record, refusing an outcome recorded without evidence for every
 // declared scope area. Pure data; running the spike and the ADR review are
 // later children.
 pub mod pgrx_spike;
-// EG-UNIFIED-DATA-PLANE-R025.3.1 — adapter skeleton reviewing a recorded
+// MEDULLA-UNIFIED-DATA-PLANE-R025.3.1 — adapter skeleton reviewing a recorded
 // pgrx spike decision into an approved ADR record, refusing an invalid
 // decision, an empty reviewer, or an empty ADR title. Filing the ADR
 // document itself is a later child.
 pub mod pgrx_spike_review;
-// EG-UNIFIED-DATA-PLANE-R026.1 — typed Gramps native-hosting pilot phase
+// MEDULLA-UNIFIED-DATA-PLANE-R026.1 — typed Gramps native-hosting pilot phase
 // gate (P0-P5), refusing a wrong or unreviewed exit artifact and skipping
 // ahead of an un-exited earlier phase. Pure data; running each phase is a
 // later child.
 pub mod gramps_pilot_phase;
-// EG-UNIFIED-DATA-PLANE-R026.2.1 — adapter skeleton mapping a typed P0
+// MEDULLA-UNIFIED-DATA-PLANE-R026.2.1 — adapter skeleton mapping a typed P0
 // baseline-content-digest record to the P0 phase exit artifact, refusing a
 // zero record count or an empty digest. The real baseline capture is a
 // later child.
 pub mod gramps_baseline_digest;
-// EG-UNIFIED-DATA-PLANE-R026.3.1 — adapter skeleton mapping a typed P3
+// MEDULLA-UNIFIED-DATA-PLANE-R026.3.1 — adapter skeleton mapping a typed P3
 // proven-gap-fix record (failing test before, passing test after) to the P3
 // phase exit artifact, refusing an identical before/after test name. The
 // real restore verification (P4) and schema-understanding demonstration
 // (P5) are later children.
 pub mod gramps_gap_fix;
-// EG-UNIFIED-DATA-PLANE-R033.1 — typed Gramps production-cutover go-ahead
+// MEDULLA-UNIFIED-DATA-PLANE-R033.1 — typed Gramps production-cutover go-ahead
 // (pilot phase P6), reusing gramps_pilot_phase's P5 exit and refusing a
 // go-ahead that cites the wrong phase, an invalid P5 exit, no approver, or
 // a fallback window shorter than the required 30 days. Pure data; the real
 // cutover (Postgres replica, nightly export, rehearsed failover) is a
 // later child.
 pub mod gramps_cutover_gate;
-// EG-UNIFIED-DATA-PLANE-R038.1 — typed metadata contract and acceleration
+// MEDULLA-UNIFIED-DATA-PLANE-R038.1 — typed metadata contract and acceleration
 // policy, refusing a hot-subset predicate declared without source copy
 // capability and falling a missing freshness watermark back to a live
 // read. Pure data; real discovery, the copy pipeline, and EXPLAIN's
 // per-fragment reporting are later children.
 pub mod metadata_acceleration;
-// EG-UNIFIED-DATA-PLANE-R040.1/.2 — per-modality embedding promotion gate.
+// MEDULLA-UNIFIED-DATA-PLANE-R040.1/.2 — per-modality embedding promotion gate.
 pub mod embedding_promotion;
-// EG-UNIFIED-DATA-PLANE-R038.6.1 — read-only property-graph view over mappings.
+// MEDULLA-UNIFIED-DATA-PLANE-R038.6.1 — read-only property-graph view over mappings.
 pub mod virtual_graph_view;
-// EG-UNIFIED-DATA-PLANE-R761.1 — column profile record.
+// MEDULLA-UNIFIED-DATA-PLANE-R761.1 — column profile record.
 pub mod profile;
-// EG-UNIFIED-DATA-PLANE-R762.1 — quality rules and scores.
+// MEDULLA-UNIFIED-DATA-PLANE-R762.1 — quality rules and scores.
 pub mod quality;
-// EG-UNIFIED-DATA-PLANE-R702 and R763.1 — dataset and column lineage.
+// MEDULLA-UNIFIED-DATA-PLANE-R702 and R763.1 — dataset and column lineage.
 pub mod lineage;
-// EG-UNIFIED-DATA-PLANE-R764.1/.2 — asset usage and catalog search hits.
+// MEDULLA-UNIFIED-DATA-PLANE-R764.1/.2 — asset usage and catalog search hits.
 pub mod asset_usage;
-// EG-ENGINE-PARITY-R020.1 — relational engine capability report.
+// MEDULLA-ENGINE-PARITY-R020.1 — relational engine capability report.
 pub mod engine_capabilities;
-// EG-UNIFIED-DATA-PLANE-R700 — governed action specs and runs.
+// MEDULLA-UNIFIED-DATA-PLANE-R700 — governed action specs and runs.
 pub mod action_spec;
-// EG-UNIFIED-DATA-PLANE-R701 — standards, cohorts, drift and consolidation.
+// MEDULLA-UNIFIED-DATA-PLANE-R701 — standards, cohorts, drift and consolidation.
 pub mod standards_drift;
-// EG-UNIFIED-DATA-PLANE-R030.2/.3/.700 — blocking, Fellegi-Sunter scoring,
+// MEDULLA-UNIFIED-DATA-PLANE-R030.2/.3/.700 — blocking, Fellegi-Sunter scoring,
 // approval and identity evidence over entity link proposals.
 pub mod entity_resolution;
 // EG-UNIFIED-DATA-PLANE-R750.750-752 — run audit rows, tool calls and the
 // scoped conversation-history step store.
 pub mod run_history;
-// EG-UNIFIED-DATA-PLANE-R027.1 — typed Postgres compatibility-feature
+// MEDULLA-UNIFIED-DATA-PLANE-R027.1 — typed Postgres compatibility-feature
 // inventory and fix-proof shape, refusing a fix recorded without a complete
 // captured-traffic/failing-test/passing-test proof. Pure data;
 // implementing each proven feature is a later child.
 pub mod pg_compat_feature;
-// EG-UNIFIED-DATA-PLANE-R028.1 — typed Postgres-equivalence differential
+// MEDULLA-UNIFIED-DATA-PLANE-R028.1 — typed Postgres-equivalence differential
 // deviation baseline, refusing a baseline update that drops a deviation
 // without an explicit resolution record (no self-updating baseline). Pure
 // data; running the regression/SQLancer/captured-traffic corpora is a
 // later child.
 pub mod pg_diff_baseline;
-// EG-UNIFIED-DATA-PLANE-R029.1 — typed schema_context answer shape and
+// MEDULLA-UNIFIED-DATA-PLANE-R029.1 — typed schema_context answer shape and
 // catalog, refusing to answer for a table absent from the catalog. Pure
 // data; wiring the real query entry point is a later child.
 pub mod schema_context;
-// EG-FEDERATED-QUERY-R058.2.2.1 — the disclosed NL query result (executed UQL + rows).
+// MEDULLA-FEDERATED-QUERY-R058.2.2.1 — the disclosed NL query result (executed UQL + rows).
 pub mod nl_query;
-// EG-UNIFIED-DATA-PLANE-R030.1 — typed cross-application entity-link
+// MEDULLA-UNIFIED-DATA-PLANE-R030.1 — typed cross-application entity-link
 // proposal, refusing an owl:sameAs assertion before approval or for a
 // non-Match classification. Pure data; blocking, field-similarity scoring
 // and the real Fellegi-Sunter model are later children.
 pub mod entity_link_proposal;
-// EG-CQ-XSRC-R006.1/R006.4 — the typed supply-chain impact report (one
+// MEDULLA-CQ-XSRC-R006.1/R006.4 — the typed supply-chain impact report (one
 // report: impact per service, the items behind each, the sources used and
 // why, and typed abstentions) and its pure, deterministic assembly from the
 // planned query's rows and premises.
@@ -231,7 +231,7 @@ pub mod contract;
 // results and the durable import record. Pure serde; the importer and its
 // validation rules live in the server.
 pub mod connector_pack;
-// EG-TYPED-PACKS-R097.1 — one typed, versioned domain vocabulary (classes,
+// MEDULLA-TYPED-PACKS-R097.1 — one typed, versioned domain vocabulary (classes,
 // enumerations, properties, alignment to an upper ontology), published through
 // the pack import boundary above `connector_pack`. Pure data; validation lives
 // here, import wiring lands in a later child requirement.
@@ -244,29 +244,29 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
-// EG-FEDERATED-QUERY-R722.3 — host-driven bounded foreign-read lifecycle DTOs.
+// MEDULLA-FEDERATED-QUERY-R722.3 — host-driven bounded foreign-read lifecycle DTOs.
 pub mod foreign_read;
-// EG-DURABLE-KERNEL-R032 — the native primary-key fast-path routing decision
+// MEDULLA-DURABLE-KERNEL-R032 — the native primary-key fast-path routing decision
 // (pgwire/MySQL/MSSQL point operations that bypass DataFusion planning).
 // Pure serde, no dep.
 pub mod fast_path;
-// EG-DURABLE-KERNEL-R033 — the hot-store engine evaluation's typed model
+// MEDULLA-DURABLE-KERNEL-R033 — the hot-store engine evaluation's typed model
 // (redb/fjall/RocksDB candidates, workload profiles, validated benchmark
 // results, winner selection). Pure serde, no dep.
 pub mod hot_store_engine;
-// EG-DURABLE-KERNEL-R034 — cross-store atomicity's typed transaction-scope
+// MEDULLA-DURABLE-KERNEL-R034 — cross-store atomicity's typed transaction-scope
 // model: a single-store scope structurally can never map to the cross-store
 // commit path. Pure serde, no dep.
 pub mod cross_store_scope;
-// EG-DURABLE-KERNEL-R035 — the PostgreSQL wire protocol's required
+// MEDULLA-DURABLE-KERNEL-R035 — the PostgreSQL wire protocol's required
 // operational surfaces and a fail-closed compatibility matrix. Pure serde,
 // no dep.
 pub mod pg_operational_surface;
-// EG-DURABLE-KERNEL-R039 — in-memory structure/atomic-primitive kinds and a
+// MEDULLA-DURABLE-KERNEL-R039 — in-memory structure/atomic-primitive kinds and a
 // durability declaration that always names redb as sole durability
 // authority. Pure serde, no dep.
 pub mod atomic_primitive;
-// EG-DURABLE-KERNEL-R040 — pipelined RESP/pgwire-extended batch admission:
+// MEDULLA-DURABLE-KERNEL-R040 — pipelined RESP/pgwire-extended batch admission:
 // one admission maps to exactly one commit with order-preserving replies.
 // Pure serde, no dep.
 pub mod pipeline_batch;
@@ -274,7 +274,7 @@ pub mod pipeline_batch;
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.
 pub mod policy_evolution;
-// EG-UNIFIED-DATA-PLANE-R013.1 — Postgres attached-source adapter config and
+// MEDULLA-UNIFIED-DATA-PLANE-R013.1 — Postgres attached-source adapter config and
 // type-mapping typed model (connect/catalog/capture wiring is a later slice).
 pub mod postgres_adapter;
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — the pinned embedding-space
@@ -284,51 +284,51 @@ pub mod postgres_adapter;
 // `row_predicate`, since `eg-core` needs it on both sides of its backend `#[cfg]`
 // split.
 pub mod embedding;
-// EG-FEDERATED-QUERY-R083.1 — typed prior/retrieved candidates and the closed
+// MEDULLA-FEDERATED-QUERY-R083.1 — typed prior/retrieved candidates and the closed
 // arbitration verdict value; support classification and policy live above.
 pub mod retrieval_arbitration;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
-// EG-DURABLE-KERNEL-R038 — the declared durability class (ephemeral/async/sync)
+// MEDULLA-DURABLE-KERNEL-R038 — the declared durability class (ephemeral/async/sync)
 // a KV namespace or table carries. Pure serde, no dep.
 pub mod durability_class;
-// EG-DURABLE-KERNEL-R084.1 — typed optimistic-write conflict and the closed
+// MEDULLA-DURABLE-KERNEL-R084.1 — typed optimistic-write conflict and the closed
 // set of scope-level merge strategies. Resolution and served wiring live above
 // this pure-data crate.
 pub mod write_conflict;
 pub use write_conflict::{MergeStrategy, WriteConflict};
-// EG-DURABLE-KERNEL-R037 — the workload classification (point/structure/sql)
+// MEDULLA-DURABLE-KERNEL-R037 — the workload classification (point/structure/sql)
 // every wire listener routes an operation by. Pure, no dep.
 pub mod workload_class;
 
-// EG-DURABLE-KERNEL-R074.1 — pure worker registry, registration validation,
+// MEDULLA-DURABLE-KERNEL-R074.1 — pure worker registry, registration validation,
 // and deterministic aggregate capabilities. No RPC or persistence ownership.
 pub mod worker_registry;
 
-// EG-DURABLE-KERNEL-R089.1 — per-step verification verdict. Pure, no dep.
+// MEDULLA-DURABLE-KERNEL-R089.1 — per-step verification verdict. Pure, no dep.
 pub mod step_verdict;
-// EG-DURABLE-KERNEL-R088.1 — rule-output correction with two-principal approval.
+// MEDULLA-DURABLE-KERNEL-R088.1 — rule-output correction with two-principal approval.
 pub mod rule_correction;
-// EG-DURABLE-KERNEL-R851.1 — the A2A peer record. Pure serde.
+// MEDULLA-DURABLE-KERNEL-R851.1 — the A2A peer record. Pure serde.
 pub mod agent_peer;
-// EG-DURABLE-KERNEL-R852.1/.2/.4 — health anomalies and correlated incidents.
+// MEDULLA-DURABLE-KERNEL-R852.1/.2/.4 — health anomalies and correlated incidents.
 pub mod health_incident;
-// EG-DURABLE-KERNEL-R700.1 — the retention-cleanup policy shape.
+// MEDULLA-DURABLE-KERNEL-R700.1 — the retention-cleanup policy shape.
 pub mod retention_policy;
-// EG-DURABLE-KERNEL-R094.1 — hierarchical concept-ID grammar and path claims.
+// MEDULLA-DURABLE-KERNEL-R094.1 — hierarchical concept-ID grammar and path claims.
 pub mod concept_id;
 
-// EG-DURABLE-KERNEL-R041 — the SQL plan cache key (statement digest + schema
+// MEDULLA-DURABLE-KERNEL-R041 — the SQL plan cache key (statement digest + schema
 // version) and its lookup decision. Pure, no dep beyond `contract::Digest256`.
 pub mod plan_cache_key;
-// EG-DURABLE-KERNEL-R042 — a published benchmark report's typed superiority
+// MEDULLA-DURABLE-KERNEL-R042 — a published benchmark report's typed superiority
 // claim and the refusal for an unpublished-configuration or non-passing one.
 pub mod benchmark_claim;
-// EG-DURABLE-KERNEL-R011 — the required pre-merge test-module category
+// MEDULLA-DURABLE-KERNEL-R011 — the required pre-merge test-module category
 // (raft/backup/persistence) and a validated declaration within one.
 pub mod pre_merge_test_module;
-// EG-DURABLE-KERNEL-R036 — the mirror-sink side: sink kind (fan-out/postgres)
+// MEDULLA-DURABLE-KERNEL-R036 — the mirror-sink side: sink kind (fan-out/postgres)
 // and durable per-mirror cursor with a non-empty-position guard. Pure serde, no dep.
 pub mod mirror_sink;
 // CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
@@ -379,7 +379,7 @@ pub mod mutation_outbox;
 // Executable admitted plans/tokens are private to the future eg-transaction kernel.
 pub mod mutation;
 pub mod mutation_batch;
-// EG-ORCH-VOCAB-R801/R802 — the versioned harness-component vocabulary and the
+// MEDULLA-ORCH-VOCAB-R801/R802 — the versioned harness-component vocabulary and the
 // improvement library beside it: typed model + pure rules. The durable write
 // (ChangeEnvelope/AddNode) and the served reads live upstream.
 pub mod orchestration;
@@ -397,7 +397,7 @@ pub mod native_control;
 pub mod outcome_bundle;
 // RF-RULING-004 — mutation-kernel-owned outbox intent, delivery, and cursor DTOs.
 pub mod outbox;
-// EG-FINANCE-PRIMITIVES-R011.1 — the typed finance alert envelope staged for
+// MEDULLA-FINANCE-PRIMITIVES-R011.1 — the typed finance alert envelope staged for
 // the finance outbox topic family; net-new slice (model + validation +
 // refusal tests only, no outbox-append wiring yet).
 #[cfg(feature = "finance")]
@@ -420,7 +420,7 @@ pub mod ontology_inspection;
 // F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
 pub mod rdf_report;
 pub mod row_predicate;
-// EG-FEDERATED-QUERY-R082.1 — typed calibration, bounded limits and closed
+// MEDULLA-FEDERATED-QUERY-R082.1 — typed calibration, bounded limits and closed
 // stop-verdict vocabulary; decision precedence lives in eg-plan.
 pub mod retrieval_stop;
 pub mod runtime_limit;
@@ -435,11 +435,11 @@ pub mod result_contract;
 // storage, queues, handlers, and surface projections live in crates above this
 // bottom-of-DAG owner and must consume these exact operation and identity DTOs.
 pub mod semantic_index;
-// EG-SDLC — release, deployment, defect, derived status and lifecycle trace records.
+// MEDULLA-SDLC — release, deployment, defect, derived status and lifecycle trace records.
 pub mod lifecycle;
-// EG-SCM-R002 — the source changeset record and its structured trailers.
+// MEDULLA-SCM-R002 — the source changeset record and its structured trailers.
 pub mod source_changeset;
-// EG-SCM-R013 — graph-native symbol edits.
+// MEDULLA-SCM-R013 — graph-native symbol edits.
 pub mod source_symbol_edit;
 // RF-ADR-009 — raw connector records, exact manifest mapping reference, cursor
 // CAS and the terminal native ingestion receipt. Runtime authority lives in the
@@ -469,7 +469,7 @@ pub mod work_item_command_log;
 // the caller's row view, its three-bound page scan, and its cursor family.
 pub mod run_completion;
 pub mod work_item_read;
-// EG-IDENTITY-R610 — tenant parent chains, secured reads and ownership claims.
+// MEDULLA-IDENTITY-R610 — tenant parent chains, secured reads and ownership claims.
 pub mod tenancy;
 // The opaque tenant-bound keyset cursor shared by every paged read
 // (`AgentComponent.Search`, `ListWorkItems`).
@@ -486,7 +486,7 @@ pub mod identity;
 // EH-400 — declared freshness: `eg:volatilityClass`, per-class invalidation events and
 // foreign-source watermarks (the `FreshnessFeed` wire shapes).
 pub mod freshness;
-// EG-TYPED-PACKS-R802.1/R805.1 — governance record models: stewardship and
+// MEDULLA-TYPED-PACKS-R802.1/R805.1 — governance record models: stewardship and
 // data products. Pure data and field validation; served wiring lands in later children.
 pub mod data_product;
 pub mod stewardship;
@@ -503,48 +503,48 @@ pub mod governed_change;
 // EH-406 -- error-budget adaptive (AIMD) throttling on a capacity cell:
 // automatic steps only narrow or give back what they narrowed.
 pub mod capacity_throttle;
-// EG-UNIFIED-DATA-PLANE-R003 — the typed, hashed attached-source catalog graph
+// MEDULLA-UNIFIED-DATA-PLANE-R003 — the typed, hashed attached-source catalog graph
 // (tables/columns) and its ambiguous-table refusal.
 pub mod attached_catalog;
-// EG-UNIFIED-DATA-PLANE-R004 — bounded, policy-gated column-sampling budget
+// MEDULLA-UNIFIED-DATA-PLANE-R004 — bounded, policy-gated column-sampling budget
 // for deterministic schema inference.
 pub mod schema_inference;
-// EG-UNIFIED-DATA-PLANE-R015.1 — typed SQLite attached-source catalog model:
+// MEDULLA-UNIFIED-DATA-PLANE-R015.1 — typed SQLite attached-source catalog model:
 // WITHOUT ROWID handling and its WAL-tailing/watermark capture-mode
 // refusal. Pure data; the live read-only attach and real capture are later
 // children.
 pub mod sqlite_attached_catalog;
-// EG-UNIFIED-DATA-PLANE-R015.2.1 — SQLite live-attach adapter skeleton:
+// MEDULLA-UNIFIED-DATA-PLANE-R015.2.1 — SQLite live-attach adapter skeleton:
 // typed attach config → read-only driver open config, refusing an
 // immutable open mode paired with a change-capture mode. No file I/O; real
 // WAL-frame tailing/watermark polling is R015.2.2+.
 pub mod sqlite_live_attach;
-// EG-UNIFIED-DATA-PLANE-R016.1 — typed SQL Server attached-source catalog
+// MEDULLA-UNIFIED-DATA-PLANE-R016.1 — typed SQL Server attached-source catalog
 // model: two-part schema.table entries and the bracket-quoting identifier
 // refusal. Pure data; the tiberius connection and T-SQL rendering are later
 // children.
 pub mod mssql_attached_catalog;
-// EG-UNIFIED-DATA-PLANE-R016.2.1 — MSSQL adapter skeleton: typed connection
+// MEDULLA-UNIFIED-DATA-PLANE-R016.2.1 — MSSQL adapter skeleton: typed connection
 // config → tiberius-shaped driver config, with a connect refusal path that
 // needs no live server. T-SQL rendering and LSN-polled CDC/Change Tracking
 // capture are R016.2.2+.
 pub mod mssql_driver_connection;
-// EG-UNIFIED-DATA-PLANE-R017.1 — typed ClickHouse attached-source catalog
+// MEDULLA-UNIFIED-DATA-PLANE-R017.1 — typed ClickHouse attached-source catalog
 // model, with its change-capture capability always reported as the
 // explicit Unsupported value. Pure data; the HTTP/native client connection
 // is a later child.
 pub mod clickhouse_attached_catalog;
-// EG-UNIFIED-DATA-PLANE-R018.1 — typed Oracle/Db2 attached-source catalog
+// MEDULLA-UNIFIED-DATA-PLANE-R018.1 — typed Oracle/Db2 attached-source catalog
 // model: double-quoted identifier refusal and the Debezium-captured-table
 // primary-key refusal. Pure data; the driver/ODBC connection and Debezium
 // bridge wiring are later children.
 pub mod relational_attached_catalog;
-// EG-UNIFIED-DATA-PLANE-R031.1 — typed consolidation-isolation admission:
+// MEDULLA-UNIFIED-DATA-PLANE-R031.1 — typed consolidation-isolation admission:
 // per-application quota and upgrade-coupling policy, with the empty-identity
 // and all-zero-quota refusal. Pure data; real fault isolation and quota
 // metering are later children.
 pub mod consolidation_isolation;
-// EG-UNIFIED-DATA-PLANE-R032.1 — typed Immich connector pilot phase gate
+// MEDULLA-UNIFIED-DATA-PLANE-R032.1 — typed Immich connector pilot phase gate
 // (I0-I6), refusing a wrong or unreviewed exit artifact and skipping ahead
 // of an un-exited earlier phase. Pure data; running each phase is a later
 // child.
@@ -566,16 +566,16 @@ pub mod wire;
 // RF-ADR-009 D18 — EG-owned versioned source change sets and append-only
 // write-back/reconciliation receipts. Connector transports remain in the SDK.
 pub mod write_back;
-// EG-FEDERATED-QUERY-R700 — AIF argument maps and their Dung projection.
+// MEDULLA-FEDERATED-QUERY-R700 — AIF argument maps and their Dung projection.
 pub mod argument_map;
-// EG-FEDERATED-QUERY-R701 — live artifacts re-derived from a query source.
+// MEDULLA-FEDERATED-QUERY-R701 — live artifacts re-derived from a query source.
 pub mod live_artifact;
-// EG-FEDERATED-QUERY-R702 — search-task records and shortcut-risk reports.
+// MEDULLA-FEDERATED-QUERY-R702 — search-task records and shortcut-risk reports.
 pub mod search_task;
-// EG-FEDERATED-QUERY-R081 — retrieval sufficiency, selection, feedback and
+// MEDULLA-FEDERATED-QUERY-R081 — retrieval sufficiency, selection, feedback and
 // hierarchy contracts (incl. the R081.9.7.1 section hierarchy policy); the deciding functions live in `eg_plan::retrieval_verdict`.
 pub mod retrieval_verdict;
-// EG-FEDERATED-QUERY-R085.1 — approved, read-only source query records.
+// MEDULLA-FEDERATED-QUERY-R085.1 — approved, read-only source query records.
 pub mod source_query;
 
 // CONCEPT:EG-KG.query.compound-predicate-decode — the serializable compound-WHERE predicate AST lives at the

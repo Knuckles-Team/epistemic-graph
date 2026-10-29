@@ -1,4 +1,4 @@
-//! Workflow registration identity and registry model (EG-DECISION-ENGINE-R166.1).
+//! Workflow registration identity and registry model (MEDULLA-DECISION-ENGINE-R166.1).
 //!
 //! This is the serializable type-level registry state. Engine initialization and
 //! served invocation are owned by the runtime layer.
@@ -92,7 +92,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R166.1
+    // spec: MEDULLA-DECISION-ENGINE-R166.1
     #[test]
     fn registration_round_trips_and_reads_by_exact_identity() {
         let expected = identity();
@@ -106,7 +106,7 @@ mod tests {
         assert_eq!(read.content_digest, expected.content_digest);
     }
 
-    // spec: EG-DECISION-ENGINE-R166.1
+    // spec: MEDULLA-DECISION-ENGINE-R166.1
     #[test]
     fn invalid_or_unknown_identity_is_typed_refusal() {
         let mut registry = WorkflowRegistry::default();

@@ -1,5 +1,5 @@
 //! Trust tiers of retrieved entries and the poisoned-entry check
-//! (EG-DECISION-ENGINE-R132.1 and R132.2).
+//! (MEDULLA-DECISION-ENGINE-R132.1 and R132.2).
 //!
 //! `PremiseClass` grades premise strength; a trust tier grades where a
 //! retrieved entry came from. Like `resolve_rung`, admission is monotone: a

@@ -105,7 +105,7 @@ impl RestoreDrillResult {
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.3.1
     #[test]
     fn matching_digests_built_via_from_digests_validate() {
         let result = RestoreDrillResult::from_digests(
@@ -118,7 +118,7 @@ mod tests {
         assert_eq!(result.validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.3.1
     #[test]
     fn differing_digests_built_via_from_digests_validate_as_mismatch() {
         let result = RestoreDrillResult::from_digests(
@@ -131,7 +131,7 @@ mod tests {
         assert_eq!(result.validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.3.1
     #[test]
     fn matched_flag_despite_differing_digests_is_refused() {
         let result = RestoreDrillResult {
@@ -147,7 +147,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.3.1
     #[test]
     fn mismatched_flag_despite_equal_digests_is_refused() {
         let result = RestoreDrillResult {
@@ -163,7 +163,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.3.1
     #[test]
     fn blank_digest_is_refused() {
         let result = RestoreDrillResult {

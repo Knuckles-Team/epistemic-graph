@@ -16,7 +16,7 @@ fn scorer(id: &str, category: &str, threshold: u16) -> RedTeamScorer {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R138.1
+// spec: MEDULLA-DECISION-ENGINE-R138.1
 #[test]
 fn red_team_records_round_trip() {
     let transform = RedTeamTransform {
@@ -45,7 +45,7 @@ fn red_team_records_round_trip() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R138.2
+// spec: MEDULLA-DECISION-ENGINE-R138.2
 #[test]
 fn one_passing_scorer_compromises() {
     let policy = RedTeamPolicy::default();

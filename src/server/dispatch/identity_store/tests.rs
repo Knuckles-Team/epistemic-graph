@@ -380,7 +380,7 @@ async fn first_admin_setup_before_the_system_bootstrap_is_refused_at_the_boundar
     assert!(accepted.error.is_none(), "{:?}", accepted.error);
 }
 
-// spec: EG-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.1
 #[tokio::test]
 async fn caller_cannot_choose_session_record_provenance() {
     let state = state();

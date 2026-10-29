@@ -1,5 +1,5 @@
 //! The timed admission step and budget report shared by the harness
-//! vocabulary benches (EG-ORCH-VOCAB-R801.6, EG-ORCH-VOCAB-R802.6).
+//! vocabulary benches (MEDULLA-ORCH-VOCAB-R801.6, MEDULLA-ORCH-VOCAB-R802.6).
 
 use std::time::Instant;
 

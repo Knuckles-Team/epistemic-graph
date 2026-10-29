@@ -146,7 +146,7 @@ def assert_no_external_runtime(trace):
 
 
 @pytest.mark.exact_artifact
-@pytest.mark.spec("EG-DECISION-ENGINE-R090.2")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R090.2")
 def test_compiled_engine_scores_without_external_runtime(tmp_path):
     with engine(tmp_path, "first", bootstrap=True) as client:
         asked = fit_and_publish(client)

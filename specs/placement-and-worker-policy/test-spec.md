@@ -1,4 +1,4 @@
-# EG-PLACEMENT - Test specification
+# MEDULLA-PLACEMENT - Test specification
 
 Governing spec: [spec.md](spec.md).
 
@@ -22,21 +22,21 @@ R002.1 producer evidence: worker_registry::tests::capacity_round_trips_and_heart
 
 R002.2 producer evidence: `scheduler_config::tests` uses real serde to prove defaults 360 and 3 GiB, override round trips, bounds and over-subscribed floor refusal. The FR-003 served integration scenario remains PENDING.
 
-### EG-PLACEMENT-R004 tests
+### MEDULLA-PLACEMENT-R004 tests
 
-- `EG-PLACEMENT-R004.1`: `crates/eg-types/src/decision/statistical/placement.rs::tests::capability_types_round_trip`.
-- `EG-PLACEMENT-R004.2`: `crates/eg-types/src/decision/statistical/placement.rs::tests::route_orders_by_headroom`.
-- `EG-PLACEMENT-R004.3`: `tests/jobs/test_capability_claim_served.py::test_claim_uses_declared_capability`.
-- `EG-PLACEMENT-R004.4`: `crates/eg-jobs/src/store.rs::tests::no_capable_host_refuses`.
-- `EG-PLACEMENT-R004.5`: `crates/eg-jobs/src/store.rs::tests::routing_premises_name_generation`.
-- `EG-PLACEMENT-R004.6`: `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host`.
+- `MEDULLA-PLACEMENT-R004.1`: `crates/eg-types/src/decision/statistical/placement.rs::tests::capability_types_round_trip`.
+- `MEDULLA-PLACEMENT-R004.2`: `crates/eg-types/src/decision/statistical/placement.rs::tests::route_orders_by_headroom`.
+- `MEDULLA-PLACEMENT-R004.3`: `tests/jobs/test_capability_claim_served.py::test_claim_uses_declared_capability`.
+- `MEDULLA-PLACEMENT-R004.4`: `crates/eg-jobs/src/store.rs::tests::no_capable_host_refuses`.
+- `MEDULLA-PLACEMENT-R004.5`: `crates/eg-jobs/src/store.rs::tests::routing_premises_name_generation`.
+- `MEDULLA-PLACEMENT-R004.6`: `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host`.
 
 <!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
 ## Owner acceptance targets — 2026-10-12
 
 These bullets define future acceptance targets. None has run as a test.
 
-- **`EG-PLACEMENT-R001.15`:** A valid proposal within declared bounds and headroom returns `allow` bound to proposal, premise, and policy revisions.
+- **`MEDULLA-PLACEMENT-R001.15`:** A valid proposal within declared bounds and headroom returns `allow` bound to proposal, premise, and policy revisions.
 - Refuse stale/cross-tenant premises, invalid digests or negative measurements, inconsistent units/windows, and proposal/current-premise mismatches without mutation.
 - Refuse capacities outside bounds and increases above observed headroom with the exact `CapacityRefusalCode`.
 - Arbora applies a valid proposal and exposes an independent readback receipt. Bind it to proposal digest, requested/applied capacity, host/resource, policy, and resulting state revision.

@@ -1,4 +1,4 @@
-# Data-platform vocabulary (EG-DATAPLAT-VOCAB-R001.1).
+# Data-platform vocabulary (MEDULLA-DATAPLAT-VOCAB-R001.1).
 #
 # Shared typed terms for attached data stores. Connector-local ontologies remain
 # package contracts; this module is the engine-side vocabulary that describes the
@@ -317,9 +317,9 @@ dp:baselineRun a owl:ObjectProperty ;
     rdfs:domain dp:TrainingRun ;
     rdfs:range dp:TrainingRun .
 
-# ── Secret metadata terms (EG-DATAPLAT-VOCAB-R005.1). ───────────────────────
+# ── Secret metadata terms (MEDULLA-DATAPLAT-VOCAB-R005.1). ───────────────────────
 # Metadata only: there is no value, ciphertext, token, HCL-rule-body or key
-# property in this namespace (EG-DATAPLAT-VOCAB-R005.3).
+# property in this namespace (MEDULLA-DATAPLAT-VOCAB-R005.3).
 
 dp:SecretEngine a owl:Class ;
     rdfs:label "Secret engine" ;

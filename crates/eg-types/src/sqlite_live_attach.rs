@@ -1,8 +1,8 @@
-//! EG-UNIFIED-DATA-PLANE-R015.2.1 — adapter skeleton for the SQLite live
+//! MEDULLA-UNIFIED-DATA-PLANE-R015.2.1 — adapter skeleton for the SQLite live
 //! attach: a typed attach config, its mapping to the read-only driver open
 //! config, and the refusal path before any file is opened. Real WAL-frame
 //! tailing / watermark polling against a live, concurrently-written file is
-//! EG-UNIFIED-DATA-PLANE-R015.2.2+.
+//! MEDULLA-UNIFIED-DATA-PLANE-R015.2.2+.
 
 use crate::sqlite_attached_catalog::SqliteCaptureMode;
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ pub struct SqliteAttachConfig {
 
 /// The driver-facing open config this adapter builds from a validated
 /// [`SqliteAttachConfig`]: a `file:` URI plus the explicit read-only flag
-/// the later connect slice (EG-UNIFIED-DATA-PLANE-R015.2.2+) hands to the
+/// the later connect slice (MEDULLA-UNIFIED-DATA-PLANE-R015.2.2+) hands to the
 /// actual SQLite driver. Kept as our own type so this crate links no
 /// SQLite driver itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,7 +81,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R015.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R015.2.1
     #[test]
     fn lock_safe_wal_rowid_tailing_maps_to_a_driver_open_config() {
         let config = valid(SqliteCaptureMode::WalRowidTailing);
@@ -92,14 +92,14 @@ mod tests {
         assert!(driver.read_only);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R015.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R015.2.1
     #[test]
     fn lock_safe_watermark_polling_maps_to_a_driver_open_config() {
         let config = valid(SqliteCaptureMode::WatermarkPolling);
         assert!(config.to_driver_open_config().is_ok());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R015.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R015.2.1
     #[test]
     fn refuses_empty_file_path_before_any_open_attempt() {
         let mut config = valid(SqliteCaptureMode::WatermarkPolling);
@@ -110,7 +110,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R015.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R015.2.1
     #[test]
     fn refuses_immutable_mode_with_wal_rowid_tailing() {
         let mut config = valid(SqliteCaptureMode::WalRowidTailing);
@@ -121,7 +121,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R015.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R015.2.1
     #[test]
     fn refuses_immutable_mode_with_watermark_polling() {
         let mut config = valid(SqliteCaptureMode::WatermarkPolling);

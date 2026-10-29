@@ -1,5 +1,5 @@
 //! Registered-core ontology audits for the connector-competency term rows
-//! (EG-CQ-CONN-R070/R073/R074/R076/R079/R082).
+//! (MEDULLA-CQ-CONN-R070/R073/R074/R076/R079/R082).
 //!
 //! Each module proves one ontology module: the term is declared with the
 //! required owl type, domain and range in the registered core source, and —
@@ -177,7 +177,7 @@ mod ontology_audit_orchestration_v1 {
             .conforms
     }
 
-    // spec: EG-CQ-CONN-R079.2
+    // spec: MEDULLA-CQ-CONN-R079.2
     #[test]
     fn promptVersion_declared() {
         let (triples, _shapes) = documents();
@@ -202,7 +202,7 @@ mod ontology_audit_orchestration_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R079.3
+    // spec: MEDULLA-CQ-CONN-R079.3
     #[test]
     fn tokenCost_declared() {
         let (triples, _shapes) = documents();
@@ -238,7 +238,7 @@ mod ontology_audit_orchestration_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R079.4
+    // spec: MEDULLA-CQ-CONN-R079.4
     #[test]
     fn tracePrompt_declared() {
         let (triples, _shapes) = documents();
@@ -258,7 +258,7 @@ mod ontology_audit_orchestration_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R079.5
+    // spec: MEDULLA-CQ-CONN-R079.5
     #[test]
     fn evaluationScore_declared() {
         let (triples, _shapes) = documents();
@@ -289,7 +289,7 @@ mod ontology_audit_personal_v1 {
         parse_turtle(&ontology).expect("the registered personal ontology parses")
     }
 
-    // spec: EG-CQ-CONN-R076.1
+    // spec: MEDULLA-CQ-CONN-R076.1
     #[test]
     fn birthPlace_declared() {
         let triples = triples();
@@ -309,7 +309,7 @@ mod ontology_audit_personal_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R076.2
+    // spec: MEDULLA-CQ-CONN-R076.2
     #[test]
     fn birthYear_declared() {
         let triples = triples();
@@ -334,7 +334,7 @@ mod ontology_audit_personal_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R076.3
+    // spec: MEDULLA-CQ-CONN-R076.3
     #[test]
     fn documentType_declared() {
         let triples = triples();
@@ -359,7 +359,7 @@ mod ontology_audit_personal_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R076.4
+    // spec: MEDULLA-CQ-CONN-R076.4
     #[test]
     fn dueDate_declared() {
         let triples = triples();
@@ -384,7 +384,7 @@ mod ontology_audit_personal_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R076.5
+    // spec: MEDULLA-CQ-CONN-R076.5
     #[test]
     fn totalAmount_declared() {
         let triples = triples();
@@ -409,7 +409,7 @@ mod ontology_audit_personal_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R076.6
+    // spec: MEDULLA-CQ-CONN-R076.6
     #[test]
     fn FileShare_declared() {
         let triples = triples();
@@ -421,7 +421,7 @@ mod ontology_audit_personal_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R076.7
+    // spec: MEDULLA-CQ-CONN-R076.7
     #[test]
     fn sharesFile_declared() {
         let triples = triples();
@@ -441,7 +441,7 @@ mod ontology_audit_personal_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R076.8
+    // spec: MEDULLA-CQ-CONN-R076.8
     #[test]
     fn isPublicLink_declared() {
         let triples = triples();
@@ -466,7 +466,7 @@ mod ontology_audit_personal_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R076.9
+    // spec: MEDULLA-CQ-CONN-R076.9
     #[test]
     fn shareExpiresAt_declared() {
         let triples = triples();
@@ -501,7 +501,7 @@ mod ontology_audit_action_v1 {
         parse_turtle(&ontology).expect("the registered action ontology parses")
     }
 
-    // spec: EG-CQ-CONN-R082.1
+    // spec: MEDULLA-CQ-CONN-R082.1
     #[test]
     fn failureReason_declared() {
         let triples = triples();
@@ -536,7 +536,7 @@ mod ontology_audit_archimate_v1 {
         parse_turtle(&ontology).expect("the registered archimate ontology parses")
     }
 
-    // spec: EG-CQ-CONN-R070.5
+    // spec: MEDULLA-CQ-CONN-R070.5
     #[test]
     fn ConfigurationItem_declared() {
         let triples = triples();
@@ -554,7 +554,7 @@ mod ontology_audit_archimate_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R070.6
+    // spec: MEDULLA-CQ-CONN-R070.6
     #[test]
     fn affectsConfigurationItem_declared() {
         let triples = triples();
@@ -571,7 +571,7 @@ mod ontology_audit_archimate_v1 {
         assert!(domain_covers(&triples, &property, &format!("{KG}Change")));
     }
 
-    // spec: EG-CQ-CONN-R070.7
+    // spec: MEDULLA-CQ-CONN-R070.7
     #[test]
     fn incidentState_declared() {
         let triples = triples();
@@ -596,7 +596,7 @@ mod ontology_audit_archimate_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R070.8
+    // spec: MEDULLA-CQ-CONN-R070.8
     #[test]
     fn incidentAssignee_declared() {
         let triples = triples();
@@ -633,7 +633,7 @@ mod ontology_audit_government_v1 {
             .conforms
     }
 
-    // spec: EG-CQ-CONN-R073.1
+    // spec: MEDULLA-CQ-CONN-R073.1
     #[test]
     fn shapes_module_loads() {
         let shapes = registered_shapes("core:government-shapes@1", "government-shapes");
@@ -648,7 +648,7 @@ mod ontology_audit_government_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R073.2
+    // spec: MEDULLA-CQ-CONN-R073.2
     #[test]
     fn RiskScenario_declared() {
         let triples = triples();
@@ -656,7 +656,7 @@ mod ontology_audit_government_v1 {
         assert!(has_iri(&triples, &class, RDF_TYPE, OWL_CLASS));
     }
 
-    // spec: EG-CQ-CONN-R073.3
+    // spec: MEDULLA-CQ-CONN-R073.3
     #[test]
     fn mitigatesRisk_declared() {
         let triples = triples();
@@ -676,7 +676,7 @@ mod ontology_audit_government_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R073.4
+    // spec: MEDULLA-CQ-CONN-R073.4
     #[test]
     fn inFramework_declared() {
         let triples = triples();
@@ -696,7 +696,7 @@ mod ontology_audit_government_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R073.5
+    // spec: MEDULLA-CQ-CONN-R073.5
     #[test]
     fn riskAffectsService_declared() {
         let triples = triples();
@@ -716,7 +716,7 @@ mod ontology_audit_government_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R073.6
+    // spec: MEDULLA-CQ-CONN-R073.6
     #[test]
     fn PrivacyAssessment_declared() {
         let triples = triples();
@@ -724,7 +724,7 @@ mod ontology_audit_government_v1 {
         assert!(has_iri(&triples, &class, RDF_TYPE, OWL_CLASS));
     }
 
-    // spec: EG-CQ-CONN-R073.7
+    // spec: MEDULLA-CQ-CONN-R073.7
     #[test]
     fn ProcessingActivity_declared() {
         let triples = triples();
@@ -732,7 +732,7 @@ mod ontology_audit_government_v1 {
         assert!(has_iri(&triples, &class, RDF_TYPE, OWL_CLASS));
     }
 
-    // spec: EG-CQ-CONN-R073.8
+    // spec: MEDULLA-CQ-CONN-R073.8
     #[test]
     fn assessmentCovers_declared() {
         let triples = triples();
@@ -752,7 +752,7 @@ mod ontology_audit_government_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R073.9
+    // spec: MEDULLA-CQ-CONN-R073.9
     #[test]
     fn assessmentDueDate_declared() {
         let triples = triples();
@@ -786,7 +786,7 @@ mod ontology_audit_government_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R073.10
+    // spec: MEDULLA-CQ-CONN-R073.10
     #[test]
     fn assessedVendor_declared() {
         let triples = triples();
@@ -806,7 +806,7 @@ mod ontology_audit_government_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R073.11
+    // spec: MEDULLA-CQ-CONN-R073.11
     #[test]
     fn assessmentStatus_declared() {
         let triples = triples();
@@ -848,7 +848,7 @@ mod ontology_audit_core_foundation_v1 {
             .conforms
     }
 
-    // spec: EG-CQ-CONN-R074.1
+    // spec: MEDULLA-CQ-CONN-R074.1
     #[test]
     fn shapes_module_loads() {
         let shapes = registered_shapes("core:foundation-shapes@1", "foundation-shapes");
@@ -863,7 +863,7 @@ mod ontology_audit_core_foundation_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R074.2
+    // spec: MEDULLA-CQ-CONN-R074.2
     #[test]
     fn GlossaryTerm_declared() {
         let triples = triples();
@@ -877,7 +877,7 @@ mod ontology_audit_core_foundation_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R074.3
+    // spec: MEDULLA-CQ-CONN-R074.3
     #[test]
     fn termAssignedTo_declared() {
         let triples = triples();
@@ -897,7 +897,7 @@ mod ontology_audit_core_foundation_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R074.4
+    // spec: MEDULLA-CQ-CONN-R074.4
     #[test]
     fn counterparty_declared() {
         let triples = triples();
@@ -924,7 +924,7 @@ mod ontology_audit_core_foundation_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R074.5
+    // spec: MEDULLA-CQ-CONN-R074.5
     #[test]
     fn agreementExpiresAt_declared() {
         let triples = triples();
@@ -949,7 +949,7 @@ mod ontology_audit_core_foundation_v1 {
         ));
     }
 
-    // spec: EG-CQ-CONN-R074.6
+    // spec: MEDULLA-CQ-CONN-R074.6
     #[test]
     fn hasRenewalAction_declared() {
         let triples = triples();

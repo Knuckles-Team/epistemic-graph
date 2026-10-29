@@ -106,7 +106,7 @@ fn every_predecessor_is_a_different_table_set_with_a_derived_code() {
 
 /// X11-T2/T4: a genuine predecessor file is refused through the real open with
 /// its named error and removal step, and its bytes are untouched.
-// spec: EG-DURABLE-KERNEL-R060
+// spec: MEDULLA-DURABLE-KERNEL-R060
 #[test]
 fn every_declared_predecessor_file_is_refused_by_name_without_a_write() {
     let dir = tempfile::tempdir().unwrap();
@@ -221,7 +221,7 @@ fn the_named_manifest_refusal_wins_over_a_table_census_mismatch() {
     assert!(error.starts_with(&predecessor.error_code()), "{error}");
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn checkpoint_predecessor_preserves_the_last_sixty_table_layout() {
     let predecessor = &GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS;
@@ -242,7 +242,7 @@ fn checkpoint_predecessor_preserves_the_last_sixty_table_layout() {
     assert!(error.contains(predecessor.label));
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn predecessor_document_reuses_only_compatible_table_sets() {
     let previous = LayoutPredecessor {
@@ -280,7 +280,7 @@ fn predecessor_document_reuses_only_compatible_table_sets() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn predecessor_document_keeps_operator_clauses_when_splitting_sentences() {
     assert_eq!(

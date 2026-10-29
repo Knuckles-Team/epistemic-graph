@@ -51,7 +51,7 @@ fn lexical_errors_carry_codes() {
     );
 }
 
-// Regression for EG-FEDERATED-QUERY-R064; native acceptance remains pending.
+// Regression for MEDULLA-FEDERATED-QUERY-R064; native acceptance remains pending.
 #[test]
 fn lexical_errors_report_the_offending_span_and_caret() {
     let src = "MATCH () |> LIMIT %";

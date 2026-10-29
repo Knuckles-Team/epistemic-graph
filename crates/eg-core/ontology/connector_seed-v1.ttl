@@ -1,4 +1,4 @@
-# Connector seed vocabulary (EG-TYPED-PACKS-R104.1).
+# Connector seed vocabulary (MEDULLA-TYPED-PACKS-R104.1).
 #
 # A seed graph carries the small identity, catalog and reference/index surface
 # needed to establish a connector instance.  Bulk records remain at the

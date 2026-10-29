@@ -8,7 +8,7 @@
 
 <http://knuckles.team/kg/media> a owl:Ontology ;
     rdfs:label "Media and Content Ontology" ;
-    rdfs:comment "Media and content concepts aligned to schema.org media types (MediaObject, VideoObject, AudioObject, ImageObject, Book, Audiobook, MusicAlbum, TVSeries, TVSeason, Episode, Playlist, BroadcastChannel, BroadcastEvent), the W3C Ontology for Media Resources and EBUCore, IFLA LRM for work and collection structure, and ActivityStreams 2.0 for audience. Reuses CreativeWork, Collection, Rendition, Category, Policy and WorkItem from the core (EG-TYPED-PACKS-R105.8)." ;
+    rdfs:comment "Media and content concepts aligned to schema.org media types (MediaObject, VideoObject, AudioObject, ImageObject, Book, Audiobook, MusicAlbum, TVSeries, TVSeason, Episode, Playlist, BroadcastChannel, BroadcastEvent), the W3C Ontology for Media Resources and EBUCore, IFLA LRM for work and collection structure, and ActivityStreams 2.0 for audience. Reuses CreativeWork, Collection, Rendition, Category, Policy and WorkItem from the core (MEDULLA-TYPED-PACKS-R105.8)." ;
     dcterms:source "schema.org media types; W3C Ontology for Media Resources; EBUCore; IFLA LRM; W3C ActivityStreams 2.0" ;
     owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/service_operations> .
 
@@ -452,7 +452,7 @@
 
 # --- media vocab lane B ---
 # Content-channel vocabulary for the second half of the media and personal
-# vocabulary spec (EG-MEDIA-VOCAB-R014.1, R015.1, R017.1, R018.1, R019.1): the
+# vocabulary spec (MEDULLA-MEDIA-VOCAB-R014.1, R015.1, R017.1, R018.1, R019.1): the
 # classes and properties the scholarx, searxng, postiz, listmonk and mattermost
 # mapping tables name. Reuses :ScholarlyPaper, :SearchQuery, :SearchResult,
 # :SearchEngine and :SourceBackend from retrieval-v1, :BroadcastChannel from
@@ -624,7 +624,7 @@
     rdfs:range :Person .
 
 # --- media vocab lane A ---
-# Shared media vocabulary (EG-MEDIA-VOCAB). The `mv:` names in the spec rows are
+# Shared media vocabulary (MEDULLA-MEDIA-VOCAB). The `mv:` names in the spec rows are
 # documentation prefixes for this section of the shared `:` namespace
 # (specs/media-and-personal-vocabulary/plan.md, "Vocabulary"); every IRI stays
 # in `:` like the rest of this module, and the existing terms above are reused,
@@ -654,7 +654,7 @@
 
 :TelevisionEpisode a owl:Class ;
     rdfs:label "Television Episode" ;
-    rdfs:comment "One episode of a television series; partOf its season. Declared here because the connector alias `:Episode` collides with the core interaction-unit `:Episode` (EG-MEDIA-VOCAB-R001.6)." ;
+    rdfs:comment "One episode of a television series; partOf its season. Declared here because the connector alias `:Episode` collides with the core interaction-unit `:Episode` (MEDULLA-MEDIA-VOCAB-R001.6)." ;
     rdfs:subClassOf :MediaWork .
 
 :MusicAlbum a owl:Class ;
@@ -926,7 +926,7 @@
 
 :noSpeechProb a owl:DatatypeProperty ;
     rdfs:label "no speech probability" ;
-    rdfs:comment "Probability in [0,1] that the segment carries no speech; a high value is the low-confidence proxy until avg_logprob is served (EG-MEDIA-VOCAB plan, audio-transcriber)." ;
+    rdfs:comment "Probability in [0,1] that the segment carries no speech; a high value is the low-confidence proxy until avg_logprob is served (MEDULLA-MEDIA-VOCAB plan, audio-transcriber)." ;
     rdfs:domain :TranscriptSegment ;
     rdfs:range xsd:decimal .
 

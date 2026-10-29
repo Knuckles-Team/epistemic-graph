@@ -1,4 +1,4 @@
-//! EG-UNIFIED-DATA-PLANE-R004 — deterministic schema inference over an attached catalog. This is
+//! MEDULLA-UNIFIED-DATA-PLANE-R004 — deterministic schema inference over an attached catalog. This is
 //! the `.1` typed-model slice: the bounded, policy-gated column-sampling budget the requirement
 //! names, and its refusal of a zero or unbounded budget. Dependency discovery and fixed-seed
 //! Leiden grouping are later children.
@@ -62,7 +62,7 @@ impl ColumnSamplingBudget {
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R004.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R004.1
     #[test]
     fn a_budget_within_bounds_validates() {
         let budget = ColumnSamplingBudget {
@@ -72,7 +72,7 @@ mod tests {
         budget.validate().unwrap();
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R004.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R004.1
     #[test]
     fn a_zero_row_budget_is_refused() {
         let budget = ColumnSamplingBudget {
@@ -85,7 +85,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R004.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R004.1
     #[test]
     fn a_zero_byte_budget_is_refused() {
         let budget = ColumnSamplingBudget {
@@ -98,7 +98,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R004.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R004.1
     #[test]
     fn a_budget_over_the_ceiling_is_refused() {
         let budget = ColumnSamplingBudget {

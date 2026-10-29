@@ -337,7 +337,7 @@ pub fn pack_digest(index: &ConnectorPackIndex) -> Result<Digest256, String> {
 mod measured_model_tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R050.1
+    // spec: MEDULLA-DECISION-ENGINE-R050.1
     #[test]
     fn pack_model_input_capabilities_are_digest_bound() {
         let mut wire = serde_json::json!({
@@ -372,7 +372,7 @@ mod measured_model_tests {
         assert!(model_facts_digest(&serde_json::from_value(wire).unwrap()).is_err());
     }
 
-    // spec: EG-TYPED-PACKS-R048.5
+    // spec: MEDULLA-TYPED-PACKS-R048.5
     #[test]
     fn measured_pack_model_digest_preserves_absence_and_binds_provenance() {
         let baseline = serde_json::json!({
@@ -418,7 +418,7 @@ mod measured_model_tests {
 mod contract_pin_tests {
     use super::*;
 
-    // spec: EG-TYPED-PACKS-R049
+    // spec: MEDULLA-TYPED-PACKS-R049
     #[test]
     fn server_pin_digest_carries_the_declared_sdk_contract_pin_opaquely() {
         let index = crate::test_support::contract_wave::pack::index();
@@ -446,7 +446,7 @@ mod harness_tool_fact_tests {
     use super::*;
     use crate::agent_component::{ToolFactDeclarer, ToolSideEffects};
 
-    // spec: EG-TYPED-PACKS-R045.3
+    // spec: MEDULLA-TYPED-PACKS-R045.3
     #[test]
     fn absent_new_fields_keep_golden_vectors() {
         let index = crate::test_support::contract_wave::pack::index();

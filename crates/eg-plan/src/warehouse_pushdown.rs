@@ -1,5 +1,5 @@
 //! Warehouse federation pushdown-transport dispatch
-//! (EG-UNIFIED-DATA-PLANE-R020.2): deciding, per
+//! (MEDULLA-UNIFIED-DATA-PLANE-R020.2): deciding, per
 //! [`eg_types::warehouse_federation::WarehouseSourceKind`], whether a federated query
 //! pushes down over Arrow Flight SQL or the kind's native protocol — extended for
 //! Iceberg by `eg-query::sql::iceberg_federation`'s own REST-catalog scan path. This
@@ -7,7 +7,7 @@
 //! unvalidated config or a Flight SQL preference a kind does not actually offer. It
 //! issues NO request and opens NO connection — [`plan_pushdown`] is pure data-in,
 //! data-out. Actually issuing the pushed-down query against each native warehouse or
-//! lake engine is the live slice (EG-UNIFIED-DATA-PLANE-R020.2.2+).
+//! lake engine is the live slice (MEDULLA-UNIFIED-DATA-PLANE-R020.2.2+).
 
 use eg_types::warehouse_federation::{
     MissingWarehouseFields, WarehouseSourceConfig, WarehouseSourceKind,
@@ -92,7 +92,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.2.1
     #[test]
     fn snowflake_prefers_flight_sql_when_requested() {
         let request = WarehousePushdownRequest {
@@ -108,7 +108,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.2.1
     #[test]
     fn duckdb_without_flight_sql_preference_uses_native() {
         let request = WarehousePushdownRequest {
@@ -124,7 +124,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.2.1
     #[test]
     fn duckdb_flight_sql_preference_is_refused_not_downgraded() {
         let request = WarehousePushdownRequest {
@@ -142,7 +142,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.2.1
     #[test]
     fn iceberg_flight_sql_preference_is_refused() {
         let request = WarehousePushdownRequest {
@@ -157,7 +157,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.2.1
     #[test]
     fn invalid_config_is_refused_before_any_transport_decision() {
         let request = WarehousePushdownRequest {
@@ -170,7 +170,7 @@ mod tests {
         ));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.2.1
     #[test]
     fn config_with_no_declared_kind_is_refused() {
         let request = WarehousePushdownRequest {

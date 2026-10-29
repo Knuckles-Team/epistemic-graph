@@ -1,4 +1,4 @@
-//! Calibrated abstaining recommendations (EG-FINANCE-PRIMITIVES-R009.1): maps
+//! Calibrated abstaining recommendations (MEDULLA-FINANCE-PRIMITIVES-R009.1): maps
 //! a calibrated flip-confidence outcome (`confidence::flip_confidence`) to one
 //! of the four recommendation actions the requirement names. Abstention is a
 //! result, never an omission: an abstaining confidence outcome always
@@ -78,7 +78,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R009.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R009.1
     #[test]
     fn insufficient_evidence_always_abstains() {
         let confidence = FlipConfidence::Abstained {
@@ -91,7 +91,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R009.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R009.1
     #[test]
     fn a_non_abstaining_recommendation_cites_strategy_version_and_evidence() {
         let confidence = calibrated(0.82, true);

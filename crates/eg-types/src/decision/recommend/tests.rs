@@ -1,6 +1,6 @@
 use super::*;
 
-// spec: EG-DECISION-ENGINE-R175.1
+// spec: MEDULLA-DECISION-ENGINE-R175.1
 #[test]
 fn request_round_trips() {
     let request = RecommendRequestV1 {

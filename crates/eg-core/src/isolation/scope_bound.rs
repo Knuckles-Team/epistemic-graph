@@ -1,4 +1,4 @@
-//! Durable run-scope bound (EG-IDENTITY-R008).
+//! Durable run-scope bound (MEDULLA-IDENTITY-R008).
 //!
 //! A run's tool and data scope comes from a STORED policy node, never from plan
 //! text: [`ScopeBound`] carries the policy IRI, the allowed tool IRIs and the
@@ -35,7 +35,7 @@ impl std::error::Error for ScopeBoundError {}
 /// the tool IRIs the policy allows, and the graphs the policy allows.
 ///
 /// The `ScopeBound { policy_iri, allowed_tools, allowed_graphs }` contract of
-/// EG-IDENTITY-R008.2: construction REFUSES an empty `policy_iri` with
+/// MEDULLA-IDENTITY-R008.2: construction REFUSES an empty `policy_iri` with
 /// [`ScopeBoundError::EmptyPolicyIri`]; an empty `allowed_tools` is legal and
 /// simply means "no tools allowed".
 ///
@@ -87,7 +87,7 @@ impl ScopeBound {
     }
 }
 
-/// Pure subset check (EG-IDENTITY-R008.3): the FIRST plan tool IRI that is not
+/// Pure subset check (MEDULLA-IDENTITY-R008.3): the FIRST plan tool IRI that is not
 /// in `bound.allowed_tools`, or `None` when every planned tool is inside the
 /// bound. Returning the named IRI (not a boolean) is what lets the admission
 /// path refuse with `ScopeExceedsPolicy` naming the offending tool and the
@@ -104,7 +104,7 @@ pub fn scope_within_bound<'a>(plan_tools: &'a [String], bound: &ScopeBound) -> O
 mod tests {
     use super::*;
 
-    // spec: EG-IDENTITY-R008.2
+    // spec: MEDULLA-IDENTITY-R008.2
     #[test]
     fn empty_policy_iri_is_refused() {
         for policy_iri in ["", "   "] {
@@ -120,7 +120,7 @@ mod tests {
         ));
     }
 
-    // spec: EG-IDENTITY-R008.3
+    // spec: MEDULLA-IDENTITY-R008.3
     #[test]
     fn first_excess_tool_is_named() {
         let bound = ScopeBound::new(
@@ -141,7 +141,7 @@ mod tests {
         );
     }
 
-    // spec: EG-IDENTITY-R008.2
+    // spec: MEDULLA-IDENTITY-R008.2
     #[test]
     fn valid_bound_round_trips_its_fields() {
         let bound = ScopeBound::new(
@@ -161,7 +161,7 @@ mod tests {
         );
     }
 
-    // spec: EG-IDENTITY-R008.3
+    // spec: MEDULLA-IDENTITY-R008.3
     #[test]
     fn in_bound_plan_returns_none() {
         let bound = ScopeBound::new(

@@ -25,7 +25,7 @@ fn profile() -> ColumnProfile {
     }
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R761.1
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R761.1
 #[test]
 fn profile_round_trips() {
     let original = profile();

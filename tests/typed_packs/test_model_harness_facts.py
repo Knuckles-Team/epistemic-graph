@@ -33,7 +33,7 @@ from epistemic_graph.generated.connector_pack import (
 )
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R048.5")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R048.5")
 def test_model_profile_round_trip() -> None:
     model: dict[str, Any] = {
         "provider": "test-provider",

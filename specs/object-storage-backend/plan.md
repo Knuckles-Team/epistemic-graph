@@ -1,10 +1,10 @@
-# EG-OBJECT-STORAGE-BACKEND plan
+# MEDULLA-OBJECT-STORAGE-BACKEND plan
 
 ## Architecture
 
 One physical store layer. Two backends. `crates/eg-storage` already binds owner-store authority
-per write transaction (EG-DURABLE-KERNEL-R021). It keeps a layout lineage registry with typed
-upgrade refusal (EG-DURABLE-KERNEL-R003). The object-store backend is a new physical binding
+per write transaction (MEDULLA-DURABLE-KERNEL-R021). It keeps a layout lineage registry with typed
+upgrade refusal (MEDULLA-DURABLE-KERNEL-R003). The object-store backend is a new physical binding
 under that same authority.
 
 - **Segments** — immutable, content-addressed objects. Keys are SHA-256. Each writes exactly
@@ -24,10 +24,10 @@ layer. They key off engine versions. The object store serves those identically.
 
 | Need | Existing owner |
 |---|---|
-| Layout lineage registry + typed upgrade refusal | owner-store layout lineage (EG-DURABLE-KERNEL-R003) |
-| Per-transaction store-authority binding | physical binding (EG-DURABLE-KERNEL-R021) |
-| Snapshot reads, tenant RLS | `GraphView` off-lock snapshot path (EG-DURABLE-KERNEL-R023/R029) |
-| Commit/raft path, receipts | existing commit path; raft sealing (EG-DURABLE-KERNEL-R009) |
+| Layout lineage registry + typed upgrade refusal | owner-store layout lineage (MEDULLA-DURABLE-KERNEL-R003) |
+| Per-transaction store-authority binding | physical binding (MEDULLA-DURABLE-KERNEL-R021) |
+| Snapshot reads, tenant RLS | `GraphView` off-lock snapshot path (MEDULLA-DURABLE-KERNEL-R023/R029) |
+| Commit/raft path, receipts | existing commit path; raft sealing (MEDULLA-DURABLE-KERNEL-R009) |
 | Placement / resharding / cold-tenant offload | M3 catalog-driven resharding authorities |
 | Benchmark + cost-model machinery | transport benchmarks, multi-shard scaling, cost model docs |
 

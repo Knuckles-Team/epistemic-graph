@@ -1,4 +1,4 @@
-//! The named, versioned derivation rules (EG-SDLC-R001.2). Each rule is a pure
+//! The named, versioned derivation rules (MEDULLA-SDLC-R001.2). Each rule is a pure
 //! function of one changeset and the code graph view; the same inputs always
 //! produce the same edges.
 

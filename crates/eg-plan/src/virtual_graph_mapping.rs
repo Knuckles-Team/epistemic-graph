@@ -1,4 +1,4 @@
-//! EG-UNIFIED-DATA-PLANE-R005 — compiling approved relational mappings to named R2RML virtual
+//! MEDULLA-UNIFIED-DATA-PLANE-R005 — compiling approved relational mappings to named R2RML virtual
 //! graphs. This is the `.1` typed-model slice: the mapping's approval-state machine, and the
 //! refusal of an unapproved or model-only mapping's query access. Deterministic mapping
 //! proposal and the actual R2RML compilation are later children.
@@ -65,7 +65,7 @@ impl VirtualGraphMapping {
     }
 }
 
-/// EG-DATAPLAT-VOCAB-R005.4 — the connector operations that read a secret's
+/// MEDULLA-DATAPLAT-VOCAB-R005.4 — the connector operations that read a secret's
 /// *value* are never mapped. This is the engine-side mirror of the denylist in
 /// `dp:StoreMappingShape` (data_platform-v1.shapes.ttl): the shape refuses the
 /// same rows at graph-validation time, this check at mapping-approval time.
@@ -117,14 +117,14 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R005.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R005.1
     #[test]
     fn an_approved_mapping_is_queryable_by_name() {
         let m = mapping(MappingApprovalState::Approved);
         assert_eq!(m.queryable_name().unwrap(), "gramps_people");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R005.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R005.1
     #[test]
     fn a_proposed_mapping_is_refused() {
         let m = mapping(MappingApprovalState::Proposed);
@@ -133,7 +133,7 @@ mod tests {
         assert!(err.to_string().contains("not approved"));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R005.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R005.1
     #[test]
     fn a_model_suggested_mapping_is_refused() {
         let m = mapping(MappingApprovalState::ModelSuggested);
@@ -142,7 +142,7 @@ mod tests {
         assert!(err.to_string().contains("model-suggested"));
     }
 
-    // spec: EG-DATAPLAT-VOCAB-R005.4
+    // spec: MEDULLA-DATAPLAT-VOCAB-R005.4
     #[test]
     fn value_operations_are_refused() {
         for operation in REFUSED_VALUE_OPERATIONS {
@@ -152,7 +152,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DATAPLAT-VOCAB-R005.4
+    // spec: MEDULLA-DATAPLAT-VOCAB-R005.4
     #[test]
     fn metadata_operations_pass() {
         for operation in [

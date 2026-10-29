@@ -36,7 +36,7 @@ fn outcomes(up: usize, down: usize) -> Vec<RoundTaskOutcome> {
         .collect()
 }
 
-// spec: EG-DECISION-ENGINE-R136.1
+// spec: MEDULLA-DECISION-ENGINE-R136.1
 #[test]
 fn round_types_round_trip() {
     let defaults = EvolutionDefaults::default();
@@ -80,7 +80,7 @@ fn round_types_round_trip() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R136.2
+// spec: MEDULLA-DECISION-ENGINE-R136.2
 #[test]
 fn verdict_follows_flip_fraction() {
     let defaults = EvolutionDefaults::default();

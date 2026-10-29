@@ -1,4 +1,4 @@
-# EG-IDENTITY — Test specification
+# MEDULLA-IDENTITY — Test specification
 
 | Test | Requirement | Setup | Pass and refusal observations |
 |---|---|---|---|
@@ -64,14 +64,14 @@ Native execution of both tests remains pending.
 Hosted facade execution must establish R005 acceptance; source inspection alone does not establish it.
 | `I-11` | R008 | A principal with a stored policy node allowing two tools; plans naming two tools and three tools. | The two-tool plan passes. The three-tool plan returns `ScopeExceedsPolicy` naming the third tool, and an audit record exists. |
 
-### EG-IDENTITY-R023 tests
+### MEDULLA-IDENTITY-R023 tests
 
-- `EG-IDENTITY-R023.1`: `crates/eg-types/src/identity/segment.rs::tests::unit_round_trips`.
-- `EG-IDENTITY-R023.2`: `crates/eg-types/src/identity/segment.rs::tests::superseded_and_foreign_units_hidden`.
-- `EG-IDENTITY-R023.3`: `tests/identity/test_segment_retrieval_served.py::test_retrieve_filters_by_principal`.
-- `EG-IDENTITY-R023.4`: `crates/eg-types/src/identity/segment.rs::tests::out_of_scope_names_id_only`.
-- `EG-IDENTITY-R023.5`: `crates/eg-types/src/identity/tests/segment_audit.rs::read_audit_counts_hidden`.
-- `EG-IDENTITY-R023.6`: `tests/identity/test_segment_retrieval_served.py::test_shared_unit_visible_only_in_scope`.
+- `MEDULLA-IDENTITY-R023.1`: `crates/eg-types/src/identity/segment.rs::tests::unit_round_trips`.
+- `MEDULLA-IDENTITY-R023.2`: `crates/eg-types/src/identity/segment.rs::tests::superseded_and_foreign_units_hidden`.
+- `MEDULLA-IDENTITY-R023.3`: `tests/identity/test_segment_retrieval_served.py::test_retrieve_filters_by_principal`.
+- `MEDULLA-IDENTITY-R023.4`: `crates/eg-types/src/identity/segment.rs::tests::out_of_scope_names_id_only`.
+- `MEDULLA-IDENTITY-R023.5`: `crates/eg-types/src/identity/tests/segment_audit.rs::read_audit_counts_hidden`.
+- `MEDULLA-IDENTITY-R023.6`: `tests/identity/test_segment_retrieval_served.py::test_shared_unit_visible_only_in_scope`.
 
 
 ## R023 typed metadata acceptance
@@ -80,17 +80,17 @@ All names below are planned tests; this definition batch does not run runtime ac
 Use a real authenticated server, generated client and disposable durable storage.
 Do not mock transport, authorization, schema composition, mutation admission or persistence.
 
-- `EG-IDENTITY-R023.7`: Planned: tests/identity/test_typed_metadata_served.py::typed_metadata_variants_round_trip.
+- `MEDULLA-IDENTITY-R023.7`: Planned: tests/identity/test_typed_metadata_served.py::typed_metadata_variants_round_trip.
 
-- `EG-IDENTITY-R023.8`: Planned: tests/identity/test_typed_metadata_served.py::typed_metadata_persists_without_file_authority.
+- `MEDULLA-IDENTITY-R023.8`: Planned: tests/identity/test_typed_metadata_served.py::typed_metadata_persists_without_file_authority.
 
-- `EG-IDENTITY-R023.9`: Planned: tests/identity/test_typed_metadata_served.py::all_metadata_write_routes_reach_admission.
+- `MEDULLA-IDENTITY-R023.9`: Planned: tests/identity/test_typed_metadata_served.py::all_metadata_write_routes_reach_admission.
 
-- `EG-IDENTITY-R023.10`: Planned: tests/identity/test_typed_metadata_served.py::invalid_metadata_has_no_durable_effect.
+- `MEDULLA-IDENTITY-R023.10`: Planned: tests/identity/test_typed_metadata_served.py::invalid_metadata_has_no_durable_effect.
 
-- `EG-IDENTITY-R023.11`: Planned: tests/identity/test_typed_metadata_served.py::metadata_import_provenance_survives_restart.
+- `MEDULLA-IDENTITY-R023.11`: Planned: tests/identity/test_typed_metadata_served.py::metadata_import_provenance_survives_restart.
 
-- `EG-IDENTITY-R023.12`: Planned: tests/identity/test_typed_metadata_served.py::typed_metadata_served_journey.
+- `MEDULLA-IDENTITY-R023.12`: Planned: tests/identity/test_typed_metadata_served.py::typed_metadata_served_journey.
 
 Create each variant through served AddNode and ApplyMutation, including typed interaction links through AddEdge.
 Read through GetNodeProperties and an independent authorized client; restart and repeat the reads.
@@ -117,27 +117,27 @@ eligibility and wildcard refusal. `gen_contract --check` verifies regenerated
 server/package catalogs and receipt freshness. This slice does not claim an
 installed Arbora wheel or live authorization deployment.
 
-## EG-IDENTITY-R023.13 acceptance
+## MEDULLA-IDENTITY-R023.13 acceptance
 
 | Case | Row | Proving test and observation |
 |---|---|---|
-| Model | `EG-IDENTITY-R023.13.1` | A serde round trip keeps every field. It rejects an unknown scope and a 65-entry grantee list. |
-| Behavior | `EG-IDENTITY-R023.13.2` | Unit tests cover grant, revoke, commons promotion and a non-owner attempt. |
-| Wiring | `EG-IDENTITY-R023.13.3` | A dispatch test asserts the gateway commit and an unchanged read path. |
-| Refusal | `EG-IDENTITY-R023.13.4` | Each case returns its code. An independent readback shows unchanged properties. |
-| Evidence | `EG-IDENTITY-R023.13.5` | A test reads the audit event after one grant and one revoke. |
-| Hot-path proof | `EG-IDENTITY-R023.13.6` | The served test passes against a restarted engine, and the benchmark receipt meets the budget. |
+| Model | `MEDULLA-IDENTITY-R023.13.1` | A serde round trip keeps every field. It rejects an unknown scope and a 65-entry grantee list. |
+| Behavior | `MEDULLA-IDENTITY-R023.13.2` | Unit tests cover grant, revoke, commons promotion and a non-owner attempt. |
+| Wiring | `MEDULLA-IDENTITY-R023.13.3` | A dispatch test asserts the gateway commit and an unchanged read path. |
+| Refusal | `MEDULLA-IDENTITY-R023.13.4` | Each case returns its code. An independent readback shows unchanged properties. |
+| Evidence | `MEDULLA-IDENTITY-R023.13.5` | A test reads the audit event after one grant and one revoke. |
+| Hot-path proof | `MEDULLA-IDENTITY-R023.13.6` | The served test passes against a restarted engine, and the benchmark receipt meets the budget. |
 
-Hot-path proof for `EG-IDENTITY-R023.13`: `tests/identity/test_share_restart_served.py::test_org_share_revocation_persists_across_restart`.
+Hot-path proof for `MEDULLA-IDENTITY-R023.13`: `tests/identity/test_share_restart_served.py::test_org_share_revocation_persists_across_restart`.
 
 ## Explicit isolated anonymous authority
 
 | Test | Requirement | Setup | Pass and refusal observations |
 |---|---|---|---|
-| `I-12` | EG-IDENTITY-R003.1 | `tests/test_native_no_auth_served.py` owns real loopback native processes and fresh anonymous stores. | Cover write/read/restart, durable replay/conflict, independent-client clears and real Blob CAS. Cover signed/mixed/forged metadata refusals, store separation and loopback-only startup. Connector-pack import becomes visible with a nonempty graph-schema source through the actual background sweep. |
-| `I-13` | EG-IDENTITY-R003.1 | `tests/test_client_no_auth.py` plus existing verified-context/client regressions. | Explicit anonymous mode never signs or manufactures verified claims. Strict unsigned retry metadata preserves caller keys and the required null agent field. Authenticated defaults and payloads remain unchanged. |
-| `I-14` | EG-IDENTITY-R003.2 | Pending dedicated admission benchmark implementation and allocation/latency receipt. | No measured performance claim from the opt0 scoped runtime build or functional tests. |
+| `I-12` | MEDULLA-IDENTITY-R003.1 | `tests/test_native_no_auth_served.py` owns real loopback native processes and fresh anonymous stores. | Cover write/read/restart, durable replay/conflict, independent-client clears and real Blob CAS. Cover signed/mixed/forged metadata refusals, store separation and loopback-only startup. Connector-pack import becomes visible with a nonempty graph-schema source through the actual background sweep. |
+| `I-13` | MEDULLA-IDENTITY-R003.1 | `tests/test_client_no_auth.py` plus existing verified-context/client regressions. | Explicit anonymous mode never signs or manufactures verified claims. Strict unsigned retry metadata preserves caller keys and the required null agent field. Authenticated defaults and payloads remain unchanged. |
+| `I-14` | MEDULLA-IDENTITY-R003.2 | Pending dedicated admission benchmark implementation and allocation/latency receipt. | No measured performance claim from the opt0 scoped runtime build or functional tests. |
 
 Private UDS runtime proof on a suitable host remains pending. So do the full default feature matrix, including AST enrichment, and native Rust unit execution. Synthetic authenticated end-to-end comparison also remains pending. The parent durable mode-transition row R003 is not closed by this isolated-store child.
 
-`I-15` (EG-IDENTITY-R003.3) remains pending: real private-UDS operations and the full feature runtime matrix, including AST enrichment. This is separate from `I-12` native TCP qualification.
+`I-15` (MEDULLA-IDENTITY-R003.3) remains pending: real private-UDS operations and the full feature runtime matrix, including AST enrichment. This is separate from `I-12` native TCP qualification.

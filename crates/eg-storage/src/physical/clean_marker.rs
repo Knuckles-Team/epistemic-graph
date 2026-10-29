@@ -1,4 +1,4 @@
-//! Clean-shutdown marker (EG-DURABLE-KERNEL-R006.3).
+//! Clean-shutdown marker (MEDULLA-DURABLE-KERNEL-R006.3).
 //!
 //! A sidecar file `<store>.clean` beside an owner file. It records that the
 //! file was closed gracefully and has not been written since, so the next open

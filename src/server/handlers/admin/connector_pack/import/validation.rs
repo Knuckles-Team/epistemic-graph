@@ -32,7 +32,7 @@ pub(super) fn validate_index(
     finish_validation(&mut validator);
 }
 
-/// EG-DECISION-ENGINE-R075.2: wire the standalone
+/// MEDULLA-DECISION-ENGINE-R075.2: wire the standalone
 /// `eg_types::connector_pack::rapid_r075::check_unique_component_ids` into
 /// this real pack-import entry point, over every entry's actual minted
 /// component id (connector + kind + name), rather than leaving it exercised
@@ -953,7 +953,7 @@ mod duplicate_component_id_wiring_tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R075.2
+    // spec: MEDULLA-DECISION-ENGINE-R075.2
     #[test]
     fn the_real_entry_point_calls_the_shared_duplicate_id_check() {
         let a = entry("search", "tool://connector/a");

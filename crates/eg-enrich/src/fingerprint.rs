@@ -1,5 +1,5 @@
 //! Structural fingerprints keep incremental re-indexing to real structural
-//! change (EG-REPO-INGEST-R603).
+//! change (MEDULLA-REPO-INGEST-R603).
 //!
 //! Each file has a content hash and a structure hash over its signatures.
 //! Equal content is `None`, equal structure is `Cosmetic`, otherwise
@@ -176,7 +176,7 @@ mod tests {
         values.iter().map(|s| s.to_string()).collect()
     }
 
-    // spec: EG-REPO-INGEST-R603.1
+    // spec: MEDULLA-REPO-INGEST-R603.1
     #[test]
     fn fingerprint_types_round_trip_and_invalid_identifiers_are_refused() {
         let print = fingerprint(id("src/a.rs"), b"fn a() {}", Ok(&sigs(&["fn a()"])));
@@ -207,7 +207,7 @@ mod tests {
         assert!(serde_json::from_value::<BlastRadius>(bad).is_err());
     }
 
-    // spec: EG-REPO-INGEST-R603.2
+    // spec: MEDULLA-REPO-INGEST-R603.2
     #[test]
     fn levels_blast_radius_and_code_map_follow_the_rules() {
         let old = fingerprint(id("a.rs"), b"fn a() {}", Ok(&sigs(&["fn a()"])));
@@ -242,7 +242,7 @@ mod tests {
             .contains(&("src/a.rs".to_string(), "src/a.rs::a".to_string())));
     }
 
-    // spec: EG-REPO-INGEST-R603.4
+    // spec: MEDULLA-REPO-INGEST-R603.4
     #[test]
     fn an_unparseable_file_is_structural_and_never_skipped() {
         let old = fingerprint(id("a.rs"), b"fn a() {}", Ok(&sigs(&["fn a()"])));
@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(reindex, [id("a.rs")]);
     }
 
-    // spec: EG-REPO-INGEST-R603.5
+    // spec: MEDULLA-REPO-INGEST-R603.5
     #[test]
     fn the_run_report_counts_levels_and_low_usage_symbols() {
         let old = fingerprint(id("a.rs"), b"fn a() {}", Ok(&sigs(&["fn a()"])));

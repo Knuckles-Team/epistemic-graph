@@ -1,4 +1,4 @@
-# Connector-pack vocabulary (EG-TYPED-PACKS-R101.1, EG-TYPED-PACKS-R102.1).
+# Connector-pack vocabulary (MEDULLA-TYPED-PACKS-R101.1, MEDULLA-TYPED-PACKS-R102.1).
 #
 # An EG core schema source (`core:connector-pack@1`) holding the ingest-contract
 # and connector-surface vocabulary every typed connector pack speaks. The
@@ -20,7 +20,7 @@
     rdfs:comment "The ingest contract and connector surface of one typed connector pack: contract terms specialised from the virtual-graph vocabulary, and the connector, feature, tool, prompt and skill surface linked to the domain classes it serves." ;
     owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/virtual-graph>, <http://knuckles.team/kg/capability>, <http://knuckles.team/kg/orchestration> .
 
-# --- Ingest contract (EG-TYPED-PACKS-R101.1) --------------------------------
+# --- Ingest contract (MEDULLA-TYPED-PACKS-R101.1) --------------------------------
 
 cp:IngestContract a owl:Class ;
     rdfs:label "Ingest contract" ;
@@ -153,7 +153,7 @@ cp:governedBy a owl:ObjectProperty ;
     rdfs:comment "Links an ingested node to the ingest contract that governs it: the contract's classes, key rule, cursor and access policy all apply to the node." ;
     rdfs:range cp:IngestContract .
 
-# --- Connector surface (EG-TYPED-PACKS-R102.1) ------------------------------
+# --- Connector surface (MEDULLA-TYPED-PACKS-R102.1) ------------------------------
 
 cp:Connector a owl:Class ;
     rdfs:label "Connector" ;

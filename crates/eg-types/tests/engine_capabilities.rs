@@ -2,7 +2,7 @@ use eg_types::engine_capabilities::{
     ConstraintKind, EngineCapabilities, IndexKind, WireFeature, ENGINE_PARITY_CONSUMERS,
 };
 
-// spec: EG-ENGINE-PARITY-R020.1
+// spec: MEDULLA-ENGINE-PARITY-R020.1
 #[test]
 fn report_round_trips() {
     let report = EngineCapabilities {

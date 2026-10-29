@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R113.1: the typed commit outcome that ties a
+//! MEDULLA-DECISION-ENGINE-R113.1: the typed commit outcome that ties a
 //! topology-backed decision's capacity acquisition to its synthesis
 //! evidence as one all-or-nothing operation.
 //!
@@ -89,7 +89,7 @@ impl CapacitySynthesisCommit {
 mod tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R113.1
+    // spec: MEDULLA-DECISION-ENGINE-R113.1
     #[test]
     fn an_accepted_decision_with_a_lease_and_evidence_commits() {
         let commit = CapacitySynthesisCommit::from_capacity_decision(
@@ -107,7 +107,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R113.1
+    // spec: MEDULLA-DECISION-ENGINE-R113.1
     #[test]
     fn a_denied_decision_with_no_lease_and_no_evidence_grants_exactly_one_retry() {
         let commit = CapacitySynthesisCommit::from_capacity_decision(
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(retry.further_decisions, 1);
     }
 
-    // spec: EG-DECISION-ENGINE-R113.1
+    // spec: MEDULLA-DECISION-ENGINE-R113.1
     #[test]
     fn a_denial_holding_a_partial_lease_is_refused() {
         let err = CapacitySynthesisCommit::from_capacity_decision(
@@ -134,7 +134,7 @@ mod tests {
         assert!(err.contains("not atomic"));
     }
 
-    // spec: EG-DECISION-ENGINE-R113.1
+    // spec: MEDULLA-DECISION-ENGINE-R113.1
     #[test]
     fn an_acceptance_without_published_synthesis_evidence_is_refused() {
         let err = CapacitySynthesisCommit::from_capacity_decision(
@@ -146,7 +146,7 @@ mod tests {
         assert!(err.contains("synthesis evidence"));
     }
 
-    // spec: EG-DECISION-ENGINE-R113.1
+    // spec: MEDULLA-DECISION-ENGINE-R113.1
     #[test]
     fn accepted_and_replayed_decisions_require_both_commit_parts() {
         for decision in [CapacityDecision::Accepted, CapacityDecision::Replayed] {
@@ -171,7 +171,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R113.1
+    // spec: MEDULLA-DECISION-ENGINE-R113.1
     #[test]
     fn every_non_acquisition_decision_refuses_partial_commit_and_preserves_reason() {
         for decision in [

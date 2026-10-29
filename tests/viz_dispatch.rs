@@ -639,7 +639,7 @@ async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
     }
 }
 
-/// EG-FEDERATED-QUERY-R087.6: the served render entry point must expose all
+/// MEDULLA-FEDERATED-QUERY-R087.6: the served render entry point must expose all
 /// three declared static formats and refuse an unknown dataset reference.
 #[tokio::test]
 async fn served_render_supports_png_svg_pdf_and_refuses_unknown_dataset() {

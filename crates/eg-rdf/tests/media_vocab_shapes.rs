@@ -1,5 +1,5 @@
 //! SHACL pass and fail fixtures for the media and content vocabulary shapes
-//! (EG-MEDIA-VOCAB-R004.1 to R004.4, plus the R003.3 subscriber identity
+//! (MEDULLA-MEDIA-VOCAB-R004.1 to R004.4, plus the R003.3 subscriber identity
 //! shape). Every fixture is validated through the native SHACL Core engine;
 //! the shapes are aggregate-free per the virtual-graph shapes convention.
 
@@ -17,7 +17,7 @@ fn conforms(shapes: &str, data: &str) -> bool {
         .conforms
 }
 
-// spec: EG-MEDIA-VOCAB-R004.1
+// spec: MEDULLA-MEDIA-VOCAB-R004.1
 #[test]
 fn connector_sourced_works_carry_a_provider_key() {
     // A connector-sourced film with one key conforms...
@@ -46,7 +46,7 @@ fn connector_sourced_works_carry_a_provider_key() {
     ));
 }
 
-// spec: EG-MEDIA-VOCAB-R004.2
+// spec: MEDULLA-MEDIA-VOCAB-R004.2
 #[test]
 fn download_transfer_carries_one_lower_case_hex_info_hash() {
     assert!(conforms(
@@ -73,7 +73,7 @@ fn download_transfer_carries_one_lower_case_hex_info_hash() {
     assert!(!conforms(MEDIA_SHAPES, "<urn:t:6> a :DownloadTransfer ."));
 }
 
-// spec: EG-MEDIA-VOCAB-R004.3
+// spec: MEDULLA-MEDIA-VOCAB-R004.3
 #[test]
 fn download_request_state_is_a_closed_set() {
     for state in [
@@ -104,7 +104,7 @@ fn download_request_state_is_a_closed_set() {
     ));
 }
 
-// spec: EG-MEDIA-VOCAB-R004.4
+// spec: MEDULLA-MEDIA-VOCAB-R004.4
 #[test]
 fn article_and_result_carry_exactly_one_canonical_url() {
     assert!(conforms(
@@ -127,7 +127,7 @@ fn article_and_result_carry_exactly_one_canonical_url() {
     assert!(!conforms(CONTENT_SHAPES, "<urn:r:3> a :SearchResult ."));
 }
 
-// spec: EG-MEDIA-VOCAB-R003.3
+// spec: MEDULLA-MEDIA-VOCAB-R003.3
 #[test]
 fn subscriber_carries_only_its_keyed_hash() {
     assert!(conforms(

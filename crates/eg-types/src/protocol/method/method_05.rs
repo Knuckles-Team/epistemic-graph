@@ -412,7 +412,7 @@ $($variants)*
         #[serde(default)]
         graph: String,
     },
-    /// `NlQuery` that also discloses the generated query (EG-FEDERATED-QUERY-R058.2.2.1):
+    /// `NlQuery` that also discloses the generated query (MEDULLA-FEDERATED-QUERY-R058.2.2.1):
     /// the SAME request, planner, budget, parse, authority and rows as `NlQuery`, answered
     /// as `{uql, rows}` so a caller can show the exact UQL the engine executed. Like
     /// `NlQuery`, the handler is gated behind the facade `nl-query` feature.
@@ -422,7 +422,7 @@ $($variants)*
         graph: String,
     },
     /// Plan a natural-language request without executing it
-    /// (EG-FEDERATED-QUERY-R058.2.2.2). The result contains the exact
+    /// (MEDULLA-FEDERATED-QUERY-R058.2.2.2). The result contains the exact
     /// exact UQL and plan/query pins that a caller must carry into a later
     /// `Uql` request. Plan-only does not read graph data or establish source
     /// authority; those checks belong to the later exact-UQL admission path.

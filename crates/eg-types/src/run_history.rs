@@ -1,5 +1,5 @@
 //! Run audit rows, tool-call rows and the conversation-history source over
-//! stored steps (EG-UNIFIED-DATA-PLANE-R750.750 to R750.752).
+//! stored steps (MEDULLA-UNIFIED-DATA-PLANE-R750.750 to R750.752).
 //!
 //! Audit append is idempotent per run and per tool call. Identities are
 //! stored redacted: a record that carries a raw identity is refused. Search
@@ -229,7 +229,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R750.750
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R750.750
     #[test]
     fn history_records_match_golden_vectors() {
         let record = run("acme", "r1", RedactedIdentity::redact("alice@example.org"));
@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(serde_json::from_str::<ToolCallRecord>(&json).unwrap(), call);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R750.751
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R750.751
     #[test]
     fn append_is_idempotent_and_search_filters_before_ranking() {
         let mut store = StepStore::default();
@@ -299,7 +299,7 @@ mod tests {
         assert!(hits.iter().all(|h| h.run_id == "r1"));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R750.752
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R750.752
     #[test]
     fn unredacted_identity_and_foreign_scope_are_refused() {
         let mut store = StepStore::default();

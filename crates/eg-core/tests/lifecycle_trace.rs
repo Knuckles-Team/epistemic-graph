@@ -1,4 +1,4 @@
-//! Lifecycle trace walk (EG-SDLC-R006.2).
+//! Lifecycle trace walk (MEDULLA-SDLC-R006.2).
 
 use eg_core::lifecycle::derive::DerivedEdge;
 use eg_core::lifecycle::store::LifecycleStore;
@@ -22,7 +22,7 @@ fn request(anchor: &str, depth: u8, kinds: Vec<K>) -> LifecycleTraceRequest {
     LifecycleTraceRequest::new(anchor.into(), depth, kinds).unwrap()
 }
 
-// spec: EG-SDLC-R006.2
+// spec: MEDULLA-SDLC-R006.2
 #[test]
 fn trace_respects_depth_and_budget() {
     // r -- c1 -- s1 -- t1 -- r2 -- c2 -- s2 : a chain of alternating kinds.

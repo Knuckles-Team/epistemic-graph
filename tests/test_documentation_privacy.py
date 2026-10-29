@@ -39,7 +39,7 @@ ENVIRONMENT_DNS = re.compile(r"(?i)\b(?:[A-Za-z0-9-]+\.)+(?:arpa|local)\b")
 # pattern's `host` alternative did not. Union both vocabularies rather than
 # swap one for the other, so neither repo's alias convention regresses.
 # D-EG-PRIVACY-R001-FALSEPOS: mirrors check_tracked_privacy._MACHINE_HOST_ID_RE
-# -- a hyphen-preceded match is a requirement-ID citation (`EG-FOO-R001`), not
+# -- a hyphen-preceded match is a requirement-ID citation (`MEDULLA-FOO-R001`), not
 # a host alias; see that module's own comment for the full rationale.
 MACHINE_HOST_ALIAS = re.compile(r"(?i)(?<![a-z0-9-])(?:rw?|gr|host)\d{3,}\b")
 
@@ -64,7 +64,7 @@ def test_cluster_runbook_is_environment_neutral() -> None:
     ],
     ids=["private-ip", "home-path", "local-dns", "host-alias"],
 )
-@pytest.mark.spec("EG-CONTRACT-R003")
+@pytest.mark.spec("MEDULLA-CONTRACT-R003")
 def test_public_surface_rejects_private_content(
     relative: str,
     private_text: str,
@@ -84,7 +84,7 @@ def test_public_surface_rejects_private_content(
 @pytest.mark.parametrize("relative", ["docs/guide.md", "src/example.rs"])
 @pytest.mark.parametrize("prefix", ["home", "Users", "mnt/c/Users"])
 @pytest.mark.parametrize("username", ["李四", "élise", "example李"])
-@pytest.mark.spec("EG-CONTRACT-R041")
+@pytest.mark.spec("MEDULLA-CONTRACT-R041")
 def test_unicode_home_paths_are_rejected(
     relative: str, prefix: str, username: str, tmp_path: Path
 ) -> None:
@@ -97,9 +97,9 @@ def test_unicode_home_paths_are_rejected(
     assert privacy.scan(tmp_path) == []
 
 
-@pytest.mark.spec("EG-CONTRACT-R041")
+@pytest.mark.spec("MEDULLA-CONTRACT-R041")
 def test_public_surface_allows_requirement_id_citations(tmp_path: Path) -> None:
-    """A hyphen-joined requirement ID (`EG-UNIFIED-DATA-PLANE-R001`) is not a
+    """A hyphen-joined requirement ID (`MEDULLA-UNIFIED-DATA-PLANE-R001`) is not a
     host alias; a genuine host alias (`host123`) must still be caught right
     alongside one. Regression for the false-positive flood that broke
     docs/architecture/unified_data_plane_adr.md's own requirement-ID
@@ -109,7 +109,7 @@ def test_public_surface_allows_requirement_id_citations(tmp_path: Path) -> None:
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
     (docs_dir / "clean.md").write_text(
-        "see `EG-UNIFIED-DATA-PLANE-R001` and `EG-DECISION-ENGINE-R118`\n",
+        "see `MEDULLA-UNIFIED-DATA-PLANE-R001` and `MEDULLA-DECISION-ENGINE-R118`\n",
         encoding="utf-8",
     )
     (docs_dir / "leak.md").write_text("reported from host123\n", encoding="utf-8")
@@ -125,7 +125,7 @@ def test_public_surface_allows_requirement_id_citations(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R040")
+@pytest.mark.spec("MEDULLA-CONTRACT-R040")
 def test_privacy_self_check_catches_a_planted_violation() -> None:
     """The scanner's own --self-check proves the gate can fail: a planted
     scratch/build-host path is caught in BOTH scan passes (public docs and
@@ -141,7 +141,7 @@ def test_privacy_self_check_catches_a_planted_violation() -> None:
     assert result["ordinarySourceNotFlagged"] is True
 
 
-@pytest.mark.spec("EG-CONTRACT-R040")
+@pytest.mark.spec("MEDULLA-CONTRACT-R040")
 def test_live_scan_of_the_tracked_tree_reports_zero_findings() -> None:
     """A live scan of every tracked artifact returns zero findings. The scan
     universe includes the scanner's own tracked source (scripts/*.py is in

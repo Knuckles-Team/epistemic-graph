@@ -59,7 +59,7 @@ fn union_members(triples: &[eg_rdf::oxrdf::Triple], subject: &str, predicate: &s
     found
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.1.1
+// spec: MEDULLA-SUPPLY-VOCAB-R001.1.1
 #[test]
 fn shared_classes_use_existing_iris_and_declared_superclasses() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -91,7 +91,7 @@ fn shared_classes_use_existing_iris_and_declared_superclasses() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.1.1
+// spec: MEDULLA-SUPPLY-VOCAB-R001.1.1
 #[test]
 fn supplies_item_has_supplier_domain_and_item_range() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -109,7 +109,7 @@ fn supplies_item_has_supplier_domain_and_item_range() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.1.1
+// spec: MEDULLA-SUPPLY-VOCAB-R001.1.1
 #[test]
 fn shared_file_does_not_redeclare_existing_supplied_by_property() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -119,7 +119,7 @@ fn shared_file_does_not_redeclare_existing_supplied_by_property() {
         .any(|triple| triple.subject == existing.clone().into()));
 }
 
-// spec: EG-CQ-XSRC-R002.1
+// spec: MEDULLA-CQ-XSRC-R002.1
 #[test]
 fn supplier_and_item_terms_are_listed() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -164,7 +164,7 @@ fn supplier_and_item_terms_are_listed() {
     ));
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.2
+// spec: MEDULLA-SUPPLY-VOCAB-R001.2
 #[test]
 fn realized_by_asset_and_asset_host_declare_domain_and_range() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -194,7 +194,7 @@ fn realized_by_asset_and_asset_host_declare_domain_and_range() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R002.1
+// spec: MEDULLA-SUPPLY-VOCAB-R002.1
 #[test]
 fn software_component_terms_declared() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -270,7 +270,7 @@ fn software_component_terms_declared() {
     ));
 }
 
-// spec: EG-SUPPLY-VOCAB-R002.3
+// spec: MEDULLA-SUPPLY-VOCAB-R002.3
 #[test]
 fn contains_component_and_published_by_declared() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -300,7 +300,7 @@ fn contains_component_and_published_by_declared() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R002.4
+// spec: MEDULLA-SUPPLY-VOCAB-R002.4
 #[test]
 fn uses_image_shares_the_container_manager_iri_and_deployed_as_declared() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -348,7 +348,7 @@ fn uses_image_shares_the_container_manager_iri_and_deployed_as_declared() {
     ));
 }
 
-// spec: EG-SUPPLY-VOCAB-R002.5
+// spec: MEDULLA-SUPPLY-VOCAB-R002.5
 #[test]
 fn uses_component_declares_the_runtime_chain_axiom() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -382,7 +382,7 @@ fn uses_component_declares_the_runtime_chain_axiom() {
     );
 }
 
-// spec: EG-CQ-XSRC-R002.3
+// spec: MEDULLA-CQ-XSRC-R002.3
 #[test]
 fn vulnerability_and_affects_component_terms_are_listed() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -426,7 +426,7 @@ fn vulnerability_and_affects_component_terms_are_listed() {
     ));
 }
 
-// spec: EG-CQ-XSRC-R004.1
+// spec: MEDULLA-CQ-XSRC-R004.1
 #[test]
 fn supplies_service_declares_the_supplier_chain_axiom() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -464,7 +464,7 @@ fn supplies_service_declares_the_supplier_chain_axiom() {
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R002.6
+// spec: MEDULLA-SUPPLY-VOCAB-R002.6
 #[test]
 fn vulnerability_terms_declared_and_trm_count_untouched() {
     let triples = parse_turtle(DOCUMENT).unwrap();

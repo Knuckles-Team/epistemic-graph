@@ -65,7 +65,7 @@ async fn commit(
         .map_err(|error| format!("decision replay task failed: {error}"))?
         .map_err(|error| error.to_string())?;
     super::shape::check_decision_shape(&record)?;
-    // EG-DECISION-ENGINE-R113.2.1: the library and capacity ledger have
+    // MEDULLA-DECISION-ENGINE-R113.2.1: the library and capacity ledger have
     // separate owners. Do not publish a capacity-backed decision until a
     // shared transaction can also publish its leases and graph evidence.
     // Inputs alone are advisory; abstentions and zero-demand plans acquire

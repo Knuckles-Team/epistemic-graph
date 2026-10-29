@@ -236,8 +236,8 @@ fn a_non_default_policy_changes_the_classification() {
     assert!(loose.has_class("model:s", "eg:profile/long-context"));
 }
 
-// spec: EG-TYPED-PACKS-R048.3
-// spec: EG-TYPED-PACKS-R048.4
+// spec: MEDULLA-TYPED-PACKS-R048.3
+// spec: MEDULLA-TYPED-PACKS-R048.4
 #[test]
 fn measured_model_facts_project_ontology_names() {
     let baseline = model(128_000, false, &[]);

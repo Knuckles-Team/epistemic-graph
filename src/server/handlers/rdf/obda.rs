@@ -287,7 +287,7 @@ impl SqlObdaSource {
     /// Build a live external source over `table` reachable at `dsn` (the `federation-sql`
     /// path). A build without `federation-sql` returns a clean "rebuild" error.
     ///
-    /// `EG-UNIFIED-DATA-PLANE-R002.2`: `dsn` runs through the same SSRF-sensitive
+    /// `MEDULLA-UNIFIED-DATA-PLANE-R002.2`: `dsn` runs through the same SSRF-sensitive
     /// destination gate the SQL federation producer path (`R002.1`,
     /// `src/server/foreign_catalog.rs`) already runs before registration, so an OBDA
     /// external source whose DSN names a disallowed destination is refused here —
@@ -655,7 +655,7 @@ impl ObdaSqlExecutor for FederationSqlExecutor {
     }
 }
 
-/// `EG-UNIFIED-DATA-PLANE-R002.2`: an OBDA external source's DSN runs through the same
+/// `MEDULLA-UNIFIED-DATA-PLANE-R002.2`: an OBDA external source's DSN runs through the same
 /// SSRF-sensitive destination gate the SQL federation producer path (`R002.1`) runs at
 /// registration time, not only when `run_select` later dials out.
 #[cfg(all(test, feature = "obda", feature = "federation-sql"))]

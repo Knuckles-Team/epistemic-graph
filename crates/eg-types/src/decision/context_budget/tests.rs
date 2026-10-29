@@ -4,7 +4,7 @@ fn window(tokens: u64) -> WindowBudget {
     WindowBudget::with_default_fraction(tokens)
 }
 
-// spec: EG-DECISION-ENGINE-R137.1
+// spec: MEDULLA-DECISION-ENGINE-R137.1
 #[test]
 fn context_budget_round_trips() {
     let limits = ParallelMapLimits::default();
@@ -32,7 +32,7 @@ fn context_budget_round_trips() {
     assert_eq!(kind.unwrap(), "context_budget");
 }
 
-// spec: EG-DECISION-ENGINE-R137.2
+// spec: MEDULLA-DECISION-ENGINE-R137.2
 #[test]
 fn over_window_prompt_is_split_within_limits() {
     let limits = ParallelMapLimits::default();
@@ -54,7 +54,7 @@ fn over_window_prompt_is_split_within_limits() {
     assert_eq!((deep.chunks, deep.depth, deep.chunk_tokens), (8, 3, 7_500));
 }
 
-// spec: EG-DECISION-ENGINE-R137.2
+// spec: MEDULLA-DECISION-ENGINE-R137.2
 #[test]
 fn over_window_refusals_name_the_limit() {
     let budget = window(10_000);

@@ -1,4 +1,4 @@
-//! Data quality rules and scores (EG-UNIFIED-DATA-PLANE-R762.1). A rule
+//! Data quality rules and scores (MEDULLA-UNIFIED-DATA-PLANE-R762.1). A rule
 //! targets one dataset or column in one closed quality dimension; a score
 //! records one evaluation of it, native or from an outside checker.
 
@@ -114,7 +114,7 @@ pub enum RuleState {
     Approved { approver: String },
 }
 
-/// A rule proposed from a column profile (EG-UNIFIED-DATA-PLANE-R762.7).
+/// A rule proposed from a column profile (MEDULLA-UNIFIED-DATA-PLANE-R762.7).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProposedQualityRule {
     pub rule: QualityRule,

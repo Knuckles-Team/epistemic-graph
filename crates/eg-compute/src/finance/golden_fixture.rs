@@ -1,5 +1,5 @@
 // CONCEPT:EG-KG.domains.finance-compute.golden-fixture — the typed shape a
-// finance golden fixture's figure must carry (EG-FINANCE-PRIMITIVES-R013.1).
+// finance golden fixture's figure must carry (MEDULLA-FINANCE-PRIMITIVES-R013.1).
 //
 // Finance golden fixtures (broker statements, corporate actions,
 // daylight-saving/session boundaries, leveraged-ETF decay, futures rolls)
@@ -17,7 +17,7 @@ use std::fmt;
 pub const SCALE: i64 = 100_000_000;
 
 /// A displayed finance figure with full provenance
-/// (EG-FINANCE-PRIMITIVES-R013).
+/// (MEDULLA-FINANCE-PRIMITIVES-R013).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GoldenFixtureFigure {
     /// Fixed-point value in ticks; never a floating-point money value.
@@ -48,7 +48,7 @@ impl fmt::Display for FigureProvenanceRefusal {
 impl std::error::Error for FigureProvenanceRefusal {}
 
 /// Admit `figure` only when every provenance field is present
-/// (EG-FINANCE-PRIMITIVES-R013): a figure missing its source, as-of time, or
+/// (MEDULLA-FINANCE-PRIMITIVES-R013): a figure missing its source, as-of time, or
 /// session is refused rather than displayed with a silent gap.
 pub fn check_figure_provenance(
     figure: &GoldenFixtureFigure,
@@ -78,7 +78,7 @@ pub struct FigureComparisonRefusal {
 }
 
 /// Compare a computed broker-statement figure against its published
-/// reference value (EG-FINANCE-PRIMITIVES-R013.2.1): refuse `computed` when
+/// reference value (MEDULLA-FINANCE-PRIMITIVES-R013.2.1): refuse `computed` when
 /// its provenance is incomplete (`check_figure_provenance`), or when its
 /// fixed-point `value_ticks` does not equal `published_reference_ticks`.
 /// Both are `i64` ticks, never `f64`, so the comparison is byte-identical
@@ -114,13 +114,13 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R013.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn a_fully_provenanced_figure_is_admitted() {
         assert!(check_figure_provenance(&figure()).is_ok());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R013.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn a_figure_missing_its_source_is_refused() {
         let mut bad = figure();
@@ -129,7 +129,7 @@ mod tests {
         assert!(refusal.reason.contains("source"));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R013.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn a_figure_missing_its_as_of_time_is_refused() {
         let mut bad = figure();
@@ -137,7 +137,7 @@ mod tests {
         assert!(check_figure_provenance(&bad).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R013.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn a_figure_missing_its_session_is_refused() {
         let mut bad = figure();
@@ -145,7 +145,7 @@ mod tests {
         assert!(check_figure_provenance(&bad).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R013.2.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R013.2.1
     #[test]
     fn a_broker_statement_figure_matching_its_published_reference_is_admitted() {
         let computed = figure();
@@ -153,7 +153,7 @@ mod tests {
         assert!(compare_broker_statement_figure(&computed, published_reference_ticks).is_ok());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R013.2.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R013.2.1
     #[test]
     fn a_broker_statement_figure_diverging_from_its_published_reference_is_refused() {
         let computed = figure();
@@ -165,7 +165,7 @@ mod tests {
             .contains("does not match published reference"));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R013.2.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R013.2.1
     #[test]
     fn a_broker_statement_figure_with_incomplete_provenance_is_refused_before_comparison() {
         let mut bad = figure();

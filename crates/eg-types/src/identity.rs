@@ -115,7 +115,7 @@ pub const ELEVATION_APPROVERS_GROUP: &str = "elevation-approvers";
 pub const LIVE_ORDER_APPROVERS_GROUP: &str = "live-order-approvers";
 /// Approvers of governed schema repairs.
 pub const SCHEMA_APPROVERS_GROUP: &str = "schema-approvers";
-/// Approvers of governed source-authority changes (EG-SRC-AUTH-R003).
+/// Approvers of governed source-authority changes (MEDULLA-SRC-AUTH-R003).
 pub const SOURCE_AUTHORITY_APPROVERS_GROUP: &str = "source-authority-approvers";
 /// Built-in roles seeded at initialize.
 pub const ADMIN_ROLE: &str = "admin";

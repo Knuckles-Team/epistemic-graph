@@ -16,7 +16,7 @@ fn documents() -> Vec<Triple> {
     parse_all(&[include_str!("../../eg-core/ontology/swarm_topology-v1.ttl")])
 }
 
-// spec: EG-CQ-ORCH-R007.1
+// spec: MEDULLA-CQ-ORCH-R007.1
 #[test]
 fn slot_feeds_edge_resolves_and_reasoner_stays_consistent() {
     let mut triples = documents();

@@ -79,7 +79,7 @@ fn owner_manifest_is_static_canonical_layout_not_runtime_epoch() {
     assert!(unordered.sha256().is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R063.1
+// spec: MEDULLA-DURABLE-KERNEL-R063.1
 #[test]
 fn owner_manifest_schema_version_mismatch_is_refused_not_lifted() {
     let owner = DirectStateOwnerManifest {

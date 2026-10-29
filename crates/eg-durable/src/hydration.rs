@@ -1,4 +1,4 @@
-//! Typed baseline-hydration model (`EG-REPO-INGEST-R650.1`).
+//! Typed baseline-hydration model (`MEDULLA-REPO-INGEST-R650.1`).
 //!
 //! These values describe a planned hydration pass.  They carry the tenant
 //! boundary and durable source identities, but deliberately do not fetch,
@@ -227,7 +227,7 @@ mod tests {
         }
     }
 
-    // spec: EG-REPO-INGEST-R650.1
+    // spec: MEDULLA-REPO-INGEST-R650.1
     #[test]
     fn model_types_round_trip_with_stable_enum_names() {
         let plan = BaselinePlan {
@@ -276,7 +276,7 @@ mod tests {
             serde_json::from_str(&encoded).unwrap();
     }
 
-    // spec: EG-REPO-INGEST-R650.1
+    // spec: MEDULLA-REPO-INGEST-R650.1
     #[test]
     fn invalid_identity_bounds_and_coverage_are_refused() {
         let bad_plan = BaselinePlan {

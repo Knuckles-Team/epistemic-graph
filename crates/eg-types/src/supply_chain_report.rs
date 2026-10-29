@@ -1,5 +1,5 @@
-//! The typed supply-chain impact report (EG-CQ-XSRC-R006.1) and its pure
-//! assembly from the planned query's rows and premises (EG-CQ-XSRC-R006.4).
+//! The typed supply-chain impact report (MEDULLA-CQ-XSRC-R006.1) and its pure
+//! assembly from the planned query's rows and premises (MEDULLA-CQ-XSRC-R006.4).
 //!
 //! One report answers "how does the supply chain affect our services?": the
 //! impact per service, the supply-chain items behind each (supplier, component
@@ -107,7 +107,7 @@ impl std::fmt::Display for ReportError {
 impl std::error::Error for ReportError {}
 
 impl ServiceImpactItem {
-    /// Build one item, refusing a source-less item (EG-CQ-XSRC-R006.1).
+    /// Build one item, refusing a source-less item (MEDULLA-CQ-XSRC-R006.1).
     pub fn try_new(
         supplier: &str,
         component_version: &str,
@@ -157,7 +157,7 @@ pub struct SourceUsed {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ReportAbstention {
-    /// The rank-1 source for `class` is not connected (EG-CQ-XSRC-R005.4).
+    /// The rank-1 source for `class` is not connected (MEDULLA-CQ-XSRC-R005.4).
     Unconnected { source: String, class: String },
     /// No approved virtual mapping serves `class`.
     Uncovered { class: String },
@@ -208,7 +208,7 @@ pub struct SourcePremise {
     pub rank: u64,
 }
 
-/// Pure assembly (EG-CQ-XSRC-R006.4): the planned query's rows, the authority
+/// Pure assembly (MEDULLA-CQ-XSRC-R006.4): the planned query's rows, the authority
 /// premises and the abstentions become one report. Deterministic — impacts and
 /// items are sorted, sources are deduplicated and sorted, abstentions are
 /// sorted — so equal inputs yield byte-identical encodings.
@@ -282,7 +282,7 @@ mod tests {
         }
     }
 
-    // spec: EG-CQ-XSRC-R006.1
+    // spec: MEDULLA-CQ-XSRC-R006.1
     #[test]
     fn a_valid_report_builds_and_round_trips_the_wire_encoding() {
         let report = assemble_supply_chain_report(
@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(decoded, report);
     }
 
-    // spec: EG-CQ-XSRC-R006.1
+    // spec: MEDULLA-CQ-XSRC-R006.1
     #[test]
     fn an_item_without_a_source_is_refused() {
         let rows = vec![row(
@@ -345,7 +345,7 @@ mod tests {
         );
     }
 
-    // spec: EG-CQ-XSRC-R006.4
+    // spec: MEDULLA-CQ-XSRC-R006.4
     #[test]
     fn assembly_is_byte_for_byte_deterministic_over_recorded_rows() {
         let rows = vec![

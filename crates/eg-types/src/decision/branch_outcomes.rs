@@ -1,4 +1,4 @@
-//! Branch outcome and breadth-adaptation records (EG-DECISION-ENGINE-R164.1).
+//! Branch outcome and breadth-adaptation records (MEDULLA-DECISION-ENGINE-R164.1).
 
 use serde::{Deserialize, Serialize};
 

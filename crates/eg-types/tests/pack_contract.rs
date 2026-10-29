@@ -1,4 +1,4 @@
-//! Pack contract versions and standalone grants (EG-TYPED-PACKS-R107.1).
+//! Pack contract versions and standalone grants (MEDULLA-TYPED-PACKS-R107.1).
 
 use eg_types::connector_pack::contract_version::{
     ContractBreakKind, PackContractVersion, StandaloneGrant, GRANT_INCOMPLETE,
@@ -29,7 +29,7 @@ fn grant() -> StandaloneGrant {
     }
 }
 
-// spec: EG-TYPED-PACKS-R107.1
+// spec: MEDULLA-TYPED-PACKS-R107.1
 #[test]
 fn version_and_grant_round_trip() {
     let release = release();
@@ -75,7 +75,7 @@ fn version_and_grant_round_trip() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R107.1
+// spec: MEDULLA-TYPED-PACKS-R107.1
 #[test]
 fn invalid_versions_and_incomplete_grants_are_refused() {
     let bad_digest = PackContractVersion {

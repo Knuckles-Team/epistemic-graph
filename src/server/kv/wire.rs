@@ -1,4 +1,4 @@
-//! The served, versioned half of the KV surface (EG-DURABLE-KERNEL-R102).
+//! The served, versioned half of the KV surface (MEDULLA-DURABLE-KERNEL-R102).
 //!
 //! The wire methods own their namespaces outright: [`wire_namespace`] maps a
 //! caller's local name to an opaque `kv-namespace:<sha256>` key derived from the
@@ -336,7 +336,7 @@ mod tests {
         assert!(decode_row(b"short").is_err());
     }
 
-    // spec: EG-DURABLE-KERNEL-R102.3
+    // spec: MEDULLA-DURABLE-KERNEL-R102.3
     #[test]
     fn versions_never_repeat_across_delete_and_recreate() {
         let mut rows = BTreeMap::new();

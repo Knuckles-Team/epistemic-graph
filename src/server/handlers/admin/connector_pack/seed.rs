@@ -1,4 +1,4 @@
-//! Bounded connect-time seed graph preparation (EG-TYPED-PACKS-R104.2).
+//! Bounded connect-time seed graph preparation (MEDULLA-TYPED-PACKS-R104.2).
 //!
 //! This module owns the pure validation and per-part replacement plan.  The
 //! ConnectorPack import handler and projection worker remain the integration

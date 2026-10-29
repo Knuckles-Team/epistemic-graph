@@ -66,40 +66,40 @@ pub enum QuestionKind {
     IngestionLane,
     EnrichmentSchedule,
     /// An advisory risk score for a candidate tool invocation, read before
-    /// the call (EG-DECISION-ENGINE-R038). `Decide` is evaluate-only for
+    /// the call (MEDULLA-DECISION-ENGINE-R038). `Decide` is evaluate-only for
     /// every kind (see this module's own doc), so the score it returns can
     /// only ever inform a caller's own authorization step -- it carries no
     /// mechanism to itself gate or block the invocation.
     PreToolRisk,
     /// Inbound connector-event classification, evaluate-only
-    /// (EG-DECISION-ENGINE-R041): `Decide` returns a proposal and its
+    /// (MEDULLA-DECISION-ENGINE-R041): `Decide` returns a proposal and its
     /// evidence class and takes no action on the connector's behalf -- the
     /// same evaluate-only guarantee this module's own doc states for every
     /// kind, named here for the connector-triage use case specifically.
     ConnectorEventTriage,
     /// Which internal tool a connector should use for a task, advisory only
-    /// (EG-DECISION-ENGINE-R042): `Decide` returns a proposal with evidence;
+    /// (MEDULLA-DECISION-ENGINE-R042): `Decide` returns a proposal with evidence;
     /// the connector's own deterministic authorization path, never `Decide`,
     /// governs whether a resulting write-back actually occurs.
     ConnectorToolChoice,
     /// A write-back proposal for a connector action, with supporting
-    /// evidence (EG-DECISION-ENGINE-R043): the proposal never authorizes the
+    /// evidence (MEDULLA-DECISION-ENGINE-R043): the proposal never authorizes the
     /// write itself. Any exploration or statistical head behind it stays
     /// outside the connector's own deterministic authorization step, which
     /// alone approves the write.
     ConnectorWriteBack,
     /// The smallest tool subset covering every required capability within a
-    /// context-token budget (EG-DECISION-ENGINE-R045). Candidates are
+    /// context-token budget (MEDULLA-DECISION-ENGINE-R045). Candidates are
     /// declared (`CandidateSource::Declared`); required capabilities and the
     /// budget are typed request params (`required_capabilities`,
     /// `context_budget_tokens`). See `stat_tool_subset`.
     ToolSubset,
-    /// Evaluate-only harness configuration advice (EG-DECISION-ENGINE-R128).
+    /// Evaluate-only harness configuration advice (MEDULLA-DECISION-ENGINE-R128).
     /// Returns proposed context, scaffold and action-space choices; never runs them.
     HarnessConfig,
     /// Bounded explicit dependency planning; admission belongs to the host.
     TaskPlan,
-    /// The contrastive harness composition decision (EG-DECISION-ENGINE-R803):
+    /// The contrastive harness composition decision (MEDULLA-DECISION-ENGINE-R803):
     /// two to eight candidate component versions probed against the same
     /// baseline under identical conditions; the engine adopts a candidate only
     /// when its measured `eval_score_delta` is positive and unbeaten, with
@@ -107,34 +107,34 @@ pub enum QuestionKind {
     /// candidate improves. See `decision::harness_contrast`.
     HarnessContrast,
     /// Evaluate-only deployment placement over the fixed target registry
-    /// (EG-PLACEMENT-R001.2): `Decide` names the cheapest feasible target and
+    /// (MEDULLA-PLACEMENT-R001.2): `Decide` names the cheapest feasible target and
     /// why every other target was not chosen; it acquires no capacity and
     /// deploys nothing. See `statistical::placement`.
     Placement,
     /// Whether a prompt passes its window share and the bounded recursive
-    /// split that makes it fit (EG-DECISION-ENGINE-R137). Evaluate-only. See
+    /// split that makes it fit (MEDULLA-DECISION-ENGINE-R137). Evaluate-only. See
     /// `decision::context_budget`.
     ContextBudget,
     /// Whether an evolution round's observed flips verify or falsify its
-    /// declaration (EG-DECISION-ENGINE-R136). See `decision::evolution_round`.
+    /// declaration (MEDULLA-DECISION-ENGINE-R136). See `decision::evolution_round`.
     RoundVerdict,
-    /// Which model each evolution stage runs on (EG-DECISION-ENGINE-R136).
+    /// Which model each evolution stage runs on (MEDULLA-DECISION-ENGINE-R136).
     StageAllocation,
-    /// The verdict of one red-team probe (EG-DECISION-ENGINE-R138). See
+    /// The verdict of one red-team probe (MEDULLA-DECISION-ENGINE-R138). See
     /// `decision::red_team`.
     ProbeVerdict,
-    /// Catalog items for a query and a history (EG-DECISION-ENGINE-R175). See
+    /// Catalog items for a query and a history (MEDULLA-DECISION-ENGINE-R175). See
     /// `decision::recommend`.
     ItemRecommendation,
-    /// The tools, skills and agents one job needs (EG-DECISION-ENGINE-R176).
+    /// The tools, skills and agents one job needs (MEDULLA-DECISION-ENGINE-R176).
     /// See `decision::load_set`.
     LoadSet,
-    /// How and when to use one connector for one job (EG-DECISION-ENGINE-R177).
+    /// How and when to use one connector for one job (MEDULLA-DECISION-ENGINE-R177).
     /// See `decision::usage_guidance`.
     UsageGuidance,
-    /// Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).
+    /// Branch outcome aggregation for planning decisions (MEDULLA-DECISION-ENGINE-R164).
     BranchOutcome,
-    /// Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).
+    /// Edit concentration checks over a declared rolling round window (MEDULLA-DECISION-ENGINE-R173).
     EditConcentration,
 }
 
@@ -297,7 +297,7 @@ pub struct StatisticalInputs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_evaluation: Option<harness_config::HarnessConfigEvaluationEvidence>,
     /// The contrastive harness composition decision, present exactly when the
-    /// question kind is `HarnessContrast` (EG-DECISION-ENGINE-R803).
+    /// question kind is `HarnessContrast` (MEDULLA-DECISION-ENGINE-R803).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_contrast: Option<super::harness_contrast::HarnessContrastDecision>,
     pub feature_schema: ComponentDependency,
@@ -396,7 +396,7 @@ pub struct DecisionBatch {
 mod question_kind_declared_tests {
     use super::QuestionKind;
 
-    // spec: EG-DECISION-ENGINE-R128.1
+    // spec: MEDULLA-DECISION-ENGINE-R128.1
     #[test]
     fn harness_config_kind_serialises_snake_case() {
         let wire = serde_json::to_string(&QuestionKind::HarnessConfig).unwrap();
@@ -408,14 +408,14 @@ mod question_kind_declared_tests {
         assert!(serde_json::from_str::<QuestionKind>("\"HarnessConfig\"").is_err());
     }
 
-    // spec: EG-DECISION-ENGINE-R032.1
+    // spec: MEDULLA-DECISION-ENGINE-R032.1
     #[test]
     fn resolve_entity_is_declared() {
         assert_eq!(QuestionKind::ResolveEntity, QuestionKind::ResolveEntity);
         assert_ne!(QuestionKind::ResolveEntity, QuestionKind::Route);
     }
 
-    // spec: EG-DECISION-ENGINE-R033.1
+    // spec: MEDULLA-DECISION-ENGINE-R033.1
     #[test]
     fn schema_mapping_is_declared() {
         assert_eq!(QuestionKind::SchemaMapping, QuestionKind::SchemaMapping);

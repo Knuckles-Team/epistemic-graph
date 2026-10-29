@@ -1058,7 +1058,7 @@ mod retrieval_constraints_tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R040.1.1
+    // spec: MEDULLA-FEDERATED-QUERY-R040.1.1
     #[test]
     fn constraints_round_trip_typed_conjunction_and_relationship_quantifiers() {
         let constraints = sample_constraints();
@@ -1070,7 +1070,7 @@ mod retrieval_constraints_tests {
         assert_eq!(decoded, constraints);
     }
 
-    // spec: EG-FEDERATED-QUERY-R040.1.1
+    // spec: MEDULLA-FEDERATED-QUERY-R040.1.1
     #[test]
     fn malformed_constraint_shapes_fail_before_planner_binding() {
         let mut constraints = sample_constraints();
@@ -1097,7 +1097,7 @@ mod retrieval_constraints_tests {
         );
     }
 
-    // spec: EG-FEDERATED-QUERY-R040.1.1
+    // spec: MEDULLA-FEDERATED-QUERY-R040.1.1
     #[test]
     fn unknown_operator_and_fields_are_rejected() {
         let mut unknown_operator = serde_json::to_value(EntityPredicate::Eq {
@@ -1114,7 +1114,7 @@ mod retrieval_constraints_tests {
     }
 }
 
-/// EG-FEDERATED-QUERY-R002: a query/validation rejection reason is reported
+/// MEDULLA-FEDERATED-QUERY-R002: a query/validation rejection reason is reported
 /// through the caller's log, metric, or domain-specific error channel --
 /// never added as a field on the core kernel row ([`UqlRow`]) schema, which
 /// stays format-neutral regardless of what any given rejection says.
@@ -1128,7 +1128,7 @@ mod kernel_row_rejection_reason_contract {
     /// the type's own `serde_json::Value::Object` keys, so a field added
     /// later (reason, error, rejected_because, ...) fails this test instead
     /// of silently riding onto every row.
-    // spec: EG-FEDERATED-QUERY-R002
+    // spec: MEDULLA-FEDERATED-QUERY-R002
     #[test]
     fn kernel_row_schema_carries_no_rejection_reason_field() {
         let row = UqlRow {
@@ -1147,7 +1147,7 @@ mod kernel_row_rejection_reason_contract {
         assert_eq!(
             keys,
             vec!["channels", "id", "knowledge", "proof", "score"],
-            "UqlRow gained/lost a field -- EG-FEDERATED-QUERY-R002 requires no \
+            "UqlRow gained/lost a field -- MEDULLA-FEDERATED-QUERY-R002 requires no \
              rejection-reason field ever rides on the kernel row schema"
         );
         for forbidden in ["reason", "rejection_reason", "error", "rejected_because"] {
@@ -1160,7 +1160,7 @@ mod kernel_row_rejection_reason_contract {
 
     /// Negative test: a rejection reason IS observable -- just through the
     /// domain-specific error channel ([`UqlPrintError`]), not the row.
-    // spec: EG-FEDERATED-QUERY-R002
+    // spec: MEDULLA-FEDERATED-QUERY-R002
     #[test]
     fn rejection_reason_is_observable_through_the_domain_error_channel() {
         let err = UqlPrintError {

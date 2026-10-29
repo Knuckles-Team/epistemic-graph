@@ -1,6 +1,6 @@
 use super::*;
 
-/// The shared commons graph. Every tenant role reads it (EG-IDENTITY-R006).
+/// The shared commons graph. Every tenant role reads it (MEDULLA-IDENTITY-R006).
 #[cfg(feature = "security")]
 const COMMONS_GRAPH: &str = "__commons__";
 
@@ -63,7 +63,7 @@ impl IsolationLayer {
     }
 
     /// Provision the one tenant role and its read/write graph-pattern grants.
-    /// The role also reads the shared commons graph (EG-IDENTITY-R006). It never writes it.
+    /// The role also reads the shared commons graph (MEDULLA-IDENTITY-R006). It never writes it.
     #[cfg(feature = "security")]
     pub fn provision_tenant_graph_access(
         &mut self,

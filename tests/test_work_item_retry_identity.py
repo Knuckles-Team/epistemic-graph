@@ -125,7 +125,7 @@ def _decode_envelope(request: dict[str, Any]) -> dict[str, Any]:
     return json.loads(bytes.fromhex(token.removeprefix("eg2.")).decode("utf-8"))
 
 
-# spec: EG-DURABLE-KERNEL-R028.4
+# spec: MEDULLA-DURABLE-KERNEL-R028.4
 @pytest.mark.parametrize("run_id", [None, "run-fixture"])
 @pytest.mark.asyncio
 async def test_work_item_retries_bind_stable_keys_to_signed_wire(
@@ -271,7 +271,7 @@ async def test_work_item_retry_key_validation_rejects_blank_values() -> None:
         )
 
 
-# spec: EG-DURABLE-KERNEL-R028.4
+# spec: MEDULLA-DURABLE-KERNEL-R028.4
 @pytest.mark.asyncio
 async def test_run_owned_submission_keeps_closed_request_validation() -> None:
     client = EpistemicGraphClient(

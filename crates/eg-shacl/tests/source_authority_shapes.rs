@@ -1,5 +1,5 @@
 //! Validate `vg:SourceAuthority` rows against the shapes registered by the core
-//! virtual-graph schema source (EG-SRC-AUTH-R002).
+//! virtual-graph schema source (MEDULLA-SRC-AUTH-R002).
 
 use eg_shacl::{validate_turtle, ValidationReport};
 
@@ -66,7 +66,7 @@ fn accepted(row: &str) {
     assert!(report.conforms, "{row}: {:?}", report.results);
 }
 
-// spec: EG-SRC-AUTH-R002.1
+// spec: MEDULLA-SRC-AUTH-R002.1
 #[test]
 fn a_valid_row_passes_and_each_missing_property_fails() {
     accepted(VALID);
@@ -96,7 +96,7 @@ fn a_valid_row_passes_and_each_missing_property_fails() {
     );
 }
 
-// spec: EG-SRC-AUTH-R002.2
+// spec: MEDULLA-SRC-AUTH-R002.2
 #[test]
 fn the_mapping_must_belong_to_the_source_and_map_the_class() {
     refused_with(
@@ -109,7 +109,7 @@ fn the_mapping_must_belong_to_the_source_and_map_the_class() {
     );
 }
 
-// spec: EG-SRC-AUTH-R002.3
+// spec: MEDULLA-SRC-AUTH-R002.3
 #[test]
 fn a_facet_must_be_projected_by_the_mapping() {
     accepted(&VALID.replace(" .", " ; vg:authorityFacet ex:hostname ."));
@@ -119,7 +119,7 @@ fn a_facet_must_be_projected_by_the_mapping() {
     );
 }
 
-// spec: EG-SRC-AUTH-R002.4
+// spec: MEDULLA-SRC-AUTH-R002.4
 #[test]
 fn the_contract_kind_agrees_with_the_source_kind() {
     let api_on_mcp = "ex:a2 a vg:SourceAuthority ; vg:authoritativeSource ex:hw ;\n\
@@ -131,7 +131,7 @@ fn the_contract_kind_agrees_with_the_source_kind() {
     accepted(VALID);
 }
 
-// spec: EG-SRC-AUTH-R002.5
+// spec: MEDULLA-SRC-AUTH-R002.5
 #[test]
 fn accelerated_needs_reason_freshness_and_copy() {
     let hw = "ex:a2 a vg:SourceAuthority ; vg:authoritativeSource ex:hw ;\n\
@@ -164,7 +164,7 @@ fn accelerated_needs_reason_freshness_and_copy() {
     accepted(&VALID.replace(" .", " ; vg:materialisation \"virtual\" ."));
 }
 
-// spec: EG-SRC-AUTH-R002.6
+// spec: MEDULLA-SRC-AUTH-R002.6
 #[test]
 fn equal_rank_claims_by_two_sources_are_refused() {
     let second = |rank: u8| {

@@ -499,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    // spec: EG-TYPED-PACKS-R103.1
+    // spec: MEDULLA-TYPED-PACKS-R103.1
     fn ontology_import_ops_round_trip() {
         let import = ontology_import();
         import.validate().unwrap();

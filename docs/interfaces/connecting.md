@@ -438,7 +438,7 @@ unconfigured it returns a clear "not configured" error, never a panic. The plann
 also configurable: `read_timeout_secs` / `EPISTEMIC_GRAPH_NL_READ_TIMEOUT_SECS` (default 30, 1 to 600)
 and `extra_body` / `EPISTEMIC_GRAPH_NL_EXTRA_BODY` (a JSON object merged into the chat-completions
 body; default `{"chat_template_kwargs":{"enable_thinking":false}}`). Invalid values make `/nl` refuse
-(`ENGINE_UNAVAILABLE`, naming the bad key) (EG-FEDERATED-QUERY-R058.5).
+(`ENGINE_UNAVAILABLE`, naming the bad key) (MEDULLA-FEDERATED-QUERY-R058.5).
 
 ```bash
 curl -s -XPOST 'http://127.0.0.1:7878/nl' \

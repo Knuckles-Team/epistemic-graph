@@ -1,11 +1,11 @@
-# EG-SRC-AUTH — Source authority: the ontology says which connected source answers a concept
+# MEDULLA-SRC-AUTH — Source authority: the ontology says which connected source answers a concept
 
 Owner: Medulla. Cross-repo IDs: Arbora (served intent tool prints the "sources used and why" block, connected-source list), agent-packages connectors (operation contracts that a pack's mapping proposals cite). Consumers in this repository: `EG-CQ-XSRC-001` (`R001`, `R005`), `EG-CQ-ORCH-001` (`.3` children of `R001` to `R007`), `EG-CQ-CONN-001` (cross-source children).
 Public provenance: gap found while designing the virtual-graph requirement "the ontology specifies which connected data sources are used to answer a question".
 
 ## Purpose and user stories
 
-The virtual-graph vocabulary (`crates/eg-core/ontology/virtual_graph-v1.ttl`) can say a source maps a class (`vg:mapsOntologyClass`) and that an operator approved the mapping (`vg:approved`). It cannot say that a connected source is the **authority** for a concept, how it ranks against another source that maps the same concept, how fresh its answer must be, or whether it may be copied. Without that statement source selection (`EG-FEDERATED-QUERY-R072`) has nothing to choose with, and the three competency specs each carry a "source-authority mapping" child that cannot be written.
+The virtual-graph vocabulary (`crates/eg-core/ontology/virtual_graph-v1.ttl`) can say a source maps a class (`vg:mapsOntologyClass`) and that an operator approved the mapping (`vg:approved`). It cannot say that a connected source is the **authority** for a concept, how it ranks against another source that maps the same concept, how fresh its answer must be, or whether it may be copied. Without that statement source selection (`MEDULLA-FEDERATED-QUERY-R072`) has nothing to choose with, and the three competency specs each carry a "source-authority mapping" child that cannot be written.
 
 As an operator I declare, in the ontology, "for `:Incident`, ServiceNow is authoritative, rank 1; PagerDuty is a rank 2 fallback", approve it, and ask a question that names only classes. The engine picks the sources, fetches from them at query time, and prints which sources it used and why. If the authority is not connected, I get a typed abstention naming the source and the concept, not a silent gap.
 
@@ -23,9 +23,9 @@ As an operator I declare, in the ontology, "for `:Incident`, ServiceNow is autho
 
 ## Scope and interfaces
 
-Owned here: the authority vocabulary and shapes, the approval path for authority, the authority-aware extension of `eg-rdf::source_selection`, the abstention and audit types. Not owned: the federated planner and pushdown (`EG-FEDERATED-QUERY-R046`, `R069`, `R073`), virtual-graph execution (`EG-UNIFIED-DATA-PLANE-R005`, `R006`), acceleration (`R038`), pack import (`EG-TYPED-PACKS`), decision-engine routing (`EG-DECISION-ENGINE`). Non-goals: ingesting source data as a default; a second catalog of connectors.
+Owned here: the authority vocabulary and shapes, the approval path for authority, the authority-aware extension of `eg-rdf::source_selection`, the abstention and audit types. Not owned: the federated planner and pushdown (`MEDULLA-FEDERATED-QUERY-R046`, `R069`, `R073`), virtual-graph execution (`MEDULLA-UNIFIED-DATA-PLANE-R005`, `R006`), acceleration (`R038`), pack import (`MEDULLA-TYPED-PACKS`), decision-engine routing (`MEDULLA-DECISION-ENGINE`). Non-goals: ingesting source data as a default; a second catalog of connectors.
 
-Reconciliation: `EG-CQ-XSRC-R001.1` to `R001.4` and `R005.1` already plan a class-level subset of this vocabulary under the same term names. This spec adopts those names (`vg:SourceAuthority`, `vg:authoritativeSource`, `vg:authorityFor`, `vg:authorityRank`, `vg:allowFallback`) and becomes the single owner of the vocabulary. Those rows should be re-pointed to `EG-SRC-AUTH-R001`, `R002`, `R004` when this spec lands, so no term is defined twice.
+Reconciliation: `MEDULLA-CQ-XSRC-R001.1` to `R001.4` and `R005.1` already plan a class-level subset of this vocabulary under the same term names. This spec adopts those names (`vg:SourceAuthority`, `vg:authoritativeSource`, `vg:authorityFor`, `vg:authorityRank`, `vg:allowFallback`) and becomes the single owner of the vocabulary. Those rows should be re-pointed to `MEDULLA-SRC-AUTH-R001`, `R002`, `R004` when this spec lands, so no term is defined twice.
 
 ## Traceability
 

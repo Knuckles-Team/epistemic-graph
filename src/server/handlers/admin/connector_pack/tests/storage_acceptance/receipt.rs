@@ -134,7 +134,7 @@ fn assert_all_fields_bound(intents: &[MutationOutboxIntent], expected: Digest256
     }
 }
 
-// spec: EG-DECISION-ENGINE-R073.4
+// spec: MEDULLA-DECISION-ENGINE-R073.4
 #[tokio::test]
 async fn committed_multi_intent_receipt_binds_all_effects_and_survives_replay() {
     let served = Served::new();

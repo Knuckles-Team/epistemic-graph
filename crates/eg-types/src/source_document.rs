@@ -1,5 +1,5 @@
 //! Normalized documents and their terminal source-ingestion outcomes
-//! (EG-INGEST-WORKER-R003.7).
+//! (MEDULLA-INGEST-WORKER-R003.7).
 //!
 //! A normalized document names the source record it was read from inside a
 //! validated [`SourceIngestionRequest`]; tenant and policy identity are never
@@ -229,7 +229,7 @@ mod tests {
         }
     }
 
-    // spec: EG-INGEST-WORKER-R003.7
+    // spec: MEDULLA-INGEST-WORKER-R003.7
     #[test]
     fn document_receipt_round_trips() {
         let request = request();

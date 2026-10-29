@@ -1,4 +1,4 @@
-# EG-CQ-ORCH — Plan
+# MEDULLA-CQ-ORCH — Plan
 
 See [design.md](plan.md) for per-question blocks and the layer model. Reuse: `specs/decision-engine` (R036, R044, R046, R111, R126, R127), `specs/federated-query-and-reasoning`, `specs/unified-data-plane`, `specs/typed-packs-and-catalog`. Order: ontology gaps, shapes, authority mappings, fixtures, acceptance tests, composed envelope, then Arbora probes.
 
@@ -15,7 +15,7 @@ See [design.md](plan.md) for per-question blocks and the layer model. Reuse: `sp
 | L4 | Harness port | Q6, Q8 |
 | L5 | Runs, outcomes and feedback | Q1, Q2, Q6, Q8 |
 
-Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECISION-ENGINE-R036`) lowers typed tasks and capabilities to a bounded 0-1 program (R014) and returns a certified assembly or a typed abstention. Q2, Q3, Q4, Q7 reuse its sibling queries (R046/R111 topology, R126 coverage, R127 guardrails). Cross-source answers use federated query and foreign sources; the Agent Library comes from typed packs.
+Composition is the engine's decision functionality: `graph.assemble()` (`MEDULLA-DECISION-ENGINE-R036`) lowers typed tasks and capabilities to a bounded 0-1 program (R014) and returns a certified assembly or a typed abstention. Q2, Q3, Q4, Q7 reuse its sibling queries (R046/R111 topology, R126 coverage, R127 guardrails). Cross-source answers use federated query and foreign sources; the Agent Library comes from typed packs.
 
 ### Q1. What steps do I need to follow to complete task XYZ?
 
@@ -28,7 +28,7 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
   - Which past runs of the same class succeeded (L5 evidence)?
 - **Ontology terms:** found: swarm:DecomposableTask, swarm:TaskShape (swarm_topology-v1.ttl); :Goal, :Workflow, :realizesProcess, :childWorkItemOf (orchestration-v1.ttl); :ImplementationPlan, :planForFeature (sdd-v1.ttl). MISSING: ordered-step class (TaskStep), :hasStep, :precedes (step order).
 - **Sources:** Process models (ARIS/ArchiMate/process-intelligence mirrors), SDD plans, and run history from L5. Each declared an authority for :realizesProcess / :ImplementationPlan through the source-authority mapping (MISSING statement, see child .3).
-- **Mechanism:** EG-DECISION-ENGINE-R036 (graph.assemble composes tasks), R003 (is_a derivation records), EG-FEDERATED-QUERY-R006 (proof-carrying results).
+- **Mechanism:** MEDULLA-DECISION-ENGINE-R036 (graph.assemble composes tasks), R003 (is_a derivation records), MEDULLA-FEDERATED-QUERY-R006 (proof-carrying results).
 - **Query sketch:** `SELECT ?step ?order ?src WHERE { ?task a swarm:DecomposableTask ; :childWorkItemOf* ?root . ?step :childWorkItemOf ?task . OPTIONAL { ?step eg:precedes ?next } # MISSING eg:precedes }`
 - **Answer shape:** StepsAnswer{task_iri, steps[{step_iri, label, precedes[], provenance{source, derivation_path, evidence_class}}], resolution_kind}; abstention AbstainReason::UnknownTaskClass.
 
@@ -42,7 +42,7 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
   - What agent kind fills each role?
 - **Ontology terms:** found: swarm:Topology, swarm:TopologyTemplate, swarm:Slot, swarm:SlotRole, swarm:hasSlot, swarm:role, swarm:minWidth, swarm:maxWidth, swarm:nodeKind, swarm:Aggregator, swarm:Verifier (swarm_topology-v1.ttl); :Agent, :Team, :memberOfTeam, :intelligenceLevel (orchestration-v1.ttl). MISSING: agent-kind taxonomy (AgentKind), slot-to-agent-kind link.
 - **Sources:** Agent Library catalog projection (L2) and swarm topology facts; no external source needed.
-- **Mechanism:** EG-DECISION-ENGINE-R046 and R111 (topology decision), R014 (composition as bounded 0-1 optimization), R036.
+- **Mechanism:** MEDULLA-DECISION-ENGINE-R046 and R111 (topology decision), R014 (composition as bounded 0-1 optimization), R036.
 - **Query sketch:** `SELECT ?slot ?role ?kind WHERE { ?t a swarm:TopologyTemplate ; swarm:hasSlot ?slot . ?slot swarm:role ?role . OPTIONAL { ?slot eg:fillsAgentKind ?kind } # MISSING eg:fillsAgentKind }`
 - **Answer shape:** StaffingAnswer{topology_iri, agent_count{min,max,chosen}, slots[{slot, role, agent_kind}], certificate_digest, provenance}; abstention AbstainReason::NoLegalTopology.
 
@@ -55,9 +55,9 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
   - Which Agent Library templates provide them?
   - Which registered A2A cards provide them?
   - Which gaps remain uncovered?
-- **Ontology terms:** found: :Agent, :A2AAgentCard, :exposesSkill, :registeredIn, :ResourceRegistry, :a2aDelegatesTo (a2a-v1.ttl); :requiresCapability, :providesCapability, :canServe, :swappableWith (capability-v1.ttl). MISSING: AgentTemplate class, AgentLibrary class (catalog-v1.ttl declares no terms; library is storage per EG-TYPED-PACKS).
-- **Sources:** Agent Library catalog (EG-TYPED-PACKS) for templates. Registered A2A cards for external agents. Each is the authority for :providesCapability on its own components.
-- **Mechanism:** EG-DECISION-ENGINE-R126 and children (capability coverage over Agent Library candidates and A2A cards), R044 (A2A routing), EG-TYPED-PACKS-R013 (capability IRI validation), R006 (pack projection).
+- **Ontology terms:** found: :Agent, :A2AAgentCard, :exposesSkill, :registeredIn, :ResourceRegistry, :a2aDelegatesTo (a2a-v1.ttl); :requiresCapability, :providesCapability, :canServe, :swappableWith (capability-v1.ttl). MISSING: AgentTemplate class, AgentLibrary class (catalog-v1.ttl declares no terms; library is storage per MEDULLA-TYPED-PACKS).
+- **Sources:** Agent Library catalog (MEDULLA-TYPED-PACKS) for templates. Registered A2A cards for external agents. Each is the authority for :providesCapability on its own components.
+- **Mechanism:** MEDULLA-DECISION-ENGINE-R126 and children (capability coverage over Agent Library candidates and A2A cards), R044 (A2A routing), MEDULLA-TYPED-PACKS-R013 (capability IRI validation), R006 (pack projection).
 - **Query sketch:** `SELECT ?cap ?cand ?kind WHERE { ?task :requiresCapability ?cap . ?cand :providesCapability ?cap . OPTIONAL { ?cand a eg:AgentTemplate } # MISSING OPTIONAL { ?cand a :A2AAgentCard } }`
 - **Answer shape:** CoverageAnswer{per_capability[{capability, candidates[{id, kind: template|a2a, evidence_class}]}], uncovered[], provenance}. Typed abstention names the missing capability (R010).
 
@@ -71,7 +71,7 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
   - Which SHACL shapes enforce them?
 - **Ontology terms:** found: :DevelopmentStandard, :mustFollow, :mustFollowChain, :SecureTask (capability-v1.ttl). :ComplianceConstraint, :constrainedBy, :DesignGuideline, :guidelineFor (sdd-v1.ttl). :PolicyShape, :CapabilityShape, :ToolShape (governance-core-v1.shapes.ttl). Swarm:StopRule. MISSING: BestPractice class, appliesToTaskClass on a rule.
 - **Sources:** Governance and standards sources (Egeria glossary/governance, CISO assistant compliance, repository standards); each is the authority for :DevelopmentStandard.
-- **Mechanism:** EG-DECISION-ENGINE-R127 and children (guardrail entailment with entailment path and source generation), EG-FEDERATED-QUERY-R005 (VALIDATE SHAPE), R006.
+- **Mechanism:** MEDULLA-DECISION-ENGINE-R127 and children (guardrail entailment with entailment path and source generation), MEDULLA-FEDERATED-QUERY-R005 (VALIDATE SHAPE), R006.
 - **Query sketch:** `SELECT ?rule ?path WHERE { ?task :mustFollow ?rule } # entailed via :mustFollowChain; eg:appliesToTaskClass MISSING`
 - **Answer shape:** GuardrailAnswer{task_iri, rules[{rule_id, kind: standard|best_practice|guardrail, entailment_path, source_generation, shape_iri}], provenance}. Empty rule set is a typed answer, not an error.
 
@@ -85,8 +85,8 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
   - Which prompt applies?
   - Which model profile satisfies context and cost limits?
 - **Ontology terms:** found: :Skill, :Tool, :Prompt, :Model, :hasSkill, :hasPrompt, :usesTool, :usesModel, :orchestrationUsesTool, :contextWindow, :systemPrompt (orchestration-v1.ttl). :providesCapability (capability-v1.ttl). :assignedAgent (sdd-v1.ttl). MISSING: ModelProfile class, subtask-needs-skill property, per-subtask assignment node.
-- **Sources:** Component catalog (EG-TYPED-PACKS): skills, tools, prompts imported as packs; model profile facts from annotations (EG-TYPED-PACKS-R006 typed annotations).
-- **Mechanism:** EG-DECISION-ENGINE-R036 (assembly binds components), R126 (coverage), R014 (knapsack/cardinality constraints), R002 (evidence class).
+- **Sources:** Component catalog (MEDULLA-TYPED-PACKS): skills, tools, prompts imported as packs; model profile facts from annotations (MEDULLA-TYPED-PACKS-R006 typed annotations).
+- **Mechanism:** MEDULLA-DECISION-ENGINE-R036 (assembly binds components), R126 (coverage), R014 (knapsack/cardinality constraints), R002 (evidence class).
 - **Query sketch:** `SELECT ?agent ?sub ?skill ?tool ?prompt ?model WHERE { ?agent :hasSkill ?skill ; :usesTool ?tool ; :hasPrompt ?prompt ; :usesModel ?model . ?sub :assignedAgent ?agent }`
 - **Answer shape:** BindingAnswer{rows[{subtask, agent, skills[], tools[], prompts[], model_profile, provenance}], gaps[]}; abstention names the unbound slot.
 
@@ -100,7 +100,7 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
   - Which harness hooks govern execution?
 - **Ontology terms:** found: :Workflow, :composes, :orchestrates, :delegatesTo, :SkillWorkflowProposal, :DurableRun, :SagaCoordination, :StatechartInstance (orchestration-v1.ttl); :Harness, :HarnessHook, :atHook, :hookOrder (harness-v1.ttl). MISSING: handoff condition property, workflow-step ordering (shared with Q1).
 - **Sources:** Stored workflows (L3) and harness definitions (L4); run history (L5) as supporting evidence.
-- **Mechanism:** EG-DECISION-ENGINE-R036 (assembled graph carries workflow), R044 (routing to an existing graph), plus the durable-run kernel already in orchestration-v1.
+- **Mechanism:** MEDULLA-DECISION-ENGINE-R036 (assembled graph carries workflow), R044 (routing to an existing graph), plus the durable-run kernel already in orchestration-v1.
 - **Query sketch:** `SELECT ?wf ?member ?next WHERE { ?wf a :Workflow ; :composes ?member . OPTIONAL { ?member eg:hands_off_to ?next } # MISSING }`
 - **Answer shape:** WorkflowAnswer{workflow_iri, steps[], handoffs[], hooks[], provenance}; abstention AbstainReason::NoWorkflowForClass.
 
@@ -115,7 +115,7 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
   - Is the graph acyclic?
 - **Ontology terms:** found: swarm:Topology and subclasses (Single, Pipeline, FanOutJoin, SupervisorWorkers, PeerTeam, Hierarchy), swarm:TopologyTemplate, swarm:Slot, swarm:hasSlot, swarm:nodeId, swarm:nodeKind (swarm_topology-v1.ttl); swarm_topology-v1.shapes.ttl TemplateTopologyShape. MISSING: slot-to-slot edge property, acyclicity SHACL shape.
 - **Sources:** Swarm topology facts and assembled graphs persisted in L3; no external source.
-- **Mechanism:** EG-DECISION-ENGINE-R046, R111 and R111.1 (topology as typed Decide question), R036.
+- **Mechanism:** MEDULLA-DECISION-ENGINE-R046, R111 and R111.1 (topology as typed Decide question), R036.
 - **Query sketch:** `SELECT ?a ?b WHERE { ?t swarm:hasSlot ?a, ?b . ?a eg:feeds ?b } # eg:feeds MISSING`
 - **Answer shape:** DagAnswer{topology_kind, nodes[], edges[], acyclic: bool, serialization (adjacency list), provenance}.
 
@@ -129,7 +129,7 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
   - Is a missing part a typed abstention instead of an omitted field?
 - **Ontology terms:** found: :derivedFrom (capability-v1.ttl, orchestration-v1.ttl), :RunTrace, :producedBy (orchestration-v1.ttl). MISSING: none new; the composed answer is a wire DTO, not an ontology class.
 - **Sources:** All sources feeding rollups 1-7.
-- **Mechanism:** EG-DECISION-ENGINE-R036 graph.assemble() / AgentAssemble is the sole composition path. This spec adds no planner; it adds an answer envelope over assemble() output and the coverage and guardrail queries (R126, R127).
+- **Mechanism:** MEDULLA-DECISION-ENGINE-R036 graph.assemble() / AgentAssemble is the sole composition path. This spec adds no planner; it adds an answer envelope over assemble() output and the coverage and guardrail queries (R126, R127).
 - **Query sketch:** `n/a: the envelope is built by the assemble handler from the seven part queries.`
 - **Answer shape:** ExecutionAnswer{task_iri, parts{steps, staffing, coverage, guardrails, bindings, workflow, dag}, each part{answer|abstain, provenance, evidence_class}, assembled_by: assemble, certificate_digest}.
 
@@ -165,28 +165,28 @@ Cross-repository rows: the `AU-WEBUI` row that draws the view depends on the con
 <!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
 ## Reviewed residual closure plan — owner batch 2026-10-12
 
-### `EG-CQ-ORCH-R010.7` — GRAPHOS:20
+### `MEDULLA-CQ-ORCH-R010.7` — GRAPHOS:20
 
-- Existing Medulla rollup: `EG-CQ-ORCH-R010.1`; append-only residual ID: `EG-CQ-ORCH-R010.7`.
+- Existing Medulla rollup: `MEDULLA-CQ-ORCH-R010.1`; append-only residual ID: `MEDULLA-CQ-ORCH-R010.7`.
 - Original objective: Before planning, query graph architecture and wiring. Report design differences. Each feature names its hot-path attach point. Refuse plans with unwired features.
-- Specified Medulla obligation: `EG-CQ-ORCH-R010.7` defines `PlanAdmissionV1`. It checks each feature's attach point and wiring edge. It returns typed refusal before TaskPlan emission. AU-HARNESS-R019.5-.7 must return the same study-gap proposal id/revision and repository revision. Admission refuses if those fields are absent.
+- Specified Medulla obligation: `MEDULLA-CQ-ORCH-R010.7` defines `PlanAdmissionV1`. It checks each feature's attach point and wiring edge. It returns typed refusal before TaskPlan emission. AU-HARNESS-R019.5-.7 must return the same study-gap proposal id/revision and repository revision. Admission refuses if those fields are absent.
 - Producer/consumer route: The served impact architecture view, capability query, and Meristem study-gap receipt feed `PlanAdmissionV1`. Admission runs before the existing plan-producing Decide handler. Meristem identity/revision confirmation and served receipts remain pending. Do not re-derive architecture or claim Meristem producer closure.
 - Minimum closure action: Keep R010.7 as the Medulla definition. Resolve Meristem receipt field mapping. Record independent served producer/consumer results. No second Medulla admission contract is needed.
-- Preserve covered clauses: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
+- Preserve covered clauses: `MEDULLA-CQ-ORCH-R010.1`, `MEDULLA-CQ-ORCH-R010.2`, `MEDULLA-CQ-ORCH-R010.3`, `MEDULLA-CQ-ORCH-R010.4`, `MEDULLA-CQ-ORCH-R010.5`, `MEDULLA-CQ-ORCH-R010.6`, `MERISTEM-HARNESS-R019.5`, `MERISTEM-HARNESS-R019.6`, `MERISTEM-HARNESS-R019.7`.
 - Source review: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`; evidence: spec-audit/reconciliation/fresh-validation-20261012/semantic-reviews/incoming-24-owner-supplements.json.
 - Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
 <!-- /spec-definition-patch -->
 
-## EG-CQ-ORCH-R011 — job, downtime and plan competency questions
+## MEDULLA-CQ-ORCH-R011 — job, downtime and plan competency questions
 
-These questions are the acceptance set for the connect-time contract, the downtime scheduler, plan evolution and job-scoped loading. The capability-to-component questions of `EG-CQ-CONN-R084` stay separate. This rollup adds no question that row asks.
+These questions are the acceptance set for the connect-time contract, the downtime scheduler, plan evolution and job-scoped loading. The capability-to-component questions of `MEDULLA-CQ-CONN-R084` stay separate. This rollup adds no question that row asks.
 
 | Question | Mechanism |
 |---|---|
-| Q1 load set for job J | `EG-DECISION-ENGINE-R176` |
-| Q2 next downtime jobs | `EG-DURABLE-KERNEL-R101` |
-| Q3 best virtual plan for Q across A and B | `EG-FEDERATED-QUERY-R091` |
-| Q4 how and when to use connector X | `EG-DECISION-ENGINE-R177` |
-| Q5 seed facts and changed parts of connector X | `EG-TYPED-PACKS-R104` |
+| Q1 load set for job J | `MEDULLA-DECISION-ENGINE-R176` |
+| Q2 next downtime jobs | `MEDULLA-DURABLE-KERNEL-R101` |
+| Q3 best virtual plan for Q across A and B | `MEDULLA-FEDERATED-QUERY-R091` |
+| Q4 how and when to use connector X | `MEDULLA-DECISION-ENGINE-R177` |
+| Q5 seed facts and changed parts of connector X | `MEDULLA-TYPED-PACKS-R104` |
 
 Call path: Arbora `find` -> served `Decide` or SPARQL -> the mechanism row -> answer with provenance.

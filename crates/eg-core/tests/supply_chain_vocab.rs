@@ -1,5 +1,5 @@
 //! Native parser, reasoner and shape contracts for the shared supply-chain
-//! vocabulary (EG-SUPPLY-VOCAB).
+//! vocabulary (MEDULLA-SUPPLY-VOCAB).
 
 use eg_rdf::mapping::parse_turtle;
 use eg_rdf::oxrdf::{NamedNode, NamedOrBlankNode, Term, Triple};
@@ -140,7 +140,7 @@ fn shape_violation_path(report: &eg_shacl::ValidationReport, predicate: &str) ->
 
 // The TBox the physical chain closes across: the shared foundation, the TRM
 // vendor/asset classes, the infrastructure runtime and the supply-chain module
-// itself (the EG-CQ-XSRC-R002 document set).
+// itself (the MEDULLA-CQ-XSRC-R002 document set).
 fn physical_documents() -> Vec<Triple> {
     [
         include_str!("../ontology/core-foundation-v1.ttl"),
@@ -153,7 +153,7 @@ fn physical_documents() -> Vec<Triple> {
     .collect()
 }
 
-// spec: EG-SUPPLY-VOCAB-R002.7
+// spec: MEDULLA-SUPPLY-VOCAB-R002.7
 #[test]
 fn component_version_vulnerability_and_uses_component_shapes() {
     let shape_triples = parse_turtle(SUPPLY_SHAPES).expect("the supply-chain shapes parse");
@@ -265,7 +265,7 @@ ex:openssl a kg:SoftwareComponent ."
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.4
+// spec: MEDULLA-SUPPLY-VOCAB-R001.4
 #[test]
 fn supplier_and_item_shapes_require_a_label() {
     // The companion parses and declares both shapes as node shapes.
@@ -307,7 +307,7 @@ fn supplier_and_item_shapes_require_a_label() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.3
+// spec: MEDULLA-SUPPLY-VOCAB-R003.3
 #[test]
 fn affects_service_declared_over_incident_or_change() {
     let triples = load_commercial();
@@ -383,7 +383,7 @@ fn affects_service_declared_over_incident_or_change() {
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.4
+// spec: MEDULLA-SUPPLY-VOCAB-R003.4
 #[test]
 fn supports_capability_declared_and_not_the_shared_supports() {
     let triples = load_commercial();
@@ -445,7 +445,7 @@ const COMMERCE_DATA_PREFIX: &str = r#"
 @prefix ex:    <http://knuckles.team/test/commercial#> .
 "#;
 
-// spec: EG-SUPPLY-VOCAB-R003.5
+// spec: MEDULLA-SUPPLY-VOCAB-R003.5
 #[test]
 fn contract_and_capability_shape_fixtures() {
     let shapes = commercial_shapes();
@@ -547,7 +547,7 @@ ex:orderManagement a kg:BusinessCapability ."
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.7
+// spec: MEDULLA-SUPPLY-VOCAB-R003.7
 #[test]
 fn supplier_and_customer_entail_organization_without_a_party_class() {
     let mut triples = physical_documents();
@@ -590,7 +590,7 @@ fn supplier_and_customer_entail_organization_without_a_party_class() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.8
+// spec: MEDULLA-SUPPLY-VOCAB-R003.8
 #[test]
 fn purchase_order_declared_exactly_once() {
     let triples = load_commercial();
@@ -629,7 +629,7 @@ fn purchase_order_declared_exactly_once() {
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.9
+// spec: MEDULLA-SUPPLY-VOCAB-R003.9
 #[test]
 fn purchase_invoice_and_invoice_supplier_declared() {
     let triples = load_commercial();
@@ -654,7 +654,7 @@ fn purchase_invoice_and_invoice_supplier_declared() {
     assert_domain_range(&triples, "invoiceSupplier", "PurchaseInvoice", "Supplier");
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.11
+// spec: MEDULLA-SUPPLY-VOCAB-R003.11
 #[test]
 fn contact_of_declared_with_no_contact_class() {
     let triples = load_commercial();
@@ -701,7 +701,7 @@ const INFRA_DATA_PREFIX: &str = r#"
 @prefix ex:    <http://knuckles.team/test/host-limit#> .
 "#;
 
-// spec: EG-SUPPLY-VOCAB-R004.2
+// spec: MEDULLA-SUPPLY-VOCAB-R004.2
 #[test]
 fn host_limit_shape_requires_reading_and_closed_kind() {
     let shape_triples = parse_turtle(INFRA_SHAPES).expect("the infrastructure shapes parse");
@@ -790,7 +790,7 @@ ex:rackHost a infra:Host ."
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R004.3
+// spec: MEDULLA-SUPPLY-VOCAB-R004.3
 #[test]
 fn declared_capacity_thresholds_pass_the_host_limit_shape() {
     let fixture = parse_turtle(include_str!("fixtures/host_limit_thresholds.ttl"))
@@ -822,7 +822,7 @@ const VM_LEANIX: &str = "http://knuckles.team/test/vm-leanix#";
 
 const VIRTUAL_SHAPES: &str = include_str!("../ontology/virtual_graph-v1.shapes.ttl");
 
-// spec: EG-SUPPLY-VOCAB-R005.1
+// spec: MEDULLA-SUPPLY-VOCAB-R005.1
 #[test]
 fn erpnext_supplier_mapping_fixture_passes_the_virtual_shapes() {
     let fixture = include_str!("fixtures/vm_erpnext_supplier.ttl");
@@ -898,7 +898,7 @@ fn erpnext_supplier_mapping_fixture_passes_the_virtual_shapes() {
     assert_eq!(literal_value(&operation.object), "list_documents");
 }
 
-// spec: EG-SUPPLY-VOCAB-R005.2
+// spec: MEDULLA-SUPPLY-VOCAB-R005.2
 #[test]
 fn erpnext_item_and_po_mapping_declares_the_lines_child_fetch() {
     let fixture = include_str!("fixtures/vm_erpnext_item_po.ttl");
@@ -961,7 +961,7 @@ fn erpnext_item_and_po_mapping_declares_the_lines_child_fetch() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R005.4
+// spec: MEDULLA-SUPPLY-VOCAB-R005.4
 #[test]
 fn leanix_provider_maps_to_supplier_rank_two_with_supports_capability() {
     let fixture = include_str!("fixtures/vm_leanix.ttl");
@@ -1030,7 +1030,7 @@ fn leanix_provider_maps_to_supplier_rank_two_with_supports_capability() {
 
 const VM_SERVICE_NOW: &str = "http://knuckles.team/test/vm-servicenow#";
 
-// spec: EG-SUPPLY-VOCAB-R005.5
+// spec: MEDULLA-SUPPLY-VOCAB-R005.5
 #[test]
 fn servicenow_incident_change_ci_maps_to_affects_service() {
     let fixture = include_str!("fixtures/vm_servicenow.ttl");
@@ -1099,7 +1099,7 @@ fn servicenow_incident_change_ci_maps_to_affects_service() {
 
 const VM_SALESFORCE: &str = "http://knuckles.team/test/vm-salesforce#";
 
-// spec: EG-SUPPLY-VOCAB-R005.6
+// spec: MEDULLA-SUPPLY-VOCAB-R005.6
 #[test]
 fn salesforce_account_and_contract_map_via_soql() {
     let fixture = include_str!("fixtures/vm_salesforce.ttl");
@@ -1167,7 +1167,7 @@ fn salesforce_account_and_contract_map_via_soql() {
 
 const VM_TWENTY: &str = "http://knuckles.team/test/vm-twenty#";
 
-// spec: EG-SUPPLY-VOCAB-R005.8
+// spec: MEDULLA-SUPPLY-VOCAB-R005.8
 #[test]
 fn twenty_company_maps_to_customer_rank_two_without_a_contract_mapping() {
     let fixture = include_str!("fixtures/vm_twenty.ttl");
@@ -1220,7 +1220,7 @@ fn twenty_company_maps_to_customer_rank_two_without_a_contract_mapping() {
 
 const VM_CONTAINER_MANAGER: &str = "http://knuckles.team/test/vm-container-manager#";
 
-// spec: EG-SUPPLY-VOCAB-R006.3
+// spec: MEDULLA-SUPPLY-VOCAB-R006.3
 #[test]
 fn container_manager_workload_and_image_map_deployed_as_and_uses_image() {
     let fixture = include_str!("fixtures/vm_container_manager.ttl");
@@ -1308,7 +1308,7 @@ fn container_manager_workload_and_image_map_deployed_as_and_uses_image() {
 
 const VM_UPTIME: &str = "http://knuckles.team/test/vm-uptime#";
 
-// spec: EG-SUPPLY-VOCAB-R006.4
+// spec: MEDULLA-SUPPLY-VOCAB-R006.4
 #[test]
 fn uptime_monitor_resolves_to_service_by_url_host_key() {
     let fixture = include_str!("fixtures/vm_uptime.ttl");
@@ -1371,7 +1371,7 @@ fn uptime_monitor_resolves_to_service_by_url_host_key() {
 
 const VM_DOCKERHUB: &str = "http://knuckles.team/test/vm-dockerhub#";
 
-// spec: EG-SUPPLY-VOCAB-R006.5
+// spec: MEDULLA-SUPPLY-VOCAB-R006.5
 #[test]
 fn dockerhub_image_sbom_and_cves_map_components_and_vulnerabilities() {
     let fixture = include_str!("fixtures/vm_dockerhub.ttl");
@@ -1465,7 +1465,7 @@ fn dockerhub_image_sbom_and_cves_map_components_and_vulnerabilities() {
 
 const VM_HOST_LIMITS: &str = "http://knuckles.team/test/vm-host-limits#";
 
-// spec: EG-SUPPLY-VOCAB-R006.7
+// spec: MEDULLA-SUPPLY-VOCAB-R006.7
 #[test]
 fn fan_manager_and_systems_manager_assemble_host_limit_rows() {
     let fixture = include_str!("fixtures/vm_host_limits.ttl");
@@ -1558,7 +1558,7 @@ fn fan_manager_and_systems_manager_assemble_host_limit_rows() {
 
 const BLOCKING: &str = "http://knuckles.team/test/blocking-keys#";
 
-// spec: EG-SUPPLY-VOCAB-R007.2
+// spec: MEDULLA-SUPPLY-VOCAB-R007.2
 #[test]
 fn digest_key_is_exact_name_only_key_is_a_proposal() {
     use eg_types::entity_link_proposal::{
@@ -1678,7 +1678,7 @@ fn digest_key_is_exact_name_only_key_is_a_proposal() {
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R008.1
+// spec: MEDULLA-SUPPLY-VOCAB-R008.1
 #[test]
 fn impact_query_is_class_only_and_parses() {
     let query = include_str!("fixtures/supply_chain_impact.rq");
@@ -1806,7 +1806,7 @@ fn recorded_files() -> Vec<String> {
     files
 }
 
-// spec: EG-SUPPLY-VOCAB-R008.2
+// spec: MEDULLA-SUPPLY-VOCAB-R008.2
 #[test]
 fn recorded_response_set_covers_every_available_d4_row() {
     // Every recorded file parses and records at least one row.
@@ -1837,7 +1837,7 @@ fn recorded_response_set_covers_every_available_d4_row() {
         }
     }
 }
-// spec: EG-SUPPLY-VOCAB-R008.3
+// spec: MEDULLA-SUPPLY-VOCAB-R008.3
 #[test]
 fn every_d4_concept_is_covered_or_carries_a_typed_abstention() {
     let files = recorded_files();

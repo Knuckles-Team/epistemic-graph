@@ -49,7 +49,7 @@ pub(super) struct Executed {
     pub(super) reading: Option<Evaluated>,
     pub(super) seed: [u8; 32],
     /// The contrast decision a `HarnessContrast` question sealed
-    /// (EG-DECISION-ENGINE-R803); `None` for every other kind.
+    /// (MEDULLA-DECISION-ENGINE-R803); `None` for every other kind.
     pub(super) harness_contrast:
         Option<eg_types::decision::harness_contrast::HarnessContrastDecision>,
 }

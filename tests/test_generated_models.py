@@ -66,7 +66,7 @@ def _validate(adapter: Any, document: Any) -> Any:
     raise AssertionError("byte retyping did not converge")
 
 
-@pytest.mark.spec("EG-CONTRACT-R001")
+@pytest.mark.spec("MEDULLA-CONTRACT-R001")
 @pytest.mark.parametrize("vector", VECTORS, ids=lambda vector: vector["label"])
 def test_every_request_vector_validates_as_a_method(vector: dict[str, Any]) -> None:
     request = vector_request(vector)
@@ -102,7 +102,7 @@ def test_every_request_vector_validates_as_its_domain_request(
     ],
     ids=lambda path: "/".join(path) or "method",
 )
-@pytest.mark.spec("EG-CONTRACT-R001")
+@pytest.mark.spec("MEDULLA-CONTRACT-R001")
 def test_unknown_fields_are_refused_at_every_depth(path: tuple[str, ...]) -> None:
     vector = next(item for item in VECTORS if item["method"] == "Decide")
     request = vector_request(vector)
@@ -119,8 +119,8 @@ def test_unknown_fields_are_refused_at_every_depth(path: tuple[str, ...]) -> Non
     assert errors[0]["loc"][-1] == "unknown"
 
 
-@pytest.mark.spec("EG-CONTRACT-R001")
-@pytest.mark.spec("EG-CONTRACT-R005")
+@pytest.mark.spec("MEDULLA-CONTRACT-R001")
+@pytest.mark.spec("MEDULLA-CONTRACT-R005")
 def test_decode_validates_a_result_against_its_contract_model() -> None:
     from epistemic_graph.generated import reasoning
 
@@ -136,7 +136,7 @@ def test_decode_validates_a_result_against_its_contract_model() -> None:
         reasoning.decode_sparql(OpaqueResult("Cypher", payload))
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R063")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R063")
 @pytest.mark.parametrize("method", ["DecisionFit", "DecisionEval"])
 def test_decision_job_decode_selects_the_exact_operation(method: str) -> None:
     from epistemic_graph.generated import coordination
@@ -173,7 +173,7 @@ def test_decision_job_decode_selects_the_exact_operation(method: str) -> None:
         decode(OpaqueResult("Decide", None), operation="status")
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R063")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R063")
 def test_decision_eval_pages_cannot_decode_as_a_different_operation() -> None:
     from epistemic_graph.generated import coordination
 

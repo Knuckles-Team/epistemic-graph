@@ -79,7 +79,7 @@ def test_generated_ledger_uses_registry_order_and_policy_values() -> None:
         ]
 
 
-# spec: EG-DURABLE-KERNEL-R066
+# spec: MEDULLA-DURABLE-KERNEL-R066
 def test_blob_holder_idempotency_matches_published_contract() -> None:
     """Keep the public policy aligned with the Rust registry and holder tests.
 

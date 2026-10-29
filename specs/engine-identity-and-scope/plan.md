@@ -1,4 +1,4 @@
-# EG-IDENTITY — Implementation plan
+# MEDULLA-IDENTITY — Implementation plan
 
 1. Define a versioned issuer-entry schema and validation for duplicate issuer, invalid URL, key ambiguity and unsupported algorithm. Upgrade primary OIDC loading while preserving separate ancillary protocol validators. Add local signed-JWT fixtures for two issuers and key rotation.
 2. Add typed full-replacement identity mutation in the ControlRedb write transaction. Couple the identity audit record and chain head to that transaction; add `AuditVerify` and bounded denial storage. Route existing `RegisterIdentity` and `RbacAdmin` through the same mutation path.
@@ -192,7 +192,7 @@ automated policy/security inspection without conferring administrative authority
 Regenerate both contract catalogs and their receipt using `gen_contract`.
 Installed-wheel Arbora acceptance remains separate consumer evidence.
 
-## EG-IDENTITY-R023.13 — served share grant and revoke
+## MEDULLA-IDENTITY-R023.13 — served share grant and revoke
 
 Replaces: `agent_utilities/knowledge_graph/core/tenant_sharing.py` (`share_with_org`, `make_private`, `promote_to_commons`, `_set_scope`). The harness keeps no share logic after this row lands.
 
@@ -217,7 +217,7 @@ References
 
 ## Amendments: 2026-10-22
 
-EG-IDENTITY-R003.1 adds an explicit, isolated anonymous durable-store authority for Arbora's local no-auth admission. Arbora owns public admission and mode selection; Medulla owns the fixed anonymous provenance record, store separation, client/native protocol projection and existing ACL/mutation machinery. Default verified-envelope/OIDC behavior remains unchanged. This narrow opt-in supersedes earlier unconditional no-development-escape wording only for fresh anonymous-marked local stores. No deployment, credential or mode migration is authorized.
+MEDULLA-IDENTITY-R003.1 adds an explicit, isolated anonymous durable-store authority for Arbora's local no-auth admission. Arbora owns public admission and mode selection; Medulla owns the fixed anonymous provenance record, store separation, client/native protocol projection and existing ACL/mutation machinery. Default verified-envelope/OIDC behavior remains unchanged. This narrow opt-in supersedes earlier unconditional no-development-escape wording only for fresh anonymous-marked local stores. No deployment, credential or mode migration is authorized.
 
 Unsigned replay metadata uses `anon1.` plus a strict JSON object containing only a 1..256-byte UTF-8 `idempotency_key` in the legacy envelope slot named `auth_token`. It is not a credential and carries no identity, MAC or signature. Only explicit anonymous mode accepts it. Durable request provenance uses authentication_method `none`; verified modes reject that provenance.
 

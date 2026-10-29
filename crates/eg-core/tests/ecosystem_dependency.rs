@@ -1,4 +1,4 @@
-//! Ecosystem package dependency and risk model (EG-SUPPLY-VOCAB-R009):
+//! Ecosystem package dependency and risk model (MEDULLA-SUPPLY-VOCAB-R009):
 //! the ontology terms first; the propagation behavior rows follow in the
 //! same file.
 
@@ -18,7 +18,7 @@ fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> 
     ))
 }
 
-// spec: EG-SUPPLY-VOCAB-R009.1
+// spec: MEDULLA-SUPPLY-VOCAB-R009.1
 #[test]
 fn package_class_and_dependency_declared() {
     let supply = parse_turtle(include_str!("../ontology/supply_chain-v1.ttl"))

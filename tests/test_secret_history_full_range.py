@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R043: the full-range secret-history gate reports zero hits.
+"""MEDULLA-CONTRACT-R043: the full-range secret-history gate reports zero hits.
 
 ``scripts/security/check_secret_history.py`` is the absolute, forward-looking
 secret-history gate: no baseline allowlist file, the only exemptions being the
@@ -103,7 +103,7 @@ def _full_range_base(gate) -> str:
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R043")
+@pytest.mark.spec("MEDULLA-CONTRACT-R043")
 def test_full_range_secret_history_scan_reports_zero_credential_hits() -> None:
     gate = _gate()
     base = _full_range_base(gate)

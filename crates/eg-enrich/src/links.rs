@@ -1,5 +1,5 @@
 //! Infrastructure definitions, HTTP routes and business capabilities linked to
-//! the service that owns the code (EG-REPO-INGEST-R602).
+//! the service that owns the code (MEDULLA-REPO-INGEST-R602).
 //!
 //! A resource or route links to the service whose declared path prefix is the
 //! longest match for its file. Two services tied on that prefix write no link:
@@ -241,7 +241,7 @@ mod tests {
         ]
     }
 
-    // spec: EG-REPO-INGEST-R602.1
+    // spec: MEDULLA-REPO-INGEST-R602.1
     #[test]
     fn link_types_round_trip_and_invalid_identifiers_are_refused() {
         let route = HttpRoute {
@@ -289,7 +289,7 @@ mod tests {
         assert!(serde_json::from_value::<IacResource>(bad).is_err());
     }
 
-    // spec: EG-REPO-INGEST-R602.2
+    // spec: MEDULLA-REPO-INGEST-R602.2
     #[test]
     fn resources_and_routes_link_to_the_longest_owner_and_features_resolve_above_the_floor() {
         let link = owning_service(&id("r"), "services/billing/main.tf", &services())
@@ -334,7 +334,7 @@ mod tests {
         );
     }
 
-    // spec: EG-REPO-INGEST-R602.4
+    // spec: MEDULLA-REPO-INGEST-R602.4
     #[test]
     fn a_tie_between_two_services_writes_no_link() {
         let resources = [IacResource {
@@ -348,7 +348,7 @@ mod tests {
         assert!(ties[0].detail.contains("svc:shared-a") && ties[0].detail.contains("svc:shared-b"));
     }
 
-    // spec: EG-REPO-INGEST-R602.5
+    // spec: MEDULLA-REPO-INGEST-R602.5
     #[test]
     fn the_run_report_counts_links_and_ties() {
         let resources = [

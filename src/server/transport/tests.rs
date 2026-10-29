@@ -142,7 +142,7 @@ async fn qos_verification_rejects_unsigned_agent_before_admission() {
     assert_eq!(scheduler.stats().in_flight, 0);
 }
 
-// spec: EG-CONTRACT-R014.1
+// spec: MEDULLA-CONTRACT-R014.1
 #[tokio::test]
 async fn qos_verification_names_the_audience_mismatch_cause() {
     use super::super::auth::{compute_verified_envelope_token, VerifiedEnvelopeParams};
@@ -368,7 +368,7 @@ async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept()
 }
 
 #[cfg(unix)]
-// spec: EG-CONTRACT-R025
+// spec: MEDULLA-CONTRACT-R025
 #[tokio::test(flavor = "current_thread")]
 async fn uds_setup_propagates_bind_errors_without_entering_accept_loop() {
     let missing_parent = unique_socket_path(std::path::Path::new(UDS_TEST_BASE), "missing-parent");

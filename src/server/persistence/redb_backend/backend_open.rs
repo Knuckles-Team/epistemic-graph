@@ -251,7 +251,7 @@ impl RedbBackend {
         }
         let shard_open_start = std::time::Instant::now();
         // The three sidecar stores open on their own thread WHILE the shards
-        // open (EG-DURABLE-KERNEL-R006.1): their fsyncs overlap the shards'
+        // open (MEDULLA-DURABLE-KERNEL-R006.1): their fsyncs overlap the shards'
         // instead of trailing them serially.
         let admin_path = std::path::Path::new(&persist_dir).join("admin-mutations.redb");
         let mut cleanup = SidecarOpenCleanup::new(&[

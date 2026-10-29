@@ -1,5 +1,5 @@
 //! Registered-source acceptance for the infrastructure-v1 term additions
-//! (EG-CQ-CONN-R068.13 to R068.16).
+//! (MEDULLA-CQ-CONN-R068.13 to R068.16).
 //!
 //! Each test loads the registered `core:infrastructure@1` source through the
 //! CoreSpec registry and asserts the added property with its stated domain and
@@ -52,7 +52,7 @@ fn infrastructure_ontology() -> Vec<Triple> {
     .expect("registered infrastructure ontology parses")
 }
 
-/// The SHACL companion (EG-CQ-CONN-R068.14 pullCount lower bound).
+/// The SHACL companion (MEDULLA-CQ-CONN-R068.14 pullCount lower bound).
 fn infrastructure_shapes() -> &'static str {
     include_str!("../ontology/infrastructure-v1.shapes.ttl")
 }
@@ -61,7 +61,7 @@ fn infrastructure_shapes() -> &'static str {
 mod ontology_audit_infrastructure_v1 {
     use super::*;
 
-    // spec: EG-CQ-CONN-R068.13
+    // spec: MEDULLA-CQ-CONN-R068.13
     #[test]
     fn lastPushedAt_declared() {
         let triples = infrastructure_ontology();
@@ -80,7 +80,7 @@ mod ontology_audit_infrastructure_v1 {
         );
     }
 
-    // spec: EG-CQ-CONN-R068.14
+    // spec: MEDULLA-CQ-CONN-R068.14
     #[test]
     fn pullCount_declared() {
         let triples = infrastructure_ontology();
@@ -135,7 +135,7 @@ ex:img-2 a :ContainerImage ;
         );
     }
 
-    // spec: EG-CQ-CONN-R068.15
+    // spec: MEDULLA-CQ-CONN-R068.15
     #[test]
     fn entityState_declared() {
         let triples = infrastructure_ontology();
@@ -154,7 +154,7 @@ ex:img-2 a :ContainerImage ;
         );
     }
 
-    // spec: EG-CQ-CONN-R068.16
+    // spec: MEDULLA-CQ-CONN-R068.16
     #[test]
     fn unavailableSince_declared() {
         let triples = infrastructure_ontology();

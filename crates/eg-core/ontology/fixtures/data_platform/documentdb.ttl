@@ -1,4 +1,4 @@
-# documentdb store-mapping fixture (EG-DATAPLAT-VOCAB-R006.2).
+# documentdb store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.2).
 #
 # One attached DocumentDB (MongoDB-compatible) store. Collection listing is
 # served by the engine document-shape adapter (unified-data-plane R019.1) with

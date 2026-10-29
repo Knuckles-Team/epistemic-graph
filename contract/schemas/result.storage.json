@@ -836,7 +836,7 @@
         },
         {
           "const": "guardrail_rule",
-          "description": "A governance rule, standard or SHACL shape pack and the task class it\ngoverns (EG-DECISION-ENGINE-R127.2.1). The component id is the rule\nid; `applies_to_class` and `source_generation` travel as attributes\nand are refused at publish when missing or malformed, so every stored\nrule decodes into a [`crate::decision::guardrail::GuardrailRule`].",
+          "description": "A governance rule, standard or SHACL shape pack and the task class it\ngoverns (MEDULLA-DECISION-ENGINE-R127.2.1). The component id is the rule\nid; `applies_to_class` and `source_generation` travel as attributes\nand are refused at publish when missing or malformed, so every stored\nrule decodes into a [`crate::decision::guardrail::GuardrailRule`].",
           "type": "string"
         }
       ]
@@ -2707,10 +2707,10 @@
     },
     "CapabilityCoverage": {
       "additionalProperties": false,
-      "description": "One required capability, paired with every visible component's coverage\nof it (EG-DECISION-ENGINE-R126): a read-only answer, never a ranking.",
+      "description": "One required capability, paired with every visible component's coverage\nof it (MEDULLA-DECISION-ENGINE-R126): a read-only answer, never a ranking.",
       "properties": {
         "a2a_card_ids": {
-          "description": "Component ids of registered A2A agent cards that self-declare this\ncapability. Never a derivation: an external agent's surface is\nasserted, not independently derived, so it carries no evidence class\nbeyond the unconditional [`EvidenceClass::Claim`] every A2A card is\nalready classified under (EG-DECISION-ENGINE-R126).",
+          "description": "Component ids of registered A2A agent cards that self-declare this\ncapability. Never a derivation: an external agent's surface is\nasserted, not independently derived, so it carries no evidence class\nbeyond the unconditional [`EvidenceClass::Claim`] every A2A card is\nalready classified under (MEDULLA-DECISION-ENGINE-R126).",
           "items": {
             "type": "string"
           },
@@ -4703,7 +4703,7 @@
     },
     "LibraryCoverage": {
       "additionalProperties": false,
-      "description": "One library component's independently derived coverage of one capability,\nand the evidence class its chain supports (EG-DECISION-ENGINE-R126).",
+      "description": "One library component's independently derived coverage of one capability,\nand the evidence class its chain supports (MEDULLA-DECISION-ENGINE-R126).",
       "properties": {
         "derivation": {
           "$ref": "#/$defs/CoverageDerivation"

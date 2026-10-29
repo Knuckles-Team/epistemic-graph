@@ -124,7 +124,7 @@ impl OutboxDelivery {
     /// local store owner that holds the lease: `outbox/claim.rs` and
     /// `outbox/cursor.rs` call directly into this crate's storage handle, never
     /// through `server::dispatch::consensus::apply_replicated_native` or any
-    /// other Raft-proposed path (EG-DURABLE-KERNEL-R005). A non-owning cluster
+    /// other Raft-proposed path (MEDULLA-DURABLE-KERNEL-R005). A non-owning cluster
     /// member therefore never observes this row: delivery progress is
     /// node-local, not part of the replicated multi-group log. This constant
     /// names that invariant so a future caller that reaches for Raft
@@ -312,7 +312,7 @@ pub(crate) fn validate_delivery_event(
 mod r005_node_local_delivery {
     use super::OutboxDelivery;
 
-    /// EG-DURABLE-KERNEL-R005: outbox delivery-side state stays local to the
+    /// MEDULLA-DURABLE-KERNEL-R005: outbox delivery-side state stays local to the
     /// owning node rather than flowing through the multi-group Raft layer.
     /// This is the typed, unit-testable half of that contract; the
     /// companion integration test (asserting delivery rows are absent from
@@ -322,7 +322,7 @@ mod r005_node_local_delivery {
     // Checked at compile time: flipping the invariant fails the build.
     const _: () = assert!(!OutboxDelivery::REPLICATED_BY_RAFT);
 
-    // spec: EG-DURABLE-KERNEL-R005
+    // spec: MEDULLA-DURABLE-KERNEL-R005
     #[test]
     fn delivery_rows_are_node_local_not_raft_replicated() {
         const {

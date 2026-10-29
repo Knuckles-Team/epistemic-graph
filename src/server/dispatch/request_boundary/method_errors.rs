@@ -56,7 +56,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R028.1.1
+    // spec: MEDULLA-DURABLE-KERNEL-R028.1.1
     #[test]
     fn checkpoint_nonce_and_fence_refusals_survive_the_served_boundary() {
         for (method, code) in [

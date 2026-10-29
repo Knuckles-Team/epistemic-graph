@@ -1,5 +1,5 @@
 //! The source-authority, source-role and trust-mark terms are part of the core
-//! virtual-graph schema source (EG-SRC-AUTH-R001, R010.1, R011.1).
+//! virtual-graph schema source (MEDULLA-SRC-AUTH-R001, R010.1, R011.1).
 
 use eg_core::graph::GraphSchemaSources;
 use eg_rdf::mapping::parse_turtle;
@@ -45,7 +45,7 @@ fn assert_terms(terms: &[(&str, &str)]) {
     }
 }
 
-// spec: EG-SRC-AUTH-R001.1
+// spec: MEDULLA-SRC-AUTH-R001.1
 #[test]
 fn the_authority_terms_are_in_the_core_vocabulary() {
     assert_terms(&[
@@ -56,7 +56,7 @@ fn the_authority_terms_are_in_the_core_vocabulary() {
     ]);
 }
 
-// spec: EG-SRC-AUTH-R001.2
+// spec: MEDULLA-SRC-AUTH-R001.2
 #[test]
 fn the_authority_facet_and_mapping_terms_exist() {
     assert_terms(&[
@@ -70,7 +70,7 @@ fn the_authority_facet_and_mapping_terms_exist() {
     ));
 }
 
-// spec: EG-SRC-AUTH-R001.3
+// spec: MEDULLA-SRC-AUTH-R001.3
 #[test]
 fn the_authority_scope_and_freshness_terms_exist() {
     assert_terms(&[
@@ -80,7 +80,7 @@ fn the_authority_scope_and_freshness_terms_exist() {
     ]);
 }
 
-// spec: EG-SRC-AUTH-R001.4
+// spec: MEDULLA-SRC-AUTH-R001.4
 #[test]
 fn the_authority_contract_and_fallback_terms_exist() {
     assert_terms(&[
@@ -89,7 +89,7 @@ fn the_authority_contract_and_fallback_terms_exist() {
     ]);
 }
 
-// spec: EG-SRC-AUTH-R001.5
+// spec: MEDULLA-SRC-AUTH-R001.5
 #[test]
 fn the_materialisation_terms_exist() {
     assert_terms(&[
@@ -98,7 +98,7 @@ fn the_materialisation_terms_exist() {
     ]);
 }
 
-// spec: EG-SRC-AUTH-R001.6
+// spec: MEDULLA-SRC-AUTH-R001.6
 #[test]
 fn the_foreign_source_name_and_widened_approved_exist() {
     let triples = core_vocabulary();
@@ -115,7 +115,7 @@ fn the_foreign_source_name_and_widened_approved_exist() {
     assert!(text.contains("owl:unionOf ( vg:VirtualMapping vg:SourceAuthority )"));
 }
 
-// spec: EG-SRC-AUTH-R010.1
+// spec: MEDULLA-SRC-AUTH-R010.1
 #[test]
 fn the_source_role_term_exists() {
     let triples = core_vocabulary();
@@ -123,7 +123,7 @@ fn the_source_role_term_exists() {
     assert!(domain(&triples, "sourceRole", "SourceConnection"));
 }
 
-// spec: EG-SRC-AUTH-R011.1
+// spec: MEDULLA-SRC-AUTH-R011.1
 #[test]
 fn the_trust_mark_term_exists() {
     assert_terms(&[("trustMark", "DatatypeProperty")]);

@@ -1,6 +1,6 @@
 use eg_types::lineage::{ColumnLineageEdge, ColumnTransform};
 
-// spec: EG-UNIFIED-DATA-PLANE-R763.1
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R763.1
 #[test]
 fn column_edge_round_trips() {
     let edge = ColumnLineageEdge {

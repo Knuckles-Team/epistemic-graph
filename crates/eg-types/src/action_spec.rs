@@ -1,4 +1,4 @@
-//! Governed actions over the data plane (EG-UNIFIED-DATA-PLANE-R700). An
+//! Governed actions over the data plane (MEDULLA-UNIFIED-DATA-PLANE-R700). An
 //! action declares typed parameters, submission criteria checked in order
 //! and effects whose text is a template over the parameters. A submission
 //! that fails a criterion, names an unknown parameter, mistypes one, or
@@ -382,7 +382,7 @@ mod tests {
         BTreeSet::from(["erp".to_string()])
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R700.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R700.1
     #[test]
     fn action_spec_golden_round_trip() {
         let mut registry = ActionRegistry::new();
@@ -400,7 +400,7 @@ mod tests {
         assert!(serde_json::from_str::<ActionRegistry>(&bad_field).is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R700.4
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R700.4
     #[test]
     fn refusals_apply_no_effect() {
         let run = spec().submit(args(900), &attached());
@@ -434,7 +434,7 @@ mod tests {
         assert!(run.effects.is_empty());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R700.5
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R700.5
     #[test]
     fn stored_run_reproduces_its_decision() {
         for amount in [10, 0, 900] {

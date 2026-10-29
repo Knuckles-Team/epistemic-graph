@@ -8,7 +8,7 @@
 
 <http://knuckles.team/kg/retrieval> a owl:Ontology ;
     rdfs:label "Search, Retrieval and Information Sources Ontology" ;
-    rdfs:comment "Search, retrieval and information-source concepts aligned to OpenSearch (query, result item, description document), DCMI Terms (source, bibliographic resource, references), DataCite-style citation and PROV-O (entity origin). InformationSource is the single shared source class that a genealogy source specialises later. Reuses Document, Dataset, Rendition and RunEvent from the core (EG-TYPED-PACKS-R105.9)." ;
+    rdfs:comment "Search, retrieval and information-source concepts aligned to OpenSearch (query, result item, description document), DCMI Terms (source, bibliographic resource, references), DataCite-style citation and PROV-O (entity origin). InformationSource is the single shared source class that a genealogy source specialises later. Reuses Document, Dataset, Rendition and RunEvent from the core (MEDULLA-TYPED-PACKS-R105.9)." ;
     dcterms:source "OpenSearch; DCMI Terms; W3C PROV-O" ;
     owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/orchestration>, <http://knuckles.team/kg/service_operations>, <http://knuckles.team/kg/dataplatform> .
 

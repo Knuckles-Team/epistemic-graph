@@ -1,138 +1,138 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-ENGINE-PARITY",
+  "spec_id": "MEDULLA-ENGINE-PARITY",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-ENGINE-PARITY-R001",
-    "EG-ENGINE-PARITY-R001.1",
-    "EG-ENGINE-PARITY-R001.2",
-    "EG-ENGINE-PARITY-R001.3",
-    "EG-ENGINE-PARITY-R002",
-    "EG-ENGINE-PARITY-R002.1",
-    "EG-ENGINE-PARITY-R002.2",
-    "EG-ENGINE-PARITY-R002.3",
-    "EG-ENGINE-PARITY-R003",
-    "EG-ENGINE-PARITY-R003.1",
-    "EG-ENGINE-PARITY-R003.2",
-    "EG-ENGINE-PARITY-R003.3",
-    "EG-ENGINE-PARITY-R004",
-    "EG-ENGINE-PARITY-R004.1",
-    "EG-ENGINE-PARITY-R004.2",
-    "EG-ENGINE-PARITY-R004.3",
-    "EG-ENGINE-PARITY-R005",
-    "EG-ENGINE-PARITY-R005.1",
-    "EG-ENGINE-PARITY-R005.2",
-    "EG-ENGINE-PARITY-R005.3",
-    "EG-ENGINE-PARITY-R006",
-    "EG-ENGINE-PARITY-R006.1",
-    "EG-ENGINE-PARITY-R006.2",
-    "EG-ENGINE-PARITY-R006.3",
-    "EG-ENGINE-PARITY-R007",
-    "EG-ENGINE-PARITY-R007.1",
-    "EG-ENGINE-PARITY-R007.2",
-    "EG-ENGINE-PARITY-R007.3",
-    "EG-ENGINE-PARITY-R008",
-    "EG-ENGINE-PARITY-R008.1",
-    "EG-ENGINE-PARITY-R008.2",
-    "EG-ENGINE-PARITY-R008.3",
-    "EG-ENGINE-PARITY-R009",
-    "EG-ENGINE-PARITY-R009.1",
-    "EG-ENGINE-PARITY-R009.2",
-    "EG-ENGINE-PARITY-R009.3",
-    "EG-ENGINE-PARITY-R010",
-    "EG-ENGINE-PARITY-R010.1",
-    "EG-ENGINE-PARITY-R010.2",
-    "EG-ENGINE-PARITY-R010.3",
-    "EG-ENGINE-PARITY-R011",
-    "EG-ENGINE-PARITY-R011.1",
-    "EG-ENGINE-PARITY-R011.2",
-    "EG-ENGINE-PARITY-R011.3",
-    "EG-ENGINE-PARITY-R012",
-    "EG-ENGINE-PARITY-R012.1",
-    "EG-ENGINE-PARITY-R012.2",
-    "EG-ENGINE-PARITY-R012.3",
-    "EG-ENGINE-PARITY-R013",
-    "EG-ENGINE-PARITY-R013.1",
-    "EG-ENGINE-PARITY-R013.2",
-    "EG-ENGINE-PARITY-R013.3",
-    "EG-ENGINE-PARITY-R014",
-    "EG-ENGINE-PARITY-R014.1",
-    "EG-ENGINE-PARITY-R014.2",
-    "EG-ENGINE-PARITY-R014.3",
-    "EG-ENGINE-PARITY-R015",
-    "EG-ENGINE-PARITY-R015.1",
-    "EG-ENGINE-PARITY-R015.2",
-    "EG-ENGINE-PARITY-R015.3",
-    "EG-ENGINE-PARITY-R016",
-    "EG-ENGINE-PARITY-R016.1",
-    "EG-ENGINE-PARITY-R016.2",
-    "EG-ENGINE-PARITY-R016.3",
-    "EG-ENGINE-PARITY-R017",
-    "EG-ENGINE-PARITY-R017.1",
-    "EG-ENGINE-PARITY-R017.2",
-    "EG-ENGINE-PARITY-R017.3",
-    "EG-ENGINE-PARITY-R018",
-    "EG-ENGINE-PARITY-R018.1",
-    "EG-ENGINE-PARITY-R018.2",
-    "EG-ENGINE-PARITY-R018.3",
-    "EG-ENGINE-PARITY-R019",
-    "EG-ENGINE-PARITY-R019.1",
-    "EG-ENGINE-PARITY-R019.2",
-    "EG-ENGINE-PARITY-R019.3",
-    "EG-ENGINE-PARITY-R020",
-    "EG-ENGINE-PARITY-R020.1",
-    "EG-ENGINE-PARITY-R020.2",
-    "EG-ENGINE-PARITY-R020.3"
+    "MEDULLA-ENGINE-PARITY-R001",
+    "MEDULLA-ENGINE-PARITY-R001.1",
+    "MEDULLA-ENGINE-PARITY-R001.2",
+    "MEDULLA-ENGINE-PARITY-R001.3",
+    "MEDULLA-ENGINE-PARITY-R002",
+    "MEDULLA-ENGINE-PARITY-R002.1",
+    "MEDULLA-ENGINE-PARITY-R002.2",
+    "MEDULLA-ENGINE-PARITY-R002.3",
+    "MEDULLA-ENGINE-PARITY-R003",
+    "MEDULLA-ENGINE-PARITY-R003.1",
+    "MEDULLA-ENGINE-PARITY-R003.2",
+    "MEDULLA-ENGINE-PARITY-R003.3",
+    "MEDULLA-ENGINE-PARITY-R004",
+    "MEDULLA-ENGINE-PARITY-R004.1",
+    "MEDULLA-ENGINE-PARITY-R004.2",
+    "MEDULLA-ENGINE-PARITY-R004.3",
+    "MEDULLA-ENGINE-PARITY-R005",
+    "MEDULLA-ENGINE-PARITY-R005.1",
+    "MEDULLA-ENGINE-PARITY-R005.2",
+    "MEDULLA-ENGINE-PARITY-R005.3",
+    "MEDULLA-ENGINE-PARITY-R006",
+    "MEDULLA-ENGINE-PARITY-R006.1",
+    "MEDULLA-ENGINE-PARITY-R006.2",
+    "MEDULLA-ENGINE-PARITY-R006.3",
+    "MEDULLA-ENGINE-PARITY-R007",
+    "MEDULLA-ENGINE-PARITY-R007.1",
+    "MEDULLA-ENGINE-PARITY-R007.2",
+    "MEDULLA-ENGINE-PARITY-R007.3",
+    "MEDULLA-ENGINE-PARITY-R008",
+    "MEDULLA-ENGINE-PARITY-R008.1",
+    "MEDULLA-ENGINE-PARITY-R008.2",
+    "MEDULLA-ENGINE-PARITY-R008.3",
+    "MEDULLA-ENGINE-PARITY-R009",
+    "MEDULLA-ENGINE-PARITY-R009.1",
+    "MEDULLA-ENGINE-PARITY-R009.2",
+    "MEDULLA-ENGINE-PARITY-R009.3",
+    "MEDULLA-ENGINE-PARITY-R010",
+    "MEDULLA-ENGINE-PARITY-R010.1",
+    "MEDULLA-ENGINE-PARITY-R010.2",
+    "MEDULLA-ENGINE-PARITY-R010.3",
+    "MEDULLA-ENGINE-PARITY-R011",
+    "MEDULLA-ENGINE-PARITY-R011.1",
+    "MEDULLA-ENGINE-PARITY-R011.2",
+    "MEDULLA-ENGINE-PARITY-R011.3",
+    "MEDULLA-ENGINE-PARITY-R012",
+    "MEDULLA-ENGINE-PARITY-R012.1",
+    "MEDULLA-ENGINE-PARITY-R012.2",
+    "MEDULLA-ENGINE-PARITY-R012.3",
+    "MEDULLA-ENGINE-PARITY-R013",
+    "MEDULLA-ENGINE-PARITY-R013.1",
+    "MEDULLA-ENGINE-PARITY-R013.2",
+    "MEDULLA-ENGINE-PARITY-R013.3",
+    "MEDULLA-ENGINE-PARITY-R014",
+    "MEDULLA-ENGINE-PARITY-R014.1",
+    "MEDULLA-ENGINE-PARITY-R014.2",
+    "MEDULLA-ENGINE-PARITY-R014.3",
+    "MEDULLA-ENGINE-PARITY-R015",
+    "MEDULLA-ENGINE-PARITY-R015.1",
+    "MEDULLA-ENGINE-PARITY-R015.2",
+    "MEDULLA-ENGINE-PARITY-R015.3",
+    "MEDULLA-ENGINE-PARITY-R016",
+    "MEDULLA-ENGINE-PARITY-R016.1",
+    "MEDULLA-ENGINE-PARITY-R016.2",
+    "MEDULLA-ENGINE-PARITY-R016.3",
+    "MEDULLA-ENGINE-PARITY-R017",
+    "MEDULLA-ENGINE-PARITY-R017.1",
+    "MEDULLA-ENGINE-PARITY-R017.2",
+    "MEDULLA-ENGINE-PARITY-R017.3",
+    "MEDULLA-ENGINE-PARITY-R018",
+    "MEDULLA-ENGINE-PARITY-R018.1",
+    "MEDULLA-ENGINE-PARITY-R018.2",
+    "MEDULLA-ENGINE-PARITY-R018.3",
+    "MEDULLA-ENGINE-PARITY-R019",
+    "MEDULLA-ENGINE-PARITY-R019.1",
+    "MEDULLA-ENGINE-PARITY-R019.2",
+    "MEDULLA-ENGINE-PARITY-R019.3",
+    "MEDULLA-ENGINE-PARITY-R020",
+    "MEDULLA-ENGINE-PARITY-R020.1",
+    "MEDULLA-ENGINE-PARITY-R020.2",
+    "MEDULLA-ENGINE-PARITY-R020.3"
   ],
   "requirements": [
     {
-      "id": "EG-ENGINE-PARITY-R001",
+      "id": "MEDULLA-ENGINE-PARITY-R001",
       "title": "Single committer with group commit and batched fsync (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R001.1",
-        "EG-ENGINE-PARITY-R001.2",
-        "EG-ENGINE-PARITY-R001.3"
+        "MEDULLA-ENGINE-PARITY-R001.1",
+        "MEDULLA-ENGINE-PARITY-R001.2",
+        "MEDULLA-ENGINE-PARITY-R001.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R001.1",
+      "id": "MEDULLA-ENGINE-PARITY-R001.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R001.2",
+      "id": "MEDULLA-ENGINE-PARITY-R001.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R001.3",
+      "id": "MEDULLA-ENGINE-PARITY-R001.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R002",
+      "id": "MEDULLA-ENGINE-PARITY-R002",
       "title": "Optimistic concurrency with read and write sets (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R002.1",
-        "EG-ENGINE-PARITY-R002.2",
-        "EG-ENGINE-PARITY-R002.3"
+        "MEDULLA-ENGINE-PARITY-R002.1",
+        "MEDULLA-ENGINE-PARITY-R002.2",
+        "MEDULLA-ENGINE-PARITY-R002.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R002.1",
+      "id": "MEDULLA-ENGINE-PARITY-R002.1",
       "title": "Model and behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -143,66 +143,66 @@
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R002.2",
+      "id": "MEDULLA-ENGINE-PARITY-R002.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R002.3",
+      "id": "MEDULLA-ENGINE-PARITY-R002.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R003",
+      "id": "MEDULLA-ENGINE-PARITY-R003",
       "title": "Partitioned store files for parallel writers (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R003.1",
-        "EG-ENGINE-PARITY-R003.2",
-        "EG-ENGINE-PARITY-R003.3"
+        "MEDULLA-ENGINE-PARITY-R003.1",
+        "MEDULLA-ENGINE-PARITY-R003.2",
+        "MEDULLA-ENGINE-PARITY-R003.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R003.1",
+      "id": "MEDULLA-ENGINE-PARITY-R003.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R003.2",
+      "id": "MEDULLA-ENGINE-PARITY-R003.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R003.3",
+      "id": "MEDULLA-ENGINE-PARITY-R003.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R004",
+      "id": "MEDULLA-ENGINE-PARITY-R004",
       "title": "Lock-free acceptance for disjoint keys (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R004.1",
-        "EG-ENGINE-PARITY-R004.2",
-        "EG-ENGINE-PARITY-R004.3"
+        "MEDULLA-ENGINE-PARITY-R004.1",
+        "MEDULLA-ENGINE-PARITY-R004.2",
+        "MEDULLA-ENGINE-PARITY-R004.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R004.1",
+      "id": "MEDULLA-ENGINE-PARITY-R004.1",
       "title": "Model and behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -213,528 +213,528 @@
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R004.2",
+      "id": "MEDULLA-ENGINE-PARITY-R004.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R004.3",
+      "id": "MEDULLA-ENGINE-PARITY-R004.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R005",
+      "id": "MEDULLA-ENGINE-PARITY-R005",
       "title": "Write throughput benchmark and targets (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R005.1",
-        "EG-ENGINE-PARITY-R005.2",
-        "EG-ENGINE-PARITY-R005.3"
+        "MEDULLA-ENGINE-PARITY-R005.1",
+        "MEDULLA-ENGINE-PARITY-R005.2",
+        "MEDULLA-ENGINE-PARITY-R005.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R005.1",
+      "id": "MEDULLA-ENGINE-PARITY-R005.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R005.2",
+      "id": "MEDULLA-ENGINE-PARITY-R005.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R005.3",
+      "id": "MEDULLA-ENGINE-PARITY-R005.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R006",
+      "id": "MEDULLA-ENGINE-PARITY-R006",
       "title": "PostgreSQL wire protocol front end (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R006.1",
-        "EG-ENGINE-PARITY-R006.2",
-        "EG-ENGINE-PARITY-R006.3"
+        "MEDULLA-ENGINE-PARITY-R006.1",
+        "MEDULLA-ENGINE-PARITY-R006.2",
+        "MEDULLA-ENGINE-PARITY-R006.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R006.1",
+      "id": "MEDULLA-ENGINE-PARITY-R006.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R006.2",
+      "id": "MEDULLA-ENGINE-PARITY-R006.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R006.3",
+      "id": "MEDULLA-ENGINE-PARITY-R006.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R007",
+      "id": "MEDULLA-ENGINE-PARITY-R007",
       "title": "Wire authentication mapped to engine principals and row security (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R007.1",
-        "EG-ENGINE-PARITY-R007.2",
-        "EG-ENGINE-PARITY-R007.3"
+        "MEDULLA-ENGINE-PARITY-R007.1",
+        "MEDULLA-ENGINE-PARITY-R007.2",
+        "MEDULLA-ENGINE-PARITY-R007.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R007.1",
+      "id": "MEDULLA-ENGINE-PARITY-R007.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R007.2",
+      "id": "MEDULLA-ENGINE-PARITY-R007.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R007.3",
+      "id": "MEDULLA-ENGINE-PARITY-R007.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R008",
+      "id": "MEDULLA-ENGINE-PARITY-R008",
       "title": "Catalog views for outside tools (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R008.1",
-        "EG-ENGINE-PARITY-R008.2",
-        "EG-ENGINE-PARITY-R008.3"
+        "MEDULLA-ENGINE-PARITY-R008.1",
+        "MEDULLA-ENGINE-PARITY-R008.2",
+        "MEDULLA-ENGINE-PARITY-R008.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R008.1",
+      "id": "MEDULLA-ENGINE-PARITY-R008.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R008.2",
+      "id": "MEDULLA-ENGINE-PARITY-R008.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R008.3",
+      "id": "MEDULLA-ENGINE-PARITY-R008.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R009",
+      "id": "MEDULLA-ENGINE-PARITY-R009",
       "title": "SQL dialect compatibility matrix (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R009.1",
-        "EG-ENGINE-PARITY-R009.2",
-        "EG-ENGINE-PARITY-R009.3"
+        "MEDULLA-ENGINE-PARITY-R009.1",
+        "MEDULLA-ENGINE-PARITY-R009.2",
+        "MEDULLA-ENGINE-PARITY-R009.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R009.1",
+      "id": "MEDULLA-ENGINE-PARITY-R009.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R009.2",
+      "id": "MEDULLA-ENGINE-PARITY-R009.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R009.3",
+      "id": "MEDULLA-ENGINE-PARITY-R009.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R010",
+      "id": "MEDULLA-ENGINE-PARITY-R010",
       "title": "Secondary, partial and expression indexes (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R010.1",
-        "EG-ENGINE-PARITY-R010.2",
-        "EG-ENGINE-PARITY-R010.3"
+        "MEDULLA-ENGINE-PARITY-R010.1",
+        "MEDULLA-ENGINE-PARITY-R010.2",
+        "MEDULLA-ENGINE-PARITY-R010.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R010.1",
+      "id": "MEDULLA-ENGINE-PARITY-R010.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R010.2",
+      "id": "MEDULLA-ENGINE-PARITY-R010.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R010.3",
+      "id": "MEDULLA-ENGINE-PARITY-R010.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R011",
+      "id": "MEDULLA-ENGINE-PARITY-R011",
       "title": "Constraints: unique, foreign key, check and shapes (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R011.1",
-        "EG-ENGINE-PARITY-R011.2",
-        "EG-ENGINE-PARITY-R011.3"
+        "MEDULLA-ENGINE-PARITY-R011.1",
+        "MEDULLA-ENGINE-PARITY-R011.2",
+        "MEDULLA-ENGINE-PARITY-R011.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R011.1",
+      "id": "MEDULLA-ENGINE-PARITY-R011.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R011.2",
+      "id": "MEDULLA-ENGINE-PARITY-R011.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R011.3",
+      "id": "MEDULLA-ENGINE-PARITY-R011.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R012",
+      "id": "MEDULLA-ENGINE-PARITY-R012",
       "title": "Triggers as reactive rules (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R012.1",
-        "EG-ENGINE-PARITY-R012.2",
-        "EG-ENGINE-PARITY-R012.3"
+        "MEDULLA-ENGINE-PARITY-R012.1",
+        "MEDULLA-ENGINE-PARITY-R012.2",
+        "MEDULLA-ENGINE-PARITY-R012.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R012.1",
+      "id": "MEDULLA-ENGINE-PARITY-R012.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R012.2",
+      "id": "MEDULLA-ENGINE-PARITY-R012.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R012.3",
+      "id": "MEDULLA-ENGINE-PARITY-R012.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R013",
+      "id": "MEDULLA-ENGINE-PARITY-R013",
       "title": "Sequences (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R013.1",
-        "EG-ENGINE-PARITY-R013.2",
-        "EG-ENGINE-PARITY-R013.3"
+        "MEDULLA-ENGINE-PARITY-R013.1",
+        "MEDULLA-ENGINE-PARITY-R013.2",
+        "MEDULLA-ENGINE-PARITY-R013.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R013.1",
+      "id": "MEDULLA-ENGINE-PARITY-R013.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R013.2",
+      "id": "MEDULLA-ENGINE-PARITY-R013.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R013.3",
+      "id": "MEDULLA-ENGINE-PARITY-R013.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R014",
+      "id": "MEDULLA-ENGINE-PARITY-R014",
       "title": "Views and materialized views as derived series (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R014.1",
-        "EG-ENGINE-PARITY-R014.2",
-        "EG-ENGINE-PARITY-R014.3"
+        "MEDULLA-ENGINE-PARITY-R014.1",
+        "MEDULLA-ENGINE-PARITY-R014.2",
+        "MEDULLA-ENGINE-PARITY-R014.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R014.1",
+      "id": "MEDULLA-ENGINE-PARITY-R014.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R014.2",
+      "id": "MEDULLA-ENGINE-PARITY-R014.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R014.3",
+      "id": "MEDULLA-ENGINE-PARITY-R014.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R015",
+      "id": "MEDULLA-ENGINE-PARITY-R015",
       "title": "Change data capture by logical decoding (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R015.1",
-        "EG-ENGINE-PARITY-R015.2",
-        "EG-ENGINE-PARITY-R015.3"
+        "MEDULLA-ENGINE-PARITY-R015.1",
+        "MEDULLA-ENGINE-PARITY-R015.2",
+        "MEDULLA-ENGINE-PARITY-R015.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R015.1",
+      "id": "MEDULLA-ENGINE-PARITY-R015.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R015.2",
+      "id": "MEDULLA-ENGINE-PARITY-R015.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R015.3",
+      "id": "MEDULLA-ENGINE-PARITY-R015.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R016",
+      "id": "MEDULLA-ENGINE-PARITY-R016",
       "title": "Point-in-time recovery from snapshots and the log (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R016.1",
-        "EG-ENGINE-PARITY-R016.2",
-        "EG-ENGINE-PARITY-R016.3"
+        "MEDULLA-ENGINE-PARITY-R016.1",
+        "MEDULLA-ENGINE-PARITY-R016.2",
+        "MEDULLA-ENGINE-PARITY-R016.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R016.1",
+      "id": "MEDULLA-ENGINE-PARITY-R016.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R016.2",
+      "id": "MEDULLA-ENGINE-PARITY-R016.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R016.3",
+      "id": "MEDULLA-ENGINE-PARITY-R016.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R017",
+      "id": "MEDULLA-ENGINE-PARITY-R017",
       "title": "Read replicas that follow the log (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R017.1",
-        "EG-ENGINE-PARITY-R017.2",
-        "EG-ENGINE-PARITY-R017.3"
+        "MEDULLA-ENGINE-PARITY-R017.1",
+        "MEDULLA-ENGINE-PARITY-R017.2",
+        "MEDULLA-ENGINE-PARITY-R017.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R017.1",
+      "id": "MEDULLA-ENGINE-PARITY-R017.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R017.2",
+      "id": "MEDULLA-ENGINE-PARITY-R017.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R017.3",
+      "id": "MEDULLA-ENGINE-PARITY-R017.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R018",
+      "id": "MEDULLA-ENGINE-PARITY-R018",
       "title": "Columnar materialization of hot record classes (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R018.1",
-        "EG-ENGINE-PARITY-R018.2",
-        "EG-ENGINE-PARITY-R018.3"
+        "MEDULLA-ENGINE-PARITY-R018.1",
+        "MEDULLA-ENGINE-PARITY-R018.2",
+        "MEDULLA-ENGINE-PARITY-R018.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R018.1",
+      "id": "MEDULLA-ENGINE-PARITY-R018.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R018.2",
+      "id": "MEDULLA-ENGINE-PARITY-R018.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R018.3",
+      "id": "MEDULLA-ENGINE-PARITY-R018.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R019",
+      "id": "MEDULLA-ENGINE-PARITY-R019",
       "title": "Outside PostgreSQL databases are sources only (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R019.1",
-        "EG-ENGINE-PARITY-R019.2",
-        "EG-ENGINE-PARITY-R019.3"
+        "MEDULLA-ENGINE-PARITY-R019.1",
+        "MEDULLA-ENGINE-PARITY-R019.2",
+        "MEDULLA-ENGINE-PARITY-R019.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R019.1",
+      "id": "MEDULLA-ENGINE-PARITY-R019.1",
       "title": "Model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R019.2",
+      "id": "MEDULLA-ENGINE-PARITY-R019.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R019.3",
+      "id": "MEDULLA-ENGINE-PARITY-R019.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R020",
+      "id": "MEDULLA-ENGINE-PARITY-R020",
       "title": "Demand gate, capability report and parity benchmark suite (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-ENGINE-PARITY-R020.1",
-        "EG-ENGINE-PARITY-R020.2",
-        "EG-ENGINE-PARITY-R020.3"
+        "MEDULLA-ENGINE-PARITY-R020.1",
+        "MEDULLA-ENGINE-PARITY-R020.2",
+        "MEDULLA-ENGINE-PARITY-R020.3"
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R020.1",
+      "id": "MEDULLA-ENGINE-PARITY-R020.1",
       "title": "Model and behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -745,14 +745,14 @@
       ]
     },
     {
-      "id": "EG-ENGINE-PARITY-R020.2",
+      "id": "MEDULLA-ENGINE-PARITY-R020.2",
       "title": "Wiring and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-ENGINE-PARITY-R020.3",
+      "id": "MEDULLA-ENGINE-PARITY-R020.3",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

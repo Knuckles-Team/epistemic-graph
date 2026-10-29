@@ -24,7 +24,7 @@ fn proposal() -> TaskPlanProposal {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.1
+// spec: MEDULLA-DECISION-ENGINE-R134.111.1
 #[test]
 fn task_plan_round_trips() {
     let plan = plan_explicit_tasks(&proposal()).unwrap();
@@ -41,7 +41,7 @@ fn task_plan_round_trips() {
     assert!(serde_json::from_value::<TaskPlanProposal>(value).is_err());
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.2
+// spec: MEDULLA-DECISION-ENGINE-R134.111.2
 #[test]
 fn plan_respects_dependencies() {
     let original = proposal();
@@ -80,7 +80,7 @@ fn refuses(mutator: impl FnOnce(&mut TaskPlanProposal), reason: &str) {
     assert!(plan_explicit_tasks(&input).unwrap_err().starts_with(reason));
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.4
+// spec: MEDULLA-DECISION-ENGINE-R134.111.4
 #[test]
 fn invalid_graphs_refuse() {
     refuses(|p| p.tasks = BoundedVec::default(), "empty_plan");
@@ -115,7 +115,7 @@ fn invalid_graphs_refuse() {
     refuses(|p| p.output_task_id = "c".into(), "disconnected_output");
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.4
+// spec: MEDULLA-DECISION-ENGINE-R134.111.4
 #[test]
 fn work_and_text_bounds_refuse() {
     for value in [0, 3, 65] {
@@ -167,7 +167,7 @@ fn work_and_text_bounds_refuse() {
         .starts_with("disconnected_output"));
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.2
+// spec: MEDULLA-DECISION-ENGINE-R134.111.2
 #[test]
 fn maximum_bounded_chain_is_valid() {
     let tasks = (0..64)
@@ -194,7 +194,7 @@ fn maximum_bounded_chain_is_valid() {
     assert_eq!(plan.tasks.as_slice()[63].task_id, "t63");
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.4
+// spec: MEDULLA-DECISION-ENGINE-R134.111.4
 #[test]
 fn deserialization_enforces_collection_bounds() {
     let mut value = serde_json::to_value(proposal()).unwrap();
@@ -204,7 +204,7 @@ fn deserialization_enforces_collection_bounds() {
     assert!(serde_json::from_value::<TaskPlanProposal>(value).is_err());
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.4
+// spec: MEDULLA-DECISION-ENGINE-R134.111.4
 #[test]
 fn index_refusal_precedence_is_stable() {
     let mut input = proposal();
@@ -232,7 +232,7 @@ fn index_refusal_precedence_is_stable() {
     assert_eq!(index(&input).unwrap_err(), "duplicate_dependency: a");
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.4
+// spec: MEDULLA-DECISION-ENGINE-R134.111.4
 #[test]
 fn index_accepts_exact_total_prompt_byte_limit() {
     let mut input = proposal();
@@ -249,7 +249,7 @@ fn index_accepts_exact_total_prompt_byte_limit() {
     assert_eq!(index(&input).unwrap_err(), "plan_text_bounds: extra");
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.7
+// spec: MEDULLA-DECISION-ENGINE-R134.111.7
 #[test]
 fn the_canonical_task_plan_feature_schema_is_valid_and_stable() {
     let body = task_plan_feature_schema().checked().unwrap();
@@ -292,7 +292,7 @@ fn reference(text: &str) -> serde_json::Value {
     serde_json::json!({ "$ref": text })
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.8
+// spec: MEDULLA-DECISION-ENGINE-R134.111.8
 #[test]
 fn tool_step_round_trips_with_literals_and_bindings() {
     let arguments = serde_json::json!({
@@ -336,7 +336,7 @@ fn tool_step_round_trips_with_literals_and_bindings() {
         .starts_with("binding_bad_path"));
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.9
+// spec: MEDULLA-DECISION-ENGINE-R134.111.9
 #[test]
 fn binding_canonicalization_is_order_independent() {
     let first: serde_json::Value = serde_json::from_str(
@@ -371,7 +371,7 @@ fn argument_bytes(arguments: &serde_json::Value) -> usize {
     serde_json::to_vec(arguments).unwrap().len()
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.9
+// spec: MEDULLA-DECISION-ENGINE-R134.111.9
 #[test]
 fn binding_bounds() {
     assert!(plan_explicit_tasks(&mixed(bound_arguments(MAX_BINDINGS_PER_CALL, 0))).is_ok());
@@ -451,7 +451,7 @@ fn binding_refusal(proposal: TaskPlanProposal) -> String {
     plan_explicit_tasks(&proposal).unwrap_err()
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.10
+// spec: MEDULLA-DECISION-ENGINE-R134.111.10
 #[test]
 fn refuses_each_binding_defect() {
     let cases = [
@@ -535,7 +535,7 @@ fn refuses_each_binding_defect() {
     assert!(binding_refusal(cyclic).starts_with("plan_cycle"));
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.11
+// spec: MEDULLA-DECISION-ENGINE-R134.111.11
 #[test]
 fn digest_covers_calls_and_bindings() {
     let arguments = serde_json::json!({ "repo": "medulla", "x": reference("steps.a.output.id") });

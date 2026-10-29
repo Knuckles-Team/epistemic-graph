@@ -1,5 +1,5 @@
-# Recorded virtual-graph mapping for the `arr` connector (EG-MEDIA-VOCAB-R005.1,
-# EG-CQ-CONN-R005). The rows are the `Connector mapping tables` entry for arr
+# Recorded virtual-graph mapping for the `arr` connector (MEDULLA-MEDIA-VOCAB-R005.1,
+# MEDULLA-CQ-CONN-R005). The rows are the `Connector mapping tables` entry for arr
 # in specs/media-and-personal-vocabulary/plan.md (operation -> class/property
 # -> contract kind), written as `vg:VirtualMapping` rows over the `vg:`
 # vocabulary in virtual_graph-v1.ttl and shaped by virtual_graph-v1.shapes.ttl.

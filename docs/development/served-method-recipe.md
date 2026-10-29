@@ -2,7 +2,7 @@
 
 A `.3` row says "the typed model and kernel exist; serve them". This recipe turns one
 kernel function into a served method. The method has a generated contract, generated
-clients and a served integration test. It was proven on `EG-FINANCE-PRIMITIVES-R900.3`
+clients and a served integration test. It was proven on `MEDULLA-FINANCE-PRIMITIVES-R900.3`
 and repeated for the banking, execution and factor-rank rows.
 
 Do not hand-edit anything generated. Do not run `git add -A`; stage explicit paths.
@@ -138,10 +138,10 @@ cargo test --locked --features "server,security,finance" --test finance_served_<
 Rows whose served half is stateful, or whose caller is another engine layer, need design
 first. The federated rows are of this kind:
 
-- `EG-FEDERATED-QUERY-R703.3` changes `ContextCompile` in `crates/eg-plan/src/exec.rs` to call
+- `MEDULLA-FEDERATED-QUERY-R703.3` changes `ContextCompile` in `crates/eg-plan/src/exec.rs` to call
   an access-check port that the Graft SDK answers.
-- `EG-FEDERATED-QUERY-R704.3` makes `Discover` and `ContextCompile` read a stored agent scope.
-- `EG-FEDERATED-QUERY-R705.3` adds `RetrievalFeedbackRecord`, a write that needs a durable
+- `MEDULLA-FEDERATED-QUERY-R704.3` makes `Discover` and `ContextCompile` read a stored agent scope.
+- `MEDULLA-FEDERATED-QUERY-R705.3` adds `RetrievalFeedbackRecord`, a write that needs a durable
   feedback store, a rate limit and a read-permission check.
 
 The retrieval executor must first wire their typed models (`.1`, `.2`). Their

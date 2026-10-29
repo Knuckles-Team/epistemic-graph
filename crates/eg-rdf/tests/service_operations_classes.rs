@@ -1,5 +1,5 @@
 //! IT4IT-aligned service-operations core and the competency-question paths
-//! (EG-TYPED-PACKS-R105.4, EG-TYPED-PACKS-R105.5).
+//! (MEDULLA-TYPED-PACKS-R105.4, MEDULLA-TYPED-PACKS-R105.5).
 #![cfg(feature = "owl")]
 
 mod common;
@@ -68,7 +68,7 @@ fn members(triples: &[Triple], subject: &str, predicate: &str) -> Vec<String> {
     found
 }
 
-// spec: EG-TYPED-PACKS-R105.4
+// spec: MEDULLA-TYPED-PACKS-R105.4
 #[test]
 fn service_operations_classes_exist_with_their_parents() {
     let triples = documents();
@@ -109,8 +109,8 @@ fn service_operations_classes_exist_with_their_parents() {
     assert!(classification.unsatisfiable.is_empty());
 }
 
-// spec: EG-TYPED-PACKS-R105.4
-// spec: EG-TYPED-PACKS-R105.5
+// spec: MEDULLA-TYPED-PACKS-R105.4
+// spec: MEDULLA-TYPED-PACKS-R105.5
 #[test]
 fn competency_question_edges_declare_domain_and_range() {
     let triples = documents();
@@ -204,7 +204,7 @@ fn competency_question_edges_declare_domain_and_range() {
     ));
 }
 
-// spec: EG-TYPED-PACKS-R105.5
+// spec: MEDULLA-TYPED-PACKS-R105.5
 #[test]
 fn self_contained_modules_align_to_the_core() {
     let triples = documents();

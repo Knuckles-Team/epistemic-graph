@@ -134,7 +134,7 @@ impl RemoteRequest {
 }
 
 /// One kind of work the optimizer may push into a foreign source's own request
-/// (design §3; EG-FEDERATED-QUERY-R038.1). The optimizer offers a kind to a source only
+/// (design §3; MEDULLA-FEDERATED-QUERY-R038.1). The optimizer offers a kind to a source only
 /// when [`ForeignSourceCapability::proves_sound`] says that source's declared capability
 /// proves the kind sound — never by assumption from the source's registered engine kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -161,7 +161,7 @@ pub enum PushdownKind {
 /// This is deliberately separate from [`ForeignSourceSpec`]: a connector pack can
 /// expose the same operation through more than one transport, while the optimizer
 /// still needs the transport's own pushdown contract. The matrix below is the one
-/// planner authority for that second axis (EG-FEDERATED-QUERY-R073.2).
+/// planner authority for that second axis (MEDULLA-FEDERATED-QUERY-R073.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 pub enum ConnectionProtocol {
     RestOpenApi,
@@ -440,7 +440,7 @@ impl SourceCostModel {
 }
 
 /// The capability + cost row the optimizer consults before offering ANY [`PushdownKind`] to
-/// a foreign source (EG-FEDERATED-QUERY-R038.1). [`SourceCapabilities`] alone describes the
+/// a foreign source (MEDULLA-FEDERATED-QUERY-R038.1). [`SourceCapabilities`] alone describes the
 /// shape of request a source answers (keys, limit, paging); this additionally proves, per
 /// pushdown kind, whether offering that kind to THIS source is sound — a plain key-value or
 /// fetch-only source proves none of projection/filter/aggregate/same-source-join sound even

@@ -47,7 +47,7 @@ fn revised() -> (Vec<BarRecord>, i64) {
     (all, known)
 }
 
-// spec: EG-FEDERATED-QUERY-R019
+// spec: MEDULLA-FEDERATED-QUERY-R019
 #[test]
 fn a_revision_appends_revision_records_and_never_rewrites() {
     let (records, revised_at) = revised();
@@ -151,7 +151,7 @@ fn state_for(listing: &str, bars: &[BarRecord]) -> SignalState {
     replay(&replay_request).unwrap().state
 }
 
-// spec: EG-FEDERATED-QUERY-R019
+// spec: MEDULLA-FEDERATED-QUERY-R019
 #[test]
 fn the_scanner_keeps_one_latest_state_per_key_and_counts_against_it() {
     let bars = daily();
@@ -296,7 +296,7 @@ fn warmup_thin_history_regime_drift_and_ambiguity_abstain() {
     assert_eq!(flip_confidence(&bad).unwrap_err().code, INVALID_REQUEST);
 }
 
-// spec: EG-DECISION-ENGINE-R103
+// spec: MEDULLA-DECISION-ENGINE-R103
 #[test]
 fn flip_confidence_is_evaluated_per_horizon_calibrated_or_abstaining_on_coverage_failure() {
     let mixed: Vec<_> = (0..60).map(|i| sample(i, true, i % 2 == 0, 0)).collect();
@@ -376,7 +376,7 @@ fn draft() -> BacktestRunDraft {
     }
 }
 
-// spec: EG-FINANCE-PRIMITIVES-R017
+// spec: MEDULLA-FINANCE-PRIMITIVES-R017
 #[test]
 fn a_backtest_run_seals_with_mandatory_outputs_and_verifies_by_replay() {
     let run = seal(&draft()).unwrap();
@@ -402,7 +402,7 @@ fn a_backtest_run_seals_with_mandatory_outputs_and_verifies_by_replay() {
 const PINNED_RUN_DIGEST: &str =
     "sha256:991112d2c9fe33d30edab5e67a0a522a0d30a3521c5d0e91138a0c8992b814bc";
 
-// spec: EG-FINANCE-PRIMITIVES-R001
+// spec: MEDULLA-FINANCE-PRIMITIVES-R001
 #[test]
 fn a_sealed_backtest_run_digest_is_pinned_across_hosts() {
     let run = seal(&draft()).unwrap();
@@ -417,7 +417,7 @@ fn a_sealed_backtest_run_digest_is_pinned_across_hosts() {
     assert_eq!(run.digest, PINNED_RUN_DIGEST);
 }
 
-// spec: EG-FINANCE-PRIMITIVES-R017
+// spec: MEDULLA-FINANCE-PRIMITIVES-R017
 #[test]
 fn look_ahead_fills_and_missing_outputs_are_refused() {
     let mut early = draft();
@@ -438,12 +438,12 @@ fn look_ahead_fills_and_missing_outputs_are_refused() {
     assert_eq!(seal(&no_keys).unwrap_err().code, INVALID_REQUEST);
 }
 
-/// EG-FINANCE-PRIMITIVES-R003: PBO comes from the record's own CPCV splits
+/// MEDULLA-FINANCE-PRIMITIVES-R003: PBO comes from the record's own CPCV splits
 /// over its per-period performance, not from caller-supplied summary rows.
 /// This fails on the pre-fix code, which passed the raw (and here,
 /// deliberately too-short) in-sample/out-of-sample arrays straight into the
 /// PBO kernel instead of deriving them from `purged_cpcv_splits`.
-// spec: EG-FINANCE-PRIMITIVES-R003
+// spec: MEDULLA-FINANCE-PRIMITIVES-R003
 #[test]
 fn pbo_uses_all_cpcv_splits_from_the_records_performance() {
     let skilled = seal(&draft()).unwrap();

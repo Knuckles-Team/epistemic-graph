@@ -1,5 +1,5 @@
 # Recorded virtual-graph mapping for the `audio-transcriber` connector
-# (audio-transcriber; EG-MEDIA-VOCAB-R012.1, EG-CQ-CONN-R008). The rows are the
+# (audio-transcriber; MEDULLA-MEDIA-VOCAB-R012.1, MEDULLA-CQ-CONN-R008). The rows are the
 # `Connector mapping tables` entry for audio-transcriber in
 # specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
 # contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary

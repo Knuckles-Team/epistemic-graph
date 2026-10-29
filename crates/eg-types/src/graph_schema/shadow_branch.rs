@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R102.1: the typed gate ordering a schema-repair
+//! MEDULLA-DECISION-ENGINE-R102.1: the typed gate ordering a schema-repair
 //! candidate's mapping decision, ABox consistency check, shadow-branch
 //! ingest and approval before activation against the live schema.
 //!
@@ -85,14 +85,14 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R102.1
+    // spec: MEDULLA-DECISION-ENGINE-R102.1
     #[test]
     fn every_step_completed_in_order_activates() {
         let activation = candidate(SchemaRepairActivation::REQUIRED_ORDER.to_vec());
         assert!(activation.checked_for_activation().is_ok());
     }
 
-    // spec: EG-DECISION-ENGINE-R102.1
+    // spec: MEDULLA-DECISION-ENGINE-R102.1
     #[test]
     fn activation_without_a_shadow_branch_ingest_is_refused() {
         let activation = candidate(vec![
@@ -106,7 +106,7 @@ mod tests {
         assert!(err.contains("ShadowBranchIngested"));
     }
 
-    // spec: EG-DECISION-ENGINE-R102.1
+    // spec: MEDULLA-DECISION-ENGINE-R102.1
     #[test]
     fn approval_recorded_before_the_shadow_branch_ingest_is_refused() {
         let activation = candidate(vec![

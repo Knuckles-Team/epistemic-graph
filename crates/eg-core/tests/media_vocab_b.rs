@@ -91,7 +91,7 @@ fn load_vocabulary() -> Vec<Triple> {
         .collect()
 }
 
-// spec: EG-MEDIA-VOCAB-R014.1
+// spec: MEDULLA-MEDIA-VOCAB-R014.1
 #[test]
 fn scholarx_mapping_terms_present() {
     let triples = load_vocabulary();
@@ -108,7 +108,7 @@ fn scholarx_mapping_terms_present() {
     assert_domain_range(&triples, "citationCount", "ScholarlyPaper", "xsd:integer");
 }
 
-// spec: EG-MEDIA-VOCAB-R015.1
+// spec: MEDULLA-MEDIA-VOCAB-R015.1
 #[test]
 fn searxng_mapping_terms_present() {
     let triples = load_vocabulary();
@@ -124,7 +124,7 @@ fn searxng_mapping_terms_present() {
     assert_domain_range(&triples, "servedByEngine", "SearchResult", "SearchEngine");
 }
 
-// spec: EG-MEDIA-VOCAB-R017.1
+// spec: MEDULLA-MEDIA-VOCAB-R017.1
 #[test]
 fn postiz_mapping_terms_present() {
     let triples = load_vocabulary();
@@ -139,7 +139,7 @@ fn postiz_mapping_terms_present() {
     assert_domain_range(&triples, "platform", "PublishingChannel", "xsd:string");
 }
 
-// spec: EG-MEDIA-VOCAB-R018.1
+// spec: MEDULLA-MEDIA-VOCAB-R018.1
 #[test]
 fn listmonk_mapping_terms_present() {
     let triples = load_vocabulary();
@@ -169,7 +169,7 @@ fn listmonk_mapping_terms_present() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R019.1
+// spec: MEDULLA-MEDIA-VOCAB-R019.1
 #[test]
 fn mattermost_mapping_terms_present() {
     let triples = load_vocabulary();

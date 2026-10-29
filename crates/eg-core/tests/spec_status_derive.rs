@@ -1,4 +1,4 @@
-//! Requirement state derived from the changeset log (EG-SDLC-R005.2).
+//! Requirement state derived from the changeset log (MEDULLA-SDLC-R005.2).
 
 use eg_core::lifecycle::derive::TestBinding;
 use eg_core::lifecycle::status::derive_spec_status;
@@ -37,7 +37,7 @@ fn row<'a>(rows: &'a [SpecRowState], id: &str) -> &'a SpecRowState {
     rows.iter().find(|r| r.id == id).unwrap()
 }
 
-// spec: EG-SDLC-R005.2
+// spec: MEDULLA-SDLC-R005.2
 #[test]
 fn rules_match_the_standard() {
     let all = ids(&["R1", "R2", "R3", "R4", "R5", "R5.1", "R5.2", "R6"]);

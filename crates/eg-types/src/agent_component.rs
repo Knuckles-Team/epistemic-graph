@@ -81,7 +81,7 @@ pub use search::{
 pub const AGENT_COMPONENT_SCHEMA_VERSION: u16 = 3;
 /// Format-identity constant (RF-ADR-006) for every NEW definition digest.
 ///
-/// v4 (EG-TYPED-PACKS-R016) drops `SourcePackage.package_version` from the
+/// v4 (MEDULLA-TYPED-PACKS-R016) drops `SourcePackage.package_version` from the
 /// digest input set: package version is provenance only, so a release that
 /// changes nothing else keeps its server pin. The record shape is unchanged,
 /// so the schema version stays 3 and stored v3 rows still validate through
@@ -180,7 +180,7 @@ pub enum AgentComponentKind {
     /// A natural-language template a decision surface renders with.
     NlTemplate,
     /// A governance rule, standard or SHACL shape pack and the task class it
-    /// governs (EG-DECISION-ENGINE-R127.2.1). The component id is the rule
+    /// governs (MEDULLA-DECISION-ENGINE-R127.2.1). The component id is the rule
     /// id; `applies_to_class` and `source_generation` travel as attributes
     /// and are refused at publish when missing or malformed, so every stored
     /// rule decodes into a [`crate::decision::guardrail::GuardrailRule`].
@@ -1350,9 +1350,9 @@ mod tests {
     /// One named edit to a definition, for the digest-binding table below.
     type NamedMutation<T> = (&'static str, fn(&mut T));
 
-    /// EG-TYPED-PACKS-R016: package version is provenance, not identity.
+    /// MEDULLA-TYPED-PACKS-R016: package version is provenance, not identity.
     /// New writes mint v4, which ignores it; a stored v3 row still validates.
-    // spec: EG-TYPED-PACKS-R016
+    // spec: MEDULLA-TYPED-PACKS-R016
     #[test]
     fn package_version_leaves_the_v4_digest_and_v3_rows_still_validate() {
         let packaged = |package_version: &str| AgentComponentDraft {
@@ -1388,10 +1388,10 @@ mod tests {
         );
     }
 
-    /// EG-TYPED-PACKS-R037: `AgentComponentDraft::validate` is exercised
+    /// MEDULLA-TYPED-PACKS-R037: `AgentComponentDraft::validate` is exercised
     /// directly (not through a full pack import) across a valid draft and
     /// several invalid field combinations, each refused with an error.
-    // spec: EG-TYPED-PACKS-R037
+    // spec: MEDULLA-TYPED-PACKS-R037
     #[test]
     fn agent_component_draft_validate_accepts_valid_and_refuses_invalid_fields() {
         let valid = draft("server-a", AgentComponentKind::Toolset);
@@ -1522,8 +1522,8 @@ mod tests {
         source
     }
 
-    // spec: EG-TYPED-PACKS-R048.3
-    // spec: EG-TYPED-PACKS-R048.4
+    // spec: MEDULLA-TYPED-PACKS-R048.3
+    // spec: MEDULLA-TYPED-PACKS-R048.4
     #[test]
     fn absent_shell_proficiency_keeps_digest() {
         let source = model();
@@ -1573,8 +1573,8 @@ mod tests {
         source
     }
 
-    // spec: EG-TYPED-PACKS-R048.3
-    // spec: EG-TYPED-PACKS-R048.4
+    // spec: MEDULLA-TYPED-PACKS-R048.3
+    // spec: MEDULLA-TYPED-PACKS-R048.4
     #[test]
     fn measured_model_facts_change_digest() {
         let source = measured_model();
@@ -1612,8 +1612,8 @@ mod tests {
         }
     }
 
-    // spec: EG-TYPED-PACKS-R048.3
-    // spec: EG-TYPED-PACKS-R048.4
+    // spec: MEDULLA-TYPED-PACKS-R048.3
+    // spec: MEDULLA-TYPED-PACKS-R048.4
     #[test]
     fn measured_model_facts_refuse_malformed_references() {
         let wire = serde_json::to_value(measured_model()).unwrap();
@@ -1660,7 +1660,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R050.1
+    // spec: MEDULLA-DECISION-ENGINE-R050.1
     #[test]
     fn model_input_capabilities_publish_round_trip_and_bind_every_limit() {
         let baseline = model();
@@ -1702,7 +1702,7 @@ mod tests {
         assert_eq!(definition_digest(&unknown), legacy_digest);
     }
 
-    // spec: EG-DECISION-ENGINE-R050.1
+    // spec: MEDULLA-DECISION-ENGINE-R050.1
     #[test]
     fn invalid_model_media_declarations_never_publish() {
         let baseline = serde_json::to_value(model()).unwrap();
@@ -2098,7 +2098,7 @@ mod tests {
     /// A model profile stored before its selection facts existed decodes with
     /// every optional fact absent -- never as zero -- and a row still carrying
     /// the deleted `provides` list is refused by name rather than read.
-    // spec: EG-DECISION-ENGINE-R050
+    // spec: MEDULLA-DECISION-ENGINE-R050
     #[test]
     fn a_stored_row_without_optional_facts_decodes_and_provides_is_refused() {
         let mut model = draft("model:a", AgentComponentKind::ModelProfile);
@@ -2403,10 +2403,10 @@ mod tests {
         }
     }
 
-    /// EG-DECISION-ENGINE-R017: `DecisionCommit` is the sole write authority
+    /// MEDULLA-DECISION-ENGINE-R017: `DecisionCommit` is the sole write authority
     /// for decision records. A direct publish of the kind must be refused,
     /// never silently accepted as an ordinary component write.
-    // spec: EG-DECISION-ENGINE-R017
+    // spec: MEDULLA-DECISION-ENGINE-R017
     #[test]
     fn a_decision_record_cannot_be_published_directly() {
         let request = AgentComponentPublishRequest {
@@ -2431,11 +2431,11 @@ mod tests {
         assert!(error.contains("FORBIDDEN_COMPONENT_KIND"), "got: {error}");
     }
 
-    /// EG-DECISION-ENGINE-R060: a fitted head is promoted only through the
+    /// MEDULLA-DECISION-ENGINE-R060: a fitted head is promoted only through the
     /// component-publish-plus-receipt path. Publishing a `DecisionHead`
     /// without the evaluation receipt digest that qualified it is refused,
     /// never silently accepted as an ordinary component write.
-    // spec: EG-DECISION-ENGINE-R060
+    // spec: MEDULLA-DECISION-ENGINE-R060
     #[test]
     fn promoting_a_decision_head_without_its_evaluation_receipt_is_refused() {
         let request = AgentComponentPublishRequest {
@@ -2458,12 +2458,12 @@ mod tests {
         validate_publish(&gated).expect("a present receipt digest clears the gate");
     }
 
-    /// EG-DECISION-ENGINE-R077: the component schema bump to version 3 is
+    /// MEDULLA-DECISION-ENGINE-R077: the component schema bump to version 3 is
     /// agreed by every writer, and the two things the bump actually added --
     /// a decision-engine component kind and the `Withdrawn` lifecycle -- must
     /// decode unchanged through the bumped schema, not merely construct
     /// without error.
-    // spec: EG-DECISION-ENGINE-R077
+    // spec: MEDULLA-DECISION-ENGINE-R077
     #[test]
     fn the_schema_bump_is_agreed_and_new_kinds_and_withdrawn_round_trip() {
         let policy_entry = AgentComponentEntry::publish(

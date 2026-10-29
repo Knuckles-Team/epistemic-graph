@@ -1,10 +1,10 @@
-# Declared capacity-limit thresholds (EG-SUPPLY-VOCAB-R004.3, Decision D6).
+# Declared capacity-limit thresholds (MEDULLA-SUPPLY-VOCAB-R004.3, Decision D6).
 #
 # No connected source exposes a capacity limit, so the declared ceilings
 # are ontology-side data: one HostLimit row per kind (disk, memory, cpu)
 # for the reference host. The reading is the last observed value; the
 # limit is the declared threshold. Temperature limits come from the
-# fan-manager policy (EG-SUPPLY-VOCAB-R006.7), not from this table.
+# fan-manager policy (MEDULLA-SUPPLY-VOCAB-R006.7), not from this table.
 
 @prefix : <http://knuckles.team/kg/infrastructure#> .
 @prefix ex: <http://knuckles.team/test/host-limit#> .

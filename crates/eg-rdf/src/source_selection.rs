@@ -1,5 +1,5 @@
-//! Ontology-driven cross-source coverage (EG-FEDERATED-QUERY-R072.1) read through
-//! declared source authority (EG-SRC-AUTH).
+//! Ontology-driven cross-source coverage (MEDULLA-FEDERATED-QUERY-R072.1) read through
+//! declared source authority (MEDULLA-SRC-AUTH).
 //!
 //! A caller names the ontology classes of a question. This module's typed model is
 //! the read-only RESULT of linking those classes through object properties within a
@@ -10,7 +10,7 @@
 //! executable query plan.
 //!
 //! Selection reads `vg:SourceAuthority` rows. Candidates for one class (or one
-//! facet of it) are ordered by a total, documented key (EG-SRC-AUTH-R005):
+//! facet of it) are ordered by a total, documented key (MEDULLA-SRC-AUTH-R005):
 //!
 //! 1. nearer class first (a subclass row overrides its superclass, R004.4);
 //! 2. a facet row before a class row (R004.7, R005.1);
@@ -46,13 +46,13 @@ pub use trust::{
     TrustMark, TrustMarkPolicy, TrustMarkRefusal, TRUST_MARK_DOWNGRADE_REFUSED,
 };
 
-/// The reason a selection abstained (EG-SRC-AUTH-R006.1, R010.4). It is the
+/// The reason a selection abstained (MEDULLA-SRC-AUTH-R006.1, R010.4). It is the
 /// closed not-used reason of the authority audit, so an abstention and its
 /// audit entry never disagree.
 pub type AbstainReason = NotUsedReason;
 
 /// The step of the documented order that decided between the winner and the
-/// runner-up (EG-SRC-AUTH-R005.4).
+/// runner-up (MEDULLA-SRC-AUTH-R005.4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TiebreakRule {
@@ -104,7 +104,7 @@ pub enum Premise {
     /// The source generation (append-only epoch) the above facts were read at.
     SourceGeneration { source: String, generation: u64 },
     /// No authority row exists for the class; its one approved mapping serves
-    /// it implicitly (EG-SRC-AUTH-R006.5).
+    /// it implicitly (MEDULLA-SRC-AUTH-R006.5).
     Implicit {
         class: String,
         mapping_name: String,
@@ -269,7 +269,7 @@ impl AuthorityOrigin {
 }
 
 /// Effectiveness is derived from the origin, never from the `vg:approved`
-/// flag alone (EG-SRC-AUTH-R003.4): a pack or ingestion row is not effective
+/// flag alone (MEDULLA-SRC-AUTH-R003.4): a pack or ingestion row is not effective
 /// even when it claims approval.
 pub fn row_is_effective(origin: AuthorityOrigin, row: &AuthorityRow) -> bool {
     origin.may_assert_authority() && row.approved
@@ -384,7 +384,7 @@ impl AuthorityRow {
     }
 }
 
-/// The source-role order: a named, replaceable default (EG-SRC-AUTH-R010.2).
+/// The source-role order: a named, replaceable default (MEDULLA-SRC-AUTH-R010.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RoleOrder(pub [SourceRole; 3]);
 
@@ -1183,7 +1183,7 @@ pub fn question_abstention(
 }
 
 /// Build the authority audit from verdicts and their premises only
-/// (EG-SRC-AUTH-R007.2): every used entry carries its verdict's premises,
+/// (MEDULLA-SRC-AUTH-R007.2): every used entry carries its verdict's premises,
 /// verbatim, and every `NotUsed` premise or abstention becomes a not-used
 /// entry with its closed reason (R007.3). Nothing is added.
 pub fn audit_from(verdicts: &[CoverageResult]) -> AuthorityAudit {

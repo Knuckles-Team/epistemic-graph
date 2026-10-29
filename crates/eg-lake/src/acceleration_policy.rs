@@ -1,4 +1,4 @@
-//! The per-table acceleration policy EG-UNIFIED-DATA-PLANE-R010 requires: whether a
+//! The per-table acceleration policy MEDULLA-UNIFIED-DATA-PLANE-R010 requires: whether a
 //! table's cached virtual graph / columnar replica in `eg-lake` is kept accelerated at
 //! all, and if so, the lag objective a restart/failover reconvergence test is measured
 //! against. This is the typed-model slice (`.1`): the policy type and its validation,
@@ -69,7 +69,7 @@ impl std::error::Error for InvalidAccelerationPolicy {}
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R010.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R010.1
     #[test]
     fn an_enabled_policy_with_a_positive_lag_objective_validates() {
         let policy = AccelerationPolicy {
@@ -80,7 +80,7 @@ mod tests {
         policy.validate().unwrap();
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R010.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R010.1
     #[test]
     fn a_disabled_policy_with_no_lag_objective_validates() {
         let policy = AccelerationPolicy {
@@ -91,7 +91,7 @@ mod tests {
         policy.validate().unwrap();
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R010.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R010.1
     #[test]
     fn an_empty_table_name_is_refused_regardless_of_enabled() {
         for enabled in [true, false] {
@@ -107,7 +107,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R010.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R010.1
     #[test]
     fn an_enabled_policy_with_no_lag_objective_is_refused() {
         let policy = AccelerationPolicy {

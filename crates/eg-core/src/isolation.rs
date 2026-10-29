@@ -1695,7 +1695,7 @@ mod tests {
             ));
             // But the tenant-wide grant itself still exists for whoever DOES carry
             // the role: the tenant-pattern Read plus the commons Read
-            // (EG-IDENTITY-R006).
+            // (MEDULLA-IDENTITY-R006).
             assert_eq!(
                 layer
                     .rbac()
@@ -1753,10 +1753,10 @@ mod tests {
             assert_eq!(layer.rbac().grants().len(), 3);
         }
 
-        // spec: EG-IDENTITY-R006
+        // spec: MEDULLA-IDENTITY-R006
         #[test]
         fn a_tenant_role_reads_but_never_writes_the_shared_commons() {
-            // EG-IDENTITY-R006: commons is the union-read layer for every tenant. The
+            // MEDULLA-IDENTITY-R006: commons is the union-read layer for every tenant. The
             // tenant graph stays the only write target.
             let mut layer = IsolationLayer::new();
             layer

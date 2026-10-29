@@ -313,7 +313,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R118.1.1
+    // spec: MEDULLA-DECISION-ENGINE-R118.1.1
     #[test]
     fn sparse_pool_abstains_while_a_dense_peer_is_estimated() {
         let mut obs = outcomes("sparse", 2, 1);

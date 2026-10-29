@@ -124,7 +124,7 @@ read before adding a new auxiliary surface's identity binding (SPARQL,
 federation, observability) — the Iceberg-bearer tenant-match pattern above is
 the template such a surface should follow, not a new mechanism.
 
-## Explicit local anonymous store (EG-IDENTITY-R003.1)
+## Explicit local anonymous store (MEDULLA-IDENTITY-R003.1)
 
 Arbora owns public admission. For its explicit local `none` mode, the native
 engine supports `--auth-mode none` (`GRAPH_SERVICE_AUTH_MODE=none`) with a fresh

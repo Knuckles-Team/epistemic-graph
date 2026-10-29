@@ -1,4 +1,4 @@
-//! Connector competency questions (EG-CQ-CONN), bulk chunk 2 (P12 question pairs,
+//! Connector competency questions (MEDULLA-CQ-CONN), bulk chunk 2 (P12 question pairs,
 //! R018–R034): fixture SPARQL answers over the connector's assigned ontology
 //! vocabulary, in the established pattern of
 //! `crates/eg-rdf/tests/connector_competency.rs`.
@@ -13,7 +13,7 @@
 //!
 //! This chunk lands only the rows fully expressible in the vocabulary on main.
 //! The remaining R018–R034 question rows are blocked on their producer
-//! vocabulary rows (EG-CQ-CONN-R068–R082 and EG-SUPPLY-VOCAB-R003), which are
+//! vocabulary rows (MEDULLA-CQ-CONN-R068–R082 and MEDULLA-SUPPLY-VOCAB-R003), which are
 //! not yet on main, and the freshrss / jellyfin / kafka rows (R022, R027, R029)
 //! are among the plan's 23 MISSING connectors with no assigned vocabulary.
 #![cfg(feature = "sparql")]
@@ -69,7 +69,7 @@ fn local(cell: &str) -> &str {
         .unwrap()
 }
 
-// spec: EG-CQ-CONN-R030.1
+// spec: MEDULLA-CQ-CONN-R030.1
 #[test]
 fn keycloak_user_clients_and_roles_answer() {
     // "Which clients can a given user sign in to, and through which role?" —

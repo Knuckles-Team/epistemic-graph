@@ -1,4 +1,4 @@
-"""EG-DECISION-ENGINE-R803.3/.6 served receipts: the contrastive harness
+"""MEDULLA-DECISION-ENGINE-R803.3/.6 served receipts: the contrastive harness
 composition decision over the wire.
 
 The entry point is the served ``Decide`` method with the
@@ -254,8 +254,8 @@ def _expected_matrix(
     }
 
 
-# spec: EG-DECISION-ENGINE-R803.3
-@pytest.mark.spec("EG-DECISION-ENGINE-R803.3")
+# spec: MEDULLA-DECISION-ENGINE-R803.3
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R803.3")
 def test_contrast_decide_stores_record(clean_graph):
     # The evidence: the two held candidate versions (one per component),
     # the baseline probe run and the two candidate probe runs under the
@@ -376,8 +376,8 @@ def test_contrast_decide_stores_record(clean_graph):
     assert entry["visibility"]["visibility"] == "principal"
 
 
-# spec: EG-DECISION-ENGINE-R803.6
-@pytest.mark.spec("EG-DECISION-ENGINE-R803.6")
+# spec: MEDULLA-DECISION-ENGINE-R803.6
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R803.6")
 def test_contrast_hot_path_served(clean_graph):
     # One improving and one neutral candidate adopt the improving one; two
     # non-improving candidates abstain with no_improvement and the

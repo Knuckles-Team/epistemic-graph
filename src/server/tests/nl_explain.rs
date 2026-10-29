@@ -1,4 +1,4 @@
-//! `NlQueryExplain` through the FULL served dispatch chain (EG-FEDERATED-QUERY-R058.2.2.1):
+//! `NlQueryExplain` through the FULL served dispatch chain (MEDULLA-FEDERATED-QUERY-R058.2.2.1):
 //! it answers the planner's exact UQL with the SAME rows `NlQuery` answers, and refuses
 //! exactly as `NlQuery` refuses.
 
@@ -65,7 +65,7 @@ async fn echo_planned_fixture() -> Arc<RwLock<ServerState>> {
     state
 }
 
-// spec: EG-FEDERATED-QUERY-R058.2.2.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.2.2.1
 #[tokio::test]
 async fn nl_query_explain_returns_planner_uql_and_nl_query_rows() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -92,7 +92,7 @@ async fn nl_query_explain_returns_planner_uql_and_nl_query_rows() {
     assert_eq!(unified_ids(&plain).len(), 3);
 }
 
-// spec: EG-FEDERATED-QUERY-R058.2.2.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.2.2.1
 #[tokio::test]
 async fn nl_query_explain_refuses_exactly_like_nl_query() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -119,7 +119,7 @@ async fn nl_query_explain_refuses_exactly_like_nl_query() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.2.2.2
+// spec: MEDULLA-FEDERATED-QUERY-R058.2.2.2
 #[tokio::test]
 async fn nl_query_plan_returns_pins_without_executing_rows() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -145,7 +145,7 @@ async fn nl_query_plan_returns_pins_without_executing_rows() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R058.3.2
+// spec: MEDULLA-FEDERATED-QUERY-R058.3.2
 #[tokio::test]
 async fn nl_mutating_candidates_refuse_without_changing_graph_data() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -206,7 +206,7 @@ async fn nl_mutating_candidates_refuse_without_changing_graph_data() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[tokio::test]
 async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -235,7 +235,7 @@ async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
     assert_eq!(explained.error_detail, plain.error_detail);
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[cfg(feature = "federation")]
 #[tokio::test]
 async fn nl_query_grounds_foreign_names_from_the_verified_owner_registry() {

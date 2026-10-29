@@ -641,7 +641,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ConnectorPack { .. }
         | Method::SourceIngest { .. }
         | Method::SourceIngestStatus { .. }
-        // EG-UNIFIED-DATA-PLANE-R651.7: lowers to one ChangeEnvelope, which
+        // MEDULLA-UNIFIED-DATA-PLANE-R651.7: lowers to one ChangeEnvelope, which
         // carries its own domains; selection commits nothing.
         | Method::EnrichDocument { .. }
         | Method::SelectWebPages { .. }

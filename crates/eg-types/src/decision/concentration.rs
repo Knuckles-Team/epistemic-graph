@@ -1,4 +1,4 @@
-//! Cross-round edit concentration cap (EG-DECISION-ENGINE-R173.1, .2, .4).
+//! Cross-round edit concentration cap (MEDULLA-DECISION-ENGINE-R173.1, .2, .4).
 //!
 //! A candidate harness edit is reverted when the shipped edits on its
 //! dimension inside the policy window, counting the candidate, reach the

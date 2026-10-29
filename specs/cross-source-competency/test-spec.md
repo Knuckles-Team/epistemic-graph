@@ -1,4 +1,4 @@
-# EG-CQ-XSRC — Test specification
+# MEDULLA-CQ-XSRC — Test specification
 
 Governing spec: [spec.md](spec.md).
 
@@ -24,9 +24,9 @@ Focused `cargo test` for `eg-rdf`, `eg-types` and `eg-core` ontology tests; `pip
 
 | Case | Requirement | Proving test |
 |---|---|---|
-| Acceptance: high-confidence agent claims against a new external report (rollup) | `EG-CQ-XSRC-R009` | Rollup: satisfied when the test of every child passes. |
-| Query fixture: claims that touch the report | `EG-CQ-XSRC-R009.1` | `tests/test_cq_xsrc_r009.py::test_fixture_compiles_to_one_plan` |
-| Evidence clustering | `EG-CQ-XSRC-R009.2` | `tests/test_cq_xsrc_r009.py::test_agent_claims_against_report_one_plan` |
-| Contradiction decay analysis | `EG-CQ-XSRC-R009.3` | `tests/test_cq_xsrc_r009.py::test_agent_claims_against_report_one_plan` |
-| Served acceptance through arbora | `EG-CQ-XSRC-R009.4` | `tests/test_cq_xsrc_r009.py::test_agent_claims_against_report_one_plan` |
-| Refusal | `EG-CQ-XSRC-R009.5` | `tests/test_cq_xsrc_r009.py::test_unknown_report_refuses` |
+| Acceptance: high-confidence agent claims against a new external report (rollup) | `MEDULLA-CQ-XSRC-R009` | Rollup: satisfied when the test of every child passes. |
+| Query fixture: claims that touch the report | `MEDULLA-CQ-XSRC-R009.1` | `tests/test_cq_xsrc_r009.py::test_fixture_compiles_to_one_plan` |
+| Evidence clustering | `MEDULLA-CQ-XSRC-R009.2` | `tests/test_cq_xsrc_r009.py::test_agent_claims_against_report_one_plan` |
+| Contradiction decay analysis | `MEDULLA-CQ-XSRC-R009.3` | `tests/test_cq_xsrc_r009.py::test_agent_claims_against_report_one_plan` |
+| Served acceptance through arbora | `MEDULLA-CQ-XSRC-R009.4` | `tests/test_cq_xsrc_r009.py::test_agent_claims_against_report_one_plan` |
+| Refusal | `MEDULLA-CQ-XSRC-R009.5` | `tests/test_cq_xsrc_r009.py::test_unknown_report_refuses` |

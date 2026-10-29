@@ -701,7 +701,7 @@ export class MedullaThinClient {
     const targetGraph = graph || this.graph;
     return this._send("NlQuery", { text, graph: targetGraph }, targetGraph);
   }
-  // `{uql, rows}`: the executed UQL with the same rows as nlQuery (EG-FEDERATED-QUERY-R058.2.2.1).
+  // `{uql, rows}`: the executed UQL with the same rows as nlQuery (MEDULLA-FEDERATED-QUERY-R058.2.2.1).
   nlQueryExplain(text, graph) {
     const targetGraph = graph || this.graph;
     return this._send("NlQueryExplain", { text, graph: targetGraph }, targetGraph);

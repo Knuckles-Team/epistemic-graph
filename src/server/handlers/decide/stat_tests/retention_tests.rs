@@ -61,7 +61,7 @@ async fn compact_at(
     .unwrap()
 }
 
-// spec: EG-DECISION-ENGINE-R066.1
+// spec: MEDULLA-DECISION-ENGINE-R066.1
 #[cfg(feature = "blob")]
 #[tokio::test]
 async fn library_records_survive_every_retention_window() {
@@ -90,7 +90,7 @@ async fn library_records_survive_every_retention_window() {
     ));
 }
 
-// spec: EG-DECISION-ENGINE-R066.2
+// spec: MEDULLA-DECISION-ENGINE-R066.2
 #[cfg(all(feature = "blob", feature = "query"))]
 #[tokio::test]
 async fn graph_inputs_expire_at_the_configured_boundaries() {
@@ -126,7 +126,7 @@ async fn graph_inputs_expire_at_the_configured_boundaries() {
     ));
 }
 
-// spec: EG-DECISION-ENGINE-R066.3
+// spec: MEDULLA-DECISION-ENGINE-R066.3
 #[tokio::test]
 async fn evaluate_only_leaves_no_committed_records() {
     let h = Harness::new().await;

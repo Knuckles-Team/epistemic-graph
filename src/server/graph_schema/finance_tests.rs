@@ -42,7 +42,7 @@ fn ex(local: &str) -> String {
     format!("<http://example.org/markets#{local}>")
 }
 
-// spec: EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
+// spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.1, MEDULLA-FINANCE-PRIMITIVES-R004.2.2
 #[test]
 fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_coherent() {
     let classification = assert_core_catalog(&["finance", "finance-shapes"]);
@@ -84,7 +84,7 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
 }
 
 /// Every class is mapped and only the core foundation is imported.
-// spec: EG-FINANCE-PRIMITIVES-R014
+// spec: MEDULLA-FINANCE-PRIMITIVES-R014
 #[test]
 fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
@@ -140,7 +140,7 @@ fn a_trend_flip_is_never_an_instrument() {
 }
 
 /// EH-517: the trading classes live in finance only, under their unchanged IRIs.
-// spec: EG-FINANCE-PRIMITIVES-R001
+// spec: MEDULLA-FINANCE-PRIMITIVES-R001
 #[test]
 fn the_trading_classes_are_folded_out_of_company_infra() {
     const COMPANY_INFRA: &str =
@@ -236,7 +236,7 @@ mod shapes {
 
     const HASH: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
-    // spec: EG-FINANCE-PRIMITIVES-R014, EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R014, MEDULLA-FINANCE-PRIMITIVES-R004.2.1, MEDULLA-FINANCE-PRIMITIVES-R004.2.2
     #[test]
     fn well_formed_finance_records_conform() {
         let data = format!(
@@ -266,7 +266,7 @@ mod shapes {
         assert!(conforms(&data));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.1, MEDULLA-FINANCE-PRIMITIVES-R004.2.2
     #[test]
     fn malformed_finance_records_are_violations() {
         let refused = [
@@ -303,9 +303,9 @@ mod shapes {
         }
     }
 
-    /// EG-FINANCE-PRIMITIVES-R004: the canonical asset-class vocabulary, plus the
+    /// MEDULLA-FINANCE-PRIMITIVES-R004: the canonical asset-class vocabulary, plus the
     /// deprecated migration aliases preserved for `stock`, `forex` and `commodity`.
-    // spec: EG-FINANCE-PRIMITIVES-R004.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.1
     #[test]
     fn asset_class_vocabulary_accepts_canonical_and_legacy_values() {
         for class in [
@@ -449,7 +449,7 @@ mod shapes {
         "\"finance-v2\"",
     );
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.1.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.1.1
     #[test]
     fn account_position_complete_schema_matrix() {
         assert_matrix(
@@ -494,7 +494,7 @@ mod shapes {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.2.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.2.1
     #[test]
     fn activity_lot_complete_schema_matrix() {
         assert_matrix(
@@ -550,7 +550,7 @@ mod shapes {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.3
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.3
     #[test]
     fn portfolio_group_schema_acceptance() {
         let mut member = field("portfolioMember", "ex:pos", "ex:pos2", IRI_WRONG);
@@ -592,7 +592,7 @@ mod shapes {
         assert!(conforms(&two));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.4
     #[test]
     fn strategy_spec_schema_acceptance() {
         assert_matrix(
@@ -663,7 +663,7 @@ mod shapes {
         )
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.5
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.5
     #[test]
     fn strategy_run_schema_acceptance() {
         assert_matrix(
@@ -698,7 +698,7 @@ mod shapes {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.6
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.6
     #[test]
     fn leverage_terms_schema_acceptance() {
         let fields = [

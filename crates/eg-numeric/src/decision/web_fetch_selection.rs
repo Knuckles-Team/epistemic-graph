@@ -1,4 +1,4 @@
-//! Deterministic web fetch selection (EG-DECISION-ENGINE-R802.2).
+//! Deterministic web fetch selection (MEDULLA-DECISION-ENGINE-R802.2).
 //!
 //! Pure: the answer depends only on the request, the held pages and the
 //! clock passed in. The cost is O(c log c) in candidates.
@@ -330,7 +330,7 @@ mod tests {
         assert_eq!(canonical_url("not a url"), None);
     }
 
-    // spec: EG-DECISION-ENGINE-R802.2
+    // spec: MEDULLA-DECISION-ENGINE-R802.2
     #[test]
     fn ranks_dedupes_and_skips_fresh() {
         let mut digest_row = row("https://d.example/x", "rust chunking", "bing", 4);
@@ -434,7 +434,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R802.4
+    // spec: MEDULLA-DECISION-ENGINE-R802.4
     #[test]
     fn web_fetch_refusals() {
         let none = BTreeMap::new();
@@ -449,7 +449,7 @@ mod tests {
             .contains("BUDGET_INVALID"));
     }
 
-    // spec: EG-DECISION-ENGINE-R802.5
+    // spec: MEDULLA-DECISION-ENGINE-R802.5
     #[test]
     fn premises_per_candidate() {
         let candidates: Vec<_> = (0..40)

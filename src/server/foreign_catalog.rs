@@ -42,7 +42,7 @@
 //! session-control saga whose durable record is an opaque receipt; the endpoint
 //! configuration is never persisted, so there is no stored key shape to migrate.
 //!
-//! **Outbound verification at registration time (`EG-UNIFIED-DATA-PLANE-R002.1`).**
+//! **Outbound verification at registration time (`MEDULLA-UNIFIED-DATA-PLANE-R002.1`).**
 //! A `Sql` spec's DSN is checked against the existing SSRF-sensitive destination gate
 //! ([`eg_plan::federation_ssrf::check_sql_dsn`], already enforced at query time by
 //! `crates/eg-plan/src/federation.rs`) BEFORE the entry is inserted, so a disallowed
@@ -51,7 +51,7 @@
 //! unaffected; their own outbound gates (`HttpJson`'s `validate_http_json_target`,
 //! `RemoteEngine`'s dial-time checks) run where they already ran before this change —
 //! unifying every variant's registration-time gate is tracked separately as
-//! `EG-UNIFIED-DATA-PLANE-R002.2`/`.3`.
+//! `MEDULLA-UNIFIED-DATA-PLANE-R002.2`/`.3`.
 
 use std::sync::Arc;
 
@@ -147,7 +147,7 @@ impl ForeignSourceCatalog {
     /// Record (or replace) `owner`'s source `name`. Another owner's entry under the
     /// same name is a different key, so it can be neither read nor overwritten here.
     ///
-    /// `EG-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN is checked against the
+    /// `MEDULLA-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN is checked against the
     /// outbound destination gate FIRST; a disallowed destination is refused (`Err`)
     /// and nothing is inserted, so an unverified endpoint never reaches the catalog.
     pub(crate) fn register(
@@ -560,7 +560,7 @@ pub(crate) async fn served_foreign_leg(
         .resolve_for_plan(&plan.ops, caller, &s.isolation)
 }
 
-/// `EG-UNIFIED-DATA-PLANE-R002.1` — the registration-time outbound gate. A `Sql` spec's
+/// `MEDULLA-UNIFIED-DATA-PLANE-R002.1` — the registration-time outbound gate. A `Sql` spec's
 /// DSN must pass the same SSRF-sensitive destination check `crates/eg-plan/src/federation.rs`
 /// already runs at query time, so a disallowed destination is refused before persistence
 /// rather than only when a plan later tries to use it. Other variants are untouched here;
@@ -749,7 +749,7 @@ mod tests {
         ));
     }
 
-    /// `EG-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN runs through the same
+    /// `MEDULLA-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN runs through the same
     /// SSRF-sensitive destination gate `crates/eg-plan/src/federation.rs` runs at
     /// query time, but now BEFORE the entry is inserted into the catalog.
     #[cfg(feature = "federation-sql")]
@@ -766,8 +766,8 @@ mod tests {
             }
         }
 
-        // spec: EG-UNIFIED-DATA-PLANE-R002
-        // spec: EG-UNIFIED-DATA-PLANE-R002.1
+        // spec: MEDULLA-UNIFIED-DATA-PLANE-R002
+        // spec: MEDULLA-UNIFIED-DATA-PLANE-R002.1
         #[test]
         fn a_disallowed_sql_destination_is_refused_and_never_persisted() {
             let _allow = crate::test_support::FederationAllowGuard::blocking("");
@@ -790,8 +790,8 @@ mod tests {
             );
         }
 
-        // spec: EG-UNIFIED-DATA-PLANE-R002
-        // spec: EG-UNIFIED-DATA-PLANE-R002.1
+        // spec: MEDULLA-UNIFIED-DATA-PLANE-R002
+        // spec: MEDULLA-UNIFIED-DATA-PLANE-R002.1
         #[test]
         fn an_allowed_sql_destination_still_registers() {
             let _allow = crate::test_support::FederationAllowGuard::blocking("127.0.0.1:5432");

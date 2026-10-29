@@ -227,7 +227,7 @@ impl SemanticSqlSourceReadPort for CompletePage {
     }
 }
 
-// spec: EG-REPO-INGEST-R001
+// spec: MEDULLA-REPO-INGEST-R001
 #[test]
 fn reconcile_readmits_stranded_intent_after_originating_topic_retires() {
     let dir = temp_dir("stranded-topic-retirement");
@@ -415,7 +415,7 @@ fn partial_checkpoint_resumes_after_reopen_and_replays_exact_s1() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-// spec: EG-FEDERATED-QUERY-R007
+// spec: MEDULLA-FEDERATED-QUERY-R007
 #[test]
 fn missing_sources_become_tombstones_only_after_complete_snapshot_proof() {
     let dir = temp_dir("complete-proof-tombstones");

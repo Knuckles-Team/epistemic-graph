@@ -189,7 +189,7 @@ fn both_declared_sql_predecessors_upgrade_once_and_preserve_rows() {
 /// every owner's open-refusal and upgrade-routing decision, AND by the SQL
 /// offline upgrade's own inspection -- proving the SQL store has no separate
 /// admission path beyond what that one shared lineage check declares.
-// spec: EG-DURABLE-KERNEL-R045
+// spec: MEDULLA-DURABLE-KERNEL-R045
 #[test]
 fn an_undeclared_sql_predecessor_is_refused_by_the_shared_lineage_check() {
     let _serial = redb_files();

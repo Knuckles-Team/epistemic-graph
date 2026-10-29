@@ -1,4 +1,4 @@
-//! Typed tool steps and their bindings (EG-DECISION-ENGINE-R134.111.8 to .11).
+//! Typed tool steps and their bindings (MEDULLA-DECISION-ENGINE-R134.111.8 to .11).
 //!
 //! A call is a caller claim. The engine canonicalizes and statically checks it;
 //! it never invokes the tool, never infers an edge from a binding and never

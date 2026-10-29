@@ -18,7 +18,7 @@ fn graph_with_prior() -> GraphCore {
     core
 }
 
-// spec: EG-DURABLE-KERNEL-R080.1
+// spec: MEDULLA-DURABLE-KERNEL-R080.1
 #[test]
 fn supersession_missing_endpoint_preserves_prior_and_allows_retry() {
     for (source, target, role) in [("missing", "b", "Source"), ("a", "missing", "Target")] {

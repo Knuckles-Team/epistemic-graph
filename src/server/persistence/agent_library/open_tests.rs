@@ -3,7 +3,7 @@
 use super::*;
 use eg_types::contract::ResourceId;
 
-// spec: EG-DECISION-ENGINE-R073.3
+// spec: MEDULLA-DECISION-ENGINE-R073.3
 #[test]
 fn fresh_open_initializes_all_pack_tables_and_reopens_empty() {
     let dir = tempfile::tempdir().unwrap();
@@ -46,7 +46,7 @@ fn fresh_open_initializes_all_pack_tables_and_reopens_empty() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R073.3
+// spec: MEDULLA-DECISION-ENGINE-R073.3
 #[test]
 fn production_open_refuses_each_genuine_predecessor_without_writing() {
     let predecessors = eg_storage::layout_predecessors(eg_storage::OwnerLayout::AgentLibrary);

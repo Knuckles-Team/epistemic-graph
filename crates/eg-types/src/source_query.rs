@@ -1,9 +1,9 @@
-//! Approved source queries (EG-FEDERATED-QUERY-R085.1): the records Medulla
+//! Approved source queries (MEDULLA-FEDERATED-QUERY-R085.1): the records Medulla
 //! issues so a connector may run exactly one read-only, natively
 //! parameterized SQL statement against a registered source.
 //!
 //! Pure data and validation. Issuing, verifying and digesting approvals are
-//! later children of EG-FEDERATED-QUERY-R085.
+//! later children of MEDULLA-FEDERATED-QUERY-R085.
 
 use serde::{Deserialize, Serialize};
 
@@ -356,7 +356,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R085.1
+    // spec: MEDULLA-FEDERATED-QUERY-R085.1
     #[test]
     fn approval_records_round_trip() {
         let approval = approved();

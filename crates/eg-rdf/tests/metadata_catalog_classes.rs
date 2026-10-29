@@ -1,6 +1,6 @@
 //! The metadata-catalog core vocabulary: catalogued assets, owners and stewards,
 //! lineage, the glossary and system-prompt candidates, aligned to W3C DCAT,
-//! PROV-O, ORG and SKOS (EG-TYPED-PACKS-R106.1, EG-DECISION-ENGINE-R814.1.1).
+//! PROV-O, ORG and SKOS (MEDULLA-TYPED-PACKS-R106.1, MEDULLA-DECISION-ENGINE-R814.1.1).
 #![cfg(feature = "owl")]
 
 mod common;
@@ -37,9 +37,9 @@ fn documents() -> Vec<Triple> {
     ])
 }
 
-// spec: EG-TYPED-PACKS-R106.1
-// spec: EG-DECISION-ENGINE-R814.1
-// spec: EG-DECISION-ENGINE-R814.1.1
+// spec: MEDULLA-TYPED-PACKS-R106.1
+// spec: MEDULLA-DECISION-ENGINE-R814.1
+// spec: MEDULLA-DECISION-ENGINE-R814.1.1
 #[test]
 fn catalog_ontology_declares_root_and_cross_domain_imports() {
     let triples = documents();
@@ -64,8 +64,8 @@ fn catalog_ontology_declares_root_and_cross_domain_imports() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R106.1
-// spec: EG-DECISION-ENGINE-R814.1.1
+// spec: MEDULLA-TYPED-PACKS-R106.1
+// spec: MEDULLA-DECISION-ENGINE-R814.1.1
 #[test]
 fn catalog_classes_roll_up_to_eg_core_and_align_to_w3c() {
     let triples = documents();
@@ -173,7 +173,7 @@ fn catalog_classes_roll_up_to_eg_core_and_align_to_w3c() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R106.1
+// spec: MEDULLA-TYPED-PACKS-R106.1
 #[test]
 fn owner_steward_and_lineage_properties_specialise_prov() {
     let triples = documents();
@@ -224,8 +224,8 @@ fn conforms(data: &str) -> bool {
 
 const DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-// spec: EG-TYPED-PACKS-R106.1
-// spec: EG-DECISION-ENGINE-R814.1.1
+// spec: MEDULLA-TYPED-PACKS-R106.1
+// spec: MEDULLA-DECISION-ENGINE-R814.1.1
 #[test]
 fn catalog_shapes_accept_a_complete_catalog() {
     let data = format!(
@@ -245,8 +245,8 @@ fn catalog_shapes_accept_a_complete_catalog() {
     assert!(conforms(&data));
 }
 
-// spec: EG-TYPED-PACKS-R106.1
-// spec: EG-DECISION-ENGINE-R814.1.1
+// spec: MEDULLA-TYPED-PACKS-R106.1
+// spec: MEDULLA-DECISION-ENGINE-R814.1.1
 #[test]
 fn catalog_shapes_refuse_incomplete_or_open_vocabulary_records() {
     // An asset with no connector, or two.

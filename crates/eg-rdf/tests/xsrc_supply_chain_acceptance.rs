@@ -1,5 +1,5 @@
 //! Recorded-response acceptance for the supply-chain impact question
-//! (EG-CQ-XSRC-R007.1): the class-only question runs over recorded
+//! (MEDULLA-CQ-XSRC-R007.1): the class-only question runs over recorded
 //! erpnext-mcp, dockerhub-mcp, gitlab-mcp, container-manager-mcp and
 //! uptime-mcp responses (no network, no live credentials), the sources are
 //! planned from the seeded authority rows, and the assembled report is
@@ -79,7 +79,7 @@ fn local(cell: &str) -> String {
         .to_string()
 }
 
-// spec: EG-CQ-XSRC-R007.1
+// spec: MEDULLA-CQ-XSRC-R007.1
 #[test]
 fn the_recorded_responses_answer_the_impact_question_with_provenance() {
     let view = graph();

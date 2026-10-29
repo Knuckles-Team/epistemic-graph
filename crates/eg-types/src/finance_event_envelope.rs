@@ -1,10 +1,10 @@
-//! Finance alert event envelope (EG-FINANCE-PRIMITIVES-R011.1).
+//! Finance alert event envelope (MEDULLA-FINANCE-PRIMITIVES-R011.1).
 //!
 //! A stable, typed envelope for the finance alerts (price, trend-flip,
 //! DCA-due, margin-threshold) that get published through the finance outbox
 //! topic family (`outbox::OutboxIntent`). This module carries only the typed
 //! model, its validation, and refusal tests; the transactional outbox append
-//! path and the outbox-topic wiring are a later slice of EG-FINANCE-PRIMITIVES-R011.
+//! path and the outbox-topic wiring are a later slice of MEDULLA-FINANCE-PRIMITIVES-R011.
 //!
 //! `event_id` is immutable once assigned: for `TrendFlip` alerts it is the
 //! existing flip event id (see `eg-compute::finance::market::TrendFlip` and
@@ -99,7 +99,7 @@ mod tests {
         assert!(valid().validate().is_ok());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R011.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R011.1
     #[test]
     fn an_empty_event_id_is_refused() {
         let mut envelope = valid();

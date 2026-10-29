@@ -1,4 +1,4 @@
-# kafka store-mapping fixture (EG-DATAPLAT-VOCAB-R006.5).
+# kafka store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.5).
 #
 # One attached Kafka cluster. Topics, partitions and the point-in-time lag
 # of the groups are served by named MCP operations, virtual. "Sustained"
@@ -101,4 +101,4 @@ ex:mapping_sustained_lag a dp:StoreMapping ;
     dp:contractKind "mcp-operation" ;
     dp:viaOperation "kafka_groups:lag_summary" ;
     dp:accelerationMode "materialised" ;
-    dp:materialisationReason "Sustained lag is a time series, not a point-in-time value a lags call can return; the lag history is materialised via the R038 AccelerationPolicy (metadata only, no records) (EG-DATAPLAT-VOCAB-R006.5)." .
+    dp:materialisationReason "Sustained lag is a time series, not a point-in-time value a lags call can return; the lag history is materialised via the R038 AccelerationPolicy (metadata only, no records) (MEDULLA-DATAPLAT-VOCAB-R006.5)." .

@@ -1,4 +1,4 @@
-# Supply-chain runtime-chain ABox fixture (EG-SUPPLY-VOCAB-R002.5).
+# Supply-chain runtime-chain ABox fixture (MEDULLA-SUPPLY-VOCAB-R002.5).
 #
 # One service deployed as one workload, from one image, containing one
 # component version published by one supplier. Under the

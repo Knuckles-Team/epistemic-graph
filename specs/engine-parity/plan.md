@@ -1,4 +1,4 @@
-# EG-ENGINE-PARITY plan
+# MEDULLA-ENGINE-PARITY plan
 
 Governing spec: [spec.md](spec.md).
 Code: ../../src/server/pgwire/mod.rs ../../src/server/pgwire/auth.rs ../../src/server/sql_wire_auth.rs
@@ -9,7 +9,7 @@ The engine stays one library. That choice keeps five properties that a second en
 
 - **One library.** One process, one commit path, one backup. No network hop inside a commit.
 - **Deterministic replay.** Every state derives from the committed log. Decisions replay byte for byte.
-- **Sealed records.** Create-only classes (EG-DURABLE-KERNEL-R057) hold in one store with one guard.
+- **Sealed records.** Create-only classes (MEDULLA-DURABLE-KERNEL-R057) hold in one store with one guard.
 - **Epistemic and ontology primitives.** Trust, provenance, bitemporal reads and OWL reasoning sit in the same transaction as the data.
 - **Embedded targets.** The same library runs on a small board and in the cluster.
 
@@ -54,16 +54,16 @@ attached sources. No arrow writes engine data to an outside database.
 | Group commit | R001 | One write transaction and one fsync per batch of up to `max_batch` requests |
 | Optimistic concurrency | R002 | Snapshot reads; read and write sets validated at commit; typed conflict |
 | Partitioned store files | R003 | One committer per tenant or declared partition; partitions commit in parallel |
-| Disjoint acceptance | R004 | Non-overlapping footprints never wait; shared with EG-SCM-R003 |
+| Disjoint acceptance | R004 | Non-overlapping footprints never wait; shared with MEDULLA-SCM-R003 |
 
-A batch over two partitions uses the cross-store path of EG-DURABLE-KERNEL-R034 or refuses.
+A batch over two partitions uses the cross-store path of MEDULLA-DURABLE-KERNEL-R034 or refuses.
 
 ## PostgreSQL wire front end
 
 The listener already exists in `src/server/pgwire`. It has TLS startup policy, `CopyState`
 and an extended-query path. This spec completes the message flows (R006). It maps logins to
 engine principals and row security (R007). It emulates the catalog views that tools read at
-connect (R008). It publishes the dialect matrix (R009). EG-DURABLE-KERNEL-R035 keeps the
+connect (R008). It publishes the dialect matrix (R009). MEDULLA-DURABLE-KERNEL-R035 keeps the
 operational surfaces.
 
 ## Relational features
@@ -101,7 +101,7 @@ Plan-level map only. The spec rows name capabilities, not extensions.
 | Commit queue full | Bounded channel full | Refuse with `COMMIT_QUEUE_FULL`; the client retries |
 | Write conflict | Footprint validation | Refuse with `TXN_CONFLICT{keys}`; nothing written |
 | fsync failure | Store error on commit | Refuse the whole batch; the store re-opens read-only until an operator checks the disk |
-| Partition file corruption | Scrub of EG-DURABLE-KERNEL-R020 | Isolate the partition; restore it by R016; other partitions keep serving |
+| Partition file corruption | Scrub of MEDULLA-DURABLE-KERNEL-R020 | Isolate the partition; restore it by R016; other partitions keep serving |
 | Change subscriber too slow | Cursor below the retained log | Refuse with `CHANGE_CURSOR_EXPIRED`; the subscriber re-snapshots |
 | Replica behind | `applied_seq` below the token | Wait up to 2,000 ms, then refuse with `REPLICA_BEHIND` |
 | Unsupported SQL form | Matrix lookup | Refuse with SQLSTATE `0A000` and the matrix entry |
@@ -127,13 +127,13 @@ These budgets are starting defaults. A measured run of R005 and R020 replaces ea
 
 | Rollups | Named consumer |
 |---|---|
-| R001 to R005 | Concurrent agent writes through arbora; EG-SCM changeset acceptance |
-| R006 to R009 | Outside BI and SQL tools for the catalog and governance rows; the native-hosting pilot of EG-UNIFIED-DATA-PLANE-R026 |
-| R010 to R014 | Native-hosted application tables of EG-UNIFIED-DATA-PLANE-R024 |
-| R015 to R017 | Change subscribers of EG-UNIFIED-DATA-PLANE-R009; operator recovery; read scale |
-| R018 | Catalog profiling and quality jobs of EG-UNIFIED-DATA-PLANE-R761 and R762 |
+| R001 to R005 | Concurrent agent writes through arbora; MEDULLA-SCM changeset acceptance |
+| R006 to R009 | Outside BI and SQL tools for the catalog and governance rows; the native-hosting pilot of MEDULLA-UNIFIED-DATA-PLANE-R026 |
+| R010 to R014 | Native-hosted application tables of MEDULLA-UNIFIED-DATA-PLANE-R024 |
+| R015 to R017 | Change subscribers of MEDULLA-UNIFIED-DATA-PLANE-R009; operator recovery; read scale |
+| R018 | Catalog profiling and quality jobs of MEDULLA-UNIFIED-DATA-PLANE-R761 and R762 |
 | R019 | Every attached-source adapter |
-| R020 | The benchmark gate of EG-DURABLE-KERNEL-R042 |
+| R020 | The benchmark gate of MEDULLA-DURABLE-KERNEL-R042 |
 
 ## Build sequence
 

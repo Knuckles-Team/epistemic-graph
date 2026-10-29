@@ -18,17 +18,17 @@ use super::LegacyIntegrityPolicy;
 /// as its life, environment and nutrition modules), the core governance-shape
 /// slice, the world-model shapes (35 artifacts, EH-364) and the swarm-topology
 /// vocabulary and shapes (37, ST-1), the finance module and its shapes (39,
-/// EH-411), the temporal bi-temporal-fact shapes (40, AU-SEMANTIC-R004), and
-/// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037), and
-/// the service-operations module (43, EG-TYPED-PACKS-R105.4), and the
-/// metadata-catalog vocabulary and shapes (46, EG-TYPED-PACKS-R106.1), and the
+/// EH-411), the temporal bi-temporal-fact shapes (40, MERISTEM-SEMANTIC-R004), and
+/// the virtual-graph vocabulary and shapes (42, MEDULLA-UNIFIED-DATA-PLANE-R037), and
+/// the service-operations module (43, MEDULLA-TYPED-PACKS-R105.4), and the
+/// metadata-catalog vocabulary and shapes (46, MEDULLA-TYPED-PACKS-R106.1), and the
 /// data-platform vocabulary plus the data-platform, IT4IT-delivery, media and
-/// retrieval domain modules (51, EG-DATAPLAT-VOCAB-R001.1 and
-/// EG-TYPED-PACKS-R105.6 to R105.9), the commercial module with its shapes
-/// companion (52, EG-SUPPLY-VOCAB-R003.13), the supply-chain vocabulary
-/// (53, EG-SUPPLY-VOCAB-R001.1.2), and the connector-pack vocabulary with its
-/// shapes companion (54, EG-TYPED-PACKS-R101.1 to R102.1), and the government
-/// and foundation shapes companions (55, 56, EG-CQ-CONN-R073.1, R074.1).
+/// retrieval domain modules (51, MEDULLA-DATAPLAT-VOCAB-R001.1 and
+/// MEDULLA-TYPED-PACKS-R105.6 to R105.9), the commercial module with its shapes
+/// companion (52, MEDULLA-SUPPLY-VOCAB-R003.13), the supply-chain vocabulary
+/// (53, MEDULLA-SUPPLY-VOCAB-R001.1.2), and the connector-pack vocabulary with its
+/// shapes companion (54, MEDULLA-TYPED-PACKS-R101.1 to R102.1), and the government
+/// and foundation shapes companions (55, 56, MEDULLA-CQ-CONN-R073.1, R074.1).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -390,7 +390,7 @@ fn validate_dynamic_sources(dynamic: &BTreeMap<String, GraphSchemaSource>) -> Re
     Ok(())
 }
 
-/// EG-SRC-AUTH-R003.2: the virtual-graph `approved` flag is an operator
+/// MEDULLA-SRC-AUTH-R003.2: the virtual-graph `approved` flag is an operator
 /// assertion. A `Pack` or `Ingestion` origin attaching a document that carries
 /// a truthy `vg:approved` triple is refused at the attach seam with the typed
 /// code `APPROVAL_CLAIM_REFUSED`; the same document under an `Operator`,
@@ -1003,7 +1003,7 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/worldview-v1.ttl")),
         },
-        // AU-SEMANTIC-R004: bi-temporal fact invariants (validity window,
+        // MERISTEM-SEMANTIC-R004: bi-temporal fact invariants (validity window,
         // contradiction/superseded-closure) over the engine's own
         // :TemporalFact vocabulary (core-foundation@1). Shapes-only, same
         // pattern as governance-shapes/world-model-shapes.
@@ -1014,7 +1014,7 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: None,
         },
         // The metadata catalog: assets, owners and stewards, lineage, glossary and
-        // the Agent Library (EG-TYPED-PACKS-R106.1, EG-DECISION-ENGINE-R814.1.1).
+        // the Agent Library (MEDULLA-TYPED-PACKS-R106.1, MEDULLA-DECISION-ENGINE-R814.1.1).
         CoreSpec {
             module: "metadata_catalog",
             version: 1,
@@ -1035,12 +1035,12 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/virtual_graph-v1.ttl")),
         },
-        // EG-DATAPLAT-VOCAB-R001.4: shared data-platform terms are one immutable
+        // MEDULLA-DATAPLAT-VOCAB-R001.4: shared data-platform terms are one immutable
         // core source and import the virtual-graph attachment vocabulary.
-        // The SHACL shapes companion (EG-DATAPLAT-VOCAB-R002.4+, including the
-        // closed secret-metadata shapes of EG-DATAPLAT-VOCAB-R005.2) is wired
+        // The SHACL shapes companion (MEDULLA-DATAPLAT-VOCAB-R002.4+, including the
+        // closed secret-metadata shapes of MEDULLA-DATAPLAT-VOCAB-R005.2) is wired
         // into the SAME source's shapes field, as the commercial module does
-        // (EG-SUPPLY-VOCAB-R003.14) — one registered artifact per module.
+        // (MEDULLA-SUPPLY-VOCAB-R003.14) — one registered artifact per module.
         CoreSpec {
             module: "data-platform",
             version: 1,
@@ -1053,7 +1053,7 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: Some(include_str!("../../ontology/virtual_graph-v1.shapes.ttl")),
             ontology: None,
         },
-        // EG-SUPPLY-VOCAB-R003.13: the commercial module, registered once, with
+        // MEDULLA-SUPPLY-VOCAB-R003.13: the commercial module, registered once, with
         // its shapes companion wired into the same CoreSpec shapes field
         // (R003.14) instead of a separate core source.
         CoreSpec {
@@ -1068,10 +1068,10 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/supply_chain-v1.ttl")),
         },
-        // EG-TYPED-PACKS-R101.1/R102.1: the connector-pack ingest-contract and
+        // MEDULLA-TYPED-PACKS-R101.1/R102.1: the connector-pack ingest-contract and
         // surface vocabulary, registered once, with its shapes companion wired
         // into the same CoreSpec shapes field (the commercial pattern,
-        // EG-SUPPLY-VOCAB-R003.13/R003.14).
+        // MEDULLA-SUPPLY-VOCAB-R003.13/R003.14).
         CoreSpec {
             module: "connector-pack",
             version: 1,
@@ -1633,7 +1633,7 @@ mod tests {
                 "virtual-graph-shapes",
                 "96af31e002d61552f35d86e352505ffa6513da805b3186f4190804893b0b306c",
             ),
-            // EG-SUPPLY-VOCAB-R003.13: the commercial module (ontology plus its
+            // MEDULLA-SUPPLY-VOCAB-R003.13: the commercial module (ontology plus its
             // shapes companion) joins the catalog; the pin follows the ontology.
             (
                 "commercial",
@@ -1643,7 +1643,7 @@ mod tests {
                 "supply_chain",
                 "2cf4119c4348b57abbb792d7a32bf9173469e1ca9bf50d1b6e84fa163d1dcfdc",
             ),
-            // EG-TYPED-PACKS-R101.1/R102.1: the connector-pack module (ontology
+            // MEDULLA-TYPED-PACKS-R101.1/R102.1: the connector-pack module (ontology
             // plus its surface shapes companion) joins the catalog; the pin
             // follows the ontology.
         ];
@@ -1676,7 +1676,7 @@ mod tests {
         }
     }
 
-    // spec: EG-SRC-AUTH-R003.2
+    // spec: MEDULLA-SRC-AUTH-R003.2
     #[test]
     fn pack_or_ingestion_attach_refuses_virtual_graph_approval_claims() {
         let approved_mapping = concat!(

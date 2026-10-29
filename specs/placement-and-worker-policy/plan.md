@@ -1,4 +1,4 @@
-# EG-PLACEMENT - Design and implementation plan
+# MEDULLA-PLACEMENT - Design and implementation plan
 
 Governing spec: [spec.md](spec.md). Rows: [requirements.md](requirements.md).
 
@@ -6,9 +6,9 @@ All three gaps keep ONE decision authority: the engine decides, callers (Arbora,
 
 ## Problem and evidence
 
-- A. Arbora `ARBORA-DEPLOY-R017` (branch `land/train-1010h`, `specs/portable-deployment/requirements.md:27`) requires "a deployment-placement question kind under `EG-DECISION-ENGINE-R046`/`R111`" and says assemble is "a refusal stub". In code: `QuestionKind` (`crates/eg-types/src/decision/statistical.rs:56-95`) has no placement or topology kind. `R111.1` (`specs/decision-engine/requirements.md:163`) says the standalone topology question is not built and its proving test name `a_standalone_topology_decide_question_returns_a_typed_decision_record` appears nowhere in `src`. Topology is reachable only through `AgentAssemble` (`src/server/handlers/decide/assemble.rs:57`, `topology_read.rs:44`).
-- B. `specs/ingest-worker` (R001.2, .3, .10, .11, .15) asks the worker/Graft SDK to autosize (0.36 of cores, 3 GiB), hold a hydration floor and route partitions. `EG-DURABLE-KERNEL-R074`-`R077` (`specs/durable-graph-kernel/requirements.md:109-112`) give the engine the registry, admission, floors and shard-writer width. No code for either exists yet (`git grep AdmitWorkerTask|SchedulerConfig|WorkerRecord` finds nothing in `src`/`crates`). The overlap is still only in specs and is cheap to remove now. The only live autosize knob is `EG_ANALYTICS_WORKERS` (`src/server/handlers/jobs/executor_loop.rs:22-25`, default 1, cap 32).
-- C. `EG-DURABLE-KERNEL-R082.3` says the cap's existence "was not determinable". It is: `src/server/handlers/jobs/submit.rs:289` refuses `distinct_items > 31` (inside the same merged check as the threshold tests, one message at `:293`).
+- A. Arbora `ARBORA-DEPLOY-R017` (branch `land/train-1010h`, `specs/portable-deployment/requirements.md:27`) requires "a deployment-placement question kind under `MEDULLA-DECISION-ENGINE-R046`/`R111`" and says assemble is "a refusal stub". In code: `QuestionKind` (`crates/eg-types/src/decision/statistical.rs:56-95`) has no placement or topology kind. `R111.1` (`specs/decision-engine/requirements.md:163`) says the standalone topology question is not built and its proving test name `a_standalone_topology_decide_question_returns_a_typed_decision_record` appears nowhere in `src`. Topology is reachable only through `AgentAssemble` (`src/server/handlers/decide/assemble.rs:57`, `topology_read.rs:44`).
+- B. `specs/ingest-worker` (R001.2, .3, .10, .11, .15) asks the worker/Graft SDK to autosize (0.36 of cores, 3 GiB), hold a hydration floor and route partitions. `MEDULLA-DURABLE-KERNEL-R074`-`R077` (`specs/durable-graph-kernel/requirements.md:109-112`) give the engine the registry, admission, floors and shard-writer width. No code for either exists yet (`git grep AdmitWorkerTask|SchedulerConfig|WorkerRecord` finds nothing in `src`/`crates`). The overlap is still only in specs and is cheap to remove now. The only live autosize knob is `EG_ANALYTICS_WORKERS` (`src/server/handlers/jobs/executor_loop.rs:22-25`, default 1, cap 32).
+- C. `MEDULLA-DURABLE-KERNEL-R082.3` says the cap's existence "was not determinable". It is: `src/server/handlers/jobs/submit.rs:289` refuses `distinct_items > 31` (inside the same merged check as the threshold tests, one message at `:293`).
 
 ## Architecture
 
@@ -100,7 +100,7 @@ Cross-repository: `ARBORA-` rows that submit jobs only pass the job class.
 <!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
 ## Owner implementation plan — 2026-10-12
 
-### `EG-PLACEMENT-R001.15` — EG:9
+### `MEDULLA-PLACEMENT-R001.15` — EG:9
 
 - Define pure `evaluate_capacity_adjustment(proposal, capacity_premise) -> CapacityAdjustmentVerdictV1`.
 - Return a verdict for a typed capacity proposal. Bind it to tenant, resource class, and unit.
@@ -111,7 +111,7 @@ Cross-repository: `ARBORA-` rows that submit jobs only pass the job class.
 - Refuse increases above observed headroom. Return the applicable `CapacityRefusalCode` without host or graph mutation.
 - Arbora owns mode, AIMD proposal generation, limits, and actuation.
 - Arbora exposes an applied receipt for independent readback. The receipt binds proposal digest, requested/applied amount, resource/host, policy revision, and resulting state revision.
-- Preserve `ARBORA-CAPACITY-R001.1`, `EG-DECISION-ENGINE-R112`, `ARBORA-CAPACITY-R001/R002`, and `EG-PLACEMENT-R001.6`. Source hash: `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`.
+- Preserve `ARBORA-CAPACITY-R001.1`, `MEDULLA-DECISION-ENGINE-R112`, `ARBORA-CAPACITY-R001/R002`, and `MEDULLA-PLACEMENT-R001.6`. Source hash: `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`.
 - **Hold:** Reviewed evidence names no Medulla decision method or QuestionKind for this proposal. It names no Arbora apply/readback operation or receipt schema.
 - Resolve those exact owner API and receipt bindings before this candidate represents a wired closed loop.
 <!-- /spec-definition-patch -->

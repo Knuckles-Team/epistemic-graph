@@ -64,7 +64,7 @@ fn registered_modules() -> (Vec<Triple>, Vec<Triple>) {
 mod ontology_audit_software {
     use super::*;
 
-    // spec: EG-CQ-CONN-R069.2
+    // spec: MEDULLA-CQ-CONN-R069.2
     #[test]
     fn Repository_declared() {
         let (software, sdlc) = registered_modules();
@@ -83,7 +83,7 @@ mod ontology_audit_software {
         );
     }
 
-    // spec: EG-CQ-CONN-R069.3
+    // spec: MEDULLA-CQ-CONN-R069.3
     #[test]
     fn Branch_declared() {
         let (software, sdlc) = registered_modules();

@@ -1,4 +1,4 @@
-//! Code enrichment for indexed repositories (EG-REPO-INGEST-R600..R603).
+//! Code enrichment for indexed repositories (MEDULLA-REPO-INGEST-R600..R603).
 //!
 //! Pure, typed transformations over the parser's structural facts:
 //!
@@ -110,7 +110,7 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
-    // spec: EG-REPO-INGEST-R600.1
+    // spec: MEDULLA-REPO-INGEST-R600.1
     #[test]
     fn identifiers_are_validated_at_construction_and_on_the_wire() {
         assert!(Id::new("src/lib.rs::main").is_ok());

@@ -1,5 +1,5 @@
 //! Standards, capability cohorts, drift scores and consolidation proposals
-//! (EG-UNIFIED-DATA-PLANE-R701). Drift is the weighted fraction of a
+//! (MEDULLA-UNIFIED-DATA-PLANE-R701). Drift is the weighted fraction of a
 //! standard's rules an asset satisfies. An asset with no applicable
 //! standard is `not_applicable`, never zero. A consolidation recommendation
 //! is only a proposal and never spans tenants.
@@ -226,7 +226,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R701.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R701.1
     #[test]
     fn standards_model_round_trips() {
         let original = standard();
@@ -241,7 +241,7 @@ mod tests {
         assert!(serde_json::from_str::<DriftValue>(r#"{"state":"zero"}"#).is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R701.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R701.2
     #[test]
     fn cohorts_drift_and_recommendation_scale() {
         for n in [10usize, 1_000, 100_000] {
@@ -270,7 +270,7 @@ mod tests {
         assert!(same.proposal_only);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R701.4
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R701.4
     #[test]
     fn cross_tenant_refused_and_missing_standard_is_not_zero() {
         let a = asset("a", "t1", "database", &["tls"], 1);
@@ -282,7 +282,7 @@ mod tests {
         assert_eq!(none.standard, None);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R701.5
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R701.5
     #[test]
     fn score_lists_satisfied_and_failed_rules() {
         let stored = serde_json::to_string(&drift_score(

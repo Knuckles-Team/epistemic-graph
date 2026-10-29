@@ -208,7 +208,7 @@ mod bound_driver_tests {
         }
     }
 
-    /// EG-FEDERATED-QUERY-R722.3 — optimized resolution prefers the bound callback while
+    /// MEDULLA-FEDERATED-QUERY-R722.3 — optimized resolution prefers the bound callback while
     /// retaining the spec-derived identity rather than the generic registered identity.
     #[test]
     fn bound_driver_precedes_spec_and_preserves_identity() {
@@ -234,7 +234,7 @@ mod bound_driver_tests {
         );
     }
 
-    /// EG-FEDERATED-QUERY-R722.4 — optimizer resolution keeps unbound operation specs on the
+    /// MEDULLA-FEDERATED-QUERY-R722.4 — optimizer resolution keeps unbound operation specs on the
     /// typed refusing source instead of manufacturing a network callback.
     #[test]
     fn unbound_operation_spec_stays_fail_closed_in_optimized_path() {

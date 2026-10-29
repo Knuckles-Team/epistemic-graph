@@ -39,7 +39,7 @@ pub(crate) async fn handle_txn_uql(
 }
 
 /// The `NlQuery` refusal for invalid planner request config: the registered
-/// `ENGINE_UNAVAILABLE` code plus a detail naming the bad key (EG-FEDERATED-QUERY-R058.5).
+/// `ENGINE_UNAVAILABLE` code plus a detail naming the bad key (MEDULLA-FEDERATED-QUERY-R058.5).
 #[cfg(feature = "nl-query")]
 pub(crate) fn nl_config_refusal(e: &eg_plan::NlConfigError) -> String {
     format!("ENGINE_UNAVAILABLE: NlQuery: invalid NL planner config: {e}")
@@ -49,7 +49,7 @@ pub(crate) fn nl_config_refusal(e: &eg_plan::NlConfigError) -> String {
 /// The NL → executable-UQL-plan resolution of [`handle_nl_query`]: resolve the
 /// configured/injected `NlPlanner`, ground it on the caller's snapshot (labels,
 /// stored property keys, relationships and the composed GraphSchema's ontology
-/// names, EG-FEDERATED-QUERY-R058.4.7.1/.4.8), and run the bounded correction loop:
+/// names, MEDULLA-FEDERATED-QUERY-R058.4.7.1/.4.8), and run the bounded correction loop:
 /// every candidate is budget-checked, parsed with the caller grammar and
 /// validated against that schema before anything executes. NO LLM in the engine
 /// core and NO new execution path — the grounded plan rides the deterministic
@@ -74,7 +74,7 @@ pub(crate) fn handle_nl_query_plan(
             )
         })?;
     let context = nl_schema_context(view, foreign_sources);
-    // EG-FEDERATED-QUERY-R058.2.1: the SAME typed budget refuses an over-budget
+    // MEDULLA-FEDERATED-QUERY-R058.2.1: the SAME typed budget refuses an over-budget
     // answer before it reaches the parser, inside every correction step.
     let candidate = eg_plan::nl::context::plan_grounded(
         planner.as_ref(),
@@ -167,7 +167,7 @@ pub(crate) async fn handle_nl_query(
     })
 }
 
-/// `Method::NlQueryExplain` (EG-FEDERATED-QUERY-R058.2.2.1): exactly [`handle_nl_query`]
+/// `Method::NlQueryExplain` (MEDULLA-FEDERATED-QUERY-R058.2.2.1): exactly [`handle_nl_query`]
 /// — the same planner, budget, parse, authority, legs, snapshot and refusals — answered
 /// as `{uql, rows}` so the caller sees the exact UQL the engine executed.
 #[cfg(feature = "nl-query")]
@@ -186,7 +186,7 @@ pub(crate) async fn handle_nl_query_explain(
     })
 }
 
-/// `Method::NlQueryPlan` (EG-FEDERATED-QUERY-R058.2.2.2): expose the typed
+/// `Method::NlQueryPlan` (MEDULLA-FEDERATED-QUERY-R058.2.2.2): expose the typed
 /// `eg_plan::nl::plan_only` candidate and pins without taking a graph view,
 /// resolving served legs, or executing a query/source read. Schema and source
 /// authority are deliberately deferred to the later exact-UQL/foreign-read
@@ -329,13 +329,13 @@ mod tests {
         Ok(())
     }
 
-    // spec: EG-FEDERATED-QUERY-R058.3.1
+    // spec: MEDULLA-FEDERATED-QUERY-R058.3.1
     #[test]
     fn nl_query_handler_never_touches_result_cache() {
         assert_eq!(check_nl_cache_isolation(include_str!("nl.rs")), Ok(()));
     }
 
-    // spec: EG-FEDERATED-QUERY-R058.3.1
+    // spec: MEDULLA-FEDERATED-QUERY-R058.3.1
     #[test]
     fn nl_cache_guard_rejects_injected_cache_references() {
         let src = include_str!("nl.rs");
@@ -358,7 +358,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R058.3.1
+    // spec: MEDULLA-FEDERATED-QUERY-R058.3.1
     #[test]
     fn nl_cache_guard_fails_closed_on_missing_boundaries_or_response() {
         let src = include_str!("nl.rs");
@@ -377,7 +377,7 @@ mod tests {
 
 #[cfg(all(test, feature = "nl-query"))]
 mod nl_config_refusal_tests {
-    // spec: EG-FEDERATED-QUERY-R058.5
+    // spec: MEDULLA-FEDERATED-QUERY-R058.5
     #[test]
     fn invalid_planner_config_is_refused_with_code_and_key() {
         let msg = super::nl_config_refusal(&eg_plan::NlConfigError::ReadTimeoutOutOfRange(0));
@@ -404,7 +404,7 @@ mod nl_plan_only_tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R058.1
+    // spec: MEDULLA-FEDERATED-QUERY-R058.1
     #[test]
     fn served_plan_helper_uses_the_view_free_typed_seam() {
         let (uql, plan) = super::plan_nl_only(&PurePlanner, "MATCH (:Doc)", 1).expect("plan");

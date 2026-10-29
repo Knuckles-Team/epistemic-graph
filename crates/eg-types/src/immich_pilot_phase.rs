@@ -1,5 +1,5 @@
 //! Typed model for the Immich connector pilot's phase gate
-//! (EG-UNIFIED-DATA-PLANE-R032): phases I0 through I6, each gated on its own
+//! (MEDULLA-UNIFIED-DATA-PLANE-R032): phases I0 through I6, each gated on its own
 //! exit artifact kind, reviewed before the next phase begins. This is the
 //! typed-model slice (`.1`): the closed phase/artifact-kind vocabulary and
 //! the refusal to advance without the phase's required, reviewed exit
@@ -155,7 +155,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R032.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn well_formed_exit_validates() {
         assert_eq!(
@@ -164,7 +164,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R032.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn wrong_artifact_kind_is_refused() {
         let mut artifact = exit(ImmichPilotPhase::I0ClientGeneration);
@@ -175,7 +175,7 @@ mod tests {
         ));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R032.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn unreviewed_exit_is_refused() {
         let mut artifact = exit(ImmichPilotPhase::I0ClientGeneration);
@@ -183,7 +183,7 @@ mod tests {
         assert_eq!(artifact.validate(), Err(InvalidPhaseExit::NotReviewed));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R032.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn fresh_pilot_admits_only_i0() {
         let progress = ImmichPilotProgress::default();
@@ -195,7 +195,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R032.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn skipping_ahead_without_prior_exit_is_refused() {
         let progress = ImmichPilotProgress {
@@ -205,7 +205,7 @@ mod tests {
         assert!(progress.admits(ImmichPilotPhase::I1ReadFirstTools));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R032.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn invalid_exit_does_not_advance_progress() {
         let mut bad_exit = exit(ImmichPilotPhase::I0ClientGeneration);
@@ -219,7 +219,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R032.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn full_order_completes_pilot() {
         let progress = ImmichPilotProgress {

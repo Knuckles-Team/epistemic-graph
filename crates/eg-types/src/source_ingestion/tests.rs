@@ -381,11 +381,11 @@ fn provider_checkpoint_position_accepts_scalar_json() {
     assert!(SourceIngestionRequest::new(null_position).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.1.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.1.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.1; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.1; not migration acceptance.
 #[test]
 fn r003_1_standardization_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::StandardizationProcessing;
@@ -418,11 +418,11 @@ fn r003_1_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(standardization.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.2.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.2.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.2; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.2; not migration acceptance.
 #[test]
 fn r003_2_infrastructure_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::InfrastructureProcessing;
@@ -455,11 +455,11 @@ fn r003_2_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(infrastructure.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.3.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.3.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.3; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.3; not migration acceptance.
 #[test]
 fn r003_3_quantum_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::QuantumProcessing;
@@ -492,11 +492,11 @@ fn r003_3_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(quantum.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.4.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.4.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.4; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.4; not migration acceptance.
 #[test]
 fn r003_4_security_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::SecurityProcessing;
@@ -529,11 +529,11 @@ fn r003_4_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(security.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.5.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.5.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.5; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.5; not migration acceptance.
 #[test]
 fn r003_5_enterprise_protocol_handling_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::EnterpriseProtocolHandling;
@@ -566,11 +566,11 @@ fn r003_5_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(enterprise.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.6.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.6.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.6; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.6; not migration acceptance.
 #[test]
 fn r003_6_ecosystem_concept_extraction_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::EcosystemConceptExtraction;
@@ -603,11 +603,11 @@ fn r003_6_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(ecosystem.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.7.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.7.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.7; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.7; not migration acceptance.
 #[test]
 fn r003_7_trace_ontology_observability_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
@@ -617,14 +617,14 @@ fn r003_7_trace_ontology_observability_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.7; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.7; not migration acceptance.
 #[test]
 fn r003_7_a_fresh_claim_on_trace_ontology_observability_succeeds() {
     let root = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
     assert!(root.claim(&[]).is_ok());
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.7; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.7; not migration acceptance.
 #[test]
 fn r003_7_a_duplicate_claim_on_trace_ontology_observability_is_refused() {
     let root = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
@@ -635,7 +635,7 @@ fn r003_7_a_duplicate_claim_on_trace_ontology_observability_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.7; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.7; not migration acceptance.
 #[test]
 fn r003_7_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let trace_ontology = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
@@ -643,11 +643,11 @@ fn r003_7_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(trace_ontology.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.8.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.8.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.8; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.8; not migration acceptance.
 #[test]
 fn r003_8_self_ingestion_observability_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
@@ -657,14 +657,14 @@ fn r003_8_self_ingestion_observability_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.8; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.8; not migration acceptance.
 #[test]
 fn r003_8_a_fresh_claim_on_self_ingestion_observability_succeeds() {
     let root = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
     assert!(root.claim(&[]).is_ok());
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.8; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.8; not migration acceptance.
 #[test]
 fn r003_8_a_duplicate_claim_on_self_ingestion_observability_is_refused() {
     let root = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
@@ -675,7 +675,7 @@ fn r003_8_a_duplicate_claim_on_self_ingestion_observability_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.8; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.8; not migration acceptance.
 #[test]
 fn r003_8_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let self_ingestion = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
@@ -683,11 +683,11 @@ fn r003_8_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(self_ingestion.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.9.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.9.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.9; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.9; not migration acceptance.
 #[test]
 fn r003_9_audit_logging_observability_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
@@ -697,14 +697,14 @@ fn r003_9_audit_logging_observability_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.9; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.9; not migration acceptance.
 #[test]
 fn r003_9_a_fresh_claim_on_audit_logging_observability_succeeds() {
     let root = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
     assert!(root.claim(&[]).is_ok());
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.9; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.9; not migration acceptance.
 #[test]
 fn r003_9_a_duplicate_claim_on_audit_logging_observability_is_refused() {
     let root = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
@@ -715,7 +715,7 @@ fn r003_9_a_duplicate_claim_on_audit_logging_observability_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.9; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.9; not migration acceptance.
 #[test]
 fn r003_9_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let audit_logging = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
@@ -723,11 +723,11 @@ fn r003_9_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(audit_logging.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.10.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.10.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.10; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.10; not migration acceptance.
 #[test]
 fn r003_10_relational_authority_governance_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
@@ -737,14 +737,14 @@ fn r003_10_relational_authority_governance_round_trips_through_the_typed_root() 
     assert_eq!(back, root);
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.10; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.10; not migration acceptance.
 #[test]
 fn r003_10_a_fresh_claim_on_relational_authority_governance_succeeds() {
     let root = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
     assert!(root.claim(&[]).is_ok());
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.10; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.10; not migration acceptance.
 #[test]
 fn r003_10_a_duplicate_claim_on_relational_authority_governance_is_refused() {
     let root = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
@@ -755,7 +755,7 @@ fn r003_10_a_duplicate_claim_on_relational_authority_governance_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.10; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.10; not migration acceptance.
 #[test]
 fn r003_10_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let relational_authority = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
@@ -763,11 +763,11 @@ fn r003_10_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     assert!(relational_authority.claim(&already_claimed).is_ok());
 }
 
-// Supplementary typed-root coverage for EG-REPO-INGEST-R003.11.
+// Supplementary typed-root coverage for MEDULLA-REPO-INGEST-R003.11.
 // These tests check serialization and local claim bookkeeping only.
 // They do not execute migrated behavior or inspect legacy writer retirement.
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.11; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.11; not migration acceptance.
 #[test]
 fn r003_11_placement_mining_research_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
@@ -777,14 +777,14 @@ fn r003_11_placement_mining_research_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.11; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.11; not migration acceptance.
 #[test]
 fn r003_11_a_fresh_claim_on_placement_mining_research_succeeds() {
     let root = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
     assert!(root.claim(&[]).is_ok());
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.11; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.11; not migration acceptance.
 #[test]
 fn r003_11_a_duplicate_claim_on_placement_mining_research_is_refused() {
     let root = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
@@ -795,7 +795,7 @@ fn r003_11_a_duplicate_claim_on_placement_mining_research_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
-// Supplementary unit evidence for EG-REPO-INGEST-R003.11; not migration acceptance.
+// Supplementary unit evidence for MEDULLA-REPO-INGEST-R003.11; not migration acceptance.
 #[test]
 fn r003_11_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let placement_mining = MigratedIngestionCapabilityRoot::PlacementMiningResearch;

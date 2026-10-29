@@ -1,4 +1,4 @@
-"""EG-ORCH-VOCAB-R801.6 served receipt: two versions, supersession, bitemporal read.
+"""MEDULLA-ORCH-VOCAB-R801.6 served receipt: two versions, supersession, bitemporal read.
 
 The entry point is the generated client write through
 ``ApplyChangeEnvelopes`` (``changes.apply_batch`` compiles to it): one
@@ -60,7 +60,7 @@ def version_props(
     return props
 
 
-# spec: EG-ORCH-VOCAB-R801.6
+# spec: MEDULLA-ORCH-VOCAB-R801.6
 def test_two_versions_and_bitemporal_read(clean_graph):
     graph = _graph_name(clean_graph)
     v1_id = version_node_id("blob:v1")

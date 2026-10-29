@@ -2,7 +2,7 @@
 //!
 //! This module contains only the immutable scope model. The plan rewriter,
 //! served-handler wiring, refusal, trace evidence, and served proof belong to
-//! the later `EG-FEDERATED-QUERY-R078.2` through `.6` requirements.
+//! the later `MEDULLA-FEDERATED-QUERY-R078.2` through `.6` requirements.
 
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -104,7 +104,7 @@ mod tests {
     use super::{PlanScope, ScopePredicate};
 
     #[test]
-    // spec: EG-FEDERATED-QUERY-R078.1
+    // spec: MEDULLA-FEDERATED-QUERY-R078.1
     fn plan_scope_round_trips_and_rejects_empty_tenant() {
         let scope = PlanScope::new("tenant-a", vec!["public".into(), "restricted".into()], true)
             .expect("valid tenant");

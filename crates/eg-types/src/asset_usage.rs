@@ -1,4 +1,4 @@
-//! Asset usage and catalog search hits (EG-UNIFIED-DATA-PLANE-R764). Usage
+//! Asset usage and catalog search hits (MEDULLA-UNIFIED-DATA-PLANE-R764). Usage
 //! counts come from the query audit. Search fuses text and vector scores
 //! with a usage prior that never exceeds `USAGE_PRIOR_CAP` of the score.
 

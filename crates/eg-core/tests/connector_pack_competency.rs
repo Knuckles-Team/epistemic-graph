@@ -1,4 +1,4 @@
-//! Connector-pack competency proofs (EG-CQ-CONN-R084).
+//! Connector-pack competency proofs (MEDULLA-CQ-CONN-R084).
 //!
 //! The pack competency questions (R084.1 to R084.4) are answered by SPARQL over
 //! imported connector packs. This file carries the vocabulary proofs those
@@ -67,7 +67,7 @@ fn finance_documents() -> (std::sync::Arc<str>, std::sync::Arc<str>) {
     (ontology, shapes)
 }
 
-// spec: EG-CQ-CONN-R084.5
+// spec: MEDULLA-CQ-CONN-R084.5
 #[test]
 fn finance_method_terms_and_shape() {
     let (ontology, shapes) = finance_documents();

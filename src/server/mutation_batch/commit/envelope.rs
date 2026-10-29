@@ -6,7 +6,7 @@ use crate::protocol::Method;
 
 /// Vectors and node removals an envelope carries. Vectors live in the
 /// semantic store beside the snapshot, so they are published after the
-/// snapshot swap (EG-UNIFIED-DATA-PLANE-R651.7.3).
+/// snapshot swap (MEDULLA-UNIFIED-DATA-PLANE-R651.7.3).
 #[derive(Default)]
 struct StagedVectors<'a> {
     added: Vec<(&'a str, &'a [f32])>,

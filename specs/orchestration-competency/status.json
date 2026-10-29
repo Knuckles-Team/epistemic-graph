@@ -1,104 +1,104 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-CQ-ORCH",
+  "spec_id": "MEDULLA-CQ-ORCH",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-CQ-ORCH-R001",
-    "EG-CQ-ORCH-R001.1",
-    "EG-CQ-ORCH-R001.2",
-    "EG-CQ-ORCH-R001.3",
-    "EG-CQ-ORCH-R001.4",
-    "EG-CQ-ORCH-R001.5",
-    "EG-CQ-ORCH-R002",
-    "EG-CQ-ORCH-R002.1",
-    "EG-CQ-ORCH-R002.2",
-    "EG-CQ-ORCH-R002.3",
-    "EG-CQ-ORCH-R002.4",
-    "EG-CQ-ORCH-R002.5",
-    "EG-CQ-ORCH-R003",
-    "EG-CQ-ORCH-R003.1",
-    "EG-CQ-ORCH-R003.2",
-    "EG-CQ-ORCH-R003.3",
-    "EG-CQ-ORCH-R003.4",
-    "EG-CQ-ORCH-R003.5",
-    "EG-CQ-ORCH-R004",
-    "EG-CQ-ORCH-R004.1",
-    "EG-CQ-ORCH-R004.2",
-    "EG-CQ-ORCH-R004.3",
-    "EG-CQ-ORCH-R004.4",
-    "EG-CQ-ORCH-R004.5",
-    "EG-CQ-ORCH-R005",
-    "EG-CQ-ORCH-R005.1",
-    "EG-CQ-ORCH-R005.2",
-    "EG-CQ-ORCH-R005.3",
-    "EG-CQ-ORCH-R005.4",
-    "EG-CQ-ORCH-R005.5",
-    "EG-CQ-ORCH-R006",
-    "EG-CQ-ORCH-R006.1",
-    "EG-CQ-ORCH-R006.2",
-    "EG-CQ-ORCH-R006.3",
-    "EG-CQ-ORCH-R006.4",
-    "EG-CQ-ORCH-R006.5",
-    "EG-CQ-ORCH-R007",
-    "EG-CQ-ORCH-R007.1",
-    "EG-CQ-ORCH-R007.2",
-    "EG-CQ-ORCH-R007.3",
-    "EG-CQ-ORCH-R007.4",
-    "EG-CQ-ORCH-R007.5",
-    "EG-CQ-ORCH-R008",
-    "EG-CQ-ORCH-R008.1",
-    "EG-CQ-ORCH-R008.2",
-    "EG-CQ-ORCH-R008.3",
-    "EG-CQ-ORCH-R008.4",
-    "EG-CQ-ORCH-R008.5",
-    "EG-CQ-ORCH-R009",
-    "EG-CQ-ORCH-R009.1",
-    "EG-CQ-ORCH-R009.2",
-    "EG-CQ-ORCH-R009.3",
-    "EG-CQ-ORCH-R009.4",
-    "EG-CQ-ORCH-R009.5",
-    "EG-CQ-ORCH-R009.6",
-    "EG-CQ-ORCH-R010",
-    "EG-CQ-ORCH-R010.1",
-    "EG-CQ-ORCH-R010.2",
-    "EG-CQ-ORCH-R010.3",
-    "EG-CQ-ORCH-R010.4",
-    "EG-CQ-ORCH-R010.5",
-    "EG-CQ-ORCH-R010.6",
-    "EG-CQ-ORCH-R010.7",
-    "EG-CQ-ORCH-R011",
-    "EG-CQ-ORCH-R011.1",
-    "EG-CQ-ORCH-R011.2",
-    "EG-CQ-ORCH-R011.3",
-    "EG-CQ-ORCH-R011.4",
-    "EG-CQ-ORCH-R011.5",
-    "EG-CQ-ORCH-R011.6",
-    "EG-CQ-ORCH-R800",
-    "EG-CQ-ORCH-R800.1",
-    "EG-CQ-ORCH-R800.2",
-    "EG-CQ-ORCH-R800.3",
-    "EG-CQ-ORCH-R800.4",
-    "EG-CQ-ORCH-R800.5",
-    "EG-CQ-ORCH-R800.6",
-    "EG-CQ-ORCH-R700",
-    "EG-CQ-ORCH-R700.1",
-    "EG-CQ-ORCH-R700.2",
-    "EG-CQ-ORCH-R700.3",
-    "EG-CQ-ORCH-R700.4",
-    "EG-CQ-ORCH-R700.5",
-    "EG-CQ-ORCH-R700.6",
-    "EG-CQ-ORCH-R701",
-    "EG-CQ-ORCH-R701.1",
-    "EG-CQ-ORCH-R701.2",
-    "EG-CQ-ORCH-R701.3",
-    "EG-CQ-ORCH-R701.4",
-    "EG-CQ-ORCH-R701.5",
-    "EG-CQ-ORCH-R701.6"
+    "MEDULLA-CQ-ORCH-R001",
+    "MEDULLA-CQ-ORCH-R001.1",
+    "MEDULLA-CQ-ORCH-R001.2",
+    "MEDULLA-CQ-ORCH-R001.3",
+    "MEDULLA-CQ-ORCH-R001.4",
+    "MEDULLA-CQ-ORCH-R001.5",
+    "MEDULLA-CQ-ORCH-R002",
+    "MEDULLA-CQ-ORCH-R002.1",
+    "MEDULLA-CQ-ORCH-R002.2",
+    "MEDULLA-CQ-ORCH-R002.3",
+    "MEDULLA-CQ-ORCH-R002.4",
+    "MEDULLA-CQ-ORCH-R002.5",
+    "MEDULLA-CQ-ORCH-R003",
+    "MEDULLA-CQ-ORCH-R003.1",
+    "MEDULLA-CQ-ORCH-R003.2",
+    "MEDULLA-CQ-ORCH-R003.3",
+    "MEDULLA-CQ-ORCH-R003.4",
+    "MEDULLA-CQ-ORCH-R003.5",
+    "MEDULLA-CQ-ORCH-R004",
+    "MEDULLA-CQ-ORCH-R004.1",
+    "MEDULLA-CQ-ORCH-R004.2",
+    "MEDULLA-CQ-ORCH-R004.3",
+    "MEDULLA-CQ-ORCH-R004.4",
+    "MEDULLA-CQ-ORCH-R004.5",
+    "MEDULLA-CQ-ORCH-R005",
+    "MEDULLA-CQ-ORCH-R005.1",
+    "MEDULLA-CQ-ORCH-R005.2",
+    "MEDULLA-CQ-ORCH-R005.3",
+    "MEDULLA-CQ-ORCH-R005.4",
+    "MEDULLA-CQ-ORCH-R005.5",
+    "MEDULLA-CQ-ORCH-R006",
+    "MEDULLA-CQ-ORCH-R006.1",
+    "MEDULLA-CQ-ORCH-R006.2",
+    "MEDULLA-CQ-ORCH-R006.3",
+    "MEDULLA-CQ-ORCH-R006.4",
+    "MEDULLA-CQ-ORCH-R006.5",
+    "MEDULLA-CQ-ORCH-R007",
+    "MEDULLA-CQ-ORCH-R007.1",
+    "MEDULLA-CQ-ORCH-R007.2",
+    "MEDULLA-CQ-ORCH-R007.3",
+    "MEDULLA-CQ-ORCH-R007.4",
+    "MEDULLA-CQ-ORCH-R007.5",
+    "MEDULLA-CQ-ORCH-R008",
+    "MEDULLA-CQ-ORCH-R008.1",
+    "MEDULLA-CQ-ORCH-R008.2",
+    "MEDULLA-CQ-ORCH-R008.3",
+    "MEDULLA-CQ-ORCH-R008.4",
+    "MEDULLA-CQ-ORCH-R008.5",
+    "MEDULLA-CQ-ORCH-R009",
+    "MEDULLA-CQ-ORCH-R009.1",
+    "MEDULLA-CQ-ORCH-R009.2",
+    "MEDULLA-CQ-ORCH-R009.3",
+    "MEDULLA-CQ-ORCH-R009.4",
+    "MEDULLA-CQ-ORCH-R009.5",
+    "MEDULLA-CQ-ORCH-R009.6",
+    "MEDULLA-CQ-ORCH-R010",
+    "MEDULLA-CQ-ORCH-R010.1",
+    "MEDULLA-CQ-ORCH-R010.2",
+    "MEDULLA-CQ-ORCH-R010.3",
+    "MEDULLA-CQ-ORCH-R010.4",
+    "MEDULLA-CQ-ORCH-R010.5",
+    "MEDULLA-CQ-ORCH-R010.6",
+    "MEDULLA-CQ-ORCH-R010.7",
+    "MEDULLA-CQ-ORCH-R011",
+    "MEDULLA-CQ-ORCH-R011.1",
+    "MEDULLA-CQ-ORCH-R011.2",
+    "MEDULLA-CQ-ORCH-R011.3",
+    "MEDULLA-CQ-ORCH-R011.4",
+    "MEDULLA-CQ-ORCH-R011.5",
+    "MEDULLA-CQ-ORCH-R011.6",
+    "MEDULLA-CQ-ORCH-R800",
+    "MEDULLA-CQ-ORCH-R800.1",
+    "MEDULLA-CQ-ORCH-R800.2",
+    "MEDULLA-CQ-ORCH-R800.3",
+    "MEDULLA-CQ-ORCH-R800.4",
+    "MEDULLA-CQ-ORCH-R800.5",
+    "MEDULLA-CQ-ORCH-R800.6",
+    "MEDULLA-CQ-ORCH-R700",
+    "MEDULLA-CQ-ORCH-R700.1",
+    "MEDULLA-CQ-ORCH-R700.2",
+    "MEDULLA-CQ-ORCH-R700.3",
+    "MEDULLA-CQ-ORCH-R700.4",
+    "MEDULLA-CQ-ORCH-R700.5",
+    "MEDULLA-CQ-ORCH-R700.6",
+    "MEDULLA-CQ-ORCH-R701",
+    "MEDULLA-CQ-ORCH-R701.1",
+    "MEDULLA-CQ-ORCH-R701.2",
+    "MEDULLA-CQ-ORCH-R701.3",
+    "MEDULLA-CQ-ORCH-R701.4",
+    "MEDULLA-CQ-ORCH-R701.5",
+    "MEDULLA-CQ-ORCH-R701.6"
   ],
   "requirements": [
     {
-      "id": "EG-CQ-ORCH-R001",
+      "id": "MEDULLA-CQ-ORCH-R001",
       "title": "Q1: \"What steps do I need to follow to complete task XYZ?\" (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -112,15 +112,15 @@
         "crates/eg-rdf/tests/orchestration_competency.rs:293"
       ],
       "rollup_of": [
-        "EG-CQ-ORCH-R001.1",
-        "EG-CQ-ORCH-R001.2",
-        "EG-CQ-ORCH-R001.3",
-        "EG-CQ-ORCH-R001.4",
-        "EG-CQ-ORCH-R001.5"
+        "MEDULLA-CQ-ORCH-R001.1",
+        "MEDULLA-CQ-ORCH-R001.2",
+        "MEDULLA-CQ-ORCH-R001.3",
+        "MEDULLA-CQ-ORCH-R001.4",
+        "MEDULLA-CQ-ORCH-R001.5"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R001.1",
+      "id": "MEDULLA-CQ-ORCH-R001.1",
       "title": "Q1 Ontology gap: ordered step",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -131,7 +131,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R001.2",
+      "id": "MEDULLA-CQ-ORCH-R001.2",
       "title": "Q1 SHACL shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -142,7 +142,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R001.3",
+      "id": "MEDULLA-CQ-ORCH-R001.3",
       "title": "Q1 Source-authority mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -153,7 +153,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R001.4",
+      "id": "MEDULLA-CQ-ORCH-R001.4",
       "title": "Q1 Query fixture",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -164,7 +164,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R001.5",
+      "id": "MEDULLA-CQ-ORCH-R001.5",
       "title": "Q1 Acceptance test",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -175,7 +175,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R002",
+      "id": "MEDULLA-CQ-ORCH-R002",
       "title": "Q2: \"How many agents and what type of agents are needed to complete the task?\" (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -189,15 +189,15 @@
         "crates/eg-rdf/tests/orchestration_competency.rs:343"
       ],
       "rollup_of": [
-        "EG-CQ-ORCH-R002.1",
-        "EG-CQ-ORCH-R002.2",
-        "EG-CQ-ORCH-R002.3",
-        "EG-CQ-ORCH-R002.4",
-        "EG-CQ-ORCH-R002.5"
+        "MEDULLA-CQ-ORCH-R002.1",
+        "MEDULLA-CQ-ORCH-R002.2",
+        "MEDULLA-CQ-ORCH-R002.3",
+        "MEDULLA-CQ-ORCH-R002.4",
+        "MEDULLA-CQ-ORCH-R002.5"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R002.1",
+      "id": "MEDULLA-CQ-ORCH-R002.1",
       "title": "Q2 Ontology gap: agent kind",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -208,7 +208,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R002.2",
+      "id": "MEDULLA-CQ-ORCH-R002.2",
       "title": "Q2 SHACL shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -219,7 +219,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R002.3",
+      "id": "MEDULLA-CQ-ORCH-R002.3",
       "title": "Q2 Source-authority mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -230,7 +230,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R002.4",
+      "id": "MEDULLA-CQ-ORCH-R002.4",
       "title": "Q2 Query fixture",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -241,7 +241,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R002.5",
+      "id": "MEDULLA-CQ-ORCH-R002.5",
       "title": "Q2 Acceptance test",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -252,7 +252,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R003",
+      "id": "MEDULLA-CQ-ORCH-R003",
       "title": "Q3: \"Can we use an agent template we already have, or an external A2A agent we have added to our Agent Library, based on their capabilities?\" (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -266,15 +266,15 @@
         "crates/eg-rdf/tests/orchestration_competency.rs:379"
       ],
       "rollup_of": [
-        "EG-CQ-ORCH-R003.1",
-        "EG-CQ-ORCH-R003.2",
-        "EG-CQ-ORCH-R003.3",
-        "EG-CQ-ORCH-R003.4",
-        "EG-CQ-ORCH-R003.5"
+        "MEDULLA-CQ-ORCH-R003.1",
+        "MEDULLA-CQ-ORCH-R003.2",
+        "MEDULLA-CQ-ORCH-R003.3",
+        "MEDULLA-CQ-ORCH-R003.4",
+        "MEDULLA-CQ-ORCH-R003.5"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R003.1",
+      "id": "MEDULLA-CQ-ORCH-R003.1",
       "title": "Q3 Ontology gap: agent template",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -285,7 +285,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R003.2",
+      "id": "MEDULLA-CQ-ORCH-R003.2",
       "title": "Q3 SHACL shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -296,7 +296,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R003.3",
+      "id": "MEDULLA-CQ-ORCH-R003.3",
       "title": "Q3 Source-authority mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -307,7 +307,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R003.4",
+      "id": "MEDULLA-CQ-ORCH-R003.4",
       "title": "Q3 Query fixture",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -318,7 +318,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R003.5",
+      "id": "MEDULLA-CQ-ORCH-R003.5",
       "title": "Q3 Acceptance test",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -329,7 +329,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R004",
+      "id": "MEDULLA-CQ-ORCH-R004",
       "title": "Q4: \"What standards, best practices, or guardrails should I follow?\" (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -343,15 +343,15 @@
         "crates/eg-rdf/tests/orchestration_competency.rs:418"
       ],
       "rollup_of": [
-        "EG-CQ-ORCH-R004.1",
-        "EG-CQ-ORCH-R004.2",
-        "EG-CQ-ORCH-R004.3",
-        "EG-CQ-ORCH-R004.4",
-        "EG-CQ-ORCH-R004.5"
+        "MEDULLA-CQ-ORCH-R004.1",
+        "MEDULLA-CQ-ORCH-R004.2",
+        "MEDULLA-CQ-ORCH-R004.3",
+        "MEDULLA-CQ-ORCH-R004.4",
+        "MEDULLA-CQ-ORCH-R004.5"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R004.1",
+      "id": "MEDULLA-CQ-ORCH-R004.1",
       "title": "Q4 Ontology gap: best practice and rule scope",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -362,7 +362,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R004.2",
+      "id": "MEDULLA-CQ-ORCH-R004.2",
       "title": "Q4 SHACL shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -373,7 +373,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R004.3",
+      "id": "MEDULLA-CQ-ORCH-R004.3",
       "title": "Q4 Source-authority mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -384,7 +384,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R004.4",
+      "id": "MEDULLA-CQ-ORCH-R004.4",
       "title": "Q4 Query fixture",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -395,7 +395,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R004.5",
+      "id": "MEDULLA-CQ-ORCH-R004.5",
       "title": "Q4 Acceptance test",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -406,7 +406,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R005",
+      "id": "MEDULLA-CQ-ORCH-R005",
       "title": "Q5: \"What skills, tools, prompts, and LLM models does each agent need to complete each subtask?\" (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -420,15 +420,15 @@
         "crates/eg-rdf/tests/orchestration_competency.rs:454"
       ],
       "rollup_of": [
-        "EG-CQ-ORCH-R005.1",
-        "EG-CQ-ORCH-R005.2",
-        "EG-CQ-ORCH-R005.3",
-        "EG-CQ-ORCH-R005.4",
-        "EG-CQ-ORCH-R005.5"
+        "MEDULLA-CQ-ORCH-R005.1",
+        "MEDULLA-CQ-ORCH-R005.2",
+        "MEDULLA-CQ-ORCH-R005.3",
+        "MEDULLA-CQ-ORCH-R005.4",
+        "MEDULLA-CQ-ORCH-R005.5"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R005.1",
+      "id": "MEDULLA-CQ-ORCH-R005.1",
       "title": "Q5 Ontology gap: model profile",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -439,7 +439,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R005.2",
+      "id": "MEDULLA-CQ-ORCH-R005.2",
       "title": "Q5 SHACL shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -450,7 +450,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R005.3",
+      "id": "MEDULLA-CQ-ORCH-R005.3",
       "title": "Q5 Source-authority mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -461,7 +461,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R005.4",
+      "id": "MEDULLA-CQ-ORCH-R005.4",
       "title": "Q5 Query fixture",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -472,7 +472,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R005.5",
+      "id": "MEDULLA-CQ-ORCH-R005.5",
       "title": "Q5 Acceptance test",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -483,7 +483,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R006",
+      "id": "MEDULLA-CQ-ORCH-R006",
       "title": "Q6: \"What workflow do the agents need to follow?\" (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -499,15 +499,15 @@
         "crates/eg-rdf/tests/orchestration_competency.rs:495"
       ],
       "rollup_of": [
-        "EG-CQ-ORCH-R006.1",
-        "EG-CQ-ORCH-R006.2",
-        "EG-CQ-ORCH-R006.3",
-        "EG-CQ-ORCH-R006.4",
-        "EG-CQ-ORCH-R006.5"
+        "MEDULLA-CQ-ORCH-R006.1",
+        "MEDULLA-CQ-ORCH-R006.2",
+        "MEDULLA-CQ-ORCH-R006.3",
+        "MEDULLA-CQ-ORCH-R006.4",
+        "MEDULLA-CQ-ORCH-R006.5"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R006.1",
+      "id": "MEDULLA-CQ-ORCH-R006.1",
       "title": "Q6 Ontology gap: handoff",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -521,7 +521,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R006.2",
+      "id": "MEDULLA-CQ-ORCH-R006.2",
       "title": "Q6 SHACL shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -532,7 +532,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R006.3",
+      "id": "MEDULLA-CQ-ORCH-R006.3",
       "title": "Q6 Source-authority mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -543,7 +543,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R006.4",
+      "id": "MEDULLA-CQ-ORCH-R006.4",
       "title": "Q6 Query fixture",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -554,7 +554,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R006.5",
+      "id": "MEDULLA-CQ-ORCH-R006.5",
       "title": "Q6 Acceptance test",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -565,7 +565,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R007",
+      "id": "MEDULLA-CQ-ORCH-R007",
       "title": "Q7: \"What does the agent graph shape (DAG) look like?\" (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -581,15 +581,15 @@
         "crates/eg-rdf/tests/orchestration_competency.rs:546"
       ],
       "rollup_of": [
-        "EG-CQ-ORCH-R007.1",
-        "EG-CQ-ORCH-R007.2",
-        "EG-CQ-ORCH-R007.3",
-        "EG-CQ-ORCH-R007.4",
-        "EG-CQ-ORCH-R007.5"
+        "MEDULLA-CQ-ORCH-R007.1",
+        "MEDULLA-CQ-ORCH-R007.2",
+        "MEDULLA-CQ-ORCH-R007.3",
+        "MEDULLA-CQ-ORCH-R007.4",
+        "MEDULLA-CQ-ORCH-R007.5"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R007.1",
+      "id": "MEDULLA-CQ-ORCH-R007.1",
       "title": "Q7 Ontology gap: slot edge",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -603,7 +603,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R007.2",
+      "id": "MEDULLA-CQ-ORCH-R007.2",
       "title": "Q7 SHACL shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -614,7 +614,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R007.3",
+      "id": "MEDULLA-CQ-ORCH-R007.3",
       "title": "Q7 Source-authority mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -625,7 +625,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R007.4",
+      "id": "MEDULLA-CQ-ORCH-R007.4",
       "title": "Q7 Query fixture",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -636,7 +636,7 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R007.5",
+      "id": "MEDULLA-CQ-ORCH-R007.5",
       "title": "Q7 Acceptance test",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -647,21 +647,21 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R008",
+      "id": "MEDULLA-CQ-ORCH-R008",
       "title": "Composed answer to \"How can I execute task XYZ?\" (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-ORCH-R008.1",
-        "EG-CQ-ORCH-R008.2",
-        "EG-CQ-ORCH-R008.3",
-        "EG-CQ-ORCH-R008.4",
-        "EG-CQ-ORCH-R008.5"
+        "MEDULLA-CQ-ORCH-R008.1",
+        "MEDULLA-CQ-ORCH-R008.2",
+        "MEDULLA-CQ-ORCH-R008.3",
+        "MEDULLA-CQ-ORCH-R008.4",
+        "MEDULLA-CQ-ORCH-R008.5"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R008.1",
+      "id": "MEDULLA-CQ-ORCH-R008.1",
       "title": "Composed Envelope type",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -674,378 +674,378 @@
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R008.2",
+      "id": "MEDULLA-CQ-ORCH-R008.2",
       "title": "Composed Assemble wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R008.3",
+      "id": "MEDULLA-CQ-ORCH-R008.3",
       "title": "Composed Typed abstention per part",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R008.4",
+      "id": "MEDULLA-CQ-ORCH-R008.4",
       "title": "Composed Query fixture",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R008.5",
+      "id": "MEDULLA-CQ-ORCH-R008.5",
       "title": "Composed Acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R009",
+      "id": "MEDULLA-CQ-ORCH-R009",
       "title": "Probe questions through the intent surface (rollup, owned by Arbora, cross-repo)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-ORCH-R009.1",
-        "EG-CQ-ORCH-R009.2",
-        "EG-CQ-ORCH-R009.3",
-        "EG-CQ-ORCH-R009.4",
-        "EG-CQ-ORCH-R009.5",
-        "EG-CQ-ORCH-R009.6"
+        "MEDULLA-CQ-ORCH-R009.1",
+        "MEDULLA-CQ-ORCH-R009.2",
+        "MEDULLA-CQ-ORCH-R009.3",
+        "MEDULLA-CQ-ORCH-R009.4",
+        "MEDULLA-CQ-ORCH-R009.5",
+        "MEDULLA-CQ-ORCH-R009.6"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R009.1",
+      "id": "MEDULLA-CQ-ORCH-R009.1",
       "title": "Probe: \"How many nodes does the graph hold, by label?\"",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R009.2",
+      "id": "MEDULLA-CQ-ORCH-R009.2",
       "title": "Probe: \"How can I deploy a container with container-manager?\"",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R009.3",
+      "id": "MEDULLA-CQ-ORCH-R009.3",
       "title": "Probe: \"Which agents are in the Agent Library?\"",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R009.4",
+      "id": "MEDULLA-CQ-ORCH-R009.4",
       "title": "Probe: \"Why does Arbora use the intent surface?\"",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R009.5",
+      "id": "MEDULLA-CQ-ORCH-R009.5",
       "title": "Probe: \"Find a tool that lists Docker containers.\"",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R009.6",
+      "id": "MEDULLA-CQ-ORCH-R009.6",
       "title": "Probe: \"Delegate: list running containers.\"",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R010",
+      "id": "MEDULLA-CQ-ORCH-R010",
       "title": "The graph serves architecture views (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-ORCH-R010.1",
-        "EG-CQ-ORCH-R010.2",
-        "EG-CQ-ORCH-R010.3",
-        "EG-CQ-ORCH-R010.4",
-        "EG-CQ-ORCH-R010.5",
-        "EG-CQ-ORCH-R010.6",
-        "EG-CQ-ORCH-R010.7"
+        "MEDULLA-CQ-ORCH-R010.1",
+        "MEDULLA-CQ-ORCH-R010.2",
+        "MEDULLA-CQ-ORCH-R010.3",
+        "MEDULLA-CQ-ORCH-R010.4",
+        "MEDULLA-CQ-ORCH-R010.5",
+        "MEDULLA-CQ-ORCH-R010.6",
+        "MEDULLA-CQ-ORCH-R010.7"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R010.1",
+      "id": "MEDULLA-CQ-ORCH-R010.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R010.2",
+      "id": "MEDULLA-CQ-ORCH-R010.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R010.3",
+      "id": "MEDULLA-CQ-ORCH-R010.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R010.4",
+      "id": "MEDULLA-CQ-ORCH-R010.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R010.5",
+      "id": "MEDULLA-CQ-ORCH-R010.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R010.6",
+      "id": "MEDULLA-CQ-ORCH-R010.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R010.7",
+      "id": "MEDULLA-CQ-ORCH-R010.7",
       "title": "Preplanning architecture-gap admission and unwired-feature refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R011",
+      "id": "MEDULLA-CQ-ORCH-R011",
       "title": "Job, downtime and plan competency questions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-ORCH-R011.1",
-        "EG-CQ-ORCH-R011.2",
-        "EG-CQ-ORCH-R011.3",
-        "EG-CQ-ORCH-R011.4",
-        "EG-CQ-ORCH-R011.5",
-        "EG-CQ-ORCH-R011.6"
+        "MEDULLA-CQ-ORCH-R011.1",
+        "MEDULLA-CQ-ORCH-R011.2",
+        "MEDULLA-CQ-ORCH-R011.3",
+        "MEDULLA-CQ-ORCH-R011.4",
+        "MEDULLA-CQ-ORCH-R011.5",
+        "MEDULLA-CQ-ORCH-R011.6"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R011.1",
+      "id": "MEDULLA-CQ-ORCH-R011.1",
       "title": "Question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R011.2",
+      "id": "MEDULLA-CQ-ORCH-R011.2",
       "title": "Question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R011.3",
+      "id": "MEDULLA-CQ-ORCH-R011.3",
       "title": "Question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R011.4",
+      "id": "MEDULLA-CQ-ORCH-R011.4",
       "title": "Question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R011.5",
+      "id": "MEDULLA-CQ-ORCH-R011.5",
       "title": "Question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R011.6",
+      "id": "MEDULLA-CQ-ORCH-R011.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R800",
+      "id": "MEDULLA-CQ-ORCH-R800",
       "title": "Run provenance, trace ontology and incident views answer operations questions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-ORCH-R800.1",
-        "EG-CQ-ORCH-R800.2",
-        "EG-CQ-ORCH-R800.3",
-        "EG-CQ-ORCH-R800.4",
-        "EG-CQ-ORCH-R800.5",
-        "EG-CQ-ORCH-R800.6"
+        "MEDULLA-CQ-ORCH-R800.1",
+        "MEDULLA-CQ-ORCH-R800.2",
+        "MEDULLA-CQ-ORCH-R800.3",
+        "MEDULLA-CQ-ORCH-R800.4",
+        "MEDULLA-CQ-ORCH-R800.5",
+        "MEDULLA-CQ-ORCH-R800.6"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R800.1",
+      "id": "MEDULLA-CQ-ORCH-R800.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R800.2",
+      "id": "MEDULLA-CQ-ORCH-R800.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R800.3",
+      "id": "MEDULLA-CQ-ORCH-R800.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R800.4",
+      "id": "MEDULLA-CQ-ORCH-R800.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R800.5",
+      "id": "MEDULLA-CQ-ORCH-R800.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R800.6",
+      "id": "MEDULLA-CQ-ORCH-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R700",
+      "id": "MEDULLA-CQ-ORCH-R700",
       "title": "Business processes compile to executable workflows stored with replay (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-ORCH-R700.1",
-        "EG-CQ-ORCH-R700.2",
-        "EG-CQ-ORCH-R700.3",
-        "EG-CQ-ORCH-R700.4",
-        "EG-CQ-ORCH-R700.5",
-        "EG-CQ-ORCH-R700.6"
+        "MEDULLA-CQ-ORCH-R700.1",
+        "MEDULLA-CQ-ORCH-R700.2",
+        "MEDULLA-CQ-ORCH-R700.3",
+        "MEDULLA-CQ-ORCH-R700.4",
+        "MEDULLA-CQ-ORCH-R700.5",
+        "MEDULLA-CQ-ORCH-R700.6"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R700.1",
+      "id": "MEDULLA-CQ-ORCH-R700.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R700.2",
+      "id": "MEDULLA-CQ-ORCH-R700.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R700.3",
+      "id": "MEDULLA-CQ-ORCH-R700.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R700.4",
+      "id": "MEDULLA-CQ-ORCH-R700.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R700.5",
+      "id": "MEDULLA-CQ-ORCH-R700.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R700.6",
+      "id": "MEDULLA-CQ-ORCH-R700.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R701",
+      "id": "MEDULLA-CQ-ORCH-R701",
       "title": "External governance process models import to and export from workflows (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-ORCH-R701.1",
-        "EG-CQ-ORCH-R701.2",
-        "EG-CQ-ORCH-R701.3",
-        "EG-CQ-ORCH-R701.4",
-        "EG-CQ-ORCH-R701.5",
-        "EG-CQ-ORCH-R701.6"
+        "MEDULLA-CQ-ORCH-R701.1",
+        "MEDULLA-CQ-ORCH-R701.2",
+        "MEDULLA-CQ-ORCH-R701.3",
+        "MEDULLA-CQ-ORCH-R701.4",
+        "MEDULLA-CQ-ORCH-R701.5",
+        "MEDULLA-CQ-ORCH-R701.6"
       ]
     },
     {
-      "id": "EG-CQ-ORCH-R701.1",
+      "id": "MEDULLA-CQ-ORCH-R701.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R701.2",
+      "id": "MEDULLA-CQ-ORCH-R701.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R701.3",
+      "id": "MEDULLA-CQ-ORCH-R701.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R701.4",
+      "id": "MEDULLA-CQ-ORCH-R701.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R701.5",
+      "id": "MEDULLA-CQ-ORCH-R701.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-ORCH-R701.6",
+      "id": "MEDULLA-CQ-ORCH-R701.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

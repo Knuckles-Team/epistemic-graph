@@ -289,7 +289,7 @@ mod tests {
         )
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002
     #[test]
     fn skill_peaks_at_the_true_lead_and_the_interval_is_reproducible() {
         let (feature, outcome) = leading(400);
@@ -338,7 +338,7 @@ mod tests {
         .is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.3
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.3
     #[test]
     fn information_coefficient_independent_vectors() {
         // x = 1..5, y = 2,4,5,4,5: Sxy = 6, Sxx = 10, Syy = 6, r = 6/sqrt(60).
@@ -366,7 +366,7 @@ mod tests {
         assert!(information_coefficient_checked(&[2.0, 2.0, 2.0], &[1.0, 2.0, 3.0]).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.4
     #[test]
     fn information_ratio_independent_vectors() {
         // IR = IC * sqrt(N): 0.5 * sqrt(16) = 2; 0.25 * sqrt(4) = 0.5; zero breadth is zero.
@@ -391,7 +391,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.5
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.5
     #[test]
     fn effective_sample_size_independent_vectors() {
         // Identical rows are perfectly correlated: eigenvalues (2, 0), (2)^2 / 4 = 1.
@@ -412,7 +412,7 @@ mod tests {
         assert!(effective_independent_n_checked(&[vec![1.0, f64::NAN]]).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.10
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.10
     #[test]
     fn brier_independent_vectors() {
         use crate::calibration::metrics::binary_brier_score;

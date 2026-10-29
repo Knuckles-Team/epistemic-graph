@@ -1,5 +1,5 @@
 # Virtual-mapping fixture: uptime monitor to service health
-# (EG-SUPPLY-VOCAB-R006.4).
+# (MEDULLA-SUPPLY-VOCAB-R006.4).
 #
 # Recorded over the uptime-kuma operations `get_monitors`
 # (uptime_kuma_monitors) and `get_heartbeats` (uptime_kuma_status). A monitor

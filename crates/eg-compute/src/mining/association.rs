@@ -769,7 +769,7 @@ mod tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R003.4
+    // spec: MEDULLA-PLACEMENT-R003.4
     #[test]
     fn generate_rules_skips_itemsets_that_exceed_the_mask_width() {
         for size in [32, 33, 64] {
@@ -782,7 +782,7 @@ mod tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R003.4
+    // spec: MEDULLA-PLACEMENT-R003.4
     #[test]
     fn generate_rules_preserves_valid_rules_beside_oversized_itemsets() {
         let mut itemsets = vec![

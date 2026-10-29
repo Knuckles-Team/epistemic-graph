@@ -1,5 +1,5 @@
 //! Oracle/Db2 attached-source driver config + connect/refusal path
-//! (CONCEPT:EG-UNIFIED-DATA-PLANE-R018.2.1).
+//! (CONCEPT:MEDULLA-UNIFIED-DATA-PLANE-R018.2.1).
 //!
 //! This slice covers ONLY the typed driver config and the refusal gate: it proves
 //! a [`RelationalDriverConfig`] can be built from a validated
@@ -7,7 +7,7 @@
 //! an unsafe or invalid destination before issuing any driver/ODBC request. It
 //! requires NO live Oracle/Db2 server. Reading the live catalog through the
 //! driver/ODBC and wiring change capture through the Debezium bridge is the live
-//! slice `EG-UNIFIED-DATA-PLANE-R018.2.2`, mirroring the loopback-only refusal
+//! slice `MEDULLA-UNIFIED-DATA-PLANE-R018.2.2`, mirroring the loopback-only refusal
 //! gate already used by `connect_remote_engine` in `crate::federation`.
 
 use std::net::ToSocketAddrs;
@@ -97,7 +97,7 @@ impl RelationalDriverConfig {
 /// Resolve the configured destination and refuse (never dial) anything that is
 /// not a local verified endpoint. Mirrors `connect_remote_engine`'s loopback-only
 /// gate in `crate::federation`; actually opening the driver/ODBC session and
-/// reading the catalog is the live slice `EG-UNIFIED-DATA-PLANE-R018.2.2`.
+/// reading the catalog is the live slice `MEDULLA-UNIFIED-DATA-PLANE-R018.2.2`.
 pub fn connect(
     config: &RelationalDriverConfig,
 ) -> Result<RelationalConnection, RelationalConnectError> {
@@ -121,7 +121,7 @@ pub fn connect(
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R018.2.1
     #[test]
     fn valid_config_round_trips_per_engine() {
         let oracle =
@@ -140,7 +140,7 @@ mod tests {
         assert_eq!(db2.service_name, "BLUDB");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R018.2.1
     #[test]
     fn empty_host_is_refused() {
         assert_eq!(
@@ -149,7 +149,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R018.2.1
     #[test]
     fn zero_port_is_refused() {
         assert_eq!(
@@ -158,7 +158,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R018.2.1
     #[test]
     fn empty_service_name_is_refused() {
         assert_eq!(
@@ -167,7 +167,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R018.2.1
     #[test]
     fn unresolvable_destination_is_refused_by_connect() {
         // RFC 2606 reserved TLD: resolution can never succeed, so this stays
@@ -185,7 +185,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R018.2.1
     #[test]
     fn non_loopback_destination_is_refused_by_connect() {
         // A TEST-NET-3 (RFC 5737) literal IP: resolves with no DNS/network
@@ -199,7 +199,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R018.2.1
     #[test]
     fn loopback_destination_passes_the_refusal_gate() {
         let config =

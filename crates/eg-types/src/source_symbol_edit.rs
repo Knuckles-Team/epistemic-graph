@@ -1,4 +1,4 @@
-//! Graph-native code edits (EG-SCM-R013.1): an edit names a symbol and its new
+//! Graph-native code edits (MEDULLA-SCM-R013.1): an edit names a symbol and its new
 //! text instead of a file diff. The projection to file bytes and one changeset
 //! lives in `eg-compute`.
 

@@ -1,4 +1,4 @@
-//! PostgreSQL wire protocol operational parity (EG-DURABLE-KERNEL-R035): the
+//! PostgreSQL wire protocol operational parity (MEDULLA-DURABLE-KERNEL-R035): the
 //! closed set of required operational surfaces (pg_dump/pg_restore,
 //! replication, pg_stat views, pg_locks, EXPLAIN, query cancellation, pooler
 //! transaction mode) and a fail-closed compatibility matrix. This is the
@@ -102,7 +102,7 @@ impl PgCompatibilityMatrix {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R035.1
+    // spec: MEDULLA-DURABLE-KERNEL-R035.1
     #[test]
     fn surfaces_round_trip_through_their_wire_name() {
         for (surface, name) in [
@@ -128,7 +128,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R035.1
+    // spec: MEDULLA-DURABLE-KERNEL-R035.1
     #[test]
     fn fresh_matrix_reports_every_surface_unsupported() {
         let matrix = PgCompatibilityMatrix::fail_closed();
@@ -137,7 +137,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R035.1
+    // spec: MEDULLA-DURABLE-KERNEL-R035.1
     #[test]
     fn parity_check_is_refused_and_names_exactly_the_missing_surfaces() {
         let mut matrix = PgCompatibilityMatrix::fail_closed();
@@ -150,7 +150,7 @@ mod tests {
         assert!(err.0.contains(&PgOperationalSurface::PgRestore));
     }
 
-    // spec: EG-DURABLE-KERNEL-R035.1
+    // spec: MEDULLA-DURABLE-KERNEL-R035.1
     #[test]
     fn parity_check_succeeds_once_every_surface_is_declared() {
         let mut matrix = PgCompatibilityMatrix::fail_closed();

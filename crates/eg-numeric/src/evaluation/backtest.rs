@@ -291,7 +291,7 @@ pub fn diebold_mariano_checked(
 mod tests {
     use super::*;
 
-    // spec: EG-FINANCE-PRIMITIVES-R002
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002
     #[test]
     fn cpcv_purges_and_embargoes_around_every_test_group() {
         let splits = purged_cpcv_splits(120, 6, 2, 5, 5);
@@ -302,7 +302,7 @@ mod tests {
         assert!(purged_cpcv_splits(10, 0, 1, 0, 0).is_empty());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002
     #[test]
     fn dsr_pbo_and_dm_behave_at_the_edges() {
         let rets: Vec<f64> = (0..200).map(|i| 0.001 + f64::from(i % 7) * 1e-4).collect();
@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(diebold_mariano(&a[..5], &b[..5], 1).p_value, 1.0);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.6
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.6
     #[test]
     fn diebold_mariano_independent_vectors() {
         // Losses and statistics worked independently with the textbook formula
@@ -349,7 +349,7 @@ mod tests {
         assert!(diebold_mariano_checked(&bad, &b, 1).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.7
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.7
     #[test]
     fn deflated_sharpe_independent_vectors() {
         // Computed independently from the Bailey-Lopez de Prado formula:
@@ -370,7 +370,7 @@ mod tests {
         assert!(deflated_sharpe_ratio_checked(0.5, 10, &bad).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.8
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.8
     #[test]
     fn purged_cv_independent_vectors() {
         // Six samples in three groups of two, one test group each, hand derived.
@@ -403,7 +403,7 @@ mod tests {
         assert!(purged_cpcv_splits_checked(2, 3, 1, 0, 0).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.9
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.9
     #[test]
     fn pbo_independent_vectors() {
         // Three strategies, the in-sample best is always the third. Its

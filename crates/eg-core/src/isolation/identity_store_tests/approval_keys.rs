@@ -60,7 +60,7 @@ fn refuse_unchanged(layer: &mut IsolationLayer, operation: IdentityOp, owner: &I
     );
 }
 
-// spec: EG-TYPED-PACKS-R085.5.2
+// spec: MEDULLA-TYPED-PACKS-R085.5.2
 #[test]
 fn approval_key_reopen_preserves_rotation_revocation_and_refuses_stale_cas() {
     let dir = durable_fixture_dir("eg-approval-key");

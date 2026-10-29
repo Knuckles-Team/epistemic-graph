@@ -3,7 +3,7 @@
 @prefix kg:  <http://knuckles.team/kg#> .
 @prefix ex:  <urn:eg:fixture:incident:> .
 
-# EG-SRC-AUTH-R009.1: ServiceNow is rank 1 and PagerDuty rank 2 for :Incident.
+# MEDULLA-SRC-AUTH-R009.1: ServiceNow is rank 1 and PagerDuty rank 2 for :Incident.
 # The rank literals are RANK_SERVICENOW / RANK_PAGERDUTY so the decisive test
 # (R009.2) can swap them without touching the query text.
 

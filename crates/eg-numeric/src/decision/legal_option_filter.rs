@@ -1,11 +1,11 @@
-//! The typed legal-option-set filter (EG-DECISION-ENGINE-R085.1).
+//! The typed legal-option-set filter (MEDULLA-DECISION-ENGINE-R085.1).
 //!
 //! A caller-asserted candidate option is never trusted as-is: it reaches the
 //! derived set handed to the scorer only if an admissibility predicate
 //! accepts it. Here that predicate is a plain closure fixture,
 //! `is_admissible`; the real predicate -- wired to a SHACL shape check plus a
 //! bounded SPARQL shortlist query over the ontology -- is
-//! EG-DECISION-ENGINE-R085.2. This module proves the contract at the type
+//! MEDULLA-DECISION-ENGINE-R085.2. This module proves the contract at the type
 //! level ahead of that wiring: `derive_legal_options` is the only path from a
 //! candidate list to the derived set, and it can only narrow, never widen,
 //! what the caller supplied.
@@ -54,7 +54,7 @@ mod tests {
         candidate.id != "illegal-option"
     }
 
-    // spec: EG-DECISION-ENGINE-R085.1, EG-DECISION-ENGINE-R085.2
+    // spec: MEDULLA-DECISION-ENGINE-R085.1, MEDULLA-DECISION-ENGINE-R085.2
     #[test]
     fn a_caller_supplied_option_that_fails_the_admissibility_predicate_is_excluded() {
         let candidates = vec![

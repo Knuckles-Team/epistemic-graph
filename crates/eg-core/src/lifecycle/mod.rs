@@ -1,4 +1,4 @@
-//! EG-SDLC lifecycle pass: derived lifecycle edges, defect intake, requirement
+//! MEDULLA-SDLC lifecycle pass: derived lifecycle edges, defect intake, requirement
 //! state and the lifecycle trace. Records live in `eg_types::lifecycle`.
 
 pub mod defect;

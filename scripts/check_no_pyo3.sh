@@ -70,7 +70,7 @@ fi
 
 # 3. The public wheel is built from the eg-pyengine extension crate, never from the
 #    server binary: no `bindings = "bin"`, and maturin's manifest-path is the
-#    extension crate (EG-CONTRACT-R053.8).
+#    extension crate (MEDULLA-CONTRACT-R053.8).
 if grep -q 'bindings *= *"bin"' pyproject.toml \
    || ! grep -q 'manifest-path *= *"crates/eg-pyengine/Cargo.toml"' pyproject.toml; then
   echo "FAIL: pyproject.toml [tool.maturin] must build crates/eg-pyengine, not a bin." >&2

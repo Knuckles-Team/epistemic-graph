@@ -707,7 +707,7 @@
     rdfs:domain :Agent ;
     rdfs:range :Tool .
 
-# EG-ORCH-VOCAB-R009.1 through R009.8: measured harness run properties.
+# MEDULLA-ORCH-VOCAB-R009.1 through R009.8: measured harness run properties.
 
 :terminationReason a owl:DatatypeProperty ;
     rdfs:label "terminationReason" ;
@@ -749,7 +749,7 @@
     rdfs:domain :RunTrace ;
     rdfs:range xsd:decimal .
 
-# EG-ORCH-VOCAB-R001 through R006: task steps, agent kinds, library membership,
+# MEDULLA-ORCH-VOCAB-R001 through R006: task steps, agent kinds, library membership,
 # per-step bindings and hand-off. Step order reuses the core :precedes.
 
 :hasStep a owl:ObjectProperty ;
@@ -818,7 +818,7 @@
     rdfs:domain :TaskStep ;
     rdfs:range :TaskStep .
 
-# EG-ORCH-VOCAB-R009.9 through R009.11: what a harness run applied and ran on.
+# MEDULLA-ORCH-VOCAB-R009.9 through R009.11: what a harness run applied and ran on.
 
 :TaskClass a owl:Class ;
     rdfs:label "Task Class" ;
@@ -842,7 +842,7 @@
     rdfs:domain :RunTrace ;
     rdfs:range :TaskClass .
 
-# EG-ORCH-VOCAB-R011.1 through R011.5: measured model facts from evaluation.
+# MEDULLA-ORCH-VOCAB-R011.1 through R011.5: measured model facts from evaluation.
 
 :EvaluationRun a owl:Class ;
     rdfs:label "Evaluation Run" ;
@@ -882,7 +882,7 @@
     rdfs:domain :MeasuredModelFact ;
     rdfs:range :MeasuredModelFact .
 
-# EG-CQ-CONN-R079.2 through R079.5: the langfuse trace/prompt measurements the
+# MEDULLA-CQ-CONN-R079.2 through R079.5: the langfuse trace/prompt measurements the
 # connector maps its records onto (prompt versioning, token cost, prompt linkage
 # and evaluation scores).
 

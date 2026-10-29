@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R038: advisory pre-tool risk scoring. `Decide` is
+//! MEDULLA-DECISION-ENGINE-R038: advisory pre-tool risk scoring. `Decide` is
 //! evaluate-only for every question kind (this crate's own module doc:
 //! "it reads candidates ... it commits nothing"); `PreToolRisk` inherits
 //! that guarantee rather than being a special case. This test proves it: a
@@ -23,8 +23,8 @@ fn pretool_risk_request(schema: &ComponentDependency) -> DecideRequest {
     asked
 }
 
-// spec: EG-DECISION-ENGINE-R038
-// spec: EG-DECISION-ENGINE-R038.1
+// spec: MEDULLA-DECISION-ENGINE-R038
+// spec: MEDULLA-DECISION-ENGINE-R038.1
 #[tokio::test]
 async fn a_pretool_risk_question_is_served_as_advisory_only_never_as_an_act() {
     let h = Harness::new().await;

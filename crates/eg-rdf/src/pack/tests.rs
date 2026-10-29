@@ -140,7 +140,7 @@ fn union_keeps_document_order_prefixes_and_blank_node_references() {
     assert!(scoped_union(&[]).unwrap().triples.is_empty());
 }
 
-// spec: EG-TYPED-PACKS-R105.1
+// spec: MEDULLA-TYPED-PACKS-R105.1
 #[test]
 fn imports_may_name_the_parent_catalog_and_its_modules() {
     let allowed = BTreeSet::from(["urn:current"]);
@@ -155,7 +155,7 @@ fn imports_may_name_the_parent_catalog_and_its_modules() {
     assert!(!is_parent_ontology_iri("http://knuckles.team/kgx"));
 }
 
-// spec: EG-TYPED-PACKS-R105.1
+// spec: MEDULLA-TYPED-PACKS-R105.1
 #[test]
 fn orphan_classes_are_those_without_a_path_to_a_parent_class() {
     let parent = BTreeSet::from(["http://knuckles.team/kg#Event".to_string()]);
@@ -183,7 +183,7 @@ c:Widget a owl:Class .
     assert!(ontology_orphan_classes(&[split, linked], &parent).is_empty());
 }
 
-// spec: EG-TYPED-PACKS-R101.10
+// spec: MEDULLA-TYPED-PACKS-R101.10
 #[test]
 fn object_properties_reduce_to_domain_range_local_names() {
     let ttl = "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\

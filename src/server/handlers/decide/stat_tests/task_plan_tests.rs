@@ -58,8 +58,8 @@ fn task_request(pin: &ComponentDependency) -> DecideRequest {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.3
-// spec: EG-DECISION-ENGINE-R134.111.5
+// spec: MEDULLA-DECISION-ENGINE-R134.111.3
+// spec: MEDULLA-DECISION-ENGINE-R134.111.5
 #[tokio::test]
 async fn decide_routes_task_plan() {
     let h = Harness::new().await;
@@ -115,7 +115,7 @@ async fn assert_invalid(h: &Harness, request: DecideRequest, detail: &str) {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.4
+// spec: MEDULLA-DECISION-ENGINE-R134.111.4
 #[tokio::test]
 async fn invalid_task_requests_refuse() {
     let h = Harness::new().await;
@@ -153,7 +153,7 @@ async fn invalid_task_requests_refuse() {
     assert_invalid(&h, request, "disconnected_output").await;
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.5
+// spec: MEDULLA-DECISION-ENGINE-R134.111.5
 #[tokio::test]
 async fn task_plan_cannot_use_score_replay() {
     let h = Harness::new().await;
@@ -179,7 +179,7 @@ async fn task_plan_cannot_use_score_replay() {
 /// The canonical task-plan schema publishes once per tenant: a repeat publish
 /// under its publish key replays the same component revision and digest, and
 /// that pin routes a task-plan Decide.
-// spec: EG-DECISION-ENGINE-R134.111.7
+// spec: MEDULLA-DECISION-ENGINE-R134.111.7
 #[tokio::test]
 async fn canonical_task_plan_schema_publishes_once_and_routes() {
     use eg_types::decision::task_plan::{
@@ -246,7 +246,7 @@ fn with_call(request: &mut DecideRequest, reference: &str) {
     request.params = BoundedVec::new(params).unwrap();
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.12
+// spec: MEDULLA-DECISION-ENGINE-R134.111.12
 #[tokio::test]
 async fn decide_routes_task_plan_with_calls() {
     let h = Harness::new().await;
@@ -281,7 +281,7 @@ async fn decide_routes_task_plan_with_calls() {
     .await;
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.11
+// spec: MEDULLA-DECISION-ENGINE-R134.111.11
 #[tokio::test]
 async fn premises_name_calls_and_bindings() {
     let h = Harness::new().await;

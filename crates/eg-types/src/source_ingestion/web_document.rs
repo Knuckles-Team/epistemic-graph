@@ -1,4 +1,4 @@
-//! Document enrichment contract (EG-UNIFIED-DATA-PLANE-R651.7).
+//! Document enrichment contract (MEDULLA-UNIFIED-DATA-PLANE-R651.7).
 //!
 //! `EnrichDocument` chunks one held Document, embeds the chunks and links
 //! every chunk and vector to the Document. The receipt names the fetch
@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The closed set of web fetch backends (EG-UNIFIED-DATA-PLANE-R651.7.1).
+/// The closed set of web fetch backends (MEDULLA-UNIFIED-DATA-PLANE-R651.7.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -91,7 +91,7 @@ pub struct EnrichDocumentReceipt {
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R651.7.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.1
     #[test]
     fn web_provenance_round_trips() {
         let request = EnrichDocumentRequest {

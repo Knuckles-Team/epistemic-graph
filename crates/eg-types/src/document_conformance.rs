@@ -1,12 +1,12 @@
 //! Typed conformance-entry constructor for the MongoDB/DocumentDB adapter
-//! (EG-UNIFIED-DATA-PLANE-R019.3): a closed per-engine vocabulary plus a
+//! (MEDULLA-UNIFIED-DATA-PLANE-R019.3): a closed per-engine vocabulary plus a
 //! builder over the generic [`crate::dialect_conformance::DialectConformanceEntry`]
-//! (EG-UNIFIED-DATA-PLANE-R022.1) that always fixes this row's `adapter` label and
+//! (MEDULLA-UNIFIED-DATA-PLANE-R022.1) that always fixes this row's `adapter` label and
 //! refuses a malformed entry before it is admitted into a report. This is the
 //! typed-model slice (`.1`): no live MongoDB/DocumentDB connection or capture is
 //! needed to build or refuse an entry. Actually running the comparison against a
 //! native engine and recording its real outcome is a later child
-//! (EG-UNIFIED-DATA-PLANE-R019.3.2).
+//! (MEDULLA-UNIFIED-DATA-PLANE-R019.3.2).
 
 use crate::dialect_conformance::{
     ConformanceDeviation, ConformanceOutcome, DialectConformanceEntry, InvalidConformanceEntry,
@@ -62,7 +62,7 @@ pub fn build_document_conformance_entry(
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.3.1
     #[test]
     fn green_entry_builds_with_fixed_adapter_label() {
         let entry = build_document_conformance_entry(
@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(entry.engine_version, "mongodb-7.0");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.3.1
     #[test]
     fn documentdb_engine_maps_to_its_own_label() {
         let entry = build_document_conformance_entry(
@@ -87,7 +87,7 @@ mod tests {
         assert_eq!(entry.engine_version, "documentdb");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.3.1
     #[test]
     fn deviated_entry_without_review_is_refused() {
         let result = build_document_conformance_entry(
@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(result, Err(InvalidConformanceEntry::DeviatedWithoutReview));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.3.1
     #[test]
     fn deviated_entry_with_reviewed_deviation_builds() {
         let deviation = ConformanceDeviation {
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(entry.outcome, ConformanceOutcome::Deviated);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.3.1
     #[test]
     fn green_entry_with_deviation_is_refused() {
         let deviation = ConformanceDeviation {

@@ -38,7 +38,7 @@ impl crate::federation::ForeignSource for BoundRows {
     }
 }
 
-/// EG-FEDERATED-QUERY-R722.3 — the naive registry path uses the verified bound callback while
+/// MEDULLA-FEDERATED-QUERY-R722.3 — the naive registry path uses the verified bound callback while
 /// retaining the source spec needed for identity/provenance.
 #[test]
 fn eg722_bound_driver_resolves_naively_and_retains_spec() {
@@ -53,7 +53,7 @@ fn eg722_bound_driver_resolves_naively_and_retains_spec() {
     assert_eq!(registry.spec("objects"), Some(&spec));
 }
 
-/// EG-FEDERATED-QUERY-R722.3/R722.4 — a spec without a bound callback remains fail-closed.
+/// MEDULLA-FEDERATED-QUERY-R722.3/R722.4 — a spec without a bound callback remains fail-closed.
 #[test]
 fn eg722_unbound_operation_spec_refuses_in_naive_path() {
     let spec = bound_api_spec();

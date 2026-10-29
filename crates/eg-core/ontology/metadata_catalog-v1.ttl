@@ -15,7 +15,7 @@
 
 <http://knuckles.team/kg/metadata_catalog> a owl:Ontology ;
     rdfs:label "Metadata Catalog Ontology" ;
-    rdfs:comment "The metadata catalog EG keeps for every connected source: catalogued assets (connector tools, prompts, skills, data resources and fields), owners and stewards, lineage, the business glossary and the Agent Library with system-prompt candidacy (EG-TYPED-PACKS-R106.1, EG-DECISION-ENGINE-R814.1.1). Aligned to W3C DCAT for the catalog, PROV-O for lineage and attribution, ORG for roles and units, SKOS for the glossary and schema.org Action for tool operations. Every class rolls up to an EG core class." ;
+    rdfs:comment "The metadata catalog EG keeps for every connected source: catalogued assets (connector tools, prompts, skills, data resources and fields), owners and stewards, lineage, the business glossary and the Agent Library with system-prompt candidacy (MEDULLA-TYPED-PACKS-R106.1, MEDULLA-DECISION-ENGINE-R814.1.1). Aligned to W3C DCAT for the catalog, PROV-O for lineage and attribution, ORG for roles and units, SKOS for the glossary and schema.org Action for tool operations. Every class rolls up to an EG core class." ;
     dcterms:source "W3C DCAT 3, PROV-O, ORG, SKOS; schema.org Action" ;
     owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/capability>, <http://knuckles.team/kg/orchestration>, <http://knuckles.team/kg/service_operations> .
 
@@ -53,7 +53,7 @@ cat:PromptAsset a owl:Class ;
 
 :PromptCandidate a owl:Class ;
     rdfs:label "Prompt Candidate" ;
-    rdfs:comment "A prompt that can act as the system prompt of an agent for the tasks it is :systemPromptFor (EG-DECISION-ENGINE-R814.1.1). Candidacy is declared by the prompt (role system, systemPromptFor or useCase metadata), never inferred from text." ;
+    rdfs:comment "A prompt that can act as the system prompt of an agent for the tasks it is :systemPromptFor (MEDULLA-DECISION-ENGINE-R814.1.1). Candidacy is declared by the prompt (role system, systemPromptFor or useCase metadata), never inferred from text." ;
     rdfs:subClassOf cat:PromptAsset .
 
 cat:SkillAsset a owl:Class ;
@@ -250,6 +250,6 @@ cat:definesClass a owl:ObjectProperty ;
 
 :definesAsset a owl:ObjectProperty ;
     rdfs:label "defines asset" ;
-    rdfs:comment "Links a glossary term to an asset that serves the class the term names (EG-TYPED-PACKS-R801.2)." ;
+    rdfs:comment "Links a glossary term to an asset that serves the class the term names (MEDULLA-TYPED-PACKS-R801.2)." ;
     rdfs:domain cat:GlossaryTerm ;
     rdfs:range cat:Asset .

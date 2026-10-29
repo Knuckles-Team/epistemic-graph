@@ -1,4 +1,4 @@
-//! `GuardrailRule` publish + read-back (EG-DECISION-ENGINE-R127.2.1).
+//! `GuardrailRule` publish + read-back (MEDULLA-DECISION-ENGINE-R127.2.1).
 
 use eg_types::agent_component::{
     AgentComponentDraft, AgentComponentKind, AgentComponentPublishRequest,
@@ -43,7 +43,7 @@ fn publish(
         .map(|_| ())
 }
 
-// spec: EG-DECISION-ENGINE-R127.2.1
+// spec: MEDULLA-DECISION-ENGINE-R127.2.1
 #[test]
 fn a_published_guardrail_rule_reads_back_unchanged_after_a_restart() {
     let (dir, store) = open_agent_store();
@@ -76,7 +76,7 @@ fn a_published_guardrail_rule_reads_back_unchanged_after_a_restart() {
         .is_empty());
 }
 
-// spec: EG-DECISION-ENGINE-R127.2.1
+// spec: MEDULLA-DECISION-ENGINE-R127.2.1
 #[test]
 fn a_malformed_guardrail_rule_is_refused_at_publish() {
     let (_dir, store) = open_agent_store();

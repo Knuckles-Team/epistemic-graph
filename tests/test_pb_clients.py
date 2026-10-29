@@ -85,7 +85,7 @@ _CANNED: dict[str, Any] = {
 }
 
 
-@pytest.mark.spec("EG-FEDERATED-QUERY-R058.2.2.1")
+@pytest.mark.spec("MEDULLA-FEDERATED-QUERY-R058.2.2.1")
 @pytest.mark.asyncio
 async def test_nl_query_explain_wire_shape() -> None:
     fake = _FakeClient()

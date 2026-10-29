@@ -1,5 +1,5 @@
 //! Typed model for admitting one application to the shared database
-//! platform (EG-UNIFIED-DATA-PLANE-R024): the admission stage machine that
+//! platform (MEDULLA-UNIFIED-DATA-PLANE-R024): the admission stage machine that
 //! refuses retiring an application's prior ingest connector before it is
 //! fully attached with parity. This is the typed-model slice (`.1`): the
 //! stage enum and its allowed-transition refusal. `.2.1` adds the admission
@@ -152,7 +152,7 @@ impl From<DisallowedTransition> for AdmissionRunError {
 /// Drives one application's `ApplicationAdmission` through the shared
 /// platform admission lifecycle against its prior ingest connector,
 /// including the tested rollback path. This is the runner slice
-/// (`EG-UNIFIED-DATA-PLANE-R024.2.1`): it needs no live candidate
+/// (`MEDULLA-UNIFIED-DATA-PLANE-R024.2.1`): it needs no live candidate
 /// application, only an implementation of `PriorIngestConnector`.
 pub struct AdmissionRunner<C: PriorIngestConnector> {
     pub admission: ApplicationAdmission,
@@ -229,7 +229,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn full_admission_path_advances_in_order() {
         let mut admission = ApplicationAdmission::new("gramps");
@@ -239,7 +239,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::ConnectorRetired);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn retiring_connector_before_parity_is_refused() {
         let mut admission = ApplicationAdmission::new("gramps");
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::Admitted);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn retiring_connector_from_pending_is_refused() {
         let mut admission = ApplicationAdmission::new("twenty");
@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::Pending);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn rollback_is_allowed_before_connector_retirement() {
         let mut admission = ApplicationAdmission::new("firefly");
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::RolledBack);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn rollback_after_connector_retirement_is_refused() {
         let mut admission = ApplicationAdmission::new("immich");
@@ -280,7 +280,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::ConnectorRetired);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn stage_serializes_round_trip() {
         let admission = ApplicationAdmission::new("gramps");
@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(decoded, admission);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.2.1
     #[test]
     fn runner_retires_connector_only_after_parity_and_stops_its_writes() {
         let mut runner = AdmissionRunner::new("gramps", FakeConnector::new());
@@ -301,7 +301,7 @@ mod tests {
         assert!(!runner.connector.is_writing());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.2.1
     #[test]
     fn runner_rollback_restores_prior_state_and_connector_keeps_writing() {
         let mut runner = AdmissionRunner::new("immich", FakeConnector::new());
@@ -314,7 +314,7 @@ mod tests {
         assert!(runner.connector.is_writing());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.2.1
     #[test]
     fn runner_rollback_is_refused_once_connector_is_retired() {
         let mut runner = AdmissionRunner::new("firefly", FakeConnector::new());
@@ -326,7 +326,7 @@ mod tests {
     }
 
     /// One admission test per candidate application
-    /// (`EG-UNIFIED-DATA-PLANE-R024.3.1`): confirms rollback restores the
+    /// (`MEDULLA-UNIFIED-DATA-PLANE-R024.3.1`): confirms rollback restores the
     /// prior state and that a retired connector no longer writes, against
     /// a fake connector so no live candidate application is required.
     fn per_application_rollback_and_retirement_case(application: &str) {
@@ -349,7 +349,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R024.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R024.3.1
     #[test]
     fn per_application_rollback_and_retirement() {
         for application in ["gramps", "immich", "firefly"] {

@@ -1,4 +1,4 @@
-//! Typed fact and claim extraction records (EG-INGEST-WORKER-R701.1).
+//! Typed fact and claim extraction records (MEDULLA-INGEST-WORKER-R701.1).
 //!
 //! A fact always carries an evidence span; a fact that grounds to no ontology
 //! class is held as a candidate claim. Grounding, direction repair and
@@ -124,7 +124,7 @@ mod tests {
         })
     }
 
-    // spec: EG-INGEST-WORKER-R701.1
+    // spec: MEDULLA-INGEST-WORKER-R701.1
     #[test]
     fn golden_vector_round_trips_and_invalid_shapes_are_rejected() {
         let claim: CandidateClaim = serde_json::from_value(golden()).unwrap();

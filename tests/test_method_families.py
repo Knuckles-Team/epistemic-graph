@@ -68,9 +68,9 @@ _WORK_ITEM_METHODS = frozenset(
         "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
-        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        # MEDULLA-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
-        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        # MEDULLA-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
         "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
@@ -136,9 +136,9 @@ _DURABLE_AT_BASE = (
         "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
-        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        # MEDULLA-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
-        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        # MEDULLA-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
         "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
@@ -176,9 +176,9 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
-        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        # MEDULLA-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
-        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        # MEDULLA-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
         "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
@@ -240,7 +240,7 @@ _UNCONDITIONAL_WRITES_AT_BASE = (
         # unconditional tail after the family refactor, not family members:
         # DecisionCommit and GraphSchema (a4804f87c), SourceIngest (dcc5d53c0),
         # TelemetryDerive (EH-408/EH-409, a self-translating declared write),
-        # EnrichDocument (EG-UNIFIED-DATA-PLANE-R651.7, a self-routed envelope write).
+        # EnrichDocument (MEDULLA-UNIFIED-DATA-PLANE-R651.7, a self-routed envelope write).
         "DecisionCommit",
         "EnrichDocument",
         "GraphSchema",

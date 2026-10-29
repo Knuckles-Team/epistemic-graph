@@ -299,7 +299,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R128.6
+    // spec: MEDULLA-DECISION-ENGINE-R128.6
     #[test]
     fn plan_scaffold_rules() {
         let ablation = measured(true, "eval:ablation");
@@ -342,7 +342,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R128.6
+    // spec: MEDULLA-DECISION-ENGINE-R128.6
     #[test]
     fn plan_scaffold_missing_evidence_abstains() {
         let stopping = measured(StoppingBehaviour::Balanced, "eval:balanced");
@@ -371,7 +371,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R128.6
+    // spec: MEDULLA-DECISION-ENGINE-R128.6
     #[test]
     fn plan_scaffold_refuses_invalid_evaluation_references() {
         let stopping = measured(StoppingBehaviour::Balanced, "eval:balanced");
@@ -404,7 +404,7 @@ mod tests {
         })
     }
 
-    // spec: EG-DECISION-ENGINE-R128.2
+    // spec: MEDULLA-DECISION-ENGINE-R128.2
     #[test]
     fn body_requires_every_input() {
         let wire = request_wire();
@@ -431,7 +431,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R128.2
+    // spec: MEDULLA-DECISION-ENGINE-R128.2
     #[test]
     fn body_allows_optional_trajectory_omission() {
         let mut wire = request_wire();
@@ -450,7 +450,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R128.2
+    // spec: MEDULLA-DECISION-ENGINE-R128.2
     #[test]
     fn body_checks_token_boundaries_and_priority_vocabulary() {
         for field in ["usable_context_budget_tokens", "expected_trajectory_tokens"] {
@@ -533,7 +533,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R128.3
+    // spec: MEDULLA-DECISION-ENGINE-R128.3
     #[test]
     fn answer_round_trips_through_serde() {
         for context in [
@@ -563,7 +563,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R128.3
+    // spec: MEDULLA-DECISION-ENGINE-R128.3
     #[test]
     fn answer_rejects_invalid_fractions_and_bounds() {
         for field in ["soft_threshold", "hard_threshold", "recent_window_fraction"] {
@@ -590,7 +590,7 @@ mod tests {
         assert!(serde_json::from_value::<HarnessPart<ActionSpace>>(serde_json::json!({"status":"abstained","missing_fact":vec!["fact";65],"conservative_default":"tool_set"})).is_err());
     }
 
-    // spec: EG-DECISION-ENGINE-R128.3
+    // spec: MEDULLA-DECISION-ENGINE-R128.3
     #[test]
     fn abstention_requires_named_missing_facts() {
         for facts in [vec![], vec![""], vec![" \t"], vec!["shellCentric", ""]] {
@@ -636,7 +636,7 @@ mod tests {
         })
     }
 
-    // spec: EG-DECISION-ENGINE-R128.7
+    // spec: MEDULLA-DECISION-ENGINE-R128.7
     #[test]
     fn shell_only_needs_both_facts() {
         for proficiency in [
@@ -679,7 +679,7 @@ mod tests {
         (wire, serde_json::from_str(wire).unwrap())
     }
 
-    // spec: EG-DECISION-ENGINE-R128.13.1
+    // spec: MEDULLA-DECISION-ENGINE-R128.13.1
     #[test]
     fn absent_harness_evidence_preserves_legacy_bytes_and_digest() {
         let (wire, inputs) = legacy_inputs();
@@ -691,7 +691,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R128.13.1
+    // spec: MEDULLA-DECISION-ENGINE-R128.13.1
     #[test]
     fn harness_evidence_roundtrips_and_changes_input_digest() {
         use crate::agent_component::{AgentComponentKind, ComponentDependency};

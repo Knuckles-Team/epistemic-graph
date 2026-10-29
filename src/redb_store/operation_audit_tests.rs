@@ -275,7 +275,7 @@ fn a_pending_reservation_is_not_closed_by_another_request_context() {
 /// again before any outcome and with no restart in between, is a replay: it
 /// returns the original reservation receipt unchanged and adds neither a
 /// second audit-chain entry nor a second request-index row.
-// spec: EG-DURABLE-KERNEL-R031
+// spec: MEDULLA-DURABLE-KERNEL-R031
 #[test]
 fn a_duplicate_reservation_is_replayed_without_a_restart() {
     let dir = tempfile::tempdir().unwrap();

@@ -1,5 +1,5 @@
 //! Blocking-key fixture contract for the supply-chain concepts
-//! (EG-SUPPLY-VOCAB-R007.1).
+//! (MEDULLA-SUPPLY-VOCAB-R007.1).
 
 use eg_rdf::mapping::parse_turtle;
 use eg_rdf::oxrdf::NamedNode;
@@ -9,7 +9,7 @@ const INFRA: &str = "http://knuckles.team/kg/infrastructure#";
 const EX: &str = "http://knuckles.team/test/supply-chain#";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
-// spec: EG-SUPPLY-VOCAB-R007.1
+// spec: MEDULLA-SUPPLY-VOCAB-R007.1
 #[test]
 fn blocking_key_fixture_parses_and_lists_two_keys_per_concept() {
     let fixture = parse_turtle(include_str!("fixtures/supply_chain_blocking_keys.ttl"))

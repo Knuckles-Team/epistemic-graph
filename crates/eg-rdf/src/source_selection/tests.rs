@@ -68,7 +68,7 @@ fn tiebreak_rule(result: &CoverageResult) -> TiebreakRule {
         .expect("a tiebreak premise")
 }
 
-// spec: EG-CQ-XSRC-R005.1
+// spec: MEDULLA-CQ-XSRC-R005.1
 #[test]
 fn authority_rank_selects_winner_and_lists_lower_ranked_alternate() {
     let fixture = CoverageFixture::new()
@@ -112,7 +112,7 @@ fn authority_rank_selects_winner_and_lists_lower_ranked_alternate() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R072.1
+// spec: MEDULLA-FEDERATED-QUERY-R072.1
 #[test]
 fn direct_mapping_is_covered_with_source_generation_premise() {
     let fixture = two_source_fixture();
@@ -134,7 +134,7 @@ fn direct_mapping_is_covered_with_source_generation_premise() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R072.1
+// spec: MEDULLA-FEDERATED-QUERY-R072.1
 #[test]
 fn subclass_mapping_serves_its_superclass() {
     let fixture = two_source_fixture();
@@ -160,7 +160,7 @@ fn subclass_mapping_serves_its_superclass() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R072.1
+// spec: MEDULLA-FEDERATED-QUERY-R072.1
 #[test]
 fn reachable_unmapped_class_is_uncovered() {
     let fixture = two_source_fixture();
@@ -169,7 +169,7 @@ fn reachable_unmapped_class_is_uncovered() {
     assert!(matches!(customer, CoverageResult::Uncovered { .. }));
 }
 
-// spec: EG-FEDERATED-QUERY-R072.1
+// spec: MEDULLA-FEDERATED-QUERY-R072.1
 #[test]
 fn unlinked_class_is_disconnected_not_uncovered() {
     let fixture = two_source_fixture().with_relation("Legacy", "notes", "Legacy");
@@ -178,7 +178,7 @@ fn unlinked_class_is_disconnected_not_uncovered() {
     assert!(matches!(legacy, CoverageResult::Disconnected { .. }));
 }
 
-// spec: EG-FEDERATED-QUERY-R072.1
+// spec: MEDULLA-FEDERATED-QUERY-R072.1
 #[test]
 fn selection_plans_no_execution() {
     let fixture = two_source_fixture();
@@ -190,7 +190,7 @@ fn selection_plans_no_execution() {
     }
 }
 
-// spec: EG-SRC-AUTH-R003.4
+// spec: MEDULLA-SRC-AUTH-R003.4
 #[test]
 fn effectiveness_comes_from_origin_not_from_the_flag() {
     let row = AuthorityRow::new("Incident", "m", "pack-src", 1, 1).approved(true);
@@ -203,7 +203,7 @@ fn effectiveness_comes_from_origin_not_from_the_flag() {
     ));
 }
 
-// spec: EG-SRC-AUTH-R003.5
+// spec: MEDULLA-SRC-AUTH-R003.5
 #[test]
 fn a_proposed_row_is_listed_never_selected() {
     let fixture = CoverageFixture::new()
@@ -226,7 +226,7 @@ fn a_proposed_row_is_listed_never_selected() {
     }));
 }
 
-// spec: EG-SRC-AUTH-R004.1
+// spec: MEDULLA-SRC-AUTH-R004.1
 #[test]
 fn two_mappings_on_one_class_are_both_kept() {
     let fixture = CoverageFixture::new()
@@ -236,7 +236,7 @@ fn two_mappings_on_one_class_are_both_kept() {
     assert_eq!(rows, ["a", "b"]);
 }
 
-// spec: EG-SRC-AUTH-R004.2
+// spec: MEDULLA-SRC-AUTH-R004.2
 #[test]
 fn a_covered_class_carries_the_authority_premise() {
     let fixture = CoverageFixture::new().with_row(
@@ -261,7 +261,7 @@ fn a_covered_class_carries_the_authority_premise() {
     }));
 }
 
-// spec: EG-SRC-AUTH-R004.3
+// spec: MEDULLA-SRC-AUTH-R004.3
 #[test]
 fn covered_lists_alternates_in_rank_order() {
     let fixture = CoverageFixture::new()
@@ -281,7 +281,7 @@ fn covered_lists_alternates_in_rank_order() {
     }
 }
 
-// spec: EG-SRC-AUTH-R004.4
+// spec: MEDULLA-SRC-AUTH-R004.4
 #[test]
 fn superclass_authority_is_inherited_and_a_subclass_row_overrides() {
     let base = CoverageFixture::new()
@@ -307,7 +307,7 @@ fn host_fixture() -> CoverageFixture {
         .with_row(AuthorityRow::new("Host", "hw-hosts", "hardware", 1, 1).facet("temperature"))
 }
 
-// spec: EG-SRC-AUTH-R004.7
+// spec: MEDULLA-SRC-AUTH-R004.7
 #[test]
 fn each_property_selects_its_own_source() {
     let query = SelectionQuery {
@@ -334,7 +334,7 @@ fn each_property_selects_its_own_source() {
     assert_eq!(by_facet(Some("hostname")), "cmdb");
 }
 
-// spec: EG-SRC-AUTH-R005.1
+// spec: MEDULLA-SRC-AUTH-R005.1
 #[test]
 fn facet_beats_class_beats_nearest_superclass() {
     let query = SelectionQuery {
@@ -366,7 +366,7 @@ fn facet_beats_class_beats_nearest_superclass() {
     assert_eq!(covered_source(nearer), "inventory");
 }
 
-// spec: EG-SRC-AUTH-R005.2
+// spec: MEDULLA-SRC-AUTH-R005.2
 #[test]
 fn a_matching_scope_beats_an_unscoped_lower_rank() {
     let fixture = CoverageFixture::new()
@@ -390,7 +390,7 @@ fn a_matching_scope_beats_an_unscoped_lower_rank() {
     );
 }
 
-// spec: EG-SRC-AUTH-R005.3
+// spec: MEDULLA-SRC-AUTH-R005.3
 #[test]
 fn an_exact_tie_abstains_and_never_chooses_by_name() {
     let tie = |a: &str, b: &str| {
@@ -410,7 +410,7 @@ fn an_exact_tie_abstains_and_never_chooses_by_name() {
     }
 }
 
-// spec: EG-SRC-AUTH-R005.4
+// spec: MEDULLA-SRC-AUTH-R005.4
 #[test]
 fn the_tiebreak_premise_records_each_rule() {
     let rank = CoverageFixture::new()
@@ -431,7 +431,7 @@ fn the_tiebreak_premise_records_each_rule() {
     );
 }
 
-// spec: EG-SRC-AUTH-R006.1
+// spec: MEDULLA-SRC-AUTH-R006.1
 #[test]
 fn one_abstention_per_reason() {
     let base = || CoverageFixture::new().with_relation("Incident", "on", "Service");
@@ -486,7 +486,7 @@ fn incident_ranked(allow_fallback: bool) -> CoverageFixture {
         .with_unconnected_source("servicenow")
 }
 
-// spec: EG-SRC-AUTH-R006.2
+// spec: MEDULLA-SRC-AUTH-R006.2
 #[test]
 fn an_unconnected_rank_one_authority_abstains_naming_source_and_concept() {
     let results = select_sources(&incident_ranked(false), &roots("Incident"), 1);
@@ -500,7 +500,7 @@ fn an_unconnected_rank_one_authority_abstains_naming_source_and_concept() {
     assert_eq!(covered_source(&verdict_for(&results, "Service")), "cmdb");
 }
 
-// spec: EG-SRC-AUTH-R006.3
+// spec: MEDULLA-SRC-AUTH-R006.3
 #[test]
 fn allow_fallback_answers_from_the_next_row_and_records_it() {
     let verdict = select_one(&incident_ranked(true), "Incident");
@@ -529,7 +529,7 @@ fn at(now: u64) -> SelectionQuery {
     }
 }
 
-// spec: EG-SRC-AUTH-R006.4
+// spec: MEDULLA-SRC-AUTH-R006.4
 #[test]
 fn a_stale_copy_falls_back_to_live_or_abstains_stale() {
     let stale_now = 10_000;
@@ -545,7 +545,7 @@ fn a_stale_copy_falls_back_to_live_or_abstains_stale() {
     );
 }
 
-// spec: EG-SRC-AUTH-R006.5
+// spec: MEDULLA-SRC-AUTH-R006.5
 #[test]
 fn without_authority_one_mapping_is_implicit_and_several_are_ambiguous() {
     let one = CoverageFixture::new().with_mapping("Ticket", "jira-tickets", "jira", 1);
@@ -562,7 +562,7 @@ fn without_authority_one_mapping_is_implicit_and_several_are_ambiguous() {
     );
 }
 
-// spec: EG-SRC-AUTH-R007.2
+// spec: MEDULLA-SRC-AUTH-R007.2
 #[test]
 fn the_audit_is_built_from_verdict_premises_only() {
     let fixture = CoverageFixture::new()
@@ -586,7 +586,7 @@ fn the_audit_is_built_from_verdict_premises_only() {
     }
 }
 
-// spec: EG-SRC-AUTH-R007.3
+// spec: MEDULLA-SRC-AUTH-R007.3
 #[test]
 fn the_audit_lists_not_used_rows_with_their_reason() {
     let fixture = CoverageFixture::new()
@@ -608,7 +608,7 @@ fn the_audit_lists_not_used_rows_with_their_reason() {
     assert!(reasons.contains(&("lake", Some(NotUsedReason::Stale))));
 }
 
-// spec: EG-SRC-AUTH-R008.1
+// spec: MEDULLA-SRC-AUTH-R008.1
 #[test]
 fn a_virtual_row_is_always_live() {
     // Even with copy capability and a fresh watermark, a virtual row never
@@ -623,7 +623,7 @@ fn a_virtual_row_is_always_live() {
     }
 }
 
-// spec: EG-SRC-AUTH-R008.2
+// spec: MEDULLA-SRC-AUTH-R008.2
 #[test]
 fn an_accelerated_row_carries_its_reason_into_the_audit() {
     let verdicts = select_sources_with(&accelerated(true, 1_000), &roots("Metric"), 1, &at(1_100));
@@ -634,7 +634,7 @@ fn an_accelerated_row_carries_its_reason_into_the_audit() {
     assert_eq!(entry.materialisation_reason.as_deref(), Some("query cost"));
 }
 
-// spec: EG-SRC-AUTH-R010.1
+// spec: MEDULLA-SRC-AUTH-R010.1
 #[test]
 fn source_role_round_trips() {
     for role in [
@@ -660,7 +660,7 @@ fn conflicting_roles() -> CoverageFixture {
         .with_source_role("uptime", SourceRole::LiveTruth)
 }
 
-// spec: EG-SRC-AUTH-R010.2
+// spec: MEDULLA-SRC-AUTH-R010.2
 #[test]
 fn live_truth_beats_historical_on_conflict() {
     assert_eq!(role_order(), RoleOrder::LIVE_TRUTH_FIRST);
@@ -679,7 +679,7 @@ fn live_truth_beats_historical_on_conflict() {
     assert_eq!(covered_source(&flipped), "warehouse");
 }
 
-// spec: EG-SRC-AUTH-R010.4
+// spec: MEDULLA-SRC-AUTH-R010.4
 #[test]
 fn inspiration_only_abstains_role_insufficient() {
     let fixture = CoverageFixture::new()
@@ -697,7 +697,7 @@ fn inspiration_only_abstains_role_insufficient() {
     assert_eq!(verdict.class(), "Price");
 }
 
-// spec: EG-SRC-AUTH-R010.5
+// spec: MEDULLA-SRC-AUTH-R010.5
 #[test]
 fn role_premise_names_both_sources() {
     let verdicts = select_sources(&conflicting_roles(), &roots("Service"), 1);
@@ -717,7 +717,7 @@ fn role_premise_names_both_sources() {
     assert!(entry.premises.iter().any(|p| p.contains("SourceRole")));
 }
 
-// spec: EG-SRC-AUTH-R011.1
+// spec: MEDULLA-SRC-AUTH-R011.1
 #[test]
 fn trust_mark_round_trips() {
     for mark in [TrustMark::Trusted, TrustMark::Untrusted] {
@@ -727,7 +727,7 @@ fn trust_mark_round_trips() {
     assert!(serde_json::from_str::<TrustMark>("\"maybe\"").is_err());
 }
 
-// spec: EG-SRC-AUTH-R011.2
+// spec: MEDULLA-SRC-AUTH-R011.2
 #[test]
 fn derived_content_inherits_untrusted() {
     use TrustMark::{Trusted, Untrusted};
@@ -755,7 +755,7 @@ fn derived_content_inherits_untrusted() {
     assert_eq!(mark_for_origin(&clean, None), Trusted);
 }
 
-// spec: EG-SRC-AUTH-R011.4
+// spec: MEDULLA-SRC-AUTH-R011.4
 #[test]
 fn downgrade_without_approval_refused() {
     let stored =
@@ -772,7 +772,7 @@ fn downgrade_without_approval_refused() {
     assert_eq!(approved.approval_id.as_deref(), Some("appr-1"));
 }
 
-// spec: EG-SRC-AUTH-R011.5
+// spec: MEDULLA-SRC-AUTH-R011.5
 #[test]
 fn mark_carries_rule_and_generation() {
     let stored = StoredTrustMark::stamp(

@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R018: the crates gate follows the declared pyo3 feature surface.
+"""MEDULLA-CONTRACT-R018: the crates gate follows the declared pyo3 feature surface.
 
 Collected by the existing python-suite job. These checks parse configuration;
 they do not replace the native crates gate's compilation and test evidence.
@@ -84,7 +84,7 @@ def _assert_matrix(workflow, manifests):
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R018")
+@pytest.mark.spec("MEDULLA-CONTRACT-R018")
 def test_release_crates_match_manifest_features(release_matrix):
     _assert_matrix(*release_matrix)
 
@@ -230,9 +230,9 @@ def _assert_required_clippy_declarations(workflow):
 
 
 # This is partial parent declaration coverage, not native execution evidence.
-@pytest.mark.spec("EG-DURABLE-KERNEL-R011")
-@pytest.mark.spec("EG-DURABLE-KERNEL-R011.5")
-@pytest.mark.spec("EG-CONTRACT-R037")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R011")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R011.5")
+@pytest.mark.spec("MEDULLA-CONTRACT-R037")
 def test_required_clippy_profiles_and_command_are_declared(release_matrix):
     workflow, _ = release_matrix
     _assert_required_clippy_declarations(workflow)
@@ -285,7 +285,7 @@ CLIPPY_DECLARATION_MUTATIONS = {
 }
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R011.5")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R011.5")
 @pytest.mark.parametrize("mutation", list(CLIPPY_DECLARATION_MUTATIONS))
 def test_required_clippy_declaration_drift_is_refused(release_matrix, mutation):
     workflow, _ = release_matrix
@@ -294,7 +294,7 @@ def test_required_clippy_declaration_drift_is_refused(release_matrix, mutation):
         _assert_required_clippy_declarations(workflow)
 
 
-# spec: EG-CONTRACT-R018
+# spec: MEDULLA-CONTRACT-R018
 def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
     release_matrix,
 ):
@@ -340,7 +340,7 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
 
 # Partial declaration coverage, not native execution evidence: the slim
 # profile's compile-and-lint evidence remains owned by the CI legs.
-@pytest.mark.spec("EG-CONTRACT-R046")
+@pytest.mark.spec("MEDULLA-CONTRACT-R046")
 def test_release_workflow_checks_the_slim_server_profile(release_matrix):
     workflow, _ = release_matrix
     profiles = _clippy_profiles(workflow)
@@ -361,7 +361,7 @@ def test_release_workflow_checks_the_slim_server_profile(release_matrix):
 # `--no-default-features --features server` with warnings denied (not merely
 # reported) by the single blocking Clippy command. The native execution
 # evidence remains owned by the CI leg.
-@pytest.mark.spec("EG-CONTRACT-R032")
+@pytest.mark.spec("MEDULLA-CONTRACT-R032")
 def test_slim_server_clippy_profile_lints_with_warnings_denied(release_matrix):
     workflow, _ = release_matrix
     job = workflow["jobs"]["clippy-release-profiles"]

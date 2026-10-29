@@ -1,4 +1,4 @@
-# EG-INGEST-WORKER - Test specification
+# MEDULLA-INGEST-WORKER - Test specification
 
 Governing spec: [spec.md](spec.md).
 
@@ -17,13 +17,13 @@ Blank job_id or target, unknown kind, wrong tenant claim, duplicate delivery aft
 
 Run cargo test for the touched crates in CI, the Graft SDK unit tests, and the spec-status and spec-decomposition hooks.
 
-## EG-INGEST-WORKER-R002 acceptance
+## MEDULLA-INGEST-WORKER-R002 acceptance
 
 | ID | Requirement | Type | Fixture | Expected | Status |
 |---|---|---|---|---|---|
 | T-R002 | R002.6 | Integration | One passing and one failing document | Admitted and Draft states | PENDING |
 
-## EG-INGEST-WORKER-R003 acceptance
+## MEDULLA-INGEST-WORKER-R003 acceptance
 
 | ID | Requirement | Type | Fixture | Expected | Status |
 |---|---|---|---|---|---|
@@ -34,18 +34,18 @@ Run cargo test for the touched crates in CI, the Graft SDK unit tests, and the s
 
 The following tests define required acceptance; they do not record passing results.
 
-- `EG-INGEST-WORKER-R003.7`: `crates/eg-types/src/source_document.rs::tests::document_receipt_round_trips`.
-- `EG-INGEST-WORKER-R003.8`: `src/server/handlers/source_ingestion.rs::tests::complete_document_is_idempotent`.
-- `EG-INGEST-WORKER-R003.9`: `src/server/handlers/source_ingestion.rs::tests::prepare_validates_document_after_resolution`.
-- `EG-INGEST-WORKER-R003.10`: `src/server/handlers/source_ingestion.rs::tests::invalid_document_quarantines_without_partial_graph`.
-- `EG-INGEST-WORKER-R003.11`: `src/server/handlers/source_ingestion.rs::tests::quarantine_finish_and_replay_preserve_outcome`.
-- `EG-INGEST-WORKER-R003.12`: `tests/ingest/test_document_normalization_served.py::test_document_batch_is_atomic`.
-- `EG-INGEST-WORKER-R003.13`: `crates/eg-types/src/source_transcript.rs::tests::transcript_round_trips`.
-- `EG-INGEST-WORKER-R003.14`: `src/server/handlers/source_ingestion/transcript.rs::tests::source_sequence_and_identity_are_preserved`.
-- `EG-INGEST-WORKER-R003.15`: `src/server/handlers/source_ingestion/transcript.rs::tests::prepare_routes_declared_transcript_format`.
-- `EG-INGEST-WORKER-R003.16`: `src/server/handlers/source_ingestion/transcript.rs::tests::unknown_format_and_foreign_concept_are_refused`.
-- `EG-INGEST-WORKER-R003.17`: `src/server/handlers/source_ingestion/transcript.rs::tests::receipt_preserves_message_provenance`.
-- `EG-INGEST-WORKER-R003.18`: `tests/ingest/test_transcript_served.py::test_thread_messages_are_shared_within_scope`.
+- `MEDULLA-INGEST-WORKER-R003.7`: `crates/eg-types/src/source_document.rs::tests::document_receipt_round_trips`.
+- `MEDULLA-INGEST-WORKER-R003.8`: `src/server/handlers/source_ingestion.rs::tests::complete_document_is_idempotent`.
+- `MEDULLA-INGEST-WORKER-R003.9`: `src/server/handlers/source_ingestion.rs::tests::prepare_validates_document_after_resolution`.
+- `MEDULLA-INGEST-WORKER-R003.10`: `src/server/handlers/source_ingestion.rs::tests::invalid_document_quarantines_without_partial_graph`.
+- `MEDULLA-INGEST-WORKER-R003.11`: `src/server/handlers/source_ingestion.rs::tests::quarantine_finish_and_replay_preserve_outcome`.
+- `MEDULLA-INGEST-WORKER-R003.12`: `tests/ingest/test_document_normalization_served.py::test_document_batch_is_atomic`.
+- `MEDULLA-INGEST-WORKER-R003.13`: `crates/eg-types/src/source_transcript.rs::tests::transcript_round_trips`.
+- `MEDULLA-INGEST-WORKER-R003.14`: `src/server/handlers/source_ingestion/transcript.rs::tests::source_sequence_and_identity_are_preserved`.
+- `MEDULLA-INGEST-WORKER-R003.15`: `src/server/handlers/source_ingestion/transcript.rs::tests::prepare_routes_declared_transcript_format`.
+- `MEDULLA-INGEST-WORKER-R003.16`: `src/server/handlers/source_ingestion/transcript.rs::tests::unknown_format_and_foreign_concept_are_refused`.
+- `MEDULLA-INGEST-WORKER-R003.17`: `src/server/handlers/source_ingestion/transcript.rs::tests::receipt_preserves_message_provenance`.
+- `MEDULLA-INGEST-WORKER-R003.18`: `tests/ingest/test_transcript_served.py::test_thread_messages_are_shared_within_scope`.
 
 R003.9 and R003.15 must resolve trusted mappings once and pass that snapshot into validation before admission.
 Their fixtures must preserve authorized committed replay when the current mapping revision changes.
@@ -65,37 +65,37 @@ Forged tenant or policy identities must never broaden access or commit a project
 
 | Row | Proving test |
 |---|---|
-| `EG-INGEST-WORKER-R902` | See each child. |
-| `EG-INGEST-WORKER-R902.1` | `crates/eg-types/tests/source_governance.rs::access_snapshot_round_trips` |
-| `EG-INGEST-WORKER-R902.2` | `crates/eg-core/tests/source_permission_sync.rs::access_batch_leaves_content_unchanged` |
-| `EG-INGEST-WORKER-R902.3` | `tests/test_source_permission_sync_served.py::test_group_change_applies_without_rewrite` |
-| `EG-INGEST-WORKER-R902.4` | `tests/test_source_permission_sync_served.py::test_permission_sync_refusals` |
-| `EG-INGEST-WORKER-R902.5` | `tests/test_source_permission_sync_served.py::test_stale_restricted_record_fails_closed` |
-| `EG-INGEST-WORKER-R902.6` | `cargo bench --bench source_permission_sync` |
-| `EG-INGEST-WORKER-R903` | See each child. |
-| `EG-INGEST-WORKER-R903.1` | `crates/eg-types/tests/source_governance.rs::reconcile_plan_round_trips` |
-| `EG-INGEST-WORKER-R903.2` | `crates/eg-core/tests/source_reconcile.rs::missing_records_delete_after_grace` |
-| `EG-INGEST-WORKER-R903.3` | `tests/test_source_reconcile_served.py::test_enumeration_prunes_deleted_record` |
-| `EG-INGEST-WORKER-R903.4` | `tests/test_source_reconcile_served.py::test_mass_delete_guard_refuses` |
-| `EG-INGEST-WORKER-R903.5` | `tests/test_source_reconcile_served.py::test_reconcile_receipt_reads_back` |
-| `EG-INGEST-WORKER-R903.6` | `cargo bench --bench source_reconcile` |
-| `EG-INGEST-WORKER-R904` | See each child. |
-| `EG-INGEST-WORKER-R904.1` | `crates/eg-types/tests/source_governance.rs::container_round_trips` |
-| `EG-INGEST-WORKER-R904.2` | `crates/eg-core/tests/source_hierarchy.rs::subtree_returns_descendants` |
-| `EG-INGEST-WORKER-R904.3` | `tests/test_source_hierarchy_served.py::test_containers_ingest_and_scope` |
-| `EG-INGEST-WORKER-R904.4` | `tests/test_source_hierarchy_served.py::test_container_refusals` |
-| `EG-INGEST-WORKER-R904.5` | `tests/test_source_hierarchy_served.py::test_container_tree_reads_back` |
-| `EG-INGEST-WORKER-R904.6` | `cargo bench --bench source_hierarchy` |
+| `MEDULLA-INGEST-WORKER-R902` | See each child. |
+| `MEDULLA-INGEST-WORKER-R902.1` | `crates/eg-types/tests/source_governance.rs::access_snapshot_round_trips` |
+| `MEDULLA-INGEST-WORKER-R902.2` | `crates/eg-core/tests/source_permission_sync.rs::access_batch_leaves_content_unchanged` |
+| `MEDULLA-INGEST-WORKER-R902.3` | `tests/test_source_permission_sync_served.py::test_group_change_applies_without_rewrite` |
+| `MEDULLA-INGEST-WORKER-R902.4` | `tests/test_source_permission_sync_served.py::test_permission_sync_refusals` |
+| `MEDULLA-INGEST-WORKER-R902.5` | `tests/test_source_permission_sync_served.py::test_stale_restricted_record_fails_closed` |
+| `MEDULLA-INGEST-WORKER-R902.6` | `cargo bench --bench source_permission_sync` |
+| `MEDULLA-INGEST-WORKER-R903` | See each child. |
+| `MEDULLA-INGEST-WORKER-R903.1` | `crates/eg-types/tests/source_governance.rs::reconcile_plan_round_trips` |
+| `MEDULLA-INGEST-WORKER-R903.2` | `crates/eg-core/tests/source_reconcile.rs::missing_records_delete_after_grace` |
+| `MEDULLA-INGEST-WORKER-R903.3` | `tests/test_source_reconcile_served.py::test_enumeration_prunes_deleted_record` |
+| `MEDULLA-INGEST-WORKER-R903.4` | `tests/test_source_reconcile_served.py::test_mass_delete_guard_refuses` |
+| `MEDULLA-INGEST-WORKER-R903.5` | `tests/test_source_reconcile_served.py::test_reconcile_receipt_reads_back` |
+| `MEDULLA-INGEST-WORKER-R903.6` | `cargo bench --bench source_reconcile` |
+| `MEDULLA-INGEST-WORKER-R904` | See each child. |
+| `MEDULLA-INGEST-WORKER-R904.1` | `crates/eg-types/tests/source_governance.rs::container_round_trips` |
+| `MEDULLA-INGEST-WORKER-R904.2` | `crates/eg-core/tests/source_hierarchy.rs::subtree_returns_descendants` |
+| `MEDULLA-INGEST-WORKER-R904.3` | `tests/test_source_hierarchy_served.py::test_containers_ingest_and_scope` |
+| `MEDULLA-INGEST-WORKER-R904.4` | `tests/test_source_hierarchy_served.py::test_container_refusals` |
+| `MEDULLA-INGEST-WORKER-R904.5` | `tests/test_source_hierarchy_served.py::test_container_tree_reads_back` |
+| `MEDULLA-INGEST-WORKER-R904.6` | `cargo bench --bench source_hierarchy` |
 
-## EG-INGEST-WORKER-R910 acceptance
+## MEDULLA-INGEST-WORKER-R910 acceptance
 
 | Area | Requirement | Test and pass condition |
 |---|---|---|
-| Model | `EG-INGEST-WORKER-R910.1` | `stream_content_version_id_is_stable`: Two batches of one stream share one object id. |
-| Behavior | `EG-INGEST-WORKER-R910.2` | `tests/test_source_stream_versions_served.py::test_three_batches_admit_admit_unchanged`: The third equal batch writes nothing. |
-| Wiring | `EG-INGEST-WORKER-R910.3` | `tests/test_source_stream_versions_served.py::test_second_batch_on_one_stream_admits`: No `STALE_CONTENT_VERSION` occurs. |
-| Refusal | `EG-INGEST-WORKER-R910.4` | `tests/test_source_stream_versions_served.py::test_stream_head_race_refuses_one`: One writer refuses and writes nothing. |
-| Evidence | `EG-INGEST-WORKER-R910.5` | `tests/test_source_stream_versions_served.py::test_receipt_names_digest_chain`: The receipt digests chain. |
-| Hot-path proof | `EG-INGEST-WORKER-R910.6` | `tests/test_source_stream_versions_served.py::test_second_batch_on_one_stream_admits`: The served test passes, and the benchmark meets the budget. |
+| Model | `MEDULLA-INGEST-WORKER-R910.1` | `stream_content_version_id_is_stable`: Two batches of one stream share one object id. |
+| Behavior | `MEDULLA-INGEST-WORKER-R910.2` | `tests/test_source_stream_versions_served.py::test_three_batches_admit_admit_unchanged`: The third equal batch writes nothing. |
+| Wiring | `MEDULLA-INGEST-WORKER-R910.3` | `tests/test_source_stream_versions_served.py::test_second_batch_on_one_stream_admits`: No `STALE_CONTENT_VERSION` occurs. |
+| Refusal | `MEDULLA-INGEST-WORKER-R910.4` | `tests/test_source_stream_versions_served.py::test_stream_head_race_refuses_one`: One writer refuses and writes nothing. |
+| Evidence | `MEDULLA-INGEST-WORKER-R910.5` | `tests/test_source_stream_versions_served.py::test_receipt_names_digest_chain`: The receipt digests chain. |
+| Hot-path proof | `MEDULLA-INGEST-WORKER-R910.6` | `tests/test_source_stream_versions_served.py::test_second_batch_on_one_stream_admits`: The served test passes, and the benchmark meets the budget. |
 
-Hot-path proof for `EG-INGEST-WORKER-R910`: `tests/test_source_stream_versions_served.py::test_second_batch_on_one_stream_admits`.
+Hot-path proof for `MEDULLA-INGEST-WORKER-R910`: `tests/test_source_stream_versions_served.py::test_second_batch_on_one_stream_admits`.

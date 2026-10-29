@@ -1,6 +1,6 @@
 //! Native reasoner acceptance for the shared supply-chain vocabulary: subclass
 //! entailment across the kg/infrastructure modules and the `usesComponent`
-//! runtime chain (EG-CQ-XSRC-R002, EG-SUPPLY-VOCAB-R002).
+//! runtime chain (MEDULLA-CQ-XSRC-R002, MEDULLA-SUPPLY-VOCAB-R002).
 #![cfg(feature = "owl")]
 
 mod common;
@@ -23,7 +23,7 @@ fn documents() -> Vec<Triple> {
     ])
 }
 
-// spec: EG-CQ-XSRC-R002.1
+// spec: MEDULLA-CQ-XSRC-R002.1
 #[test]
 fn supplier_entails_vendor_under_the_native_reasoner() {
     let triples = documents();
@@ -35,7 +35,7 @@ fn supplier_entails_vendor_under_the_native_reasoner() {
     assert!(classification.entails_subclass(&format!("<{KG}Supplier>"), &format!("<{KG}Vendor>")));
 }
 
-// spec: EG-CQ-XSRC-R002.2, EG-SUPPLY-VOCAB-R002.2
+// spec: MEDULLA-CQ-XSRC-R002.2, MEDULLA-SUPPLY-VOCAB-R002.2
 #[test]
 fn container_image_entails_software_component_under_the_native_reasoner() {
     let triples = documents();
@@ -51,7 +51,7 @@ fn container_image_entails_software_component_under_the_native_reasoner() {
     ));
 }
 
-// spec: EG-CQ-XSRC-R004.1
+// spec: MEDULLA-CQ-XSRC-R004.1
 #[test]
 fn supplies_service_infers_the_supplier_end_of_the_runtime_chain() {
     let mut triples = documents();
@@ -89,7 +89,7 @@ fn supplies_service_infers_the_supplier_end_of_the_runtime_chain() {
     assert_eq!(derived.rule, "RL-propertyChain");
 }
 
-// spec: EG-SUPPLY-VOCAB-R002.5
+// spec: MEDULLA-SUPPLY-VOCAB-R002.5
 #[test]
 fn uses_component_chain_infers_the_runtime_path() {
     let mut triples = documents();
@@ -114,7 +114,7 @@ fn uses_component_chain_infers_the_runtime_path() {
     assert_eq!(derived.rule, "RL-propertyChain");
 }
 
-// spec: EG-SUPPLY-VOCAB-R002.1 / EG-TYPED-PACKS-R105.7
+// spec: MEDULLA-SUPPLY-VOCAB-R002.1 / MEDULLA-TYPED-PACKS-R105.7
 #[test]
 fn module_version_edges_retain_the_shared_version_query_predicate() {
     let mut triples = parse_all(&[

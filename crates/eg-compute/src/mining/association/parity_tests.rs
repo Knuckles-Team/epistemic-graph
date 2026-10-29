@@ -1,7 +1,7 @@
 //! Golden output recorded by executing the deleted AU implementation.
 use super::*;
 
-// spec: EG-DURABLE-KERNEL-R082.6
+// spec: MEDULLA-DURABLE-KERNEL-R082.6
 #[test]
 fn deleted_au_six_transaction_order_and_thresholds() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
@@ -44,7 +44,7 @@ fn deleted_au_six_transaction_order_and_thresholds() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R082.6
+// spec: MEDULLA-DURABLE-KERNEL-R082.6
 #[test]
 fn minimum_count_and_zero_consequent_lift_boundaries() {
     assert_eq!(min_count(0.0, 6), 1);

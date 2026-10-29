@@ -1,4 +1,4 @@
-//! The engine's relational capability report (EG-ENGINE-PARITY-R020.1):
+//! The engine's relational capability report (MEDULLA-ENGINE-PARITY-R020.1):
 //! the wire features, index and constraint kinds, the SQL compatibility
 //! matrix digest, replication and point-in-time recovery the build serves.
 //! The wire front end reports `server_version` and its parameters from it.
@@ -77,30 +77,30 @@ impl EngineCapabilities {
     }
 }
 
-/// The rollup ranges of EG-ENGINE-PARITY and the consumer each one names
+/// The rollup ranges of MEDULLA-ENGINE-PARITY and the consumer each one names
 /// (plan.md "Consumers"). A rollup without a consumer stays out of the work
 /// queue.
 pub const ENGINE_PARITY_CONSUMERS: [(&str, &str); 7] = [
     (
         "R001-R005",
-        "Concurrent agent writes through arbora; EG-SCM changeset acceptance",
+        "Concurrent agent writes through arbora; MEDULLA-SCM changeset acceptance",
     ),
     (
         "R006-R009",
-        "Outside BI and SQL tools; the native-hosting pilot of EG-UNIFIED-DATA-PLANE-R026",
+        "Outside BI and SQL tools; the native-hosting pilot of MEDULLA-UNIFIED-DATA-PLANE-R026",
     ),
     (
         "R010-R014",
-        "Native-hosted application tables of EG-UNIFIED-DATA-PLANE-R024",
+        "Native-hosted application tables of MEDULLA-UNIFIED-DATA-PLANE-R024",
     ),
     (
         "R015-R017",
-        "Change subscribers of EG-UNIFIED-DATA-PLANE-R009; operator recovery; read scale",
+        "Change subscribers of MEDULLA-UNIFIED-DATA-PLANE-R009; operator recovery; read scale",
     ),
     (
         "R018",
-        "Catalog profiling and quality jobs of EG-UNIFIED-DATA-PLANE-R761 and R762",
+        "Catalog profiling and quality jobs of MEDULLA-UNIFIED-DATA-PLANE-R761 and R762",
     ),
     ("R019", "Every attached-source adapter"),
-    ("R020", "The benchmark gate of EG-DURABLE-KERNEL-R042"),
+    ("R020", "The benchmark gate of MEDULLA-DURABLE-KERNEL-R042"),
 ];

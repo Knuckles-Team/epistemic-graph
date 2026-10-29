@@ -455,7 +455,7 @@ pub(super) fn ensure_program_optimization_capability(
 mod tests {
     use super::MAX_ASSOCIATION_DISTINCT_ITEMS;
 
-    // spec: EG-PLACEMENT-R003.1
+    // spec: MEDULLA-PLACEMENT-R003.1
     #[test]
     fn association_distinct_item_limit_matches_rule_mask_width() {
         assert_eq!(MAX_ASSOCIATION_DISTINCT_ITEMS, 31);
@@ -466,7 +466,7 @@ mod tests {
 mod association_refusal_tests {
     use super::{validate_association_cardinality, validate_association_thresholds};
 
-    // spec: EG-PLACEMENT-R003.2
+    // spec: MEDULLA-PLACEMENT-R003.2
     #[test]
     fn cardinality_and_threshold_payloads_have_distinct_typed_refusals() {
         for (count, support, confidence, expected) in [

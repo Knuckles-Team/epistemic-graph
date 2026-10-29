@@ -157,7 +157,7 @@ pub(super) fn acquire_persist_lock(
 }
 
 /// Migrate an older but supported store before anything opens it, under the
-/// lock just taken (EG-DURABLE-KERNEL-R070.1). With the switch off, nothing is
+/// lock just taken (MEDULLA-DURABLE-KERNEL-R070.1). With the switch off, nothing is
 /// migrated and `open_persistence` refuses such a store and names the command.
 #[cfg(feature = "redb")]
 fn migrate_stores_on_open(dir: &str, lock: &epistemic_graph::persist_lock::PersistDirLock) {
@@ -628,7 +628,7 @@ pub(super) struct Transports {
 ///
 /// The bind is split from the accept loop precisely so the post-bind
 /// maintenance (matview reload, time-series startup reconciliation —
-/// EG-DURABLE-KERNEL-R006.4) starts only once the listener is up: it must
+/// MEDULLA-DURABLE-KERNEL-R006.4) starts only once the listener is up: it must
 /// run in the background AFTER serving begins, never before it.
 #[cfg(unix)]
 pub(super) async fn serve_transports(
@@ -817,7 +817,7 @@ pub(super) async fn txn_ttl_tick(state: SharedState, ttl: u64) {
     }
 }
 
-/// Narrow opt-in consumed from Arbora's local admission mode (EG-IDENTITY-R003.1).
+/// Narrow opt-in consumed from Arbora's local admission mode (MEDULLA-IDENTITY-R003.1).
 /// Never infer anonymous authority from an absent secret.
 pub(super) fn validate_auth_mode(args: &super::Args, socket_mode: u32) -> Result<(), BoxError> {
     if args.auth_mode != "none" {

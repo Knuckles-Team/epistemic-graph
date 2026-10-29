@@ -1,8 +1,8 @@
 # Entity-resolution blocking keys for the supply-chain concepts
-# (EG-SUPPLY-VOCAB-R007.1).
+# (MEDULLA-SUPPLY-VOCAB-R007.1).
 #
 # The plan.md table as a data fixture: one key set per concept, strongest key
-# first. Mechanism: EG-UNIFIED-DATA-PLANE-R030 (blocking, field similarity,
+# first. Mechanism: MEDULLA-UNIFIED-DATA-PLANE-R030 (blocking, field similarity,
 # Fellegi-Sunter, proposals inactive until approved). A digest key is exact;
 # a name-only key is always a proposal, never auto-approved.
 

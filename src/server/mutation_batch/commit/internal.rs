@@ -608,7 +608,7 @@ mod lane_tests {
 
     /// A Commit holds its coordinator lane and then its graph lane. A parent id
     /// that shares the graph's stripe must not wait on that graph lane.
-    // spec: EG-DURABLE-KERNEL-R065.1
+    // spec: MEDULLA-DURABLE-KERNEL-R065.1
     #[tokio::test]
     async fn coordinator_lane_never_waits_on_a_colliding_graph_lane() {
         let graph = "__commons__";

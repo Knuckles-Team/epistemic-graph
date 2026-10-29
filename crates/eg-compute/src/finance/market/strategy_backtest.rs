@@ -1,4 +1,4 @@
-//! Sealing a strategy's own backtest (EG-FINANCE-PRIMITIVES-R008.1): proves
+//! Sealing a strategy's own backtest (MEDULLA-FINANCE-PRIMITIVES-R008.1): proves
 //! that a strategy backtest comparison seals through `backtest_run::seal`
 //! with its mandatory validation fields present and mutually consistent, for
 //! ONE compared strategy (dollar-cost-averaging by a fixed amount). Lump-sum
@@ -102,7 +102,7 @@ mod tests {
         }]
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R008.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R008.1
     #[test]
     fn a_dca_strategy_backtest_seals_with_mandatory_validation_fields() {
         let dates = vec![10, 20, 30, 40, 50, 60];
@@ -117,7 +117,7 @@ mod tests {
         assert!((0.0..=1.0).contains(&run.validation.probability_backtest_overfit));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R008.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R008.1
     #[test]
     fn a_non_positive_contribution_amount_is_refused() {
         let dates = vec![10, 20];
@@ -126,7 +126,7 @@ mod tests {
         assert_eq!(err.code, super::INVALID_REQUEST);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R008.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R008.1
     #[test]
     fn a_dca_backtest_outside_the_universe_is_refused() {
         let dates = vec![10, 20, 30, 40, 50, 60];

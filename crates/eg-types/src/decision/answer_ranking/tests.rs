@@ -30,7 +30,7 @@ fn request() -> AnswerRankingRequest {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R134.104
+// spec: MEDULLA-DECISION-ENGINE-R134.104
 #[test]
 fn ranking_record_round_trips_and_requires_a_tie_rule() {
     let ranking = rank_answer_candidates(&request()).unwrap();
@@ -49,7 +49,7 @@ fn ranking_record_round_trips_and_requires_a_tie_rule() {
     assert!(serde_json::from_value::<AnswerCandidateRankingV1>(unknown).is_err());
 }
 
-// spec: EG-DECISION-ENGINE-R134.105
+// spec: MEDULLA-DECISION-ENGINE-R134.105
 #[test]
 fn four_candidates_yield_order_retention_and_revisions() {
     let ranking = rank_answer_candidates(&request()).unwrap();
@@ -99,7 +99,7 @@ fn four_candidates_yield_order_retention_and_revisions() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R134.107
+// spec: MEDULLA-DECISION-ENGINE-R134.107
 #[test]
 fn refusals_carry_typed_reasons() {
     let refuse = |edit: &dyn Fn(&mut AnswerRankingRequest)| {
@@ -165,7 +165,7 @@ fn refusals_carry_typed_reasons() {
     assert_eq!(reason["reason"], "revision_bound_exceeded");
 }
 
-// spec: EG-DECISION-ENGINE-R134.108
+// spec: MEDULLA-DECISION-ENGINE-R134.108
 #[test]
 fn premises_record_comparisons_order_retained_set_and_revisions() {
     let ranking = rank_answer_candidates(&request()).unwrap();

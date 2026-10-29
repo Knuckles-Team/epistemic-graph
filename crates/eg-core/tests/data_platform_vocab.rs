@@ -23,7 +23,7 @@ fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> 
     ))
 }
 
-// spec: EG-DATAPLAT-VOCAB-R001.1
+// spec: MEDULLA-DATAPLAT-VOCAB-R001.1
 #[test]
 fn shared_terms_present() {
     let triples = parse_turtle(include_str!("../ontology/data_platform-v1.ttl"))
@@ -98,7 +98,7 @@ fn shared_terms_present() {
     ));
 }
 
-// spec: EG-DATAPLAT-VOCAB-R001.2
+// spec: MEDULLA-DATAPLAT-VOCAB-R001.2
 #[test]
 fn store_mapping_subclass_of_virtual_mapping() {
     let triples = parse_turtle(include_str!("../ontology/data_platform-v1.ttl"))
@@ -147,7 +147,7 @@ fn store_mapping_subclass_of_virtual_mapping() {
     }
 }
 
-// spec: EG-DATAPLAT-VOCAB-R001.4
+// spec: MEDULLA-DATAPLAT-VOCAB-R001.4
 #[test]
 fn core_source_registered() {
     let sources = GraphSchemaSources::default();
@@ -233,7 +233,7 @@ fn load_data_platform() -> Vec<Triple> {
         .expect("the data-platform vocabulary parses")
 }
 
-// spec: EG-DATAPLAT-VOCAB-R002.1
+// spec: MEDULLA-DATAPLAT-VOCAB-R002.1
 #[test]
 fn relational_classes_present() {
     let triples = load_data_platform();
@@ -249,7 +249,7 @@ fn relational_classes_present() {
     }
 }
 
-// spec: EG-DATAPLAT-VOCAB-R002.2
+// spec: MEDULLA-DATAPLAT-VOCAB-R002.2
 #[test]
 fn relational_properties_domain_range() {
     let triples = load_data_platform();
@@ -260,7 +260,7 @@ fn relational_properties_domain_range() {
     assert_domain_range(&triples, "sqlDialect", "Database", "xsd:string");
 }
 
-// spec: EG-DATAPLAT-VOCAB-R002.3
+// spec: MEDULLA-DATAPLAT-VOCAB-R002.3
 #[test]
 fn document_terms_present() {
     let triples = load_data_platform();
@@ -272,7 +272,7 @@ fn document_terms_present() {
     assert_typed(&triples, "documentCount", "DatatypeProperty");
 }
 
-// spec: EG-DATAPLAT-VOCAB-R003.1
+// spec: MEDULLA-DATAPLAT-VOCAB-R003.1
 #[test]
 fn object_terms_present_without_content_property() {
     let triples = load_data_platform();
@@ -294,7 +294,7 @@ fn object_terms_present_without_content_property() {
     }
 }
 
-// spec: EG-DATAPLAT-VOCAB-R003.2
+// spec: MEDULLA-DATAPLAT-VOCAB-R003.2
 #[test]
 fn vector_terms_present() {
     let triples = load_data_platform();
@@ -311,7 +311,7 @@ fn vector_terms_present() {
     assert_typed(&triples, "usesEmbeddingSpace", "ObjectProperty");
 }
 
-// spec: EG-DATAPLAT-VOCAB-R004.1
+// spec: MEDULLA-DATAPLAT-VOCAB-R004.1
 #[test]
 fn stream_terms_present() {
     let triples = load_data_platform();
@@ -324,7 +324,7 @@ fn stream_terms_present() {
     assert_typed(&triples, "groupState", "DatatypeProperty");
 }
 
-// spec: EG-DATAPLAT-VOCAB-R004.3
+// spec: MEDULLA-DATAPLAT-VOCAB-R004.3
 #[test]
 fn analytics_terms_present() {
     let triples = load_data_platform();
@@ -341,7 +341,7 @@ fn analytics_terms_present() {
     }
 }
 
-// spec: EG-DATAPLAT-VOCAB-R004.4
+// spec: MEDULLA-DATAPLAT-VOCAB-R004.4
 #[test]
 fn ml_terms_present() {
     let triples = load_data_platform();
@@ -414,7 +414,7 @@ fn has_domain_range(triples: &[Triple], iri: &str, domain: Option<&str>, range: 
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R005.1
+// spec: MEDULLA-DATAPLAT-VOCAB-R005.1
 #[test]
 fn secret_metadata_terms_present() {
     let triples = parse_turtle(include_str!("../ontology/data_platform-v1.ttl"))
@@ -536,7 +536,7 @@ fn closed_shape(triples: &[Triple], shape: &str) -> (bool, Vec<String>) {
     (closed, allowed)
 }
 
-// spec: EG-DATAPLAT-VOCAB-R005.2
+// spec: MEDULLA-DATAPLAT-VOCAB-R005.2
 #[test]
 fn secret_path_with_extra_property_rejected() {
     let shapes = parse_turtle(SHAPES).expect("the data-platform shapes parse");
@@ -589,7 +589,7 @@ fn secret_path_with_extra_property_rejected() {
     }
 }
 
-// spec: EG-DATAPLAT-VOCAB-R005.3
+// spec: MEDULLA-DATAPLAT-VOCAB-R005.3
 #[test]
 fn secret_value_refused_and_no_value_property() {
     let vocabulary = parse_turtle(include_str!("../ontology/data_platform-v1.ttl"))
@@ -710,7 +710,7 @@ fn store_mapping_fixture(fixture: &str, expected_operations: &[&str]) {
     }
 }
 
-// spec: EG-DATAPLAT-VOCAB-R006.1
+// spec: MEDULLA-DATAPLAT-VOCAB-R006.1
 #[test]
 fn mapping_fixture_sql_validates() {
     validate_fixture(include_str!("../ontology/fixtures/data_platform/sql.ttl"));
@@ -725,7 +725,7 @@ fn mapping_fixture_sql_validates() {
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R006.8
+// spec: MEDULLA-DATAPLAT-VOCAB-R006.8
 #[test]
 fn mapping_fixture_data_science_validates() {
     validate_fixture(include_str!(
@@ -834,7 +834,7 @@ fn assert_via_operations(triples: &[Triple], operations: &[&str]) {
         );
     }
 }
-// spec: EG-DATAPLAT-VOCAB-R002.4
+// spec: MEDULLA-DATAPLAT-VOCAB-R002.4
 #[test]
 fn document_field_shape_rejects_ratio_2() {
     // A presenceRatio of 2 is outside [0,1] and must be refused.
@@ -892,7 +892,7 @@ ex:field a dp:DocumentField ;
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R003.3
+// spec: MEDULLA-DATAPLAT-VOCAB-R003.3
 #[test]
 fn vector_dimension_zero_rejected() {
     // A zero-embedding-space (dimensions 0) is refused: dimensions is a
@@ -954,7 +954,7 @@ ex:space a dp:EmbeddingSpace ;
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R004.2
+// spec: MEDULLA-DATAPLAT-VOCAB-R004.2
 #[test]
 fn negative_lag_rejected() {
     // A negative lag is refused: lag is an integer >= 0.
@@ -1009,7 +1009,7 @@ ex:lag a dp:PartitionLag ;
         report.results
     );
 }
-// spec: EG-DATAPLAT-VOCAB-R005.4
+// spec: MEDULLA-DATAPLAT-VOCAB-R005.4
 #[test]
 fn openbao_value_operation_mapping_refused() {
     // Every secret-value operation is refused by the StoreMapping denylist.
@@ -1041,7 +1041,7 @@ fn openbao_value_operation_mapping_refused() {
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R005.5
+// spec: MEDULLA-DATAPLAT-VOCAB-R005.5
 #[test]
 fn grants_capability_closed_list() {
     // One policy granting read on path A and deny on path B: the permissions
@@ -1111,7 +1111,7 @@ ex:grant a dp:PolicyPathGrant ;
         report.results
     );
 }
-// spec: EG-DATAPLAT-VOCAB-R006.2
+// spec: MEDULLA-DATAPLAT-VOCAB-R006.2
 #[test]
 fn mapping_fixture_documentdb_validates() {
     let triples = validate_fixture(include_str!(
@@ -1126,7 +1126,7 @@ fn mapping_fixture_documentdb_validates() {
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R006.3
+// spec: MEDULLA-DATAPLAT-VOCAB-R006.3
 #[test]
 fn mapping_fixture_objectstore_validates() {
     let triples = validate_fixture(include_str!(
@@ -1135,7 +1135,7 @@ fn mapping_fixture_objectstore_validates() {
     assert_via_operations(&triples, &["buckets:list", "objects:list", "objects:head"]);
 }
 
-// spec: EG-DATAPLAT-VOCAB-R006.4
+// spec: MEDULLA-DATAPLAT-VOCAB-R006.4
 #[test]
 fn mapping_fixture_vector_validates() {
     let triples = validate_fixture(include_str!(
@@ -1144,7 +1144,7 @@ fn mapping_fixture_vector_validates() {
     assert_via_operations(&triples, &["vector_collection_management:list_collections"]);
 }
 
-// spec: EG-DATAPLAT-VOCAB-R006.5
+// spec: MEDULLA-DATAPLAT-VOCAB-R006.5
 #[test]
 fn mapping_fixture_kafka_validates() {
     let triples = validate_fixture(include_str!("../ontology/fixtures/data_platform/kafka.ttl"));
@@ -1159,7 +1159,7 @@ fn mapping_fixture_kafka_validates() {
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R006.6
+// spec: MEDULLA-DATAPLAT-VOCAB-R006.6
 #[test]
 fn mapping_fixture_openbao_validates() {
     let triples = validate_fixture(include_str!(
@@ -1171,7 +1171,7 @@ fn mapping_fixture_openbao_validates() {
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R006.7
+// spec: MEDULLA-DATAPLAT-VOCAB-R006.7
 #[test]
 fn mapping_fixture_clarity_validates() {
     let triples = validate_fixture(include_str!(
@@ -1179,7 +1179,7 @@ fn mapping_fixture_clarity_validates() {
     ));
     assert_via_operations(&triples, &["clarity_insights:get_data_export"]);
 }
-// spec: EG-DATAPLAT-VOCAB-R007.1
+// spec: MEDULLA-DATAPLAT-VOCAB-R007.1
 #[test]
 fn materialised_without_reason_rejected() {
     fn mapping_with_mode(mode: &str, reason: Option<&str>) -> String {
@@ -1251,7 +1251,7 @@ ex:mapping a dp:StoreMapping ;
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R007.2
+// spec: MEDULLA-DATAPLAT-VOCAB-R007.2
 #[test]
 fn mcp_operation_requires_via_operation() {
     fn mapping_with_kind(kind: &str, via_operation: Option<&str>) -> String {
@@ -1319,7 +1319,7 @@ ex:mapping a dp:StoreMapping ;
     );
 }
 
-// spec: EG-DATAPLAT-VOCAB-R007.3
+// spec: MEDULLA-DATAPLAT-VOCAB-R007.3
 #[test]
 fn no_second_discovery_path() {
     let documents: &[&str] = &[
@@ -1420,7 +1420,7 @@ fn assert_alignment_resolves(document: &str) -> usize {
     rows
 }
 
-// spec: EG-DATAPLAT-VOCAB-R007.4
+// spec: MEDULLA-DATAPLAT-VOCAB-R007.4
 #[test]
 fn virtual_default_for_all_eight() {
     // `all_virtual` marks the fixtures whose mappings are every virtual
@@ -1542,7 +1542,7 @@ fn virtual_default_for_all_eight() {
     }
 }
 
-// spec: EG-DATAPLAT-VOCAB-R008.1
+// spec: MEDULLA-DATAPLAT-VOCAB-R008.1
 #[test]
 fn alignment_relational_resolves() {
     let document = include_str!("../ontology/fixtures/data_platform/alignment_relational.ttl");
@@ -1578,7 +1578,7 @@ fn alignment_relational_resolves() {
     ));
 }
 
-// spec: EG-DATAPLAT-VOCAB-R008.2
+// spec: MEDULLA-DATAPLAT-VOCAB-R008.2
 #[test]
 fn alignment_object_vector_resolves() {
     let document = include_str!("../ontology/fixtures/data_platform/alignment_object_vector.ttl");
@@ -1614,7 +1614,7 @@ fn alignment_object_vector_resolves() {
     ));
 }
 
-// spec: EG-DATAPLAT-VOCAB-R008.3
+// spec: MEDULLA-DATAPLAT-VOCAB-R008.3
 #[test]
 fn alignment_ops_ml_resolves() {
     let document = include_str!("../ontology/fixtures/data_platform/alignment_ops_ml.ttl");

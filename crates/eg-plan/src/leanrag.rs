@@ -26,7 +26,7 @@
 //!     summary-labelled nodes for the top-`k` summaries by embedding similarity. If
 //!     the graph has no summary tier the retriever returns
 //!     [`VectorFreeError::SummaryTierAbsent`] (`RETRIEVAL_HIERARCHY_INVALID`,
-//!     `EG-FEDERATED-QUERY-R081.9.4`); it never replaces a failed descent with an
+//!     `MEDULLA-FEDERATED-QUERY-R081.9.4`); it never replaces a failed descent with an
 //!     unrestricted global search. [`flat_top_k`] is the explicit flat baseline.
 //!  2. **(b) drill down** — from each retrieved summary, a bounded BFS over
 //!     `SUMMARIZES`/`CONSOLIDATES` children (at most `drill_depth` levels, keeping
@@ -192,7 +192,7 @@ pub enum VectorFreeError {
     TraversalLimitExceeded(TraversalLimit),
     NoMatchingGranularity(SectionGranularity),
     /// The retriever found no summary-tier node, so the hierarchical descent has no
-    /// start. Wire code `RETRIEVAL_HIERARCHY_INVALID` (`EG-FEDERATED-QUERY-R081.9.4`).
+    /// start. Wire code `RETRIEVAL_HIERARCHY_INVALID` (`MEDULLA-FEDERATED-QUERY-R081.9.4`).
     SummaryTierAbsent,
 }
 
@@ -523,7 +523,7 @@ impl<'a> HierarchicalRetriever<'a> {
     /// Step (a): retrieve at the summary / abstraction level. If the tier is absent the
     /// allow-filter returns nothing and the walk refuses with
     /// [`VectorFreeError::SummaryTierAbsent`]; it never falls back to an unrestricted
-    /// search (`EG-FEDERATED-QUERY-R081.9.4`).
+    /// search (`MEDULLA-FEDERATED-QUERY-R081.9.4`).
     fn retrieve_summaries(&self, query: &[f32], k: usize) -> Result<Vec<Scored>, VectorFreeError> {
         let is_summary = |id: &str| self.is_summary(id);
         let summaries = self.ann.search(query, k, Some(&is_summary));
@@ -1341,7 +1341,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FEDERATED-QUERY-R081.9.4
+    // spec: MEDULLA-FEDERATED-QUERY-R081.9.4
     /// CONCEPT:EG-KG.retrieval.bounded-drill — with NO summary tier the retriever refuses with a
     /// typed error instead of silently replacing the descent with a flat global search.
     #[test]

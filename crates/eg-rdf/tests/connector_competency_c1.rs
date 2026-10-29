@@ -1,4 +1,4 @@
-//! Connector competency questions (EG-CQ-CONN), chunk-1 lane: fixture
+//! Connector competency questions (MEDULLA-CQ-CONN), chunk-1 lane: fixture
 //! SPARQL answers for the chunk's question rows that are fully expressible
 //! on the vocabulary on main (the amendment pattern recorded in
 //! `specs/connector-competency/plan.md`).
@@ -74,7 +74,7 @@ fn local(cell: &str) -> &str {
         .unwrap()
 }
 
-// spec: EG-CQ-CONN-R017.1
+// spec: MEDULLA-CQ-CONN-R017.1
 #[test]
 fn egeria_confidential_glossary_terms_answer() {
     // "Which glossary terms are linked to a data asset with a confidential
@@ -171,7 +171,7 @@ SELECT ?term ?asset ?classification ?source ?record ?asof WHERE {
     assert_eq!(row[i_asof], "2026-01-03T00:00:00Z");
 }
 
-// spec: EG-CQ-CONN-R003.2
+// spec: MEDULLA-CQ-CONN-R003.2
 #[test]
 fn archivebox_uncaptured_freshrss_pages_answer() {
     // "Which archived pages were first seen as FreshRSS articles but never

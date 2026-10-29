@@ -1013,8 +1013,8 @@ mod placement_admin_wire_rpc {
     /// three concurrent two-group Raft nodes plus that call depth overflows Tokio's
     /// 2 MiB default test-worker stack; `#[tokio::test]`'s default runtime does not
     /// apply the engine's own `thread_stack_size`, so this test builds its own.
-    // spec: EG-DURABLE-KERNEL-R054
-    // spec: EG-DURABLE-KERNEL-R012
+    // spec: MEDULLA-DURABLE-KERNEL-R054
+    // spec: MEDULLA-DURABLE-KERNEL-R012
     #[test]
     fn placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster() {
         let driver = crate::server::spawn_engine_driver(|| {
@@ -2084,7 +2084,7 @@ async fn coalesced_batch_round_trips_on_one_connection() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// spec: EG-DURABLE-KERNEL-R015
+// spec: MEDULLA-DURABLE-KERNEL-R015
 /// EH-288: heartbeat flushing is INDEPENDENT PER PEER, not one shared flush pass —
 /// one slow peer's round trip must not stall the others' scheduled flush. With two
 /// heartbeats offered within the same coalescing window, the fast peer's heartbeat
@@ -2791,7 +2791,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     let _ = std::fs::remove_dir_all(&root);
 }
 
-// spec: EG-DURABLE-KERNEL-R025
+// spec: MEDULLA-DURABLE-KERNEL-R025
 /// EH-534, leader-agnostic cluster test: a member-add administrative request follows
 /// the CURRENT leader to completion after a LEGAL leadership change — no
 /// forward-to-leader response is ever surfaced, and the tests never assume a fixed

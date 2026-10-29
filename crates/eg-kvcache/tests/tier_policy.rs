@@ -20,7 +20,7 @@ fn tier(max_bytes: u64, min_worth: f64) -> PolicyTier {
     })
 }
 
-// spec: EG-DURABLE-KERNEL-R800.1
+// spec: MEDULLA-DURABLE-KERNEL-R800.1
 #[test]
 fn low_worth_entry_is_not_admitted() {
     let entry = meta("cheap", 100, 1, 10);
@@ -41,7 +41,7 @@ fn low_worth_entry_is_not_admitted() {
     assert_eq!(cache.lookup("t1", "valuable", 0), Some(vec![2; 100]));
 }
 
-// spec: EG-DURABLE-KERNEL-R800.2
+// spec: MEDULLA-DURABLE-KERNEL-R800.2
 #[test]
 fn lowest_worth_is_evicted_first() {
     let mut cache = tier(300, 0.0);
@@ -73,7 +73,7 @@ fn lowest_worth_is_evicted_first() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R800.2
+// spec: MEDULLA-DURABLE-KERNEL-R800.2
 #[test]
 fn dependency_advance_and_volatility_window_end_the_hit() {
     let mut cache = tier(1_000, 0.0);
@@ -100,7 +100,7 @@ fn dependency_advance_and_volatility_window_end_the_hit() {
     assert_eq!(cache.lookup("t1", "volatile", 100), None);
 }
 
-// spec: EG-DURABLE-KERNEL-R800.4
+// spec: MEDULLA-DURABLE-KERNEL-R800.4
 #[test]
 fn oversize_entry_is_refused() {
     let mut cache = tier(100, 0.0);

@@ -1,8 +1,8 @@
-//! Symbol edit model (EG-SCM-R013.1).
+//! Symbol edit model (MEDULLA-SCM-R013.1).
 
 use eg_types::source_symbol_edit::{SymbolEdit, SymbolEditKind, SymbolEditOp};
 
-// spec: EG-SCM-R013.1
+// spec: MEDULLA-SCM-R013.1
 #[test]
 fn edit_round_trips_and_kinds_are_closed() {
     let kinds = [

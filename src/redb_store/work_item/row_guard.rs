@@ -263,7 +263,7 @@ mod tests {
         };
         check(&temp.shard, "ordinary", ordinary).unwrap();
     }
-    // spec: EG-DURABLE-KERNEL-R028.4
+    // spec: MEDULLA-DURABLE-KERNEL-R028.4
     #[test]
     fn run_owner_binding_survives_generic_removal_and_opaque_replacement() {
         let temp = open("run-owner-guard");
@@ -313,7 +313,7 @@ mod tests {
         )
         .is_err());
     }
-    // spec: EG-DURABLE-KERNEL-R028.4.1
+    // spec: MEDULLA-DURABLE-KERNEL-R028.4.1
     #[test]
     fn run_admission_snapshot_cannot_be_planted_or_removed() {
         let temp = open("run-admission-guard");

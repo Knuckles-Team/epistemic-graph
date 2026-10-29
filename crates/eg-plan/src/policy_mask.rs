@@ -1,4 +1,4 @@
-//! Column masking and row-filter policies (EG-FEDERATED-QUERY-R706.1).
+//! Column masking and row-filter policies (MEDULLA-FEDERATED-QUERY-R706.1).
 
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +12,7 @@ pub enum MaskMethod {
     Redact,
 }
 
-/// A masking policy on every column carrying `tag` (EG-FEDERATED-QUERY-R706.1).
+/// A masking policy on every column carrying `tag` (MEDULLA-FEDERATED-QUERY-R706.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MaskPolicy {
@@ -22,7 +22,7 @@ pub struct MaskPolicy {
     pub method: MaskMethod,
 }
 
-/// A row filter on every table carrying `tag` (EG-FEDERATED-QUERY-R706.1).
+/// A row filter on every table carrying `tag` (MEDULLA-FEDERATED-QUERY-R706.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RowFilterPolicy {
@@ -35,7 +35,7 @@ pub struct RowFilterPolicy {
 mod tests {
     use super::*;
 
-    // spec: EG-FEDERATED-QUERY-R706.1
+    // spec: MEDULLA-FEDERATED-QUERY-R706.1
     #[test]
     fn policies_round_trip() {
         for method in [

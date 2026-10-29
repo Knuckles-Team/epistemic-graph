@@ -374,7 +374,7 @@ async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
 
 /// NL grounding and execution bind the same owner-scoped registry. The local
 /// fixture belongs to system, so the foreign-only query needs no hidden local label.
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[tokio::test]
 async fn nl_query_foreign_leg_is_owner_scoped() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;

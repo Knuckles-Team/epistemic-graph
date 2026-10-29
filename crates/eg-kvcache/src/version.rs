@@ -138,7 +138,7 @@ impl DataVersion {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R083.1
+    // spec: MEDULLA-DURABLE-KERNEL-R083.1
     #[test]
     fn kv_block_keys_bind_model_revision_and_token_prefix() {
         let prefix = crate::content_hash(b"shared token prefix");

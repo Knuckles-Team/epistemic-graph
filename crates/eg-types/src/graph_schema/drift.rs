@@ -642,7 +642,7 @@ mod tests {
         }
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn a_shape_that_fits_the_contract_is_compatible_and_accepted() {
         let approved = contract(&[
@@ -678,7 +678,7 @@ mod tests {
         assert_eq!(report.action, DriftAction::Accepted);
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn a_new_type_or_an_optional_field_is_widening() {
         let approved = contract(&[("name", true, &[JsonType::String])]);
@@ -709,7 +709,7 @@ mod tests {
         assert_eq!(report.action, DriftAction::Quarantined);
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn a_missing_type_or_an_optional_field_is_narrowing() {
         let approved = contract(&[
@@ -749,7 +749,7 @@ mod tests {
         assert_eq!(report.action, DriftAction::Quarantined);
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn a_one_for_one_replacement_with_the_same_signature_is_rename() {
         let approved = contract(&[("name", true, &[JsonType::String])]);
@@ -773,7 +773,7 @@ mod tests {
         assert_eq!(report.action, DriftAction::Quarantined);
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn a_missing_required_field_or_a_retyped_field_is_breaking() {
         // A required field no longer arrives.
@@ -813,7 +813,7 @@ mod tests {
         assert_eq!(report.action, DriftAction::Quarantined);
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn an_undeclared_policy_is_quarantine_and_quarantine_never_applies() {
         // The default the operator gets when the policy is absent.
@@ -865,7 +865,7 @@ mod tests {
         }
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn a_declared_policy_applies_only_the_classes_it_names() {
         let approved = contract(&[
@@ -926,7 +926,7 @@ mod tests {
         }
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn a_quarantined_drift_becomes_the_repair_proposal_the_approval_binds() {
         let approved = contract(&[("name", true, &[JsonType::String])]);
@@ -958,7 +958,7 @@ mod tests {
         assert!(RepairProposal::new("approved:src", &empty).is_err());
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn the_seeded_activation_refuses_until_the_gate_completes_in_order() {
         let drifted = shape(&[("name", &[JsonType::Integer], true)]);
@@ -991,7 +991,7 @@ mod tests {
         assert!(in_order.checked_for_activation().is_ok());
     }
 
-    // spec: EG-TYPED-PACKS-R710
+    // spec: MEDULLA-TYPED-PACKS-R710
     #[test]
     fn infer_reads_presence_types_and_digests_each_delivery() {
         let samples = vec![

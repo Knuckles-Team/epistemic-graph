@@ -2,7 +2,7 @@
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-# Government ABox shapes (EG-CQ-CONN-R073.x): a privacy assessment must carry
+# Government ABox shapes (MEDULLA-CQ-CONN-R073.x): a privacy assessment must carry
 # its refresh due date, so an onetrust record without one is incomplete.
 
 :PrivacyAssessmentShape a sh:NodeShape ;

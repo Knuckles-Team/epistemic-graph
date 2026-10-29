@@ -41,7 +41,7 @@ fn ids_of(src: &str, ctx: &PlanCtx) -> Vec<String> {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R005
+// spec: MEDULLA-FEDERATED-QUERY-R005
 #[test]
 fn validate_shape_reports_conformance_and_violation_through_real_uql_text() {
     let (view, semantic) = people();

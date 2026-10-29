@@ -1,5 +1,5 @@
 //! G9 regression: booting against an existing store must not be silently
-//! blocked for minutes (EG-DURABLE-KERNEL-R006.4, EG-DURABLE-KERNEL-R006.5).
+//! blocked for minutes (MEDULLA-DURABLE-KERNEL-R006.4, MEDULLA-DURABLE-KERNEL-R006.5).
 //!
 //! Pre-G9 the pre-listener boot sequence queued the matview reload and the
 //! time-series startup reconciliation behind the connector-pack-projection
@@ -375,8 +375,8 @@ fn scoped_series_key(graph: &str, series: &str, principal: &str) -> String {
     eg_tsdb::store::SeriesKey::new(tenant_scope, graph_scope, series).encode()
 }
 
-// spec: EG-DURABLE-KERNEL-R006.4
-// spec: EG-DURABLE-KERNEL-R006.5
+// spec: MEDULLA-DURABLE-KERNEL-R006.4
+// spec: MEDULLA-DURABLE-KERNEL-R006.5
 #[tokio::test(flavor = "multi_thread")]
 async fn boot_listener_binds_before_the_projection_drain_completes() {
     // Held for the whole test: this opens durable stores, so the ambient
@@ -444,7 +444,7 @@ async fn boot_listener_binds_before_the_projection_drain_completes() {
 
     // The seeding dispatches ensured the Agent Library store: drop the cached
     // handle so the worker's first sweep exercises the open-OUTSIDE-the-write-
-    // lock path (EG-DURABLE-KERNEL-R006.4).
+    // lock path (MEDULLA-DURABLE-KERNEL-R006.4).
     let mut guard = state.write().await;
     guard.agent_library = None;
     *guard.agent_library_open.lock() = None;
@@ -575,7 +575,7 @@ async fn boot_listener_binds_before_the_projection_drain_completes() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
-    // (e) The durable-cursor fast path (EG-DURABLE-KERNEL-R006.5): a second
+    // (e) The durable-cursor fast path (MEDULLA-DURABLE-KERNEL-R006.5): a second
     // reconciliation (the NEXT boot) is a true no-op — zero replay, no
     // duplicates — so the full replay is a once-per-store cost, not a
     // per-boot one.

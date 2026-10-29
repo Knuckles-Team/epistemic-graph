@@ -1,5 +1,5 @@
 //! Ontology induction proposals and their admission scores
-//! (EG-INGEST-WORKER-R002.1, R002.2).
+//! (MEDULLA-INGEST-WORKER-R002.1, R002.2).
 //!
 //! A proposal induced from unstructured text starts as a draft. It is scored
 //! for property coverage and class redundancy; the ingest job body (R002.3)
@@ -200,7 +200,7 @@ mod tests {
         names.iter().map(|n| n.to_string()).collect()
     }
 
-    // spec: EG-INGEST-WORKER-R002.1
+    // spec: MEDULLA-INGEST-WORKER-R002.1
     #[test]
     fn proposal_round_trips_and_starts_as_draft() {
         let proposal = OntologyProposal::new(
@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(decoded.state, ProposalState::Draft);
     }
 
-    // spec: EG-INGEST-WORKER-R002.2
+    // spec: MEDULLA-INGEST-WORKER-R002.2
     #[test]
     fn score_proposal_checks_coverage_and_redundancy() {
         let thresholds = ProposalThresholds::default();

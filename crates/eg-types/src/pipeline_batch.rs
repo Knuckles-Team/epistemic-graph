@@ -1,4 +1,4 @@
-//! Pipelined request batching (EG-DURABLE-KERNEL-R040): a RESP pipeline or a
+//! Pipelined request batching (MEDULLA-DURABLE-KERNEL-R040): a RESP pipeline or a
 //! pgwire extended-protocol batch is admitted once and committed as a single
 //! group commit, returning ordered replies 1:1. This is the typed model
 //! slice (`.1`): the batch and admission-decision types proving one
@@ -75,7 +75,7 @@ pub fn admit(batch: &PipelineBatch) -> BatchCommitDecision {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R040.1
+    // spec: MEDULLA-DURABLE-KERNEL-R040.1
     #[test]
     fn protocols_round_trip_through_their_wire_name() {
         for (protocol, name) in [
@@ -89,7 +89,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R040.1
+    // spec: MEDULLA-DURABLE-KERNEL-R040.1
     #[test]
     fn empty_batch_is_refused_for_both_protocols() {
         for protocol in [PipelineProtocol::Resp, PipelineProtocol::PgwireExtended] {
@@ -98,7 +98,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R040.1
+    // spec: MEDULLA-DURABLE-KERNEL-R040.1
     #[test]
     fn non_empty_batch_constructs_successfully() {
         let batch = PipelineBatch::new(
@@ -109,7 +109,7 @@ mod tests {
         assert_eq!(batch.request_ids.len(), 2);
     }
 
-    // spec: EG-DURABLE-KERNEL-R040.1
+    // spec: MEDULLA-DURABLE-KERNEL-R040.1
     #[test]
     fn admitting_a_batch_reports_exact_count_and_preserves_order() {
         let ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];

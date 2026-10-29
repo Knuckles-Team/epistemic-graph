@@ -1,5 +1,5 @@
 //! Native-parser contract for the host limit-breach and HostLimit vocabulary
-//! (EG-CQ-XSRC-R008.2.1, EG-SUPPLY-VOCAB-R004.1).
+//! (MEDULLA-CQ-XSRC-R008.2.1, MEDULLA-SUPPLY-VOCAB-R004.1).
 #![cfg(feature = "rdf")]
 
 mod common;
@@ -15,7 +15,7 @@ const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const OWL: &str = "http://www.w3.org/2002/07/owl#";
 const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
 
-// spec: EG-CQ-XSRC-R008.2.1
+// spec: MEDULLA-CQ-XSRC-R008.2.1
 #[test]
 fn host_limit_breach_terms_listed_with_host_domain() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -46,7 +46,7 @@ fn host_limit_breach_terms_listed_with_host_domain() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R004.1
+// spec: MEDULLA-SUPPLY-VOCAB-R004.1
 #[test]
 fn host_limit_entity_terms_listed_and_no_overlimit_class() {
     let triples = parse_turtle(DOCUMENT).unwrap();

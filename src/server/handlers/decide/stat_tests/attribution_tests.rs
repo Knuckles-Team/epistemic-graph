@@ -118,15 +118,15 @@ async fn a_fully_logged_slate_splits_by_exact_shapley() {
     assert_eq!(report.components.as_slice()[0].component_id, "comp-a");
 }
 
-/// EG-DECISION-ENGINE-R012: slate `g-a`, `g-b` and `g-ab` are three separate
+/// MEDULLA-DECISION-ENGINE-R012: slate `g-a`, `g-b` and `g-ab` are three separate
 /// questions (each its own committed decision record, independently
 /// evaluated) answered against the same shared assembly template (`slates`
 /// clones `v1::decided`'s record for every one of them). The slot-level
 /// crediting split aggregates consistently across all three: every
 /// component's contribution is reported under the slot name it actually
 /// filled in that shared template, not a per-question-local label.
-// spec: EG-DECISION-ENGINE-R012
-// spec: EG-DECISION-ENGINE-R012.1
+// spec: MEDULLA-DECISION-ENGINE-R012
+// spec: MEDULLA-DECISION-ENGINE-R012.1
 #[tokio::test]
 async fn slot_level_crediting_is_consistent_across_questions_sharing_one_template() {
     let h = Harness::new().await;

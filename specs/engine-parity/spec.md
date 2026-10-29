@@ -1,8 +1,8 @@
-# EG-ENGINE-PARITY — Relational engine parity inside one library
+# MEDULLA-ENGINE-PARITY — Relational engine parity inside one library
 
 Owner: Medulla (`EG`). Sole owner.
 Component: Storage
-References: [EG-DURABLE-KERNEL](../durable-graph-kernel/spec.md), [EG-UNIFIED-DATA-PLANE](../unified-data-plane/spec.md), [EG-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md), [EG-SCM](../source-changesets/spec.md)
+References: [MEDULLA-DURABLE-KERNEL](../durable-graph-kernel/spec.md), [MEDULLA-UNIFIED-DATA-PLANE](../unified-data-plane/spec.md), [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md), [MEDULLA-SCM](../source-changesets/spec.md)
 
 Cross-repo IDs: `ARBORA-OPS-R858` issues outside SQL client identities for the wire front end.
 The former prefix `EG-HYBRID-STORAGE-` is an alias of this prefix in `.config/spec-aliases.toml`.
@@ -25,7 +25,7 @@ Each capability is built only when a named consumer needs it.
 ## Requirements
 
 Every requirement ID lives in [requirements.md](requirements.md). The IDs are
-`EG-ENGINE-PARITY-R001`–`R020`. Architecture and live wiring live in [plan.md](plan.md). The
+`MEDULLA-ENGINE-PARITY-R001`–`R020`. Architecture and live wiring live in [plan.md](plan.md). The
 test contract lives in [test-spec.md](test-spec.md). Ordered work lives in [tasks.md](tasks.md).
 
 ## Acceptance
@@ -42,11 +42,11 @@ The spec accepts when every row reaches `VERIFIED` in [status.json](status.json)
 
 ## Why a new spec
 
-The search read EG-DURABLE-KERNEL, EG-UNIFIED-DATA-PLANE and EG-FEDERATED-QUERY.
+The search read MEDULLA-DURABLE-KERNEL, MEDULLA-UNIFIED-DATA-PLANE and MEDULLA-FEDERATED-QUERY.
 
-- EG-DURABLE-KERNEL-R035 owns the wire operational surfaces: dump, restore, statistics views and cancellation.
-- EG-DURABLE-KERNEL-R084 owns version-checked writes. R016 and R040 own batched durability.
-- EG-UNIFIED-DATA-PLANE-R013 owns the outside PostgreSQL adapter as an attached source.
+- MEDULLA-DURABLE-KERNEL-R035 owns the wire operational surfaces: dump, restore, statistics views and cancellation.
+- MEDULLA-DURABLE-KERNEL-R084 owns version-checked writes. R016 and R040 own batched durability.
+- MEDULLA-UNIFIED-DATA-PLANE-R013 owns the outside PostgreSQL adapter as an attached source.
 
 No spec owns write scaling across store files or the wire protocol message flows. No spec owns
 catalog emulation, the dialect matrix or the relational features of user tables. This spec owns

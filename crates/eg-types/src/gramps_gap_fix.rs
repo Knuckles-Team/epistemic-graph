@@ -1,9 +1,9 @@
-//! EG-UNIFIED-DATA-PLANE-R026.3.1 — adapter skeleton for the Gramps pilot's
+//! MEDULLA-UNIFIED-DATA-PLANE-R026.3.1 — adapter skeleton for the Gramps pilot's
 //! P3 proven-gap fixes: a typed fix record that must name a failing test
 //! that then passes, its mapping to the P3 phase exit artifact, and the
 //! refusal path before any phase is marked closed. Running the real restore
 //! verification (P4) and the schema-understanding demonstration (P5) are
-//! EG-UNIFIED-DATA-PLANE-R026.3.2+.
+//! MEDULLA-UNIFIED-DATA-PLANE-R026.3.2+.
 
 use crate::gramps_pilot_phase::{GrampsPilotPhase, InvalidPhaseExit, PhaseExitArtifact};
 use serde::{Deserialize, Serialize};
@@ -92,7 +92,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.3.1
     #[test]
     fn well_formed_fix_maps_to_the_p3_phase_exit() {
         let exit = valid()
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(exit.artifact_kind, "failing_then_passing_test");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.3.1
     #[test]
     fn refuses_empty_description() {
         let mut fix = valid();
@@ -113,7 +113,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.3.1
     #[test]
     fn refuses_empty_failing_test_name() {
         let mut fix = valid();
@@ -124,7 +124,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.3.1
     #[test]
     fn refuses_the_same_test_before_and_after() {
         let mut fix = valid();
@@ -135,7 +135,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.3.1
     #[test]
     fn refuses_an_unreviewed_exit() {
         let err = valid().to_phase_exit("").unwrap_err();
@@ -145,7 +145,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.3.1
     #[test]
     fn fix_serializes_round_trip() {
         let fix = valid();

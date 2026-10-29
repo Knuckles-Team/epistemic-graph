@@ -52,7 +52,7 @@ $($variants)*
     AgentAssemble {
         request: Box<crate::decision::AssemblyRequest>,
     },
-    /// Read-only capability coverage (EG-DECISION-ENGINE-R126.2.1): for each
+    /// Read-only capability coverage (MEDULLA-DECISION-ENGINE-R126.2.1): for each
     /// capability in the closure of native task/capability IRIs, the visible
     /// Agent Library components that cover it (with derivation premises and
     /// evidence class) and the registered A2A agent cards that self-declare it
@@ -62,7 +62,7 @@ $($variants)*
         request: Box<crate::decision::coverage::CapabilityCoverageRequest>,
     },
     /// Advisory guardrail entailment over the verified tenant's published
-    /// Agent Library rules (EG-DECISION-ENGINE-R127.2.2). Returns subclass
+    /// Agent Library rules (MEDULLA-DECISION-ENGINE-R127.2.2). Returns subclass
     /// paths and source generations; commits nothing and grants no authority.
     GuardrailEntailment {
         request: Box<crate::decision::guardrail::GuardrailEntailmentRequest>,

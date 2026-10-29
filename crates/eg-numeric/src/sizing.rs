@@ -1,4 +1,4 @@
-//! Position sizing and distribution-shift detection (EG-FINANCE-PRIMITIVES-R900).
+//! Position sizing and distribution-shift detection (MEDULLA-FINANCE-PRIMITIVES-R900).
 //!
 //! `kelly_fraction` is the fractional-Kelly stake `(p * b - q) / b`, scaled by a
 //! fraction and clamped to `[0, max_risk]`; `distribution_shift` reports a shift
@@ -161,7 +161,7 @@ mod tests {
         KellyInput::new(accuracy, ratio, 1.0, 1.0).unwrap()
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R900.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R900.1
     #[test]
     fn kelly_input_round_trips_and_defaults_to_half_kelly_with_a_two_percent_cap() {
         let input = KellyInput::with_defaults(0.6, 2.0).unwrap();
@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(serde_json::from_str::<ShiftResult>(&json).unwrap(), shift);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R900.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R900.1
     #[test]
     fn accuracy_outside_the_unit_interval_is_rejected() {
         for bad in [-0.01, 1.01, f64::NAN, f64::INFINITY] {
@@ -189,7 +189,7 @@ mod tests {
         assert!(KellyInput::with_defaults(1.0, 1.0).is_ok());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R900.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R900.2
     #[test]
     fn kelly_fraction_matches_published_values() {
         // Thorp / Kelly: even-money bet at 60% wins stakes 20% of capital.
@@ -200,7 +200,7 @@ mod tests {
         assert!((kelly_fraction(&full_kelly(0.55, 1.0)) - 0.1).abs() < 1e-12);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R900.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R900.2
     #[test]
     fn kelly_fraction_scales_clamps_and_zeroes_out() {
         // Half of 0.2 is 0.1, but the default two percent cap wins.
@@ -225,7 +225,7 @@ mod tests {
     }
 
     #[cfg(feature = "analytics")]
-    // spec: EG-FINANCE-PRIMITIVES-R900.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R900.2
     #[test]
     fn distribution_shift_reports_a_shift_above_the_threshold() {
         let same = distribution_shift(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0], 0.5).unwrap();
@@ -241,7 +241,7 @@ mod tests {
         assert!(!partial.shifted);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R900.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R900.4
     #[test]
     fn non_finite_sizing_input_is_refused_with_its_code() {
         let cases = [
@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[cfg(feature = "analytics")]
-    // spec: EG-FINANCE-PRIMITIVES-R900.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R900.4
     #[test]
     fn empty_or_non_finite_shift_samples_are_refused_with_their_codes() {
         let empty = distribution_shift(&[], &[1.0], 0.5).unwrap_err();

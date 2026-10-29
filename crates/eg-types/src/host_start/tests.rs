@@ -5,7 +5,7 @@ fn request() -> IssueHostStartGrantRequest {
     crate::test_support::host_start::host_start_request("tenant-a")
 }
 
-// spec: EG-DURABLE-KERNEL-R030.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R030.1.1
 #[test]
 fn native_clock_and_session_bound_grant_expiry() {
     let lease = request().lease_at(1_000).unwrap();

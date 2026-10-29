@@ -1,4 +1,4 @@
-//! The capability-coverage query's wire contract (EG-DECISION-ENGINE-R126.2.1):
+//! The capability-coverage query's wire contract (MEDULLA-DECISION-ENGINE-R126.2.1):
 //! "which visible agent-library components and registered A2A agent cards
 //! cover the capabilities this task needs?" A read-only answer computed by
 //! [`super::derivation::capability_coverage_query`]; it ranks nothing and

@@ -44,7 +44,7 @@ fn rejected_codes(result: PackImportResult) -> Vec<PackViolationCode> {
 /// `Bind` names a different importer, the binding governs even though the
 /// environment value is still configured and still names the principal that
 /// imported successfully a moment ago.
-// spec: EG-TYPED-PACKS-R015
+// spec: MEDULLA-TYPED-PACKS-R015
 #[tokio::test]
 async fn an_environment_importer_is_a_bootstrap_default_superseded_by_an_admin_bind() {
     const ENV_VAR: &str = "EPISTEMIC_GRAPH_CONNECTOR_PACK_IMPORTERS";
@@ -238,8 +238,8 @@ async fn the_reconciler_releases_an_orphan_body_and_keeps_every_held_one() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R018
-// spec: EG-TYPED-PACKS-R002
+// spec: MEDULLA-TYPED-PACKS-R018
+// spec: MEDULLA-TYPED-PACKS-R002
 #[tokio::test]
 async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entries() {
     let served = Served::new();
@@ -319,7 +319,7 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
     }
 }
 
-// spec: EG-TYPED-PACKS-R007
+// spec: MEDULLA-TYPED-PACKS-R007
 #[tokio::test]
 async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_survives_a_retired_reimport(
 ) {
@@ -438,7 +438,7 @@ async fn refusal_snapshot(served: &Served, connector: &str) -> serde_json::Value
     serde_json::json!({"owner": store.connector_pack_refusal_snapshot(TENANT), "bodies": bodies})
 }
 
-// spec: EG-TYPED-PACKS-R003, EG-TYPED-PACKS-R042.2
+// spec: MEDULLA-TYPED-PACKS-R003, MEDULLA-TYPED-PACKS-R042.2
 #[tokio::test]
 async fn a_rejected_import_mutates_nothing_in_the_catalog() {
     let served = Served::new();
@@ -540,7 +540,7 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R005
+// spec: MEDULLA-TYPED-PACKS-R005
 #[tokio::test]
 async fn an_end_to_end_connector_fixture_imports_through_to_a_served_read() {
     let served = Served::new();

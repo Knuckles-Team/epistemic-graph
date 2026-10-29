@@ -1,4 +1,4 @@
-//! Pure context-pressure selection (EG-DECISION-ENGINE-R128.5).
+//! Pure context-pressure selection (MEDULLA-DECISION-ENGINE-R128.5).
 
 use super::{ContextPolicy, HarnessPart};
 use crate::contract::BoundedVec;

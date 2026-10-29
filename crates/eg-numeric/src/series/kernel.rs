@@ -277,7 +277,7 @@ mod tests {
     use super::*;
     use crate::series::{apply, MAX_WINDOW};
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.1
     #[test]
     fn rolling_z_score_independent_vectors() {
         // Window 3, population standard deviation, worked by hand:
@@ -304,7 +304,7 @@ mod tests {
         assert!(State::new(Spec::Rolling(Rolling::Zscore, MAX_WINDOW + 1)).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R002.1.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R002.1.2
     #[test]
     fn ewma_independent_vectors() {
         // Span 4: alpha = 2/(4+1) = 0.4, seeded with the first value.

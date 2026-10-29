@@ -1,4 +1,4 @@
-//! Hot-store engine evaluation (EG-DURABLE-KERNEL-R033): comparing redb,
+//! Hot-store engine evaluation (MEDULLA-DURABLE-KERNEL-R033): comparing redb,
 //! fjall, and RocksDB behind the existing storage interface using captured
 //! workload traffic. This is the typed model slice (`.1`): the closed engine
 //! and workload sets, a validated benchmark result, and a winner-selection
@@ -122,7 +122,7 @@ pub fn select_winner(
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R033.1
+    // spec: MEDULLA-DURABLE-KERNEL-R033.1
     #[test]
     fn engines_round_trip_through_their_wire_name() {
         for (engine, name) in [
@@ -137,7 +137,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R033.1
+    // spec: MEDULLA-DURABLE-KERNEL-R033.1
     #[test]
     fn workloads_round_trip_through_their_wire_name() {
         for (workload, name) in [
@@ -154,7 +154,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R033.1
+    // spec: MEDULLA-DURABLE-KERNEL-R033.1
     #[test]
     fn benchmark_result_refuses_non_positive_throughput() {
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
@@ -165,7 +165,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R033.1
+    // spec: MEDULLA-DURABLE-KERNEL-R033.1
     #[test]
     fn select_winner_picks_highest_throughput_for_the_workload() {
         let results = [
@@ -187,7 +187,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R033.1
+    // spec: MEDULLA-DURABLE-KERNEL-R033.1
     #[test]
     fn select_winner_refuses_when_no_result_matches_the_workload() {
         let results = [BenchmarkResult::new(

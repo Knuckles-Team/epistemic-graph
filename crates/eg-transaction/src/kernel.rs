@@ -80,7 +80,7 @@ impl MutationKernel {
         // The create census already created every ledger table, so there is
         // nothing to write: prove each is present and typed as declared under a
         // real write capability, then ABORT. An aborted transaction commits
-        // nothing and issues no fsync (EG-DURABLE-KERNEL-R006.1).
+        // nothing and issues no fsync (MEDULLA-DURABLE-KERNEL-R006.1).
         let write = AdmittedMutation::open(&self.authority, owner)?;
         commit::open_ledger_tables(&write)?;
         write.abort()

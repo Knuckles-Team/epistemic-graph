@@ -1,4 +1,4 @@
-//! Limit guard over a proposed action (EG-DECISION-ENGINE-R131.1 and R131.2).
+//! Limit guard over a proposed action (MEDULLA-DECISION-ENGINE-R131.1 and R131.2).
 //!
 //! Each rule names one closed metric, a bound and the scope it covers. A
 //! request may supply its own bounds, but only a tighter bound takes effect.

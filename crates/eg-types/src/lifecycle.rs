@@ -1,4 +1,4 @@
-//! Software-lifecycle records (EG-SDLC): releases, deployments, defects, the
+//! Software-lifecycle records (MEDULLA-SDLC): releases, deployments, defects, the
 //! derived requirement-state answer and the lifecycle trace.
 //!
 //! Pure data and bounds. The derivation rules, the defect intake and the status
@@ -14,7 +14,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-/// The closed edge vocabulary (EG-SDLC-R001).
+/// The closed edge vocabulary (MEDULLA-SDLC-R001).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LifecycleEdgeKind {

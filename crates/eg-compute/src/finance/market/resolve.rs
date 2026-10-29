@@ -123,7 +123,7 @@ pub fn resolve(
 
 /// `resolve` wrapped as the price-result envelope: every bar carries the
 /// session it was observed in, its source, and the as-of time of the view
-/// (EG-FINANCE-PRIMITIVES-R006). `as_of` defaults to each bar's own
+/// (MEDULLA-FINANCE-PRIMITIVES-R006). `as_of` defaults to each bar's own
 /// `known_at` when the view is unbounded (`None`).
 pub fn resolve_priced(
     records: &[BarRecord],
@@ -164,7 +164,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R006
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R006
     #[test]
     fn the_as_of_view_picks_the_revision_known_then() {
         let original = bar(0, 101, 0, HOUR);

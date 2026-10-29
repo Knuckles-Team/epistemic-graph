@@ -207,8 +207,8 @@ mod tests {
 
     /// D18 (EH-198): both schema digests are the `sha256:<hex>` of the pack's
     /// sections; an absent output section is "declares none".
-    // spec: EG-TYPED-PACKS-R044
-    // spec: EG-TYPED-PACKS-R064
+    // spec: MEDULLA-TYPED-PACKS-R044
+    // spec: MEDULLA-TYPED-PACKS-R064
     #[test]
     fn tool_facts_carry_both_section_digests() {
         let (input, output) = schema_digests(&tool_entry(Some(section(0x03))));
@@ -225,7 +225,7 @@ mod tests {
         facts(&entry, &Digest256::from_bytes([0; 32])).unwrap()
     }
 
-    // spec: EG-TYPED-PACKS-R045.5
+    // spec: MEDULLA-TYPED-PACKS-R045.5
     #[test]
     fn mcp_hint_read_only_is_unproven() {
         use eg_types::agent_component::{ToolFactDeclarer, ToolSideEffects};

@@ -1,5 +1,5 @@
 //! Typed model for the Postgres-equivalence differential harness's deviation
-//! baseline (EG-UNIFIED-DATA-PLANE-R028): a run's deviations compared
+//! baseline (MEDULLA-UNIFIED-DATA-PLANE-R028): a run's deviations compared
 //! against the prior run's recorded baseline, so a deviation can be marked
 //! resolved only by naming who resolved it, never by silently disappearing
 //! from the report. This is the typed-model slice (`.1`): the deviation
@@ -86,7 +86,7 @@ impl DeviationBaseline {
 }
 
 /// One corpus source's evaluator, pluggable so the differential harness
-/// runner (`EG-UNIFIED-DATA-PLANE-R028.2.1`) needs no live Postgres
+/// runner (`MEDULLA-UNIFIED-DATA-PLANE-R028.2.1`) needs no live Postgres
 /// instance to run against. Needs no live service: driven against fake
 /// evaluators in tests.
 pub trait DifferentialCaseEvaluator {
@@ -98,7 +98,7 @@ pub trait DifferentialCaseEvaluator {
 
 /// Run the differential harness across one evaluator per declared corpus
 /// source, assembling this run's `DeviationBaseline` and reconciling it
-/// against `prior` (`EG-UNIFIED-DATA-PLANE-R028.2.1`). Bubbles
+/// against `prior` (`MEDULLA-UNIFIED-DATA-PLANE-R028.2.1`). Bubbles
 /// `reconcile`'s refusal when this run drops a prior deviation that
 /// `resolved` does not name.
 pub fn run_differential_harness(
@@ -138,7 +138,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R028.1
     #[test]
     fn identical_baseline_reconciles() {
         let prior = baseline(&["timestamp_precision"]);
@@ -146,7 +146,7 @@ mod tests {
         assert_eq!(prior.reconcile(&current, &[]), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R028.1
     #[test]
     fn new_deviation_in_current_is_not_a_problem() {
         let prior = baseline(&["timestamp_precision"]);
@@ -154,7 +154,7 @@ mod tests {
         assert_eq!(prior.reconcile(&current, &[]), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R028.1
     #[test]
     fn dropped_deviation_without_resolution_is_refused() {
         let prior = baseline(&["timestamp_precision", "collation_order"]);
@@ -163,7 +163,7 @@ mod tests {
         assert_eq!(err.names, vec!["collation_order".to_string()]);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R028.1
     #[test]
     fn dropped_deviation_with_explicit_resolution_reconciles() {
         let prior = baseline(&["timestamp_precision", "collation_order"]);
@@ -174,7 +174,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R028.1
     #[test]
     fn empty_current_against_nonempty_prior_is_refused() {
         let prior = baseline(&["a", "b"]);
@@ -183,7 +183,7 @@ mod tests {
         assert_eq!(err.names.len(), 2);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R028.1
     #[test]
     fn deviation_serializes_round_trip() {
         let dev = deviation("regex_posix_class");
@@ -207,7 +207,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R028.2.1
     #[test]
     fn harness_merges_deviations_from_every_declared_source() {
         let regression = FakeEvaluator {
@@ -230,7 +230,7 @@ mod tests {
         assert!(current.deviations.contains_key("collation_order"));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R028.2.1
     #[test]
     fn harness_refuses_when_an_evaluator_drops_a_prior_deviation_unaccounted() {
         let regression = FakeEvaluator {
@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(err.names, vec!["timestamp_precision".to_string()]);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R028.2.1
     #[test]
     fn harness_accepts_a_dropped_deviation_with_explicit_resolution() {
         let regression = FakeEvaluator {

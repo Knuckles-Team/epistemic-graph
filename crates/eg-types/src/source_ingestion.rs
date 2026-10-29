@@ -355,35 +355,35 @@ pub enum SourceMappingKind {
 }
 
 /// One root of the ingestion-adjacent capabilities migrating out of their
-/// legacy modules into EG under EG-REPO-INGEST-R003. Each variant names a
-/// root that EG-REPO-INGEST-R003.1..R003.11 claims individually; EG becomes
+/// legacy modules into EG under MEDULLA-REPO-INGEST-R003. Each variant names a
+/// root that MEDULLA-REPO-INGEST-R003.1..R003.11 claims individually; EG becomes
 /// the sole typed home for a root only once it is claimed here and the
 /// retiring legacy module stops performing the same computation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MigratedIngestionCapabilityRoot {
-    /// EG-REPO-INGEST-R003.1 (excludes drift detection).
+    /// MEDULLA-REPO-INGEST-R003.1 (excludes drift detection).
     StandardizationProcessing,
-    /// EG-REPO-INGEST-R003.2
+    /// MEDULLA-REPO-INGEST-R003.2
     InfrastructureProcessing,
-    /// EG-REPO-INGEST-R003.3
+    /// MEDULLA-REPO-INGEST-R003.3
     QuantumProcessing,
-    /// EG-REPO-INGEST-R003.4
+    /// MEDULLA-REPO-INGEST-R003.4
     SecurityProcessing,
-    /// EG-REPO-INGEST-R003.5
+    /// MEDULLA-REPO-INGEST-R003.5
     EnterpriseProtocolHandling,
-    /// EG-REPO-INGEST-R003.6
+    /// MEDULLA-REPO-INGEST-R003.6
     EcosystemConceptExtraction,
-    /// EG-REPO-INGEST-R003.7
+    /// MEDULLA-REPO-INGEST-R003.7
     TraceOntologyObservability,
-    /// EG-REPO-INGEST-R003.8
+    /// MEDULLA-REPO-INGEST-R003.8
     SelfIngestionObservability,
-    /// EG-REPO-INGEST-R003.9
+    /// MEDULLA-REPO-INGEST-R003.9
     AuditLoggingObservability,
-    /// EG-REPO-INGEST-R003.10
+    /// MEDULLA-REPO-INGEST-R003.10
     RelationalAuthorityGovernance,
-    /// EG-REPO-INGEST-R003.11
+    /// MEDULLA-REPO-INGEST-R003.11
     PlacementMiningResearch,
 }
 

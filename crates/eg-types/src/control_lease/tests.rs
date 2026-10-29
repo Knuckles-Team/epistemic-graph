@@ -171,7 +171,7 @@ fn the_elevation_kind_cannot_be_issued_as_a_generic_control_lease() {
 /// EH-560: a governed kind is issued only through `GovernedChange`; the
 /// generic lease path refuses the whole `governed.` namespace, while an
 /// ordinary kind next to it is still accepted.
-// spec: EG-DURABLE-KERNEL-R027.1
+// spec: MEDULLA-DURABLE-KERNEL-R027.1
 #[test]
 fn a_governed_kind_cannot_be_issued_as_a_generic_control_lease() {
     for kind in [
@@ -188,7 +188,7 @@ fn a_governed_kind_cannot_be_issued_as_a_generic_control_lease() {
     assert!(ordinary.validate().is_ok());
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_registration_requires_reserved_kind_and_bounded_preimage() {
     let mut request = issue();
@@ -222,7 +222,7 @@ fn pending_registration_requires_reserved_kind_and_bounded_preimage() {
     assert!(invalid.validate().is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R039.3
+// spec: MEDULLA-DURABLE-KERNEL-R039.3
 #[test]
 fn ordinary_lease_wire_shape_remains_compatible_without_pending_fields() {
     let request = issue();
@@ -234,7 +234,7 @@ fn ordinary_lease_wire_shape_remains_compatible_without_pending_fields() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R039.4, MEDULLA-DURABLE-KERNEL-R039.4.1
 #[test]
 fn paired_plan_preimage_is_bounded_and_cannot_name_another_pending_lease() {
     let mut plan = PendingPlanPreimage {

@@ -1,4 +1,4 @@
-//! Defect triage as a decision (EG-SDLC-R004): the record the engine decides
+//! Defect triage as a decision (MEDULLA-SDLC-R004): the record the engine decides
 //! for one defect, and the pure ranking that feeds it.
 //!
 //! The decision names severity, suspected symbols, an owner and a duplicate
@@ -123,7 +123,7 @@ mod tests {
         }
     }
 
-    // spec: EG-SDLC-R004.1
+    // spec: MEDULLA-SDLC-R004.1
     #[test]
     fn decision_round_trips() {
         let decision = decide_triage(
@@ -176,7 +176,7 @@ mod tests {
         );
     }
 
-    // spec: EG-SDLC-R004.2
+    // spec: MEDULLA-SDLC-R004.2
     #[test]
     fn culprit_outranks_blame() {
         let inputs = [

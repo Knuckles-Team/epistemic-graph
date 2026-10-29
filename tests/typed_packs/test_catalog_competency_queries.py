@@ -1,4 +1,4 @@
-"""Served catalog competency queries (EG-TYPED-PACKS-R106.7).
+"""Served catalog competency queries (MEDULLA-TYPED-PACKS-R106.7).
 
 The fixture is the R106.6 catalog shape: one connector with two tools, one
 skill, one prompt, two resources and one field for each resource.  The test

@@ -1,4 +1,4 @@
-//! The improvement library (EG-ORCH-VOCAB-R802): the serde shape of the
+//! The improvement library (MEDULLA-ORCH-VOCAB-R802): the serde shape of the
 //! adopted harness, the contrast and the lesson, the
 //! measurable-improvement retention gate, the confidence-ranked bitemporal
 //! query, the supersession behavior and the typed refusals.
@@ -73,7 +73,7 @@ fn adoption(version_refs: &[&str]) -> AdoptedHarness {
     }
 }
 
-// spec: EG-ORCH-VOCAB-R802.1
+// spec: MEDULLA-ORCH-VOCAB-R802.1
 #[test]
 fn improvement_records_round_trip() {
     // The adopted harness keeps every field by name.
@@ -173,7 +173,7 @@ fn value_key(json: &str, field: &str) -> bool {
         .is_some()
 }
 
-// spec: EG-ORCH-VOCAB-R802.2
+// spec: MEDULLA-ORCH-VOCAB-R802.2
 #[test]
 fn lesson_requires_measurable_improvement() {
     let mut lessons = Vec::new();
@@ -250,7 +250,7 @@ fn lesson_requires_measurable_improvement() {
     assert_eq!(lessons.len(), 4);
 }
 
-// spec: EG-ORCH-VOCAB-R802.3
+// spec: MEDULLA-ORCH-VOCAB-R802.3
 #[test]
 fn retrieval_ranks_by_confidence_and_abstains() {
     // The query ranks its current hits by confidence, highest first, and the
@@ -405,7 +405,7 @@ fn improving_probe_pair() -> (HarnessProbeRun, HarnessProbeRun, HarnessContrast)
     )
 }
 
-// spec: EG-ORCH-VOCAB-R802.4
+// spec: MEDULLA-ORCH-VOCAB-R802.4
 #[test]
 fn supersession_keeps_old_readable() {
     // Lessons: the newer lesson supersedes the older one of the same task
@@ -565,7 +565,7 @@ fn supersession_keeps_old_readable() {
     .is_none());
 }
 
-// spec: EG-ORCH-VOCAB-R802.5
+// spec: MEDULLA-ORCH-VOCAB-R802.5
 #[test]
 fn evidence_and_condition_refusals() {
     let mut lessons = Vec::new();

@@ -248,7 +248,7 @@ impl ChangeEnvelope {
     /// Validate the envelope for admission. Every refusal carries a declared
     /// error code (free-text refusals are classified as `INVALID_ARGUMENT`), so
     /// the served path never reduces it to an unclassified `INTERNAL`
-    /// (spec: EG-DURABLE-KERNEL-R043.8).
+    /// (spec: MEDULLA-DURABLE-KERNEL-R043.8).
     pub fn validate(&self) -> Result<(), String> {
         validation::validate_change_envelope(self)
             .map_err(|refusal| crate::contract::classify_refusal("INVALID_ARGUMENT", "", &refusal))
@@ -638,11 +638,11 @@ fn validate_op_add_node(
     Ok(())
 }
 
-/// EG-ORCH-VOCAB-R801.4 — the evidence refusals of a versioned
+/// MEDULLA-ORCH-VOCAB-R801.4 — the evidence refusals of a versioned
 /// harness-component write carried by this envelope: the version record
 /// decodes strictly (closed kind set, typed evidence and interval checks)
 /// and carries its bitemporal transaction stamp (the generated client stamps
-/// it — EG-DURABLE-KERNEL-R078/R081). Non-harness AddNode ops pass through.
+/// it — MEDULLA-DURABLE-KERNEL-R078/R081). Non-harness AddNode ops pass through.
 fn validate_harness_component_write(
     node_id: &str,
     properties_msgpack: &[u8],

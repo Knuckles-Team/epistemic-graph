@@ -146,14 +146,14 @@ impl BudgetMeter {
 
 #[cfg(test)]
 mod exhausted_budget_refusal {
-    //! EG-FEDERATED-QUERY-R073.1 acceptance: "Budget ... cases refuse with typed
+    //! MEDULLA-FEDERATED-QUERY-R073.1 acceptance: "Budget ... cases refuse with typed
     //! errors." The per-query budget (FQR-04) is enforced uniformly across every
     //! `ForeignSourceSpec` kind — including the four new operation-bound kinds
     //! (API/MCP/A2A/GraphQL) added for R073 — so this proves the mechanism itself
     //! refuses typed, independent of which source kind would have used it.
     use super::{BudgetMeter, FederationBudget, BUDGET_EXCEEDED};
 
-    // spec: EG-FEDERATED-QUERY-R073.1
+    // spec: MEDULLA-FEDERATED-QUERY-R073.1
     #[test]
     fn a_zero_request_budget_refuses_the_first_round_trip_with_a_typed_error() {
         let exhausted = FederationBudget {
@@ -170,7 +170,7 @@ mod exhausted_budget_refusal {
         );
     }
 
-    // spec: EG-FEDERATED-QUERY-R073.1
+    // spec: MEDULLA-FEDERATED-QUERY-R073.1
     #[test]
     fn a_zero_row_budget_refuses_once_any_row_arrives_with_a_typed_error() {
         let exhausted = FederationBudget {

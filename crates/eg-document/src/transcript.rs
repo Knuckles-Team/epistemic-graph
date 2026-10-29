@@ -1,6 +1,6 @@
 //! Source-free transcript records for agent-session ingestion.
 //!
-//! `EG-REPO-INGEST-R800.1` owns the stable record shape and the declarative
+//! `MEDULLA-REPO-INGEST-R800.1` owns the stable record shape and the declarative
 //! dialect table.  Later behavior children parse each source using this table
 //! and project into [`TranscriptTurn`] rather than introducing one record type
 //! per producer.  Checkpoint identity is deliberately reused from `eg-types`;
@@ -149,7 +149,7 @@ mod tests {
     use super::*;
     use eg_types::contract::ResourceId;
 
-    // spec: EG-REPO-INGEST-R800.1
+    // spec: MEDULLA-REPO-INGEST-R800.1
     #[test]
     fn dialects_map_to_one_turn_record() {
         let expected = [
@@ -224,7 +224,7 @@ mod tests {
         }
     }
 
-    // spec: EG-REPO-INGEST-R800.1
+    // spec: MEDULLA-REPO-INGEST-R800.1
     #[test]
     fn turn_round_trips_without_source_payload() {
         let turn = TranscriptTurn {
@@ -246,7 +246,7 @@ mod tests {
         assert!(!encoded.windows(b"answer".len()).any(|w| w == b"answer"));
     }
 
-    // spec: EG-REPO-INGEST-R800.1
+    // spec: MEDULLA-REPO-INGEST-R800.1
     #[test]
     fn checkpoint_is_the_existing_source_ingestion_type() {
         fn accepts_existing_checkpoint(_: &SourceCheckpoint) {}

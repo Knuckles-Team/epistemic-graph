@@ -253,7 +253,7 @@ def test_hostile_git_environment_cannot_redirect_fingerprint_or_private_gitdir(
     assert push_gate_evidence._git_directory() == expected_git_directory
 
 
-@pytest.mark.spec("EG-CONTRACT-R029")
+@pytest.mark.spec("MEDULLA-CONTRACT-R029")
 def test_local_build_environment_keeps_the_gate_tmpdir_short_and_run_independent() -> (
     None
 ):

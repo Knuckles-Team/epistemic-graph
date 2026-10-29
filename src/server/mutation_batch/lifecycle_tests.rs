@@ -240,7 +240,7 @@ async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
 /// a graph under the same name with the SAME CreateGraph idempotency key (and
 /// so the same deterministic batch id) as the now-deleted incarnation commits
 /// fresh rather than replaying the purged, stale outcome.
-// spec: EG-DURABLE-KERNEL-R049
+// spec: MEDULLA-DURABLE-KERNEL-R049
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread")]
 async fn delete_purges_receipts_of_a_prior_incarnation() {
@@ -408,7 +408,7 @@ async fn delete_purges_receipts_of_a_prior_incarnation() {
 /// idempotency key, same graph name, different tenants: tenant B's retry probe must
 /// NOT find (and so must not replay) tenant A's committed CreateGraph.
 #[cfg(feature = "redb")]
-// spec: EG-DURABLE-KERNEL-R019
+// spec: MEDULLA-DURABLE-KERNEL-R019
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_receipt_is_not_replayed_across_tenants() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -477,7 +477,7 @@ async fn lifecycle_receipt_is_not_replayed_across_tenants() {
 /// what this build would compile, yet the retained CreateGraph identity is the
 /// same, so it is committed. A receipt for another graph type is a conflict.
 #[cfg(feature = "redb")]
-// spec: EG-DURABLE-KERNEL-R861.1
+// spec: MEDULLA-DURABLE-KERNEL-R861.1
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_replay_compares_identity_not_recompiled_bytes() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;

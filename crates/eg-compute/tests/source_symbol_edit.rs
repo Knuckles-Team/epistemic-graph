@@ -1,4 +1,4 @@
-//! Symbol edit projection (EG-SCM-R013.2).
+//! Symbol edit projection (MEDULLA-SCM-R013.2).
 
 use std::collections::BTreeMap;
 
@@ -92,7 +92,7 @@ fn edit(ops: Vec<SymbolEditOp>) -> SymbolEdit {
 const ALPHA: &str = "fn alpha() -> u8 {\n    1\n}";
 const BETA: &str = "fn beta() -> u8 {\n    2\n}";
 
-// spec: EG-SCM-R013.2
+// spec: MEDULLA-SCM-R013.2
 #[test]
 fn bytes_outside_spans_are_unchanged() {
     let (mut blobs, resolver, old) = fixture();

@@ -1,4 +1,4 @@
-//! Stewardship records (EG-TYPED-PACKS-R802.1).
+//! Stewardship records (MEDULLA-TYPED-PACKS-R802.1).
 
 use eg_types::stewardship::{
     Certification, ChangeRequest, ChangeRequestState, StewardRole, StewardshipAssignment,
@@ -18,7 +18,7 @@ where
     json
 }
 
-// spec: EG-TYPED-PACKS-R802.1
+// spec: MEDULLA-TYPED-PACKS-R802.1
 #[test]
 fn records_round_trip() {
     for scope in [
@@ -67,7 +67,7 @@ fn records_round_trip() {
     assert!(!certification.holds_at(certification.expires_at));
 }
 
-// spec: EG-TYPED-PACKS-R802.1
+// spec: MEDULLA-TYPED-PACKS-R802.1
 #[test]
 fn invalid_records_are_refused_naming_the_field() {
     let wire = serde_json::json!({

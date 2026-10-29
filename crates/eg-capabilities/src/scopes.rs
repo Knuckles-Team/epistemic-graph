@@ -207,7 +207,7 @@ pub const SCOPES: &[ScopeEntry] = &[
     entry("security:admin", Admin, "engine"),
     entry("security:audit", Admin, "engine"),
     // AuditAppend: binds to the calling service's verified claims
-    // (EG-DURABLE-KERNEL-R031); a human never writes the operation audit.
+    // (MEDULLA-DURABLE-KERNEL-R031); a human never writes the operation audit.
     entry("security:audit-write", ServiceOnly, "engine"),
     entry("security:bootstrap", ServiceOnly, "engine"),
     entry("security:check", ServiceOnly, "engine"),

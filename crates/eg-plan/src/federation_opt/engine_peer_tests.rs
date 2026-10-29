@@ -1,5 +1,5 @@
 //! Pushdown to a peer engine, end to end against a peer that enforces what the served
-//! engine enforces (EG-FEDERATED-QUERY-R052): it verifies the signed request envelope
+//! engine enforces (MEDULLA-FEDERATED-QUERY-R052): it verifies the signed request envelope
 //! with its own secret, serves a principal only the rows that principal is granted, and
 //! may lack the pushdown capability altogether. Every request crosses the real framed
 //! transport and the real signer; the peer records how it judged each one.
@@ -274,7 +274,7 @@ fn ids(names: &[&str]) -> Vec<String> {
 
 const EVERY_ROW: &[&str] = &["d1", "d2", "d4", "d5"];
 
-// spec: EG-FEDERATED-QUERY-R052
+// spec: MEDULLA-FEDERATED-QUERY-R052
 #[test]
 fn a_verified_pushdown_narrows_the_transfer_without_changing_the_answer() {
     let peer = Peer::spawn(Policy::granting(EVERY_ROW));

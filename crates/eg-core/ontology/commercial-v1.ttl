@@ -77,7 +77,7 @@ class is added.""" ;
 
 :supportsCapability a owl:ObjectProperty ;
     rdfs:label "supports capability" ;
-    rdfs:comment "Links a Service to the BusinessCapability it supports. Chosen as the service-to-capability relation: the epistemic :supports (core-foundation) links evidence to claims and no archimate relation carries service to capability, while the commercial shapes already target this IRI (plan.md decision D6, EG-CQ-XSRC-R008.2.3)." ;
+    rdfs:comment "Links a Service to the BusinessCapability it supports. Chosen as the service-to-capability relation: the epistemic :supports (core-foundation) links evidence to claims and no archimate relation carries service to capability, while the commercial shapes already target this IRI (plan.md decision D6, MEDULLA-CQ-XSRC-R008.2.3)." ;
     rdfs:domain infra:Service ;
     rdfs:range :BusinessCapability .
 
@@ -100,7 +100,7 @@ class is added.""" ;
 
 :supportsCapability a owl:ObjectProperty ;
     rdfs:label "supports capability" ;
-    rdfs:comment "Links a Service to the BusinessCapability it supports (decision D1, recorded by EG-SUPPLY-VOCAB-R003.4). The shared kg:supports Evidence-to-claim property is deliberately not reused." ;
+    rdfs:comment "Links a Service to the BusinessCapability it supports (decision D1, recorded by MEDULLA-SUPPLY-VOCAB-R003.4). The shared kg:supports Evidence-to-claim property is deliberately not reused." ;
     rdfs:domain infra:Service ;
     rdfs:range :BusinessCapability .
 

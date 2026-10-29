@@ -1,4 +1,4 @@
-//! Automatic store migration metrics (EG-DURABLE-KERNEL-R070.1).
+//! Automatic store migration metrics (MEDULLA-DURABLE-KERNEL-R070.1).
 //!
 //! The engine migrates before it serves, so these samples are on the registry
 //! when the exposition endpoint starts. Labels come from closed sets: the step

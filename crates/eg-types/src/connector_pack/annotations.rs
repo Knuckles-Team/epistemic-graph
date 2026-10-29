@@ -152,7 +152,7 @@ pub enum PackToolMode {
 mod tests {
     use super::*;
 
-    // spec: EG-TYPED-PACKS-R045.1
+    // spec: MEDULLA-TYPED-PACKS-R045.1
     #[test]
     fn new_fields_roundtrip() {
         for side_effects in [
@@ -192,7 +192,7 @@ mod tests {
         }
     }
 
-    // spec: EG-TYPED-PACKS-R045.2
+    // spec: MEDULLA-TYPED-PACKS-R045.2
     #[test]
     fn absent_facts_take_safe_defaults() {
         let absent = PackAnnotations::default();
@@ -218,7 +218,7 @@ mod tests {
         assert!(!certified.read_only_unproven());
     }
 
-    // spec: EG-TYPED-PACKS-R045.4
+    // spec: MEDULLA-TYPED-PACKS-R045.4
     #[test]
     fn unknown_closed_values_are_refused_naming_the_field() {
         for (field, value) in [("side_effects", "filesystem"), ("declared_by", "vendor")] {

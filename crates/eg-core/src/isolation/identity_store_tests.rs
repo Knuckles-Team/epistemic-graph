@@ -462,7 +462,7 @@ fn stale_policy_writer_cannot_restore_a_revoked_session() {
     assert_eq!(after.bootstrap(), IdentityBootstrapState::Consumed);
 }
 
-// spec: EG-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.1
 #[test]
 fn failed_session_touch_persistence_publishes_no_record_projection() {
     // Existing none-mode store fixture exercises persistence, not served admission.

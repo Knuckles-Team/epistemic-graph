@@ -1,4 +1,4 @@
-# Virtual-graph vocabulary (EG-UNIFIED-DATA-PLANE-R037).
+# Virtual-graph vocabulary (MEDULLA-UNIFIED-DATA-PLANE-R037).
 #
 # An EG core schema source (`core:virtual-graph@1`) naming the metadata-discovery
 # contract every attached source kind shares: a connection, the contract one
@@ -101,7 +101,7 @@ vg:authoritativeSource a owl:ObjectProperty ;
     rdfs:domain vg:SourceAuthority ;
     rdfs:range vg:SourceConnection .
 vg:authorityFor a owl:ObjectProperty ;
-    rdfs:comment "The one ontology class a SourceAuthority is declared for. A declaration on a superclass serves its subclasses unless the subclass declares its own (EG-CQ-XSRC-R001)." ;
+    rdfs:comment "The one ontology class a SourceAuthority is declared for. A declaration on a superclass serves its subclasses unless the subclass declares its own (MEDULLA-CQ-XSRC-R001)." ;
     rdfs:domain vg:SourceAuthority ;
     rdfs:range owl:Class .
 vg:authorityRank a owl:DatatypeProperty ;
@@ -109,11 +109,11 @@ vg:authorityRank a owl:DatatypeProperty ;
     rdfs:domain vg:SourceAuthority ;
     rdfs:range xsd:integer .
 vg:allowFallback a owl:DatatypeProperty ;
-    rdfs:comment "Whether a lower-ranked authority row may serve the class when this row's source is not connected. Default false: an unconnected rank-1 source is reported as a typed abstention, never replaced silently (EG-CQ-XSRC-R005.4)." ;
+    rdfs:comment "Whether a lower-ranked authority row may serve the class when this row's source is not connected. Default false: an unconnected rank-1 source is reported as a typed abstention, never replaced silently (MEDULLA-CQ-XSRC-R005.4)." ;
     rdfs:domain vg:SourceAuthority ;
     rdfs:range xsd:boolean .
 
-# --- Source authority detail (EG-SRC-AUTH-R001) --------------------------------
+# --- Source authority detail (MEDULLA-SRC-AUTH-R001) --------------------------------
 
 vg:authorityFacet a owl:ObjectProperty ;
     rdfs:comment "The one ontology property a facet-scoped SourceAuthority covers. Absent: the row covers the whole class." ;
@@ -155,11 +155,11 @@ vg:foreignSourceName a owl:DatatypeProperty ;
     rdfs:domain vg:SourceConnection ;
     rdfs:range xsd:string .
 vg:sourceRole a owl:DatatypeProperty ;
-    rdfs:comment "The trust role of one SourceConnection: live_truth, historical_context or inspiration. On a conflict the higher role wins before rank (EG-SRC-AUTH-R010)." ;
+    rdfs:comment "The trust role of one SourceConnection: live_truth, historical_context or inspiration. On a conflict the higher role wins before rank (MEDULLA-SRC-AUTH-R010)." ;
     rdfs:domain vg:SourceConnection ;
     rdfs:range xsd:string .
 vg:trustMark a owl:DatatypeProperty ;
-    rdfs:comment "The trust mark one content node carries: trusted or untrusted. Content entering a run is untrusted unless a rule marks it trusted (EG-SRC-AUTH-R011)." ;
+    rdfs:comment "The trust mark one content node carries: trusted or untrusted. Content entering a run is untrusted unless a rule marks it trusted (MEDULLA-SRC-AUTH-R011)." ;
     rdfs:range xsd:string .
 
 # --- Classes -------------------------------------------------------------------
@@ -175,4 +175,4 @@ vg:VirtualMapping a owl:Class ;
 vg:PredicateFieldPair a owl:Class ;
     rdfs:comment "One ontology-predicate-to-discovered-field binding inside a VirtualMapping." .
 vg:SourceAuthority a owl:Class ;
-    rdfs:comment "One declared statement that a connected source is authoritative for one ontology class: its source (vg:authoritativeSource), its class (vg:authorityFor) and its rank (vg:authorityRank, lower wins). Source choice is data in the graph, not query text (EG-CQ-XSRC-R001)." .
+    rdfs:comment "One declared statement that a connected source is authoritative for one ontology class: its source (vg:authoritativeSource), its class (vg:authorityFor) and its rank (vg:authorityRank, lower wins). Source choice is data in the graph, not query text (MEDULLA-CQ-XSRC-R001)." .

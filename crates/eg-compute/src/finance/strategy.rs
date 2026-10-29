@@ -1,6 +1,6 @@
 // CONCEPT:EG-KG.domains.finance-compute.strategy — Strategy Evaluation Engine
 //
-// Versioned StrategySpec evaluation (EG-FINANCE-PRIMITIVES-R007). Evaluation is
+// Versioned StrategySpec evaluation (MEDULLA-FINANCE-PRIMITIVES-R007). Evaluation is
 // deterministic and emits PROPOSED ACTIONS ONLY: it never places or authorizes
 // an order. This slice (R007.1) ships the dollar-cost-averaging-by-fixed-amount
 // default strategy; trend-following and calendar/threshold rebalancing are later
@@ -18,7 +18,7 @@ pub struct StrategySpec {
     pub kind: StrategyKind,
 }
 
-/// The default strategies named by EG-FINANCE-PRIMITIVES-R007. Only the
+/// The default strategies named by MEDULLA-FINANCE-PRIMITIVES-R007. Only the
 /// dollar-cost-averaging-by-fixed-amount variant is evaluated in this slice; the
 /// others are declared here so the wire type is stable across later slices that
 /// add their evaluators.
@@ -67,7 +67,7 @@ pub fn evaluate(spec: &StrategySpec) -> Option<ProposedAction> {
 mod tests {
     use super::*;
 
-    // spec: EG-FINANCE-PRIMITIVES-R007.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R007.1
     #[test]
     fn dca_fixed_amount_proposes_buy_of_configured_amount() {
         let spec = StrategySpec {
@@ -82,7 +82,7 @@ mod tests {
         assert_eq!(action.amount_minor_units, 10_000);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R007.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R007.1
     #[test]
     fn dca_fixed_amount_refuses_a_non_positive_contribution() {
         let spec = StrategySpec {
@@ -94,7 +94,7 @@ mod tests {
         assert!(evaluate(&spec).is_none());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R007.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R007.1
     #[test]
     fn evaluation_is_deterministic_across_repeated_calls() {
         let spec = StrategySpec {

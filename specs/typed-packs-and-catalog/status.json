@@ -1,388 +1,388 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-TYPED-PACKS",
+  "spec_id": "MEDULLA-TYPED-PACKS",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-TYPED-PACKS-R001",
-    "EG-TYPED-PACKS-R001.1",
-    "EG-TYPED-PACKS-R001.2",
-    "EG-TYPED-PACKS-R001.3",
-    "EG-TYPED-PACKS-R001.4",
-    "EG-TYPED-PACKS-R001.5",
-    "EG-TYPED-PACKS-R001.6",
-    "EG-TYPED-PACKS-R001.7",
-    "EG-TYPED-PACKS-R001.8",
-    "EG-TYPED-PACKS-R001.9",
-    "EG-TYPED-PACKS-R002",
-    "EG-TYPED-PACKS-R002.1",
-    "EG-TYPED-PACKS-R002.2",
-    "EG-TYPED-PACKS-R002.3",
-    "EG-TYPED-PACKS-R002.4",
-    "EG-TYPED-PACKS-R002.5",
-    "EG-TYPED-PACKS-R002.6",
-    "EG-TYPED-PACKS-R002.7",
-    "EG-TYPED-PACKS-R002.8",
-    "EG-TYPED-PACKS-R002.9",
-    "EG-TYPED-PACKS-R002.10",
-    "EG-TYPED-PACKS-R002.11",
-    "EG-TYPED-PACKS-R003",
-    "EG-TYPED-PACKS-R004",
-    "EG-TYPED-PACKS-R005",
-    "EG-TYPED-PACKS-R006",
-    "EG-TYPED-PACKS-R007",
-    "EG-TYPED-PACKS-R008",
-    "EG-TYPED-PACKS-R009",
-    "EG-TYPED-PACKS-R010",
-    "EG-TYPED-PACKS-R011",
-    "EG-TYPED-PACKS-R012",
-    "EG-TYPED-PACKS-R013",
-    "EG-TYPED-PACKS-R014",
-    "EG-TYPED-PACKS-R015",
-    "EG-TYPED-PACKS-R016",
-    "EG-TYPED-PACKS-R017",
-    "EG-TYPED-PACKS-R018",
-    "EG-TYPED-PACKS-R019",
-    "EG-TYPED-PACKS-R020",
-    "EG-TYPED-PACKS-R021",
-    "EG-TYPED-PACKS-R022",
-    "EG-TYPED-PACKS-R023",
-    "EG-TYPED-PACKS-R024",
-    "EG-TYPED-PACKS-R025",
-    "EG-TYPED-PACKS-R026",
-    "EG-TYPED-PACKS-R027",
-    "EG-TYPED-PACKS-R028",
-    "EG-TYPED-PACKS-R029",
-    "EG-TYPED-PACKS-R030",
-    "EG-TYPED-PACKS-R031",
-    "EG-TYPED-PACKS-R032",
-    "EG-TYPED-PACKS-R033",
-    "EG-TYPED-PACKS-R034",
-    "EG-TYPED-PACKS-R035",
-    "EG-TYPED-PACKS-R036",
-    "EG-TYPED-PACKS-R037",
-    "EG-TYPED-PACKS-R038",
-    "EG-TYPED-PACKS-R039",
-    "EG-TYPED-PACKS-R040",
-    "EG-TYPED-PACKS-R041",
-    "EG-TYPED-PACKS-R042",
-    "EG-TYPED-PACKS-R042.1",
-    "EG-TYPED-PACKS-R042.2",
-    "EG-TYPED-PACKS-R043",
-    "EG-TYPED-PACKS-R044",
-    "EG-TYPED-PACKS-R045",
-    "EG-TYPED-PACKS-R045.1",
-    "EG-TYPED-PACKS-R045.2",
-    "EG-TYPED-PACKS-R045.3",
-    "EG-TYPED-PACKS-R045.4",
-    "EG-TYPED-PACKS-R045.5",
-    "EG-TYPED-PACKS-R045.6",
-    "EG-TYPED-PACKS-R045.7",
-    "EG-TYPED-PACKS-R045.8",
-    "EG-TYPED-PACKS-R045.9",
-    "EG-TYPED-PACKS-R046",
-    "EG-TYPED-PACKS-R047",
-    "EG-TYPED-PACKS-R048",
-    "EG-TYPED-PACKS-R048.1",
-    "EG-TYPED-PACKS-R048.2",
-    "EG-TYPED-PACKS-R048.3",
-    "EG-TYPED-PACKS-R048.4",
-    "EG-TYPED-PACKS-R048.5",
-    "EG-TYPED-PACKS-R049",
-    "EG-TYPED-PACKS-R050",
-    "EG-TYPED-PACKS-R051",
-    "EG-TYPED-PACKS-R052",
-    "EG-TYPED-PACKS-R053",
-    "EG-TYPED-PACKS-R054",
-    "EG-TYPED-PACKS-R055",
-    "EG-TYPED-PACKS-R056",
-    "EG-TYPED-PACKS-R057",
-    "EG-TYPED-PACKS-R058",
-    "EG-TYPED-PACKS-R059",
-    "EG-TYPED-PACKS-R060",
-    "EG-TYPED-PACKS-R061",
-    "EG-TYPED-PACKS-R062",
-    "EG-TYPED-PACKS-R063",
-    "EG-TYPED-PACKS-R064",
-    "EG-TYPED-PACKS-R065",
-    "EG-TYPED-PACKS-R066",
-    "EG-TYPED-PACKS-R066.1",
-    "EG-TYPED-PACKS-R066.2",
-    "EG-TYPED-PACKS-R066.3",
-    "EG-TYPED-PACKS-R067",
-    "EG-TYPED-PACKS-R068",
-    "EG-TYPED-PACKS-R069",
-    "EG-TYPED-PACKS-R070",
-    "EG-TYPED-PACKS-R071",
-    "EG-TYPED-PACKS-R071.1",
-    "EG-TYPED-PACKS-R071.1.1",
-    "EG-TYPED-PACKS-R071.1.2",
-    "EG-TYPED-PACKS-R071.1.3",
-    "EG-TYPED-PACKS-R071.1.4",
-    "EG-TYPED-PACKS-R071.1.5",
-    "EG-TYPED-PACKS-R071.1.6",
-    "EG-TYPED-PACKS-R072",
-    "EG-TYPED-PACKS-R073",
-    "EG-TYPED-PACKS-R074",
-    "EG-TYPED-PACKS-R075",
-    "EG-TYPED-PACKS-R076",
-    "EG-TYPED-PACKS-R077",
-    "EG-TYPED-PACKS-R078",
-    "EG-TYPED-PACKS-R079",
-    "EG-TYPED-PACKS-R080",
-    "EG-TYPED-PACKS-R081",
-    "EG-TYPED-PACKS-R082",
-    "EG-TYPED-PACKS-R083",
-    "EG-TYPED-PACKS-R084",
-    "EG-TYPED-PACKS-R085",
-    "EG-TYPED-PACKS-R085.1",
-    "EG-TYPED-PACKS-R085.3",
-    "EG-TYPED-PACKS-R085.2",
-    "EG-TYPED-PACKS-R085.7",
-    "EG-TYPED-PACKS-R085.4",
-    "EG-TYPED-PACKS-R086",
-    "EG-TYPED-PACKS-R087",
-    "EG-TYPED-PACKS-R088",
-    "EG-TYPED-PACKS-R089",
-    "EG-TYPED-PACKS-R090",
-    "EG-TYPED-PACKS-R090.1",
-    "EG-TYPED-PACKS-R091",
-    "EG-TYPED-PACKS-R092",
-    "EG-TYPED-PACKS-R093",
-    "EG-TYPED-PACKS-R093.1",
-    "EG-TYPED-PACKS-R093.2",
-    "EG-TYPED-PACKS-R094",
-    "EG-TYPED-PACKS-R094.1",
-    "EG-TYPED-PACKS-R094.2",
-    "EG-TYPED-PACKS-R094.3",
-    "EG-TYPED-PACKS-R094.4",
-    "EG-TYPED-PACKS-R094.5",
-    "EG-TYPED-PACKS-R094.6",
-    "EG-TYPED-PACKS-R094.7",
-    "EG-TYPED-PACKS-R095",
-    "EG-TYPED-PACKS-R096",
-    "EG-TYPED-PACKS-R097",
-    "EG-TYPED-PACKS-R097.1",
-    "EG-TYPED-PACKS-R097.2",
-    "EG-TYPED-PACKS-R097.2.1",
-    "EG-TYPED-PACKS-R097.2.2",
-    "EG-TYPED-PACKS-R097.2.3",
-    "EG-TYPED-PACKS-R097.2.4",
-    "EG-TYPED-PACKS-R097.2.5",
-    "EG-TYPED-PACKS-R097.2.6",
-    "EG-TYPED-PACKS-R098",
-    "EG-TYPED-PACKS-R099",
-    "EG-TYPED-PACKS-R100",
-    "EG-TYPED-PACKS-R100.1",
-    "EG-TYPED-PACKS-R100.2",
-    "EG-TYPED-PACKS-R100.3",
-    "EG-TYPED-PACKS-R100.4",
-    "EG-TYPED-PACKS-R100.5",
-    "EG-TYPED-PACKS-R100.6",
-    "EG-TYPED-PACKS-R100.7",
-    "EG-TYPED-PACKS-R097.2.7",
-    "EG-TYPED-PACKS-R100.8",
-    "EG-TYPED-PACKS-R069.100",
-    "EG-TYPED-PACKS-R100.100",
-    "EG-TYPED-PACKS-R100.101",
-    "EG-TYPED-PACKS-R001.100",
-    "EG-TYPED-PACKS-R072.100",
-    "EG-TYPED-PACKS-R071.100",
-    "EG-TYPED-PACKS-R101",
-    "EG-TYPED-PACKS-R101.1",
-    "EG-TYPED-PACKS-R101.2",
-    "EG-TYPED-PACKS-R101.3",
-    "EG-TYPED-PACKS-R101.4",
-    "EG-TYPED-PACKS-R101.5",
-    "EG-TYPED-PACKS-R101.6",
-    "EG-TYPED-PACKS-R101.7",
-    "EG-TYPED-PACKS-R101.8",
-    "EG-TYPED-PACKS-R101.9",
-    "EG-TYPED-PACKS-R101.10",
-    "EG-TYPED-PACKS-R101.11",
-    "EG-TYPED-PACKS-R102",
-    "EG-TYPED-PACKS-R102.1",
-    "EG-TYPED-PACKS-R102.2",
-    "EG-TYPED-PACKS-R102.3",
-    "EG-TYPED-PACKS-R102.4",
-    "EG-TYPED-PACKS-R102.5",
-    "EG-TYPED-PACKS-R102.6",
-    "EG-TYPED-PACKS-R102.7",
-    "EG-TYPED-PACKS-R103",
-    "EG-TYPED-PACKS-R103.1",
-    "EG-TYPED-PACKS-R103.2",
-    "EG-TYPED-PACKS-R103.3",
-    "EG-TYPED-PACKS-R103.4",
-    "EG-TYPED-PACKS-R103.5",
-    "EG-TYPED-PACKS-R103.6",
-    "EG-TYPED-PACKS-R104",
-    "EG-TYPED-PACKS-R104.1",
-    "EG-TYPED-PACKS-R104.2",
-    "EG-TYPED-PACKS-R104.3",
-    "EG-TYPED-PACKS-R104.4",
-    "EG-TYPED-PACKS-R104.5",
-    "EG-TYPED-PACKS-R104.6",
-    "EG-TYPED-PACKS-R105",
-    "EG-TYPED-PACKS-R105.1",
-    "EG-TYPED-PACKS-R105.2",
-    "EG-TYPED-PACKS-R105.3",
-    "EG-TYPED-PACKS-R105.3.1",
-    "EG-TYPED-PACKS-R105.4",
-    "EG-TYPED-PACKS-R105.5",
-    "EG-TYPED-PACKS-R105.6",
-    "EG-TYPED-PACKS-R105.7",
-    "EG-TYPED-PACKS-R105.8",
-    "EG-TYPED-PACKS-R105.9",
-    "EG-TYPED-PACKS-R750",
-    "EG-TYPED-PACKS-R750.750",
-    "EG-TYPED-PACKS-R750.751",
-    "EG-TYPED-PACKS-R750.752",
-    "EG-TYPED-PACKS-R750.753",
-    "EG-TYPED-PACKS-R751",
-    "EG-TYPED-PACKS-R751.750",
-    "EG-TYPED-PACKS-R751.751",
-    "EG-TYPED-PACKS-R751.752",
-    "EG-TYPED-PACKS-R751.753",
-    "EG-TYPED-PACKS-R650",
-    "EG-TYPED-PACKS-R650.1",
-    "EG-TYPED-PACKS-R650.2",
-    "EG-TYPED-PACKS-R650.3",
-    "EG-TYPED-PACKS-R650.4",
-    "EG-TYPED-PACKS-R650.5",
-    "EG-TYPED-PACKS-R650.6",
-    "EG-TYPED-PACKS-R651",
-    "EG-TYPED-PACKS-R651.1",
-    "EG-TYPED-PACKS-R651.2",
-    "EG-TYPED-PACKS-R651.3",
-    "EG-TYPED-PACKS-R651.4",
-    "EG-TYPED-PACKS-R651.5",
-    "EG-TYPED-PACKS-R651.6",
-    "EG-TYPED-PACKS-R652",
-    "EG-TYPED-PACKS-R652.1",
-    "EG-TYPED-PACKS-R652.2",
-    "EG-TYPED-PACKS-R652.3",
-    "EG-TYPED-PACKS-R652.4",
-    "EG-TYPED-PACKS-R652.5",
-    "EG-TYPED-PACKS-R652.6",
-    "EG-TYPED-PACKS-R700",
-    "EG-TYPED-PACKS-R700.1",
-    "EG-TYPED-PACKS-R700.2",
-    "EG-TYPED-PACKS-R700.3",
-    "EG-TYPED-PACKS-R700.4",
-    "EG-TYPED-PACKS-R700.5",
-    "EG-TYPED-PACKS-R700.6",
-    "EG-TYPED-PACKS-R097.700",
-    "EG-TYPED-PACKS-R097.701",
-    "EG-TYPED-PACKS-R710",
-    "EG-TYPED-PACKS-R712",
-    "EG-TYPED-PACKS-R711",
-    "EG-TYPED-PACKS-R713",
-    "EG-TYPED-PACKS-R714",
-    "EG-TYPED-PACKS-R715",
-    "EG-TYPED-PACKS-R800",
-    "EG-TYPED-PACKS-R800.1",
-    "EG-TYPED-PACKS-R800.2",
-    "EG-TYPED-PACKS-R800.3",
-    "EG-TYPED-PACKS-R800.4",
-    "EG-TYPED-PACKS-R800.5",
-    "EG-TYPED-PACKS-R800.6",
-    "EG-TYPED-PACKS-R801",
-    "EG-TYPED-PACKS-R801.1",
-    "EG-TYPED-PACKS-R801.2",
-    "EG-TYPED-PACKS-R801.3",
-    "EG-TYPED-PACKS-R801.4",
-    "EG-TYPED-PACKS-R801.5",
-    "EG-TYPED-PACKS-R801.6",
-    "EG-TYPED-PACKS-R801.7",
-    "EG-TYPED-PACKS-R802",
-    "EG-TYPED-PACKS-R802.1",
-    "EG-TYPED-PACKS-R802.2",
-    "EG-TYPED-PACKS-R802.3",
-    "EG-TYPED-PACKS-R802.4",
-    "EG-TYPED-PACKS-R802.5",
-    "EG-TYPED-PACKS-R802.6",
-    "EG-TYPED-PACKS-R802.7",
-    "EG-TYPED-PACKS-R802.8",
-    "EG-TYPED-PACKS-R803",
-    "EG-TYPED-PACKS-R803.1",
-    "EG-TYPED-PACKS-R803.2",
-    "EG-TYPED-PACKS-R803.3",
-    "EG-TYPED-PACKS-R803.4",
-    "EG-TYPED-PACKS-R803.5",
-    "EG-TYPED-PACKS-R803.6",
-    "EG-TYPED-PACKS-R804",
-    "EG-TYPED-PACKS-R804.1",
-    "EG-TYPED-PACKS-R804.2",
-    "EG-TYPED-PACKS-R804.3",
-    "EG-TYPED-PACKS-R804.4",
-    "EG-TYPED-PACKS-R804.5",
-    "EG-TYPED-PACKS-R804.6",
-    "EG-TYPED-PACKS-R805",
-    "EG-TYPED-PACKS-R805.1",
-    "EG-TYPED-PACKS-R805.2",
-    "EG-TYPED-PACKS-R805.3",
-    "EG-TYPED-PACKS-R805.4",
-    "EG-TYPED-PACKS-R805.5",
-    "EG-TYPED-PACKS-R805.6",
-    "EG-TYPED-PACKS-R805.7",
-    "EG-TYPED-PACKS-R106",
-    "EG-TYPED-PACKS-R106.1",
-    "EG-TYPED-PACKS-R106.2",
-    "EG-TYPED-PACKS-R106.3",
-    "EG-TYPED-PACKS-R106.4",
-    "EG-TYPED-PACKS-R106.5",
-    "EG-TYPED-PACKS-R106.6",
-    "EG-TYPED-PACKS-R106.7",
-    "EG-TYPED-PACKS-R107",
-    "EG-TYPED-PACKS-R107.1",
-    "EG-TYPED-PACKS-R107.2",
-    "EG-TYPED-PACKS-R107.3",
-    "EG-TYPED-PACKS-R107.4",
-    "EG-TYPED-PACKS-R107.5",
-    "EG-TYPED-PACKS-R107.6",
-    "EG-TYPED-PACKS-R108",
-    "EG-TYPED-PACKS-R108.1",
-    "EG-TYPED-PACKS-R108.2",
-    "EG-TYPED-PACKS-R108.3",
-    "EG-TYPED-PACKS-R108.4",
-    "EG-TYPED-PACKS-R108.5",
-    "EG-TYPED-PACKS-R108.6",
-    "EG-TYPED-PACKS-R108.7",
-    "EG-TYPED-PACKS-R108.8",
-    "EG-TYPED-PACKS-R108.9",
-    "EG-TYPED-PACKS-R108.10",
-    "EG-TYPED-PACKS-R108.11",
-    "EG-TYPED-PACKS-R108.12",
-    "EG-TYPED-PACKS-R108.13",
-    "EG-TYPED-PACKS-R108.14",
-    "EG-TYPED-PACKS-R108.15",
-    "EG-TYPED-PACKS-R108.16",
-    "EG-TYPED-PACKS-R109",
-    "EG-TYPED-PACKS-R109.1",
-    "EG-TYPED-PACKS-R109.2",
-    "EG-TYPED-PACKS-R109.3",
-    "EG-TYPED-PACKS-R109.4",
-    "EG-TYPED-PACKS-R109.5",
-    "EG-TYPED-PACKS-R109.6",
-    "EG-TYPED-PACKS-R085.5",
-    "EG-TYPED-PACKS-R085.6",
-    "EG-TYPED-PACKS-R085.7.1",
-    "EG-TYPED-PACKS-R085.7.2",
-    "EG-TYPED-PACKS-R085.7.3",
-    "EG-TYPED-PACKS-R085.4.1",
-    "EG-TYPED-PACKS-R085.4.2",
-    "EG-TYPED-PACKS-R085.4.3",
-    "EG-TYPED-PACKS-R085.5.1",
-    "EG-TYPED-PACKS-R085.5.2",
-    "EG-TYPED-PACKS-R085.5.3",
-    "EG-TYPED-PACKS-R085.5.4",
-    "EG-TYPED-PACKS-R085.6.1",
-    "EG-TYPED-PACKS-R085.6.2",
-    "EG-TYPED-PACKS-R085.6.3"
+    "MEDULLA-TYPED-PACKS-R001",
+    "MEDULLA-TYPED-PACKS-R001.1",
+    "MEDULLA-TYPED-PACKS-R001.2",
+    "MEDULLA-TYPED-PACKS-R001.3",
+    "MEDULLA-TYPED-PACKS-R001.4",
+    "MEDULLA-TYPED-PACKS-R001.5",
+    "MEDULLA-TYPED-PACKS-R001.6",
+    "MEDULLA-TYPED-PACKS-R001.7",
+    "MEDULLA-TYPED-PACKS-R001.8",
+    "MEDULLA-TYPED-PACKS-R001.9",
+    "MEDULLA-TYPED-PACKS-R002",
+    "MEDULLA-TYPED-PACKS-R002.1",
+    "MEDULLA-TYPED-PACKS-R002.2",
+    "MEDULLA-TYPED-PACKS-R002.3",
+    "MEDULLA-TYPED-PACKS-R002.4",
+    "MEDULLA-TYPED-PACKS-R002.5",
+    "MEDULLA-TYPED-PACKS-R002.6",
+    "MEDULLA-TYPED-PACKS-R002.7",
+    "MEDULLA-TYPED-PACKS-R002.8",
+    "MEDULLA-TYPED-PACKS-R002.9",
+    "MEDULLA-TYPED-PACKS-R002.10",
+    "MEDULLA-TYPED-PACKS-R002.11",
+    "MEDULLA-TYPED-PACKS-R003",
+    "MEDULLA-TYPED-PACKS-R004",
+    "MEDULLA-TYPED-PACKS-R005",
+    "MEDULLA-TYPED-PACKS-R006",
+    "MEDULLA-TYPED-PACKS-R007",
+    "MEDULLA-TYPED-PACKS-R008",
+    "MEDULLA-TYPED-PACKS-R009",
+    "MEDULLA-TYPED-PACKS-R010",
+    "MEDULLA-TYPED-PACKS-R011",
+    "MEDULLA-TYPED-PACKS-R012",
+    "MEDULLA-TYPED-PACKS-R013",
+    "MEDULLA-TYPED-PACKS-R014",
+    "MEDULLA-TYPED-PACKS-R015",
+    "MEDULLA-TYPED-PACKS-R016",
+    "MEDULLA-TYPED-PACKS-R017",
+    "MEDULLA-TYPED-PACKS-R018",
+    "MEDULLA-TYPED-PACKS-R019",
+    "MEDULLA-TYPED-PACKS-R020",
+    "MEDULLA-TYPED-PACKS-R021",
+    "MEDULLA-TYPED-PACKS-R022",
+    "MEDULLA-TYPED-PACKS-R023",
+    "MEDULLA-TYPED-PACKS-R024",
+    "MEDULLA-TYPED-PACKS-R025",
+    "MEDULLA-TYPED-PACKS-R026",
+    "MEDULLA-TYPED-PACKS-R027",
+    "MEDULLA-TYPED-PACKS-R028",
+    "MEDULLA-TYPED-PACKS-R029",
+    "MEDULLA-TYPED-PACKS-R030",
+    "MEDULLA-TYPED-PACKS-R031",
+    "MEDULLA-TYPED-PACKS-R032",
+    "MEDULLA-TYPED-PACKS-R033",
+    "MEDULLA-TYPED-PACKS-R034",
+    "MEDULLA-TYPED-PACKS-R035",
+    "MEDULLA-TYPED-PACKS-R036",
+    "MEDULLA-TYPED-PACKS-R037",
+    "MEDULLA-TYPED-PACKS-R038",
+    "MEDULLA-TYPED-PACKS-R039",
+    "MEDULLA-TYPED-PACKS-R040",
+    "MEDULLA-TYPED-PACKS-R041",
+    "MEDULLA-TYPED-PACKS-R042",
+    "MEDULLA-TYPED-PACKS-R042.1",
+    "MEDULLA-TYPED-PACKS-R042.2",
+    "MEDULLA-TYPED-PACKS-R043",
+    "MEDULLA-TYPED-PACKS-R044",
+    "MEDULLA-TYPED-PACKS-R045",
+    "MEDULLA-TYPED-PACKS-R045.1",
+    "MEDULLA-TYPED-PACKS-R045.2",
+    "MEDULLA-TYPED-PACKS-R045.3",
+    "MEDULLA-TYPED-PACKS-R045.4",
+    "MEDULLA-TYPED-PACKS-R045.5",
+    "MEDULLA-TYPED-PACKS-R045.6",
+    "MEDULLA-TYPED-PACKS-R045.7",
+    "MEDULLA-TYPED-PACKS-R045.8",
+    "MEDULLA-TYPED-PACKS-R045.9",
+    "MEDULLA-TYPED-PACKS-R046",
+    "MEDULLA-TYPED-PACKS-R047",
+    "MEDULLA-TYPED-PACKS-R048",
+    "MEDULLA-TYPED-PACKS-R048.1",
+    "MEDULLA-TYPED-PACKS-R048.2",
+    "MEDULLA-TYPED-PACKS-R048.3",
+    "MEDULLA-TYPED-PACKS-R048.4",
+    "MEDULLA-TYPED-PACKS-R048.5",
+    "MEDULLA-TYPED-PACKS-R049",
+    "MEDULLA-TYPED-PACKS-R050",
+    "MEDULLA-TYPED-PACKS-R051",
+    "MEDULLA-TYPED-PACKS-R052",
+    "MEDULLA-TYPED-PACKS-R053",
+    "MEDULLA-TYPED-PACKS-R054",
+    "MEDULLA-TYPED-PACKS-R055",
+    "MEDULLA-TYPED-PACKS-R056",
+    "MEDULLA-TYPED-PACKS-R057",
+    "MEDULLA-TYPED-PACKS-R058",
+    "MEDULLA-TYPED-PACKS-R059",
+    "MEDULLA-TYPED-PACKS-R060",
+    "MEDULLA-TYPED-PACKS-R061",
+    "MEDULLA-TYPED-PACKS-R062",
+    "MEDULLA-TYPED-PACKS-R063",
+    "MEDULLA-TYPED-PACKS-R064",
+    "MEDULLA-TYPED-PACKS-R065",
+    "MEDULLA-TYPED-PACKS-R066",
+    "MEDULLA-TYPED-PACKS-R066.1",
+    "MEDULLA-TYPED-PACKS-R066.2",
+    "MEDULLA-TYPED-PACKS-R066.3",
+    "MEDULLA-TYPED-PACKS-R067",
+    "MEDULLA-TYPED-PACKS-R068",
+    "MEDULLA-TYPED-PACKS-R069",
+    "MEDULLA-TYPED-PACKS-R070",
+    "MEDULLA-TYPED-PACKS-R071",
+    "MEDULLA-TYPED-PACKS-R071.1",
+    "MEDULLA-TYPED-PACKS-R071.1.1",
+    "MEDULLA-TYPED-PACKS-R071.1.2",
+    "MEDULLA-TYPED-PACKS-R071.1.3",
+    "MEDULLA-TYPED-PACKS-R071.1.4",
+    "MEDULLA-TYPED-PACKS-R071.1.5",
+    "MEDULLA-TYPED-PACKS-R071.1.6",
+    "MEDULLA-TYPED-PACKS-R072",
+    "MEDULLA-TYPED-PACKS-R073",
+    "MEDULLA-TYPED-PACKS-R074",
+    "MEDULLA-TYPED-PACKS-R075",
+    "MEDULLA-TYPED-PACKS-R076",
+    "MEDULLA-TYPED-PACKS-R077",
+    "MEDULLA-TYPED-PACKS-R078",
+    "MEDULLA-TYPED-PACKS-R079",
+    "MEDULLA-TYPED-PACKS-R080",
+    "MEDULLA-TYPED-PACKS-R081",
+    "MEDULLA-TYPED-PACKS-R082",
+    "MEDULLA-TYPED-PACKS-R083",
+    "MEDULLA-TYPED-PACKS-R084",
+    "MEDULLA-TYPED-PACKS-R085",
+    "MEDULLA-TYPED-PACKS-R085.1",
+    "MEDULLA-TYPED-PACKS-R085.3",
+    "MEDULLA-TYPED-PACKS-R085.2",
+    "MEDULLA-TYPED-PACKS-R085.7",
+    "MEDULLA-TYPED-PACKS-R085.4",
+    "MEDULLA-TYPED-PACKS-R086",
+    "MEDULLA-TYPED-PACKS-R087",
+    "MEDULLA-TYPED-PACKS-R088",
+    "MEDULLA-TYPED-PACKS-R089",
+    "MEDULLA-TYPED-PACKS-R090",
+    "MEDULLA-TYPED-PACKS-R090.1",
+    "MEDULLA-TYPED-PACKS-R091",
+    "MEDULLA-TYPED-PACKS-R092",
+    "MEDULLA-TYPED-PACKS-R093",
+    "MEDULLA-TYPED-PACKS-R093.1",
+    "MEDULLA-TYPED-PACKS-R093.2",
+    "MEDULLA-TYPED-PACKS-R094",
+    "MEDULLA-TYPED-PACKS-R094.1",
+    "MEDULLA-TYPED-PACKS-R094.2",
+    "MEDULLA-TYPED-PACKS-R094.3",
+    "MEDULLA-TYPED-PACKS-R094.4",
+    "MEDULLA-TYPED-PACKS-R094.5",
+    "MEDULLA-TYPED-PACKS-R094.6",
+    "MEDULLA-TYPED-PACKS-R094.7",
+    "MEDULLA-TYPED-PACKS-R095",
+    "MEDULLA-TYPED-PACKS-R096",
+    "MEDULLA-TYPED-PACKS-R097",
+    "MEDULLA-TYPED-PACKS-R097.1",
+    "MEDULLA-TYPED-PACKS-R097.2",
+    "MEDULLA-TYPED-PACKS-R097.2.1",
+    "MEDULLA-TYPED-PACKS-R097.2.2",
+    "MEDULLA-TYPED-PACKS-R097.2.3",
+    "MEDULLA-TYPED-PACKS-R097.2.4",
+    "MEDULLA-TYPED-PACKS-R097.2.5",
+    "MEDULLA-TYPED-PACKS-R097.2.6",
+    "MEDULLA-TYPED-PACKS-R098",
+    "MEDULLA-TYPED-PACKS-R099",
+    "MEDULLA-TYPED-PACKS-R100",
+    "MEDULLA-TYPED-PACKS-R100.1",
+    "MEDULLA-TYPED-PACKS-R100.2",
+    "MEDULLA-TYPED-PACKS-R100.3",
+    "MEDULLA-TYPED-PACKS-R100.4",
+    "MEDULLA-TYPED-PACKS-R100.5",
+    "MEDULLA-TYPED-PACKS-R100.6",
+    "MEDULLA-TYPED-PACKS-R100.7",
+    "MEDULLA-TYPED-PACKS-R097.2.7",
+    "MEDULLA-TYPED-PACKS-R100.8",
+    "MEDULLA-TYPED-PACKS-R069.100",
+    "MEDULLA-TYPED-PACKS-R100.100",
+    "MEDULLA-TYPED-PACKS-R100.101",
+    "MEDULLA-TYPED-PACKS-R001.100",
+    "MEDULLA-TYPED-PACKS-R072.100",
+    "MEDULLA-TYPED-PACKS-R071.100",
+    "MEDULLA-TYPED-PACKS-R101",
+    "MEDULLA-TYPED-PACKS-R101.1",
+    "MEDULLA-TYPED-PACKS-R101.2",
+    "MEDULLA-TYPED-PACKS-R101.3",
+    "MEDULLA-TYPED-PACKS-R101.4",
+    "MEDULLA-TYPED-PACKS-R101.5",
+    "MEDULLA-TYPED-PACKS-R101.6",
+    "MEDULLA-TYPED-PACKS-R101.7",
+    "MEDULLA-TYPED-PACKS-R101.8",
+    "MEDULLA-TYPED-PACKS-R101.9",
+    "MEDULLA-TYPED-PACKS-R101.10",
+    "MEDULLA-TYPED-PACKS-R101.11",
+    "MEDULLA-TYPED-PACKS-R102",
+    "MEDULLA-TYPED-PACKS-R102.1",
+    "MEDULLA-TYPED-PACKS-R102.2",
+    "MEDULLA-TYPED-PACKS-R102.3",
+    "MEDULLA-TYPED-PACKS-R102.4",
+    "MEDULLA-TYPED-PACKS-R102.5",
+    "MEDULLA-TYPED-PACKS-R102.6",
+    "MEDULLA-TYPED-PACKS-R102.7",
+    "MEDULLA-TYPED-PACKS-R103",
+    "MEDULLA-TYPED-PACKS-R103.1",
+    "MEDULLA-TYPED-PACKS-R103.2",
+    "MEDULLA-TYPED-PACKS-R103.3",
+    "MEDULLA-TYPED-PACKS-R103.4",
+    "MEDULLA-TYPED-PACKS-R103.5",
+    "MEDULLA-TYPED-PACKS-R103.6",
+    "MEDULLA-TYPED-PACKS-R104",
+    "MEDULLA-TYPED-PACKS-R104.1",
+    "MEDULLA-TYPED-PACKS-R104.2",
+    "MEDULLA-TYPED-PACKS-R104.3",
+    "MEDULLA-TYPED-PACKS-R104.4",
+    "MEDULLA-TYPED-PACKS-R104.5",
+    "MEDULLA-TYPED-PACKS-R104.6",
+    "MEDULLA-TYPED-PACKS-R105",
+    "MEDULLA-TYPED-PACKS-R105.1",
+    "MEDULLA-TYPED-PACKS-R105.2",
+    "MEDULLA-TYPED-PACKS-R105.3",
+    "MEDULLA-TYPED-PACKS-R105.3.1",
+    "MEDULLA-TYPED-PACKS-R105.4",
+    "MEDULLA-TYPED-PACKS-R105.5",
+    "MEDULLA-TYPED-PACKS-R105.6",
+    "MEDULLA-TYPED-PACKS-R105.7",
+    "MEDULLA-TYPED-PACKS-R105.8",
+    "MEDULLA-TYPED-PACKS-R105.9",
+    "MEDULLA-TYPED-PACKS-R750",
+    "MEDULLA-TYPED-PACKS-R750.750",
+    "MEDULLA-TYPED-PACKS-R750.751",
+    "MEDULLA-TYPED-PACKS-R750.752",
+    "MEDULLA-TYPED-PACKS-R750.753",
+    "MEDULLA-TYPED-PACKS-R751",
+    "MEDULLA-TYPED-PACKS-R751.750",
+    "MEDULLA-TYPED-PACKS-R751.751",
+    "MEDULLA-TYPED-PACKS-R751.752",
+    "MEDULLA-TYPED-PACKS-R751.753",
+    "MEDULLA-TYPED-PACKS-R650",
+    "MEDULLA-TYPED-PACKS-R650.1",
+    "MEDULLA-TYPED-PACKS-R650.2",
+    "MEDULLA-TYPED-PACKS-R650.3",
+    "MEDULLA-TYPED-PACKS-R650.4",
+    "MEDULLA-TYPED-PACKS-R650.5",
+    "MEDULLA-TYPED-PACKS-R650.6",
+    "MEDULLA-TYPED-PACKS-R651",
+    "MEDULLA-TYPED-PACKS-R651.1",
+    "MEDULLA-TYPED-PACKS-R651.2",
+    "MEDULLA-TYPED-PACKS-R651.3",
+    "MEDULLA-TYPED-PACKS-R651.4",
+    "MEDULLA-TYPED-PACKS-R651.5",
+    "MEDULLA-TYPED-PACKS-R651.6",
+    "MEDULLA-TYPED-PACKS-R652",
+    "MEDULLA-TYPED-PACKS-R652.1",
+    "MEDULLA-TYPED-PACKS-R652.2",
+    "MEDULLA-TYPED-PACKS-R652.3",
+    "MEDULLA-TYPED-PACKS-R652.4",
+    "MEDULLA-TYPED-PACKS-R652.5",
+    "MEDULLA-TYPED-PACKS-R652.6",
+    "MEDULLA-TYPED-PACKS-R700",
+    "MEDULLA-TYPED-PACKS-R700.1",
+    "MEDULLA-TYPED-PACKS-R700.2",
+    "MEDULLA-TYPED-PACKS-R700.3",
+    "MEDULLA-TYPED-PACKS-R700.4",
+    "MEDULLA-TYPED-PACKS-R700.5",
+    "MEDULLA-TYPED-PACKS-R700.6",
+    "MEDULLA-TYPED-PACKS-R097.700",
+    "MEDULLA-TYPED-PACKS-R097.701",
+    "MEDULLA-TYPED-PACKS-R710",
+    "MEDULLA-TYPED-PACKS-R712",
+    "MEDULLA-TYPED-PACKS-R711",
+    "MEDULLA-TYPED-PACKS-R713",
+    "MEDULLA-TYPED-PACKS-R714",
+    "MEDULLA-TYPED-PACKS-R715",
+    "MEDULLA-TYPED-PACKS-R800",
+    "MEDULLA-TYPED-PACKS-R800.1",
+    "MEDULLA-TYPED-PACKS-R800.2",
+    "MEDULLA-TYPED-PACKS-R800.3",
+    "MEDULLA-TYPED-PACKS-R800.4",
+    "MEDULLA-TYPED-PACKS-R800.5",
+    "MEDULLA-TYPED-PACKS-R800.6",
+    "MEDULLA-TYPED-PACKS-R801",
+    "MEDULLA-TYPED-PACKS-R801.1",
+    "MEDULLA-TYPED-PACKS-R801.2",
+    "MEDULLA-TYPED-PACKS-R801.3",
+    "MEDULLA-TYPED-PACKS-R801.4",
+    "MEDULLA-TYPED-PACKS-R801.5",
+    "MEDULLA-TYPED-PACKS-R801.6",
+    "MEDULLA-TYPED-PACKS-R801.7",
+    "MEDULLA-TYPED-PACKS-R802",
+    "MEDULLA-TYPED-PACKS-R802.1",
+    "MEDULLA-TYPED-PACKS-R802.2",
+    "MEDULLA-TYPED-PACKS-R802.3",
+    "MEDULLA-TYPED-PACKS-R802.4",
+    "MEDULLA-TYPED-PACKS-R802.5",
+    "MEDULLA-TYPED-PACKS-R802.6",
+    "MEDULLA-TYPED-PACKS-R802.7",
+    "MEDULLA-TYPED-PACKS-R802.8",
+    "MEDULLA-TYPED-PACKS-R803",
+    "MEDULLA-TYPED-PACKS-R803.1",
+    "MEDULLA-TYPED-PACKS-R803.2",
+    "MEDULLA-TYPED-PACKS-R803.3",
+    "MEDULLA-TYPED-PACKS-R803.4",
+    "MEDULLA-TYPED-PACKS-R803.5",
+    "MEDULLA-TYPED-PACKS-R803.6",
+    "MEDULLA-TYPED-PACKS-R804",
+    "MEDULLA-TYPED-PACKS-R804.1",
+    "MEDULLA-TYPED-PACKS-R804.2",
+    "MEDULLA-TYPED-PACKS-R804.3",
+    "MEDULLA-TYPED-PACKS-R804.4",
+    "MEDULLA-TYPED-PACKS-R804.5",
+    "MEDULLA-TYPED-PACKS-R804.6",
+    "MEDULLA-TYPED-PACKS-R805",
+    "MEDULLA-TYPED-PACKS-R805.1",
+    "MEDULLA-TYPED-PACKS-R805.2",
+    "MEDULLA-TYPED-PACKS-R805.3",
+    "MEDULLA-TYPED-PACKS-R805.4",
+    "MEDULLA-TYPED-PACKS-R805.5",
+    "MEDULLA-TYPED-PACKS-R805.6",
+    "MEDULLA-TYPED-PACKS-R805.7",
+    "MEDULLA-TYPED-PACKS-R106",
+    "MEDULLA-TYPED-PACKS-R106.1",
+    "MEDULLA-TYPED-PACKS-R106.2",
+    "MEDULLA-TYPED-PACKS-R106.3",
+    "MEDULLA-TYPED-PACKS-R106.4",
+    "MEDULLA-TYPED-PACKS-R106.5",
+    "MEDULLA-TYPED-PACKS-R106.6",
+    "MEDULLA-TYPED-PACKS-R106.7",
+    "MEDULLA-TYPED-PACKS-R107",
+    "MEDULLA-TYPED-PACKS-R107.1",
+    "MEDULLA-TYPED-PACKS-R107.2",
+    "MEDULLA-TYPED-PACKS-R107.3",
+    "MEDULLA-TYPED-PACKS-R107.4",
+    "MEDULLA-TYPED-PACKS-R107.5",
+    "MEDULLA-TYPED-PACKS-R107.6",
+    "MEDULLA-TYPED-PACKS-R108",
+    "MEDULLA-TYPED-PACKS-R108.1",
+    "MEDULLA-TYPED-PACKS-R108.2",
+    "MEDULLA-TYPED-PACKS-R108.3",
+    "MEDULLA-TYPED-PACKS-R108.4",
+    "MEDULLA-TYPED-PACKS-R108.5",
+    "MEDULLA-TYPED-PACKS-R108.6",
+    "MEDULLA-TYPED-PACKS-R108.7",
+    "MEDULLA-TYPED-PACKS-R108.8",
+    "MEDULLA-TYPED-PACKS-R108.9",
+    "MEDULLA-TYPED-PACKS-R108.10",
+    "MEDULLA-TYPED-PACKS-R108.11",
+    "MEDULLA-TYPED-PACKS-R108.12",
+    "MEDULLA-TYPED-PACKS-R108.13",
+    "MEDULLA-TYPED-PACKS-R108.14",
+    "MEDULLA-TYPED-PACKS-R108.15",
+    "MEDULLA-TYPED-PACKS-R108.16",
+    "MEDULLA-TYPED-PACKS-R109",
+    "MEDULLA-TYPED-PACKS-R109.1",
+    "MEDULLA-TYPED-PACKS-R109.2",
+    "MEDULLA-TYPED-PACKS-R109.3",
+    "MEDULLA-TYPED-PACKS-R109.4",
+    "MEDULLA-TYPED-PACKS-R109.5",
+    "MEDULLA-TYPED-PACKS-R109.6",
+    "MEDULLA-TYPED-PACKS-R085.5",
+    "MEDULLA-TYPED-PACKS-R085.6",
+    "MEDULLA-TYPED-PACKS-R085.7.1",
+    "MEDULLA-TYPED-PACKS-R085.7.2",
+    "MEDULLA-TYPED-PACKS-R085.7.3",
+    "MEDULLA-TYPED-PACKS-R085.4.1",
+    "MEDULLA-TYPED-PACKS-R085.4.2",
+    "MEDULLA-TYPED-PACKS-R085.4.3",
+    "MEDULLA-TYPED-PACKS-R085.5.1",
+    "MEDULLA-TYPED-PACKS-R085.5.2",
+    "MEDULLA-TYPED-PACKS-R085.5.3",
+    "MEDULLA-TYPED-PACKS-R085.5.4",
+    "MEDULLA-TYPED-PACKS-R085.6.1",
+    "MEDULLA-TYPED-PACKS-R085.6.2",
+    "MEDULLA-TYPED-PACKS-R085.6.3"
   ],
   "requirements": [
     {
-      "id": "EG-TYPED-PACKS-R001",
+      "id": "MEDULLA-TYPED-PACKS-R001",
       "title": "Connector pack contract types and golden digest vectors",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -393,83 +393,83 @@
         "tests/test_connector_pack_client.py:137"
       ],
       "rollup_of": [
-        "EG-TYPED-PACKS-R001.1",
-        "EG-TYPED-PACKS-R001.2",
-        "EG-TYPED-PACKS-R001.3",
-        "EG-TYPED-PACKS-R001.4",
-        "EG-TYPED-PACKS-R001.5",
-        "EG-TYPED-PACKS-R001.6",
-        "EG-TYPED-PACKS-R001.7",
-        "EG-TYPED-PACKS-R001.8",
-        "EG-TYPED-PACKS-R001.9",
-        "EG-TYPED-PACKS-R001.100"
+        "MEDULLA-TYPED-PACKS-R001.1",
+        "MEDULLA-TYPED-PACKS-R001.2",
+        "MEDULLA-TYPED-PACKS-R001.3",
+        "MEDULLA-TYPED-PACKS-R001.4",
+        "MEDULLA-TYPED-PACKS-R001.5",
+        "MEDULLA-TYPED-PACKS-R001.6",
+        "MEDULLA-TYPED-PACKS-R001.7",
+        "MEDULLA-TYPED-PACKS-R001.8",
+        "MEDULLA-TYPED-PACKS-R001.9",
+        "MEDULLA-TYPED-PACKS-R001.100"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R001.1",
+      "id": "MEDULLA-TYPED-PACKS-R001.1",
       "title": "Original pack index and entry types",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R001.2",
+      "id": "MEDULLA-TYPED-PACKS-R001.2",
       "title": "Original section and annotation types",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R001.3",
+      "id": "MEDULLA-TYPED-PACKS-R001.3",
       "title": "Original pack and content operations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R001.4",
+      "id": "MEDULLA-TYPED-PACKS-R001.4",
       "title": "Original framed digest vectors",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R001.5",
+      "id": "MEDULLA-TYPED-PACKS-R001.5",
       "title": "All generated clients share the pack contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R001.6",
+      "id": "MEDULLA-TYPED-PACKS-R001.6",
       "title": "Versioned prompt graph identity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R001.7",
+      "id": "MEDULLA-TYPED-PACKS-R001.7",
       "title": "Prompt payload validation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R001.8",
+      "id": "MEDULLA-TYPED-PACKS-R001.8",
       "title": "Deterministic runtime rendering",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R001.9",
+      "id": "MEDULLA-TYPED-PACKS-R001.9",
       "title": "Generated prompt operation contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002",
+      "id": "MEDULLA-TYPED-PACKS-R002",
       "title": "Engine-owned body storage with guarded refcounts and reconciliation",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -482,98 +482,98 @@
         "src/server/handlers/admin/connector_pack/tests/admin.rs:242"
       ],
       "rollup_of": [
-        "EG-TYPED-PACKS-R002.1",
-        "EG-TYPED-PACKS-R002.2",
-        "EG-TYPED-PACKS-R002.3",
-        "EG-TYPED-PACKS-R002.4",
-        "EG-TYPED-PACKS-R002.5",
-        "EG-TYPED-PACKS-R002.6",
-        "EG-TYPED-PACKS-R002.7",
-        "EG-TYPED-PACKS-R002.8",
-        "EG-TYPED-PACKS-R002.9",
-        "EG-TYPED-PACKS-R002.10",
-        "EG-TYPED-PACKS-R002.11"
+        "MEDULLA-TYPED-PACKS-R002.1",
+        "MEDULLA-TYPED-PACKS-R002.2",
+        "MEDULLA-TYPED-PACKS-R002.3",
+        "MEDULLA-TYPED-PACKS-R002.4",
+        "MEDULLA-TYPED-PACKS-R002.5",
+        "MEDULLA-TYPED-PACKS-R002.6",
+        "MEDULLA-TYPED-PACKS-R002.7",
+        "MEDULLA-TYPED-PACKS-R002.8",
+        "MEDULLA-TYPED-PACKS-R002.9",
+        "MEDULLA-TYPED-PACKS-R002.10",
+        "MEDULLA-TYPED-PACKS-R002.11"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R002.1",
+      "id": "MEDULLA-TYPED-PACKS-R002.1",
       "title": "Original engine body staging",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.2",
+      "id": "MEDULLA-TYPED-PACKS-R002.2",
       "title": "Original unchanged holder transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.3",
+      "id": "MEDULLA-TYPED-PACKS-R002.3",
       "title": "Original revised holder transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.4",
+      "id": "MEDULLA-TYPED-PACKS-R002.4",
       "title": "Original withdrawn holder transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.5",
+      "id": "MEDULLA-TYPED-PACKS-R002.5",
       "title": "Original orphan grace and fault recovery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.6",
+      "id": "MEDULLA-TYPED-PACKS-R002.6",
       "title": "Original verified body serving",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.7",
+      "id": "MEDULLA-TYPED-PACKS-R002.7",
       "title": "Native prompt body persistence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.8",
+      "id": "MEDULLA-TYPED-PACKS-R002.8",
       "title": "Prompt graph projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.9",
+      "id": "MEDULLA-TYPED-PACKS-R002.9",
       "title": "Served prompt rendering",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.10",
+      "id": "MEDULLA-TYPED-PACKS-R002.10",
       "title": "Refusal before model dispatch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R002.11",
+      "id": "MEDULLA-TYPED-PACKS-R002.11",
       "title": "Durable prompt restart proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R003",
+      "id": "MEDULLA-TYPED-PACKS-R003",
       "title": "Import boundary enforces archive integrity, importer binding and G1-G21",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -587,7 +587,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R004",
+      "id": "MEDULLA-TYPED-PACKS-R004",
       "title": "Python ConnectorPackClient with a deterministic import key",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -600,7 +600,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R005",
+      "id": "MEDULLA-TYPED-PACKS-R005",
       "title": "Acceptance suite for pack mutation, crash, authorization and tenancy",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -612,7 +612,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R006",
+      "id": "MEDULLA-TYPED-PACKS-R006",
       "title": "Outbox-driven pack projection with a visibility readiness gate",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -624,7 +624,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R007",
+      "id": "MEDULLA-TYPED-PACKS-R007",
       "title": "Admin-controlled pack importer binding and entry retirement",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -638,7 +638,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R008",
+      "id": "MEDULLA-TYPED-PACKS-R008",
       "title": "Blob content-addressed store garbage-collection hardening",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -650,7 +650,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R009",
+      "id": "MEDULLA-TYPED-PACKS-R009",
       "title": "Projection readiness gates reader visibility",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -662,7 +662,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R010",
+      "id": "MEDULLA-TYPED-PACKS-R010",
       "title": "Import is a single atomic operation, not a staged protocol",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -674,7 +674,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R011",
+      "id": "MEDULLA-TYPED-PACKS-R011",
       "title": "Incompatible Agent Library storage is refused, not upgraded",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -686,7 +686,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R012",
+      "id": "MEDULLA-TYPED-PACKS-R012",
       "title": "Pack and agent-layer write methods are local-only in clustered mode",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -698,7 +698,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R013",
+      "id": "MEDULLA-TYPED-PACKS-R013",
       "title": "Capability IRI validation distinguishes native errors from claims",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -710,7 +710,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R014",
+      "id": "MEDULLA-TYPED-PACKS-R014",
       "title": "Absent entries become reversible Withdrawn, not retired",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -722,7 +722,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R015",
+      "id": "MEDULLA-TYPED-PACKS-R015",
       "title": "Importer authority is admin-bound, with environment value as bootstrap only",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -734,7 +734,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R016",
+      "id": "MEDULLA-TYPED-PACKS-R016",
       "title": "Server pin follows declared contract, not package version",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -746,7 +746,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R017",
+      "id": "MEDULLA-TYPED-PACKS-R017",
       "title": "Release scope excludes an offline Agent Library upgrade path",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -757,7 +757,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R018",
+      "id": "MEDULLA-TYPED-PACKS-R018",
       "title": "Body reads use AgentComponent.Content, not a pack-specific method",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -769,7 +769,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R019",
+      "id": "MEDULLA-TYPED-PACKS-R019",
       "title": "Only SKILL.md is imported as skill content",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -781,7 +781,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R020",
+      "id": "MEDULLA-TYPED-PACKS-R020",
       "title": "A tenant-profile administrative capability defect is out of Medulla scope",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -792,7 +792,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R021",
+      "id": "MEDULLA-TYPED-PACKS-R021",
       "title": "Cross-cutting import-safety defects are release-gate obligations",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -804,7 +804,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R022",
+      "id": "MEDULLA-TYPED-PACKS-R022",
       "title": "Pack index well-formedness validation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -816,7 +816,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R023",
+      "id": "MEDULLA-TYPED-PACKS-R023",
       "title": "Pack size bounds across index, entries, archive and body",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -828,7 +828,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R024",
+      "id": "MEDULLA-TYPED-PACKS-R024",
       "title": "Archive presence, length and digest integrity",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -840,7 +840,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R025",
+      "id": "MEDULLA-TYPED-PACKS-R025",
       "title": "Archive section layout and offset correctness",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -852,7 +852,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R026",
+      "id": "MEDULLA-TYPED-PACKS-R026",
       "title": "Section, entry and pack digest recomputation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -864,7 +864,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R027",
+      "id": "MEDULLA-TYPED-PACKS-R027",
       "title": "Text body UTF-8 validity without a byte-order mark",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -876,7 +876,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R028",
+      "id": "MEDULLA-TYPED-PACKS-R028",
       "title": "Bounded JSON body and schema validation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -888,7 +888,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R029",
+      "id": "MEDULLA-TYPED-PACKS-R029",
       "title": "SKILL.md front-matter validation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -900,7 +900,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R030",
+      "id": "MEDULLA-TYPED-PACKS-R030",
       "title": "Tool entries require an input schema",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -912,7 +912,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R031",
+      "id": "MEDULLA-TYPED-PACKS-R031",
       "title": "Empty description falls back to the entry name",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -924,7 +924,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R032",
+      "id": "MEDULLA-TYPED-PACKS-R032",
       "title": "Capability, cost, latency and model annotation validation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -936,7 +936,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R033",
+      "id": "MEDULLA-TYPED-PACKS-R033",
       "title": "Bounded Turtle parsing for ontology and shapes",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -948,7 +948,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R034",
+      "id": "MEDULLA-TYPED-PACKS-R034",
       "title": "Shape blank-node scoping and SPARQL-backed constraint rejection",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -960,7 +960,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R035",
+      "id": "MEDULLA-TYPED-PACKS-R035",
       "title": "Step-bounded SHACL cross-validation against the ontology",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -972,7 +972,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R036",
+      "id": "MEDULLA-TYPED-PACKS-R036",
       "title": "Sibling reference resolution without cycles",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -984,7 +984,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R037",
+      "id": "MEDULLA-TYPED-PACKS-R037",
       "title": "Server-stamped draft validation before commit",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -996,7 +996,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R038",
+      "id": "MEDULLA-TYPED-PACKS-R038",
       "title": "Import requires a matching bound importer identity",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1008,7 +1008,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R039",
+      "id": "MEDULLA-TYPED-PACKS-R039",
       "title": "Mass-withdrawal guard requires an explicit admin override",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1023,7 +1023,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R040",
+      "id": "MEDULLA-TYPED-PACKS-R040",
       "title": "Validation stops at a bounded violation count",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1035,7 +1035,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R041",
+      "id": "MEDULLA-TYPED-PACKS-R041",
       "title": "Write-time refusal codes for pack import conflicts",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1044,7 +1044,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R042",
+      "id": "MEDULLA-TYPED-PACKS-R042",
       "title": "Typed capability annotations: provides and requires_capabilities",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1062,12 +1062,12 @@
         "src/server/handlers/admin/connector_pack/import/capability_tests.rs:68"
       ],
       "rollup_of": [
-        "EG-TYPED-PACKS-R042.1",
-        "EG-TYPED-PACKS-R042.2"
+        "MEDULLA-TYPED-PACKS-R042.1",
+        "MEDULLA-TYPED-PACKS-R042.2"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R042.1",
+      "id": "MEDULLA-TYPED-PACKS-R042.1",
       "title": "Native capability annotation admission",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1082,7 +1082,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R042.2",
+      "id": "MEDULLA-TYPED-PACKS-R042.2",
       "title": "Served capability claim and refusal proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1097,7 +1097,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R043",
+      "id": "MEDULLA-TYPED-PACKS-R043",
       "title": "Modality annotations on pack entries",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1114,7 +1114,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R044",
+      "id": "MEDULLA-TYPED-PACKS-R044",
       "title": "Medulla-computed tool schema digests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1125,7 +1125,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R045",
+      "id": "MEDULLA-TYPED-PACKS-R045",
       "title": "MCP ToolAnnotations hints captured as pack facts",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1133,19 +1133,19 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R045.1",
-        "EG-TYPED-PACKS-R045.2",
-        "EG-TYPED-PACKS-R045.3",
-        "EG-TYPED-PACKS-R045.4",
-        "EG-TYPED-PACKS-R045.5",
-        "EG-TYPED-PACKS-R045.6",
-        "EG-TYPED-PACKS-R045.7",
-        "EG-TYPED-PACKS-R045.8",
-        "EG-TYPED-PACKS-R045.9"
+        "MEDULLA-TYPED-PACKS-R045.1",
+        "MEDULLA-TYPED-PACKS-R045.2",
+        "MEDULLA-TYPED-PACKS-R045.3",
+        "MEDULLA-TYPED-PACKS-R045.4",
+        "MEDULLA-TYPED-PACKS-R045.5",
+        "MEDULLA-TYPED-PACKS-R045.6",
+        "MEDULLA-TYPED-PACKS-R045.7",
+        "MEDULLA-TYPED-PACKS-R045.8",
+        "MEDULLA-TYPED-PACKS-R045.9"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R045.1",
+      "id": "MEDULLA-TYPED-PACKS-R045.1",
       "title": "Annotation type carries side effects, declarer and schema size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -1154,7 +1154,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R045.2",
+      "id": "MEDULLA-TYPED-PACKS-R045.2",
       "title": "Absent facts take safe defaults, never zero",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -1163,7 +1163,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R045.3",
+      "id": "MEDULLA-TYPED-PACKS-R045.3",
       "title": "The annotation digest covers the new fields without moving old vectors",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -1172,7 +1172,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R045.4",
+      "id": "MEDULLA-TYPED-PACKS-R045.4",
       "title": "Admission refuses an unknown side-effect or declarer value",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -1182,7 +1182,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R045.5",
+      "id": "MEDULLA-TYPED-PACKS-R045.5",
       "title": "Admission records an unproven read-only claim",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -1191,35 +1191,35 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R045.6",
+      "id": "MEDULLA-TYPED-PACKS-R045.6",
       "title": "The tool-subset path abstains for a tool with no size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R045.7",
+      "id": "MEDULLA-TYPED-PACKS-R045.7",
       "title": "No decision premise treats an unproven read-only claim as certified",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R045.8",
+      "id": "MEDULLA-TYPED-PACKS-R045.8",
       "title": "The generated contract and Python client carry the new fields",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R045.9",
+      "id": "MEDULLA-TYPED-PACKS-R045.9",
       "title": "End-to-end proof: a two-tool pack yields a budget-respecting subset",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R046",
+      "id": "MEDULLA-TYPED-PACKS-R046",
       "title": "Cost annotation on pack entries",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1231,7 +1231,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R047",
+      "id": "MEDULLA-TYPED-PACKS-R047",
       "title": "Latency annotation on pack entries",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1243,7 +1243,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R048",
+      "id": "MEDULLA-TYPED-PACKS-R048",
       "title": "ModelProfile cost, latency, modality and capability facts",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1251,22 +1251,22 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R048.1",
-        "EG-TYPED-PACKS-R048.2",
-        "EG-TYPED-PACKS-R048.3",
-        "EG-TYPED-PACKS-R048.4",
-        "EG-TYPED-PACKS-R048.5"
+        "MEDULLA-TYPED-PACKS-R048.1",
+        "MEDULLA-TYPED-PACKS-R048.2",
+        "MEDULLA-TYPED-PACKS-R048.3",
+        "MEDULLA-TYPED-PACKS-R048.4",
+        "MEDULLA-TYPED-PACKS-R048.5"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R048.1",
+      "id": "MEDULLA-TYPED-PACKS-R048.1",
       "title": "Context window is a named model fact",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R048.2",
+      "id": "MEDULLA-TYPED-PACKS-R048.2",
       "title": "A measured fact cites the evaluation run that produced it",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1277,7 +1277,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R048.3",
+      "id": "MEDULLA-TYPED-PACKS-R048.3",
       "title": "Shell proficiency is a measured model fact",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1291,7 +1291,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R048.4",
+      "id": "MEDULLA-TYPED-PACKS-R048.4",
       "title": "Stopping behaviour is a measured model fact",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1305,7 +1305,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R048.5",
+      "id": "MEDULLA-TYPED-PACKS-R048.5",
       "title": "Pack import round-trips the new model facts",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1321,7 +1321,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R049",
+      "id": "MEDULLA-TYPED-PACKS-R049",
       "title": "contract_pin is carried as an opaque Graft SDK claim",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1333,7 +1333,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R050",
+      "id": "MEDULLA-TYPED-PACKS-R050",
       "title": "Per-entry contract_version replaces package-version pinning",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1346,7 +1346,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R051",
+      "id": "MEDULLA-TYPED-PACKS-R051",
       "title": "Composable per-graph schema source sets",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1355,7 +1355,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R052",
+      "id": "MEDULLA-TYPED-PACKS-R052",
       "title": "No pack-specific stand-in for pending schema authority",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1366,7 +1366,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R053",
+      "id": "MEDULLA-TYPED-PACKS-R053",
       "title": "Visible-staleness snapshot for non-pack schema attach",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1375,7 +1375,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R054",
+      "id": "MEDULLA-TYPED-PACKS-R054",
       "title": "One topic per Agent Library outbox consumer",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1387,7 +1387,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R055",
+      "id": "MEDULLA-TYPED-PACKS-R055",
       "title": "Outbox retry never collateral dead-letters unrelated events",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1399,7 +1399,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R056",
+      "id": "MEDULLA-TYPED-PACKS-R056",
       "title": "Owner-layout refusal happens at the manifest read",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1408,7 +1408,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R057",
+      "id": "MEDULLA-TYPED-PACKS-R057",
       "title": "Ontology withdrawal removes a whole source, not per-triple",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1419,7 +1419,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R058",
+      "id": "MEDULLA-TYPED-PACKS-R058",
       "title": "One shared derivation-step budget bounds EL+/RL reasoning",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1429,7 +1429,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R059",
+      "id": "MEDULLA-TYPED-PACKS-R059",
       "title": "Schema attach validates only newly introduced data",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1438,7 +1438,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R060",
+      "id": "MEDULLA-TYPED-PACKS-R060",
       "title": "Manifest-read refusal precedes dependent import paths",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1447,7 +1447,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R061",
+      "id": "MEDULLA-TYPED-PACKS-R061",
       "title": "Bounded schema source catalog: 32 sources, 8 MiB",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1456,7 +1456,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R062",
+      "id": "MEDULLA-TYPED-PACKS-R062",
       "title": "GraphSchema replicates through the existing GraphState route",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1465,7 +1465,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R063",
+      "id": "MEDULLA-TYPED-PACKS-R063",
       "title": "Agent-layer row types affected by a schema bump are enumerated",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1474,7 +1474,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R064",
+      "id": "MEDULLA-TYPED-PACKS-R064",
       "title": "Output-schema digest recorded on tool pins",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1485,7 +1485,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R065",
+      "id": "MEDULLA-TYPED-PACKS-R065",
       "title": "Medulla does not recompute the Graft SDK's contract-pin normalization",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1494,7 +1494,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R066",
+      "id": "MEDULLA-TYPED-PACKS-R066",
       "title": "OWL/rule classification over model and capability facts",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1502,20 +1502,20 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R066.1",
-        "EG-TYPED-PACKS-R066.2",
-        "EG-TYPED-PACKS-R066.3"
+        "MEDULLA-TYPED-PACKS-R066.1",
+        "MEDULLA-TYPED-PACKS-R066.2",
+        "MEDULLA-TYPED-PACKS-R066.3"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R066.1",
+      "id": "MEDULLA-TYPED-PACKS-R066.1",
       "title": "SHACL shapes validate the measured model facts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R066.2",
+      "id": "MEDULLA-TYPED-PACKS-R066.2",
       "title": "The task class carries a shell-centric fact",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1528,14 +1528,14 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R066.3",
+      "id": "MEDULLA-TYPED-PACKS-R066.3",
       "title": "The shell-centric fact is inherited by task subclasses",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R067",
+      "id": "MEDULLA-TYPED-PACKS-R067",
       "title": "Coordinated contract regeneration for new library methods",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1544,7 +1544,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R068",
+      "id": "MEDULLA-TYPED-PACKS-R068",
       "title": "Contract regeneration packages the complete generated set",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1555,7 +1555,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R069",
+      "id": "MEDULLA-TYPED-PACKS-R069",
       "title": "Branch-aware, blob-deduplicated repository indexing",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1563,11 +1563,11 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R069.100"
+        "MEDULLA-TYPED-PACKS-R069.100"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R070",
+      "id": "MEDULLA-TYPED-PACKS-R070",
       "title": "Committed contract artifacts match generated content, not size",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1578,7 +1578,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R071",
+      "id": "MEDULLA-TYPED-PACKS-R071",
       "title": "Generated core ontology corpus as GraphSchema authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1587,69 +1587,69 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R071.1",
-        "EG-TYPED-PACKS-R071.100"
+        "MEDULLA-TYPED-PACKS-R071.1",
+        "MEDULLA-TYPED-PACKS-R071.100"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R071.1",
+      "id": "MEDULLA-TYPED-PACKS-R071.1",
       "title": "Versioned core vocabulary crosswalks (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R071.1.1",
-        "EG-TYPED-PACKS-R071.1.2",
-        "EG-TYPED-PACKS-R071.1.3",
-        "EG-TYPED-PACKS-R071.1.4",
-        "EG-TYPED-PACKS-R071.1.5",
-        "EG-TYPED-PACKS-R071.1.6"
+        "MEDULLA-TYPED-PACKS-R071.1.1",
+        "MEDULLA-TYPED-PACKS-R071.1.2",
+        "MEDULLA-TYPED-PACKS-R071.1.3",
+        "MEDULLA-TYPED-PACKS-R071.1.4",
+        "MEDULLA-TYPED-PACKS-R071.1.5",
+        "MEDULLA-TYPED-PACKS-R071.1.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R071.1.1",
+      "id": "MEDULLA-TYPED-PACKS-R071.1.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R071.1.2",
+      "id": "MEDULLA-TYPED-PACKS-R071.1.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R071.1.3",
+      "id": "MEDULLA-TYPED-PACKS-R071.1.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R071.1.4",
+      "id": "MEDULLA-TYPED-PACKS-R071.1.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R071.1.5",
+      "id": "MEDULLA-TYPED-PACKS-R071.1.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R071.1.6",
+      "id": "MEDULLA-TYPED-PACKS-R071.1.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R072",
+      "id": "MEDULLA-TYPED-PACKS-R072",
       "title": "Medulla/Graft SDK typed fleet-catalog authority, not SQL tables",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1658,11 +1658,11 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R072.100"
+        "MEDULLA-TYPED-PACKS-R072.100"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R073",
+      "id": "MEDULLA-TYPED-PACKS-R073",
       "title": "Raise the core schema source bound to 64 and split world_model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1675,7 +1675,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R074",
+      "id": "MEDULLA-TYPED-PACKS-R074",
       "title": "Least-privilege, per-pack projection grant with recorded failure",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1685,7 +1685,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R075",
+      "id": "MEDULLA-TYPED-PACKS-R075",
       "title": "Landing gate runs the full integration test suite",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1695,7 +1695,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R076",
+      "id": "MEDULLA-TYPED-PACKS-R076",
       "title": "Signal-killed test binaries are detected and rerun in isolation",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1705,7 +1705,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R077",
+      "id": "MEDULLA-TYPED-PACKS-R077",
       "title": "GraphSchemaClasses exposes canonical class and property names",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1718,7 +1718,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R078",
+      "id": "MEDULLA-TYPED-PACKS-R078",
       "title": "Proven retrieval plan templates keyed by task class and digest",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1728,7 +1728,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R079",
+      "id": "MEDULLA-TYPED-PACKS-R079",
       "title": "Typed OHLCV bar-series contract",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1738,7 +1738,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R080",
+      "id": "MEDULLA-TYPED-PACKS-R080",
       "title": "Exhaustive OpKind/PredKind printer and parser contract",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1748,7 +1748,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R081",
+      "id": "MEDULLA-TYPED-PACKS-R081",
       "title": "Ontology object model migrated into Medulla's kg/ontology package",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1758,7 +1758,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R082",
+      "id": "MEDULLA-TYPED-PACKS-R082",
       "title": "Medulla-generated types replace hand-written graph-schema DTOs",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1768,7 +1768,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R083",
+      "id": "MEDULLA-TYPED-PACKS-R083",
       "title": "Schema-drift SHACL rendering and contract store move into Medulla",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1778,7 +1778,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R084",
+      "id": "MEDULLA-TYPED-PACKS-R084",
       "title": "Request deadlines propagate into long-running pack operations",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1790,7 +1790,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085",
+      "id": "MEDULLA-TYPED-PACKS-R085",
       "title": "Identity domain operations with Argon2id and redacted views",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1799,17 +1799,17 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R085.1",
-        "EG-TYPED-PACKS-R085.3",
-        "EG-TYPED-PACKS-R085.2",
-        "EG-TYPED-PACKS-R085.7",
-        "EG-TYPED-PACKS-R085.4",
-        "EG-TYPED-PACKS-R085.5",
-        "EG-TYPED-PACKS-R085.6"
+        "MEDULLA-TYPED-PACKS-R085.1",
+        "MEDULLA-TYPED-PACKS-R085.3",
+        "MEDULLA-TYPED-PACKS-R085.2",
+        "MEDULLA-TYPED-PACKS-R085.7",
+        "MEDULLA-TYPED-PACKS-R085.4",
+        "MEDULLA-TYPED-PACKS-R085.5",
+        "MEDULLA-TYPED-PACKS-R085.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.1",
+      "id": "MEDULLA-TYPED-PACKS-R085.1",
       "title": "Durable session record projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -1822,45 +1822,45 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.3",
+      "id": "MEDULLA-TYPED-PACKS-R085.3",
       "title": "Served session-liveness check by opaque session reference",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R085.2",
+      "id": "MEDULLA-TYPED-PACKS-R085.2",
       "title": "Remaining identity-domain qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R085.7",
+      "id": "MEDULLA-TYPED-PACKS-R085.7",
       "title": "Rollup through R085.7.1–R085.7.3",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R085.7.1",
-        "EG-TYPED-PACKS-R085.7.2",
-        "EG-TYPED-PACKS-R085.7.3"
+        "MEDULLA-TYPED-PACKS-R085.7.1",
+        "MEDULLA-TYPED-PACKS-R085.7.2",
+        "MEDULLA-TYPED-PACKS-R085.7.3"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.4",
+      "id": "MEDULLA-TYPED-PACKS-R085.4",
       "title": "Rollup through R085.4.1–R085.4.3",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R085.4.1",
-        "EG-TYPED-PACKS-R085.4.2",
-        "EG-TYPED-PACKS-R085.4.3"
+        "MEDULLA-TYPED-PACKS-R085.4.1",
+        "MEDULLA-TYPED-PACKS-R085.4.2",
+        "MEDULLA-TYPED-PACKS-R085.4.3"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R086",
+      "id": "MEDULLA-TYPED-PACKS-R086",
       "title": "Planted derivation-budget and malformed-path cases are refused",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1870,7 +1870,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R087",
+      "id": "MEDULLA-TYPED-PACKS-R087",
       "title": "Stable error codes for auth-boundary refusals",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1884,7 +1884,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R088",
+      "id": "MEDULLA-TYPED-PACKS-R088",
       "title": "Embedded engine enforces graph-level access control",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1896,7 +1896,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R089",
+      "id": "MEDULLA-TYPED-PACKS-R089",
       "title": "Blob-layout table for pack body holder rows",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1908,7 +1908,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R090",
+      "id": "MEDULLA-TYPED-PACKS-R090",
       "title": "Canonical ontology and SHACL artifacts generated from Rust",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1921,11 +1921,11 @@
         "crates/eg-core/src/ontology_codegen.rs:133"
       ],
       "rollup_of": [
-        "EG-TYPED-PACKS-R090.1"
+        "MEDULLA-TYPED-PACKS-R090.1"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R090.1",
+      "id": "MEDULLA-TYPED-PACKS-R090.1",
       "title": "A typed-vocabulary-to-Turtle generator reproduces checked-in output byte-for-byte",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1938,7 +1938,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R091",
+      "id": "MEDULLA-TYPED-PACKS-R091",
       "title": "Food composition and nutrient reference types",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1948,7 +1948,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R092",
+      "id": "MEDULLA-TYPED-PACKS-R092",
       "title": "Python client idempotency key excludes the request ID",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1962,7 +1962,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R093",
+      "id": "MEDULLA-TYPED-PACKS-R093",
       "title": "Turtle parser blank-node identities do not collide",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1977,12 +1977,12 @@
         "src/server/handlers/admin/connector_pack/tests/outbox.rs:181"
       ],
       "rollup_of": [
-        "EG-TYPED-PACKS-R093.1",
-        "EG-TYPED-PACKS-R093.2"
+        "MEDULLA-TYPED-PACKS-R093.1",
+        "MEDULLA-TYPED-PACKS-R093.2"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R093.1",
+      "id": "MEDULLA-TYPED-PACKS-R093.1",
       "title": "Public Turtle parse identity locality",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1993,7 +1993,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R093.2",
+      "id": "MEDULLA-TYPED-PACKS-R093.2",
       "title": "Reproject-path blank-node isolation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2005,7 +2005,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R094",
+      "id": "MEDULLA-TYPED-PACKS-R094",
       "title": "AgentComponent.content serves pack body bytes directly",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -2014,66 +2014,66 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R094.1",
-        "EG-TYPED-PACKS-R094.2",
-        "EG-TYPED-PACKS-R094.3",
-        "EG-TYPED-PACKS-R094.4",
-        "EG-TYPED-PACKS-R094.5",
-        "EG-TYPED-PACKS-R094.6",
-        "EG-TYPED-PACKS-R094.7"
+        "MEDULLA-TYPED-PACKS-R094.1",
+        "MEDULLA-TYPED-PACKS-R094.2",
+        "MEDULLA-TYPED-PACKS-R094.3",
+        "MEDULLA-TYPED-PACKS-R094.4",
+        "MEDULLA-TYPED-PACKS-R094.5",
+        "MEDULLA-TYPED-PACKS-R094.6",
+        "MEDULLA-TYPED-PACKS-R094.7"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R094.1",
+      "id": "MEDULLA-TYPED-PACKS-R094.1",
       "title": "Original Stable content route",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R094.2",
+      "id": "MEDULLA-TYPED-PACKS-R094.2",
       "title": "Pinned native blueprint export",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R094.3",
+      "id": "MEDULLA-TYPED-PACKS-R094.3",
       "title": "Modified native blueprint import",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R094.4",
+      "id": "MEDULLA-TYPED-PACKS-R094.4",
       "title": "Blueprint retry identity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R094.5",
+      "id": "MEDULLA-TYPED-PACKS-R094.5",
       "title": "Served lossless round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R094.6",
+      "id": "MEDULLA-TYPED-PACKS-R094.6",
       "title": "Optimization proposals carry no authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R094.7",
+      "id": "MEDULLA-TYPED-PACKS-R094.7",
       "title": "Approved repository-source effect dependency",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R095",
+      "id": "MEDULLA-TYPED-PACKS-R095",
       "title": "GraphSchema attach exposes snapshot staleness",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -2083,7 +2083,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R096",
+      "id": "MEDULLA-TYPED-PACKS-R096",
       "title": "Connector-pack reprojection with bounded, isolated aggregates",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -2093,7 +2093,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097",
+      "id": "MEDULLA-TYPED-PACKS-R097",
       "title": "Domain vocabularies ship as typed domain packs",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -2102,14 +2102,14 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R097.1",
-        "EG-TYPED-PACKS-R097.2",
-        "EG-TYPED-PACKS-R097.700",
-        "EG-TYPED-PACKS-R097.701"
+        "MEDULLA-TYPED-PACKS-R097.1",
+        "MEDULLA-TYPED-PACKS-R097.2",
+        "MEDULLA-TYPED-PACKS-R097.700",
+        "MEDULLA-TYPED-PACKS-R097.701"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R097.1",
+      "id": "MEDULLA-TYPED-PACKS-R097.1",
       "title": "HR domain vocabulary ships as a typed domain pack",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -2118,65 +2118,65 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097.2",
+      "id": "MEDULLA-TYPED-PACKS-R097.2",
       "title": "Domain crosswalks and exact unmapped-class reports (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R097.2.1",
-        "EG-TYPED-PACKS-R097.2.2",
-        "EG-TYPED-PACKS-R097.2.3",
-        "EG-TYPED-PACKS-R097.2.4",
-        "EG-TYPED-PACKS-R097.2.5",
-        "EG-TYPED-PACKS-R097.2.6",
-        "EG-TYPED-PACKS-R097.2.7"
+        "MEDULLA-TYPED-PACKS-R097.2.1",
+        "MEDULLA-TYPED-PACKS-R097.2.2",
+        "MEDULLA-TYPED-PACKS-R097.2.3",
+        "MEDULLA-TYPED-PACKS-R097.2.4",
+        "MEDULLA-TYPED-PACKS-R097.2.5",
+        "MEDULLA-TYPED-PACKS-R097.2.6",
+        "MEDULLA-TYPED-PACKS-R097.2.7"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R097.2.1",
+      "id": "MEDULLA-TYPED-PACKS-R097.2.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097.2.2",
+      "id": "MEDULLA-TYPED-PACKS-R097.2.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097.2.3",
+      "id": "MEDULLA-TYPED-PACKS-R097.2.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097.2.4",
+      "id": "MEDULLA-TYPED-PACKS-R097.2.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097.2.5",
+      "id": "MEDULLA-TYPED-PACKS-R097.2.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097.2.6",
+      "id": "MEDULLA-TYPED-PACKS-R097.2.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R098",
+      "id": "MEDULLA-TYPED-PACKS-R098",
       "title": "Ontology inspection method and inline data triples for validation",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -2186,7 +2186,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R099",
+      "id": "MEDULLA-TYPED-PACKS-R099",
       "title": "Best-matching prototype by cosine similarity in the numeric kernel",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2201,151 +2201,151 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R100",
+      "id": "MEDULLA-TYPED-PACKS-R100",
       "title": "Skill packages are rendered on demand from graph content (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R100.1",
-        "EG-TYPED-PACKS-R100.2",
-        "EG-TYPED-PACKS-R100.3",
-        "EG-TYPED-PACKS-R100.4",
-        "EG-TYPED-PACKS-R100.5",
-        "EG-TYPED-PACKS-R100.6",
-        "EG-TYPED-PACKS-R100.7",
-        "EG-TYPED-PACKS-R100.8",
-        "EG-TYPED-PACKS-R100.100",
-        "EG-TYPED-PACKS-R100.101"
+        "MEDULLA-TYPED-PACKS-R100.1",
+        "MEDULLA-TYPED-PACKS-R100.2",
+        "MEDULLA-TYPED-PACKS-R100.3",
+        "MEDULLA-TYPED-PACKS-R100.4",
+        "MEDULLA-TYPED-PACKS-R100.5",
+        "MEDULLA-TYPED-PACKS-R100.6",
+        "MEDULLA-TYPED-PACKS-R100.7",
+        "MEDULLA-TYPED-PACKS-R100.8",
+        "MEDULLA-TYPED-PACKS-R100.100",
+        "MEDULLA-TYPED-PACKS-R100.101"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R100.1",
+      "id": "MEDULLA-TYPED-PACKS-R100.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R100.2",
+      "id": "MEDULLA-TYPED-PACKS-R100.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R100.3",
+      "id": "MEDULLA-TYPED-PACKS-R100.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R100.4",
+      "id": "MEDULLA-TYPED-PACKS-R100.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R100.5",
+      "id": "MEDULLA-TYPED-PACKS-R100.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R100.6",
+      "id": "MEDULLA-TYPED-PACKS-R100.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R100.7",
+      "id": "MEDULLA-TYPED-PACKS-R100.7",
       "title": "Exact rendered-package validation gate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097.2.7",
+      "id": "MEDULLA-TYPED-PACKS-R097.2.7",
       "title": "Directional external-schema import and complete unmapped-term report",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R100.8",
+      "id": "MEDULLA-TYPED-PACKS-R100.8",
       "title": "Lossless versioned workflow RDF export/import",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R069.100",
+      "id": "MEDULLA-TYPED-PACKS-R069.100",
       "title": "Semantic fingerprint separates cosmetic from structural repository changes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R100.100",
+      "id": "MEDULLA-TYPED-PACKS-R100.100",
       "title": "Lossless SKILL.md frontmatter and step editing round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R100.101",
+      "id": "MEDULLA-TYPED-PACKS-R100.101",
       "title": "Skill consumer compatibility and declared-migration admission",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R001.100",
+      "id": "MEDULLA-TYPED-PACKS-R001.100",
       "title": "Versioned nested prompt/tool schemas with incremental compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R072.100",
+      "id": "MEDULLA-TYPED-PACKS-R072.100",
       "title": "Workflow registration and invocation through typed registry",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R071.100",
+      "id": "MEDULLA-TYPED-PACKS-R071.100",
       "title": "Canonical shared hierarchical concept paths across repositories",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R101",
+      "id": "MEDULLA-TYPED-PACKS-R101",
       "title": "Ingest mappings come from the connector's declaration and the pack ontology (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R101.1",
-        "EG-TYPED-PACKS-R101.2",
-        "EG-TYPED-PACKS-R101.3",
-        "EG-TYPED-PACKS-R101.4",
-        "EG-TYPED-PACKS-R101.5",
-        "EG-TYPED-PACKS-R101.6",
-        "EG-TYPED-PACKS-R101.7",
-        "EG-TYPED-PACKS-R101.8",
-        "EG-TYPED-PACKS-R101.9",
-        "EG-TYPED-PACKS-R101.10",
-        "EG-TYPED-PACKS-R101.11"
+        "MEDULLA-TYPED-PACKS-R101.1",
+        "MEDULLA-TYPED-PACKS-R101.2",
+        "MEDULLA-TYPED-PACKS-R101.3",
+        "MEDULLA-TYPED-PACKS-R101.4",
+        "MEDULLA-TYPED-PACKS-R101.5",
+        "MEDULLA-TYPED-PACKS-R101.6",
+        "MEDULLA-TYPED-PACKS-R101.7",
+        "MEDULLA-TYPED-PACKS-R101.8",
+        "MEDULLA-TYPED-PACKS-R101.9",
+        "MEDULLA-TYPED-PACKS-R101.10",
+        "MEDULLA-TYPED-PACKS-R101.11"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R101.1",
+      "id": "MEDULLA-TYPED-PACKS-R101.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2358,62 +2358,62 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R101.2",
+      "id": "MEDULLA-TYPED-PACKS-R101.2",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R101.3",
-      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "id": "MEDULLA-TYPED-PACKS-R101.3",
+      "title": "RETIRED: superseded by MEDULLA-TYPED-PACKS-R101.10",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
+      "retired_reason": "superseded by MEDULLA-TYPED-PACKS-R101.10"
     },
     {
-      "id": "EG-TYPED-PACKS-R101.4",
-      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "id": "MEDULLA-TYPED-PACKS-R101.4",
+      "title": "RETIRED: superseded by MEDULLA-TYPED-PACKS-R101.10",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
+      "retired_reason": "superseded by MEDULLA-TYPED-PACKS-R101.10"
     },
     {
-      "id": "EG-TYPED-PACKS-R101.5",
-      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "id": "MEDULLA-TYPED-PACKS-R101.5",
+      "title": "RETIRED: superseded by MEDULLA-TYPED-PACKS-R101.10",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
+      "retired_reason": "superseded by MEDULLA-TYPED-PACKS-R101.10"
     },
     {
-      "id": "EG-TYPED-PACKS-R101.6",
-      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.11",
+      "id": "MEDULLA-TYPED-PACKS-R101.6",
+      "title": "RETIRED: superseded by MEDULLA-TYPED-PACKS-R101.11",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-TYPED-PACKS-R101.11"
+      "retired_reason": "superseded by MEDULLA-TYPED-PACKS-R101.11"
     },
     {
-      "id": "EG-TYPED-PACKS-R101.7",
-      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10",
+      "id": "MEDULLA-TYPED-PACKS-R101.7",
+      "title": "RETIRED: superseded by MEDULLA-TYPED-PACKS-R101.10",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10"
+      "retired_reason": "superseded by MEDULLA-TYPED-PACKS-R101.10"
     },
     {
-      "id": "EG-TYPED-PACKS-R101.8",
-      "title": "RETIRED: superseded by EG-TYPED-PACKS-R101.10 and R101.11",
+      "id": "MEDULLA-TYPED-PACKS-R101.8",
+      "title": "RETIRED: superseded by MEDULLA-TYPED-PACKS-R101.10 and R101.11",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-TYPED-PACKS-R101.10 and R101.11"
+      "retired_reason": "superseded by MEDULLA-TYPED-PACKS-R101.10 and R101.11"
     },
     {
-      "id": "EG-TYPED-PACKS-R101.9",
+      "id": "MEDULLA-TYPED-PACKS-R101.9",
       "title": "One tenant key for pack heads",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2425,7 +2425,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R101.10",
+      "id": "MEDULLA-TYPED-PACKS-R101.10",
       "title": "Mappings come from the connector's declaration",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2442,7 +2442,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R101.11",
+      "id": "MEDULLA-TYPED-PACKS-R101.11",
       "title": "Undeclared mappings are refused by type",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2453,23 +2453,23 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R102",
+      "id": "MEDULLA-TYPED-PACKS-R102",
       "title": "Connector surface and domain relationships are native graph relationships (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R102.1",
-        "EG-TYPED-PACKS-R102.2",
-        "EG-TYPED-PACKS-R102.3",
-        "EG-TYPED-PACKS-R102.4",
-        "EG-TYPED-PACKS-R102.5",
-        "EG-TYPED-PACKS-R102.6",
-        "EG-TYPED-PACKS-R102.7"
+        "MEDULLA-TYPED-PACKS-R102.1",
+        "MEDULLA-TYPED-PACKS-R102.2",
+        "MEDULLA-TYPED-PACKS-R102.3",
+        "MEDULLA-TYPED-PACKS-R102.4",
+        "MEDULLA-TYPED-PACKS-R102.5",
+        "MEDULLA-TYPED-PACKS-R102.6",
+        "MEDULLA-TYPED-PACKS-R102.7"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R102.1",
+      "id": "MEDULLA-TYPED-PACKS-R102.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2481,64 +2481,64 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R102.2",
+      "id": "MEDULLA-TYPED-PACKS-R102.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R102.3",
+      "id": "MEDULLA-TYPED-PACKS-R102.3",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R102.4",
+      "id": "MEDULLA-TYPED-PACKS-R102.4",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R102.5",
+      "id": "MEDULLA-TYPED-PACKS-R102.5",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R102.6",
+      "id": "MEDULLA-TYPED-PACKS-R102.6",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R102.7",
+      "id": "MEDULLA-TYPED-PACKS-R102.7",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R103",
+      "id": "MEDULLA-TYPED-PACKS-R103",
       "title": "Served runtime ontology import, revision and withdrawal (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R103.1",
-        "EG-TYPED-PACKS-R103.2",
-        "EG-TYPED-PACKS-R103.3",
-        "EG-TYPED-PACKS-R103.4",
-        "EG-TYPED-PACKS-R103.5",
-        "EG-TYPED-PACKS-R103.6"
+        "MEDULLA-TYPED-PACKS-R103.1",
+        "MEDULLA-TYPED-PACKS-R103.2",
+        "MEDULLA-TYPED-PACKS-R103.3",
+        "MEDULLA-TYPED-PACKS-R103.4",
+        "MEDULLA-TYPED-PACKS-R103.5",
+        "MEDULLA-TYPED-PACKS-R103.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R103.1",
+      "id": "MEDULLA-TYPED-PACKS-R103.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2549,57 +2549,57 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R103.2",
+      "id": "MEDULLA-TYPED-PACKS-R103.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R103.3",
+      "id": "MEDULLA-TYPED-PACKS-R103.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R103.4",
+      "id": "MEDULLA-TYPED-PACKS-R103.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R103.5",
+      "id": "MEDULLA-TYPED-PACKS-R103.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R103.6",
+      "id": "MEDULLA-TYPED-PACKS-R103.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R104",
+      "id": "MEDULLA-TYPED-PACKS-R104",
       "title": "Connect-time seed graph import, idempotent by content digest (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R104.1",
-        "EG-TYPED-PACKS-R104.2",
-        "EG-TYPED-PACKS-R104.3",
-        "EG-TYPED-PACKS-R104.4",
-        "EG-TYPED-PACKS-R104.5",
-        "EG-TYPED-PACKS-R104.6"
+        "MEDULLA-TYPED-PACKS-R104.1",
+        "MEDULLA-TYPED-PACKS-R104.2",
+        "MEDULLA-TYPED-PACKS-R104.3",
+        "MEDULLA-TYPED-PACKS-R104.4",
+        "MEDULLA-TYPED-PACKS-R104.5",
+        "MEDULLA-TYPED-PACKS-R104.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R104.1",
+      "id": "MEDULLA-TYPED-PACKS-R104.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2611,60 +2611,60 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R104.2",
+      "id": "MEDULLA-TYPED-PACKS-R104.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R104.3",
+      "id": "MEDULLA-TYPED-PACKS-R104.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R104.4",
+      "id": "MEDULLA-TYPED-PACKS-R104.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R104.5",
+      "id": "MEDULLA-TYPED-PACKS-R104.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R104.6",
+      "id": "MEDULLA-TYPED-PACKS-R104.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R105",
+      "id": "MEDULLA-TYPED-PACKS-R105",
       "title": "A connector ontology joins the parent graph on import",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R105.1",
-        "EG-TYPED-PACKS-R105.2",
-        "EG-TYPED-PACKS-R105.3",
-        "EG-TYPED-PACKS-R105.4",
-        "EG-TYPED-PACKS-R105.5",
-        "EG-TYPED-PACKS-R105.6",
-        "EG-TYPED-PACKS-R105.7",
-        "EG-TYPED-PACKS-R105.8",
-        "EG-TYPED-PACKS-R105.9"
+        "MEDULLA-TYPED-PACKS-R105.1",
+        "MEDULLA-TYPED-PACKS-R105.2",
+        "MEDULLA-TYPED-PACKS-R105.3",
+        "MEDULLA-TYPED-PACKS-R105.4",
+        "MEDULLA-TYPED-PACKS-R105.5",
+        "MEDULLA-TYPED-PACKS-R105.6",
+        "MEDULLA-TYPED-PACKS-R105.7",
+        "MEDULLA-TYPED-PACKS-R105.8",
+        "MEDULLA-TYPED-PACKS-R105.9"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R105.1",
+      "id": "MEDULLA-TYPED-PACKS-R105.1",
       "title": "Stage one: record the parent link and flag orphans",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2679,14 +2679,14 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R105.2",
+      "id": "MEDULLA-TYPED-PACKS-R105.2",
       "title": "Stage two: the import edge, parent-class reads and enforcement",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R105.3",
+      "id": "MEDULLA-TYPED-PACKS-R105.3",
       "title": "The parent catalog declares the recurring connector concepts",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2701,11 +2701,11 @@
         "crates/eg-rdf/tests/connector_parent_classes.rs:90"
       ],
       "rollup_of": [
-        "EG-TYPED-PACKS-R105.3.1"
+        "MEDULLA-TYPED-PACKS-R105.3.1"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R105.3.1",
+      "id": "MEDULLA-TYPED-PACKS-R105.3.1",
       "title": "Central source-record bridge",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2717,7 +2717,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R105.4",
+      "id": "MEDULLA-TYPED-PACKS-R105.4",
       "title": "The parent catalog holds a service-operations core aligned to the Open Group IT4IT data objects",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2733,7 +2733,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R105.5",
+      "id": "MEDULLA-TYPED-PACKS-R105.5",
       "title": "The competency-question paths are complete on the engine side",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2747,7 +2747,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R105.6",
+      "id": "MEDULLA-TYPED-PACKS-R105.6",
       "title": "The parent catalog declares the IT4IT delivery data objects",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2762,7 +2762,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R105.7",
+      "id": "MEDULLA-TYPED-PACKS-R105.7",
       "title": "The parent catalog declares a data-platform and machine-learning module aligned to DCAT, PROV-O and ML-Schema",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2777,7 +2777,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R105.8",
+      "id": "MEDULLA-TYPED-PACKS-R105.8",
       "title": "The parent catalog declares a media and content module aligned to schema.org media types, EBUCore, IFLA LRM and ActivityStreams",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2791,7 +2791,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R105.9",
+      "id": "MEDULLA-TYPED-PACKS-R105.9",
       "title": "The parent catalog declares a search, retrieval and information-source module aligned to OpenSearch, DCMI Terms and PROV-O",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2805,330 +2805,330 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R750",
-      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "id": "MEDULLA-TYPED-PACKS-R750",
+      "title": "RETIRED: duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
+      "retired_reason": "duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children"
     },
     {
-      "id": "EG-TYPED-PACKS-R750.750",
-      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "id": "MEDULLA-TYPED-PACKS-R750.750",
+      "title": "RETIRED: duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
+      "retired_reason": "duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children"
     },
     {
-      "id": "EG-TYPED-PACKS-R750.751",
-      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "id": "MEDULLA-TYPED-PACKS-R750.751",
+      "title": "RETIRED: duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
+      "retired_reason": "duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children"
     },
     {
-      "id": "EG-TYPED-PACKS-R750.752",
-      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "id": "MEDULLA-TYPED-PACKS-R750.752",
+      "title": "RETIRED: duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
+      "retired_reason": "duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children"
     },
     {
-      "id": "EG-TYPED-PACKS-R750.753",
-      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "id": "MEDULLA-TYPED-PACKS-R750.753",
+      "title": "RETIRED: duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
+      "retired_reason": "duplicates MEDULLA-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by MEDULLA-TYPED-PACKS-R097 and its children"
     },
     {
-      "id": "EG-TYPED-PACKS-R751",
+      "id": "MEDULLA-TYPED-PACKS-R751",
       "title": "Specialist registry, provider discovery, transactional install and capability contract (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R751.750",
-        "EG-TYPED-PACKS-R751.751",
-        "EG-TYPED-PACKS-R751.752",
-        "EG-TYPED-PACKS-R751.753"
+        "MEDULLA-TYPED-PACKS-R751.750",
+        "MEDULLA-TYPED-PACKS-R751.751",
+        "MEDULLA-TYPED-PACKS-R751.752",
+        "MEDULLA-TYPED-PACKS-R751.753"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R751.750",
+      "id": "MEDULLA-TYPED-PACKS-R751.750",
       "title": "Model: Specialist registry, provider discovery, transactional install and capability contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R751.751",
+      "id": "MEDULLA-TYPED-PACKS-R751.751",
       "title": "Behavior: Specialist registry, provider discovery, transactional install and capability contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R751.752",
+      "id": "MEDULLA-TYPED-PACKS-R751.752",
       "title": "Refusal: Specialist registry, provider discovery, transactional install and capability contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R751.753",
+      "id": "MEDULLA-TYPED-PACKS-R751.753",
       "title": "Hot-path proof: Specialist registry, provider discovery, transactional install and capability contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R650",
+      "id": "MEDULLA-TYPED-PACKS-R650",
       "title": "Property types, value types, links, interfaces and object sets (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R650.1",
-        "EG-TYPED-PACKS-R650.2",
-        "EG-TYPED-PACKS-R650.3",
-        "EG-TYPED-PACKS-R650.4",
-        "EG-TYPED-PACKS-R650.5",
-        "EG-TYPED-PACKS-R650.6"
+        "MEDULLA-TYPED-PACKS-R650.1",
+        "MEDULLA-TYPED-PACKS-R650.2",
+        "MEDULLA-TYPED-PACKS-R650.3",
+        "MEDULLA-TYPED-PACKS-R650.4",
+        "MEDULLA-TYPED-PACKS-R650.5",
+        "MEDULLA-TYPED-PACKS-R650.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R650.1",
+      "id": "MEDULLA-TYPED-PACKS-R650.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R650.2",
+      "id": "MEDULLA-TYPED-PACKS-R650.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R650.3",
+      "id": "MEDULLA-TYPED-PACKS-R650.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R650.4",
+      "id": "MEDULLA-TYPED-PACKS-R650.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R650.5",
+      "id": "MEDULLA-TYPED-PACKS-R650.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R650.6",
+      "id": "MEDULLA-TYPED-PACKS-R650.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R651",
+      "id": "MEDULLA-TYPED-PACKS-R651",
       "title": "Governed edits, reverts, write-back and sync conflict resolution (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R651.1",
-        "EG-TYPED-PACKS-R651.2",
-        "EG-TYPED-PACKS-R651.3",
-        "EG-TYPED-PACKS-R651.4",
-        "EG-TYPED-PACKS-R651.5",
-        "EG-TYPED-PACKS-R651.6"
+        "MEDULLA-TYPED-PACKS-R651.1",
+        "MEDULLA-TYPED-PACKS-R651.2",
+        "MEDULLA-TYPED-PACKS-R651.3",
+        "MEDULLA-TYPED-PACKS-R651.4",
+        "MEDULLA-TYPED-PACKS-R651.5",
+        "MEDULLA-TYPED-PACKS-R651.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R651.1",
+      "id": "MEDULLA-TYPED-PACKS-R651.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R651.2",
+      "id": "MEDULLA-TYPED-PACKS-R651.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R651.3",
+      "id": "MEDULLA-TYPED-PACKS-R651.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R651.4",
+      "id": "MEDULLA-TYPED-PACKS-R651.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R651.5",
+      "id": "MEDULLA-TYPED-PACKS-R651.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R651.6",
+      "id": "MEDULLA-TYPED-PACKS-R651.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R652",
+      "id": "MEDULLA-TYPED-PACKS-R652",
       "title": "Markings, classification claims and restricted views (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R652.1",
-        "EG-TYPED-PACKS-R652.2",
-        "EG-TYPED-PACKS-R652.3",
-        "EG-TYPED-PACKS-R652.4",
-        "EG-TYPED-PACKS-R652.5",
-        "EG-TYPED-PACKS-R652.6"
+        "MEDULLA-TYPED-PACKS-R652.1",
+        "MEDULLA-TYPED-PACKS-R652.2",
+        "MEDULLA-TYPED-PACKS-R652.3",
+        "MEDULLA-TYPED-PACKS-R652.4",
+        "MEDULLA-TYPED-PACKS-R652.5",
+        "MEDULLA-TYPED-PACKS-R652.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R652.1",
+      "id": "MEDULLA-TYPED-PACKS-R652.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R652.2",
+      "id": "MEDULLA-TYPED-PACKS-R652.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R652.3",
+      "id": "MEDULLA-TYPED-PACKS-R652.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R652.4",
+      "id": "MEDULLA-TYPED-PACKS-R652.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R652.5",
+      "id": "MEDULLA-TYPED-PACKS-R652.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R652.6",
+      "id": "MEDULLA-TYPED-PACKS-R652.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R700",
+      "id": "MEDULLA-TYPED-PACKS-R700",
       "title": "Skill-graph packs validate against an open knowledge-bundle format (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R700.1",
-        "EG-TYPED-PACKS-R700.2",
-        "EG-TYPED-PACKS-R700.3",
-        "EG-TYPED-PACKS-R700.4",
-        "EG-TYPED-PACKS-R700.5",
-        "EG-TYPED-PACKS-R700.6"
+        "MEDULLA-TYPED-PACKS-R700.1",
+        "MEDULLA-TYPED-PACKS-R700.2",
+        "MEDULLA-TYPED-PACKS-R700.3",
+        "MEDULLA-TYPED-PACKS-R700.4",
+        "MEDULLA-TYPED-PACKS-R700.5",
+        "MEDULLA-TYPED-PACKS-R700.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R700.1",
+      "id": "MEDULLA-TYPED-PACKS-R700.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R700.2",
+      "id": "MEDULLA-TYPED-PACKS-R700.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R700.3",
+      "id": "MEDULLA-TYPED-PACKS-R700.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R700.4",
+      "id": "MEDULLA-TYPED-PACKS-R700.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R700.5",
+      "id": "MEDULLA-TYPED-PACKS-R700.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R700.6",
+      "id": "MEDULLA-TYPED-PACKS-R700.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097.700",
+      "id": "MEDULLA-TYPED-PACKS-R097.700",
       "title": "Domain pack manifest, mapping language, loader and promotion bridge: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R097.701",
+      "id": "MEDULLA-TYPED-PACKS-R097.701",
       "title": "Domain pack manifest, mapping language, loader and promotion bridge: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R710",
+      "id": "MEDULLA-TYPED-PACKS-R710",
       "title": "Schema drift classification, containment, repair proposal and activation: model and behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3145,7 +3145,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R712",
+      "id": "MEDULLA-TYPED-PACKS-R712",
       "title": "Schema drift classification, containment, repair proposal and activation: refusal, evidence and hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3158,174 +3158,174 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R711",
+      "id": "MEDULLA-TYPED-PACKS-R711",
       "title": "Process, lifecycle, temporal and harness shape artifacts are generated: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R713",
+      "id": "MEDULLA-TYPED-PACKS-R713",
       "title": "Process, lifecycle, temporal and harness shape artifacts are generated: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R714",
+      "id": "MEDULLA-TYPED-PACKS-R714",
       "title": "Delivery-path wiring of drift classification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R715",
+      "id": "MEDULLA-TYPED-PACKS-R715",
       "title": "Served quarantine of a drifted delivery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R800",
+      "id": "MEDULLA-TYPED-PACKS-R800",
       "title": "Typed record models for packs, evidence bundles, manifests and goals (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R800.1",
-        "EG-TYPED-PACKS-R800.2",
-        "EG-TYPED-PACKS-R800.3",
-        "EG-TYPED-PACKS-R800.4",
-        "EG-TYPED-PACKS-R800.5",
-        "EG-TYPED-PACKS-R800.6"
+        "MEDULLA-TYPED-PACKS-R800.1",
+        "MEDULLA-TYPED-PACKS-R800.2",
+        "MEDULLA-TYPED-PACKS-R800.3",
+        "MEDULLA-TYPED-PACKS-R800.4",
+        "MEDULLA-TYPED-PACKS-R800.5",
+        "MEDULLA-TYPED-PACKS-R800.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R800.1",
+      "id": "MEDULLA-TYPED-PACKS-R800.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R800.2",
+      "id": "MEDULLA-TYPED-PACKS-R800.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R800.3",
+      "id": "MEDULLA-TYPED-PACKS-R800.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R800.4",
+      "id": "MEDULLA-TYPED-PACKS-R800.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R800.5",
+      "id": "MEDULLA-TYPED-PACKS-R800.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R800.6",
+      "id": "MEDULLA-TYPED-PACKS-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R801",
+      "id": "MEDULLA-TYPED-PACKS-R801",
       "title": "Business glossary as SKOS concept schemes (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R801.1",
-        "EG-TYPED-PACKS-R801.2",
-        "EG-TYPED-PACKS-R801.3",
-        "EG-TYPED-PACKS-R801.4",
-        "EG-TYPED-PACKS-R801.5",
-        "EG-TYPED-PACKS-R801.6",
-        "EG-TYPED-PACKS-R801.7"
+        "MEDULLA-TYPED-PACKS-R801.1",
+        "MEDULLA-TYPED-PACKS-R801.2",
+        "MEDULLA-TYPED-PACKS-R801.3",
+        "MEDULLA-TYPED-PACKS-R801.4",
+        "MEDULLA-TYPED-PACKS-R801.5",
+        "MEDULLA-TYPED-PACKS-R801.6",
+        "MEDULLA-TYPED-PACKS-R801.7"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R801.1",
+      "id": "MEDULLA-TYPED-PACKS-R801.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R801.2",
+      "id": "MEDULLA-TYPED-PACKS-R801.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R801.3",
+      "id": "MEDULLA-TYPED-PACKS-R801.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R801.4",
+      "id": "MEDULLA-TYPED-PACKS-R801.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R801.5",
+      "id": "MEDULLA-TYPED-PACKS-R801.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R801.6",
+      "id": "MEDULLA-TYPED-PACKS-R801.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R801.7",
+      "id": "MEDULLA-TYPED-PACKS-R801.7",
       "title": "Proposed descriptions for terms and assets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R802",
+      "id": "MEDULLA-TYPED-PACKS-R802",
       "title": "Stewardship roles, change requests and certification (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R802.1",
-        "EG-TYPED-PACKS-R802.2",
-        "EG-TYPED-PACKS-R802.3",
-        "EG-TYPED-PACKS-R802.4",
-        "EG-TYPED-PACKS-R802.5",
-        "EG-TYPED-PACKS-R802.6",
-        "EG-TYPED-PACKS-R802.7",
-        "EG-TYPED-PACKS-R802.8"
+        "MEDULLA-TYPED-PACKS-R802.1",
+        "MEDULLA-TYPED-PACKS-R802.2",
+        "MEDULLA-TYPED-PACKS-R802.3",
+        "MEDULLA-TYPED-PACKS-R802.4",
+        "MEDULLA-TYPED-PACKS-R802.5",
+        "MEDULLA-TYPED-PACKS-R802.6",
+        "MEDULLA-TYPED-PACKS-R802.7",
+        "MEDULLA-TYPED-PACKS-R802.8"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R802.1",
+      "id": "MEDULLA-TYPED-PACKS-R802.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -3335,71 +3335,71 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R802.2",
+      "id": "MEDULLA-TYPED-PACKS-R802.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R802.3",
+      "id": "MEDULLA-TYPED-PACKS-R802.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R802.4",
+      "id": "MEDULLA-TYPED-PACKS-R802.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R802.5",
+      "id": "MEDULLA-TYPED-PACKS-R802.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R802.6",
+      "id": "MEDULLA-TYPED-PACKS-R802.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R802.7",
+      "id": "MEDULLA-TYPED-PACKS-R802.7",
       "title": "Trust flags on assets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R802.8",
+      "id": "MEDULLA-TYPED-PACKS-R802.8",
       "title": "Critical data elements",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R803",
+      "id": "MEDULLA-TYPED-PACKS-R803",
       "title": "Sensitive data detection proposes classification claims (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R803.1",
-        "EG-TYPED-PACKS-R803.2",
-        "EG-TYPED-PACKS-R803.3",
-        "EG-TYPED-PACKS-R803.4",
-        "EG-TYPED-PACKS-R803.5",
-        "EG-TYPED-PACKS-R803.6"
+        "MEDULLA-TYPED-PACKS-R803.1",
+        "MEDULLA-TYPED-PACKS-R803.2",
+        "MEDULLA-TYPED-PACKS-R803.3",
+        "MEDULLA-TYPED-PACKS-R803.4",
+        "MEDULLA-TYPED-PACKS-R803.5",
+        "MEDULLA-TYPED-PACKS-R803.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R803.1",
+      "id": "MEDULLA-TYPED-PACKS-R803.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -3408,115 +3408,115 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R803.2",
+      "id": "MEDULLA-TYPED-PACKS-R803.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R803.3",
+      "id": "MEDULLA-TYPED-PACKS-R803.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R803.4",
+      "id": "MEDULLA-TYPED-PACKS-R803.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R803.5",
+      "id": "MEDULLA-TYPED-PACKS-R803.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R803.6",
+      "id": "MEDULLA-TYPED-PACKS-R803.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R804",
+      "id": "MEDULLA-TYPED-PACKS-R804",
       "title": "Ontology revision diff and change impact (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R804.1",
-        "EG-TYPED-PACKS-R804.2",
-        "EG-TYPED-PACKS-R804.3",
-        "EG-TYPED-PACKS-R804.4",
-        "EG-TYPED-PACKS-R804.5",
-        "EG-TYPED-PACKS-R804.6"
+        "MEDULLA-TYPED-PACKS-R804.1",
+        "MEDULLA-TYPED-PACKS-R804.2",
+        "MEDULLA-TYPED-PACKS-R804.3",
+        "MEDULLA-TYPED-PACKS-R804.4",
+        "MEDULLA-TYPED-PACKS-R804.5",
+        "MEDULLA-TYPED-PACKS-R804.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R804.1",
+      "id": "MEDULLA-TYPED-PACKS-R804.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R804.2",
+      "id": "MEDULLA-TYPED-PACKS-R804.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R804.3",
+      "id": "MEDULLA-TYPED-PACKS-R804.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R804.4",
+      "id": "MEDULLA-TYPED-PACKS-R804.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R804.5",
+      "id": "MEDULLA-TYPED-PACKS-R804.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R804.6",
+      "id": "MEDULLA-TYPED-PACKS-R804.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R805",
+      "id": "MEDULLA-TYPED-PACKS-R805",
       "title": "Data products and data contracts (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R805.1",
-        "EG-TYPED-PACKS-R805.2",
-        "EG-TYPED-PACKS-R805.3",
-        "EG-TYPED-PACKS-R805.4",
-        "EG-TYPED-PACKS-R805.5",
-        "EG-TYPED-PACKS-R805.6",
-        "EG-TYPED-PACKS-R805.7"
+        "MEDULLA-TYPED-PACKS-R805.1",
+        "MEDULLA-TYPED-PACKS-R805.2",
+        "MEDULLA-TYPED-PACKS-R805.3",
+        "MEDULLA-TYPED-PACKS-R805.4",
+        "MEDULLA-TYPED-PACKS-R805.5",
+        "MEDULLA-TYPED-PACKS-R805.6",
+        "MEDULLA-TYPED-PACKS-R805.7"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R805.1",
+      "id": "MEDULLA-TYPED-PACKS-R805.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -3526,65 +3526,65 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R805.2",
+      "id": "MEDULLA-TYPED-PACKS-R805.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R805.3",
+      "id": "MEDULLA-TYPED-PACKS-R805.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R805.4",
+      "id": "MEDULLA-TYPED-PACKS-R805.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R805.5",
+      "id": "MEDULLA-TYPED-PACKS-R805.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R805.6",
+      "id": "MEDULLA-TYPED-PACKS-R805.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R805.7",
+      "id": "MEDULLA-TYPED-PACKS-R805.7",
       "title": "Data product proposals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R106",
+      "id": "MEDULLA-TYPED-PACKS-R106",
       "title": "Onboarding a connector populates the metadata catalog with its assets, owners, terms and lineage (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R106.1",
-        "EG-TYPED-PACKS-R106.2",
-        "EG-TYPED-PACKS-R106.3",
-        "EG-TYPED-PACKS-R106.4",
-        "EG-TYPED-PACKS-R106.5",
-        "EG-TYPED-PACKS-R106.6",
-        "EG-TYPED-PACKS-R106.7"
+        "MEDULLA-TYPED-PACKS-R106.1",
+        "MEDULLA-TYPED-PACKS-R106.2",
+        "MEDULLA-TYPED-PACKS-R106.3",
+        "MEDULLA-TYPED-PACKS-R106.4",
+        "MEDULLA-TYPED-PACKS-R106.5",
+        "MEDULLA-TYPED-PACKS-R106.6",
+        "MEDULLA-TYPED-PACKS-R106.7"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R106.1",
+      "id": "MEDULLA-TYPED-PACKS-R106.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3601,64 +3601,64 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R106.2",
+      "id": "MEDULLA-TYPED-PACKS-R106.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R106.3",
+      "id": "MEDULLA-TYPED-PACKS-R106.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R106.4",
+      "id": "MEDULLA-TYPED-PACKS-R106.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R106.5",
+      "id": "MEDULLA-TYPED-PACKS-R106.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R106.6",
+      "id": "MEDULLA-TYPED-PACKS-R106.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R106.7",
+      "id": "MEDULLA-TYPED-PACKS-R106.7",
       "title": "Competency queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R107",
+      "id": "MEDULLA-TYPED-PACKS-R107",
       "title": "Each connector pack is a versioned contract and a re-import detects breaking changes (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R107.1",
-        "EG-TYPED-PACKS-R107.2",
-        "EG-TYPED-PACKS-R107.3",
-        "EG-TYPED-PACKS-R107.4",
-        "EG-TYPED-PACKS-R107.5",
-        "EG-TYPED-PACKS-R107.6"
+        "MEDULLA-TYPED-PACKS-R107.1",
+        "MEDULLA-TYPED-PACKS-R107.2",
+        "MEDULLA-TYPED-PACKS-R107.3",
+        "MEDULLA-TYPED-PACKS-R107.4",
+        "MEDULLA-TYPED-PACKS-R107.5",
+        "MEDULLA-TYPED-PACKS-R107.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R107.1",
+      "id": "MEDULLA-TYPED-PACKS-R107.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -3668,261 +3668,261 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R107.2",
+      "id": "MEDULLA-TYPED-PACKS-R107.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R107.3",
+      "id": "MEDULLA-TYPED-PACKS-R107.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R107.4",
+      "id": "MEDULLA-TYPED-PACKS-R107.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R107.5",
+      "id": "MEDULLA-TYPED-PACKS-R107.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R107.6",
+      "id": "MEDULLA-TYPED-PACKS-R107.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108",
+      "id": "MEDULLA-TYPED-PACKS-R108",
       "title": "The metadata catalog also governs agents, the business, workflows and knowledge graphs (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R108.1",
-        "EG-TYPED-PACKS-R108.2",
-        "EG-TYPED-PACKS-R108.3",
-        "EG-TYPED-PACKS-R108.4",
-        "EG-TYPED-PACKS-R108.5",
-        "EG-TYPED-PACKS-R108.6",
-        "EG-TYPED-PACKS-R108.7",
-        "EG-TYPED-PACKS-R108.8",
-        "EG-TYPED-PACKS-R108.9",
-        "EG-TYPED-PACKS-R108.10",
-        "EG-TYPED-PACKS-R108.11",
-        "EG-TYPED-PACKS-R108.12",
-        "EG-TYPED-PACKS-R108.13",
-        "EG-TYPED-PACKS-R108.14",
-        "EG-TYPED-PACKS-R108.15",
-        "EG-TYPED-PACKS-R108.16"
+        "MEDULLA-TYPED-PACKS-R108.1",
+        "MEDULLA-TYPED-PACKS-R108.2",
+        "MEDULLA-TYPED-PACKS-R108.3",
+        "MEDULLA-TYPED-PACKS-R108.4",
+        "MEDULLA-TYPED-PACKS-R108.5",
+        "MEDULLA-TYPED-PACKS-R108.6",
+        "MEDULLA-TYPED-PACKS-R108.7",
+        "MEDULLA-TYPED-PACKS-R108.8",
+        "MEDULLA-TYPED-PACKS-R108.9",
+        "MEDULLA-TYPED-PACKS-R108.10",
+        "MEDULLA-TYPED-PACKS-R108.11",
+        "MEDULLA-TYPED-PACKS-R108.12",
+        "MEDULLA-TYPED-PACKS-R108.13",
+        "MEDULLA-TYPED-PACKS-R108.14",
+        "MEDULLA-TYPED-PACKS-R108.15",
+        "MEDULLA-TYPED-PACKS-R108.16"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R108.1",
+      "id": "MEDULLA-TYPED-PACKS-R108.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.2",
+      "id": "MEDULLA-TYPED-PACKS-R108.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.3",
+      "id": "MEDULLA-TYPED-PACKS-R108.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.4",
+      "id": "MEDULLA-TYPED-PACKS-R108.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.5",
+      "id": "MEDULLA-TYPED-PACKS-R108.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.6",
+      "id": "MEDULLA-TYPED-PACKS-R108.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.7",
+      "id": "MEDULLA-TYPED-PACKS-R108.7",
       "title": "Technical metadata from contracts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.8",
+      "id": "MEDULLA-TYPED-PACKS-R108.8",
       "title": "Operational metadata from provenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.9",
+      "id": "MEDULLA-TYPED-PACKS-R108.9",
       "title": "Sensitivity propagation and policy link",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.10",
+      "id": "MEDULLA-TYPED-PACKS-R108.10",
       "title": "End-to-end lineage across the platform",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.11",
+      "id": "MEDULLA-TYPED-PACKS-R108.11",
       "title": "Metric and KPI definitions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.12",
+      "id": "MEDULLA-TYPED-PACKS-R108.12",
       "title": "Annotations: comments, tags, ratings and threads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.13",
+      "id": "MEDULLA-TYPED-PACKS-R108.13",
       "title": "Curated articles and guides",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.14",
+      "id": "MEDULLA-TYPED-PACKS-R108.14",
       "title": "Dashboards, reports, saved queries and templates",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.15",
+      "id": "MEDULLA-TYPED-PACKS-R108.15",
       "title": "AI and ML model assets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R108.16",
+      "id": "MEDULLA-TYPED-PACKS-R108.16",
       "title": "One ranked index across all asset families, callable from queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R109",
+      "id": "MEDULLA-TYPED-PACKS-R109",
       "title": "The dashboard is a first-class catalog asset (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R109.1",
-        "EG-TYPED-PACKS-R109.2",
-        "EG-TYPED-PACKS-R109.3",
-        "EG-TYPED-PACKS-R109.4",
-        "EG-TYPED-PACKS-R109.5",
-        "EG-TYPED-PACKS-R109.6"
+        "MEDULLA-TYPED-PACKS-R109.1",
+        "MEDULLA-TYPED-PACKS-R109.2",
+        "MEDULLA-TYPED-PACKS-R109.3",
+        "MEDULLA-TYPED-PACKS-R109.4",
+        "MEDULLA-TYPED-PACKS-R109.5",
+        "MEDULLA-TYPED-PACKS-R109.6"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R109.1",
+      "id": "MEDULLA-TYPED-PACKS-R109.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R109.2",
+      "id": "MEDULLA-TYPED-PACKS-R109.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R109.3",
+      "id": "MEDULLA-TYPED-PACKS-R109.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R109.4",
+      "id": "MEDULLA-TYPED-PACKS-R109.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R109.5",
+      "id": "MEDULLA-TYPED-PACKS-R109.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R109.6",
+      "id": "MEDULLA-TYPED-PACKS-R109.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R085.5",
+      "id": "MEDULLA-TYPED-PACKS-R085.5",
       "title": "Rollup through R085.5.1–R085.5.4",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R085.5.1",
-        "EG-TYPED-PACKS-R085.5.2",
-        "EG-TYPED-PACKS-R085.5.3",
-        "EG-TYPED-PACKS-R085.5.4"
+        "MEDULLA-TYPED-PACKS-R085.5.1",
+        "MEDULLA-TYPED-PACKS-R085.5.2",
+        "MEDULLA-TYPED-PACKS-R085.5.3",
+        "MEDULLA-TYPED-PACKS-R085.5.4"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.6",
+      "id": "MEDULLA-TYPED-PACKS-R085.6",
       "title": "Rollup through R085.6.1–R085.6.3",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R085.6.1",
-        "EG-TYPED-PACKS-R085.6.2",
-        "EG-TYPED-PACKS-R085.6.3"
+        "MEDULLA-TYPED-PACKS-R085.6.1",
+        "MEDULLA-TYPED-PACKS-R085.6.2",
+        "MEDULLA-TYPED-PACKS-R085.6.3"
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.7.1",
+      "id": "MEDULLA-TYPED-PACKS-R085.7.1",
       "title": "Pure reference inspection",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3936,7 +3936,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.7.2",
+      "id": "MEDULLA-TYPED-PACKS-R085.7.2",
       "title": "Durable reference snapshots",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -3945,14 +3945,14 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.7.3",
+      "id": "MEDULLA-TYPED-PACKS-R085.7.3",
       "title": "Reference contract and served qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R085.4.1",
+      "id": "MEDULLA-TYPED-PACKS-R085.4.1",
       "title": "Pure renewal ceiling transitions",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3968,7 +3968,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.4.2",
+      "id": "MEDULLA-TYPED-PACKS-R085.4.2",
       "title": "Durable renewal CAS",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -3977,7 +3977,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.4.3",
+      "id": "MEDULLA-TYPED-PACKS-R085.4.3",
       "title": "Renewal contract and served qualification",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3990,7 +3990,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.5.1",
+      "id": "MEDULLA-TYPED-PACKS-R085.5.1",
       "title": "Pure registered approval-key transitions",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -4006,7 +4006,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.5.2",
+      "id": "MEDULLA-TYPED-PACKS-R085.5.2",
       "title": "Durable approval-key evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -4015,7 +4015,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.5.3",
+      "id": "MEDULLA-TYPED-PACKS-R085.5.3",
       "title": "Approval-key request stamping",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -4024,14 +4024,14 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.5.4",
+      "id": "MEDULLA-TYPED-PACKS-R085.5.4",
       "title": "Approval-key served qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-TYPED-PACKS-R085.6.1",
+      "id": "MEDULLA-TYPED-PACKS-R085.6.1",
       "title": "Pure credential observation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -4044,7 +4044,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.6.2",
+      "id": "MEDULLA-TYPED-PACKS-R085.6.2",
       "title": "Durable observation revision",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -4053,7 +4053,7 @@
       ]
     },
     {
-      "id": "EG-TYPED-PACKS-R085.6.3",
+      "id": "MEDULLA-TYPED-PACKS-R085.6.3",
       "title": "Observation contract and served qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

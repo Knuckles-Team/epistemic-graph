@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R075 (`.1` slice): component-id uniqueness within an
+//! MEDULLA-DECISION-ENGINE-R075 (`.1` slice): component-id uniqueness within an
 //! import scope.
 //!
 //! Every component id must be unique within its scope; a pack import that
@@ -40,7 +40,7 @@ mod tests {
         assert_eq!(check_unique_component_ids(ids), Ok(()));
     }
 
-    // spec: EG-DECISION-ENGINE-R075.1
+    // spec: MEDULLA-DECISION-ENGINE-R075.1
     #[test]
     fn refuses_a_duplicate_component_id() {
         let ids = ["comp-a", "comp-b", "comp-a"];

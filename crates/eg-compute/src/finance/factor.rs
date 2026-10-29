@@ -1,5 +1,5 @@
 // CONCEPT:EG-KG.domains.finance-compute.factor-research — factor ranking
-// (EG-FINANCE-PRIMITIVES-R018).
+// (MEDULLA-FINANCE-PRIMITIVES-R018).
 //
 // Ranks candidate factors by their predictive skill. Information coefficient
 // and information ratio come from the one shared kernel in
@@ -166,7 +166,7 @@ mod tests {
 
     const RETURNS: [f64; 6] = [0.01, -0.02, 0.03, -0.01, 0.02, -0.03];
 
-    // spec: EG-FINANCE-PRIMITIVES-R018.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R018.1
     #[test]
     fn a_factor_record_round_trips_and_rejects_an_empty_provenance_list() {
         let record =
@@ -184,7 +184,7 @@ mod tests {
         assert!(FactorRecord::new("f", 0.4, 0.98, 1, vec![" ".to_string()]).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R018.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R018.2
     #[test]
     fn three_factors_rank_by_absolute_information_ratio() {
         // `anti` is the perfectly negated return series: |IC| = 1, the strongest.
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(ranked, again);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R018.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R018.4
     #[test]
     fn empty_or_single_row_input_abstains_with_its_code_and_no_record() {
         let empty = rank_factors(&[], &[]).unwrap_err();

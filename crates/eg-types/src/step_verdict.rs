@@ -1,9 +1,9 @@
-//! Typed per-step verification verdict (EG-DURABLE-KERNEL-R089.1).
+//! Typed per-step verification verdict (MEDULLA-DURABLE-KERNEL-R089.1).
 //!
 //! A verdict binds one reasoning step's identity and the SHA-256 of its output to
 //! a success or failure state, an uncertainty bound in `[0, 1]`, and a proof
 //! reference. Consumer refusal of conclusions derived from a failed step is
-//! EG-DURABLE-KERNEL-R089.2.
+//! MEDULLA-DURABLE-KERNEL-R089.2.
 
 use serde::{Deserialize, Serialize};
 
@@ -75,7 +75,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R089.1
+    // spec: MEDULLA-DURABLE-KERNEL-R089.1
     #[test]
     fn both_states_validate_and_round_trip_with_their_proof_reference() {
         for state in [VerdictState::Success, VerdictState::Failure] {
@@ -91,7 +91,7 @@ mod tests {
         assert_eq!(json["state"], "failure");
     }
 
-    // spec: EG-DURABLE-KERNEL-R089.1
+    // spec: MEDULLA-DURABLE-KERNEL-R089.1
     #[test]
     fn malformed_verdicts_are_refused() {
         for bound in [-0.01, 1.01, f64::NAN, f64::INFINITY] {

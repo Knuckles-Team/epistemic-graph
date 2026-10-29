@@ -364,7 +364,7 @@ fn stale_reset_policy_verdicts_leave_the_token_and_store_untouched() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.1
 #[test]
 fn verified_api_key_resolution_omits_session_record() {
     let mut store = store_in(AuthMode::Local);

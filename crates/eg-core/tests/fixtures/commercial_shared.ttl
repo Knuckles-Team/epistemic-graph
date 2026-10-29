@@ -1,4 +1,4 @@
-# Shared supplier and customer ABox fixture (EG-SUPPLY-VOCAB-R003.15).
+# Shared supplier and customer ABox fixture (MEDULLA-SUPPLY-VOCAB-R003.15).
 #
 # Instances typed by the shared kg# classes the commercial module must not
 # redeclare or narrow: the Supplier IRI owned by supply_chain-v1.ttl (itself a

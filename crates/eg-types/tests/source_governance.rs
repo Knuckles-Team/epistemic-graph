@@ -12,7 +12,7 @@ fn set(items: &[&str]) -> BTreeSet<String> {
     items.iter().map(|item| item.to_string()).collect()
 }
 
-// spec: EG-INGEST-WORKER-R902.1
+// spec: MEDULLA-INGEST-WORKER-R902.1
 #[test]
 fn access_snapshot_round_trips() {
     let snapshot = AccessSnapshot {
@@ -59,7 +59,7 @@ fn access_snapshot_round_trips() {
     assert!(serde_json::from_value::<SourceGroup>(unknown_field).is_err());
 }
 
-// spec: EG-INGEST-WORKER-R903.1
+// spec: MEDULLA-INGEST-WORKER-R903.1
 #[test]
 fn reconcile_plan_round_trips() {
     let enumeration = SourceEnumeration {
@@ -97,7 +97,7 @@ fn reconcile_plan_round_trips() {
     );
 }
 
-// spec: EG-INGEST-WORKER-R904.1
+// spec: MEDULLA-INGEST-WORKER-R904.1
 #[test]
 fn container_round_trips() {
     let root = SourceContainer {

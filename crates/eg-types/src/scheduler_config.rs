@@ -1,4 +1,4 @@
-//! Authoritative scheduler policy data (EG-DURABLE-KERNEL-R076.1).
+//! Authoritative scheduler policy data (MEDULLA-DURABLE-KERNEL-R076.1).
 //!
 //! The served setting, admission wiring and persistence are R076.2. Consumers
 //! must validate this model before use; workers never choose their own policy.
@@ -108,8 +108,8 @@ mod tests {
         .unwrap()
     }
 
-    // spec: EG-PLACEMENT-R002.2
-    // spec: EG-DURABLE-KERNEL-R076.1
+    // spec: MEDULLA-PLACEMENT-R002.2
+    // spec: MEDULLA-DURABLE-KERNEL-R076.1
     #[test]
     fn defaults_and_lane_floors_round_trip() {
         let config = config();
@@ -123,8 +123,8 @@ mod tests {
         );
     }
 
-    // spec: EG-PLACEMENT-R002.2
-    // spec: EG-DURABLE-KERNEL-R076.1
+    // spec: MEDULLA-PLACEMENT-R002.2
+    // spec: MEDULLA-DURABLE-KERNEL-R076.1
     #[test]
     fn explicit_autosize_and_queue_limits_round_trip() {
         let mut config = config();
@@ -139,7 +139,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R076.1
+    // spec: MEDULLA-DURABLE-KERNEL-R076.1
     #[test]
     fn exact_floor_sum_is_accepted_and_oversubscription_is_refused() {
         let mut config = config();
@@ -152,7 +152,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R076.1
+    // spec: MEDULLA-DURABLE-KERNEL-R076.1
     #[test]
     fn huge_floors_cannot_wrap_into_an_accepted_sum() {
         let mut config = config();
@@ -166,7 +166,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R076.1
+    // spec: MEDULLA-DURABLE-KERNEL-R076.1
     #[test]
     fn zero_limits_disable_resources_without_an_implicit_floor() {
         let config: SchedulerConfig = serde_json::from_value(json!({
@@ -177,7 +177,7 @@ mod tests {
         assert_eq!(config.validate(), Ok(()));
     }
 
-    // spec: EG-DURABLE-KERNEL-R076.1
+    // spec: MEDULLA-DURABLE-KERNEL-R076.1
     #[test]
     fn invalid_policy_bounds_are_refused() {
         let mut config = config();
@@ -197,7 +197,7 @@ mod tests {
         assert_eq!(config.validate(), Err(InvalidSchedulerConfig::BlankLane));
     }
 
-    // spec: EG-DURABLE-KERNEL-R076.1
+    // spec: MEDULLA-DURABLE-KERNEL-R076.1
     #[test]
     fn wire_requires_explicit_limits_and_rejects_unknown_or_negative_values() {
         for value in [

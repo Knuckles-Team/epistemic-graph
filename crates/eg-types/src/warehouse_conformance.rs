@@ -1,14 +1,14 @@
 //! Typed conformance-entry constructor for the Snowflake/BigQuery/DuckDB/Iceberg
-//! warehouse federation adapters (EG-UNIFIED-DATA-PLANE-R020.3): a builder over the
+//! warehouse federation adapters (MEDULLA-UNIFIED-DATA-PLANE-R020.3): a builder over the
 //! generic [`crate::dialect_conformance::DialectConformanceEntry`]
-//! (EG-UNIFIED-DATA-PLANE-R022.1) that derives this row's `adapter` label directly
+//! (MEDULLA-UNIFIED-DATA-PLANE-R022.1) that derives this row's `adapter` label directly
 //! from the closed [`crate::warehouse_federation::WarehouseSourceKind`]
-//! (EG-UNIFIED-DATA-PLANE-R020.1) rather than a caller-supplied string, and refuses a
+//! (MEDULLA-UNIFIED-DATA-PLANE-R020.1) rather than a caller-supplied string, and refuses a
 //! malformed entry or a blank engine version before it is admitted into a report.
 //! This is the typed-model slice (`.1`): no live warehouse/lake connection is needed
 //! to build or refuse an entry. Actually running the comparison against each native
 //! engine and recording its real outcome is a later child
-//! (EG-UNIFIED-DATA-PLANE-R020.3.2).
+//! (MEDULLA-UNIFIED-DATA-PLANE-R020.3.2).
 
 use crate::dialect_conformance::{
     ConformanceDeviation, ConformanceOutcome, DialectConformanceEntry, InvalidConformanceEntry,
@@ -85,7 +85,7 @@ pub fn build_warehouse_conformance_entry(
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.3.1
     #[test]
     fn green_entry_builds_with_kind_derived_label() {
         let entry = build_warehouse_conformance_entry(
@@ -99,7 +99,7 @@ mod tests {
         assert_eq!(entry.engine_version, "8.17");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.3.1
     #[test]
     fn each_kind_maps_to_a_distinct_label() {
         assert_eq!(
@@ -116,7 +116,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.3.1
     #[test]
     fn empty_engine_version_is_refused() {
         let result = build_warehouse_conformance_entry(
@@ -131,7 +131,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.3.1
     #[test]
     fn deviated_entry_without_review_is_refused() {
         let result = build_warehouse_conformance_entry(
@@ -148,7 +148,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.3.1
     #[test]
     fn deviated_entry_with_reviewed_deviation_builds() {
         let deviation = ConformanceDeviation {

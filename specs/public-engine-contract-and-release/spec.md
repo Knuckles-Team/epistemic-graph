@@ -1,4 +1,4 @@
-# EG-CONTRACT — Public engine contract and reproducible clients
+# MEDULLA-CONTRACT — Public engine contract and reproducible clients
 
 **Owner:** Medulla. **Specification state:** PROPOSED. **Build state:** PARTIAL. **Acceptance:** PENDING.
 
@@ -16,7 +16,7 @@ A contributor must be able to change an engine method once and regenerate the sa
 
 The current repository includes a generated method catalog, error catalog, Python typed models, Go and JavaScript codec clients and a package contract receipt. Their presence establishes a partial source baseline only. No release acceptance is claimed here.
 
-[PR #3](https://github.com/Knuckles-Team/medulla/pull/3) merged a source repair at [a7f4dd74e7b2](https://github.com/Knuckles-Team/medulla/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This establishes source landing for that repair only. The EG-CONTRACT-R014 wheel and consumer proof, EG-CONTRACT-R022 duplication gate, EG-CONTRACT-R023 hooks, and exact-revision release acceptance remain open under this spec's test contract.
+[PR #3](https://github.com/Knuckles-Team/medulla/pull/3) merged a source repair at [a7f4dd74e7b2](https://github.com/Knuckles-Team/medulla/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This establishes source landing for that repair only. The MEDULLA-CONTRACT-R014 wheel and consumer proof, MEDULLA-CONTRACT-R022 duplication gate, MEDULLA-CONTRACT-R023 hooks, and exact-revision release acceptance remain open under this spec's test contract.
 
 ## Normative requirements
 
@@ -45,10 +45,10 @@ External applications consume only the published public catalog and clients. The
 
 | Group | IDs and disposition in this spec |
 |---|---|
-| Client contract baseline | EG-CONTRACT-R001 strict models; EG-CONTRACT-R004 signed Go/JS vectors. Verify exact default-branch source and package evidence. |
-| Consumer convergence and tree hygiene | EG-CONTRACT-R002 Agent Library served-Python substrate. EG-CONTRACT-R005 generated Python convergence. EG-CONTRACT-R006 codec WASM. EG-CONTRACT-R007 dispatch gate. EG-CONTRACT-R008 correct tree selection. EG-CONTRACT-R009 root Python CI suite. EG-CONTRACT-R014 error catalog. EG-CONTRACT-R016 generated client parity. EG-CONTRACT-R017 compiler dispatch census. EG-CONTRACT-R018 feature matrix. EG-CONTRACT-R019 current dispatch reachability. EG-CONTRACT-R020 component naming. EG-CONTRACT-R021 client lifecycle. EG-CONTRACT-R022 duplicate scan. EG-CONTRACT-R023 full tree hygiene. |
-| Packaging and tooling compatibility | EG-CONTRACT-R015 contract packaging and `is_wire_callable`; EG-CONTRACT-R011 bounded CI fanout; EG-CONTRACT-R012 and EG-CONTRACT-R013 KISS parser/config compatibility. |
-| Cross-cutting | EG-CONTRACT-R003 wheel privacy; EG-CONTRACT-R010 complexity scoring. |
+| Client contract baseline | MEDULLA-CONTRACT-R001 strict models; MEDULLA-CONTRACT-R004 signed Go/JS vectors. Verify exact default-branch source and package evidence. |
+| Consumer convergence and tree hygiene | MEDULLA-CONTRACT-R002 Agent Library served-Python substrate. MEDULLA-CONTRACT-R005 generated Python convergence. MEDULLA-CONTRACT-R006 codec WASM. MEDULLA-CONTRACT-R007 dispatch gate. MEDULLA-CONTRACT-R008 correct tree selection. MEDULLA-CONTRACT-R009 root Python CI suite. MEDULLA-CONTRACT-R014 error catalog. MEDULLA-CONTRACT-R016 generated client parity. MEDULLA-CONTRACT-R017 compiler dispatch census. MEDULLA-CONTRACT-R018 feature matrix. MEDULLA-CONTRACT-R019 current dispatch reachability. MEDULLA-CONTRACT-R020 component naming. MEDULLA-CONTRACT-R021 client lifecycle. MEDULLA-CONTRACT-R022 duplicate scan. MEDULLA-CONTRACT-R023 full tree hygiene. |
+| Packaging and tooling compatibility | MEDULLA-CONTRACT-R015 contract packaging and `is_wire_callable`; MEDULLA-CONTRACT-R011 bounded CI fanout; MEDULLA-CONTRACT-R012 and MEDULLA-CONTRACT-R013 KISS parser/config compatibility. |
+| Cross-cutting | MEDULLA-CONTRACT-R003 wheel privacy; MEDULLA-CONTRACT-R010 complexity scoring. |
 
 Adjacent Medulla capabilities specify their own semantics. This spec governs their published method/error projection and release proof. This table groups the obligations tracked when this spec was last reviewed; [requirements.md](requirements.md) is the authoritative full set.
 
@@ -60,7 +60,7 @@ Requirement IDs are defined in [requirements.md](requirements.md); delivery stat
 
 ## Current architecture contract
 
-EG-CONTRACT-R052 owns the source-linked architecture map in [plan.md](plan.md#2026-10-12-current-architecture-boundaries).
+MEDULLA-CONTRACT-R052 owns the source-linked architecture map in [plan.md](plan.md#2026-10-12-current-architecture-boundaries).
 The map preserves existing subsystem owners and distinguishes design, source wiring, generated delivery state, and execution evidence.
 It changes no architecture, enabled feature, package recipe, or release version.
 
@@ -73,7 +73,7 @@ No implementation or served evidence is claimed here.
 
 | Requirement | Parent | Source record | SHA-256 |
 |---|---|---|---|
-| `EG-CONTRACT-R001.1` | `EG-CONTRACT-R001` | `AU:109` | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
-| `EG-CONTRACT-R001.2` | `EG-CONTRACT-R001` | `AU:121` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
+| `MEDULLA-CONTRACT-R001.1` | `MEDULLA-CONTRACT-R001` | `AU:109` | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
+| `MEDULLA-CONTRACT-R001.2` | `MEDULLA-CONTRACT-R001` | `AU:121` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
 
 Both definitions remain SPECIFIED pending owner review and served evidence.

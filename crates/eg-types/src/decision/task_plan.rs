@@ -1,4 +1,4 @@
-//! Bounded, explicit dependency planning (EG-DECISION-ENGINE-R134.111).
+//! Bounded, explicit dependency planning (MEDULLA-DECISION-ENGINE-R134.111).
 //!
 //! Prompts and edges are caller claims, never authorization or inferred policy.
 //! The engine canonicalizes a DAG; Arbora admits it and AU executes it.
@@ -20,7 +20,7 @@ pub use call::{
 pub const TASK_PLAN_POLICY_REVISION: &str = "bounded-explicit-dag-v1";
 
 /// The Agent Library component id a host publishes the canonical task-plan
-/// feature schema under (EG-DECISION-ENGINE-R134.111.7).
+/// feature schema under (MEDULLA-DECISION-ENGINE-R134.111.7).
 pub const TASK_PLAN_FEATURE_SCHEMA_COMPONENT_ID: &str = "task-plan-features";
 
 /// The canonical feature schema a `task_plan` Decide request pins.
@@ -31,7 +31,7 @@ pub const TASK_PLAN_FEATURE_SCHEMA_COMPONENT_ID: &str = "task-plan-features";
 /// tenant's pin is reproducible and checkable at start-up. The single feature
 /// reads each task's declared position and abstains when it is absent. Two
 /// more describe a tool step's call and its binding count
-/// (EG-DECISION-ENGINE-R134.111.12).
+/// (MEDULLA-DECISION-ENGINE-R134.111.12).
 pub fn task_plan_feature_schema() -> super::statistical::features::FeatureSchemaBody {
     use super::statistical::features::{
         FeatureKind, FeatureSchemaBody, FeatureSpec, MissingValue, FEATURE_SCHEMA_VERSION,

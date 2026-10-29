@@ -1,10 +1,10 @@
-# vector store-mapping fixture (EG-DATAPLAT-VOCAB-R006.4).
+# vector store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.4).
 #
 # One attached vector store. Collection listing is a named MCP operation;
 # search actions resolve hit ids to source documents and are out of this
 # fixture. Collection stats (count, dimension, embedding model, distance
 # metric per collection) are BLOCKED on vector-mcp adding a stats action
-# (EG-DATAPLAT-VOCAB-R009.2) — the mapping therefore projects only the
+# (MEDULLA-DATAPLAT-VOCAB-R009.2) — the mapping therefore projects only the
 # collection's distance metric today. Virtual: no vectors are ever copied
 # (decision 4).
 

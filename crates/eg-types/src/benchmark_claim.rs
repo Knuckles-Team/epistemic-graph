@@ -1,4 +1,4 @@
-//! A published performance-superiority claim (EG-DURABLE-KERNEL-R042): a
+//! A published performance-superiority claim (MEDULLA-DURABLE-KERNEL-R042): a
 //! benchmark report is accepted as a claim that this engine outperforms a
 //! named comparison system only when it publishes its configuration AND
 //! carries a passing measured result for that exact comparison. This is the
@@ -8,7 +8,7 @@
 
 use std::fmt;
 
-/// One of the named comparisons EG-DURABLE-KERNEL-R042 requires a published
+/// One of the named comparisons MEDULLA-DURABLE-KERNEL-R042 requires a published
 /// benchmark suite for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BenchmarkComparison {
@@ -98,7 +98,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R042.1
+    // spec: MEDULLA-DURABLE-KERNEL-R042.1
     #[test]
     fn a_published_passing_report_is_accepted() {
         claim("workload A, 8 shards", "p99 3.2ms vs 5.1ms", true)
@@ -106,7 +106,7 @@ mod tests {
             .unwrap();
     }
 
-    // spec: EG-DURABLE-KERNEL-R042.1
+    // spec: MEDULLA-DURABLE-KERNEL-R042.1
     #[test]
     fn missing_configuration_is_refused() {
         let err = claim("", "p99 3.2ms", true)
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(err, RefusedBenchmarkClaim::MissingConfiguration);
     }
 
-    // spec: EG-DURABLE-KERNEL-R042.1
+    // spec: MEDULLA-DURABLE-KERNEL-R042.1
     #[test]
     fn missing_measured_result_is_refused() {
         let err = claim("workload A", "   ", true)
@@ -124,7 +124,7 @@ mod tests {
         assert_eq!(err, RefusedBenchmarkClaim::MissingMeasuredResult);
     }
 
-    // spec: EG-DURABLE-KERNEL-R042.1
+    // spec: MEDULLA-DURABLE-KERNEL-R042.1
     #[test]
     fn a_non_passing_report_is_never_a_superiority_claim() {
         let err = claim("workload A", "p99 9.9ms vs 5.1ms", false)

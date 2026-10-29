@@ -1,4 +1,4 @@
-//! EG-UNIFIED-DATA-PLANE-R013 — typed model for the Postgres attached-source
+//! MEDULLA-UNIFIED-DATA-PLANE-R013 — typed model for the Postgres attached-source
 //! adapter. This slice is the config/capability types and their validation
 //! only: connection shape, the pgoutput logical-replication capture
 //! parameters, and the lossless type-mapping declarations for jsonb, array,
@@ -202,7 +202,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R013
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R013
     #[test]
     fn accepts_a_well_formed_config() {
         assert_eq!(valid_config().validate(), Ok(()));

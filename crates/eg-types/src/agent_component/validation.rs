@@ -15,7 +15,7 @@ pub(super) fn validate_draft(draft: &AgentComponentDraft) -> Result<(), String> 
 
 /// Kinds whose meaning lives in attributes must carry attributes that decode:
 /// a `GuardrailRule` that cannot be read back as a rule is refused at publish
-/// (EG-DECISION-ENGINE-R127.2.1), never stored to fail a later query.
+/// (MEDULLA-DECISION-ENGINE-R127.2.1), never stored to fail a later query.
 fn validate_draft_kind_body(draft: &AgentComponentDraft) -> Result<(), String> {
     if draft.kind == AgentComponentKind::GuardrailRule {
         crate::decision::guardrail::GuardrailRule::from_attributes(

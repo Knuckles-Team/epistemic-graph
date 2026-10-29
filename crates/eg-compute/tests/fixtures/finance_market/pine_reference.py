@@ -2,7 +2,7 @@
 """Pine-semantics float reference: SMA, EMA, 200-week SMA, 20/21 band, Heikin-Ashi.
 
 ``reference.py`` re-implements the engine's *integer* recurrences bit for bit;
-this script is the other half of EG-FINANCE-PRIMITIVES-R016: it evaluates the
+this script is the other half of MEDULLA-FINANCE-PRIMITIVES-R016: it evaluates the
 same indicators with TradingView Pine v5 built-in semantics in IEEE floats, in
 price units, with no engine rounding, so the Rust parity test proves the
 integer kernels stay within a stated milli-tick tolerance of Pine:

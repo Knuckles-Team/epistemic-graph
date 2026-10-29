@@ -1923,7 +1923,7 @@ path = "benches/redb_write_latency_bench.rs"
 harness = false
 required-features = ["full"]
 
-# Schema-drift classification hot-path receipt (EG-TYPED-PACKS-R712): the
+# Schema-drift classification hot-path receipt (MEDULLA-TYPED-PACKS-R712): the
 # five-way classifier of `eg_types::graph_schema::drift` over a 1,000-field
 # approved contract, rotated over deterministic drift shapes; prints p50/p99
 # and the process RSS growth (budget: p50 < 0.5 ms, p99 < 3 ms, memory < 16
@@ -1989,7 +1989,7 @@ path = "benches/pyo3_inprocess_vs_uds_bench.rs"
 harness = false
 required-features = ["server"]
 
-# EG-ORCH-VOCAB-R801.6 hot-path receipt: the engine's per-write path for the
+# MEDULLA-ORCH-VOCAB-R801.6 hot-path receipt: the engine's per-write path for the
 # versioned harness components — pre-commit admission (strict decode,
 # evidence checks, immutability + head-relative supersession checks, the
 # bitemporal stamp and the supersession link) plus the RAM projection — over

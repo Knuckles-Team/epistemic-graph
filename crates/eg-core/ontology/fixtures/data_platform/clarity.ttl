@@ -1,4 +1,4 @@
-# clarity store-mapping fixture (EG-DATAPLAT-VOCAB-R006.7).
+# clarity store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.7).
 #
 # One attached Microsoft Clarity analytics project. The Data Export window is
 # limited to 1-3 days (mcp_insights.py), so the export mapping is virtual up
@@ -73,4 +73,4 @@ ex:mapping_export_materialised a dp:StoreMapping ;
     dp:contractKind "mcp-operation" ;
     dp:viaOperation "clarity_insights:get_data_export" ;
     dp:accelerationMode "materialised" ;
-    dp:materialisationReason "The export window is capped at 3 days, so a longer window needs a daily snapshot of the aggregate metrics; materialised via the R038 AccelerationPolicy (no session replays) (EG-DATAPLAT-VOCAB-R006.7)." .
+    dp:materialisationReason "The export window is capped at 3 days, so a longer window needs a daily snapshot of the aggregate metrics; materialised via the R038 AccelerationPolicy (no session replays) (MEDULLA-DATAPLAT-VOCAB-R006.7)." .

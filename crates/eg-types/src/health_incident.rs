@@ -1,9 +1,9 @@
-//! Health anomalies and correlated incidents (EG-DURABLE-KERNEL-R852.1, .2, .4).
+//! Health anomalies and correlated incidents (MEDULLA-DURABLE-KERNEL-R852.1, .2, .4).
 //!
 //! An anomaly on a resource joins that resource's open incident while it falls
 //! inside the correlation window; otherwise it opens a new incident. Incidents
 //! move strictly `open -> acknowledged -> resolved -> closed`. Served operations
-//! and durable storage are EG-DURABLE-KERNEL-R852.3 and later children.
+//! and durable storage are MEDULLA-DURABLE-KERNEL-R852.3 and later children.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -198,7 +198,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R852.1
+    // spec: MEDULLA-DURABLE-KERNEL-R852.1
     #[test]
     fn anomaly_and_incident_round_trip_through_the_wire_codec() {
         let a = anomaly("svc:checkout", 1_000);
@@ -228,7 +228,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R852.2
+    // spec: MEDULLA-DURABLE-KERNEL-R852.2
     #[test]
     fn anomalies_correlate_by_resource_and_window() {
         let mut book = IncidentBook::default();
@@ -254,7 +254,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R852.4
+    // spec: MEDULLA-DURABLE-KERNEL-R852.4
     #[test]
     fn out_of_order_status_and_resourceless_anomaly_are_refused() {
         let mut book = IncidentBook::default();

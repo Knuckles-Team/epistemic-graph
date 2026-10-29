@@ -210,7 +210,7 @@ mod tests {
         ));
     }
 
-    // spec: EG-DECISION-ENGINE-R109.1
+    // spec: MEDULLA-DECISION-ENGINE-R109.1
     #[test]
     fn varying_the_composed_schema_digest_changes_derived_topology_admissibility() {
         let core = crate::graph::GraphCore::new();

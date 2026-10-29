@@ -13,7 +13,7 @@ pub(crate) fn uql_text_embedder() -> Option<&'static dyn eg_plan::TextEmbedder> 
     static EMBEDDER: OnceLock<Option<Box<dyn eg_plan::TextEmbedder>>> = OnceLock::new();
     EMBEDDER
         .get_or_init(|| {
-            // The configured chunk embedder (EG-UNIFIED-DATA-PLANE-R651.7.2) when an
+            // The configured chunk embedder (MEDULLA-UNIFIED-DATA-PLANE-R651.7.2) when an
             // endpoint is set, so query vectors share the stored chunks' space.
             #[cfg(feature = "modality-serving")]
             {

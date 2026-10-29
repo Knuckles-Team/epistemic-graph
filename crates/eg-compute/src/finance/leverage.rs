@@ -1,6 +1,6 @@
 // CONCEPT:EG-KG.domains.finance-compute.leverage — Leverage Order Governance
 //
-// Live-order eligibility boundary (EG-FINANCE-PRIMITIVES-R010.1): a live
+// Live-order eligibility boundary (MEDULLA-FINANCE-PRIMITIVES-R010.1): a live
 // leveraged order is eligible only with a matching per-instrument policy and
 // a designated approver. Analysis defaults to paper mode, so a paper-mode
 // order is never eligible for live authorization. CFDs are flagged
@@ -95,7 +95,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R010.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R010.1
     #[test]
     fn paper_mode_is_never_eligible_for_a_live_order() {
         let err = live_order_eligibility(
@@ -110,7 +110,7 @@ mod tests {
         assert_eq!(err, LiveOrderRefusal::NotLive);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R010.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R010.1
     #[test]
     fn a_live_order_without_a_matching_policy_is_refused() {
         let err = live_order_eligibility(
@@ -128,7 +128,7 @@ mod tests {
         ));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R010.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R010.1
     #[test]
     fn a_live_order_with_an_undesignated_approver_is_refused() {
         let err = live_order_eligibility(
@@ -148,7 +148,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R010.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R010.1
     #[test]
     fn a_cfd_is_refused_for_us_retail_regardless_of_policy() {
         let err = live_order_eligibility(
@@ -168,7 +168,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R010.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R010.1
     #[test]
     fn a_live_order_with_a_matching_policy_and_approver_is_eligible() {
         assert!(live_order_eligibility(

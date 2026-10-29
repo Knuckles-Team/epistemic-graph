@@ -1,11 +1,11 @@
-# Connector-pack surface shapes (EG-TYPED-PACKS-R102.1).
+# Connector-pack surface shapes (MEDULLA-TYPED-PACKS-R102.1).
 #
 # SHACL Core only (DECIDE §4.8): the connector-pack module ships its shapes in
 # the same core source as its ontology (the connector-pack CoreSpec shapes
 # field), the pattern every other shapes companion follows. The surface shapes
 # guard the connector-surface vocabulary of core:connector-pack@1 — one
 # component id per tool, a domain link per tool, and a realised-by member per
-# feature. The contract shapes (EG-TYPED-PACKS-R101.2) land beside these,
+# feature. The contract shapes (MEDULLA-TYPED-PACKS-R101.2) land beside these,
 # never replacing them.
 
 @prefix cp:  <http://knuckles.team/kg/connector-pack#> .

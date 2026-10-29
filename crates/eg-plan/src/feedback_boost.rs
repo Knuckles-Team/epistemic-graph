@@ -1,5 +1,5 @@
 //! Document boosts learned from retrieval feedback
-//! (EG-FEDERATED-QUERY-R705.1, R705.2).
+//! (MEDULLA-FEDERATED-QUERY-R705.1, R705.2).
 //!
 //! A boost is the half-life-decayed sum of a document's feedback weights,
 //! clamped to `[-MAX_BOOST, MAX_BOOST]`. It is added after score calibration,
@@ -23,7 +23,7 @@ pub enum FeedbackKind {
     Ignored,
 }
 
-/// One feedback event (EG-FEDERATED-QUERY-R705.1).
+/// One feedback event (MEDULLA-FEDERATED-QUERY-R705.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RetrievalFeedback {
@@ -36,7 +36,7 @@ pub struct RetrievalFeedback {
     pub at: u64,
 }
 
-/// A document's current boost (EG-FEDERATED-QUERY-R705.1).
+/// A document's current boost (MEDULLA-FEDERATED-QUERY-R705.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DocumentBoost {
@@ -45,7 +45,7 @@ pub struct DocumentBoost {
     pub half_life_s: u64,
 }
 
-/// Compute `document_ref`'s boost at `now` from its feedback (EG-FEDERATED-QUERY-R705.2).
+/// Compute `document_ref`'s boost at `now` from its feedback (MEDULLA-FEDERATED-QUERY-R705.2).
 /// Events for other documents, non-finite weights and future events are ignored.
 pub fn document_boost(
     document_ref: &str,
@@ -97,7 +97,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R705.1
+    // spec: MEDULLA-FEDERATED-QUERY-R705.1
     #[test]
     fn feedback_round_trips() {
         for kind in [
@@ -120,7 +120,7 @@ mod tests {
         assert_eq!(serde_json::from_str::<DocumentBoost>(&json).unwrap(), boost);
     }
 
-    // spec: EG-FEDERATED-QUERY-R705.2
+    // spec: MEDULLA-FEDERATED-QUERY-R705.2
     #[test]
     fn boost_decays_and_clamps() {
         let h = DEFAULT_HALF_LIFE_S;

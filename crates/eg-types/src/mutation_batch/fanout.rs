@@ -1,9 +1,9 @@
-//! Per-sub-batch shard fan-out report (EG-DURABLE-KERNEL-R099.1).
+//! Per-sub-batch shard fan-out report (MEDULLA-DURABLE-KERNEL-R099.1).
 //!
 //! A cross-graph request carries at most [`MAX_FANOUT_SUB_BATCHES`] sub-batches.
 //! Each sub-batch reports the shard writer it queued on, its queue and commit
 //! times, and its own outcome. The report adds no cross-graph atomicity
-//! (EG-DURABLE-KERNEL-R084.7 holds that decision).
+//! (MEDULLA-DURABLE-KERNEL-R084.7 holds that decision).
 
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +37,7 @@ pub struct ShardFanoutReport {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R099.1
+    // spec: MEDULLA-DURABLE-KERNEL-R099.1
     #[test]
     fn report_round_trips() {
         let reports = vec![

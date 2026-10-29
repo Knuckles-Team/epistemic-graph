@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R049: cypher_read retries once on a dropped connection."""
+"""MEDULLA-CONTRACT-R049: cypher_read retries once on a dropped connection."""
 
 from __future__ import annotations
 
@@ -32,14 +32,14 @@ def _make(monkeypatch, outcomes):
     return c, calls
 
 
-@pytest.mark.spec("EG-CONTRACT-R049")
+@pytest.mark.spec("MEDULLA-CONTRACT-R049")
 def test_read_retried_once_then_succeeds(monkeypatch):
     c, calls = _make(monkeypatch, [ConnectionError("dropped"), "ok"])
     assert asyncio.run(c.cypher_read("MATCH (n) RETURN n")) == [{"r": "ok"}]
     assert len(calls) == 2
 
 
-@pytest.mark.spec("EG-CONTRACT-R049")
+@pytest.mark.spec("MEDULLA-CONTRACT-R049")
 def test_second_drop_surfaces(monkeypatch):
     c, calls = _make(monkeypatch, [ConnectionError("a"), ConnectionError("b")])
     with pytest.raises(ConnectionError, match="b"):
@@ -47,7 +47,7 @@ def test_second_drop_surfaces(monkeypatch):
     assert len(calls) == 2
 
 
-@pytest.mark.spec("EG-CONTRACT-R049")
+@pytest.mark.spec("MEDULLA-CONTRACT-R049")
 def test_write_not_retried(monkeypatch):
     c, calls = _make(monkeypatch, [ConnectionError("dropped"), "ok"])
     with pytest.raises(ConnectionError):

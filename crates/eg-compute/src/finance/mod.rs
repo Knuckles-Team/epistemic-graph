@@ -29,5 +29,5 @@ pub mod statespace;
 pub mod strategy;
 
 // The shared numeric kernels the finance wire methods serve: one implementation,
-// reached by the served route and by no second copy (EG-FINANCE-PRIMITIVES-R900.3).
+// reached by the served route and by no second copy (MEDULLA-FINANCE-PRIMITIVES-R900.3).
 pub use eg_numeric::{banking, execution, sizing};

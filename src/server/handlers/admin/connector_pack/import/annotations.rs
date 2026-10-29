@@ -101,7 +101,7 @@ fn check_capability(iri: &str, findings: &mut AnnotationFindings) {
     } else if resolves_parent_import(iri) {
         // `ontology-import:<parent>`: the pack builder lifted the ontology's
         // `owl:imports` of the parent catalog into this requirement; the engine
-        // resolves it against the parent catalog (EG-TYPED-PACKS-R105).
+        // resolves it against the parent catalog (MEDULLA-TYPED-PACKS-R105).
     } else {
         findings.warnings.push((
             PackWarningCode::UnresolvedCapabilityIri,
@@ -207,7 +207,7 @@ mod tests {
         }
     }
 
-    // spec: EG-TYPED-PACKS-R013
+    // spec: MEDULLA-TYPED-PACKS-R013
     #[test]
     fn the_split_rule_rejects_eg_typos_and_keeps_foreign_claims() {
         let native = eg_types::agent_ontology::descendants(CAPABILITY_ROOT)
@@ -241,7 +241,7 @@ mod tests {
         );
     }
 
-    // spec: EG-TYPED-PACKS-R105.1
+    // spec: MEDULLA-TYPED-PACKS-R105.1
     #[cfg(feature = "rdf")]
     #[test]
     fn parent_ontology_import_requirement_resolves() {
@@ -265,8 +265,8 @@ mod tests {
         );
     }
 
-    // spec: EG-TYPED-PACKS-R046
-    // spec: EG-TYPED-PACKS-R047
+    // spec: MEDULLA-TYPED-PACKS-R046
+    // spec: MEDULLA-TYPED-PACKS-R047
     #[test]
     fn cost_latency_and_model_facts_are_bounded() {
         let cost = |currency: &str, micros: u64| PackAnnotations {
@@ -312,7 +312,7 @@ mod tests {
         );
     }
 
-    // spec: EG-TYPED-PACKS-R045.4
+    // spec: MEDULLA-TYPED-PACKS-R045.4
     #[test]
     fn unknown_side_effect_is_refused() {
         for (field, value) in [("side_effects", "filesystem"), ("declared_by", "vendor")] {

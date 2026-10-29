@@ -37,7 +37,7 @@ mod tests {
         OpaqueId::new(format!("{namespace}:{value}")).expect("valid opaque id")
     }
 
-    // spec: EG-DECISION-ENGINE-R805.1
+    // spec: MEDULLA-DECISION-ENGINE-R805.1
     #[test]
     fn records_round_trip() {
         let pointer = ChampionPointer {

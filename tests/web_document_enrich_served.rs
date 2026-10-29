@@ -1,4 +1,4 @@
-//! EG-UNIFIED-DATA-PLANE-R651.7 and EG-DECISION-ENGINE-R802 through the real
+//! MEDULLA-UNIFIED-DATA-PLANE-R651.7 and MEDULLA-DECISION-ENGINE-R802 through the real
 //! `dispatch` shell over a redb-backed `ServerState`.
 //!
 //! A held web Document is enriched: its chunks, `chunkOf` edges and vectors
@@ -215,13 +215,13 @@ async fn durable_graph() -> (
     .await
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R651.7
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.3
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.5
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.6
-// spec: EG-DECISION-ENGINE-R802
-// spec: EG-DECISION-ENGINE-R802.3
-// spec: EG-DECISION-ENGINE-R802.6
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.3
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.5
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.6
+// spec: MEDULLA-DECISION-ENGINE-R802
+// spec: MEDULLA-DECISION-ENGINE-R802.3
+// spec: MEDULLA-DECISION-ENGINE-R802.6
 #[test]
 fn test_web_page_enriches_once_for_both_backends() {
     test_support::on_engine(enrich_replay_supersede_and_search);
@@ -418,7 +418,7 @@ async fn enrich_replay_supersede_and_search() {
     assert_eq!(answer.selected[0].canonical_url, "https://example.org/new");
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.4
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.4
 #[test]
 fn test_web_document_refusals() {
     test_support::on_engine(refusals);

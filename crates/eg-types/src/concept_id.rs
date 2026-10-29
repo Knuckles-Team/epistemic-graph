@@ -1,12 +1,12 @@
 //! Hierarchical concept-ID grammar and path-consistency contract
-//! (EG-DURABLE-KERNEL-R094.1).
+//! (MEDULLA-DURABLE-KERNEL-R094.1).
 //!
 //! A concept ID is `<ROOT>.<segment>(.<segment>)*`: an uppercase root namespace
 //! (`EG-KG`) followed by one to seven lowercase kebab-case segments
 //! (`memory.graph-guided-paging`), at most 256 bytes. A [`ConceptPathSet`] holds
 //! each path once and names the repository that first claimed it; a second
 //! repository claiming the same path is a collision. Served admission is
-//! EG-DURABLE-KERNEL-R094.2.
+//! MEDULLA-DURABLE-KERNEL-R094.2.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -143,7 +143,7 @@ impl ConceptPathSet {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R094.1
+    // spec: MEDULLA-DURABLE-KERNEL-R094.1
     #[test]
     fn valid_and_invalid_concept_id_formats() {
         for good in [
@@ -202,7 +202,7 @@ mod tests {
         assert!(serde_json::from_str::<ConceptId>(r#""eg.bad""#).is_err());
     }
 
-    // spec: EG-DURABLE-KERNEL-R094.1
+    // spec: MEDULLA-DURABLE-KERNEL-R094.1
     #[test]
     fn path_collision_across_repositories_is_detected() {
         let mut paths = ConceptPathSet::default();

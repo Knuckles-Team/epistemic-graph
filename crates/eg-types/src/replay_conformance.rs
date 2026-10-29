@@ -1,5 +1,5 @@
 //! Typed model for comparing a change-capture replay's resulting row state
-//! against a source snapshot (EG-UNIFIED-DATA-PLANE-R022.3): the pure
+//! against a source snapshot (MEDULLA-UNIFIED-DATA-PLANE-R022.3): the pure
 //! comparison and conformance-entry construction. This is the first slice
 //! (`.1`): `compare_replay_to_snapshot` builds a
 //! [`crate::dialect_conformance::DialectConformanceEntry`] (EG-UNIFIED-DATA-
@@ -79,7 +79,7 @@ mod tests {
             .collect()
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.3.1
     #[test]
     fn matching_replay_and_snapshot_is_green() {
         let replayed = state(&[(
@@ -93,7 +93,7 @@ mod tests {
         assert_eq!(entry.validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.3.1
     #[test]
     fn differing_replay_and_snapshot_is_deviated_and_needs_review() {
         let replayed = state(&[(
@@ -111,7 +111,7 @@ mod tests {
         assert!(entry.validate().is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.3.1
     #[test]
     fn blank_engine_version_is_refused() {
         let empty = BTreeMap::new();
@@ -121,7 +121,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.3.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.3.1
     #[test]
     fn fixture_snapshot_matches_replayed_state() {
         // A hand-authored source-snapshot fixture, taken independently of

@@ -6,7 +6,7 @@
 //! mutation nonces are carried into the durable MutationBatch replay ledger,
 //! while read-only nonces are accepted by the transport replay ledger before
 //! dispatch. Unknown envelope formats fail closed in authenticated mode.
-//! EG-IDENTITY-R003.1 separately permits explicit anonymous authority only for
+//! MEDULLA-IDENTITY-R003.1 separately permits explicit anonymous authority only for
 //! an isolated local anonymous store; it never passes through this verifier.
 //!
 //!    Transport TLS/mTLS are a separate layer: this module is the
@@ -2181,7 +2181,7 @@ mod tests {
 
     /// Each verification failure with a published cause class keeps its typed
     /// code on the wire; everything else stays the redacted generic refusal.
-    // spec: EG-CONTRACT-R014.1
+    // spec: MEDULLA-CONTRACT-R014.1
     #[test]
     fn verification_failures_carry_a_typed_safe_cause_class() {
         let _opt_out = require_oidc_off();
@@ -2279,7 +2279,7 @@ mod tests {
         assert!(error.contains("policy version"));
     }
 
-    // spec: EG-DECISION-ENGINE-R097
+    // spec: MEDULLA-DECISION-ENGINE-R097
     #[test]
     fn current_envelope_replay_is_rejected() {
         // Not an identity-binding test: exercises nonce/replay rejection over

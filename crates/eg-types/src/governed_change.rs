@@ -30,7 +30,7 @@ use crate::identity::{AuditRecord, AuditTrail, IdentityEvent};
 pub const GOVERNED_KIND_PREFIX: &str = "governed.";
 /// The schema-repair kind (the first consumer).
 pub const SCHEMA_REPAIR_KIND: &str = "governed.schema-repair";
-/// The source-authority kind (EG-SRC-AUTH-R003): operator approval only;
+/// The source-authority kind (MEDULLA-SRC-AUTH-R003): operator approval only;
 /// connectors propose.
 pub const SOURCE_AUTHORITY_KIND: &str = "governed.source-authority";
 /// Every governed kind: `(kind, proposer scope, approver scope)`.

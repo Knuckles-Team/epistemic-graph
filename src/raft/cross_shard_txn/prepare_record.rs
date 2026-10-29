@@ -109,7 +109,7 @@ mod tests {
         }]
     }
 
-    // spec: EG-DECISION-ENGINE-R036.102
+    // spec: MEDULLA-DECISION-ENGINE-R036.102
     #[test]
     fn bound_prepare_round_trip_and_legacy() {
         let expected = slices();
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(decode_prepared_slices(&legacy, "txn", 7).unwrap().len(), 1);
     }
 
-    // spec: EG-DECISION-ENGINE-R036.102
+    // spec: MEDULLA-DECISION-ENGINE-R036.102
     #[test]
     fn bound_prepare_rejects_swapped_keys() {
         let encoded = encode_prepared_slices("txn", 7, &slices()).unwrap();
@@ -130,7 +130,7 @@ mod tests {
         assert!(decode_prepared_slices(&encoded, "txn", 8).is_err());
     }
 
-    // spec: EG-DECISION-ENGINE-R036.102
+    // spec: MEDULLA-DECISION-ENGINE-R036.102
     #[test]
     fn bound_prepare_rejects_corruption_and_unsupported_owner() {
         for variant in 0..4 {
@@ -147,7 +147,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R036.102
+    // spec: MEDULLA-DECISION-ENGINE-R036.102
     #[test]
     fn bound_prepare_rejects_invalid_slice_and_truncated_record() {
         let mut invalid = slices();

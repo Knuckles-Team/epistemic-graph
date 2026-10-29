@@ -1,4 +1,4 @@
-"""EG-DECISION-ENGINE-R126.2.2: the generated client exposes CapabilityCoverage."""
+"""MEDULLA-DECISION-ENGINE-R126.2.2: the generated client exposes CapabilityCoverage."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class _FakeClient:
         return {}
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R126.2.2")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R126.2.2")
 def test_generated_client_exposes_capability_coverage() -> None:
     assert callable(storage.send_capability_coverage)
     assert callable(storage.decode_capability_coverage)
@@ -34,7 +34,7 @@ def test_generated_client_exposes_capability_coverage() -> None:
     assert entry["id"] == "CapabilityCoverage"
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R126.2.2")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R126.2.2")
 def test_capability_coverage_send_validates_and_dispatches() -> None:
     client = _FakeClient()
     params = {

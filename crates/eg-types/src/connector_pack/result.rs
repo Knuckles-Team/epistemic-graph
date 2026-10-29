@@ -43,7 +43,7 @@ pub enum PackViolationCode {
     PackMassWithdrawal,
     RetiredEntryReturned,
     // A pack ontology class has no subclass path to the parent catalog
-    // (EG-TYPED-PACKS-R105), and the deployment refuses orphans.
+    // (MEDULLA-TYPED-PACKS-R105), and the deployment refuses orphans.
     OntologyOrphan,
 }
 
@@ -56,7 +56,7 @@ pub enum PackWarningCode {
     UnresolvedCapabilityIri,
     DuplicateShapeIri,
     // A pack ontology class has no subclass path to the parent catalog
-    // (EG-TYPED-PACKS-R105); imported and flagged.
+    // (MEDULLA-TYPED-PACKS-R105); imported and flagged.
     OntologyOrphan,
 }
 

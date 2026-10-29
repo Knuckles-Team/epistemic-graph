@@ -1,5 +1,5 @@
 //! Typed model for the `schema_context` query surface
-//! (EG-UNIFIED-DATA-PLANE-R029): what a table is, what joins to it, which
+//! (MEDULLA-UNIFIED-DATA-PLANE-R029): what a table is, what joins to it, which
 //! ontology class and application it belongs to, and the impact of a
 //! change -- the same pattern as the existing `code_context` surface. This
 //! module holds the typed-model slice (`.1`): the answer shape and the
@@ -143,7 +143,7 @@ mod tests {
         SchemaContextCatalog { tables }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R029.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R029.1
     #[test]
     fn known_table_returns_its_full_answer() {
         let answer = catalog().schema_context("person").unwrap().clone();
@@ -153,21 +153,21 @@ mod tests {
         assert_eq!(answer.joins[0].joined_table, "family");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R029.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R029.1
     #[test]
     fn unknown_table_is_refused_not_defaulted() {
         let err = catalog().schema_context("no_such_table").unwrap_err();
         assert_eq!(err, UnknownTable("no_such_table".to_string()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R029.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R029.1
     #[test]
     fn empty_catalog_refuses_every_table() {
         let catalog = SchemaContextCatalog::default();
         assert!(catalog.schema_context("person").is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R029.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R029.1
     #[test]
     fn answer_serializes_round_trip() {
         let answer = catalog().tables["person"].clone();
@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(decoded, answer);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R029.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R029.2
     #[test]
     fn serve_schema_context_returns_the_full_answer_for_a_known_table() {
         let request = SchemaContextRequest {
@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(answer.joins[0].joined_column, "id");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R029.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R029.2
     #[test]
     fn serve_schema_context_refuses_an_unknown_table_with_a_serializable_error() {
         let request = SchemaContextRequest {

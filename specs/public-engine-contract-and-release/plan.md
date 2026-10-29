@@ -1,4 +1,4 @@
-# EG-CONTRACT — Architecture and implementation plan
+# MEDULLA-CONTRACT — Architecture and implementation plan
 
 **State:** PROPOSED. This plan is executable from a fresh public checkout.
 
@@ -53,7 +53,7 @@ Run Go commands from `clients/go` and npm commands from `clients/js`. If a named
 
 ### 2026-10-28: slim pull-request CI
 
-EG-CONTRACT-R053.7 keeps the tag guard on a passing main run. The
+MEDULLA-CONTRACT-R053.7 keeps the tag guard on a passing main run. The
 pull-request set now targets twenty minutes of wall time and one runner-hour.
 A pull request runs lint, spec status, security and workspace Clippy. It also
 runs the affected-crate tests, the Python suite and contract parity. The
@@ -70,7 +70,7 @@ the jobs that a pull request runs.
 
 ### 2026-10-11: reconcile the native suite contract census
 
-EG-CONTRACT-R009 and EG-CONTRACT-R015 retain one current method authority. The
+MEDULLA-CONTRACT-R009 and MEDULLA-CONTRACT-R015 retain one current method authority. The
 domain registry, generated method catalog, capability ledger and both packaged
 receipts must agree, including CapabilityCoverage. Receipt regression checks
 derive their census from the declared catalog instead of pinning historical
@@ -80,7 +80,7 @@ intentional pipelines@main workflow policy and pinned scanner binaries.
 
 ### 2026-10-11: cache server compilation without bypassing source builds
 
-EG-CONTRACT-R009 retains the unconditional locked, full-featured server build
+MEDULLA-CONTRACT-R009 retains the unconditional locked, full-featured server build
 and same-run revision/digest-verified artifact handoff. The server preparation
 job installs a pinned sccache before enabling its compiler wrapper only for
 that build step. This addresses the prior missing-wrapper CI incident without
@@ -93,14 +93,14 @@ unproven until a main cache seed and a subsequent hosted run are measured.
 
 ### 2026-10-11: register the bounded cluster harness tests
 
-EG-CONTRACT-R023.1 owns the completeness regression from EG-DURABLE-KERNEL-R014.2.
+MEDULLA-CONTRACT-R023.1 owns the completeness regression from MEDULLA-DURABLE-KERNEL-R014.2.
 Add the exact cluster-harness test path to the existing binary-composition component.
 Keep all existing ownership boundaries unchanged. Run the real completeness checker
 and pin that exact component assignment in its existing regression module.
 
 ### 2026-10-11: retain completed facade compiler outputs across interrupted gates
 
-EG-CONTRACT-R009 extends the same pinned compiler-cache setup to the full-facade
+MEDULLA-CONTRACT-R009 extends the same pinned compiler-cache setup to the full-facade
 Cargo test step. The server and facade share YAML anchors for installation and
 step-local cache settings. Both still run their original Cargo commands;
 the later Whisper and bounded-memory tests keep their existing configuration.
@@ -112,7 +112,7 @@ ten-minute target. Test scope, failure propagation, and existing timeouts stay i
 
 ### 2026-10-11: run workspace gates on the supported hosted runner
 
-EG-CONTRACT-R035 keeps the workspace-crates gate on `ubuntu-latest` for every
+MEDULLA-CONTRACT-R035 keeps the workspace-crates gate on `ubuntu-latest` for every
 release workflow event. The gate requires the declared Cyrus-SASL and curl
 build headers, installed by its existing Ubuntu provisioning step. Selecting
 the already-supported hosted runner makes that prerequisite reproducible
@@ -125,11 +125,11 @@ The `eg-tts-piper real-inference tests` job runs apt only when `dpkg -s` reports
 
 ### Capability refusal and decoding contracts
 
-EG-CONTRACT-R014 publishes the existing governed-actor refusal and routes it only
+MEDULLA-CONTRACT-R014 publishes the existing governed-actor refusal and routes it only
 to GovernedChange, preserving the fail-closed replicated actor boundary.
-EG-IDENTITY-R004 classifies federation:read as an engine user scope. Registry
+MEDULLA-IDENTITY-R004 classifies federation:read as an engine user scope. Registry
 membership grants no scopes and preserves owner checks and the handler's kg:read
-requirement. EG-DECISION-ENGINE-R063 defines operation-selected typed decision-fit
+requirement. MEDULLA-DECISION-ENGINE-R063 defines operation-selected typed decision-fit
 and decision-eval decoding, including nullable status/receipt results and strict
 rejection of wrong operation shapes. The native generator owns all contract
 artifacts. Refusal, scope-census, wrapper and byte-for-byte freshness guards
@@ -146,7 +146,7 @@ excluding an uncalled helper and typed diagnostic text.
 
 ### 2026-10-11: keep cache reports on the build backend after daemon loss
 
-EG-CONTRACT-R009 scopes the shared GitHub cache backend settings to the server
+MEDULLA-CONTRACT-R009 scopes the shared GitHub cache backend settings to the server
 and full-facade jobs. The build, explicit statistics, and action cleanup therefore
 receive the same backend and main-only write policy. The compiler wrapper stays
 on the same two build/test steps. Statistics describe only the current daemon.
@@ -155,7 +155,7 @@ the facade daemon stopped or claiming a runtime improvement.
 
 ### 2026-10-11: keep the cache idle window above the bounded validation job
 
-EG-CONTRACT-R009 sets `SCCACHE_IDLE_TIMEOUT=7200` in the existing shared server
+MEDULLA-CONTRACT-R009 sets `SCCACHE_IDLE_TIMEOUT=7200` in the existing shared server
 and facade backend settings. In pinned sccache 0.16.0, incoming requests reset
 the idle timer; an active compilation does not inhibit it. A finite two-hour
 window exceeds both jobs' existing maximum of 60 minutes and retains eventual
@@ -168,7 +168,7 @@ start a replacement daemon.
 
 ### 2026-10-11: provision the manifest toolchain before lint formatting
 
-The lint job must install the manifest-selected toolchain and rustfmt before either formatting step, per EG-CONTRACT-R031. Reuse the workflow's manifest-resolved rustup installation
+The lint job must install the manifest-selected toolchain and rustfmt before either formatting step, per MEDULLA-CONTRACT-R031. Reuse the workflow's manifest-resolved rustup installation
 pattern rather than duplicating its channel pin or relying on the hosted image.
 The workflow regression checks unconditional provisioning and step ordering for
 both PR-scoped and full-publication formatting. This repairs runner setup only;
@@ -179,7 +179,7 @@ A setup-only test cannot qualify the broad parent requirement.
 
 ### Facade build timing and empty helper harnesses
 
-EG-CONTRACT-R009 disables the default unit-test harness only for four single-file
+MEDULLA-CONTRACT-R009 disables the default unit-test harness only for four single-file
 helper binaries with no tests. These helpers observe RF-019, migrate shards,
 restore backups, and export lake fixtures. Their ordinary binaries still build
 for integration coverage. The server harness, library tests, and every
@@ -212,16 +212,16 @@ range variables retain index/worktree agreement checks.
 
 ### 2026-10-12: preserve governed-change refusal codes
 
-EG-CONTRACT-R014 declares every existing GovernedRefusal through ServerErrorCode.
+MEDULLA-CONTRACT-R014 declares every existing GovernedRefusal through ServerErrorCode.
 The producer uses those typed declarations, and the generator publishes their
 GovernedChange method routes. Unknown codes still become INTERNAL without raw
-diagnostic text. EG-DURABLE-KERNEL-R027.2 retains two-person approval, direct
+diagnostic text. MEDULLA-DURABLE-KERNEL-R027.2 retains two-person approval, direct
 identity and exact-scope checks. The forged-actor regression requires the exact
 authorization refusal instead of accepting any governed prefix.
 
 ### 2026-10-12: current architecture boundaries
 
-EG-CONTRACT-R052 documents the current source composition. It proposes no component split, feature change, or release change.
+MEDULLA-CONTRACT-R052 documents the current source composition. It proposes no component split, feature change, or release change.
 The reviewed source revision is `54aab65786bf72fac94f565796eb21f5d1ec72c4`; all paths below refer to that revision unless updated with new evidence.
 
 #### Model: module owners and dependencies
@@ -254,7 +254,7 @@ Read normal, optional, target-specific, build, and test dependency sections sepa
 [The scanner configuration](../../.config/arch-lint.toml) explicitly defines no dependency-direction rule.
 Existing scanner success therefore does not prove this dependency direction.
 [The component registry](../../architecture/component-registry.yml) remains `draft_unreviewed`; its older measurements do not qualify this map.
-The converged-engine design remains owned by [EG-UNIFIED-DATA-PLANE-R001](../unified-data-plane/requirements.md).
+The converged-engine design remains owned by [MEDULLA-UNIFIED-DATA-PLANE-R001](../unified-data-plane/requirements.md).
 
 #### Behavior: builds, packages, and deployments
 
@@ -268,21 +268,21 @@ The converged-engine design remains owned by [EG-UNIFIED-DATA-PLANE-R001](../uni
 | Python extras | [pyproject.toml](../../pyproject.toml) defines `full = []` and `numeric = []`. | These aliases neither change the compiled engine nor select a deployment shape. |
 | Runtime shape | A served engine and the embedded binding expose distinct process boundaries. | Configuration, identity, persistence, and runtime checks determine usable capabilities. |
 
-EG-C-07/08, EG-T-10, EG-CONTRACT-R033, and EG-CONTRACT-R037 retain artifact and feature-profile acceptance.
-EG-CONTRACT-R047 already owns rolling-wheel distribution. Package size does not imply a new architectural boundary.
+EG-C-07/08, EG-T-10, MEDULLA-CONTRACT-R033, and MEDULLA-CONTRACT-R037 retain artifact and feature-profile acceptance.
+MEDULLA-CONTRACT-R047 already owns rolling-wheel distribution. Package size does not imply a new architectural boundary.
 The source-backend composition difference belongs to that existing packaging acceptance; this document does not repair or qualify it.
 
 #### Wiring: shared contracts and call sites
 
 | Contract | Existing authority and source route | Owning requirements |
 |---|---|---|
-| Request identity and policy | `eg-types` identity records feed server access checks; `eg-capabilities::policy` declares method policy. Generated clients project the contract. | [EG-IDENTITY](../engine-identity-and-scope/requirements.md); EG-C-01/02 |
-| Artifact identity and provenance | `eg-modality` exports `OpaqueRef`, `ArtifactBundle`, `EvidenceLocus`, and `Provenance`. `eg-alignment` relates evidence locations. | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md), especially R039.1; native media coverage remains separate. |
-| Epistemic provenance | `eg-epistemic` operates on graph claims and provenance; `eg-plan` exposes `KnowledgeSet` and knowledge batches. | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md) reasoning and retrieval requirements |
-| Physical ownership and mutation | `eg-storage` owns physical access; `eg-transaction::MutationKernel` owns admission, ordering, replay, and commit capabilities. | [EG-DURABLE-KERNEL](../durable-graph-kernel/requirements.md), including R019, R021, and R034 |
-| Served mutation | `src/server/mutation.rs:136` exports `commit_mutation`; conditional and coalesced routes retain their own entry paths. | [EG-DURABLE-KERNEL](../durable-graph-kernel/spec.md); EG-C-02 error projection |
+| Request identity and policy | `eg-types` identity records feed server access checks; `eg-capabilities::policy` declares method policy. Generated clients project the contract. | [MEDULLA-IDENTITY](../engine-identity-and-scope/requirements.md); EG-C-01/02 |
+| Artifact identity and provenance | `eg-modality` exports `OpaqueRef`, `ArtifactBundle`, `EvidenceLocus`, and `Provenance`. `eg-alignment` relates evidence locations. | [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md), especially R039.1; native media coverage remains separate. |
+| Epistemic provenance | `eg-epistemic` operates on graph claims and provenance; `eg-plan` exposes `KnowledgeSet` and knowledge batches. | [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md) reasoning and retrieval requirements |
+| Physical ownership and mutation | `eg-storage` owns physical access; `eg-transaction::MutationKernel` owns admission, ordering, replay, and commit capabilities. | [MEDULLA-DURABLE-KERNEL](../durable-graph-kernel/requirements.md), including R019, R021, and R034 |
+| Served mutation | `src/server/mutation.rs:136` exports `commit_mutation`; conditional and coalesced routes retain their own entry paths. | [MEDULLA-DURABLE-KERNEL](../durable-graph-kernel/spec.md); EG-C-02 error projection |
 | Planned query | `src/server/handlers/query/planning.rs:436`, `run_unified_with`, binds execution through the existing planner. | [FQR-03/04/06](../federated-query-and-reasoning/spec.md), R038–R055 |
-| Direct native access | [engine.md](../../docs/architecture/engine.md) shows dispatch reaching graph state both directly and through planning. | [EG-DURABLE-KERNEL-R032/R037](../durable-graph-kernel/requirements.md) |
+| Direct native access | [engine.md](../../docs/architecture/engine.md) shows dispatch reaching graph state both directly and through planning. | [MEDULLA-DURABLE-KERNEL-R032/R037](../durable-graph-kernel/requirements.md) |
 
 Repository scope is not RBAC scope: `engine-identity-and-scope` owns authorization identity.
 Artifact references, principals, graph records, replay identities, and query plans remain distinct typed contracts.
@@ -307,18 +307,18 @@ Consult each owner's generated `status.json` for current delivery state and its 
 
 | Diagram label | Existing definition owner | Coverage boundary and next definition |
 |---|---|---|
-| Connected data: graph, RDF, relational, vector, text | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md), R038–R055; [EG-UNIFIED-DATA-PLANE](../unified-data-plane/requirements.md), R001 and source contracts | Preserve exact results, residuals, grants, and bounded federation. Native query conformance needs its own clauses. |
-| Reasoning: OWL, SHACL, ShEx, claims, belief, provenance | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md) | ShEx lacks an explicit requirement across the reviewed specs. Use `eg-shex` and existing reasoning dispatch as source. |
-| Analytics: SQL, graph, vector, numeric, programs | [EG-FINANCE-PRIMITIVES](../finance-primitives/requirements.md), [EG-DECISION-ENGINE](../decision-engine/requirements.md), and [EG-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md) | Separate numeric kernels, UQL programs R027/R065, native `ProgramOptimize`, and EG-DECISION-ENGINE-R135 compiled-run replay. |
-| Signals and time: events, streams, metrics, bitemporal state, CDC | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md), R023; [EG-DURABLE-KERNEL](../durable-graph-kernel/requirements.md), R078–R081 | Stream grammar does not define event-time, window, or watermark lifecycle. Bitemporal served requirements still need their specified evidence. |
-| Multimodal: document, image, audio, video, blobs, evidence | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md), R039.1; [EG-UNIFIED-DATA-PLANE](../unified-data-plane/requirements.md), R040 | Four-modality retrieval differs from native lifecycle. R040 names text/image/audio; video promotion needs an explicit reconciliation. |
-| Authenticated Python interface | EG-C-01–EG-C-05 and EG-C-10; [EG-IDENTITY](../engine-identity-and-scope/requirements.md) | Preserve installed-client, signed-body, strict-decoding, and served authorization evidence. |
-| UQL, SQL, SPARQL interfaces | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md); [EG-UNIFIED-DATA-PLANE](../unified-data-plane/requirements.md) | Coverage of a dialect or foreign adapter does not qualify every native interface operation. |
-| Cypher, GraphQL, Bolt interfaces | EG-C-01/02 and EG-CONTRACT-R033 for projection; [EG-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md) for semantics | R053 and kernel R024.3 cover foreign Cypher. R073 and decision R064 cover other GraphQL uses. Bolt lacks an explicit requirement. |
-| Streams interface | [EG-FEDERATED-QUERY-R023](../federated-query-and-reasoning/requirements.md) and [EG-DURABLE-KERNEL](../durable-graph-kernel/requirements.md) | Existing owners must define stream lifecycle acceptance. Parser coverage does not prove runtime behavior. |
-| Unified planner and governed mutations | [FQR-03/04/06](../federated-query-and-reasoning/spec.md); [EG-DURABLE-KERNEL-R034/R043](../durable-graph-kernel/requirements.md) | Prove common policy, authority, and state across interfaces. Preserve direct native paths and cross-modal atomicity acceptance. |
-| Authoritative durable store | [EG-DURABLE-KERNEL](../durable-graph-kernel/spec.md); [EG-IDENTITY](../engine-identity-and-scope/spec.md) | Commit-before-ack, audit, isolation, and optional replication retain their existing owner acceptance. |
-| Read-through recovery | [EG-DURABLE-KERNEL](../durable-graph-kernel/requirements.md) | R039 rebuild and federation R036 index reopening do not explicitly prove safe eviction followed by a durable read. |
+| Connected data: graph, RDF, relational, vector, text | [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md), R038–R055; [MEDULLA-UNIFIED-DATA-PLANE](../unified-data-plane/requirements.md), R001 and source contracts | Preserve exact results, residuals, grants, and bounded federation. Native query conformance needs its own clauses. |
+| Reasoning: OWL, SHACL, ShEx, claims, belief, provenance | [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md) | ShEx lacks an explicit requirement across the reviewed specs. Use `eg-shex` and existing reasoning dispatch as source. |
+| Analytics: SQL, graph, vector, numeric, programs | [MEDULLA-FINANCE-PRIMITIVES](../finance-primitives/requirements.md), [MEDULLA-DECISION-ENGINE](../decision-engine/requirements.md), and [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md) | Separate numeric kernels, UQL programs R027/R065, native `ProgramOptimize`, and MEDULLA-DECISION-ENGINE-R135 compiled-run replay. |
+| Signals and time: events, streams, metrics, bitemporal state, CDC | [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md), R023; [MEDULLA-DURABLE-KERNEL](../durable-graph-kernel/requirements.md), R078–R081 | Stream grammar does not define event-time, window, or watermark lifecycle. Bitemporal served requirements still need their specified evidence. |
+| Multimodal: document, image, audio, video, blobs, evidence | [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md), R039.1; [MEDULLA-UNIFIED-DATA-PLANE](../unified-data-plane/requirements.md), R040 | Four-modality retrieval differs from native lifecycle. R040 names text/image/audio; video promotion needs an explicit reconciliation. |
+| Authenticated Python interface | EG-C-01–EG-C-05 and EG-C-10; [MEDULLA-IDENTITY](../engine-identity-and-scope/requirements.md) | Preserve installed-client, signed-body, strict-decoding, and served authorization evidence. |
+| UQL, SQL, SPARQL interfaces | [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md); [MEDULLA-UNIFIED-DATA-PLANE](../unified-data-plane/requirements.md) | Coverage of a dialect or foreign adapter does not qualify every native interface operation. |
+| Cypher, GraphQL, Bolt interfaces | EG-C-01/02 and MEDULLA-CONTRACT-R033 for projection; [MEDULLA-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md) for semantics | R053 and kernel R024.3 cover foreign Cypher. R073 and decision R064 cover other GraphQL uses. Bolt lacks an explicit requirement. |
+| Streams interface | [MEDULLA-FEDERATED-QUERY-R023](../federated-query-and-reasoning/requirements.md) and [MEDULLA-DURABLE-KERNEL](../durable-graph-kernel/requirements.md) | Existing owners must define stream lifecycle acceptance. Parser coverage does not prove runtime behavior. |
+| Unified planner and governed mutations | [FQR-03/04/06](../federated-query-and-reasoning/spec.md); [MEDULLA-DURABLE-KERNEL-R034/R043](../durable-graph-kernel/requirements.md) | Prove common policy, authority, and state across interfaces. Preserve direct native paths and cross-modal atomicity acceptance. |
+| Authoritative durable store | [MEDULLA-DURABLE-KERNEL](../durable-graph-kernel/spec.md); [MEDULLA-IDENTITY](../engine-identity-and-scope/spec.md) | Commit-before-ack, audit, isolation, and optional replication retain their existing owner acceptance. |
+| Read-through recovery | [MEDULLA-DURABLE-KERNEL](../durable-graph-kernel/requirements.md) | R039 rebuild and federation R036 index reopening do not explicitly prove safe eviction followed by a durable read. |
 
 Keep each follow-on in its existing owner and split it into five-minute definition children.
 Each child must state Model, Behavior, Wiring, Refusal, and Evidence before implementation.
@@ -337,7 +337,7 @@ No follow-on above asserts a passed test or changes a subsystem's acceptance in 
 
 ### 2026-10-12: source-build composition after engine parity
 
-EG-CONTRACT-R052.2 records this source update at
+MEDULLA-CONTRACT-R052.2 records this source update at
 `3756ef27dd49e18aa54b962c7a1c743504b34dd6`.
 The architecture review above remains pinned to
 `54aab65786bf72fac94f565796eb21f5d1ec72c4`; its numeric-only backend
@@ -351,7 +351,7 @@ The staging lock covers the server build, both component builds, and both folds.
 The server binary retains its separate no-PyO3 boundary.
 
 This closes the source-composition difference recorded above.
-EG-C-07/08, EG-T-10, EG-CONTRACT-R033, and EG-CONTRACT-R037 retain their
+EG-C-07/08, EG-T-10, MEDULLA-CONTRACT-R033, and MEDULLA-CONTRACT-R037 retain their
 exact-artifact and feature-profile acceptance.
 Source wiring alone does not qualify native release artifacts or promote
 the architecture requirement's generated status.
@@ -364,8 +364,8 @@ Each task preserves its existing parent and owner boundary.
 
 | Requirement | Implementation work | Open dependency | Source SHA-256 |
 |---|---|---|---|
-| `EG-CONTRACT-R001.1` | Extend the Medulla generated-model manifest. Connect its exports to Meristem `HarnessRequest` and `run_agent`. | AU-HARNESS-R007.40 remains unmerged. Meristem owns lifecycle transitions, persistence, and consumer integration. | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
-| `EG-CONTRACT-R001.2` | Use R094 export/import with governed Graft SDK and Arbora disk effects. Pin the number encoder. | AU-CONTROL-R025.40 remains unmerged. Medulla SHALL NOT add a filesystem writer. | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
+| `MEDULLA-CONTRACT-R001.1` | Extend the Medulla generated-model manifest. Connect its exports to Meristem `HarnessRequest` and `run_agent`. | MERISTEM-HARNESS-R007.40 remains unmerged. Meristem owns lifecycle transitions, persistence, and consumer integration. | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
+| `MEDULLA-CONTRACT-R001.2` | Use R094 export/import with governed Graft SDK and Arbora disk effects. Pin the number encoder. | MERISTEM-CONTROL-R025.40 remains unmerged. Medulla SHALL NOT add a filesystem writer. | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
 
 Both requirements remain SPECIFIED until separately reviewed implementation and served evidence exist.
 
@@ -411,7 +411,7 @@ Leave their acceptance open until that evidence exists. Retain the independently
 
 ### 2026-10-13: retain server workspace outputs and budget cache misses
 
-EG-CONTRACT-R009 keeps the unconditional locked build with full features.
+MEDULLA-CONTRACT-R009 keeps the unconditional locked build with full features.
 The required Python suite receives artifacts with verified revisions and digests.
 PR555 run 38452892633 attempt 2 restored dependencies.
 It recorded 22 compiler-cache hits, 16 misses and zero read errors.
@@ -505,7 +505,7 @@ No endpoint settings, credentials or deployed services change.
 
 ### 2026-10-22: reject distrusted TLS intermediates
 
-EG-CONTRACT-R031 retains the existing Rust advisory policy without new exceptions.
+MEDULLA-CONTRACT-R031 retains the existing Rust advisory policy without new exceptions.
 Update rustls-webpki from 0.103.15 to 0.103.16.
 Update webpki-roots and webpki-root-certs from 1.0.9 to 1.0.10.
 These patches address RUSTSEC-2026-0381, RUSTSEC-2026-0382 and RUSTSEC-2026-0383.
@@ -517,26 +517,26 @@ Raw cargo-audit findings covered by existing, dated policy exceptions remain sep
 
 ### 2026-10-22: recover canonical codec bytes from hosted CI
 
-EG-CONTRACT-R006.1 / EG-C-06 permits an artifact export from the canonical builder.
+MEDULLA-CONTRACT-R006.1 / EG-C-06 permits an artifact export from the canonical builder.
 Export follows a successful, import-verified build and precedes freshness comparison. Export the WASM with SHA-256, checked-out source revision/tree, dirty
 state, pinned toolchain and build-recipe provenance. A failed build must never
 export cached bytes. The language-clients job may upload a completed fresh export
 even when committed copies are stale; the freshness check must still fail.
 Existing codec-builder Python tests cover success, failed builds and provenance.
 
-This export-only child does not complete EG-CONTRACT-R006 or EG-T-05/EG-T-06.
+This export-only child does not complete MEDULLA-CONTRACT-R006 or EG-T-05/EG-T-06.
 Two-build reproducibility, size-budget acceptance and Go/JS vector replay remain
 separate qualification obligations; baseline committed WASM bytes and pins stay unchanged.
 
 ## Hosted canonical contract repair
 
-EG-CONTRACT-R006.3 uses the authoritative generator after a hosted parity failure. It exports only receipt-listed generated contracts plus the two receipts and catalog digest. The archive includes the clean source commit/tree, toolchain, command, recipe hashes and file hashes. An independent required job avoids waiting for unrelated lower-crate tests. Generation failure exports nothing. The initial parity failure stays blocking until verified generated files are committed and fresh CI passes.
+MEDULLA-CONTRACT-R006.3 uses the authoritative generator after a hosted parity failure. It exports only receipt-listed generated contracts plus the two receipts and catalog digest. The archive includes the clean source commit/tree, toolchain, command, recipe hashes and file hashes. An independent required job avoids waiting for unrelated lower-crate tests. Generation failure exports nothing. The initial parity failure stays blocking until verified generated files are committed and fresh CI passes.
 
-EG-CONTRACT-R053.13 retains the existing gates-wheel product after all installed-wheel checks. It adds no alternate build or release path. Capture the wheel digest before installation and require unchanged bytes before export. The archive carries one wheel, source commit/tree and hashed build recipes. Consumers verify these records before installing into an isolated environment; full-stack acceptance remains separate. Pin native validation producers and consumers to Ubuntu 24.04. Version both target and compiler cache namespaces so a newer libc image cannot supply incompatible cached outputs.
+MEDULLA-CONTRACT-R053.13 retains the existing gates-wheel product after all installed-wheel checks. It adds no alternate build or release path. Capture the wheel digest before installation and require unchanged bytes before export. The archive carries one wheel, source commit/tree and hashed build recipes. Consumers verify these records before installing into an isolated environment; full-stack acceptance remains separate. Pin native validation producers and consumers to Ubuntu 24.04. Version both target and compiler cache namespaces so a newer libc image cannot supply incompatible cached outputs.
 
 ### 2026-10-23: preserve the measured workspace Clippy budget boundary
 
-EG-CONTRACT-R031 keeps all three Clippy profiles blocking. The measured cold
+MEDULLA-CONTRACT-R031 keeps all three Clippy profiles blocking. The measured cold
 workspace build needs fifteen minutes for a pull request, rather than ten.
 Only workspace-all-features receives this budget. Other pull-request profiles
 keep ten minutes, and non-pull-request jobs keep sixty minutes. The earlier
@@ -545,12 +545,12 @@ forty-five-minute draft is not the selected budget.
 Regression tests reject unscoped limits and reuse by release, security or lint
 jobs. Existing checks preserve the profile matrix, warnings-as-errors and locked
 commands. These static checks do not establish native lint acceptance or complete
-EG-CONTRACT-R031.2. Exact-head hosted qualification remains required.
+MEDULLA-CONTRACT-R031.2. Exact-head hosted qualification remains required.
 
 
 ### 2026-10-23: patch constant-time utility dependency
 
-EG-CONTRACT-R031 retains the blocking Rust dependency advisory gate.
+MEDULLA-CONTRACT-R031 retains the blocking Rust dependency advisory gate.
 Cargo resolves only ctutils from 0.4.3 to 0.4.4 for RUSTSEC-2026-0385.
 The patch repairs mask generation and unsigned 128-bit comparison timing.
 No advisory exception, runtime policy, credential, or network setting changes.

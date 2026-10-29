@@ -334,7 +334,7 @@
         """
     ] .
 
-# EG-CQ-CONN-R079.3: the langfuse token cost is an optional measurement, but a
+# MEDULLA-CQ-CONN-R079.3: the langfuse token cost is an optional measurement, but a
 # recorded cost can never be negative.
 :RunTraceTokenCostShape a sh:NodeShape ;
     sh:targetClass :RunTrace ;

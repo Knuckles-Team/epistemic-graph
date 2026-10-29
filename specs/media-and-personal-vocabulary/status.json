@@ -1,154 +1,154 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-MEDIA-VOCAB",
+  "spec_id": "MEDULLA-MEDIA-VOCAB",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-MEDIA-VOCAB-R001",
-    "EG-MEDIA-VOCAB-R001.1",
-    "EG-MEDIA-VOCAB-R001.2",
-    "EG-MEDIA-VOCAB-R001.3",
-    "EG-MEDIA-VOCAB-R001.4",
-    "EG-MEDIA-VOCAB-R001.5",
-    "EG-MEDIA-VOCAB-R001.6",
-    "EG-MEDIA-VOCAB-R002",
-    "EG-MEDIA-VOCAB-R002.1",
-    "EG-MEDIA-VOCAB-R002.2",
-    "EG-MEDIA-VOCAB-R002.3",
-    "EG-MEDIA-VOCAB-R002.4",
-    "EG-MEDIA-VOCAB-R003",
-    "EG-MEDIA-VOCAB-R003.1",
-    "EG-MEDIA-VOCAB-R003.2",
-    "EG-MEDIA-VOCAB-R003.3",
-    "EG-MEDIA-VOCAB-R004",
-    "EG-MEDIA-VOCAB-R004.1",
-    "EG-MEDIA-VOCAB-R004.2",
-    "EG-MEDIA-VOCAB-R004.3",
-    "EG-MEDIA-VOCAB-R004.4",
-    "EG-MEDIA-VOCAB-R005",
-    "EG-MEDIA-VOCAB-R005.1",
-    "EG-MEDIA-VOCAB-R005.2",
-    "EG-MEDIA-VOCAB-R005.3",
-    "EG-MEDIA-VOCAB-R005.4",
-    "EG-MEDIA-VOCAB-R006",
-    "EG-MEDIA-VOCAB-R006.1",
-    "EG-MEDIA-VOCAB-R006.2",
-    "EG-MEDIA-VOCAB-R006.3",
-    "EG-MEDIA-VOCAB-R006.4",
-    "EG-MEDIA-VOCAB-R007",
-    "EG-MEDIA-VOCAB-R007.1",
-    "EG-MEDIA-VOCAB-R007.2",
-    "EG-MEDIA-VOCAB-R007.3",
-    "EG-MEDIA-VOCAB-R007.4",
-    "EG-MEDIA-VOCAB-R008",
-    "EG-MEDIA-VOCAB-R008.1",
-    "EG-MEDIA-VOCAB-R008.2",
-    "EG-MEDIA-VOCAB-R008.3",
-    "EG-MEDIA-VOCAB-R008.4",
-    "EG-MEDIA-VOCAB-R009",
-    "EG-MEDIA-VOCAB-R009.1",
-    "EG-MEDIA-VOCAB-R009.2",
-    "EG-MEDIA-VOCAB-R009.3",
-    "EG-MEDIA-VOCAB-R009.4",
-    "EG-MEDIA-VOCAB-R010",
-    "EG-MEDIA-VOCAB-R010.1",
-    "EG-MEDIA-VOCAB-R010.2",
-    "EG-MEDIA-VOCAB-R010.3",
-    "EG-MEDIA-VOCAB-R010.4",
-    "EG-MEDIA-VOCAB-R011",
-    "EG-MEDIA-VOCAB-R011.1",
-    "EG-MEDIA-VOCAB-R011.2",
-    "EG-MEDIA-VOCAB-R011.3",
-    "EG-MEDIA-VOCAB-R011.4",
-    "EG-MEDIA-VOCAB-R012",
-    "EG-MEDIA-VOCAB-R012.1",
-    "EG-MEDIA-VOCAB-R012.2",
-    "EG-MEDIA-VOCAB-R012.3",
-    "EG-MEDIA-VOCAB-R012.4",
-    "EG-MEDIA-VOCAB-R013",
-    "EG-MEDIA-VOCAB-R013.1",
-    "EG-MEDIA-VOCAB-R013.2",
-    "EG-MEDIA-VOCAB-R013.3",
-    "EG-MEDIA-VOCAB-R013.4",
-    "EG-MEDIA-VOCAB-R014",
-    "EG-MEDIA-VOCAB-R014.1",
-    "EG-MEDIA-VOCAB-R014.2",
-    "EG-MEDIA-VOCAB-R014.3",
-    "EG-MEDIA-VOCAB-R014.4",
-    "EG-MEDIA-VOCAB-R015",
-    "EG-MEDIA-VOCAB-R015.1",
-    "EG-MEDIA-VOCAB-R015.2",
-    "EG-MEDIA-VOCAB-R015.3",
-    "EG-MEDIA-VOCAB-R015.4",
-    "EG-MEDIA-VOCAB-R016",
-    "EG-MEDIA-VOCAB-R016.1",
-    "EG-MEDIA-VOCAB-R016.2",
-    "EG-MEDIA-VOCAB-R016.3",
-    "EG-MEDIA-VOCAB-R016.4",
-    "EG-MEDIA-VOCAB-R017",
-    "EG-MEDIA-VOCAB-R017.1",
-    "EG-MEDIA-VOCAB-R017.2",
-    "EG-MEDIA-VOCAB-R017.3",
-    "EG-MEDIA-VOCAB-R017.4",
-    "EG-MEDIA-VOCAB-R018",
-    "EG-MEDIA-VOCAB-R018.1",
-    "EG-MEDIA-VOCAB-R018.2",
-    "EG-MEDIA-VOCAB-R018.3",
-    "EG-MEDIA-VOCAB-R018.4",
-    "EG-MEDIA-VOCAB-R019",
-    "EG-MEDIA-VOCAB-R019.1",
-    "EG-MEDIA-VOCAB-R019.2",
-    "EG-MEDIA-VOCAB-R019.3",
-    "EG-MEDIA-VOCAB-R019.4",
-    "EG-MEDIA-VOCAB-R020",
-    "EG-MEDIA-VOCAB-R020.1",
-    "EG-MEDIA-VOCAB-R020.2",
-    "EG-MEDIA-VOCAB-R021",
-    "EG-MEDIA-VOCAB-R022",
-    "EG-MEDIA-VOCAB-R023",
-    "EG-MEDIA-VOCAB-R024",
-    "EG-MEDIA-VOCAB-R025",
-    "EG-MEDIA-VOCAB-R026",
-    "EG-MEDIA-VOCAB-R027",
-    "EG-MEDIA-VOCAB-R028",
-    "EG-MEDIA-VOCAB-R029",
-    "EG-MEDIA-VOCAB-R030",
-    "EG-MEDIA-VOCAB-R031",
-    "EG-MEDIA-VOCAB-R032",
-    "EG-MEDIA-VOCAB-R033",
-    "EG-MEDIA-VOCAB-R002.5",
-    "EG-MEDIA-VOCAB-R001.100",
-    "EG-MEDIA-VOCAB-R001.101",
-    "EG-MEDIA-VOCAB-R001.102",
-    "EG-MEDIA-VOCAB-R650",
-    "EG-MEDIA-VOCAB-R650.1",
-    "EG-MEDIA-VOCAB-R650.2",
-    "EG-MEDIA-VOCAB-R650.3",
-    "EG-MEDIA-VOCAB-R650.4",
-    "EG-MEDIA-VOCAB-R650.5",
-    "EG-MEDIA-VOCAB-R650.6"
+    "MEDULLA-MEDIA-VOCAB-R001",
+    "MEDULLA-MEDIA-VOCAB-R001.1",
+    "MEDULLA-MEDIA-VOCAB-R001.2",
+    "MEDULLA-MEDIA-VOCAB-R001.3",
+    "MEDULLA-MEDIA-VOCAB-R001.4",
+    "MEDULLA-MEDIA-VOCAB-R001.5",
+    "MEDULLA-MEDIA-VOCAB-R001.6",
+    "MEDULLA-MEDIA-VOCAB-R002",
+    "MEDULLA-MEDIA-VOCAB-R002.1",
+    "MEDULLA-MEDIA-VOCAB-R002.2",
+    "MEDULLA-MEDIA-VOCAB-R002.3",
+    "MEDULLA-MEDIA-VOCAB-R002.4",
+    "MEDULLA-MEDIA-VOCAB-R003",
+    "MEDULLA-MEDIA-VOCAB-R003.1",
+    "MEDULLA-MEDIA-VOCAB-R003.2",
+    "MEDULLA-MEDIA-VOCAB-R003.3",
+    "MEDULLA-MEDIA-VOCAB-R004",
+    "MEDULLA-MEDIA-VOCAB-R004.1",
+    "MEDULLA-MEDIA-VOCAB-R004.2",
+    "MEDULLA-MEDIA-VOCAB-R004.3",
+    "MEDULLA-MEDIA-VOCAB-R004.4",
+    "MEDULLA-MEDIA-VOCAB-R005",
+    "MEDULLA-MEDIA-VOCAB-R005.1",
+    "MEDULLA-MEDIA-VOCAB-R005.2",
+    "MEDULLA-MEDIA-VOCAB-R005.3",
+    "MEDULLA-MEDIA-VOCAB-R005.4",
+    "MEDULLA-MEDIA-VOCAB-R006",
+    "MEDULLA-MEDIA-VOCAB-R006.1",
+    "MEDULLA-MEDIA-VOCAB-R006.2",
+    "MEDULLA-MEDIA-VOCAB-R006.3",
+    "MEDULLA-MEDIA-VOCAB-R006.4",
+    "MEDULLA-MEDIA-VOCAB-R007",
+    "MEDULLA-MEDIA-VOCAB-R007.1",
+    "MEDULLA-MEDIA-VOCAB-R007.2",
+    "MEDULLA-MEDIA-VOCAB-R007.3",
+    "MEDULLA-MEDIA-VOCAB-R007.4",
+    "MEDULLA-MEDIA-VOCAB-R008",
+    "MEDULLA-MEDIA-VOCAB-R008.1",
+    "MEDULLA-MEDIA-VOCAB-R008.2",
+    "MEDULLA-MEDIA-VOCAB-R008.3",
+    "MEDULLA-MEDIA-VOCAB-R008.4",
+    "MEDULLA-MEDIA-VOCAB-R009",
+    "MEDULLA-MEDIA-VOCAB-R009.1",
+    "MEDULLA-MEDIA-VOCAB-R009.2",
+    "MEDULLA-MEDIA-VOCAB-R009.3",
+    "MEDULLA-MEDIA-VOCAB-R009.4",
+    "MEDULLA-MEDIA-VOCAB-R010",
+    "MEDULLA-MEDIA-VOCAB-R010.1",
+    "MEDULLA-MEDIA-VOCAB-R010.2",
+    "MEDULLA-MEDIA-VOCAB-R010.3",
+    "MEDULLA-MEDIA-VOCAB-R010.4",
+    "MEDULLA-MEDIA-VOCAB-R011",
+    "MEDULLA-MEDIA-VOCAB-R011.1",
+    "MEDULLA-MEDIA-VOCAB-R011.2",
+    "MEDULLA-MEDIA-VOCAB-R011.3",
+    "MEDULLA-MEDIA-VOCAB-R011.4",
+    "MEDULLA-MEDIA-VOCAB-R012",
+    "MEDULLA-MEDIA-VOCAB-R012.1",
+    "MEDULLA-MEDIA-VOCAB-R012.2",
+    "MEDULLA-MEDIA-VOCAB-R012.3",
+    "MEDULLA-MEDIA-VOCAB-R012.4",
+    "MEDULLA-MEDIA-VOCAB-R013",
+    "MEDULLA-MEDIA-VOCAB-R013.1",
+    "MEDULLA-MEDIA-VOCAB-R013.2",
+    "MEDULLA-MEDIA-VOCAB-R013.3",
+    "MEDULLA-MEDIA-VOCAB-R013.4",
+    "MEDULLA-MEDIA-VOCAB-R014",
+    "MEDULLA-MEDIA-VOCAB-R014.1",
+    "MEDULLA-MEDIA-VOCAB-R014.2",
+    "MEDULLA-MEDIA-VOCAB-R014.3",
+    "MEDULLA-MEDIA-VOCAB-R014.4",
+    "MEDULLA-MEDIA-VOCAB-R015",
+    "MEDULLA-MEDIA-VOCAB-R015.1",
+    "MEDULLA-MEDIA-VOCAB-R015.2",
+    "MEDULLA-MEDIA-VOCAB-R015.3",
+    "MEDULLA-MEDIA-VOCAB-R015.4",
+    "MEDULLA-MEDIA-VOCAB-R016",
+    "MEDULLA-MEDIA-VOCAB-R016.1",
+    "MEDULLA-MEDIA-VOCAB-R016.2",
+    "MEDULLA-MEDIA-VOCAB-R016.3",
+    "MEDULLA-MEDIA-VOCAB-R016.4",
+    "MEDULLA-MEDIA-VOCAB-R017",
+    "MEDULLA-MEDIA-VOCAB-R017.1",
+    "MEDULLA-MEDIA-VOCAB-R017.2",
+    "MEDULLA-MEDIA-VOCAB-R017.3",
+    "MEDULLA-MEDIA-VOCAB-R017.4",
+    "MEDULLA-MEDIA-VOCAB-R018",
+    "MEDULLA-MEDIA-VOCAB-R018.1",
+    "MEDULLA-MEDIA-VOCAB-R018.2",
+    "MEDULLA-MEDIA-VOCAB-R018.3",
+    "MEDULLA-MEDIA-VOCAB-R018.4",
+    "MEDULLA-MEDIA-VOCAB-R019",
+    "MEDULLA-MEDIA-VOCAB-R019.1",
+    "MEDULLA-MEDIA-VOCAB-R019.2",
+    "MEDULLA-MEDIA-VOCAB-R019.3",
+    "MEDULLA-MEDIA-VOCAB-R019.4",
+    "MEDULLA-MEDIA-VOCAB-R020",
+    "MEDULLA-MEDIA-VOCAB-R020.1",
+    "MEDULLA-MEDIA-VOCAB-R020.2",
+    "MEDULLA-MEDIA-VOCAB-R021",
+    "MEDULLA-MEDIA-VOCAB-R022",
+    "MEDULLA-MEDIA-VOCAB-R023",
+    "MEDULLA-MEDIA-VOCAB-R024",
+    "MEDULLA-MEDIA-VOCAB-R025",
+    "MEDULLA-MEDIA-VOCAB-R026",
+    "MEDULLA-MEDIA-VOCAB-R027",
+    "MEDULLA-MEDIA-VOCAB-R028",
+    "MEDULLA-MEDIA-VOCAB-R029",
+    "MEDULLA-MEDIA-VOCAB-R030",
+    "MEDULLA-MEDIA-VOCAB-R031",
+    "MEDULLA-MEDIA-VOCAB-R032",
+    "MEDULLA-MEDIA-VOCAB-R033",
+    "MEDULLA-MEDIA-VOCAB-R002.5",
+    "MEDULLA-MEDIA-VOCAB-R001.100",
+    "MEDULLA-MEDIA-VOCAB-R001.101",
+    "MEDULLA-MEDIA-VOCAB-R001.102",
+    "MEDULLA-MEDIA-VOCAB-R650",
+    "MEDULLA-MEDIA-VOCAB-R650.1",
+    "MEDULLA-MEDIA-VOCAB-R650.2",
+    "MEDULLA-MEDIA-VOCAB-R650.3",
+    "MEDULLA-MEDIA-VOCAB-R650.4",
+    "MEDULLA-MEDIA-VOCAB-R650.5",
+    "MEDULLA-MEDIA-VOCAB-R650.6"
   ],
   "requirements": [
     {
-      "id": "EG-MEDIA-VOCAB-R001",
+      "id": "MEDULLA-MEDIA-VOCAB-R001",
       "title": "Shared media ontology",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R001.1",
-        "EG-MEDIA-VOCAB-R001.2",
-        "EG-MEDIA-VOCAB-R001.3",
-        "EG-MEDIA-VOCAB-R001.4",
-        "EG-MEDIA-VOCAB-R001.5",
-        "EG-MEDIA-VOCAB-R001.6",
-        "EG-MEDIA-VOCAB-R001.100",
-        "EG-MEDIA-VOCAB-R001.101",
-        "EG-MEDIA-VOCAB-R001.102"
+        "MEDULLA-MEDIA-VOCAB-R001.1",
+        "MEDULLA-MEDIA-VOCAB-R001.2",
+        "MEDULLA-MEDIA-VOCAB-R001.3",
+        "MEDULLA-MEDIA-VOCAB-R001.4",
+        "MEDULLA-MEDIA-VOCAB-R001.5",
+        "MEDULLA-MEDIA-VOCAB-R001.6",
+        "MEDULLA-MEDIA-VOCAB-R001.100",
+        "MEDULLA-MEDIA-VOCAB-R001.101",
+        "MEDULLA-MEDIA-VOCAB-R001.102"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R001.1",
       "title": "Add `mv:MediaWork` (⊑ `:CreativeWork`) with `mv:Film`, `mv:TelevisionSeries`, `mv:TelevisionSeason`, `mv:TelevisionEpisode`, `mv:MusicAlbum`, `mv:MusicTrack`, `mv:Audiobook`, `mv:PodcastShow`, `mv:PodcastEpisode`, `mv:Game` to media-v1.ttl",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -159,7 +159,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.2",
+      "id": "MEDULLA-MEDIA-VOCAB-R001.2",
       "title": "Add `mv:MediaLibrary`, `mv:LibraryItem` (links a work to a library, `mv:itemOf`, `mv:inLibrary`), `mv:MediaFile`, `mv:RomFile`, `mv:GamePlatform`, `mv:MusicArtist` (⊑ `:Organization`) to media-v1.ttl",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -170,7 +170,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R001.3",
       "title": "Add `mv:PlaybackSession` (⊑ `:Session`) with `mv:playedBy`, `mv:lastPlayedAt`, `mv:playCount`, `mv:playbackPositionSeconds`, and `mv:BroadcastStream` (⊑ `:Event`) with `mv:ViewerSample`, `mv:viewerCount`, `mv:sampledAt`, `mv:lastConnectAt`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -181,7 +181,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.4",
+      "id": "MEDULLA-MEDIA-VOCAB-R001.4",
       "title": "Add `mv:DownloadRequest` (states requested, wanted, grabbed, importing, imported, failed), `mv:DownloadTransfer`, `mv:GrabEvent`, `mv:MediaIndexer` and properties `mv:requestsWork`, `mv:transferOf`, `mv:grabbedFromIndexer`, `mv:transferState`, `mv:shareRatio`, `mv:lastActivityAt`, `mv:addedAt`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -192,7 +192,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.5",
+      "id": "MEDULLA-MEDIA-VOCAB-R001.5",
       "title": "Add `mv:TranscriptSegment` (part of the existing `:Transcript` in personal-v1.ttl: reuse, do not redefine) with `mv:segmentStart`, `mv:segmentEnd`, `mv:noSpeechProb`, `mv:transcriptOf`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -203,8 +203,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.6",
-      "title": "Resolve the two name collisions: connector packages declare `:Episode` (TV) and `:Author` in the shared `:` namespace, while core-foundation-v1.ttl already defines `:Episode` (interaction unit) and software-v1.ttl `:Author` (git author). media-v1.ttl uses `mv:TelevisionEpisode`; cross-repo rows EG-MEDIA-VOCAB-R032 and EG-MEDIA-VOCAB-R033 move the connectors onto it",
+      "id": "MEDULLA-MEDIA-VOCAB-R001.6",
+      "title": "Resolve the two name collisions: connector packages declare `:Episode` (TV) and `:Author` in the shared `:` namespace, while core-foundation-v1.ttl already defines `:Episode` (interaction unit) and software-v1.ttl `:Author` (git author). media-v1.ttl uses `mv:TelevisionEpisode`; cross-repo rows MEDULLA-MEDIA-VOCAB-R032 and MEDULLA-MEDIA-VOCAB-R033 move the connectors onto it",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -214,21 +214,21 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R002",
+      "id": "MEDULLA-MEDIA-VOCAB-R002",
       "title": "Content-channel vocabulary: content-v1.ttl",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R002.1",
-        "EG-MEDIA-VOCAB-R002.2",
-        "EG-MEDIA-VOCAB-R002.3",
-        "EG-MEDIA-VOCAB-R002.4",
-        "EG-MEDIA-VOCAB-R002.5"
+        "MEDULLA-MEDIA-VOCAB-R002.1",
+        "MEDULLA-MEDIA-VOCAB-R002.2",
+        "MEDULLA-MEDIA-VOCAB-R002.3",
+        "MEDULLA-MEDIA-VOCAB-R002.4",
+        "MEDULLA-MEDIA-VOCAB-R002.5"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R002.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R002.1",
       "title": "Add `cv:Feed`, `cv:FeedSubscription`, `cv:Article` (⊑ `:Document`), `cv:ResearchPaper` (⊑ `:Document`, seeAlso `bibo:AcademicArticle`), `cv:SearchQuery`, `cv:SearchResult`, `cv:SearchEngine`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -239,7 +239,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R002.2",
+      "id": "MEDULLA-MEDIA-VOCAB-R002.2",
       "title": "Add `cv:SocialPost`, `cv:PublishingChannel`, `cv:EngagementMetric`, `cv:EmailCampaign`, `cv:MailingList`, `cv:Subscriber` (opaque identity), with `cv:sentCount`, `cv:viewCount`, `cv:clickCount`, `cv:postState`, `cv:subscriptionStatus`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -250,14 +250,14 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R002.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R002.3",
       "title": "Add `cv:MessageChannel` and `cv:ChatMessage`; reuse existing `kg:Team` from core-foundation-v1.ttl without redeclaration, with `cv:memberCount`, `cv:lastPostAt`, `cv:postedAt`, `cv:postedBy`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R002.4",
+      "id": "MEDULLA-MEDIA-VOCAB-R002.4",
       "title": "Add content properties `cv:publishedAt`, `cv:isRead`, `cv:feedUrl`, `cv:resultUrl`, `cv:rank`, `cv:servedByEngine`, `cv:doi`, `cv:arxivId`, `cv:citationCount`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -268,7 +268,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R003",
+      "id": "MEDULLA-MEDIA-VOCAB-R003",
       "title": "Cross-source identity keys",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -281,13 +281,13 @@
         "crates/eg-rdf/tests/media_vocab_shapes.rs:130"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R003.1",
-        "EG-MEDIA-VOCAB-R003.2",
-        "EG-MEDIA-VOCAB-R003.3"
+        "MEDULLA-MEDIA-VOCAB-R003.1",
+        "MEDULLA-MEDIA-VOCAB-R003.2",
+        "MEDULLA-MEDIA-VOCAB-R003.3"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R003.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R003.1",
       "title": "Declare the eight key properties as datatype correlation properties in media-v1.ttl and content-v1.ttl, without global inverse-functionality. Work identity keys include the class and provider namespace (Film and TelevisionSeries IDs cannot collide). Article identity uses its class-scoped normalized canonical URL. SearchResult uses source, query and native result key; SocialPost and EmailCampaign retain source-native IDs. Shared target URLs support joins without identifying the result, post, campaign and document as one entity. Repeated reads of the same source-native key upsert the same entity",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -298,7 +298,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R003.2",
+      "id": "MEDULLA-MEDIA-VOCAB-R003.2",
       "title": "Specify normalisation (infoHash lower-case hex; canonicalUrl via scheme/host lower-case, tracking parameters and fragment stripped) as an `rdfs:comment` and a fixture table",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -309,7 +309,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R003.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R003.3",
       "title": "Add the keyed-hash identity rule for email-derived joins (`cv:subscriberKey`), never storing the raw address",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -321,7 +321,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R004",
+      "id": "MEDULLA-MEDIA-VOCAB-R004",
       "title": "SHACL shapes",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -335,14 +335,14 @@
         "crates/eg-rdf/tests/media_vocab_shapes.rs:107"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R004.1",
-        "EG-MEDIA-VOCAB-R004.2",
-        "EG-MEDIA-VOCAB-R004.3",
-        "EG-MEDIA-VOCAB-R004.4"
+        "MEDULLA-MEDIA-VOCAB-R004.1",
+        "MEDULLA-MEDIA-VOCAB-R004.2",
+        "MEDULLA-MEDIA-VOCAB-R004.3",
+        "MEDULLA-MEDIA-VOCAB-R004.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R004.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R004.1",
       "title": "Shape: `mv:Film`/`mv:TelevisionSeries` carry at least one of `mv:tmdbId`, `mv:tvdbId`, `mv:imdbId` when sourced from a connector",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -354,7 +354,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R004.2",
+      "id": "MEDULLA-MEDIA-VOCAB-R004.2",
       "title": "Shape: `mv:DownloadTransfer` has exactly one `mv:infoHash` matching `^[0-9a-f]{40}$` or `^[0-9a-f]{64}$`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -366,7 +366,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R004.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R004.3",
       "title": "Shape: `mv:DownloadRequest` `mv:downloadRequestState` in the closed set (requested, wanted, grabbed, importing, imported, failed)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -378,7 +378,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R004.4",
+      "id": "MEDULLA-MEDIA-VOCAB-R004.4",
       "title": "Shape: `cv:Article`, `cv:SearchResult` carry exactly one normalised `cv:canonicalUrl`; shapes are aggregate-free per the virtual-graph shapes convention",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -390,7 +390,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R005",
+      "id": "MEDULLA-MEDIA-VOCAB-R005",
       "title": "arr virtual-graph mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -403,14 +403,14 @@
         "crates/eg-core/tests/media_vocab_a.rs:1779"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R005.1",
-        "EG-MEDIA-VOCAB-R005.2",
-        "EG-MEDIA-VOCAB-R005.3",
-        "EG-MEDIA-VOCAB-R005.4"
+        "MEDULLA-MEDIA-VOCAB-R005.1",
+        "MEDULLA-MEDIA-VOCAB-R005.2",
+        "MEDULLA-MEDIA-VOCAB-R005.3",
+        "MEDULLA-MEDIA-VOCAB-R005.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R005.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R005.1",
       "title": "Add the `arr` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -421,8 +421,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R005.2",
-      "title": "Add the `arr` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R005.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R005.2",
+      "title": "Add the `arr` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R005.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -432,7 +432,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R005.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R005.3",
       "title": "Add the test that answers the `arr` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -443,8 +443,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R005.4",
-      "title": "Update `EG-CQ-CONN-R005` vocabulary column from MISSING to media-v1 / content-v1 once R005.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R005.4",
+      "title": "Update `MEDULLA-CQ-CONN-R005` vocabulary column from MISSING to media-v1 / content-v1 once R005.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -454,7 +454,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R006",
+      "id": "MEDULLA-MEDIA-VOCAB-R006",
       "title": "jellyfin virtual-graph mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -467,14 +467,14 @@
         "crates/eg-core/tests/media_vocab_a.rs:1989"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R006.1",
-        "EG-MEDIA-VOCAB-R006.2",
-        "EG-MEDIA-VOCAB-R006.3",
-        "EG-MEDIA-VOCAB-R006.4"
+        "MEDULLA-MEDIA-VOCAB-R006.1",
+        "MEDULLA-MEDIA-VOCAB-R006.2",
+        "MEDULLA-MEDIA-VOCAB-R006.3",
+        "MEDULLA-MEDIA-VOCAB-R006.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R006.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R006.1",
       "title": "Add the `jellyfin` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -485,8 +485,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R006.2",
-      "title": "Add the `jellyfin` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R027.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R006.2",
+      "title": "Add the `jellyfin` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R027.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -496,7 +496,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R006.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R006.3",
       "title": "Add the test that answers the `jellyfin` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -507,8 +507,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R006.4",
-      "title": "Update `EG-CQ-CONN-R027` vocabulary column from MISSING to media-v1 / content-v1 once R006.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R006.4",
+      "title": "Update `MEDULLA-CQ-CONN-R027` vocabulary column from MISSING to media-v1 / content-v1 once R006.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -518,7 +518,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R007",
+      "id": "MEDULLA-MEDIA-VOCAB-R007",
       "title": "audiobookshelf virtual-graph mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -531,14 +531,14 @@
         "crates/eg-core/tests/media_vocab_a.rs:2234"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R007.1",
-        "EG-MEDIA-VOCAB-R007.2",
-        "EG-MEDIA-VOCAB-R007.3",
-        "EG-MEDIA-VOCAB-R007.4"
+        "MEDULLA-MEDIA-VOCAB-R007.1",
+        "MEDULLA-MEDIA-VOCAB-R007.2",
+        "MEDULLA-MEDIA-VOCAB-R007.3",
+        "MEDULLA-MEDIA-VOCAB-R007.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R007.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R007.1",
       "title": "Add the `audiobookshelf` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -549,8 +549,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R007.2",
-      "title": "Add the `audiobookshelf` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R007.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R007.2",
+      "title": "Add the `audiobookshelf` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R007.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -560,7 +560,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R007.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R007.3",
       "title": "Add the test that answers the `audiobookshelf` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -571,8 +571,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R007.4",
-      "title": "Update `EG-CQ-CONN-R007` vocabulary column from MISSING to media-v1 / content-v1 once R007.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R007.4",
+      "title": "Update `MEDULLA-CQ-CONN-R007` vocabulary column from MISSING to media-v1 / content-v1 once R007.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -582,7 +582,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R008",
+      "id": "MEDULLA-MEDIA-VOCAB-R008",
       "title": "qbittorrent virtual-graph mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -595,14 +595,14 @@
         "crates/eg-core/tests/media_vocab_a.rs:2440"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R008.1",
-        "EG-MEDIA-VOCAB-R008.2",
-        "EG-MEDIA-VOCAB-R008.3",
-        "EG-MEDIA-VOCAB-R008.4"
+        "MEDULLA-MEDIA-VOCAB-R008.1",
+        "MEDULLA-MEDIA-VOCAB-R008.2",
+        "MEDULLA-MEDIA-VOCAB-R008.3",
+        "MEDULLA-MEDIA-VOCAB-R008.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R008.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R008.1",
       "title": "Add the `qbittorrent` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -613,8 +613,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R008.2",
-      "title": "Add the `qbittorrent` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R051.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R008.2",
+      "title": "Add the `qbittorrent` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R051.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -624,7 +624,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R008.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R008.3",
       "title": "Add the test that answers the `qbittorrent` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -635,8 +635,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R008.4",
-      "title": "Update `EG-CQ-CONN-R051` vocabulary column from MISSING to media-v1 / content-v1 once R008.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R008.4",
+      "title": "Update `MEDULLA-CQ-CONN-R051` vocabulary column from MISSING to media-v1 / content-v1 once R008.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -646,7 +646,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R009",
+      "id": "MEDULLA-MEDIA-VOCAB-R009",
       "title": "rom-manager virtual-graph mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -659,14 +659,14 @@
         "crates/eg-core/tests/media_vocab_a.rs:2672"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R009.1",
-        "EG-MEDIA-VOCAB-R009.2",
-        "EG-MEDIA-VOCAB-R009.3",
-        "EG-MEDIA-VOCAB-R009.4"
+        "MEDULLA-MEDIA-VOCAB-R009.1",
+        "MEDULLA-MEDIA-VOCAB-R009.2",
+        "MEDULLA-MEDIA-VOCAB-R009.3",
+        "MEDULLA-MEDIA-VOCAB-R009.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R009.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R009.1",
       "title": "Add the `rom-manager` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -677,8 +677,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R009.2",
-      "title": "Add the `rom-manager` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R053.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R009.2",
+      "title": "Add the `rom-manager` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R053.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -688,7 +688,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R009.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R009.3",
       "title": "Add the test that answers the `rom-manager` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -699,8 +699,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R009.4",
-      "title": "Update `EG-CQ-CONN-R053` vocabulary column from MISSING to media-v1 / content-v1 once R009.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R009.4",
+      "title": "Update `MEDULLA-CQ-CONN-R053` vocabulary column from MISSING to media-v1 / content-v1 once R009.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -710,7 +710,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R010",
+      "id": "MEDULLA-MEDIA-VOCAB-R010",
       "title": "owncast virtual-graph mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -723,14 +723,14 @@
         "crates/eg-core/tests/media_vocab_a.rs:2911"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R010.1",
-        "EG-MEDIA-VOCAB-R010.2",
-        "EG-MEDIA-VOCAB-R010.3",
-        "EG-MEDIA-VOCAB-R010.4"
+        "MEDULLA-MEDIA-VOCAB-R010.1",
+        "MEDULLA-MEDIA-VOCAB-R010.2",
+        "MEDULLA-MEDIA-VOCAB-R010.3",
+        "MEDULLA-MEDIA-VOCAB-R010.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R010.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R010.1",
       "title": "Add the `owncast` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -741,8 +741,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R010.2",
-      "title": "Add the `owncast` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R045.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R010.2",
+      "title": "Add the `owncast` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R045.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -752,7 +752,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R010.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R010.3",
       "title": "Add the test that answers the `owncast` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -763,8 +763,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R010.4",
-      "title": "Update `EG-CQ-CONN-R045` vocabulary column from MISSING to media-v1 / content-v1 once R010.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R010.4",
+      "title": "Update `MEDULLA-CQ-CONN-R045` vocabulary column from MISSING to media-v1 / content-v1 once R010.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -774,7 +774,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R011",
+      "id": "MEDULLA-MEDIA-VOCAB-R011",
       "title": "media-downloader virtual-graph mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -787,14 +787,14 @@
         "crates/eg-core/tests/media_vocab_a.rs:3119"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R011.1",
-        "EG-MEDIA-VOCAB-R011.2",
-        "EG-MEDIA-VOCAB-R011.3",
-        "EG-MEDIA-VOCAB-R011.4"
+        "MEDULLA-MEDIA-VOCAB-R011.1",
+        "MEDULLA-MEDIA-VOCAB-R011.2",
+        "MEDULLA-MEDIA-VOCAB-R011.3",
+        "MEDULLA-MEDIA-VOCAB-R011.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R011.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R011.1",
       "title": "Add the `media-downloader` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -805,8 +805,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R011.2",
-      "title": "Add the `media-downloader` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R038.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R011.2",
+      "title": "Add the `media-downloader` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R038.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -816,7 +816,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R011.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R011.3",
       "title": "Add the test that answers the `media-downloader` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -827,8 +827,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R011.4",
-      "title": "Update `EG-CQ-CONN-R038` vocabulary column from MISSING to media-v1 / content-v1 once R011.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R011.4",
+      "title": "Update `MEDULLA-CQ-CONN-R038` vocabulary column from MISSING to media-v1 / content-v1 once R011.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -838,7 +838,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R012",
+      "id": "MEDULLA-MEDIA-VOCAB-R012",
       "title": "audio-transcriber virtual-graph mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -851,14 +851,14 @@
         "crates/eg-core/tests/media_vocab_a.rs:3369"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R012.1",
-        "EG-MEDIA-VOCAB-R012.2",
-        "EG-MEDIA-VOCAB-R012.3",
-        "EG-MEDIA-VOCAB-R012.4"
+        "MEDULLA-MEDIA-VOCAB-R012.1",
+        "MEDULLA-MEDIA-VOCAB-R012.2",
+        "MEDULLA-MEDIA-VOCAB-R012.3",
+        "MEDULLA-MEDIA-VOCAB-R012.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R012.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R012.1",
       "title": "Add the `audio-transcriber` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -869,8 +869,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R012.2",
-      "title": "Add the `audio-transcriber` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R008.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R012.2",
+      "title": "Add the `audio-transcriber` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R008.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -880,7 +880,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R012.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R012.3",
       "title": "Add the test that answers the `audio-transcriber` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -891,8 +891,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R012.4",
-      "title": "Update `EG-CQ-CONN-R008` vocabulary column from MISSING to media-v1 / content-v1 once R012.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R012.4",
+      "title": "Update `MEDULLA-CQ-CONN-R008` vocabulary column from MISSING to media-v1 / content-v1 once R012.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -902,7 +902,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R013",
+      "id": "MEDULLA-MEDIA-VOCAB-R013",
       "title": "freshrss virtual-graph mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -915,14 +915,14 @@
         "crates/eg-core/tests/media_vocab_a.rs:3639"
       ],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R013.1",
-        "EG-MEDIA-VOCAB-R013.2",
-        "EG-MEDIA-VOCAB-R013.3",
-        "EG-MEDIA-VOCAB-R013.4"
+        "MEDULLA-MEDIA-VOCAB-R013.1",
+        "MEDULLA-MEDIA-VOCAB-R013.2",
+        "MEDULLA-MEDIA-VOCAB-R013.3",
+        "MEDULLA-MEDIA-VOCAB-R013.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R013.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R013.1",
       "title": "Add the `freshrss` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -933,8 +933,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R013.2",
-      "title": "Add the `freshrss` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R022.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R013.2",
+      "title": "Add the `freshrss` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R022.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -944,7 +944,7 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R013.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R013.3",
       "title": "Add the test that answers the `freshrss` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -955,8 +955,8 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R013.4",
-      "title": "Update `EG-CQ-CONN-R022` vocabulary column from MISSING to media-v1 / content-v1 once R013.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R013.4",
+      "title": "Update `MEDULLA-CQ-CONN-R022` vocabulary column from MISSING to media-v1 / content-v1 once R013.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
@@ -966,20 +966,20 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R014",
+      "id": "MEDULLA-MEDIA-VOCAB-R014",
       "title": "scholarx virtual-graph mapping",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R014.1",
-        "EG-MEDIA-VOCAB-R014.2",
-        "EG-MEDIA-VOCAB-R014.3",
-        "EG-MEDIA-VOCAB-R014.4"
+        "MEDULLA-MEDIA-VOCAB-R014.1",
+        "MEDULLA-MEDIA-VOCAB-R014.2",
+        "MEDULLA-MEDIA-VOCAB-R014.3",
+        "MEDULLA-MEDIA-VOCAB-R014.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R014.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R014.1",
       "title": "Add the `scholarx` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -990,41 +990,41 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R014.2",
-      "title": "Add the `scholarx` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R055.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R014.2",
+      "title": "Add the `scholarx` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R055.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R014.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R014.3",
       "title": "Add the test that answers the `scholarx` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R014.4",
-      "title": "Update `EG-CQ-CONN-R055` vocabulary column from MISSING to media-v1 / content-v1 once R014.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R014.4",
+      "title": "Update `MEDULLA-CQ-CONN-R055` vocabulary column from MISSING to media-v1 / content-v1 once R014.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R015",
+      "id": "MEDULLA-MEDIA-VOCAB-R015",
       "title": "searxng virtual-graph mapping",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R015.1",
-        "EG-MEDIA-VOCAB-R015.2",
-        "EG-MEDIA-VOCAB-R015.3",
-        "EG-MEDIA-VOCAB-R015.4"
+        "MEDULLA-MEDIA-VOCAB-R015.1",
+        "MEDULLA-MEDIA-VOCAB-R015.2",
+        "MEDULLA-MEDIA-VOCAB-R015.3",
+        "MEDULLA-MEDIA-VOCAB-R015.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R015.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R015.1",
       "title": "Add the `searxng` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1035,82 +1035,82 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R015.2",
-      "title": "Add the `searxng` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R056.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R015.2",
+      "title": "Add the `searxng` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R056.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R015.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R015.3",
       "title": "Add the test that answers the `searxng` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R015.4",
-      "title": "Update `EG-CQ-CONN-R056` vocabulary column from MISSING to media-v1 / content-v1 once R015.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R015.4",
+      "title": "Update `MEDULLA-CQ-CONN-R056` vocabulary column from MISSING to media-v1 / content-v1 once R015.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R016",
+      "id": "MEDULLA-MEDIA-VOCAB-R016",
       "title": "pulselink virtual-graph mapping",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R016.1",
-        "EG-MEDIA-VOCAB-R016.2",
-        "EG-MEDIA-VOCAB-R016.3",
-        "EG-MEDIA-VOCAB-R016.4"
+        "MEDULLA-MEDIA-VOCAB-R016.1",
+        "MEDULLA-MEDIA-VOCAB-R016.2",
+        "MEDULLA-MEDIA-VOCAB-R016.3",
+        "MEDULLA-MEDIA-VOCAB-R016.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R016.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R016.1",
       "title": "Add the `pulselink` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R016.2",
-      "title": "Add the `pulselink` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R050.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R016.2",
+      "title": "Add the `pulselink` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R050.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R016.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R016.3",
       "title": "Add the test that answers the `pulselink` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R016.4",
-      "title": "Update `EG-CQ-CONN-R050` vocabulary column from MISSING to media-v1 / content-v1 once R016.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R016.4",
+      "title": "Update `MEDULLA-CQ-CONN-R050` vocabulary column from MISSING to media-v1 / content-v1 once R016.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R017",
+      "id": "MEDULLA-MEDIA-VOCAB-R017",
       "title": "postiz virtual-graph mapping",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R017.1",
-        "EG-MEDIA-VOCAB-R017.2",
-        "EG-MEDIA-VOCAB-R017.3",
-        "EG-MEDIA-VOCAB-R017.4"
+        "MEDULLA-MEDIA-VOCAB-R017.1",
+        "MEDULLA-MEDIA-VOCAB-R017.2",
+        "MEDULLA-MEDIA-VOCAB-R017.3",
+        "MEDULLA-MEDIA-VOCAB-R017.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R017.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R017.1",
       "title": "Add the `postiz` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1121,41 +1121,41 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R017.2",
-      "title": "Add the `postiz` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R049.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R017.2",
+      "title": "Add the `postiz` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R049.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R017.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R017.3",
       "title": "Add the test that answers the `postiz` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R017.4",
-      "title": "Update `EG-CQ-CONN-R049` vocabulary column from MISSING to media-v1 / content-v1 once R017.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R017.4",
+      "title": "Update `MEDULLA-CQ-CONN-R049` vocabulary column from MISSING to media-v1 / content-v1 once R017.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R018",
+      "id": "MEDULLA-MEDIA-VOCAB-R018",
       "title": "listmonk virtual-graph mapping",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R018.1",
-        "EG-MEDIA-VOCAB-R018.2",
-        "EG-MEDIA-VOCAB-R018.3",
-        "EG-MEDIA-VOCAB-R018.4"
+        "MEDULLA-MEDIA-VOCAB-R018.1",
+        "MEDULLA-MEDIA-VOCAB-R018.2",
+        "MEDULLA-MEDIA-VOCAB-R018.3",
+        "MEDULLA-MEDIA-VOCAB-R018.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R018.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R018.1",
       "title": "Add the `listmonk` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1166,41 +1166,41 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R018.2",
-      "title": "Add the `listmonk` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R035.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R018.2",
+      "title": "Add the `listmonk` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R035.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R018.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R018.3",
       "title": "Add the test that answers the `listmonk` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R018.4",
-      "title": "Update `EG-CQ-CONN-R035` vocabulary column from MISSING to media-v1 / content-v1 once R018.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R018.4",
+      "title": "Update `MEDULLA-CQ-CONN-R035` vocabulary column from MISSING to media-v1 / content-v1 once R018.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R019",
+      "id": "MEDULLA-MEDIA-VOCAB-R019",
       "title": "mattermost virtual-graph mapping",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R019.1",
-        "EG-MEDIA-VOCAB-R019.2",
-        "EG-MEDIA-VOCAB-R019.3",
-        "EG-MEDIA-VOCAB-R019.4"
+        "MEDULLA-MEDIA-VOCAB-R019.1",
+        "MEDULLA-MEDIA-VOCAB-R019.2",
+        "MEDULLA-MEDIA-VOCAB-R019.3",
+        "MEDULLA-MEDIA-VOCAB-R019.4"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R019.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R019.1",
       "title": "Add the `mattermost` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1211,222 +1211,222 @@
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R019.2",
-      "title": "Add the `mattermost` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R036.1`",
+      "id": "MEDULLA-MEDIA-VOCAB-R019.2",
+      "title": "Add the `mattermost` fixture (recorded tool response) for its single-source question for `MEDULLA-CQ-CONN-R036.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R019.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R019.3",
       "title": "Add the test that answers the `mattermost` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R019.4",
-      "title": "Update `EG-CQ-CONN-R036` vocabulary column from MISSING to media-v1 / content-v1 once R019.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
+      "id": "MEDULLA-MEDIA-VOCAB-R019.4",
+      "title": "Update `MEDULLA-CQ-CONN-R036` vocabulary column from MISSING to media-v1 / content-v1 once R019.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R020",
+      "id": "MEDULLA-MEDIA-VOCAB-R020",
       "title": "Cross-source worked examples",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R020.1",
-        "EG-MEDIA-VOCAB-R020.2"
+        "MEDULLA-MEDIA-VOCAB-R020.1",
+        "MEDULLA-MEDIA-VOCAB-R020.2"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R020.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R020.1",
       "title": "Fixture and test: 'Which requested films are downloaded but not yet in the library?' across arr, qbittorrent, jellyfin. Returns the film set difference with provenance per leg",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R020.2",
+      "id": "MEDULLA-MEDIA-VOCAB-R020.2",
       "title": "Fixture and test: 'Which feed articles are not archived and have no matching search result?' across freshrss, searxng, archivebox on `cv:canonicalUrl`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R021",
+      "id": "MEDULLA-MEDIA-VOCAB-R021",
       "title": "Cross-repo, owner arr-mcp: per-title 'last searched indexer' (Radarr/Sonarr keep no per-title search log; Prowlarr history is query-keyed, not title-keyed): add a prowlarr_action history-by-title projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R022",
+      "id": "MEDULLA-MEDIA-VOCAB-R022",
       "title": "Cross-repo, owner audiobookshelf-mcp: user listening progress: add a library_operations or users action for media progress per user and item",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R023",
+      "id": "MEDULLA-MEDIA-VOCAB-R023",
       "title": "Cross-repo, owner media-downloader: see media-downloader B1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R024",
+      "id": "MEDULLA-MEDIA-VOCAB-R024",
       "title": "Cross-repo, owner rom-manager: reference-set verification: add a romm_roms verify action returning per-ROM checksum verdict",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R025",
+      "id": "MEDULLA-MEDIA-VOCAB-R025",
       "title": "Cross-repo, owner media-downloader: see media-downloader B1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R026",
+      "id": "MEDULLA-MEDIA-VOCAB-R026",
       "title": "Cross-repo, owner owncast-agent: past broadcast list with start/end and peak viewers: add an owncast_internal stream-history action or persist sessions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R027",
+      "id": "MEDULLA-MEDIA-VOCAB-R027",
       "title": "Cross-repo, owner media-downloader: download history: add a list_downloads operation returning job id, source URL, status, error, completedAt, output path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R028",
+      "id": "MEDULLA-MEDIA-VOCAB-R028",
       "title": "Cross-repo, owner audio-transcriber: transcript list/get operation by recording id and date",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R029",
+      "id": "MEDULLA-MEDIA-VOCAB-R029",
       "title": "Cross-repo, owner audio-transcriber: expose avg_logprob (confidence) per segment",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R030",
+      "id": "MEDULLA-MEDIA-VOCAB-R030",
       "title": "Cross-repo, owner scholarx: citing-papers operation: add sx_search action 'citations' returning papers that cite a given id",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R031",
+      "id": "MEDULLA-MEDIA-VOCAB-R031",
       "title": "Cross-repo, owner searxng-mcp: pass through per-engine result counts and unresponsive_engines from the SearXNG response",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R032",
+      "id": "MEDULLA-MEDIA-VOCAB-R032",
       "title": "Cross-repo, owner arr-mcp: rename connector :Episode to mv:TelevisionEpisode subclass (collision with core :Episode)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R033",
+      "id": "MEDULLA-MEDIA-VOCAB-R033",
       "title": "Cross-repo, owner jellyfin-mcp and audiobookshelf-mcp: stop declaring :Author in the shared namespace; use mv:contributor to :Person",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R002.5",
+      "id": "MEDULLA-MEDIA-VOCAB-R002.5",
       "title": "Receipt-bound paper facts; citation edges",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.100",
+      "id": "MEDULLA-MEDIA-VOCAB-R001.100",
       "title": "Provenanced object/context tags and authorized media search",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.101",
+      "id": "MEDULLA-MEDIA-VOCAB-R001.101",
       "title": "Meeting transcript revisions and provider-bound summary context",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.102",
+      "id": "MEDULLA-MEDIA-VOCAB-R001.102",
       "title": "Bookmark semantic search and authorized relation projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R650",
+      "id": "MEDULLA-MEDIA-VOCAB-R650",
       "title": "Multimodal memory over the blob substrate (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-MEDIA-VOCAB-R650.1",
-        "EG-MEDIA-VOCAB-R650.2",
-        "EG-MEDIA-VOCAB-R650.3",
-        "EG-MEDIA-VOCAB-R650.4",
-        "EG-MEDIA-VOCAB-R650.5",
-        "EG-MEDIA-VOCAB-R650.6"
+        "MEDULLA-MEDIA-VOCAB-R650.1",
+        "MEDULLA-MEDIA-VOCAB-R650.2",
+        "MEDULLA-MEDIA-VOCAB-R650.3",
+        "MEDULLA-MEDIA-VOCAB-R650.4",
+        "MEDULLA-MEDIA-VOCAB-R650.5",
+        "MEDULLA-MEDIA-VOCAB-R650.6"
       ]
     },
     {
-      "id": "EG-MEDIA-VOCAB-R650.1",
+      "id": "MEDULLA-MEDIA-VOCAB-R650.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R650.2",
+      "id": "MEDULLA-MEDIA-VOCAB-R650.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R650.3",
+      "id": "MEDULLA-MEDIA-VOCAB-R650.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R650.4",
+      "id": "MEDULLA-MEDIA-VOCAB-R650.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R650.5",
+      "id": "MEDULLA-MEDIA-VOCAB-R650.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R650.6",
+      "id": "MEDULLA-MEDIA-VOCAB-R650.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

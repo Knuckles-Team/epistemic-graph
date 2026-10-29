@@ -34,7 +34,7 @@ pub(crate) async fn authoritative_graph_version(
     match persistence.read_mutation_graph_version(graph_fname).await? {
         Some(version) if version == projected_version => Ok(version),
         // A durable commit in this scope that the serving projection did not
-        // account (EG-DURABLE-KERNEL-R031.2): bring the projection up to the
+        // account (MEDULLA-DURABLE-KERNEL-R031.2): bring the projection up to the
         // authority before anything stamps a version from it.
         Some(version) if version > projected_version => {
             core.account_durable_version(version);

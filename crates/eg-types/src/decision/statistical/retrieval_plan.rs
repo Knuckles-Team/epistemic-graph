@@ -1,4 +1,4 @@
-//! Typed retrieval-plan selection (`EG-DECISION-ENGINE-R029`): the decision
+//! Typed retrieval-plan selection (`MEDULLA-DECISION-ENGINE-R029`): the decision
 //! ladder selects among retrieval plans through the same typed decision
 //! mechanism as any other declared-candidate question
 //! (`QuestionKind::RetrievalPlan`, [`super::declared`]), never a hard-coded
@@ -129,7 +129,7 @@ mod tests {
         assert!(!RetrievalPlanKind::claims_registry_namespace("plan-deep"));
     }
 
-    // spec: EG-DECISION-ENGINE-R029
+    // spec: MEDULLA-DECISION-ENGINE-R029
     #[test]
     fn a_request_naming_only_registered_plans_is_accepted() {
         let request = RetrievalPlanRequest {

@@ -627,7 +627,7 @@
     "notes": "The stale spec status was regenerated officially. A concurrent status write caused the otherwise passing no-version-suffixes hook to report files modified; both affected hooks passed on targeted retry. No second broad hook loop was run."
   },
   "acceptance_boundary": {
-    "EG-TYPED-PACKS-R048.5": "SPECIFIED; signed pack import/readback remains open"
+    "MEDULLA-TYPED-PACKS-R048.5": "SPECIFIED; signed pack import/readback remains open"
   },
   "excluded": [
     "Full facade build",

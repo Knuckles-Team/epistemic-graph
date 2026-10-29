@@ -137,7 +137,7 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "ApplyChangeEnvelopeDraft",
         &["CARRIER_INNER_METHOD_REFUSED"],
     ),
-    // EG-UNIFIED-DATA-PLANE-R651.7.4 / EG-DECISION-ENGINE-R802.4.
+    // MEDULLA-UNIFIED-DATA-PLANE-R651.7.4 / MEDULLA-DECISION-ENGINE-R802.4.
     (
         "EnrichDocument",
         &[
@@ -161,11 +161,11 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
             "WEB_SELECTION_TOO_MANY_CANDIDATES",
         ],
     ),
-    // EG-REPO-INGEST-R007/R008: an over-budget batch is refused whole.
+    // MEDULLA-REPO-INGEST-R007/R008: an over-budget batch is refused whole.
     ("IndexRepository", &["REPOSITORY_BATCH_TOO_LARGE"]),
     // `ensure_job_workers` refuses an invalid analytics worker timing.
     ("AnalyticsJob", &["INVALID_CONFIGURATION"]),
-    // EG-FINANCE-PRIMITIVES-R018.3: mismatched factor record lengths.
+    // MEDULLA-FINANCE-PRIMITIVES-R018.3: mismatched factor record lengths.
     ("FinanceFactorRank", &["FACTOR_RECORD_INVALID"]),
     ("GetNodes", &["RESULT_TOO_LARGE"]),
     ("GetEdges", &["RESULT_TOO_LARGE"]),
@@ -305,7 +305,7 @@ fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
     if d.policy.is_durable() {
         codes.insert("CORRUPT_MUTATION_LEDGER");
     }
-    // The harness vocabulary's typed write admission (EG-ORCH-VOCAB-R801/R802)
+    // The harness vocabulary's typed write admission (MEDULLA-ORCH-VOCAB-R801/R802)
     // runs inside every node-write method: the direct AddNode gateway path and
     // the ChangeEnvelope carriers (single and batch, draft and confirmed).
     if matches!(
@@ -436,7 +436,7 @@ mod tests {
         assert!(!method_allows_error("CreateGraph", "INVALID_CONFIGURATION"));
     }
 
-    // spec: EG-DECISION-ENGINE-R073.5
+    // spec: MEDULLA-DECISION-ENGINE-R073.5
     #[test]
     fn withdrawn_component_refusal_is_declared_for_component_admission() {
         assert!(method_allows_error("AgentComponent", "COMPONENT_WITHDRAWN"));
@@ -445,7 +445,7 @@ mod tests {
         }
     }
 
-    // spec: EG-CONTRACT-R014
+    // spec: MEDULLA-CONTRACT-R014
     #[test]
     fn governed_refusals_are_only_routed_to_governed_changes() {
         for code in eg_types::contract::ServerErrorCode::ALL
@@ -509,7 +509,7 @@ mod tests {
         ));
     }
 
-    // spec: EG-DURABLE-KERNEL-R028.1.1
+    // spec: MEDULLA-DURABLE-KERNEL-R028.1.1
     #[test]
     fn checkpoint_refusals_are_declared_without_widening_other_reads() {
         assert!(method_allows_error("GetRunCheckpoint", "CONFLICT"));

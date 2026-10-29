@@ -90,7 +90,7 @@ impl ValidatedWrite {
     ///
     /// The clean-shutdown marker is removed, and its directory fsynced, BEFORE
     /// redb's commit starts, so no commit can become durable while a marker
-    /// exists (EG-DURABLE-KERNEL-R006.3). An aborted write never reaches this,
+    /// exists (MEDULLA-DURABLE-KERNEL-R006.3). An aborted write never reaches this,
     /// so it leaves the marker in place and still valid.
     pub(crate) fn commit(self) -> Result<(), String> {
         if let Some(marker) = &self.marker {

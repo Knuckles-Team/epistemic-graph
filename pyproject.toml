@@ -244,7 +244,7 @@ medulla-stem = { path = "packaging/epistemic-graph-server" }
 
 [tool.maturin]
 python-source = "."
-# The public wheel compiles ONLY the extension modules (EG-CONTRACT-R053.8):
+# The public wheel compiles ONLY the extension modules (MEDULLA-CONTRACT-R053.8):
 # the base is the in-process engine binding `epistemic_graph.engine`, built from the
 # `eg-pyengine` crate with the pure-Python package; `build_backend.py` and the
 # release `folded-wheel` action fold `epistemic_graph.numeric` in. No server crate

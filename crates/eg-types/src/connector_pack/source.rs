@@ -60,7 +60,7 @@ pub struct PackSourceRegistration {
 mod tests {
     use super::*;
 
-    // spec: EG-FEDERATED-QUERY-R722.1
+    // spec: MEDULLA-FEDERATED-QUERY-R722.1
     #[test]
     fn access_kinds_map_to_foreign_source_kinds() {
         for (kind, expected) in [

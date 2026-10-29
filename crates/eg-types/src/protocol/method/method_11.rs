@@ -209,7 +209,7 @@ $($variants)*
         request: crate::sealed_record::RetireSealedRecordRequest,
     },
 
-    // ── Web page ingest (EG-UNIFIED-DATA-PLANE-R651.7, EG-DECISION-ENGINE-R802) ──
+    // ── Web page ingest (MEDULLA-UNIFIED-DATA-PLANE-R651.7, MEDULLA-DECISION-ENGINE-R802) ──
     /// Chunk one held Document of the request graph, embed the chunks and
     /// commit the chunks, their `chunkOf` edges, their vectors and one
     /// enrichment record as one governed ChangeEnvelope. Idempotent by the

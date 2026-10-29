@@ -1,5 +1,5 @@
 //! Typed catalog model for an attached ClickHouse source
-//! (EG-UNIFIED-DATA-PLANE-R017): the `system.*`-derived table catalog EG
+//! (MEDULLA-UNIFIED-DATA-PLANE-R017): the `system.*`-derived table catalog EG
 //! federates against, and its acceleration eligibility. This is the
 //! typed-model slice (`.1`): the catalog model, and
 //! [`ClickHouseTableCatalog::capture_capability`], which always returns the
@@ -139,7 +139,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn valid_table_round_trips_through_insert() {
         let mut catalog = ClickHouseSourceCatalog::default();
@@ -147,7 +147,7 @@ mod tests {
         assert!(catalog.tables.contains_key("analytics.events"));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn capture_capability_is_always_explicitly_unsupported() {
         assert_eq!(
@@ -156,7 +156,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn empty_database_or_table_name_is_refused() {
         let mut bad = table();
@@ -164,7 +164,7 @@ mod tests {
         assert!(validate_table(&bad).is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn table_with_no_columns_is_refused() {
         let mut bad = table();
@@ -175,7 +175,7 @@ mod tests {
         assert!(error.reason.contains("no discovered columns"), "{error}");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn invalid_table_is_refused_not_silently_inserted() {
         let mut catalog = ClickHouseSourceCatalog::default();
@@ -187,7 +187,7 @@ mod tests {
         assert_eq!(catalog.tables.len(), before);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn catalog_serializes_round_trip() {
         let mut catalog = ClickHouseSourceCatalog::default();

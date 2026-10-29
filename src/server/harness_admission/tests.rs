@@ -1,5 +1,5 @@
 //! Direct AddNode admission of versioned harness-component writes
-//! (EG-ORCH-VOCAB-R801.3).
+//! (MEDULLA-ORCH-VOCAB-R801.3).
 
 use super::{decode_props, direct_add_node};
 use crate::graph::GraphCore;
@@ -55,7 +55,7 @@ fn admitted_blob(method: &Method, core: &GraphCore, tx_now: u64) -> Vec<u8> {
     properties_msgpack
 }
 
-// spec: EG-ORCH-VOCAB-R801.3
+// spec: MEDULLA-ORCH-VOCAB-R801.3
 #[test]
 fn harness_component_write_stamps_and_links() {
     let core = GraphCore::new();

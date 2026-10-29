@@ -1,10 +1,10 @@
-//! The served refusal codes of the harness vocabulary (EG-ORCH-VOCAB-R801
+//! The served refusal codes of the harness vocabulary (MEDULLA-ORCH-VOCAB-R801
 //! versioned components, R802 improvement library).
 //!
 //! The closed set is registered in
 //! [`crate::contract::declared_error_code`] so the wire reports each code
 //! verbatim instead of classifying the refusal as `INTERNAL`
-//! (EG-DURABLE-KERNEL-R043.8). The engine-internal typed refusals
+//! (MEDULLA-DURABLE-KERNEL-R043.8). The engine-internal typed refusals
 //! ([`super::HarnessComponentRefusal`], [`super::improvement::
 //! ImprovementLibraryRefusal`]) map onto this set; the first four R801 codes
 //! and the three R802 codes are the ones the spec rows name, the rest are the

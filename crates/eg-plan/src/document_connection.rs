@@ -3,7 +3,7 @@
 //! This slice validates the configured destination and refuses remote or
 //! unresolvable hosts before any request is issued. Opening a native driver
 //! session and capturing change streams belongs to
-//! EG-UNIFIED-DATA-PLANE-R019.2.2.
+//! MEDULLA-UNIFIED-DATA-PLANE-R019.2.2.
 
 use std::net::{SocketAddr, ToSocketAddrs};
 

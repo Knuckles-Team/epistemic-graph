@@ -1,5 +1,5 @@
 //! Typed expected-value scheduling for enrichment work
-//! (`EG-DECISION-ENGINE-R031`): a scheduling round selects candidate work by
+//! (`MEDULLA-DECISION-ENGINE-R031`): a scheduling round selects candidate work by
 //! comparing expected value against cost through the same typed decision
 //! mechanism as any other declared-candidate question
 //! (`QuestionKind::EnrichmentSchedule`, [`super::declared`]), never a fixed
@@ -123,7 +123,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R031
+    // spec: MEDULLA-DECISION-ENGINE-R031
     #[test]
     fn net_value_is_expected_value_minus_cost() {
         assert_eq!(candidate("a", 10, 3).net_value_q32(), 7);

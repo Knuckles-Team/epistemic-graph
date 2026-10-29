@@ -1,4 +1,4 @@
-//! Served finance numeric kernels: banking risk (EG-FINANCE-PRIMITIVES-R901.3),
+//! Served finance numeric kernels: banking risk (MEDULLA-FINANCE-PRIMITIVES-R901.3),
 //! regime and execution schedules (R613.3) and factor ranking (R018.3).
 //!
 //! Pure compute over what the request carries. Each arm calls the one shared

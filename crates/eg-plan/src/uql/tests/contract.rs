@@ -43,7 +43,7 @@ fn not_in_build(e: &UqlError) -> bool {
             .any(|f| !f.enabled() && e.msg.contains(&format!("`{}`", f.name())))
 }
 
-// spec: EG-FEDERATED-QUERY-R061
+// spec: MEDULLA-FEDERATED-QUERY-R061
 #[test]
 fn dispatch_table_and_grammar_name_the_same_keywords() {
     let table: BTreeSet<&str> = Parser::stage_table()
@@ -55,7 +55,7 @@ fn dispatch_table_and_grammar_name_the_same_keywords() {
     assert_eq!(table, grammar);
 }
 
-// spec: EG-FEDERATED-QUERY-R023, EG-FEDERATED-QUERY-R061
+// spec: MEDULLA-FEDERATED-QUERY-R023, MEDULLA-FEDERATED-QUERY-R061
 #[test]
 fn every_grammar_example_parses_or_names_its_missing_feature() {
     for prod in PRODUCTIONS.iter().filter(|p| !p.example.is_empty()) {
@@ -103,7 +103,7 @@ fn generated_block(doc: &str, name: &str) -> String {
     body[..stop].to_string()
 }
 
-// spec: EG-FEDERATED-QUERY-R026
+// spec: MEDULLA-FEDERATED-QUERY-R026
 #[test]
 fn docs_embed_the_generated_grammars() {
     let doc = docs("uql.md");
@@ -128,7 +128,7 @@ fn uql_blocks(doc: &str) -> Vec<String> {
         .collect()
 }
 
-// spec: EG-FEDERATED-QUERY-R026
+// spec: MEDULLA-FEDERATED-QUERY-R026
 #[test]
 fn every_uql_block_in_the_docs_parses() {
     for name in ["uql.md", "analytics_in_uql.md"] {

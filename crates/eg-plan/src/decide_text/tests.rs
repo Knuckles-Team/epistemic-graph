@@ -121,7 +121,7 @@ fn typed_errors_name_what_is_wrong() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R071
+// spec: MEDULLA-DECISION-ENGINE-R071
 #[test]
 fn the_ordinary_uql_parser_refuses_decision_clauses_by_name() {
     for clause in [
@@ -142,7 +142,7 @@ fn the_ordinary_uql_parser_refuses_decision_clauses_by_name() {
 /// EH-452: one lexical family with UQL — `$name` parameters (the old `@name` is refused
 /// with the fix), quote-aware candidate blocks, and structured errors whose candidate
 /// query diagnostic points into the DecideText source.
-// spec: EG-DECISION-ENGINE-R104
+// spec: MEDULLA-DECISION-ENGINE-R104
 #[test]
 fn decide_text_shares_the_uql_lexical_family() {
     let at_sign = parse(

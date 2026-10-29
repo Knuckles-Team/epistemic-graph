@@ -1,4 +1,4 @@
-//! Medulla's side of the served supply-chain impact method (EG-CQ-XSRC-R006.5).
+//! Medulla's side of the served supply-chain impact method (MEDULLA-CQ-XSRC-R006.5).
 //!
 //! Per the registry rule, Arbora exposes the intent tool over its registry;
 //! this module is the method body Medulla serves: it plans the question's
@@ -21,7 +21,7 @@ use crate::source_selection::{
 /// Plan `roots` (the question's ontology classes) against the authority
 /// fixture and assemble the supply-chain impact report from the recorded
 /// rows. A class whose rank-1 source is not connected becomes a typed
-/// abstention, never a silent fallback (EG-CQ-XSRC-R005.4).
+/// abstention, never a silent fallback (MEDULLA-CQ-XSRC-R005.4).
 pub fn supply_chain_impact(
     fixture: &CoverageFixture,
     roots: &[String],
@@ -95,7 +95,7 @@ pub fn supply_chain_impact(
 mod tests {
     use super::*;
 
-    // spec: EG-CQ-XSRC-R006.5
+    // spec: MEDULLA-CQ-XSRC-R006.5
     #[test]
     fn the_method_body_returns_a_report_matching_the_typed_model() {
         let fixture = CoverageFixture::new()

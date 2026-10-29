@@ -1,6 +1,6 @@
 use super::*;
 
-// spec: EG-DECISION-ENGINE-R177.1
+// spec: MEDULLA-DECISION-ENGINE-R177.1
 #[test]
 fn guidance_round_trips() {
     let guidance = UsageGuidance {

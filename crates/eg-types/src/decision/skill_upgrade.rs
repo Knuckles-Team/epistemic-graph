@@ -1,4 +1,4 @@
-//! Skill consumer-contract upgrade receipt (EG-DECISION-ENGINE-R167.1).
+//! Skill consumer-contract upgrade receipt (MEDULLA-DECISION-ENGINE-R167.1).
 
 use serde::{Deserialize, Serialize};
 

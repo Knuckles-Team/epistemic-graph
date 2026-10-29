@@ -658,7 +658,7 @@ mod tests {
         assert_eq!(what_evidence_would_change_this(&bg, "solo", &policy), None);
     }
 
-    // spec: EG-DECISION-ENGINE-R034
+    // spec: MEDULLA-DECISION-ENGINE-R034
     #[test]
     fn a_detected_contradiction_yields_a_proposal_only_never_an_automatic_retraction() {
         // ev attacks x, x attacks c: a genuine contradiction over c's status.

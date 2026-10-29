@@ -141,7 +141,7 @@ fn cases() -> Vec<Case> {
     cases
 }
 
-// spec: EG-DECISION-ENGINE-R110.1
+// spec: MEDULLA-DECISION-ENGINE-R110.1
 #[test]
 fn property_oracle_agrees_with_the_solver_for_instances_up_to_twenty_variables() {
     let mut solved = 0;

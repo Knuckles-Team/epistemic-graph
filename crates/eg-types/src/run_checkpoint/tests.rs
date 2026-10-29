@@ -24,7 +24,7 @@ fn publish() -> PublishRunCheckpointRequest {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn digest_binds_exact_content_bytes_not_normalized_json() {
     let mut snapshot = content(r#"{"phase":"completed"}"#);
@@ -35,7 +35,7 @@ fn digest_binds_exact_content_bytes_not_normalized_json() {
     assert!(snapshot.validate().is_ok());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn rejects_empty_malformed_and_non_object_content() {
     for text in ["", "{", "null", "[]", "42", r#""text""#] {
@@ -43,7 +43,7 @@ fn rejects_empty_malformed_and_non_object_content() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn snapshot_limit_includes_content_escaping_and_reference_overhead() {
     let oversized = content(&"x".repeat(MAX_CHECKPOINT_BYTES + 1));
@@ -67,7 +67,7 @@ fn snapshot_limit_includes_content_escaping_and_reference_overhead() {
         .contains("snapshot exceeds"));
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn memory_references_require_bounded_ids_and_lowercase_sha256() {
     for long_term in [false, true] {
@@ -96,7 +96,7 @@ fn memory_references_require_bounded_ids_and_lowercase_sha256() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn publish_rejects_empty_or_oversized_binding_and_idempotency_ids() {
     assert!(publish().validate().is_ok());
@@ -117,7 +117,7 @@ fn publish_rejects_empty_or_oversized_binding_and_idempotency_ids() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn optional_claim_validates_worker_and_unknown_fields_fail_closed() {
     let base =
@@ -137,7 +137,7 @@ fn optional_claim_validates_worker_and_unknown_fields_fail_closed() {
     assert!(serde_json::from_value::<PublishRunCheckpointRequest>(wire).is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn publication_receipt_does_not_expose_content_or_claim_credentials() {
     let receipt = RunCheckpointPublished {

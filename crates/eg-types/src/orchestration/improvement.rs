@@ -1,5 +1,5 @@
 //! The improvement library: adopted harnesses, behavioral contrasts and
-//! lessons (EG-ORCH-VOCAB-R802).
+//! lessons (MEDULLA-ORCH-VOCAB-R802).
 //!
 //! The engine stores the adopted harness, the behavioral contrast and the
 //! lesson of one task. A lesson retains only when its evidence shows
@@ -157,7 +157,7 @@ pub enum ImprovementLibraryRefusal {
 }
 
 impl ImprovementLibraryRefusal {
-    /// The served error code, verbatim (EG-DURABLE-KERNEL-R043.8). Identity
+    /// The served error code, verbatim (MEDULLA-DURABLE-KERNEL-R043.8). Identity
     /// refusals share the vocabulary's one `HarnessIdentityMissing` code.
     pub fn code(self) -> &'static str {
         use super::HarnessVocabularyErrorCode as Code;

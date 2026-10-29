@@ -1,9 +1,9 @@
 //! Typed model for the shared CloudNativePG/MariaDB platform's point-in-time
-//! recovery schedule to object storage (EG-UNIFIED-DATA-PLANE-R023.2): the
+//! recovery schedule to object storage (MEDULLA-UNIFIED-DATA-PLANE-R023.2): the
 //! schedule contract and its refusal path. This is the first slice (`.1`):
 //! `PitrSchedule`/`validate` refuse a schedule whose continuous-archiving
 //! mode does not match its cluster's engine (see `SharedPlatformEngine`,
-//! EG-UNIFIED-DATA-PLANE-R023.1), a zero retention window, or a blank cron
+//! MEDULLA-UNIFIED-DATA-PLANE-R023.1), a zero retention window, or a blank cron
 //! or destination. No CloudNativePG/MariaDB operator is wired yet, and no
 //! schedule is actually installed against object storage; wiring the real
 //! operator CRDs to this schedule is a later child.
@@ -107,13 +107,13 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.2.1
     #[test]
     fn well_formed_postgres_schedule_validates() {
         assert_eq!(pg_schedule().validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.2.1
     #[test]
     fn postgres_schedule_with_binlog_archiving_is_refused() {
         let mut schedule = pg_schedule();
@@ -124,7 +124,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.2.1
     #[test]
     fn mariadb_schedule_with_logical_wal_is_refused() {
         let mut schedule = pg_schedule();
@@ -136,7 +136,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.2.1
     #[test]
     fn mariadb_schedule_with_binlog_validates() {
         let mut schedule = pg_schedule();
@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(schedule.validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.2.1
     #[test]
     fn zero_retention_is_refused() {
         let mut schedule = pg_schedule();
@@ -153,7 +153,7 @@ mod tests {
         assert_eq!(schedule.validate(), Err(InvalidPitrSchedule::ZeroRetention));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.2.1
     #[test]
     fn blank_cron_is_refused() {
         let mut schedule = pg_schedule();
@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(schedule.validate(), Err(InvalidPitrSchedule::BlankCron));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R023.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R023.2.1
     #[test]
     fn blank_destination_is_refused() {
         let mut schedule = pg_schedule();

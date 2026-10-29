@@ -1,5 +1,5 @@
 # Recorded virtual-graph mapping for the `audiobookshelf` connector
-# (audiobookshelf-mcp; EG-MEDIA-VOCAB-R007.1, EG-CQ-CONN-R007). The rows are the
+# (audiobookshelf-mcp; MEDULLA-MEDIA-VOCAB-R007.1, MEDULLA-CQ-CONN-R007). The rows are the
 # `Connector mapping tables` entry for audiobookshelf in
 # specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
 # contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary

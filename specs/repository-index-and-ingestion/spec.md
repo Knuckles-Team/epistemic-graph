@@ -1,4 +1,4 @@
-# EG-REPO-INGEST — Repository index and native ingestion
+# MEDULLA-REPO-INGEST — Repository index and native ingestion
 
 Status: **PROPOSED**. Delivery: **PARTIAL SOURCE PRESENT**. Acceptance: **NOT VERIFIED**. Owner: `Medulla`.
 
@@ -52,14 +52,14 @@ The IDs below are stable migration identifiers, not links to a private source. T
 
 | Requirement | Stable IDs | Current evidence | Required acceptance proof |
 |---|---|---|---|
-| RI-01–RI-06 | EG-REPO-INGEST-R009, EG-REPO-INGEST-R006 | Branch-aware types, parser, durable index tests exist | Exact-head public API, reparse, identity and restart tests |
-| RI-07–RI-08 | EG-REPO-INGEST-R007, EG-REPO-INGEST-R008 | Tenant and budget guards exist in parts | Cross-principal refusal, large-batch and generated-client contract |
-| RI-09 | EG-REPO-INGEST-R006, EG-REPO-INGEST-R004, EG-REPO-INGEST-R005 | Native rung evidence and an enrichment consumer exist | Durable admission/lease/restart, bounded query and throughput receipt |
-| RI-10 | EG-REPO-INGEST-R009, EG-REPO-INGEST-R002, EG-REPO-INGEST-R003 | Repository graph projection exists | Semantic bridge with complete source/spec/test/release chain |
-| RI-11 | EG-REPO-INGEST-R001, EG-REPO-INGEST-R002 | Native `SourceIngest` exists | Mapping, checkpoint, replay and fresh-store tests |
+| RI-01–RI-06 | MEDULLA-REPO-INGEST-R009, MEDULLA-REPO-INGEST-R006 | Branch-aware types, parser, durable index tests exist | Exact-head public API, reparse, identity and restart tests |
+| RI-07–RI-08 | MEDULLA-REPO-INGEST-R007, MEDULLA-REPO-INGEST-R008 | Tenant and budget guards exist in parts | Cross-principal refusal, large-batch and generated-client contract |
+| RI-09 | MEDULLA-REPO-INGEST-R006, MEDULLA-REPO-INGEST-R004, MEDULLA-REPO-INGEST-R005 | Native rung evidence and an enrichment consumer exist | Durable admission/lease/restart, bounded query and throughput receipt |
+| RI-10 | MEDULLA-REPO-INGEST-R009, MEDULLA-REPO-INGEST-R002, MEDULLA-REPO-INGEST-R003 | Repository graph projection exists | Semantic bridge with complete source/spec/test/release chain |
+| RI-11 | MEDULLA-REPO-INGEST-R001, MEDULLA-REPO-INGEST-R002 | Native `SourceIngest` exists | Mapping, checkpoint, replay and fresh-store tests |
 | RI-12 | Shared interface; owned by `unified-data-plane` | Source-position design required | Idempotent consumer, freshness and routing tests |
 
-Foreign-source scope EG-FEDERATED-QUERY-R013 belongs to `federated-query-and-reasoning`; UDF/lifecycle isolation EG-DURABLE-KERNEL-R018/EG-DURABLE-KERNEL-R019 belongs to `durable-graph-kernel`. The source change consumers, freshness router and Debezium bridge EG-UNIFIED-DATA-PLANE-R009/EG-UNIFIED-DATA-PLANE-R011/EG-UNIFIED-DATA-PLANE-R021 belong to `unified-data-plane`. This spec uses those contracts for repository indexing without claiming their implementation authority.
+Foreign-source scope MEDULLA-FEDERATED-QUERY-R013 belongs to `federated-query-and-reasoning`; UDF/lifecycle isolation MEDULLA-DURABLE-KERNEL-R018/MEDULLA-DURABLE-KERNEL-R019 belongs to `durable-graph-kernel`. The source change consumers, freshness router and Debezium bridge MEDULLA-UNIFIED-DATA-PLANE-R009/MEDULLA-UNIFIED-DATA-PLANE-R011/MEDULLA-UNIFIED-DATA-PLANE-R021 belong to `unified-data-plane`. This spec uses those contracts for repository indexing without claiming their implementation authority.
 
 The scope above does not claim coverage of independent engine work such as layout upgrades, community detection, domain-specific connectors, query grammar, or unrelated quality regressions. Those concerns require their own owner specs and acceptance evidence.
 
@@ -75,13 +75,13 @@ No implementation or served evidence is claimed here.
 
 | Requirement | Parent | Source record | SHA-256 |
 |---|---|---|---|
-| `EG-REPO-INGEST-R002.1` | `EG-REPO-INGEST-R002` | `AU:23` | `3f7e133169a76ce2680ec667c28ea2c5543354ed8874d258c432e65346f2e529` |
-| `EG-REPO-INGEST-R006.1` | `EG-REPO-INGEST-R006` | `AU:70` | `902f964dd909186f3a31d1f8a84d146b715446e64dfeec62480c8151baa06996` |
-| `EG-REPO-INGEST-R006.2` | `EG-REPO-INGEST-R006` | `AU:92` | `771acc731a6e25746641adf30cde9ec91f4eb56edd6597f2d308a42947a3abb3` |
-| `EG-REPO-INGEST-R006.3` | `EG-REPO-INGEST-R006` | `EG:54` | `e69e6fa3a5c26ae763809d600cb7d264d028b9ce0d80f8ca6141e1a40cf0638e` |
-| `EG-REPO-INGEST-R006.4` | `EG-REPO-INGEST-R006` | `EG:55` | `340c1817f2a52dc6da4c9c13d93d215debbeb9fefd8b84b8d2400b86541d4d81` |
-| `EG-REPO-INGEST-R002.100` | `EG-REPO-INGEST-R002` | `AU:118` | `e8ad0c2417b7fa6ce53c46899f1adf8e925977becd0bd1813db6b62d3786af11` |
-| `EG-REPO-INGEST-R002.101` | `EG-REPO-INGEST-R002` | `PIPE:10` | `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455` |
+| `MEDULLA-REPO-INGEST-R002.1` | `MEDULLA-REPO-INGEST-R002` | `AU:23` | `3f7e133169a76ce2680ec667c28ea2c5543354ed8874d258c432e65346f2e529` |
+| `MEDULLA-REPO-INGEST-R006.1` | `MEDULLA-REPO-INGEST-R006` | `AU:70` | `902f964dd909186f3a31d1f8a84d146b715446e64dfeec62480c8151baa06996` |
+| `MEDULLA-REPO-INGEST-R006.2` | `MEDULLA-REPO-INGEST-R006` | `AU:92` | `771acc731a6e25746641adf30cde9ec91f4eb56edd6597f2d308a42947a3abb3` |
+| `MEDULLA-REPO-INGEST-R006.3` | `MEDULLA-REPO-INGEST-R006` | `EG:54` | `e69e6fa3a5c26ae763809d600cb7d264d028b9ce0d80f8ca6141e1a40cf0638e` |
+| `MEDULLA-REPO-INGEST-R006.4` | `MEDULLA-REPO-INGEST-R006` | `EG:55` | `340c1817f2a52dc6da4c9c13d93d215debbeb9fefd8b84b8d2400b86541d4d81` |
+| `MEDULLA-REPO-INGEST-R002.100` | `MEDULLA-REPO-INGEST-R002` | `AU:118` | `e8ad0c2417b7fa6ce53c46899f1adf8e925977becd0bd1813db6b62d3786af11` |
+| `MEDULLA-REPO-INGEST-R002.101` | `MEDULLA-REPO-INGEST-R002` | `PIPE:10` | `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455` |
 
 R006.3 binds each code-map page and cursor to one map generation and current source revision. After source changes, queries for changed and unchanged symbols refuse against the old generation. Reindex acceptance checks current spans and stable logical identity.
 

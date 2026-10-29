@@ -11522,7 +11522,7 @@ class QueryClient:
         try:
             response = await _gen.query.send_cypher_query(self._client, request)
         except ConnectionError:
-            # EG-CONTRACT-R049: a read is idempotent, so replay it exactly once
+            # MEDULLA-CONTRACT-R049: a read is idempotent, so replay it exactly once
             # on a dropped connection (the next call re-dials). A second drop
             # propagates. Writes (``cypher_write``) never retry.
             response = await _gen.query.send_cypher_query(self._client, request)
@@ -12115,7 +12115,7 @@ class QueryClient:
         self, text: str, graph: str | None = None
     ) -> dict[str, Any]:
         """Natural-language query that also returns the generated query
-        (EG-FEDERATED-QUERY-R058.2.2.1).
+        (MEDULLA-FEDERATED-QUERY-R058.2.2.1).
 
         Sends ``text`` to ``Method::NlQueryExplain``: the same planner, budget, parse,
         authority and refusals as :meth:`nl_query`. Returns

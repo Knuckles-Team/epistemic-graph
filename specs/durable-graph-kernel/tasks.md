@@ -11,302 +11,302 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **K-07 (KG-11, KG-12):** Add explicit durability classes and loss-window metrics; build recoverable hot structures and linearizable typed primitives (T-KG-11).
 - [ ] **K-08 (KG-13, KG-14):** Route point/structure operations before SQL planning, implement one-admission pipeline batches and schema/policy-safe plan cache (T-KG-12).
 - [ ] **K-09 (KG-15):** Decide store engine by ADR, add hot/cold/tombstone parity and replication-out tooling, run differential/restore and published benchmark matrix (T-KG-13).
-- [x] **K-10 (additional hardening):** Close the native-kernel hardening and test-reliability requirements no task above names: upload-cursor non-reuse, owner-manifest lineage, polygon boundary predicates, ring-buffer eviction identity, dispatch-ordering guard reliability, idempotent CreateGraph/DeleteGraph retry, blob GC grace period, holder-scoped BlobRef/BlobUnref, outbox topic classes, AVX2 kernel coverage, placement/consensus routing after sealing, `.redb` registry classification, mutation-durability classification across feature builds, create-only sealed-record guard, publication-waiter cancellation, shared-chunk GC, legacy-layout migration refusal, bounded test threading, idle-upload reclaim, lossless v2 control-state lift, compiled-shape memoization benchmark, signed-dispatch ack-loss recovery, published-contract/BlobRef parity, isolated trace capture, channel-group leave result and no-key scrub-cursor fixture — **EG-DURABLE-KERNEL-R044–EG-DURABLE-KERNEL-R069** (see `requirements.md` for each ID's definition).
+- [x] **K-10 (additional hardening):** Close the native-kernel hardening and test-reliability requirements no task above names: upload-cursor non-reuse, owner-manifest lineage, polygon boundary predicates, ring-buffer eviction identity, dispatch-ordering guard reliability, idempotent CreateGraph/DeleteGraph retry, blob GC grace period, holder-scoped BlobRef/BlobUnref, outbox topic classes, AVX2 kernel coverage, placement/consensus routing after sealing, `.redb` registry classification, mutation-durability classification across feature builds, create-only sealed-record guard, publication-waiter cancellation, shared-chunk GC, legacy-layout migration refusal, bounded test threading, idle-upload reclaim, lossless v2 control-state lift, compiled-shape memoization benchmark, signed-dispatch ack-loss recovery, published-contract/BlobRef parity, isolated trace capture, channel-group leave result and no-key scrub-cursor fixture — **MEDULLA-DURABLE-KERNEL-R044–MEDULLA-DURABLE-KERNEL-R069** (see `requirements.md` for each ID's definition).
 - [ ] **K-11 (all):** Run configured CCCC, Dupehound, jscpd, KISS, rust architecture lint, clippy, focused tests and cloud CI at exact head. Record positive and negative evidence, then update delivery and acceptance state separately.
-- [-] **K-12 (operator store upgrades):** Give the registered offline store upgrades one operator entry point (`EG-DURABLE-KERNEL-R070`): a single upgrade registry in the storage kernel, an `inspect`/`apply` command on the server binary that holds the engine's own directory lock, a startup refusal that names the command, the operator procedure in the generated owner-store format document, and command tests on disposable predecessor stores.
-  - [ ] **EG-DURABLE-KERNEL-R070.1:** Migrate an older supported store at open under the held lock. Add the journal, typed refusals, logs, metric and switch.
-  - [ ] **EG-DURABLE-KERNEL-R070.2:** Prove at the served entry point that a previous-patch store migrates and serves.
-- [x] **K-13 (lazy agent-library open):** Add the missing startup test for `EG-DURABLE-KERNEL-R006`. Start the real server with the digest-verified binary. Use a directory fixture and a malformed-bytes fixture for `agent_library.redb`. Assert that an authenticated `Ping` succeeds and that an Agent Library operation fails on store open. Assert that `Ping` still succeeds afterward and that the process stays alive. Keep the `EG-DURABLE-KERNEL-R070` upgrade-required boot refusal intact. Recovered from the never-published agent claim `codex-eg-r006-startup-test-01a101be`.
-- [x] **K-14 (R052 acceptance record):** Record the scoped acceptance of `EG-DURABLE-KERNEL-R052` in `status.json`. Cite merge `9871859d4e0cc01f0a5a2f1f07584da056cf424e`, PR 41, its merged-head receipt and CI run 36912559244. Change only the R052 row. Keep R052 delivery at `LANDED` and the whole-spec acceptance at `NOT_AUDITED`. Obtain an independent review of the exact diff first. Recovered from the never-branched agent claim `codex-r052-acceptance-record-01a0fe5f`.
+- [-] **K-12 (operator store upgrades):** Give the registered offline store upgrades one operator entry point (`MEDULLA-DURABLE-KERNEL-R070`): a single upgrade registry in the storage kernel, an `inspect`/`apply` command on the server binary that holds the engine's own directory lock, a startup refusal that names the command, the operator procedure in the generated owner-store format document, and command tests on disposable predecessor stores.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R070.1:** Migrate an older supported store at open under the held lock. Add the journal, typed refusals, logs, metric and switch.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R070.2:** Prove at the served entry point that a previous-patch store migrates and serves.
+- [x] **K-13 (lazy agent-library open):** Add the missing startup test for `MEDULLA-DURABLE-KERNEL-R006`. Start the real server with the digest-verified binary. Use a directory fixture and a malformed-bytes fixture for `agent_library.redb`. Assert that an authenticated `Ping` succeeds and that an Agent Library operation fails on store open. Assert that `Ping` still succeeds afterward and that the process stays alive. Keep the `MEDULLA-DURABLE-KERNEL-R070` upgrade-required boot refusal intact. Recovered from the never-published agent claim `codex-eg-r006-startup-test-01a101be`.
+- [x] **K-14 (R052 acceptance record):** Record the scoped acceptance of `MEDULLA-DURABLE-KERNEL-R052` in `status.json`. Cite merge `9871859d4e0cc01f0a5a2f1f07584da056cf424e`, PR 41, its merged-head receipt and CI run 36912559244. Change only the R052 row. Keep R052 delivery at `LANDED` and the whole-spec acceptance at `NOT_AUDITED`. Obtain an independent review of the exact diff first. Recovered from the never-branched agent claim `codex-r052-acceptance-record-01a0fe5f`.
 
 ## Decomposition children (tracked)
 
-- [ ] **EG-DURABLE-KERNEL-R011:** Clippy and targeted tests cover the full and all-features builds
-- [x] **EG-DURABLE-KERNEL-R011.1:** RequiredTestModuleCategory/RequiredTestModule typed category and validated declaration
-- [x] **EG-DURABLE-KERNEL-R011.2:** Concrete required-module manifest. See the exact paths and proving tests in `requirements.md`.
-- [ ] **EG-DURABLE-KERNEL-R011.3:** Pre-merge runtime execution. See the exact paths and proving tests in `requirements.md`.
-- [ ] **EG-DURABLE-KERNEL-R011.4:** Exact-head CI acceptance receipts. See the exact paths and proving tests in `requirements.md`.
-- [ ] **EG-DURABLE-KERNEL-R011.5:** Check required Clippy profile declarations and refusal cases. Runtime acceptance remains under R011.3 and R011.4.
-- [ ] **EG-DURABLE-KERNEL-R014:** Raft cluster tests pass reliably under load
-- [x] **EG-DURABLE-KERNEL-R014.1:** Typed flake-budget / retry-policy model for load-test retries
-- [-] **EG-DURABLE-KERNEL-R014.2:** Bounded representative CPU load; process tests passed, pending main validation. See the exact paths and proving tests in `requirements.md`.
-- [ ] **EG-DURABLE-KERNEL-R014.3:** Repeated loaded-test harness. See the exact paths and proving tests in `requirements.md`.
-- [-] **EG-DURABLE-KERNEL-R014.3.1:** Repeated execution and retained results; process tests pass, main validation pending.
-- [ ] **EG-DURABLE-KERNEL-R014.3.2:** Rust FlakeBudget-driven diagnostic retries.
-- [ ] **EG-DURABLE-KERNEL-R014.4:** Loaded leader-rebalance acceptance. See the exact paths and proving tests in `requirements.md`.
-- [ ] **EG-DURABLE-KERNEL-R014.5:** Loaded three-node placement acceptance. See the exact paths and proving tests in `requirements.md`.
-- [ ] **EG-DURABLE-KERNEL-R024:** External graph and database backends become Medulla federation sources
-- [x] **EG-DURABLE-KERNEL-R024.1:** PostgreSQL/AGE backend becomes a ForeignSourceSpec source
-- [x] **EG-DURABLE-KERNEL-R024.2:** Fan-out backend becomes a MirrorTargetSpec federation mirror target
-- [x] **EG-DURABLE-KERNEL-R024.2.1:** MirrorTargetSpec::FanOut typed spec, validation, and registration refusal
-- [x] **EG-DURABLE-KERNEL-R024.2.2:** MirrorTargetRegistry registration and name-resolution entry point
-- [ ] **EG-DURABLE-KERNEL-R024.3:** Cypher transpiler becomes a ForeignSourceSpec source
-- [ ] **EG-DURABLE-KERNEL-R024.4:** Mirror target becomes a ForeignSourceSpec mirror target
-- [x] **EG-DURABLE-KERNEL-R024.5:** Outbox-based mirror becomes a ForeignSourceSpec mirror target
-- [x] **EG-DURABLE-KERNEL-R024.6:** Brain-guarded backend becomes a ForeignSourceSpec source
-- [x] **EG-DURABLE-KERNEL-R024.7:** Trino backend becomes a ForeignSourceSpec source
-- [x] **EG-DURABLE-KERNEL-R024.8:** Spark job backend becomes a ForeignSourceSpec source
-- [x] **EG-DURABLE-KERNEL-R027:** Schema repair uses a reserved two-person approval lease
-- [x] **EG-DURABLE-KERNEL-R027.1:** Governed-change model types
-- [x] **EG-DURABLE-KERNEL-R027.2:** Governed-change dispatch wiring
-- [x] **EG-DURABLE-KERNEL-R027.3:** Governed-change raft catalog registration
-- [x] **EG-DURABLE-KERNEL-R031.1:** The audit append accounts the serving write version, including the maintenance batch a replayed attempt commits
-- [x] **EG-DURABLE-KERNEL-R031.2:** Stamp writes from the authoritative scope version and account a durable commit the serving projection missed.
-- [x] **EG-DURABLE-KERNEL-R032:** Native primary-key fast path bypasses the SQL planner
-- [x] **EG-DURABLE-KERNEL-R032.1:** PrimaryKeyOperation and FastPathDecision typed routing model with authorization/audit-checked invariant and refusal
-- [x] **EG-DURABLE-KERNEL-R033:** Hot-store engine choice is evaluated against captured workloads
-- [x] **EG-DURABLE-KERNEL-R033.1:** HotStoreEngine/WorkloadProfile/BenchmarkResult typed model with throughput-based winner selection and refusal
-- [x] **EG-DURABLE-KERNEL-R034:** Cross-store atomicity is proven and scoped to mixed transactions
-- [x] **EG-DURABLE-KERNEL-R034.1:** TransactionScope/CommitPath typed model proving single-store traffic cannot reach the cross-store commit path
-- [x] **EG-DURABLE-KERNEL-R035:** PostgreSQL wire protocol reaches operational and dump/restore parity
-- [x] **EG-DURABLE-KERNEL-R035.1:** PgOperationalSurface/PgCompatibilityMatrix typed model, fail-closed, with named-missing-surface refusal
-- [x] **EG-DURABLE-KERNEL-R036:** Mirror sinks reach fan-out parity and include Postgres table mirroring
-- [x] **EG-DURABLE-KERNEL-R036.1:** MirrorSinkKind/MirrorCursor typed model with non-empty-position guard on construction and advance
-- [x] **EG-DURABLE-KERNEL-R037:** Workload classifier routes point operations around the SQL planner
-- [x] **EG-DURABLE-KERNEL-R037.1:** WorkloadClass typed classifier with refusal for an unrecognized operation kind
-- [x] **EG-DURABLE-KERNEL-R037.2:** route dispatch entry point deciding DataFusion session allocation
-- [x] **EG-DURABLE-KERNEL-R038:** KV namespaces declare an explicit, enforced durability class
-- [x] **EG-DURABLE-KERNEL-R038.1:** DurabilityClass typed enum, declared loss-window bound, and refusal for an unrecognized class name
-- [x] **EG-DURABLE-KERNEL-R038.2:** DurabilityClass write-path entry point: write_plan and refuse_if_durable_log_write
-- [x] **EG-DURABLE-KERNEL-R039:** In-memory data structures rebuild from the redb durability log
-- [x] **EG-DURABLE-KERNEL-R039.1:** DataStructureKind/AtomicPrimitiveKind/DurabilityDeclaration typed model with always-redb-sole-authority invariant
-- [ ] **EG-DURABLE-KERNEL-R039.2:** Validate native control-lease consumption against engine-owned mutation time inside the row transaction; preserve conflict outcomes and revocation. Run the scoped native-record expiry regression before claiming acceptance.
-- [x] **EG-DURABLE-KERNEL-R040:** Pipelined requests commit as a single batch
-- [x] **EG-DURABLE-KERNEL-R040.1:** PipelineBatch/BatchCommitDecision typed model: one admission per batch, order-preserving replies, empty-batch refusal
-- [x] **EG-DURABLE-KERNEL-R041:** SQL plan cache keyed by statement digest and schema version
-- [x] **EG-DURABLE-KERNEL-R041.1:** PlanCacheKey/PlanCacheLookup typed key and pure lookup decision with stale-schema refusal
-- [x] **EG-DURABLE-KERNEL-R041.2:** PlanCache::prepare entry point at the SQL prepare site
-- [x] **EG-DURABLE-KERNEL-R042:** Benchmark gate defines and proves performance superiority claims
-- [x] **EG-DURABLE-KERNEL-R042.1:** BenchmarkClaim typed report record with refusal for an unpublished or non-passing claim
-- [ ] **EG-DURABLE-KERNEL-R071:** Typed durable task-queue model (enqueue/claim/ack) with refusal tests
-- [ ] **EG-DURABLE-KERNEL-R072:** Served task-queue RPC over the durable outbox
-- [ ] **EG-DURABLE-KERNEL-R073:** Generated client method for the task queue
-- [ ] **EG-DURABLE-KERNEL-R074:** Served worker registry
-- [ ] **EG-DURABLE-KERNEL-R075:** Reserved-worker admission decision
-- [ ] **EG-DURABLE-KERNEL-R076:** Scheduler config and lane floors (rollup; waits for both children)
-- [x] **EG-DURABLE-KERNEL-R076.1:** Pure authoritative SchedulerConfig, defaults, bounds and over-subscription refusal tests
-- [ ] **EG-DURABLE-KERNEL-R076.2:** Served setting and admission/queue integration consuming R076.1
-- [ ] **EG-DURABLE-KERNEL-R077:** Shard-writer width served by the scheduler surface
-- [ ] **EG-DURABLE-KERNEL-R078:** Bitemporal stamping served method
-- [ ] **EG-DURABLE-KERNEL-R079:** Served as-of filtering
-- [ ] **EG-DURABLE-KERNEL-R080:** Served supersession
-- [-] **EG-DURABLE-KERNEL-R080.1:** Atomic supersession refusal for missing successor endpoints; focused regression added, pending main validation
-- [ ] **EG-DURABLE-KERNEL-R080.2:** Already-closed-fact refusal and served supersession integration coverage
-- [ ] **EG-DURABLE-KERNEL-R081:** Generated client methods for bitemporal operations
-- [ ] **EG-DURABLE-KERNEL-R082:** Analytics worker parity: association-rule mining jobs run on the engine's own durable job plane
-- [ ] **EG-DURABLE-KERNEL-R082.1:** A submitted `MineAssociate` job is claimed and published by the colocated executor with no external worker
-- [x] **EG-DURABLE-KERNEL-R082.2:** `MineAssociate` submission refuses a payload outside the governed schema
-- [ ] **EG-DURABLE-KERNEL-R082.3:** Distinct-item cap and opaque-reference rule are decided and enforced at submit
-- [ ] **EG-DURABLE-KERNEL-R082.4:** Association-rule identity is byte-identical to the old worker's
-- [ ] **EG-DURABLE-KERNEL-R082.5:** The staged result has the 11-column knowledge-batch shape
-- [x] **EG-DURABLE-KERNEL-R082.6:** Rules are ordered and thresholded exactly as before
-- [ ] **EG-DURABLE-KERNEL-R082.7:** A running mining job observes cancellation, deadline and CPU budget
-- [ ] **EG-DURABLE-KERNEL-R082.8:** Failure codes and retry follow the durable retry policy
-- [ ] **EG-DURABLE-KERNEL-R082.9:** Colocated pool lease and poll interval are configurable
-- [ ] **EG-DURABLE-KERNEL-R082.10:** Remote workers remain supported through the existing coordinator operations
-- [ ] **EG-DURABLE-KERNEL-R082.11:** Cross-repo: Arbora hosts any remote worker process; Meristem does not
+- [ ] **MEDULLA-DURABLE-KERNEL-R011:** Clippy and targeted tests cover the full and all-features builds
+- [x] **MEDULLA-DURABLE-KERNEL-R011.1:** RequiredTestModuleCategory/RequiredTestModule typed category and validated declaration
+- [x] **MEDULLA-DURABLE-KERNEL-R011.2:** Concrete required-module manifest. See the exact paths and proving tests in `requirements.md`.
+- [ ] **MEDULLA-DURABLE-KERNEL-R011.3:** Pre-merge runtime execution. See the exact paths and proving tests in `requirements.md`.
+- [ ] **MEDULLA-DURABLE-KERNEL-R011.4:** Exact-head CI acceptance receipts. See the exact paths and proving tests in `requirements.md`.
+- [ ] **MEDULLA-DURABLE-KERNEL-R011.5:** Check required Clippy profile declarations and refusal cases. Runtime acceptance remains under R011.3 and R011.4.
+- [ ] **MEDULLA-DURABLE-KERNEL-R014:** Raft cluster tests pass reliably under load
+- [x] **MEDULLA-DURABLE-KERNEL-R014.1:** Typed flake-budget / retry-policy model for load-test retries
+- [-] **MEDULLA-DURABLE-KERNEL-R014.2:** Bounded representative CPU load; process tests passed, pending main validation. See the exact paths and proving tests in `requirements.md`.
+- [ ] **MEDULLA-DURABLE-KERNEL-R014.3:** Repeated loaded-test harness. See the exact paths and proving tests in `requirements.md`.
+- [-] **MEDULLA-DURABLE-KERNEL-R014.3.1:** Repeated execution and retained results; process tests pass, main validation pending.
+- [ ] **MEDULLA-DURABLE-KERNEL-R014.3.2:** Rust FlakeBudget-driven diagnostic retries.
+- [ ] **MEDULLA-DURABLE-KERNEL-R014.4:** Loaded leader-rebalance acceptance. See the exact paths and proving tests in `requirements.md`.
+- [ ] **MEDULLA-DURABLE-KERNEL-R014.5:** Loaded three-node placement acceptance. See the exact paths and proving tests in `requirements.md`.
+- [ ] **MEDULLA-DURABLE-KERNEL-R024:** External graph and database backends become Medulla federation sources
+- [x] **MEDULLA-DURABLE-KERNEL-R024.1:** PostgreSQL/AGE backend becomes a ForeignSourceSpec source
+- [x] **MEDULLA-DURABLE-KERNEL-R024.2:** Fan-out backend becomes a MirrorTargetSpec federation mirror target
+- [x] **MEDULLA-DURABLE-KERNEL-R024.2.1:** MirrorTargetSpec::FanOut typed spec, validation, and registration refusal
+- [x] **MEDULLA-DURABLE-KERNEL-R024.2.2:** MirrorTargetRegistry registration and name-resolution entry point
+- [ ] **MEDULLA-DURABLE-KERNEL-R024.3:** Cypher transpiler becomes a ForeignSourceSpec source
+- [ ] **MEDULLA-DURABLE-KERNEL-R024.4:** Mirror target becomes a ForeignSourceSpec mirror target
+- [x] **MEDULLA-DURABLE-KERNEL-R024.5:** Outbox-based mirror becomes a ForeignSourceSpec mirror target
+- [x] **MEDULLA-DURABLE-KERNEL-R024.6:** Brain-guarded backend becomes a ForeignSourceSpec source
+- [x] **MEDULLA-DURABLE-KERNEL-R024.7:** Trino backend becomes a ForeignSourceSpec source
+- [x] **MEDULLA-DURABLE-KERNEL-R024.8:** Spark job backend becomes a ForeignSourceSpec source
+- [x] **MEDULLA-DURABLE-KERNEL-R027:** Schema repair uses a reserved two-person approval lease
+- [x] **MEDULLA-DURABLE-KERNEL-R027.1:** Governed-change model types
+- [x] **MEDULLA-DURABLE-KERNEL-R027.2:** Governed-change dispatch wiring
+- [x] **MEDULLA-DURABLE-KERNEL-R027.3:** Governed-change raft catalog registration
+- [x] **MEDULLA-DURABLE-KERNEL-R031.1:** The audit append accounts the serving write version, including the maintenance batch a replayed attempt commits
+- [x] **MEDULLA-DURABLE-KERNEL-R031.2:** Stamp writes from the authoritative scope version and account a durable commit the serving projection missed.
+- [x] **MEDULLA-DURABLE-KERNEL-R032:** Native primary-key fast path bypasses the SQL planner
+- [x] **MEDULLA-DURABLE-KERNEL-R032.1:** PrimaryKeyOperation and FastPathDecision typed routing model with authorization/audit-checked invariant and refusal
+- [x] **MEDULLA-DURABLE-KERNEL-R033:** Hot-store engine choice is evaluated against captured workloads
+- [x] **MEDULLA-DURABLE-KERNEL-R033.1:** HotStoreEngine/WorkloadProfile/BenchmarkResult typed model with throughput-based winner selection and refusal
+- [x] **MEDULLA-DURABLE-KERNEL-R034:** Cross-store atomicity is proven and scoped to mixed transactions
+- [x] **MEDULLA-DURABLE-KERNEL-R034.1:** TransactionScope/CommitPath typed model proving single-store traffic cannot reach the cross-store commit path
+- [x] **MEDULLA-DURABLE-KERNEL-R035:** PostgreSQL wire protocol reaches operational and dump/restore parity
+- [x] **MEDULLA-DURABLE-KERNEL-R035.1:** PgOperationalSurface/PgCompatibilityMatrix typed model, fail-closed, with named-missing-surface refusal
+- [x] **MEDULLA-DURABLE-KERNEL-R036:** Mirror sinks reach fan-out parity and include Postgres table mirroring
+- [x] **MEDULLA-DURABLE-KERNEL-R036.1:** MirrorSinkKind/MirrorCursor typed model with non-empty-position guard on construction and advance
+- [x] **MEDULLA-DURABLE-KERNEL-R037:** Workload classifier routes point operations around the SQL planner
+- [x] **MEDULLA-DURABLE-KERNEL-R037.1:** WorkloadClass typed classifier with refusal for an unrecognized operation kind
+- [x] **MEDULLA-DURABLE-KERNEL-R037.2:** route dispatch entry point deciding DataFusion session allocation
+- [x] **MEDULLA-DURABLE-KERNEL-R038:** KV namespaces declare an explicit, enforced durability class
+- [x] **MEDULLA-DURABLE-KERNEL-R038.1:** DurabilityClass typed enum, declared loss-window bound, and refusal for an unrecognized class name
+- [x] **MEDULLA-DURABLE-KERNEL-R038.2:** DurabilityClass write-path entry point: write_plan and refuse_if_durable_log_write
+- [x] **MEDULLA-DURABLE-KERNEL-R039:** In-memory data structures rebuild from the redb durability log
+- [x] **MEDULLA-DURABLE-KERNEL-R039.1:** DataStructureKind/AtomicPrimitiveKind/DurabilityDeclaration typed model with always-redb-sole-authority invariant
+- [ ] **MEDULLA-DURABLE-KERNEL-R039.2:** Validate native control-lease consumption against engine-owned mutation time inside the row transaction; preserve conflict outcomes and revocation. Run the scoped native-record expiry regression before claiming acceptance.
+- [x] **MEDULLA-DURABLE-KERNEL-R040:** Pipelined requests commit as a single batch
+- [x] **MEDULLA-DURABLE-KERNEL-R040.1:** PipelineBatch/BatchCommitDecision typed model: one admission per batch, order-preserving replies, empty-batch refusal
+- [x] **MEDULLA-DURABLE-KERNEL-R041:** SQL plan cache keyed by statement digest and schema version
+- [x] **MEDULLA-DURABLE-KERNEL-R041.1:** PlanCacheKey/PlanCacheLookup typed key and pure lookup decision with stale-schema refusal
+- [x] **MEDULLA-DURABLE-KERNEL-R041.2:** PlanCache::prepare entry point at the SQL prepare site
+- [x] **MEDULLA-DURABLE-KERNEL-R042:** Benchmark gate defines and proves performance superiority claims
+- [x] **MEDULLA-DURABLE-KERNEL-R042.1:** BenchmarkClaim typed report record with refusal for an unpublished or non-passing claim
+- [ ] **MEDULLA-DURABLE-KERNEL-R071:** Typed durable task-queue model (enqueue/claim/ack) with refusal tests
+- [ ] **MEDULLA-DURABLE-KERNEL-R072:** Served task-queue RPC over the durable outbox
+- [ ] **MEDULLA-DURABLE-KERNEL-R073:** Generated client method for the task queue
+- [ ] **MEDULLA-DURABLE-KERNEL-R074:** Served worker registry
+- [ ] **MEDULLA-DURABLE-KERNEL-R075:** Reserved-worker admission decision
+- [ ] **MEDULLA-DURABLE-KERNEL-R076:** Scheduler config and lane floors (rollup; waits for both children)
+- [x] **MEDULLA-DURABLE-KERNEL-R076.1:** Pure authoritative SchedulerConfig, defaults, bounds and over-subscription refusal tests
+- [ ] **MEDULLA-DURABLE-KERNEL-R076.2:** Served setting and admission/queue integration consuming R076.1
+- [ ] **MEDULLA-DURABLE-KERNEL-R077:** Shard-writer width served by the scheduler surface
+- [ ] **MEDULLA-DURABLE-KERNEL-R078:** Bitemporal stamping served method
+- [ ] **MEDULLA-DURABLE-KERNEL-R079:** Served as-of filtering
+- [ ] **MEDULLA-DURABLE-KERNEL-R080:** Served supersession
+- [-] **MEDULLA-DURABLE-KERNEL-R080.1:** Atomic supersession refusal for missing successor endpoints; focused regression added, pending main validation
+- [ ] **MEDULLA-DURABLE-KERNEL-R080.2:** Already-closed-fact refusal and served supersession integration coverage
+- [ ] **MEDULLA-DURABLE-KERNEL-R081:** Generated client methods for bitemporal operations
+- [ ] **MEDULLA-DURABLE-KERNEL-R082:** Analytics worker parity: association-rule mining jobs run on the engine's own durable job plane
+- [ ] **MEDULLA-DURABLE-KERNEL-R082.1:** A submitted `MineAssociate` job is claimed and published by the colocated executor with no external worker
+- [x] **MEDULLA-DURABLE-KERNEL-R082.2:** `MineAssociate` submission refuses a payload outside the governed schema
+- [ ] **MEDULLA-DURABLE-KERNEL-R082.3:** Distinct-item cap and opaque-reference rule are decided and enforced at submit
+- [ ] **MEDULLA-DURABLE-KERNEL-R082.4:** Association-rule identity is byte-identical to the old worker's
+- [ ] **MEDULLA-DURABLE-KERNEL-R082.5:** The staged result has the 11-column knowledge-batch shape
+- [x] **MEDULLA-DURABLE-KERNEL-R082.6:** Rules are ordered and thresholded exactly as before
+- [ ] **MEDULLA-DURABLE-KERNEL-R082.7:** A running mining job observes cancellation, deadline and CPU budget
+- [ ] **MEDULLA-DURABLE-KERNEL-R082.8:** Failure codes and retry follow the durable retry policy
+- [ ] **MEDULLA-DURABLE-KERNEL-R082.9:** Colocated pool lease and poll interval are configurable
+- [ ] **MEDULLA-DURABLE-KERNEL-R082.10:** Remote workers remain supported through the existing coordinator operations
+- [ ] **MEDULLA-DURABLE-KERNEL-R082.11:** Cross-repo: Arbora hosts any remote worker process; Meristem does not
 
-- [-] **EG-DURABLE-KERNEL-R074.1:** Typed capacity record and pure registry lifecycle with native positive/refusal tests; pending merged-head validation.
-- [ ] **EG-DURABLE-KERNEL-R074.2:** Authenticated served registry integration, generated contracts and cross-owner/expiry dispatch tests.
-- [ ] **EG-DURABLE-KERNEL-R083 (rollup):** Shared versioned KV-cache tier (rollup).
-  - [ ] **EG-DURABLE-KERNEL-R083.1:** `KvBlockKey` typed model.
-  - [ ] **EG-DURABLE-KERNEL-R083.2:** Version-mismatch refusal.
-  - [ ] **EG-DURABLE-KERNEL-R083.3:** Budgeted eviction by importance.
-  - [ ] **EG-DURABLE-KERNEL-R083.4:** Locate and wire the served KV operation.
-  - [ ] **EG-DURABLE-KERNEL-R084:** Version-checked concurrent writes with a typed conflict (rollup).
-  - [ ] **EG-DURABLE-KERNEL-R084.1:** `WriteConflict` and `MergeStrategy` types
-  - [ ] **EG-DURABLE-KERNEL-R084.2:** Strategy resolution as a replaceable default
-  - [ ] **EG-DURABLE-KERNEL-R084.3:** Attach at the mutation version expectation
-  - [ ] **EG-DURABLE-KERNEL-R084.4:** Typed conflict refusal
-  - [ ] **EG-DURABLE-KERNEL-R084.5:** Conflict record in the mutation trace
-  - [ ] **EG-DURABLE-KERNEL-R084.6:** Two-writer proof
+- [-] **MEDULLA-DURABLE-KERNEL-R074.1:** Typed capacity record and pure registry lifecycle with native positive/refusal tests; pending merged-head validation.
+- [ ] **MEDULLA-DURABLE-KERNEL-R074.2:** Authenticated served registry integration, generated contracts and cross-owner/expiry dispatch tests.
+- [ ] **MEDULLA-DURABLE-KERNEL-R083 (rollup):** Shared versioned KV-cache tier (rollup).
+  - [ ] **MEDULLA-DURABLE-KERNEL-R083.1:** `KvBlockKey` typed model.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R083.2:** Version-mismatch refusal.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R083.3:** Budgeted eviction by importance.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R083.4:** Locate and wire the served KV operation.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R084:** Version-checked concurrent writes with a typed conflict (rollup).
+  - [ ] **MEDULLA-DURABLE-KERNEL-R084.1:** `WriteConflict` and `MergeStrategy` types
+  - [ ] **MEDULLA-DURABLE-KERNEL-R084.2:** Strategy resolution as a replaceable default
+  - [ ] **MEDULLA-DURABLE-KERNEL-R084.3:** Attach at the mutation version expectation
+  - [ ] **MEDULLA-DURABLE-KERNEL-R084.4:** Typed conflict refusal
+  - [ ] **MEDULLA-DURABLE-KERNEL-R084.5:** Conflict record in the mutation trace
+  - [ ] **MEDULLA-DURABLE-KERNEL-R084.6:** Two-writer proof
 
 
 ## R085 producer sequence
 
-- [ ] **EG-DURABLE-KERNEL-R085.1:** Model. Implement the contract and planned acceptance in this directory.
-- [ ] **EG-DURABLE-KERNEL-R085.2:** Versioned reads and listing. Implement the contract and planned acceptance in this directory.
-- [ ] **EG-DURABLE-KERNEL-R085.3:** Sync decisions and compare-and-set. Implement the contract and planned acceptance in this directory.
-- [ ] **EG-DURABLE-KERNEL-R085.4:** Production wiring. Implement the contract and planned acceptance in this directory.
-- [ ] **EG-DURABLE-KERNEL-R085.5:** Authority and refusals. Implement the contract and planned acceptance in this directory.
-- [ ] **EG-DURABLE-KERNEL-R085.6:** Provenance and synchronization evidence. Implement the contract and planned acceptance in this directory.
-- [ ] **EG-DURABLE-KERNEL-R085.7:** Retention. Implement the contract and planned acceptance in this directory.
-- [ ] **EG-DURABLE-KERNEL-R085.8:** Real served acceptance. Implement the contract and planned acceptance in this directory.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.1:** Model. Implement the contract and planned acceptance in this directory.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.2:** Versioned reads and listing. Implement the contract and planned acceptance in this directory.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.3:** Sync decisions and compare-and-set. Implement the contract and planned acceptance in this directory.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.4:** Production wiring. Implement the contract and planned acceptance in this directory.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.5:** Authority and refusals. Implement the contract and planned acceptance in this directory.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.6:** Provenance and synchronization evidence. Implement the contract and planned acceptance in this directory.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.7:** Retention. Implement the contract and planned acceptance in this directory.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.8:** Real served acceptance. Implement the contract and planned acceptance in this directory.
 
 ## R086 bounded acceptance slices
 
 Each child is one focused five-minute definition or proof slice. Split larger runtime work before delivery.
 This batch defines the slices; it runs none of their runtime tests.
 
-- [ ] **EG-DURABLE-KERNEL-R086:** Safe eviction and durable read-through (rollup). Follow the matching planned acceptance in test-spec.md.
-- [ ] **EG-DURABLE-KERNEL-R086.1:** Model. Follow the matching planned acceptance in test-spec.md.
-- [ ] **EG-DURABLE-KERNEL-R086.2:** Behavior: memory-only eviction. Follow the matching planned acceptance in test-spec.md.
-- [ ] **EG-DURABLE-KERNEL-R086.3:** Behavior: cache-miss read. Follow the matching planned acceptance in test-spec.md.
-- [ ] **EG-DURABLE-KERNEL-R086.4:** Wiring. Follow the matching planned acceptance in test-spec.md.
-- [ ] **EG-DURABLE-KERNEL-R086.5:** Scoped reads. Follow the matching planned acceptance in test-spec.md.
-- [ ] **EG-DURABLE-KERNEL-R086.6:** Refusal: unsafe eviction. Follow the matching planned acceptance in test-spec.md.
-- [ ] **EG-DURABLE-KERNEL-R086.7:** Refusal: unavailable reads. Follow the matching planned acceptance in test-spec.md.
-- [ ] **EG-DURABLE-KERNEL-R086.8:** Restart. Follow the matching planned acceptance in test-spec.md.
-- [ ] **EG-DURABLE-KERNEL-R086.9:** Evidence and hot-path proof. Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086:** Safe eviction and durable read-through (rollup). Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086.1:** Model. Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086.2:** Behavior: memory-only eviction. Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086.3:** Behavior: cache-miss read. Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086.4:** Wiring. Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086.5:** Scoped reads. Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086.6:** Refusal: unsafe eviction. Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086.7:** Refusal: unavailable reads. Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086.8:** Restart. Follow the matching planned acceptance in test-spec.md.
+- [ ] **MEDULLA-DURABLE-KERNEL-R086.9:** Evidence and hot-path proof. Follow the matching planned acceptance in test-spec.md.
 
 <!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
 ## Durable-kernel owner definition tasks — 2026-10-12
 
-- [ ] **EG-DURABLE-KERNEL-R028.1:** Implement the R085-backed checkpoint snapshot with run/work-item/fence/checkpoint identity and separate short-/long-term memory references. Enforce verified scope, digest and expected-head refusal rules. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, and existing ARBORA-A2A/OPS streaming requirements.
-- [ ] **EG-DURABLE-KERNEL-R028.1 acceptance:** Checkpoint acceptance covers restart/readback and refusal of wrong scope or stale fence/revision. Also refuse digest mismatch, changed-body replay and unavailable storage. Test recovery from interruption between snapshot and pointer update. Meristem resume/Arbora stream continuation remain blocked until transaction/recovery, resume-binding and retention decisions are defined.
-- [ ] **EG-DURABLE-KERNEL-R028.1 status:** Keep SPECIFIED. No runtime or consumer receipt is claimed.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.1:** Implement the R085-backed checkpoint snapshot with run/work-item/fence/checkpoint identity and separate short-/long-term memory references. Enforce verified scope, digest and expected-head refusal rules. Preserve `MEDULLA-DURABLE-KERNEL-R028`, `MEDULLA-IDENTITY-R006`, and existing ARBORA-A2A/OPS streaming requirements.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.1 acceptance:** Checkpoint acceptance covers restart/readback and refusal of wrong scope or stale fence/revision. Also refuse digest mismatch, changed-body replay and unavailable storage. Test recovery from interruption between snapshot and pointer update. Meristem resume/Arbora stream continuation remain blocked until transaction/recovery, resume-binding and retention decisions are defined.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.1 status:** Keep SPECIFIED. No runtime or consumer receipt is claimed.
 
-- [ ] **EG-DURABLE-KERNEL-R028.1.1:** Qualify checkpoint-only native source and tests for immutable typed admission context. Check matching original legacy metadata, legacy-only fallback, owner binding and same-snapshot reads. Include fenced/revisioned publication and canonical MutationBatch retry receipts. Generate fresh checkpoint public contracts and graph layout identity from this exact source. Run native tests and offline predecessor migration/reopen proof before claiming delivery.
-- [ ] **EG-DURABLE-KERNEL-R028.1.2:** Complete memory-reference resolution/retention, current-run resume precedence and fence binding. Add durable context ordering and exact host-cursor continuation through AU and served hosts. Keep broad R028.1 open until these companion acceptance cases pass.
-- [ ] **EG-DURABLE-KERNEL-R028.1.3:** Hash-verified hosted checkpoint exports and 30 local facade tests are recorded in the plan. Source formatting, static checks and source review are not native runtime evidence. Final-source native, layout, migration and full repository gates remain pending.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.1.1:** Qualify checkpoint-only native source and tests for immutable typed admission context. Check matching original legacy metadata, legacy-only fallback, owner binding and same-snapshot reads. Include fenced/revisioned publication and canonical MutationBatch retry receipts. Generate fresh checkpoint public contracts and graph layout identity from this exact source. Run native tests and offline predecessor migration/reopen proof before claiming delivery.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.1.2:** Complete memory-reference resolution/retention, current-run resume precedence and fence binding. Add durable context ordering and exact host-cursor continuation through AU and served hosts. Keep broad R028.1 open until these companion acceptance cases pass.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.1.3:** Hash-verified hosted checkpoint exports and 30 local facade tests are recorded in the plan. Source formatting, static checks and source review are not native runtime evidence. Final-source native, layout, migration and full repository gates remain pending.
 
-- [ ] **EG-DURABLE-KERNEL-R085.9:** Store complete canonical search state under R085 `active_context`, requiring `search_run_id`, `state_revision`, `transcript`, `evidence`, `constraints`, and `open_claims`. Preserve Meristem R013.13/R020.1 and Medulla R085.1/.4/.7.
-- [ ] **EG-DURABLE-KERNEL-R085.9 acceptance:** Exact restart/context-eviction readback. Malformed, missing-field, oversize, wrong-authority, stale-graph, digest and backend refusals. Stale conflict retains candidate without head advance. Meristem continuation receipt/schema is an explicit dependency hold.
-- [ ] **EG-DURABLE-KERNEL-R085.9 status:** Keep SPECIFIED. No implementation or served evidence is claimed.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.9:** Store complete canonical search state under R085 `active_context`, requiring `search_run_id`, `state_revision`, `transcript`, `evidence`, `constraints`, and `open_claims`. Preserve Meristem R013.13/R020.1 and Medulla R085.1/.4/.7.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.9 acceptance:** Exact restart/context-eviction readback. Malformed, missing-field, oversize, wrong-authority, stale-graph, digest and backend refusals. Stale conflict retains candidate without head advance. Meristem continuation receipt/schema is an explicit dependency hold.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.9 status:** Keep SPECIFIED. No implementation or served evidence is claimed.
 
-- [ ] **EG-DURABLE-KERNEL-R085.10:** Persist authorized session notes via R085 with note ID, source run/task/revision, content digest, provenance and graph/revision binding. Medulla returns only authorized versions and conflict state. It performs no auto-injection or relevance selection. Preserve Meristem R022.3 and Medulla R085.2/.5/.7.
-- [ ] **EG-DURABLE-KERNEL-R085.10 acceptance:** Acceptance covers durable readback, scope/revocation redaction, stale conflict retention and capacity refusal. Meristem must define capture trigger, kind mapping, relevance/staleness and conflict presentation before transparent reuse is accepted.
-- [ ] **EG-DURABLE-KERNEL-R085.10 status:** Keep SPECIFIED. No automatic capture/reuse behavior is claimed.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.10:** Persist authorized session notes via R085 with note ID, source run/task/revision, content digest, provenance and graph/revision binding. Medulla returns only authorized versions and conflict state. It performs no auto-injection or relevance selection. Preserve Meristem R022.3 and Medulla R085.2/.5/.7.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.10 acceptance:** Acceptance covers durable readback, scope/revocation redaction, stale conflict retention and capacity refusal. Meristem must define capture trigger, kind mapping, relevance/staleness and conflict presentation before transparent reuse is accepted.
+- [ ] **MEDULLA-DURABLE-KERNEL-R085.10 status:** Keep SPECIFIED. No automatic capture/reuse behavior is claimed.
 
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->
 ## Final mapped definition tasks — 2026-10-12
 
-- [ ] `EG-DURABLE-KERNEL-R038.100`: implement the typed fields, decision/refusal behavior and owner boundary stated in requirements. Preserve `EG-DURABLE-KERNEL-R038`.
-- [ ] `EG-DURABLE-KERNEL-R038.100` acceptance: Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace. Verify no persistent namespace is silently downgraded. Start served mode against its configured endpoint and verify its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch. Read back profile and namespace declarations.
+- [ ] `MEDULLA-DURABLE-KERNEL-R038.100`: implement the typed fields, decision/refusal behavior and owner boundary stated in requirements. Preserve `MEDULLA-DURABLE-KERNEL-R038`.
+- [ ] `MEDULLA-DURABLE-KERNEL-R038.100` acceptance: Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace. Verify no persistent namespace is silently downgraded. Start served mode against its configured endpoint and verify its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch. Read back profile and namespace declarations.
 <!-- /spec-definition-patch -->
 
 
 <!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
 ## Cross-owner graph feed tasks — 2026-10-12
 
-- [ ] `EG-DURABLE-KERNEL-R043.100`: define `OpenGraphSnapshotV1` and `ReadGraphChangesV1` on committed ChangeEnvelope records with a same-read high-water cursor, ordered replay ids and bounded retention. Include tombstone filtering and explicit expired-cursor/revocation outcomes. Verify independent durable readback and Medulla latency through first authorized feed read. Keep Arbora/Overstory browser commit-to-visible p95 as separate companion acceptance. Also set numeric layout limits for visible node/edge budgets, interactions and labels.
+- [ ] `MEDULLA-DURABLE-KERNEL-R043.100`: define `OpenGraphSnapshotV1` and `ReadGraphChangesV1` on committed ChangeEnvelope records with a same-read high-water cursor, ordered replay ids and bounded retention. Include tombstone filtering and explicit expired-cursor/revocation outcomes. Verify independent durable readback and Medulla latency through first authorized feed read. Keep Arbora/Overstory browser commit-to-visible p95 as separate companion acceptance. Also set numeric layout limits for visible node/edge budgets, interactions and labels.
 - [ ] Add typed cursor-expiry, graph-incarnation and authorization-change outcomes. Expose versioned commit-to-visible timing fields.
 - [ ] Preserve R043's single MutationBatch write authority and prove two-client served delivery, reconnect ordering, independent readback and the ≤1000 ms p95 target.
 <!-- /spec-definition-patch -->
 
 ## Benchmark measurement tasks — 2026-10-12
 
-- [ ] `EG-DURABLE-KERNEL-R042.100`: extend the existing typed `BenchmarkClaim.measured_result` with complete, revision-bound `BenchmarkMeasurementV1` fields and deterministic TPS/cost formulas. Preserve existing superiority gate.
+- [ ] `MEDULLA-DURABLE-KERNEL-R042.100`: extend the existing typed `BenchmarkClaim.measured_result` with complete, revision-bound `BenchmarkMeasurementV1` fields and deterministic TPS/cost formulas. Preserve existing superiority gate.
 - [ ] Serve and replay exact arithmetic across releases. Exclude startup. Refuse missing token/price data, invalid elapsed time/currency and incomparable profiles.
 
 ## Spec-audit closure tasks — 2026-10-15
 
-- [ ] **EG-DURABLE-KERNEL-R084.8:** Define tenant-scoped ordering and backend atomicity semantics. Extend conflict resolution paths and add integration tests covering two tenants, multiple backends, concurrent writes and failure/replay.
-- [ ] **EG-DURABLE-KERNEL-R057.1:** Model order-snapshot lifecycle with immutable-history and derivation-link binding. Integrate with sealed-record guard. Test snapshot creation, atomic promotion, history preservation and veto refusal.
-- [ ] **EG-DURABLE-KERNEL-R087.1:** Define typed changeset-review schema with five flaw classes, impact policy and finding-to-code evidence in `crates/eg-types/src/changeset_review.rs`.
-- [ ] **EG-DURABLE-KERNEL-R087.2:** Serve `ChangesetReview` RPC endpoint. Integrate with Arbora producer and Meristem consumer. Regenerate contracts.
-- [ ] **EG-DURABLE-KERNEL-R088.1:** Model rule correction with lineage, versioned approval and replacement/revocation. Enforce two-principal requirement at type level.
-- [ ] **EG-DURABLE-KERNEL-R088.2:** Serve correction submission, approval and application through existing rule authority. Test two-principal validation, replacement flow and revocation refusal.
-- [ ] **EG-DURABLE-KERNEL-R089.1:** Typed step verification verdict with uncertainty bound and proof binding. Round-trip over wire.
-- [ ] **EG-DURABLE-KERNEL-R089.2:** Meristem consumer path refuses forward-chained conclusions from failed steps. Preserve AU-EG harness integration.
-- [ ] **EG-DURABLE-KERNEL-R090.1:** Route Arbora schema-selection request through Medulla admission. Validate candidate and bind schema revision/digest.
-- [ ] **EG-DURABLE-KERNEL-R090.2:** Serve digest readback with mismatch detection. Test accuracy and consistency across restart.
-- [ ] **EG-DURABLE-KERNEL-R090.3:** Enforce read-only on external triple-store projections. Refuse mutations with typed error. Trace lineage to Medulla revision.
-- [ ] **EG-DURABLE-KERNEL-R097.1:** Model typed temporal rule semantics with fact timeline and origin linkage.
-- [ ] **EG-DURABLE-KERNEL-R097.2:** Behavior forward-chaining produces facts in time-order and chains derivations.
-- [ ] **EG-DURABLE-KERNEL-R097.3:** Wiring fact admission and readback bind origin sentence and axiom references.
-- [ ] **EG-DURABLE-KERNEL-R097.4:** Refusal reject rules with missing temporal bounds or malformed axioms.
-- [ ] **EG-DURABLE-KERNEL-R097.5:** Evidence durable fact store preserves origin chain and temporal rule instance.
-- [ ] **EG-DURABLE-KERNEL-R097.6:** Hot-path proof fact production API returns origin chain; integration test traces derived fact to source axiom.
-- [ ] **EG-DURABLE-KERNEL-R098.1:** Model typed ordered argument list and hypothesis-class evidence enum.
-- [ ] **EG-DURABLE-KERNEL-R098.2:** Behavior unseen entities route through inductive hypothesis path and bind response.
-- [ ] **EG-DURABLE-KERNEL-R098.3:** Wiring hypothesis evidence class is accepted and binds to public hyperedge predictor.
-- [ ] **EG-DURABLE-KERNEL-R098.4:** Refusal reject hypotheses with empty argument list and non-hypothesis evidence claims.
-- [ ] **EG-DURABLE-KERNEL-R098.5:** Evidence hypothesis output never claims assertion and carries prediction confidence.
-- [ ] **EG-DURABLE-KERNEL-R098.6:** Hot-path proof prediction endpoint accepts ordered arguments and routes unseen entity to hypothesis response.
-- [ ] **EG-DURABLE-KERNEL-R099 (rollup):** Cross-graph writes fan out across shard writers.
-- [ ] **EG-DURABLE-KERNEL-R099.1 (Model):** Add the fan-out report type.
-- [ ] **EG-DURABLE-KERNEL-R099.2 (Behavior):** Group sub-batches by shard and submit them concurrently.
-- [ ] **EG-DURABLE-KERNEL-R099.3 (Wiring):** Attach the reports in `multi_graph_batch_update`.
-- [ ] **EG-DURABLE-KERNEL-R099.4 (Refusal):** Add the size refusal and per-graph outcomes.
-- [ ] **EG-DURABLE-KERNEL-R099.5 (Evidence):** Emit reports and shard metrics.
-- [ ] **EG-DURABLE-KERNEL-R099.6 (Hot-path proof):** Add the served fan-out test and the benchmark.
-- [ ] **EG-DURABLE-KERNEL-R100 (rollup):** Native property-graph mirror sinks.
-- [ ] **EG-DURABLE-KERNEL-R100.1 (Model):** Add the three sink kinds.
-- [ ] **EG-DURABLE-KERNEL-R100.2 (Behavior):** Implement the three drivers on the mirror-target trait.
-- [ ] **EG-DURABLE-KERNEL-R100.3 (Wiring):** Wire registration into `MutationOutbox` and the outbox consumer.
-- [ ] **EG-DURABLE-KERNEL-R100.4 (Refusal):** Declare and return the two refusals.
-- [ ] **EG-DURABLE-KERNEL-R100.5 (Evidence):** Emit batch receipts and digest reconciliation.
-- [ ] **EG-DURABLE-KERNEL-R100.6 (Hot-path proof):** Add the served outage test and the benchmark.
+- [ ] **MEDULLA-DURABLE-KERNEL-R084.8:** Define tenant-scoped ordering and backend atomicity semantics. Extend conflict resolution paths and add integration tests covering two tenants, multiple backends, concurrent writes and failure/replay.
+- [ ] **MEDULLA-DURABLE-KERNEL-R057.1:** Model order-snapshot lifecycle with immutable-history and derivation-link binding. Integrate with sealed-record guard. Test snapshot creation, atomic promotion, history preservation and veto refusal.
+- [ ] **MEDULLA-DURABLE-KERNEL-R087.1:** Define typed changeset-review schema with five flaw classes, impact policy and finding-to-code evidence in `crates/eg-types/src/changeset_review.rs`.
+- [ ] **MEDULLA-DURABLE-KERNEL-R087.2:** Serve `ChangesetReview` RPC endpoint. Integrate with Arbora producer and Meristem consumer. Regenerate contracts.
+- [ ] **MEDULLA-DURABLE-KERNEL-R088.1:** Model rule correction with lineage, versioned approval and replacement/revocation. Enforce two-principal requirement at type level.
+- [ ] **MEDULLA-DURABLE-KERNEL-R088.2:** Serve correction submission, approval and application through existing rule authority. Test two-principal validation, replacement flow and revocation refusal.
+- [ ] **MEDULLA-DURABLE-KERNEL-R089.1:** Typed step verification verdict with uncertainty bound and proof binding. Round-trip over wire.
+- [ ] **MEDULLA-DURABLE-KERNEL-R089.2:** Meristem consumer path refuses forward-chained conclusions from failed steps. Preserve AU-EG harness integration.
+- [ ] **MEDULLA-DURABLE-KERNEL-R090.1:** Route Arbora schema-selection request through Medulla admission. Validate candidate and bind schema revision/digest.
+- [ ] **MEDULLA-DURABLE-KERNEL-R090.2:** Serve digest readback with mismatch detection. Test accuracy and consistency across restart.
+- [ ] **MEDULLA-DURABLE-KERNEL-R090.3:** Enforce read-only on external triple-store projections. Refuse mutations with typed error. Trace lineage to Medulla revision.
+- [ ] **MEDULLA-DURABLE-KERNEL-R097.1:** Model typed temporal rule semantics with fact timeline and origin linkage.
+- [ ] **MEDULLA-DURABLE-KERNEL-R097.2:** Behavior forward-chaining produces facts in time-order and chains derivations.
+- [ ] **MEDULLA-DURABLE-KERNEL-R097.3:** Wiring fact admission and readback bind origin sentence and axiom references.
+- [ ] **MEDULLA-DURABLE-KERNEL-R097.4:** Refusal reject rules with missing temporal bounds or malformed axioms.
+- [ ] **MEDULLA-DURABLE-KERNEL-R097.5:** Evidence durable fact store preserves origin chain and temporal rule instance.
+- [ ] **MEDULLA-DURABLE-KERNEL-R097.6:** Hot-path proof fact production API returns origin chain; integration test traces derived fact to source axiom.
+- [ ] **MEDULLA-DURABLE-KERNEL-R098.1:** Model typed ordered argument list and hypothesis-class evidence enum.
+- [ ] **MEDULLA-DURABLE-KERNEL-R098.2:** Behavior unseen entities route through inductive hypothesis path and bind response.
+- [ ] **MEDULLA-DURABLE-KERNEL-R098.3:** Wiring hypothesis evidence class is accepted and binds to public hyperedge predictor.
+- [ ] **MEDULLA-DURABLE-KERNEL-R098.4:** Refusal reject hypotheses with empty argument list and non-hypothesis evidence claims.
+- [ ] **MEDULLA-DURABLE-KERNEL-R098.5:** Evidence hypothesis output never claims assertion and carries prediction confidence.
+- [ ] **MEDULLA-DURABLE-KERNEL-R098.6:** Hot-path proof prediction endpoint accepts ordered arguments and routes unseen entity to hypothesis response.
+- [ ] **MEDULLA-DURABLE-KERNEL-R099 (rollup):** Cross-graph writes fan out across shard writers.
+- [ ] **MEDULLA-DURABLE-KERNEL-R099.1 (Model):** Add the fan-out report type.
+- [ ] **MEDULLA-DURABLE-KERNEL-R099.2 (Behavior):** Group sub-batches by shard and submit them concurrently.
+- [ ] **MEDULLA-DURABLE-KERNEL-R099.3 (Wiring):** Attach the reports in `multi_graph_batch_update`.
+- [ ] **MEDULLA-DURABLE-KERNEL-R099.4 (Refusal):** Add the size refusal and per-graph outcomes.
+- [ ] **MEDULLA-DURABLE-KERNEL-R099.5 (Evidence):** Emit reports and shard metrics.
+- [ ] **MEDULLA-DURABLE-KERNEL-R099.6 (Hot-path proof):** Add the served fan-out test and the benchmark.
+- [ ] **MEDULLA-DURABLE-KERNEL-R100 (rollup):** Native property-graph mirror sinks.
+- [ ] **MEDULLA-DURABLE-KERNEL-R100.1 (Model):** Add the three sink kinds.
+- [ ] **MEDULLA-DURABLE-KERNEL-R100.2 (Behavior):** Implement the three drivers on the mirror-target trait.
+- [ ] **MEDULLA-DURABLE-KERNEL-R100.3 (Wiring):** Wire registration into `MutationOutbox` and the outbox consumer.
+- [ ] **MEDULLA-DURABLE-KERNEL-R100.4 (Refusal):** Declare and return the two refusals.
+- [ ] **MEDULLA-DURABLE-KERNEL-R100.5 (Evidence):** Emit batch receipts and digest reconciliation.
+- [ ] **MEDULLA-DURABLE-KERNEL-R100.6 (Hot-path proof):** Add the served outage test and the benchmark.
 
-- EG-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Receipt 2026-10-19 UTC on main `ed1f25ba023c29a8da6734819005c38bb34f18b9`: the five wired native tests from `2835f06de` (PR #622) ran and all passed (5 passed, 0 failed): `redb_store::mutation_batch_tests::terminal_extension_commits_rows_outbox_and_replays_after_reopen`, `redb_store::work_item::read::tests::an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item`, `redb_store::work_item::read::tests::event_bindings_cannot_be_forged_and_missing_bound_event_is_not_legacy`, `redb_store::work_item::read::tests::a_bound_event_read_refuses_a_committed_batch_without_its_event`, `redb_store::work_item::read::tests::present_event_payload_corruption_is_refused`; `tests/test_work_item_read_client.py` passed 14/14, including `test_get_outcome_returns_the_verified_provenance_view`. Every acceptance bullet of the row is proven by these tests, so the pending condition is cleared.
-- [ ] **EG-DURABLE-KERNEL-R101 (rollup):** Downtime work is an ontology that drives the engine scheduler (rollup).
-- [ ] **EG-DURABLE-KERNEL-R101.1 (Model):** Add the typed model.
-- [ ] **EG-DURABLE-KERNEL-R101.2 (Behavior):** Implement the behavior.
-- [ ] **EG-DURABLE-KERNEL-R101.3 (Wiring):** Wire the production call site.
-- [ ] **EG-DURABLE-KERNEL-R101.4 (Refusal):** Add the typed refusals.
-- [ ] **EG-DURABLE-KERNEL-R101.5 (Evidence):** Emit the evidence.
-- [ ] **EG-DURABLE-KERNEL-R101.6 (Hot-path proof):** Add the served hot-path test.
-- [x] **EG-DURABLE-KERNEL-R102.1 (Served contract):** Mark the five KV methods stable and Python-served; typed results; regenerate the contract and client.
-- [x] **EG-DURABLE-KERNEL-R102.2 (Scope and authorization):** Scope served keys by tenant, principal, graph and namespace; enforce `kv:read`/`kv:write`.
-- [x] **EG-DURABLE-KERNEL-R102.3 (CAS and scan):** Version-stamped rows, version CAS, bounded cursor-paginated scan.
-- [x] **EG-DURABLE-KERNEL-R102.4 (Durable mutations):** Audit lines, policy flags and replay for the KV mutations.
-- [x] **EG-DURABLE-KERNEL-R102.5 (Hot-path proof):** Served latency test with p50/p99 budgets.
-- [x] **EG-DURABLE-KERNEL-R102.6 (Shared namespace):** `shared` flag scoped to tenant + graph, gated by `kv:shared:write`.
+- MEDULLA-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Receipt 2026-10-19 UTC on main `ed1f25ba023c29a8da6734819005c38bb34f18b9`: the five wired native tests from `2835f06de` (PR #622) ran and all passed (5 passed, 0 failed): `redb_store::mutation_batch_tests::terminal_extension_commits_rows_outbox_and_replays_after_reopen`, `redb_store::work_item::read::tests::an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item`, `redb_store::work_item::read::tests::event_bindings_cannot_be_forged_and_missing_bound_event_is_not_legacy`, `redb_store::work_item::read::tests::a_bound_event_read_refuses_a_committed_batch_without_its_event`, `redb_store::work_item::read::tests::present_event_payload_corruption_is_refused`; `tests/test_work_item_read_client.py` passed 14/14, including `test_get_outcome_returns_the_verified_provenance_view`. Every acceptance bullet of the row is proven by these tests, so the pending condition is cleared.
+- [ ] **MEDULLA-DURABLE-KERNEL-R101 (rollup):** Downtime work is an ontology that drives the engine scheduler (rollup).
+- [ ] **MEDULLA-DURABLE-KERNEL-R101.1 (Model):** Add the typed model.
+- [ ] **MEDULLA-DURABLE-KERNEL-R101.2 (Behavior):** Implement the behavior.
+- [ ] **MEDULLA-DURABLE-KERNEL-R101.3 (Wiring):** Wire the production call site.
+- [ ] **MEDULLA-DURABLE-KERNEL-R101.4 (Refusal):** Add the typed refusals.
+- [ ] **MEDULLA-DURABLE-KERNEL-R101.5 (Evidence):** Emit the evidence.
+- [ ] **MEDULLA-DURABLE-KERNEL-R101.6 (Hot-path proof):** Add the served hot-path test.
+- [x] **MEDULLA-DURABLE-KERNEL-R102.1 (Served contract):** Mark the five KV methods stable and Python-served; typed results; regenerate the contract and client.
+- [x] **MEDULLA-DURABLE-KERNEL-R102.2 (Scope and authorization):** Scope served keys by tenant, principal, graph and namespace; enforce `kv:read`/`kv:write`.
+- [x] **MEDULLA-DURABLE-KERNEL-R102.3 (CAS and scan):** Version-stamped rows, version CAS, bounded cursor-paginated scan.
+- [x] **MEDULLA-DURABLE-KERNEL-R102.4 (Durable mutations):** Audit lines, policy flags and replay for the KV mutations.
+- [x] **MEDULLA-DURABLE-KERNEL-R102.5 (Hot-path proof):** Served latency test with p50/p99 budgets.
+- [x] **MEDULLA-DURABLE-KERNEL-R102.6 (Shared namespace):** `shared` flag scoped to tenant + graph, gated by `kv:shared:write`.
 
-- [ ] **EG-DURABLE-KERNEL-R028.3:** Validate fenced metadata CAS expiry at the native row boundary; native tests remain pending.
-- [ ] **EG-DURABLE-KERNEL-R039.3:** Implement and qualify atomic pending envelope registration and consumption. Keep human authority and task hierarchy outside this storage proof.
-- [ ] **EG-DURABLE-KERNEL-R039.4:** Qualify immutable plan binding and atomic plan/pending/WorkItem consumption with paired served requests explicitly unavailable until Arbora integration. Paired-consumption benchmark coverage and measurements remain pending.
-- [ ] **EG-DURABLE-KERNEL-R039.4.1:** Run native atomic storage, refusal and replay tests; keep paired served requests unavailable.
-- [ ] **EG-DURABLE-KERNEL-R039.4.2:** Add the paired-consumption scenario to the existing commit-path benchmark and retain a reproducible measurement receipt.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.3:** Validate fenced metadata CAS expiry at the native row boundary; native tests remain pending.
+- [ ] **MEDULLA-DURABLE-KERNEL-R039.3:** Implement and qualify atomic pending envelope registration and consumption. Keep human authority and task hierarchy outside this storage proof.
+- [ ] **MEDULLA-DURABLE-KERNEL-R039.4:** Qualify immutable plan binding and atomic plan/pending/WorkItem consumption with paired served requests explicitly unavailable until Arbora integration. Paired-consumption benchmark coverage and measurements remain pending.
+- [ ] **MEDULLA-DURABLE-KERNEL-R039.4.1:** Run native atomic storage, refusal and replay tests; keep paired served requests unavailable.
+- [ ] **MEDULLA-DURABLE-KERNEL-R039.4.2:** Add the paired-consumption scenario to the existing commit-path benchmark and retain a reproducible measurement receipt.
 
-- [ ] **EG-DURABLE-KERNEL-R028.4:** Bind verified run ownership during single WorkItem admission and prove transaction refusals.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.4:** Bind verified run ownership during single WorkItem admission and prove transaction refusals.
 
-- [ ] **EG-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.
 
-- [ ] **EG-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
+- [ ] **MEDULLA-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
   records through canonical contract generation, typed and signed native tests,
   and normal publication gates. Keep execution reservation, current session policy,
   restart and benchmark acceptance pending; no live grant or host deployment.
 ## Agent-memory substrate claims (2026-10-22)
 
-  - [ ] **EG-DURABLE-KERNEL-R083.5:** Tier ladder from accelerator memory to durable storage.
-  - [ ] **EG-DURABLE-KERNEL-R083.6:** Graph-guided paging policy.
-  - [ ] **EG-DURABLE-KERNEL-R083.7:** Long-context coherence across tiers.
-  - [ ] **EG-DURABLE-KERNEL-R083.8:** Tier refusals.
-  - [ ] **EG-DURABLE-KERNEL-R042.2:** Cross-modal query latency benchmark.
-  - [ ] **EG-DURABLE-KERNEL-R042.3:** KV-cache tiering benchmark.
-  - [ ] **EG-DURABLE-KERNEL-R042.4:** Ingest throughput benchmark.
-  - [ ] **EG-DURABLE-KERNEL-R042.5:** Wire protocol benchmark.
-  - [ ] **EG-DURABLE-KERNEL-R042.6:** Benchmark publication and regression gate.
-- [ ] **EG-DURABLE-KERNEL-R860:** Served wire protocol listeners (rollup).
-  - [ ] **EG-DURABLE-KERNEL-R860.1:** PostgreSQL wire listener.
-  - [ ] **EG-DURABLE-KERNEL-R860.2:** Bolt listener.
-  - [ ] **EG-DURABLE-KERNEL-R860.3:** RESP listener.
-  - [ ] **EG-DURABLE-KERNEL-R860.4:** S3-compatible object API.
-  - [ ] **EG-DURABLE-KERNEL-R860.5:** Listener refusals.
-  - [ ] **EG-DURABLE-KERNEL-R860.6:** Hot-path proof: one store behind four protocols.
-- [x] **EG-DURABLE-KERNEL-R861:** Graph lifecycle replay and graph listing survive a patch upgrade (rollup).
-  - [x] **EG-DURABLE-KERNEL-R861.1:** Lifecycle replay compares the stored identity.
-  - [x] **EG-DURABLE-KERNEL-R861.2:** Graph listing survives a restart and a patch upgrade.
-- [ ] **EG-DURABLE-KERNEL-R862:** A copied store or backup bundle restores onto new files (rollup).
-  - [ ] **EG-DURABLE-KERNEL-R862.1:** Restore reads bundle sources by content, not by physical identity.
-  - [ ] **EG-DURABLE-KERNEL-R862.2:** Wiring: an explicit command re-binds a copied data directory.
-  - [ ] **EG-DURABLE-KERNEL-R862.3:** Hot-path proof: a copied bundle restores and serves.
-- [ ] **EG-DURABLE-KERNEL-R028.5.1:** Add paired typed proposal and executable attachment fields; recompute exact plan equality and retain legacy codecs.
-- [ ] **EG-DURABLE-KERNEL-R028.5.2:** Bind the first attachment immutably through the existing owner transaction; preserve omitted attachments and refuse conflicts.
-- [ ] **EG-DURABLE-KERNEL-R028.5.3:** Verify native attachment replay, restart and scoped availability.
-- [ ] **EG-DURABLE-KERNEL-R028.5.4:** Implement and measure the attached-plan publication/readback benchmark; preserve this performance residual until a reproducible receipt exists.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R083.5:** Tier ladder from accelerator memory to durable storage.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R083.6:** Graph-guided paging policy.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R083.7:** Long-context coherence across tiers.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R083.8:** Tier refusals.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R042.2:** Cross-modal query latency benchmark.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R042.3:** KV-cache tiering benchmark.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R042.4:** Ingest throughput benchmark.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R042.5:** Wire protocol benchmark.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R042.6:** Benchmark publication and regression gate.
+- [ ] **MEDULLA-DURABLE-KERNEL-R860:** Served wire protocol listeners (rollup).
+  - [ ] **MEDULLA-DURABLE-KERNEL-R860.1:** PostgreSQL wire listener.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R860.2:** Bolt listener.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R860.3:** RESP listener.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R860.4:** S3-compatible object API.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R860.5:** Listener refusals.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R860.6:** Hot-path proof: one store behind four protocols.
+- [x] **MEDULLA-DURABLE-KERNEL-R861:** Graph lifecycle replay and graph listing survive a patch upgrade (rollup).
+  - [x] **MEDULLA-DURABLE-KERNEL-R861.1:** Lifecycle replay compares the stored identity.
+  - [x] **MEDULLA-DURABLE-KERNEL-R861.2:** Graph listing survives a restart and a patch upgrade.
+- [ ] **MEDULLA-DURABLE-KERNEL-R862:** A copied store or backup bundle restores onto new files (rollup).
+  - [ ] **MEDULLA-DURABLE-KERNEL-R862.1:** Restore reads bundle sources by content, not by physical identity.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R862.2:** Wiring: an explicit command re-binds a copied data directory.
+  - [ ] **MEDULLA-DURABLE-KERNEL-R862.3:** Hot-path proof: a copied bundle restores and serves.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.5.1:** Add paired typed proposal and executable attachment fields; recompute exact plan equality and retain legacy codecs.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.5.2:** Bind the first attachment immutably through the existing owner transaction; preserve omitted attachments and refuse conflicts.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.5.3:** Verify native attachment replay, restart and scoped availability.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.5.4:** Implement and measure the attached-plan publication/readback benchmark; preserve this performance residual until a reproducible receipt exists.
 
-- [ ] **EG-DURABLE-KERNEL-R028.4.1:** Deliver immutable submission storage, owner-fenced recovery and native restart tests.
-- [ ] **EG-DURABLE-KERNEL-R028.4.2:** Measure recovery latency on a reproducible bounded workload.
-- [ ] **EG-DURABLE-KERNEL-R028.6:** Publish ordinary terminal completion types and atomic durable storage. Qualify exact usage, unknown usage, owner and fence refusal, immutable replay and reopen on this source revision. Keep served acceptance separate.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.4.1:** Deliver immutable submission storage, owner-fenced recovery and native restart tests.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.4.2:** Measure recovery latency on a reproducible bounded workload.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.6:** Publish ordinary terminal completion types and atomic durable storage. Qualify exact usage, unknown usage, owner and fence refusal, immutable replay and reopen on this source revision. Keep served acceptance separate.
 
-- [x] **EG-DURABLE-KERNEL-R028.1.3.1:** Verify hosted artifact provenance and hashes. Import generated checkpoint contracts and codec. Pass the 30 scoped Python facade tests.
-- [ ] **EG-DURABLE-KERNEL-R028.1.3.2:** Qualify final-source native compilation, layout and migration, transaction/replay/restart behavior and full repository gates.
+- [x] **MEDULLA-DURABLE-KERNEL-R028.1.3.1:** Verify hosted artifact provenance and hashes. Import generated checkpoint contracts and codec. Pass the 30 scoped Python facade tests.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.1.3.2:** Qualify final-source native compilation, layout and migration, transaction/replay/restart behavior and full repository gates.
 
-- [ ] **EG-DURABLE-KERNEL-R028.4.3:** Qualify typed conversation head reservation in the existing native admission transaction. Complete native store tests, actual MutationBatch replay and changed-body refusal, graph-incarnation isolation and generated contract checks. Keep R028.1 and R751.750/R751.751 open for checkpoint-backed history, public transcript paging and served continuation.
-- [ ] **EG-DURABLE-KERNEL-R028.4.4:** Replay a repeated run admission from its retained owner receipt. Add the refreshed-context, restart, changed-input and missing-evidence replay tests and the pre-change store upgrade test.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.4.3:** Qualify typed conversation head reservation in the existing native admission transaction. Complete native store tests, actual MutationBatch replay and changed-body refusal, graph-incarnation isolation and generated contract checks. Keep R028.1 and R751.750/R751.751 open for checkpoint-backed history, public transcript paging and served continuation.
+- [ ] **MEDULLA-DURABLE-KERNEL-R028.4.4:** Replay a repeated run admission from its retained owner receipt. Add the refreshed-context, restart, changed-input and missing-evidence replay tests and the pre-change store upgrade test.
 
 
-- [ ] **EG-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
+- [ ] **MEDULLA-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
   records through canonical contract generation, typed and signed native tests,
   and normal publication gates. Keep execution reservation, current session policy,
   restart and benchmark acceptance pending; no live grant or host deployment.
 
-- [ ] **EG-DURABLE-KERNEL-R030.1.1:** Qualify typed assertions and dedicated Python client projection.
-- [ ] **EG-DURABLE-KERNEL-R030.1.2:** Qualify protected native storage, provenance and refusal persistence.
-- [ ] **EG-DURABLE-KERNEL-R030.1.3:** Qualify signed issuer scope and tenant boundaries.
-- [ ] **EG-DURABLE-KERNEL-R030.1.4:** Complete exact-source artifacts, native acceptance, installed consumer and benchmark evidence.
+- [ ] **MEDULLA-DURABLE-KERNEL-R030.1.1:** Qualify typed assertions and dedicated Python client projection.
+- [ ] **MEDULLA-DURABLE-KERNEL-R030.1.2:** Qualify protected native storage, provenance and refusal persistence.
+- [ ] **MEDULLA-DURABLE-KERNEL-R030.1.3:** Qualify signed issuer scope and tenant boundaries.
+- [ ] **MEDULLA-DURABLE-KERNEL-R030.1.4:** Complete exact-source artifacts, native acceptance, installed consumer and benchmark evidence.

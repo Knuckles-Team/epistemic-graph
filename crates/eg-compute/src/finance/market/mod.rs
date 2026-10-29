@@ -5,7 +5,7 @@
 //!   resolution, trading calendars and bar-to-bar rollup (EH-413).
 //! * [`corporate_actions`] — point-in-time split/dividend/symbol-change/delisting
 //!   facts, resolved the same way as bars; `calendar::session_at` tags every
-//!   resolved price with the session it was observed in (EG-FINANCE-PRIMITIVES-R006).
+//!   resolved price with the session it was observed in (MEDULLA-FINANCE-PRIMITIVES-R006).
 //! * [`kernels`], [`supertrend`], [`indicators`] — incremental integer kernels,
 //!   one step per closed bar (EH-414).
 //! * [`signal`], [`scan`], [`events`] — per-bar signal advance, bitemporal replay

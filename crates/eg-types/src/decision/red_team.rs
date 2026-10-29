@@ -1,5 +1,5 @@
 //! Red-team attack, transform and scorer records and the probe verdict
-//! (EG-DECISION-ENGINE-R138.1 and R138.2).
+//! (MEDULLA-DECISION-ENGINE-R138.1 and R138.2).
 
 use serde::{Deserialize, Serialize};
 

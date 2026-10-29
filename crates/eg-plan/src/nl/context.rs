@@ -1,4 +1,4 @@
-//! Schema-grounded natural-language planning (EG-FEDERATED-QUERY-R058.4.7.1, R058.4.8).
+//! Schema-grounded natural-language planning (MEDULLA-FEDERATED-QUERY-R058.4.7.1, R058.4.8).
 //!
 //! The planner may only target names the queried graph actually has. A
 //! [`SchemaContext`] is read off ONE snapshot: every node label with the
@@ -23,11 +23,11 @@ use eg_types::wire::{Op, Plan, Pred};
 
 use super::{enforce_budget, NlPlanner, NlQueryBudget, NlQueryError};
 
-/// Labels kept in the schema hint (EG-FEDERATED-QUERY-R058.4.2).
+/// Labels kept in the schema hint (MEDULLA-FEDERATED-QUERY-R058.4.2).
 pub const MAX_LABELS: usize = 60;
-/// Properties listed per label in the schema hint (EG-FEDERATED-QUERY-R058.4.2).
+/// Properties listed per label in the schema hint (MEDULLA-FEDERATED-QUERY-R058.4.2).
 pub const MAX_PROPERTIES_PER_LABEL: usize = 16;
-/// Default and maximum planner steps of one request (EG-FEDERATED-QUERY-R058.4.1).
+/// Default and maximum planner steps of one request (MEDULLA-FEDERATED-QUERY-R058.4.1).
 pub const DEFAULT_MAX_STEPS: usize = 2;
 /// Upper bound on `max_steps`.
 pub const MAX_STEPS: usize = 4;
@@ -163,7 +163,7 @@ pub struct Grounded {
 }
 
 /// One planner step: the text it produced and what happened to it
-/// (EG-FEDERATED-QUERY-R058.4.1). `dialect` is always `uql` today.
+/// (MEDULLA-FEDERATED-QUERY-R058.4.1). `dialect` is always `uql` today.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NlPlanStep {
     pub dialect: String,
@@ -268,7 +268,7 @@ impl SchemaContext {
     }
 
     /// Map ontology property names onto the stored keys they name
-    /// (EG-FEDERATED-QUERY-R058.4.8). A property maps onto a stored key of a
+    /// (MEDULLA-FEDERATED-QUERY-R058.4.8). A property maps onto a stored key of a
     /// label in its domain (any label when it declares none) when the key
     /// normalizes to the property's local name or its `rdfs:label`.
     pub fn link_ontology(&mut self, properties: &[OntologyProperty]) {
@@ -366,7 +366,7 @@ impl SchemaContext {
     }
 
     /// Validate `plan` against the snapshot and rewrite ontology names and
-    /// spelling variants to the stored names (EG-FEDERATED-QUERY-R058.4.7.1).
+    /// spelling variants to the stored names (MEDULLA-FEDERATED-QUERY-R058.4.7.1).
     pub fn ground(&self, plan: &Plan) -> Result<Grounded, SchemaViolation> {
         let mut repairs = Vec::new();
         let (ops, _) = self.ground_ops(&plan.ops, Scope::AnyLocal, &mut repairs)?;
@@ -826,7 +826,7 @@ fn hint_fields(schema: &LabelSchema, tokens: &BTreeSet<String>) -> Vec<String> {
     out
 }
 
-/// Run the bounded correction loop (EG-FEDERATED-QUERY-R058.4.2, R058.4.7):
+/// Run the bounded correction loop (MEDULLA-FEDERATED-QUERY-R058.4.2, R058.4.7):
 /// plan, enforce the budget, parse with the caller grammar and ground against
 /// `context`. A parse error or schema violation goes back to the planner as a
 /// typed message; after `max_steps` failed steps the request is refused with

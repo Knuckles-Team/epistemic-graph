@@ -38,7 +38,7 @@ pub struct WriteConflict {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R084.1
+    // spec: MEDULLA-DURABLE-KERNEL-R084.1
     #[test]
     fn conflict_and_strategies_round_trip_with_refuse_as_default() {
         let conflict = WriteConflict {

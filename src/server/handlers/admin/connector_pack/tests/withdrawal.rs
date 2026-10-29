@@ -42,7 +42,7 @@ async fn search(served: &Served) -> Vec<String> {
         .collect()
 }
 
-// spec: EG-DECISION-ENGINE-R073.5
+// spec: MEDULLA-DECISION-ENGINE-R073.5
 #[tokio::test]
 async fn withdrawn_tool_leaves_search_but_keeps_historical_content() {
     let served = Served::new();
@@ -171,7 +171,7 @@ async fn import_approved(
 /// component ids (connector + kind + name) stay the same. The import withdraws
 /// every old URI, so it needs the mass-withdrawal approval, and with it the
 /// import lands: each component keeps one revision under its new URI.
-// spec: EG-TYPED-PACKS-R039
+// spec: MEDULLA-TYPED-PACKS-R039
 #[tokio::test]
 async fn an_approved_mass_withdrawal_that_moves_every_uri_imports() {
     let served = Served::new();

@@ -84,7 +84,7 @@ fn subclass_chain(length: usize) -> String {
 /// the G14 reasoning runs stops at the next derivation step and frees the
 /// tenant's pack lock -- the next pack write is answered, not queued behind the
 /// abandoned import.
-// spec: EG-TYPED-PACKS-R084
+// spec: MEDULLA-TYPED-PACKS-R084
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cancelled_import_does_not_block_the_next_bind() {
     use crate::server::request_scope::{scope, RequestCancel, CANCELLED};
@@ -120,7 +120,7 @@ async fn a_cancelled_import_does_not_block_the_next_bind() {
         .expect("the next bind must not queue behind the abandoned import");
 }
 
-/// EG-TYPED-PACKS-R105.1: a connector class that subclasses a parent-catalog
+/// MEDULLA-TYPED-PACKS-R105.1: a connector class that subclasses a parent-catalog
 /// class joins the parent graph with no warning; a class with no such path is
 /// imported and reported as `ONTOLOGY_ORPHAN`, naming the class.
 fn parent_linked(orphan: bool) -> String {
@@ -151,14 +151,14 @@ fn orphan_warnings(result: &PackImportResult) -> Vec<String> {
     }
 }
 
-// spec: EG-TYPED-PACKS-R105.1
+// spec: MEDULLA-TYPED-PACKS-R105.1
 #[tokio::test]
 async fn a_class_linked_to_a_parent_class_imports_without_an_orphan_warning() {
     let result = import_ontology("r105-linked", parent_linked(false)).await;
     assert!(orphan_warnings(&result).is_empty(), "{result:?}");
 }
 
-// spec: EG-TYPED-PACKS-R105.1
+// spec: MEDULLA-TYPED-PACKS-R105.1
 #[tokio::test]
 async fn an_orphan_class_is_imported_and_flagged_by_name() {
     let result = import_ontology("r105-orphan", parent_linked(true)).await;
@@ -172,7 +172,7 @@ async fn an_orphan_class_is_imported_and_flagged_by_name() {
 }
 
 /// Source declarations share the admitted member write, its tenant and body digest.
-// spec: EG-FEDERATED-QUERY-R722.1
+// spec: MEDULLA-FEDERATED-QUERY-R722.1
 #[tokio::test]
 async fn source_claims_persist_held_and_old_or_other_tenant_members_stay_unbound() {
     use super::{head_of, imported, TENANT};

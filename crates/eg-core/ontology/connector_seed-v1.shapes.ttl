@@ -1,4 +1,4 @@
-# Connector seed shapes (EG-TYPED-PACKS-R104.1).
+# Connector seed shapes (MEDULLA-TYPED-PACKS-R104.1).
 
 @prefix seed: <http://knuckles.team/kg/connector-seed#> .
 @prefix sh:   <http://www.w3.org/ns/shacl#> .

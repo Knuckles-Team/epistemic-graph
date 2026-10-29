@@ -1,4 +1,4 @@
-//! Versioned harness components as graph facts (EG-ORCH-VOCAB-R801), and the
+//! Versioned harness components as graph facts (MEDULLA-ORCH-VOCAB-R801), and the
 //! improvement library that stores what a task learned from them (R802, in
 //! [`improvement`]).
 //!
@@ -29,7 +29,7 @@ pub use errors::HarnessVocabularyErrorCode;
 pub enum HarnessComponentKind {
     /// The agent's standing instructions.
     SystemPrompt,
-    /// The guardrails a run must respect (EG-ORCH-VOCAB-R004.700 scope).
+    /// The guardrails a run must respect (MEDULLA-ORCH-VOCAB-R004.700 scope).
     Guardrails,
     /// The memory a run reads and writes.
     Memory,
@@ -107,7 +107,7 @@ pub enum HarnessComponentRefusal {
 }
 
 impl HarnessComponentRefusal {
-    /// The served error code, verbatim (EG-DURABLE-KERNEL-R043.8).
+    /// The served error code, verbatim (MEDULLA-DURABLE-KERNEL-R043.8).
     pub fn code(self) -> &'static str {
         match self {
             Self::VersionWithoutEvidence => HarnessVocabularyErrorCode::VersionWithoutEvidence,
@@ -485,7 +485,7 @@ pub fn version_history(
 mod tests {
     use super::*;
 
-    // spec: EG-ORCH-VOCAB-R801.1
+    // spec: MEDULLA-ORCH-VOCAB-R801.1
     #[test]
     fn the_eight_components_are_the_closed_set() {
         for kind in [

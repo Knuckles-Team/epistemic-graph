@@ -177,7 +177,7 @@ fn work_item_mutations() -> Vec<Method> {
     ]
 }
 
-// spec: EG-DURABLE-KERNEL-R009
+// spec: MEDULLA-DURABLE-KERNEL-R009
 #[test]
 fn work_item_mutations_round_trip_through_sealed_native_command() {
     for method in work_item_mutations() {
@@ -277,7 +277,7 @@ fn assert_native_round_trip(method: Method, expected_domain: NativeMutationDomai
     assert_eq!(rmp_serde::to_vec_named(&opened).unwrap(), expected);
 }
 
-// spec: EG-DURABLE-KERNEL-R027.3
+// spec: MEDULLA-DURABLE-KERNEL-R027.3
 #[test]
 fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     let unique = NATIVE_CONSENSUS_METHODS

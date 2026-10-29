@@ -77,7 +77,7 @@ pub(super) fn outcome(_plan: &TaskPlan) -> StatisticalOutcome {
 }
 
 /// A tool step's call and each binding are caller claims; neither grants
-/// authority to invoke the tool (EG-DECISION-ENGINE-R134.111.11).
+/// authority to invoke the tool (MEDULLA-DECISION-ENGINE-R134.111.11).
 fn call_premises(task: &TaskPlanTask) -> Vec<PremiseRef> {
     let Some(call) = &task.call else {
         return Vec::new();

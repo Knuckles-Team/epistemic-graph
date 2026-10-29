@@ -1,10 +1,10 @@
 //! Typed model for a captured Debezium Kafka change-event envelope
-//! (EG-UNIFIED-DATA-PLANE-R021): the shape EG parses before converting it
+//! (MEDULLA-UNIFIED-DATA-PLANE-R021): the shape EG parses before converting it
 //! into a [`crate::change_envelope::ChangeEnvelope`]. This is the typed-model
 //! slice (`.1`): the closed operation-code vocabulary, the envelope shape,
 //! and the refusal for an unrecognized operation code.
 //!
-//! `to_draft` (EG-UNIFIED-DATA-PLANE-R021.2) is the pure-function conversion
+//! `to_draft` (MEDULLA-UNIFIED-DATA-PLANE-R021.2) is the pure-function conversion
 //! slice: a captured [`DebeziumChangeEvent`] becomes a
 //! [`crate::change_envelope::ChangeEnvelopeDraft`] -- the caller-authored half
 //! of a [`crate::change_envelope::ChangeEnvelope`] (operations, content
@@ -15,7 +15,7 @@
 //! Wiring a real Kafka consumer that feeds these drafts to the engine for
 //! compilation into full `ChangeEnvelope`s is a later child.
 //!
-//! `tests::replay` (EG-UNIFIED-DATA-PLANE-R021.3) feeds a captured, multi-op
+//! `tests::replay` (MEDULLA-UNIFIED-DATA-PLANE-R021.3) feeds a captured, multi-op
 //! Debezium event stream fixture through `to_draft` and confirms the
 //! resulting draft sequence's operations match the source's actual changes.
 
@@ -270,7 +270,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn known_op_codes_parse() {
         assert_eq!(DebeziumOp::parse("c"), Ok(DebeziumOp::Create));
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(DebeziumOp::parse("r"), Ok(DebeziumOp::Read));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn unknown_op_code_is_refused() {
         assert_eq!(
@@ -288,7 +288,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn create_without_after_is_refused() {
         let event = DebeziumChangeEvent {
@@ -300,7 +300,7 @@ mod tests {
         assert_eq!(event.validate(), Err(InvalidDebeziumEvent::MissingAfter));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn delete_without_before_is_refused() {
         let event = DebeziumChangeEvent {
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(event.validate(), Err(InvalidDebeziumEvent::MissingBefore));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn well_formed_update_validates() {
         let event = DebeziumChangeEvent {
@@ -324,7 +324,7 @@ mod tests {
         assert_eq!(event.validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn cursor_position_is_opaque_and_carries_the_source_position() {
         let event = DebeziumChangeEvent {
@@ -344,7 +344,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn event_serializes_round_trip() {
         let event = DebeziumChangeEvent {
@@ -358,7 +358,7 @@ mod tests {
         assert_eq!(decoded, event);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.2
     #[test]
     fn to_draft_maps_create_update_delete_into_node_operations() {
         let create = DebeziumChangeEvent {
@@ -399,7 +399,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.2
     #[test]
     fn to_draft_refuses_exactly_when_validate_refuses() {
         let invalid = DebeziumChangeEvent {
@@ -414,7 +414,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R021.3
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R021.3
     #[test]
     fn replay_of_captured_fixture_stream_matches_source_changes() {
         let fixture = include_str!("../fixtures/debezium_replay_stream.json");
@@ -424,7 +424,7 @@ mod tests {
         // Replay every draft's operation into a plain map the way a graph
         // store would apply AddNode/RemoveNode, then compare against the
         // source's actual final state -- this is the replay-equivalence
-        // check EG-UNIFIED-DATA-PLANE-R021/R021.3's acceptance criterion asks
+        // check MEDULLA-UNIFIED-DATA-PLANE-R021/R021.3's acceptance criterion asks
         // for, run over a captured fixture instead of a live Kafka topic.
         let mut replayed: std::collections::BTreeMap<String, serde_json::Value> =
             std::collections::BTreeMap::new();

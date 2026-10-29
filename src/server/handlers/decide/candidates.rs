@@ -307,16 +307,16 @@ fn prefixed_refusal(detail: &str, prefix: &str, code: StatisticalErrorCode) -> S
 /// where one exists: `QuestionKind::IngestionLane` candidates must each name
 /// a registered [`eg_types::decision::statistical::ingestion_lane::IngestionLane`],
 /// refused here rather than discovered later as an opaque abstention
-/// (EG-DECISION-ENGINE-R030). `QuestionKind::EnrichmentSchedule` candidates
+/// (MEDULLA-DECISION-ENGINE-R030). `QuestionKind::EnrichmentSchedule` candidates
 /// may not declare a negative `enrichment.cost_q32` -- it has no meaning on
 /// that scale and would let a candidate manufacture unbounded net value
-/// (EG-DECISION-ENGINE-R031).
+/// (MEDULLA-DECISION-ENGINE-R031).
 /// A `QuestionKind::RetrievalPlan` candidate whose
 /// option id claims the reserved
 /// [`eg_types::decision::statistical::retrieval_plan::OPTION_ID_PREFIX`]
 /// namespace must name a registered
 /// [`eg_types::decision::statistical::retrieval_plan::RetrievalPlanKind`],
-/// refused the same way (EG-DECISION-ENGINE-R029). An option id outside that
+/// refused the same way (MEDULLA-DECISION-ENGINE-R029). An option id outside that
 /// namespace is an ordinary declared option, unaffected by this registry.
 pub(super) fn declared_candidates(
     options: &[DeclaredOption],

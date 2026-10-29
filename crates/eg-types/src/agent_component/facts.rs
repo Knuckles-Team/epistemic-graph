@@ -648,7 +648,7 @@ fn validate_schema_digest(field: &str, value: Option<&str>) -> Result<(), String
 mod tests {
     use super::*;
 
-    // spec: EG-TYPED-PACKS-R048.2
+    // spec: MEDULLA-TYPED-PACKS-R048.2
     #[test]
     fn measured_fact_requires_run_ref() {
         type Fact = MeasuredFact<ShellProficiency>;

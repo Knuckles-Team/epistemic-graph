@@ -832,7 +832,7 @@ mod tests {
         assert!(decode(&bytes).is_err());
     }
 
-    // spec: EG-FEDERATED-QUERY-R040.5.2
+    // spec: MEDULLA-FEDERATED-QUERY-R040.5.2
     #[test]
     fn compact_round_trip_preserves_search_and_accounting() {
         let index = graph();
@@ -855,7 +855,7 @@ mod tests {
         assert!(decode(&encoded).is_err());
     }
 
-    // spec: EG-FEDERATED-QUERY-R040.5.2
+    // spec: MEDULLA-FEDERATED-QUERY-R040.5.2
     #[test]
     fn compact_rejects_version_digest_offsets_and_truncation() {
         let index = graph();
@@ -902,7 +902,7 @@ mod tests {
         assert_eq!(restored.search(&[0.0, 0.0, 0.0], 3, 8), Vec::new());
     }
 
-    // spec: EG-FEDERATED-QUERY-R040.5.3
+    // spec: MEDULLA-FEDERATED-QUERY-R040.5.3
     #[test]
     fn vectorless_round_trip_searches_through_bounded_provider() {
         let index = graph();
@@ -948,7 +948,7 @@ mod tests {
         assert!(stats.fetched_vectors <= 256);
     }
 
-    // spec: EG-FEDERATED-QUERY-R040.5.3
+    // spec: MEDULLA-FEDERATED-QUERY-R040.5.3
     #[test]
     fn vectorless_search_rejects_budget_before_provider_call() {
         let index = graph();
@@ -979,7 +979,7 @@ mod tests {
         assert_eq!(provider.calls, 0);
     }
 
-    // spec: EG-FEDERATED-QUERY-R040.5.3
+    // spec: MEDULLA-FEDERATED-QUERY-R040.5.3
     #[test]
     fn compact_search_bounds_huge_inputs_before_allocation_or_fetch() {
         let mut index = graph();
@@ -1017,7 +1017,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R040.5.3
+    // spec: MEDULLA-FEDERATED-QUERY-R040.5.3
     #[test]
     fn vectorless_search_validates_provider_vectors_and_queries() {
         let index = graph();

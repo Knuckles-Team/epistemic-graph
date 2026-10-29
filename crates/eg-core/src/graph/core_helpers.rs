@@ -32,14 +32,14 @@ pub(super) fn edge_endpoint_not_found(role: &str, id: &str) -> String {
 
 /// The fallback `relation_type` an untyped edge collapses onto when its stored
 /// blob carries neither a `relationship` nor a `type`/`label` field (spec:
-/// EG-REPO-INGEST-R009.1 — edge identity is the `(source, target,
+/// MEDULLA-REPO-INGEST-R009.1 — edge identity is the `(source, target,
 /// relation_type)` triple, and a migrated edge must never be silently
 /// dropped for lacking a type).
 pub(super) const DEFAULT_RELATION_TYPE: &str = "related_to";
 
 /// Deterministically read the `relation_type` half of an edge's
 /// `(source, target, relation_type)` identity triple out of its stored
-/// property blob (spec: EG-REPO-INGEST-R009.1). Checks, in order, the
+/// property blob (spec: MEDULLA-REPO-INGEST-R009.1). Checks, in order, the
 /// canonical `relationship` field written by `GraphTxn::add_typed_edge` /
 /// matched by `GraphTxn::invalidate_edge`, then the untyped-edge `type` and
 /// `label` fields it migrates from, and finally collapses to

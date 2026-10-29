@@ -36,7 +36,7 @@ fn change(shard: &Shard, id: &str, tag: &str, update: impl FnOnce(&mut Row)) {
     });
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[test]
 fn run_admission_recovery_preserves_original_request() {
     let path = crate::redb_store::temp_path("eg-run-recovery", "restart");
@@ -75,7 +75,7 @@ fn run_admission_recovery_preserves_original_request() {
     std::fs::remove_file(path).unwrap();
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[test]
 fn run_admission_recovery_checks_complete_owner() {
     let temp = open("run-recovery-owner");
@@ -103,7 +103,7 @@ fn run_admission_recovery_checks_complete_owner() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[test]
 fn run_admission_recovery_refuses_missing_evidence() {
     let temp = open("run-recovery-missing");
@@ -135,7 +135,7 @@ fn run_admission_recovery_refuses_missing_evidence() {
 }
 
 // Exercise the real native backend and handler, then the MessagePack wire codec.
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[cfg(feature = "server")]
 #[tokio::test]
 async fn run_admission_unavailable_is_a_declared_wire_refusal() {
@@ -188,7 +188,7 @@ async fn run_admission_unavailable_is_a_declared_wire_refusal() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.6
 #[test]
 fn ordinary_completion_requires_original_run_owner() {
     let temp = open("completion-owner");
@@ -213,7 +213,7 @@ fn ordinary_completion_requires_original_run_owner() {
     assert!(validate_completion_owner(&changed, GRAPH, "tenant", "run", &id).is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.6
 #[test]
 fn ordinary_completion_binding_corruption_is_not_legacy_unavailability() {
     let temp = open("completion-corrupt");
@@ -237,7 +237,7 @@ fn ordinary_completion_binding_corruption_is_not_legacy_unavailability() {
         .is_none());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.6
 #[test]
 fn ordinary_completion_projection_requires_exact_committed_payload() {
     use eg_types::run_completion::*;
@@ -313,7 +313,7 @@ fn ordinary_completion_projection_requires_exact_committed_payload() {
     assert!(project("tenant", "run", "failed", &digest, &corrupt).is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.6
 // Row-authority regression; this does not qualify ledger/outbox integration.
 #[test]
 fn ordinary_completion_native_fence_and_terminal_noop_preserve_binding() {
@@ -434,7 +434,7 @@ fn ordinary_completion_native_fence_and_terminal_noop_preserve_binding() {
     std::fs::remove_file(path).unwrap();
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6, EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.6, MEDULLA-DURABLE-KERNEL-R028.4.1
 // Exercise the production compiler and atomic ledger, not the row-only helper.
 #[cfg(feature = "server")]
 #[test]
@@ -770,7 +770,7 @@ fn assert_session_measurements(
     result
 }
 
-// spec: EG-DECISION-ENGINE-R801.8
+// spec: MEDULLA-DECISION-ENGINE-R801.8
 #[test]
 fn session_inventory_uses_original_context_and_marks_missing_admission_partial() {
     let temp = open("session-inventory");

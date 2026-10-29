@@ -5,7 +5,7 @@ use eg_types::decision::{DecisionOutcome, EvidenceClass, PremiseClass, PremisePr
 use super::super::{assemble, replay_check};
 use super::fixture::*;
 
-// spec: EG-DECISION-ENGINE-R121.1
+// spec: MEDULLA-DECISION-ENGINE-R121.1
 #[test]
 fn assembly_evidence_uses_typed_premises_not_labels() {
     for (class, expected) in [

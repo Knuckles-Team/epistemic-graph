@@ -1,4 +1,4 @@
-# Kafka, openbao, clarity and data-science alignment (EG-DATAPLAT-VOCAB-R008.3).
+# Kafka, openbao, clarity and data-science alignment (MEDULLA-DATAPLAT-VOCAB-R008.3).
 #
 # Each package-local term aligns to its data-platform term so the two cannot
 # drift silently: classes `rdfs:subClassOf` (the package term is the emitted

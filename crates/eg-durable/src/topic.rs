@@ -1,8 +1,8 @@
-//! Ordered topic-log records (EG-DURABLE-KERNEL-R850.1).
+//! Ordered topic-log records (MEDULLA-DURABLE-KERNEL-R850.1).
 //!
 //! One ordered key-value table keys entries by `(topic, seq)`, so an append is
 //! one O(log n) insert and a read of k entries is one O(log n + k) range scan.
-//! Append, read and their refusals are EG-DURABLE-KERNEL-R850.2 onwards.
+//! Append, read and their refusals are MEDULLA-DURABLE-KERNEL-R850.2 onwards.
 
 use serde::{Deserialize, Serialize};
 
@@ -35,7 +35,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    // spec: EG-DURABLE-KERNEL-R850.1
+    // spec: MEDULLA-DURABLE-KERNEL-R850.1
     #[test]
     fn entry_and_cursor_round_trip_through_the_wire_codec() {
         let entry = TopicEntry {

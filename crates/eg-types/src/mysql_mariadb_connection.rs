@@ -1,8 +1,8 @@
-//! EG-UNIFIED-DATA-PLANE-R014.2.1 — adapter skeleton for the MySQL/MariaDB
+//! MEDULLA-UNIFIED-DATA-PLANE-R014.2.1 — adapter skeleton for the MySQL/MariaDB
 //! attached-source adapter: a typed connection config, its mapping to the
 //! sqlx `MySqlConnectOptions`-shaped driver config, and the refusal path
 //! before any network attempt. Real binlog/GTID change capture and the
-//! per-engine conformance entries are EG-UNIFIED-DATA-PLANE-R014.2.2+.
+//! per-engine conformance entries are MEDULLA-UNIFIED-DATA-PLANE-R014.2.2+.
 
 use crate::attached_source_dialect::SqlEngineKind;
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ pub struct MysqlMariadbConnectionConfig {
 /// bottom of the crate DAG — stays dependency-free; the crate that actually
 /// links `sqlx` (already present, gated behind the `federation-sql`
 /// feature) converts this into the real driver options at connect time
-/// (EG-UNIFIED-DATA-PLANE-R014.2.2+).
+/// (MEDULLA-UNIFIED-DATA-PLANE-R014.2.2+).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MysqlMariadbDriverConfig {
     pub host: String,
@@ -104,7 +104,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R014.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R014.2.1
     #[test]
     fn mysql_and_mariadb_both_map_to_a_driver_config() {
         for engine in [SqlEngineKind::MySql, SqlEngineKind::MariaDb] {
@@ -116,7 +116,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R014.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R014.2.1
     #[test]
     fn refuses_empty_host_before_any_connect_attempt() {
         let mut config = valid(SqlEngineKind::MySql);
@@ -127,7 +127,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R014.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R014.2.1
     #[test]
     fn refuses_empty_database() {
         let mut config = valid(SqlEngineKind::MariaDb);
@@ -138,7 +138,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R014.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R014.2.1
     #[test]
     fn refuses_empty_username() {
         let mut config = valid(SqlEngineKind::MySql);
@@ -149,7 +149,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R014.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R014.2.1
     #[test]
     fn refuses_zero_port() {
         let mut config = valid(SqlEngineKind::MariaDb);

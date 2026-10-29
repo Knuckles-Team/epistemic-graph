@@ -41,7 +41,7 @@ fn model(connector: &str, vision: bool, bytes: u64) -> Content {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R050.1
+// spec: MEDULLA-DECISION-ENGINE-R050.1
 #[tokio::test]
 async fn declared_model_media_facts_round_trip_through_pack_import() {
     let connector = "model-media-roundtrip";
@@ -94,7 +94,7 @@ async fn declared_model_media_facts_round_trip_through_pack_import() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R050.1
+// spec: MEDULLA-DECISION-ENGINE-R050.1
 #[tokio::test]
 async fn nonvision_image_pack_refuses_without_owner_or_body_mutation() {
     for has_prior in [false, true] {

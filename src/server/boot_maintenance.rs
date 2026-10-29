@@ -1,4 +1,4 @@
-//! Post-bind boot maintenance (EG-DURABLE-KERNEL-R006.4, G9): the boot work
+//! Post-bind boot maintenance (MEDULLA-DURABLE-KERNEL-R006.4, G9): the boot work
 //! that is RAM re-hydration / crash-window residual closing, NOT a serving
 //! precondition — the materialized-view reload and the time-series startup
 //! reconciliation.
@@ -42,7 +42,7 @@ pub async fn spawn_post_bind_maintenance(state: Arc<RwLock<ServerState>>) {
 /// Re-hydrate the in-RAM materialized-view index from the durable tier as a
 /// background task (CONCEPT:EG-KG.storage.feature). No correctness
 /// requirement to precede serving, and it must never hold the pre-listener
-/// path up (EG-DURABLE-KERNEL-R006.4).
+/// path up (MEDULLA-DURABLE-KERNEL-R006.4).
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 fn spawn_matview_reload(state: Arc<RwLock<ServerState>>) {
     tokio::spawn(async move {
@@ -72,7 +72,7 @@ fn spawn_matview_reload(state: Arc<RwLock<ServerState>>) {
 /// (CONCEPT:EG-KG.backend.ts-startup-reconcile, L16): a crash strictly
 /// BETWEEN the two EG-P0-4 commits can leave the authoritative shard ahead
 /// of the served `series.redb`. That is residual closing, not a serving
-/// precondition — run it after the listeners bind (EG-DURABLE-KERNEL-R006.4).
+/// precondition — run it after the listeners bind (MEDULLA-DURABLE-KERNEL-R006.4).
 /// The shard scan is synchronous redb I/O, so it runs off the reactor through
 /// the usual blocking-task boundary.
 #[cfg(all(feature = "redb", feature = "tsdb"))]
@@ -130,7 +130,7 @@ async fn spawn_time_series_reconcile(state: Arc<RwLock<ServerState>>) {
         };
         // Logged even when the work was zero — a zero-work boot used to log
         // nothing at all, and a slow one used to log nothing either
-        // (EG-DURABLE-KERNEL-R006.4/.5).
+        // (MEDULLA-DURABLE-KERNEL-R006.4/.5).
         tracing::info!(
             series_examined = report.series_examined,
             series_reconciled = report.series_reconciled,

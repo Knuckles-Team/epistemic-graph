@@ -1,4 +1,4 @@
-"""A reopened store lists its graphs after a patch upgrade (EG-DURABLE-KERNEL-R861.2).
+"""A reopened store lists its graphs after a patch upgrade (MEDULLA-DURABLE-KERNEL-R861.2).
 
 A writer engine bootstraps a store, registers an identity with no grants and creates a
 `Global` tenant graph the way arbora does. This build then reopens the same store.
@@ -36,7 +36,7 @@ from epistemic_graph.generated.cluster import (
 
 pytestmark = [
     pytest.mark.no_engine,  # Each case owns its engines on its own store.
-    pytest.mark.spec("EG-DURABLE-KERNEL-R861.2"),
+    pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R861.2"),
 ]
 
 AGENT = "service:test-suite"

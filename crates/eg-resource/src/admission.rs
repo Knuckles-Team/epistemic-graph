@@ -1,5 +1,5 @@
 //! Admission pacing, priority classes, cognitive scheduling and model capacity
-//! control (EG-PLACEMENT-R750).
+//! control (MEDULLA-PLACEMENT-R750).
 //!
 //! Every controller is a pure state machine advanced by explicit events with
 //! an injected clock (`now_ms`), so a replay of the same events reproduces the
@@ -418,7 +418,7 @@ mod tests {
         trace
     }
 
-    // spec: EG-PLACEMENT-R750.750
+    // spec: MEDULLA-PLACEMENT-R750.750
     #[test]
     fn the_admission_types_behave_and_the_golden_vector_replays() {
         let golden = vec![
@@ -481,7 +481,7 @@ mod tests {
         assert_eq!(gpu.used(), 0);
     }
 
-    // spec: EG-PLACEMENT-R750.751
+    // spec: MEDULLA-PLACEMENT-R750.751
     #[test]
     fn foreground_pauses_background_and_a_breaker_never_raises_capacity() {
         let mut pacer = ClaimPacer::new(2, 1, 0);
@@ -517,7 +517,7 @@ mod tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R750.752
+    // spec: MEDULLA-PLACEMENT-R750.752
     #[test]
     fn ceiling_class_and_outcome_refusals() {
         let refused = ModelCapacityController::new(4, 1, 32, 16, 100).unwrap_err();

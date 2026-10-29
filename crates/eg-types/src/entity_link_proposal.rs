@@ -1,5 +1,5 @@
 //! Typed model for cross-application entity-resolution proposals
-//! (EG-UNIFIED-DATA-PLANE-R030): a candidate link between an entity in one
+//! (MEDULLA-UNIFIED-DATA-PLANE-R030): a candidate link between an entity in one
 //! attached application and an entity in another, classified by a
 //! Fellegi-Sunter-style match score, asserted as `owl:sameAs` only once
 //! approved. This is the typed-model slice (`.1`): the candidate/proposal
@@ -61,7 +61,7 @@ pub enum CannotAssert {
     NotAMatch,
 }
 
-/// The supplier-resolution blocking key (EG-CQ-XSRC-R004.3): the normalized
+/// The supplier-resolution blocking key (MEDULLA-CQ-XSRC-R004.3): the normalized
 /// name plus the normalized domain. Two supplier records block (are compared
 /// as candidates) only when their keys agree; the key itself never asserts a
 /// link — a proposed `owl:sameAs` stays inactive until approved.
@@ -126,42 +126,42 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R030.1
     #[test]
     fn approved_match_asserts() {
         let proposal = proposal(MatchClass::Match, Some("alice"));
         assert!(proposal.assert_same_as().is_ok());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R030.1
     #[test]
     fn unapproved_match_is_refused() {
         let proposal = proposal(MatchClass::Match, None);
         assert_eq!(proposal.assert_same_as(), Err(CannotAssert::NotApproved));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R030.1
     #[test]
     fn approved_non_match_is_refused() {
         let proposal = proposal(MatchClass::NonMatch, Some("alice"));
         assert_eq!(proposal.assert_same_as(), Err(CannotAssert::NotAMatch));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R030.1
     #[test]
     fn approved_ambiguous_is_refused() {
         let proposal = proposal(MatchClass::Ambiguous, Some("alice"));
         assert_eq!(proposal.assert_same_as(), Err(CannotAssert::NotAMatch));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R030.1
     #[test]
     fn blank_approver_is_refused() {
         let proposal = proposal(MatchClass::Match, Some("   "));
         assert_eq!(proposal.assert_same_as(), Err(CannotAssert::NotApproved));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R030.1
     #[test]
     fn proposal_serializes_round_trip() {
         let proposal = proposal(MatchClass::Match, Some("alice"));
@@ -170,7 +170,7 @@ mod tests {
         assert_eq!(decoded, proposal);
     }
 
-    // spec: EG-CQ-XSRC-R004.3
+    // spec: MEDULLA-CQ-XSRC-R004.3
     #[test]
     fn supplier_blocking_key_blocks_on_normalized_name_and_domain() {
         // True match: erpnext supplier record vs dockerhub image publisher —
@@ -183,7 +183,7 @@ mod tests {
         assert_ne!(erpnext, leanix);
     }
 
-    // spec: EG-CQ-XSRC-R004.3
+    // spec: MEDULLA-CQ-XSRC-R004.3
     #[test]
     fn true_supplier_match_is_not_asserted_before_approval() {
         let mut proposal = EntityLinkProposal {
@@ -200,7 +200,7 @@ mod tests {
         assert!(proposal.assert_same_as().is_ok());
     }
 
-    // spec: EG-CQ-XSRC-R004.3
+    // spec: MEDULLA-CQ-XSRC-R004.3
     #[test]
     fn false_and_ambiguous_supplier_pairs_never_assert() {
         // False match: a leanix fact sheet and a dockerhub publisher for

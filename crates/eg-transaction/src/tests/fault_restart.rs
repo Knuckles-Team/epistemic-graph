@@ -340,7 +340,7 @@ fn bootstrap_ledger_proves_the_whole_ledger_census_and_is_idempotent() {
 /// write capability and then aborts. An aborted write commits nothing, so it
 /// leaves the clean-shutdown marker in place and the next open still skips the
 /// row scan.
-// spec: EG-DURABLE-KERNEL-R006.3
+// spec: MEDULLA-DURABLE-KERNEL-R006.3
 #[test]
 fn an_aborted_ledger_bootstrap_keeps_the_clean_shutdown_marker() {
     let dir = tempfile::tempdir().unwrap();

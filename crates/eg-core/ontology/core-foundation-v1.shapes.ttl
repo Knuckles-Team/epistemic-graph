@@ -1,7 +1,7 @@
 @prefix : <http://knuckles.team/kg#> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 
-# Core-foundation ABox shapes (EG-CQ-CONN-R074.x): an agreement must name its
+# Core-foundation ABox shapes (MEDULLA-CQ-CONN-R074.x): an agreement must name its
 # counterparty, so a legal-peripherals record without one is incomplete.
 
 :AgreementShape a sh:NodeShape ;

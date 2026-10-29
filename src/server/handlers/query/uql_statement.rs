@@ -311,7 +311,7 @@ mod served_tests {
             crate::server::foreign_read::canonical_plan_digest(&binding).expect("plan digest")
         );
     }
-    // EG-FEDERATED-QUERY-R067 served acceptance; native qualification remains pending.
+    // MEDULLA-FEDERATED-QUERY-R067 served acceptance; native qualification remains pending.
     #[tokio::test]
     async fn score_channels_survive_the_served_uql_path() {
         let state = state();
@@ -340,7 +340,7 @@ mod served_tests {
         assert_eq!(d2.channels[1], Some(1.0));
     }
 
-    // spec: EG-FEDERATED-QUERY-R028
+    // spec: MEDULLA-FEDERATED-QUERY-R028
     #[tokio::test]
     async fn with_knowledge_is_served_without_changing_row_identity() {
         let state = state();

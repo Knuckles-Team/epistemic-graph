@@ -242,7 +242,7 @@ pub fn coverage_derivation(
 }
 
 /// One library component's independently derived coverage of one capability,
-/// and the evidence class its chain supports (EG-DECISION-ENGINE-R126).
+/// and the evidence class its chain supports (MEDULLA-DECISION-ENGINE-R126).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -252,7 +252,7 @@ pub struct LibraryCoverage {
 }
 
 /// One required capability, paired with every visible component's coverage
-/// of it (EG-DECISION-ENGINE-R126): a read-only answer, never a ranking.
+/// of it (MEDULLA-DECISION-ENGINE-R126): a read-only answer, never a ranking.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -264,11 +264,11 @@ pub struct CapabilityCoverage {
     /// capability. Never a derivation: an external agent's surface is
     /// asserted, not independently derived, so it carries no evidence class
     /// beyond the unconditional [`EvidenceClass::Claim`] every A2A card is
-    /// already classified under (EG-DECISION-ENGINE-R126).
+    /// already classified under (MEDULLA-DECISION-ENGINE-R126).
     pub a2a_card_ids: Vec<String>,
 }
 
-/// `required`'s capability coverage (EG-DECISION-ENGINE-R126): for each
+/// `required`'s capability coverage (MEDULLA-DECISION-ENGINE-R126): for each
 /// capability, every member of `library_candidates` that covers it
 /// (reusing [`coverage_chain`] through [`coverage_derivation`]) and every
 /// `(component_id, declared_capabilities)` pair of `a2a_cards` that
@@ -436,12 +436,12 @@ pub fn verify_record(record: &DecisionRecord) -> Result<(), DerivationDefect> {
     Ok(())
 }
 
-/// EG-DECISION-ENGINE-R126.2: the capability-coverage query's single entry
+/// MEDULLA-DECISION-ENGINE-R126.2: the capability-coverage query's single entry
 /// point -- the one call a served method and its generated client invoke.
 /// Composes [`required_capabilities`] (the task closure, with its abstain
-/// reasons) with [`capability_coverage`] (EG-DECISION-ENGINE-R126.1) so the
+/// reasons) with [`capability_coverage`] (MEDULLA-DECISION-ENGINE-R126.1) so the
 /// serving layer has exactly one function to call. Depends on
-/// EG-DECISION-ENGINE-R126.1; adds no new derivation rule.
+/// MEDULLA-DECISION-ENGINE-R126.1; adds no new derivation rule.
 pub fn capability_coverage_query(
     requirements: &AssemblyRequirements,
     ontology_digest: &str,

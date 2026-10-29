@@ -124,7 +124,7 @@ impl AuthMode {
     /// Directory/SCIM) -- never which evaluation path authorizes it
     /// afterward: every op dispatch returns the same `IdentityReply::
     /// Principal` reply and is checked by the same RBAC evaluator
-    /// (EG-DURABLE-KERNEL-R026). A caller that adds a fourth mode without
+    /// (MEDULLA-DURABLE-KERNEL-R026). A caller that adds a fourth mode without
     /// also widening this array gets a compile-visible, exhaustive-match
     /// reminder at every site that iterates it, rather than a silently
     /// uncovered mode.
@@ -151,7 +151,7 @@ pub struct ModeTransition {
 mod r026_unified_principal_path {
     use super::AuthMode;
 
-    /// EG-DURABLE-KERNEL-R026: the three auth modes are a closed, named set
+    /// MEDULLA-DURABLE-KERNEL-R026: the three auth modes are a closed, named set
     /// that every principal/RBAC-path caller can iterate over -- a refusal
     /// point against silently handling only a subset of modes. The deeper
     /// "same `IdentityReply::Principal` reply, same RBAC evaluator" half of

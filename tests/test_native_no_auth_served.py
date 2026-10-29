@@ -1,4 +1,4 @@
-"""Real native isolated-store proof for EG-IDENTITY-R003.1, no mock engine."""
+"""Real native isolated-store proof for MEDULLA-IDENTITY-R003.1, no mock engine."""
 
 import contextlib
 import json
@@ -12,7 +12,7 @@ import pytest
 
 pytestmark = [
     pytest.mark.no_engine,  # Each case owns its real isolated process.
-    pytest.mark.spec("EG-IDENTITY-R003.1"),
+    pytest.mark.spec("MEDULLA-IDENTITY-R003.1"),
 ]
 
 

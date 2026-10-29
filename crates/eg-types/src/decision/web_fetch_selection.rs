@@ -1,4 +1,4 @@
-//! Web page selection contract (EG-DECISION-ENGINE-R802).
+//! Web page selection contract (MEDULLA-DECISION-ENGINE-R802).
 //!
 //! `SelectWebPages` takes the candidate rows of one web search and returns
 //! the pages worth fetching, in order, each with its reasons. It is a pure,
@@ -166,7 +166,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R802.1
+    // spec: MEDULLA-DECISION-ENGINE-R802.1
     #[test]
     fn question_round_trips() {
         let original = request(4);

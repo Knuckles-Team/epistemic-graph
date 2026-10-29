@@ -1,4 +1,4 @@
-# SHACL shapes for the typed model facts (EG-TYPED-PACKS-R066.1).
+# SHACL shapes for the typed model facts (MEDULLA-TYPED-PACKS-R066.1).
 #
 # The Rust contract represents shell proficiency and stopping behaviour as
 # MeasuredFact values.  Their RDF projection keeps each measured value in a

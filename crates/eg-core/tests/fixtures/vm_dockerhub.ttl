@@ -1,5 +1,5 @@
 # Virtual-mapping fixture: dockerhub image, SBOM and Scout CVEs to
-# containsComponent and Vulnerability (EG-SUPPLY-VOCAB-R006.5).
+# containsComponent and Vulnerability (MEDULLA-SUPPLY-VOCAB-R006.5).
 #
 # Recorded over the `hub_scout` actions `summary` (the image record),
 # `sbom` (the per-image component list, a child fetch) and `cves` (the

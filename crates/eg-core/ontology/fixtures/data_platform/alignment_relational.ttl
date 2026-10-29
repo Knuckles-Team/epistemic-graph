@@ -1,4 +1,4 @@
-# Relational (sql) and document (documentdb) alignment (EG-DATAPLAT-VOCAB-R008.1).
+# Relational (sql) and document (documentdb) alignment (MEDULLA-DATAPLAT-VOCAB-R008.1).
 #
 # Each package-local term aligns to its data-platform term so the two cannot
 # drift silently: classes `rdfs:subClassOf` (the package term is the emitted

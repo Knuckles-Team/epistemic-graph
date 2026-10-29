@@ -1,4 +1,4 @@
-//! Optimistic concurrency footprints (EG-ENGINE-PARITY-R002.1, R004.1).
+//! Optimistic concurrency footprints (MEDULLA-ENGINE-PARITY-R002.1, R004.1).
 //!
 //! A transaction reads from the snapshot at `snapshot_seq` and records the
 //! table key ranges it read and wrote. At commit the footprint validates

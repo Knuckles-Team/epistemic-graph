@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R803.6: decide over eight candidate component versions
+//! MEDULLA-DECISION-ENGINE-R803.6: decide over eight candidate component versions
 //! with two hundred stored contrasts in the evidence. JSON on stdout.
 //! Budget: p99 5 ms in the optimized profile.
 //! Run with `cargo bench -p eg-numeric --features decision --bench harness_contrast`.

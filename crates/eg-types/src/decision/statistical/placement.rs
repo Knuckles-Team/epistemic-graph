@@ -100,7 +100,7 @@ impl PlacementRequestBody {
     }
 }
 
-/// The declared facts of one target (`placement:Target`, EG-PLACEMENT-R001.5).
+/// The declared facts of one target (`placement:Target`, MEDULLA-PLACEMENT-R001.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -219,7 +219,7 @@ fn effective_cost_cap(request: Option<u64>, policy: Option<u64>) -> Result<Optio
     }
 }
 
-/// Pure feasibility (EG-PLACEMENT-R001.6): apply the hard constraints (HA,
+/// Pure feasibility (MEDULLA-PLACEMENT-R001.6): apply the hard constraints (HA,
 /// volumes, max replicas, forbidden targets, cost cap, capacity headroom) to
 /// every candidate. Nothing is acquired.
 pub fn place(
@@ -261,7 +261,7 @@ pub fn place(
     Ok(verdict)
 }
 
-/// The closed capability set a host may declare (EG-PLACEMENT-R004.1).
+/// The closed capability set a host may declare (MEDULLA-PLACEMENT-R004.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -293,7 +293,7 @@ pub struct RoutingFact {
 }
 
 /// The default host order: most headroom first, ties by host IRI. A named,
-/// replaceable default (EG-PLACEMENT-R004.2).
+/// replaceable default (MEDULLA-PLACEMENT-R004.2).
 pub fn most_headroom_first(a: &HostCapability, b: &HostCapability) -> std::cmp::Ordering {
     b.headroom
         .cmp(&a.headroom)
@@ -318,7 +318,7 @@ pub fn route_heavy_job<'a>(
 mod tests {
     use super::*;
 
-    // spec: EG-PLACEMENT-R001.3
+    // spec: MEDULLA-PLACEMENT-R001.3
     #[test]
     fn every_target_round_trips_through_its_stable_option_id() {
         let expected = [
@@ -334,7 +334,7 @@ mod tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R001.3
+    // spec: MEDULLA-PLACEMENT-R001.3
     #[test]
     fn systemd_and_other_unregistered_option_ids_are_refused() {
         for option_id in [
@@ -350,7 +350,7 @@ mod tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R001.3
+    // spec: MEDULLA-PLACEMENT-R001.3
     #[test]
     fn target_wire_names_round_trip_and_systemd_is_refused() {
         for (target, name) in
@@ -391,7 +391,7 @@ mod tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R001.4
+    // spec: MEDULLA-PLACEMENT-R001.4
     #[test]
     fn a_valid_placement_body_is_accepted_and_round_trips() {
         let body = accepted_body();
@@ -402,7 +402,7 @@ mod tests {
         assert_eq!(decoded.check(), Ok(()));
     }
 
-    // spec: EG-PLACEMENT-R001.4
+    // spec: MEDULLA-PLACEMENT-R001.4
     #[test]
     fn empty_candidates_are_refused() {
         let mut body = accepted_body();
@@ -413,7 +413,7 @@ mod tests {
             .starts_with("EMPTY_PLACEMENT_CANDIDATES:"));
     }
 
-    // spec: EG-PLACEMENT-R001.4
+    // spec: MEDULLA-PLACEMENT-R001.4
     #[test]
     fn duplicate_candidates_are_refused() {
         let mut body = accepted_body();
@@ -425,7 +425,7 @@ mod tests {
         );
     }
 
-    // spec: EG-PLACEMENT-R001.4
+    // spec: MEDULLA-PLACEMENT-R001.4
     #[test]
     fn unknown_candidate_option_ids_are_refused() {
         for option_id in ["placement:systemd", "placement:unknown", "compose", ""] {
@@ -438,7 +438,7 @@ mod tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R001.4
+    // spec: MEDULLA-PLACEMENT-R001.4
     #[test]
     fn zero_replicas_are_refused() {
         let mut body = accepted_body();
@@ -449,7 +449,7 @@ mod tests {
             .starts_with("ZERO_PLACEMENT_REPLICAS:"));
     }
 
-    // spec: EG-PLACEMENT-R001.4
+    // spec: MEDULLA-PLACEMENT-R001.4
     #[test]
     fn zero_cpu_demand_is_refused() {
         let mut body = accepted_body();
@@ -460,7 +460,7 @@ mod tests {
             .starts_with("ZERO_PLACEMENT_DEMAND:"));
     }
 
-    // spec: EG-PLACEMENT-R001.4
+    // spec: MEDULLA-PLACEMENT-R001.4
     #[test]
     fn zero_memory_demand_is_refused() {
         let mut body = accepted_body();
@@ -471,7 +471,7 @@ mod tests {
             .starts_with("ZERO_PLACEMENT_DEMAND:"));
     }
 
-    // spec: EG-PLACEMENT-R001.4
+    // spec: MEDULLA-PLACEMENT-R001.4
     #[test]
     fn unknown_body_subject_and_constraint_fields_are_refused() {
         for path in ["", "subject", "constraints"] {
@@ -536,7 +536,7 @@ mod tests {
             .collect()
     }
 
-    // spec: EG-PLACEMENT-R001.2
+    // spec: MEDULLA-PLACEMENT-R001.2
     #[test]
     fn the_placement_question_kind_round_trips() {
         use crate::decision::statistical::QuestionKind;
@@ -553,7 +553,7 @@ mod tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R001.6
+    // spec: MEDULLA-PLACEMENT-R001.6
     #[test]
     fn each_hard_constraint_eliminates_exactly_its_targets() {
         let facts = target_facts();
@@ -623,7 +623,7 @@ mod tests {
         );
     }
 
-    // spec: EG-PLACEMENT-R001.6
+    // spec: MEDULLA-PLACEMENT-R001.6
     #[test]
     fn a_request_can_only_tighten_policy_caps() {
         let mut facts = target_facts();
@@ -641,7 +641,7 @@ mod tests {
         assert_eq!(verdict.eliminated.len(), 1);
     }
 
-    // spec: EG-PLACEMENT-R004.1
+    // spec: MEDULLA-PLACEMENT-R004.1
     #[test]
     fn capability_types_round_trip() {
         let host = HostCapability {
@@ -666,7 +666,7 @@ mod tests {
         assert!(serde_json::from_value::<HostCapability>(undeclared).is_err());
     }
 
-    // spec: EG-PLACEMENT-R004.2
+    // spec: MEDULLA-PLACEMENT-R004.2
     #[test]
     fn route_orders_by_headroom() {
         let host = |iri: &str, capability, headroom| HostCapability {

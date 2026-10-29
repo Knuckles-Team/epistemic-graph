@@ -2,9 +2,9 @@
 use super::*;
 use crate::rbac_persist::test_support::open_test_store;
 
-// spec: EG-TYPED-PACKS-R085.1
-// spec: EG-TYPED-PACKS-R085.7.2
-// spec: EG-TYPED-PACKS-R085.6.2
+// spec: MEDULLA-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.7.2
+// spec: MEDULLA-TYPED-PACKS-R085.6.2
 #[test]
 fn exact_session_facts_and_revocation_survive_durable_reopen() {
     let dir = durable_fixture_dir("eg-session-record");
@@ -158,7 +158,7 @@ fn exact_session_facts_and_revocation_survive_durable_reopen() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-// spec: EG-TYPED-PACKS-R085.4.2
+// spec: MEDULLA-TYPED-PACKS-R085.4.2
 #[test]
 fn renewal_uses_global_revision_and_survives_reopen_without_resurrection() {
     let dir = durable_fixture_dir("eg-session-renew");

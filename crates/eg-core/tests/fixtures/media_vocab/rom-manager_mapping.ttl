@@ -1,5 +1,5 @@
 # Recorded virtual-graph mapping for the `rom-manager` connector
-# (rom-manager; EG-MEDIA-VOCAB-R009.1, EG-CQ-CONN-R053). The rows are the
+# (rom-manager; MEDULLA-MEDIA-VOCAB-R009.1, MEDULLA-CQ-CONN-R053). The rows are the
 # `Connector mapping tables` entry for rom-manager in
 # specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
 # contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary

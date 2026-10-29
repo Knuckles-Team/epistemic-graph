@@ -38,7 +38,7 @@ pub fn set_nl_planner(planner: Arc<dyn NlPlanner>) {
 
 /// Resolve the active planner: the injected one if present, else the lazily-built config
 /// default (`Ok(None)` when standalone config names no LLM endpoint). Invalid request
-/// config (EG-FEDERATED-QUERY-R058.5) is returned as the typed [`NlConfigError`].
+/// config (MEDULLA-FEDERATED-QUERY-R058.5) is returned as the typed [`NlConfigError`].
 pub fn resolve_planner() -> Result<Option<Arc<dyn NlPlanner>>, NlConfigError> {
     if let Some(p) = INJECTED.get() {
         return Ok(Some(p.clone()));
@@ -129,7 +129,7 @@ fn build_default_from_config() -> ConfigDefault {
     Ok(Some(Arc::new(planner) as Arc<dyn NlPlanner>))
 }
 
-/// Apply the configured read timeout / extra request body (EG-FEDERATED-QUERY-R058.5),
+/// Apply the configured read timeout / extra request body (MEDULLA-FEDERATED-QUERY-R058.5),
 /// refusing invalid values with a typed [`NlConfigError`].
 fn apply_request_settings(
     mut planner: UreqNlPlanner,
@@ -196,7 +196,7 @@ fn load_or_scaffold_settings() -> NlSettings {
 }
 
 /// Apply the env request overrides. An unparseable value keeps its source and raw text so
-/// the refusal names them (EG-FEDERATED-QUERY-R058.5).
+/// the refusal names them (MEDULLA-FEDERATED-QUERY-R058.5).
 fn apply_env_request_values(
     settings: &mut NlSettings,
     timeout: Option<String>,
@@ -447,7 +447,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    // spec: EG-FEDERATED-QUERY-R058.5
+    // spec: MEDULLA-FEDERATED-QUERY-R058.5
     #[test]
     fn config_request_settings_are_parsed_and_invalid_ones_refused() {
         let dir = std::env::temp_dir().join(format!("eg-nl-cfg-{}", std::process::id()));
@@ -474,7 +474,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    // spec: EG-FEDERATED-QUERY-R058.5
+    // spec: MEDULLA-FEDERATED-QUERY-R058.5
     #[test]
     fn unparseable_env_values_are_refused_with_source_and_raw_value() {
         let mut s = NlSettings::empty();

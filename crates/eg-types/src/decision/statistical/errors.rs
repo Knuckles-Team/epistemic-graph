@@ -47,10 +47,10 @@ closed_error_codes! {
         ReplaySpecInvalid => "REPLAY_SPEC_INVALID",
         /// A declared ingestion-lane candidate names a lane outside the
         /// fixed registry (`IngestionLane::ALL`), refused before any
-        /// decision runs (EG-DECISION-ENGINE-R030).
+        /// decision runs (MEDULLA-DECISION-ENGINE-R030).
         UnsupportedIngestionLane => "UNSUPPORTED_INGESTION_LANE",
         /// A declared enrichment-schedule candidate names a negative
-        /// `enrichment.cost_q32` (EG-DECISION-ENGINE-R031).
+        /// `enrichment.cost_q32` (MEDULLA-DECISION-ENGINE-R031).
         UnsupportedEnrichmentCost => "UNSUPPORTED_ENRICHMENT_COST",
     }
 }

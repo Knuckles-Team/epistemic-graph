@@ -1,5 +1,5 @@
 //! Join cardinality statistics for cross-source federation (CONCEPT:EG-KG.query.query-federation,
-//! EG-FEDERATED-QUERY-R048.1 — typed-model slice of R048).
+//! MEDULLA-FEDERATED-QUERY-R048.1 — typed-model slice of R048).
 //!
 //! R048 asks the planner to order joins across multiple foreign sources using LEARNED
 //! cardinality statistics persisted as graph facts with their provenance, seeded by
@@ -163,7 +163,7 @@ impl JoinCardinalityStatistic {
 mod tests {
     use super::*;
 
-    // spec: EG-FEDERATED-QUERY-R048.1
+    // spec: MEDULLA-FEDERATED-QUERY-R048.1
     #[test]
     fn rejects_statistic_without_provenance() {
         let err = JoinCardinalityStatistic::try_new("pg_orders", 1_000_000, 500, None, 1)
@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(err, StatsError::MissingProvenance);
     }
 
-    // spec: EG-FEDERATED-QUERY-R048.1
+    // spec: MEDULLA-FEDERATED-QUERY-R048.1
     #[test]
     fn rejects_statistic_with_zero_sample_count() {
         let provenance = StatisticsProvenance::PostgresTableStats {
@@ -182,7 +182,7 @@ mod tests {
         assert_eq!(err, StatsError::ZeroSampleCount);
     }
 
-    // spec: EG-FEDERATED-QUERY-R048.1
+    // spec: MEDULLA-FEDERATED-QUERY-R048.1
     #[test]
     fn accepts_a_fully_provenanced_statistic_and_carries_its_fields() {
         let provenance = StatisticsProvenance::PostgresTableStats {
@@ -206,7 +206,7 @@ mod tests {
         assert!(!stat.is_current_for(4));
     }
 
-    // spec: EG-FEDERATED-QUERY-R048.1
+    // spec: MEDULLA-FEDERATED-QUERY-R048.1
     #[test]
     fn engine_reported_and_void_description_provenance_round_trip() {
         let engine = JoinCardinalityStatistic::try_new(

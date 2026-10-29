@@ -32,7 +32,7 @@ impl RetryAllowance {
 mod tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R113.3.1
+    // spec: MEDULLA-DECISION-ENGINE-R113.3.1
     #[test]
     fn retry_allowance_consumes_once() {
         let mut allowance = RetryAllowance {
@@ -46,7 +46,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R113.3.1
+    // spec: MEDULLA-DECISION-ENGINE-R113.3.1
     #[test]
     fn invalid_allowances_fail_without_mutation() {
         for count in 2..=u8::MAX {

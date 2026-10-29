@@ -123,7 +123,7 @@ mod tests {
     /// runnable or shadowable by tenant B, even though `owner_scope` is keyed only
     /// by `(tenant_scope, actor_scope)` — EH-374's tenant boundary, not just the
     /// per-principal one already covered above.
-    // spec: EG-DURABLE-KERNEL-R018
+    // spec: MEDULLA-DURABLE-KERNEL-R018
     #[test]
     fn udf_ids_are_tenant_scoped_for_run_and_shadowing() {
         use super::super::auth::VerifiedRequestContext;

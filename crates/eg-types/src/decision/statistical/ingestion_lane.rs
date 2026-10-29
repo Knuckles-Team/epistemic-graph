@@ -1,4 +1,4 @@
-//! Typed ingestion-lane routing (`EG-DECISION-ENGINE-R030`): an ingestion
+//! Typed ingestion-lane routing (`MEDULLA-DECISION-ENGINE-R030`): an ingestion
 //! request is routed to a fast, medium or slow processing path through the
 //! same typed decision mechanism as any other declared-candidate question
 //! (`QuestionKind::IngestionLane`, [`super::declared`]), never a hard-coded
@@ -87,7 +87,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R030
+    // spec: MEDULLA-DECISION-ENGINE-R030
     #[test]
     fn a_request_naming_only_registered_lanes_is_accepted() {
         let request = IngestionLaneRequest {

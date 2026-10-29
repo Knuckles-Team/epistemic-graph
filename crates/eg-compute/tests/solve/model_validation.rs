@@ -220,7 +220,7 @@ const CASES: [Case; 15] = [
     ),
 ];
 
-// spec: EG-DECISION-ENGINE-R014
+// spec: MEDULLA-DECISION-ENGINE-R014
 #[test]
 fn every_invalid_spec_is_refused_with_its_typed_error() {
     assert!(Model::try_from(base()).is_ok());

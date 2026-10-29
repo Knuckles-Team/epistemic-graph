@@ -456,7 +456,7 @@ fn signed_run_request(id: u64, method: Method, idempotency_key: &str) -> Request
     )
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4
+// spec: MEDULLA-DURABLE-KERNEL-R028.4
 #[tokio::test]
 async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     use sha2::{Digest, Sha256};
@@ -604,8 +604,8 @@ async fn claim_admitted_run(
     )
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5
-// spec: EG-DURABLE-KERNEL-R028.5.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.5
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.3
 #[tokio::test]
 async fn current_plan_native_publish_read_and_receipt_replay() {
     use eg_types::current_plan::{
@@ -927,7 +927,7 @@ async fn current_plan_expired_replay(
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[tokio::test]
 async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
     use eg_types::run_checkpoint::{
@@ -1199,7 +1199,7 @@ async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[tokio::test]
 async fn run_admission_owner_read_survives_native_changes_and_restart() {
     use eg_types::work_item_read::RunWorkItemView;
@@ -1383,7 +1383,7 @@ async fn change_and_cancel_admission(
     assert!(cancelled.error.is_none(), "cancel: {cancelled:?}");
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[tokio::test]
 async fn run_admission_concurrent_retry_recovers_exact_winner() {
     use eg_types::work_item_read::RunWorkItemView;
@@ -1586,7 +1586,7 @@ async fn assert_strict_admission_recovery(
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[tokio::test]
 async fn strict_run_admission_refusals_preserve_durable_evidence_after_restart() {
     let (dir, concrete, state) = fresh_run_state("eg-strict-run-admission").await;

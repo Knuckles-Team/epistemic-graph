@@ -92,7 +92,7 @@ fn infeasible_labels(assembly: &Assembly) -> Vec<String> {
         .collect()
 }
 
-// spec: EG-DECISION-ENGINE-R046
+// spec: MEDULLA-DECISION-ENGINE-R046
 #[test]
 fn demand_sizes_the_fan_out_and_the_plan_leases_it() {
     let assembly = decide(requirements(4), read(10, admitted()));
@@ -112,8 +112,8 @@ fn demand_sizes_the_fan_out_and_the_plan_leases_it() {
     replay_check(&assembly.record).expect("a topology record replays byte for byte");
 }
 
-// spec: EG-DECISION-ENGINE-R046
-// spec: EG-DECISION-ENGINE-R112
+// spec: MEDULLA-DECISION-ENGINE-R046
+// spec: MEDULLA-DECISION-ENGINE-R112
 #[test]
 fn headroom_below_demand_abstains_naming_the_cell_lease() {
     let assembly = decide(requirements(4), read(3, admitted()));
@@ -140,7 +140,7 @@ fn a_request_that_widens_the_policy_caps_is_refused() {
     assert_eq!(error.code, DecisionErrorCode::PolicyLoosening);
 }
 
-// spec: EG-DECISION-ENGINE-R018
+// spec: MEDULLA-DECISION-ENGINE-R018
 #[test]
 fn an_unknown_p95_under_a_deadline_is_an_unknown_fact_not_zero() {
     let mut topology = facts();
@@ -193,7 +193,7 @@ fn a_task_needing_an_independent_check_needs_a_verifier_slot() {
     assert_eq!(infeasible_labels(&assembly), vec!["verify".to_string()]);
 }
 
-// spec: EG-DECISION-ENGINE-R114
+// spec: MEDULLA-DECISION-ENGINE-R114
 #[test]
 fn a_harness_slot_gets_no_native_sub_agents_unless_its_harness_opts_in() {
     let mut topology = facts();

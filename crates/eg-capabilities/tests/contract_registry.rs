@@ -209,20 +209,20 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // authority the request boundary mints.
     // 462 -> 463: the identity store's Identity method.
     // 463 -> 464: EH-560's GovernedChange (two-person governed changes).
-    // 464 -> 465: EG-DECISION-ENGINE-R126.2.1's read-only `CapabilityCoverage`.
-    // 465 -> 466: EG-DECISION-ENGINE-R127.2.2 read-only guardrail entailment.
-    // 466 -> 468: EG-UNIFIED-DATA-PLANE-R651.7 `EnrichDocument` and
-    // EG-DECISION-ENGINE-R802 `SelectWebPages`.
-    // 468 -> 470: EG-DURABLE-KERNEL-R028.5 `PublishCurrentPlan` and `GetCurrentPlan`.
-    // 470 -> 471: EG-DURABLE-KERNEL-R028.4.1 owner-bound GetRunWorkItem.
-    // 471 -> 472: EG-FEDERATED-QUERY-R058.2.2.1 read-only `NlQueryExplain`.
-    // 472 -> 473: EG-FEDERATED-QUERY-R058.2.2.2 read-only `NlQueryPlan`.
-    // 473 -> 477: EG-FEDERATED-QUERY-R722.3's four public host-driven
+    // 464 -> 465: MEDULLA-DECISION-ENGINE-R126.2.1's read-only `CapabilityCoverage`.
+    // 465 -> 466: MEDULLA-DECISION-ENGINE-R127.2.2 read-only guardrail entailment.
+    // 466 -> 468: MEDULLA-UNIFIED-DATA-PLANE-R651.7 `EnrichDocument` and
+    // MEDULLA-DECISION-ENGINE-R802 `SelectWebPages`.
+    // 468 -> 470: MEDULLA-DURABLE-KERNEL-R028.5 `PublishCurrentPlan` and `GetCurrentPlan`.
+    // 470 -> 471: MEDULLA-DURABLE-KERNEL-R028.4.1 owner-bound GetRunWorkItem.
+    // 471 -> 472: MEDULLA-FEDERATED-QUERY-R058.2.2.1 read-only `NlQueryExplain`.
+    // 472 -> 473: MEDULLA-FEDERATED-QUERY-R058.2.2.2 read-only `NlQueryPlan`.
+    // 473 -> 477: MEDULLA-FEDERATED-QUERY-R722.3's four public host-driven
     // foreign-read lifecycle methods.
     // 477 -> 481: `GetSessionUsage`, `IssueHostStartGrant`, `PublishRunCheckpoint`
     // and `GetRunCheckpoint`.
-    // 481 -> 483: EG-FINANCE-PRIMITIVES-R900.3 `FinancePositionSize`, `FinanceDistributionShift`.
-    // 483 -> 492: EG-FINANCE-PRIMITIVES-R901.3/R613.3/R018.3 banking, execution and factor-rank methods.
+    // 481 -> 483: MEDULLA-FINANCE-PRIMITIVES-R900.3 `FinancePositionSize`, `FinanceDistributionShift`.
+    // 483 -> 492: MEDULLA-FINANCE-PRIMITIVES-R901.3/R613.3/R018.3 banking, execution and factor-rank methods.
     assert_eq!(
         variants.len(),
         492,
@@ -230,7 +230,7 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R020
+// spec: MEDULLA-FEDERATED-QUERY-R020
 #[test]
 fn retired_methods_never_reappear() {
     let variants = wire_method_variants();

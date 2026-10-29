@@ -53,7 +53,7 @@ fn the_facts_digest_moves_with_every_fact() {
 
 /// A v1 record carries no topology key anywhere, so its bytes -- and every
 /// committed v1 digest -- are exactly what they were before topology existed.
-// spec: EG-DECISION-ENGINE-R107
+// spec: MEDULLA-DECISION-ENGINE-R107
 #[test]
 fn a_plain_record_serializes_no_topology_key_and_stays_at_base_version() {
     for outcome in wave::every_decision_outcome() {
@@ -65,7 +65,7 @@ fn a_plain_record_serializes_no_topology_key_and_stays_at_base_version() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R107
+// spec: MEDULLA-DECISION-ENGINE-R107
 #[test]
 fn a_topology_request_is_sealed_as_the_topology_version() {
     let mut record = wave::record(wave::every_decision_outcome().remove(1));
@@ -89,7 +89,7 @@ fn a_topology_request_is_sealed_as_the_topology_version() {
 /// golden vectors decode and replay-check clean, a record sealed at the
 /// topology version round-trips and stays usable, and a version this build
 /// does not recognise is refused by a typed error rather than guessed at.
-// spec: EG-DECISION-ENGINE-R067
+// spec: MEDULLA-DECISION-ENGINE-R067
 #[test]
 fn every_supported_decision_record_version_decodes_and_an_unknown_version_is_refused() {
     let golden_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

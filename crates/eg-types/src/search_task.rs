@@ -1,5 +1,5 @@
 //! Search-task synthesis records with shortcut-risk diagnostics
-//! (EG-FEDERATED-QUERY-R702.1, R702.4).
+//! (MEDULLA-FEDERATED-QUERY-R702.1, R702.4).
 //!
 //! A [`SearchTask`] is a multi-hop question formulated from an
 //! [`EvidenceGraph`]. A [`RiskReport`] lists every shortcut detector's value
@@ -83,7 +83,7 @@ pub struct EvidenceEdge {
     pub relation: String,
 }
 
-/// The evidence subgraph a task is formulated from (EG-FEDERATED-QUERY-R702.1).
+/// The evidence subgraph a task is formulated from (MEDULLA-FEDERATED-QUERY-R702.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -120,7 +120,7 @@ pub struct Clue {
     pub evidence_nodes: Vec<String>,
 }
 
-/// A multi-hop search question (EG-FEDERATED-QUERY-R702.1).
+/// A multi-hop search question (MEDULLA-FEDERATED-QUERY-R702.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -190,7 +190,7 @@ impl RiskThresholds {
     }
 }
 
-/// Every detector's value for one task (EG-FEDERATED-QUERY-R702.1).
+/// Every detector's value for one task (MEDULLA-FEDERATED-QUERY-R702.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -201,7 +201,7 @@ pub struct RiskReport {
 impl RiskReport {
     /// Refuse a report that omits a detector, repeats one or carries a
     /// non-finite value, then refuse the task if any value exceeds its
-    /// threshold (EG-FEDERATED-QUERY-R702.4).
+    /// threshold (MEDULLA-FEDERATED-QUERY-R702.4).
     pub fn check(&self, thresholds: &RiskThresholds) -> Result<(), SearchTaskRefusal> {
         let detectors: BTreeSet<ShortcutDetector> =
             self.findings.iter().map(|f| f.detector).collect();
@@ -280,7 +280,7 @@ mod tests {
 
     const GOLDEN: &str = r#"{"detector":"co_coverage","value":0.25,"nodes":["a","b"]}"#;
 
-    // spec: EG-FEDERATED-QUERY-R702.1
+    // spec: MEDULLA-FEDERATED-QUERY-R702.1
     #[test]
     fn records_round_trip_and_reject_invalid_shapes() {
         let finding: RiskFinding = serde_json::from_str(GOLDEN).unwrap();
@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(unknown.validate(&graph()).unwrap_err().subject, "zz");
     }
 
-    // spec: EG-FEDERATED-QUERY-R702.4
+    // spec: MEDULLA-FEDERATED-QUERY-R702.4
     #[test]
     fn task_over_any_threshold_is_refused_with_the_detector_name() {
         let thresholds = RiskThresholds {

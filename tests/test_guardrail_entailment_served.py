@@ -46,7 +46,7 @@ async def _publish_rule(
     )
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R127.2.3")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R127.2.3")
 @pytest.mark.asyncio
 async def test_generated_guardrail_entailment_queries_published_rules() -> None:
     client = await EpistemicGraphClient.connect(

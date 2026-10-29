@@ -1,4 +1,4 @@
-//! Source authority acceptance (EG-SRC-AUTH-R004.5, R009.1, R009.2): authority
+//! Source authority acceptance (MEDULLA-SRC-AUTH-R004.5, R009.1, R009.2): authority
 //! rows are graph data. The same question text selects a different source when
 //! only the ranks in the graph change.
 #![cfg(feature = "rdf")]
@@ -51,7 +51,7 @@ fn attached(document: &str) -> GraphSchemaSources {
     sources
 }
 
-// spec: EG-SRC-AUTH-R009.1
+// spec: MEDULLA-SRC-AUTH-R009.1
 #[test]
 fn the_incident_fixture_parses_passes_the_shapes_and_selects_rank_one() {
     let doc = document(1, 2);
@@ -73,7 +73,7 @@ fn the_incident_fixture_parses_passes_the_shapes_and_selects_rank_one() {
     }
 }
 
-// spec: EG-SRC-AUTH-R009.2
+// spec: MEDULLA-SRC-AUTH-R009.2
 #[test]
 fn swapping_two_ranks_changes_sources_used_with_equal_query_text() {
     let before_question = question();
@@ -96,7 +96,7 @@ fn swapping_two_ranks_changes_sources_used_with_equal_query_text() {
     assert!(!after_audit.used[0].premises.is_empty());
 }
 
-// spec: EG-SRC-AUTH-R004.5
+// spec: MEDULLA-SRC-AUTH-R004.5
 #[test]
 fn the_live_read_returns_the_same_verdict_as_the_fixture() {
     let live = fixture_from_schema_sources(&attached(&document(1, 2))).unwrap();

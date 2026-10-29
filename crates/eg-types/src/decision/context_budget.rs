@@ -1,5 +1,5 @@
 //! Context window budget and recursive parallel-map limits
-//! (EG-DECISION-ENGINE-R137.1 and R137.2).
+//! (MEDULLA-DECISION-ENGINE-R137.1 and R137.2).
 //!
 //! A prompt that passes the over-window fraction of the model window is split
 //! in halves, depth by depth, until every chunk fits under that fraction. Each
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::numeric::UnitRationalWire;
 
-/// Named, replaceable defaults (EG-DECISION-ENGINE-R137.2).
+/// Named, replaceable defaults (MEDULLA-DECISION-ENGINE-R137.2).
 pub const DEFAULT_OVER_WINDOW_NUMERATOR: u64 = 4;
 pub const DEFAULT_OVER_WINDOW_DENOMINATOR: u64 = 5;
 pub const DEFAULT_MAX_ITEMS: u32 = 1000;

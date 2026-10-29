@@ -1,5 +1,5 @@
 # Recorded virtual-graph mapping for the `freshrss` connector
-# (freshrss-agent; EG-MEDIA-VOCAB-R013.1, EG-CQ-CONN-R022). The rows are the
+# (freshrss-agent; MEDULLA-MEDIA-VOCAB-R013.1, MEDULLA-CQ-CONN-R022). The rows are the
 # `Connector mapping tables` entry for freshrss in
 # specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
 # contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary

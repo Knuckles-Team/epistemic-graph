@@ -1,5 +1,5 @@
 //! Argument maps in the Argument Interchange Format and their Dung projection
-//! (EG-FEDERATED-QUERY-R700.1, R700.2, R700.4).
+//! (MEDULLA-FEDERATED-QUERY-R700.1, R700.2, R700.4).
 //!
 //! An [`ArgumentMap`] is AIF interchange JSON (`nodes` with `nodeID`, `text`,
 //! `type`; `edges` with `edgeID`, `fromID`, `toID`). [`ArgumentMap::checked`]
@@ -109,7 +109,7 @@ pub struct AifEdge {
     pub to_id: String,
 }
 
-/// An AIF argument map (EG-FEDERATED-QUERY-R700.1).
+/// An AIF argument map (MEDULLA-FEDERATED-QUERY-R700.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -119,7 +119,7 @@ pub struct ArgumentMap {
 }
 
 impl ArgumentMap {
-    /// Validate well-formedness (EG-FEDERATED-QUERY-R700.4).
+    /// Validate well-formedness (MEDULLA-FEDERATED-QUERY-R700.4).
     pub fn checked(self) -> Result<Self, ArgumentMapRefusal> {
         let kinds = self.kinds()?;
         let mut edge_ids = BTreeSet::new();
@@ -208,7 +208,7 @@ impl ArgumentMap {
     }
 }
 
-/// An abstract argumentation framework (EG-FEDERATED-QUERY-R700.1).
+/// An abstract argumentation framework (MEDULLA-FEDERATED-QUERY-R700.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -218,7 +218,7 @@ pub struct DungProjection {
     pub attacks: Vec<(String, String)>,
 }
 
-/// Preferred extensions found within a node budget (EG-FEDERATED-QUERY-R700.2).
+/// Preferred extensions found within a node budget (MEDULLA-FEDERATED-QUERY-R700.2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -419,7 +419,7 @@ mod tests {
 
     const GOLDEN: &str = r#"{"nodes":[{"nodeID":"a","text":"text a","type":"I"},{"nodeID":"b","text":"text b","type":"I"},{"nodeID":"ca","text":"text ca","type":"CA"}],"edges":[{"edgeID":"e1","fromID":"b","toID":"ca"},{"edgeID":"e2","fromID":"ca","toID":"a"}]}"#;
 
-    // spec: EG-FEDERATED-QUERY-R700.1
+    // spec: MEDULLA-FEDERATED-QUERY-R700.1
     #[test]
     fn interchange_golden_vector_round_trips_and_projects() {
         let map: ArgumentMap = serde_json::from_str(GOLDEN).unwrap();
@@ -446,7 +446,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R700.2
+    // spec: MEDULLA-FEDERATED-QUERY-R700.2
     #[test]
     fn grounded_and_preferred_extensions() {
         let projection = map().project().unwrap();
@@ -479,7 +479,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FEDERATED-QUERY-R700.4
+    // spec: MEDULLA-FEDERATED-QUERY-R700.4
     #[test]
     fn malformed_maps_refuse_with_offending_id_and_budget_certifies_gap() {
         let mut dangling = map();

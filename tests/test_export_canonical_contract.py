@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-CONTRACT-R006.3")]
+pytestmark = [pytest.mark.no_engine, pytest.mark.spec("MEDULLA-CONTRACT-R006.3")]
 ROOT = Path(__file__).resolve().parents[1]
 
 

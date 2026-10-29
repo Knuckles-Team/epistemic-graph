@@ -33,7 +33,7 @@
 
 :assetClass a owl:DatatypeProperty ;
     rdfs:label "asset class" ;
-    rdfs:comment "The market an instrument belongs to (EG-FINANCE-PRIMITIVES-R004): equity, etf, fund, index, fx_pair, commodity_spot, commodity_future, crypto, real_estate or cash. A closed vocabulary checked by the finance shapes. Migration aliases stock, forex and commodity remain valid for one deprecation window and mean equity, fx_pair and commodity_spot respectively; new records use the canonical value." ;
+    rdfs:comment "The market an instrument belongs to (MEDULLA-FINANCE-PRIMITIVES-R004): equity, etf, fund, index, fx_pair, commodity_spot, commodity_future, crypto, real_estate or cash. A closed vocabulary checked by the finance shapes. Migration aliases stock, forex and commodity remain valid for one deprecation window and mean equity, fx_pair and commodity_spot respectively; new records use the canonical value." ;
     rdfs:domain :FinancialInstrument ;
     rdfs:range xsd:string .
 
@@ -475,7 +475,7 @@
     rdfs:domain :RiskSnapshot ;
     rdfs:range xsd:string .
 
-# ── Portfolio accounting: account and position records (EG-FINANCE-PRIMITIVES-R004.2.1) ──
+# ── Portfolio accounting: account and position records (MEDULLA-FINANCE-PRIMITIVES-R004.2.1) ──
 #
 # finance-v1's portfolio-accounting records, producer-first after the R004.1 asset-class
 # vocabulary. Distinct from :PortfolioPosition above (an exchange-execution position folded
@@ -537,7 +537,7 @@
     rdfs:domain :Position ;
     rdfs:range xsd:string .
 
-# ── Portfolio accounting: activity and lot records (EG-FINANCE-PRIMITIVES-R004.2.2) ──
+# ── Portfolio accounting: activity and lot records (MEDULLA-FINANCE-PRIMITIVES-R004.2.2) ──
 
 :Activity a owl:Class ;
     rdfs:label "Activity" ;
@@ -599,7 +599,7 @@
     rdfs:domain :Lot ;
     rdfs:range xsd:decimal .
 
-# ── Portfolio grouping, strategy and leverage records (EG-FINANCE-PRIMITIVES-R004.2.3 to R004.2.6) ──
+# ── Portfolio grouping, strategy and leverage records (MEDULLA-FINANCE-PRIMITIVES-R004.2.3 to R004.2.6) ──
 #
 # Versioned records shared by PortfolioGroup, StrategySpec, StrategyRun and LeverageTerms:
 # an unknown schema version fails closed in the shapes, and every record names its tenant,
@@ -774,10 +774,10 @@
     rdfs:domain :LeverageTerms ;
     rdfs:range xsd:decimal .
 
-# ── Finance method vocabulary: algorithms and analysis types (EG-CQ-CONN-R084.5) ──
+# ── Finance method vocabulary: algorithms and analysis types (MEDULLA-CQ-CONN-R084.5) ──
 #
 # The selection vocabulary for "which algorithm applies to analysis type X for
-# instrument or position type Y" (EG-CQ-CONN-R084.1): a :FinanceAlgorithm is a
+# instrument or position type Y" (MEDULLA-CQ-CONN-R084.1): a :FinanceAlgorithm is a
 # first-class, queryable method record. Its applicability is declared over the
 # analysis types it computes (appliesToAnalysis) and the instrument or position
 # classes it operates over (appliesToInstrumentType); requiresInput names the

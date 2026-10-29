@@ -1,4 +1,4 @@
-//! EG-DURABLE-KERNEL-R024.3: the Neo4j and FalkorDb halves of the Cypher
+//! MEDULLA-DURABLE-KERNEL-R024.3: the Neo4j and FalkorDb halves of the Cypher
 //! transpiler's `ForeignSourceSpec` source.
 //!
 //! [`crate::federation_age`] already binds `Cypher { backend: Age, .. }`
@@ -27,7 +27,7 @@ pub fn register_neo4j(
 ) -> Result<(), String> {
     validate_cypher_shape(spec, ForeignCypherBackend::Neo4j, "Neo4j")?;
     Err(
-        "federation: Neo4j driver is not yet bound (EG-DURABLE-KERNEL-R024.3); \
+        "federation: Neo4j driver is not yet bound (MEDULLA-DURABLE-KERNEL-R024.3); \
          AGE is the only bound Cypher backend"
             .into(),
     )
@@ -42,7 +42,7 @@ pub fn register_falkordb(
 ) -> Result<(), String> {
     validate_cypher_shape(spec, ForeignCypherBackend::FalkorDb, "FalkorDb")?;
     Err(
-        "federation: FalkorDb driver is not yet bound (EG-DURABLE-KERNEL-R024.3); \
+        "federation: FalkorDb driver is not yet bound (MEDULLA-DURABLE-KERNEL-R024.3); \
          AGE is the only bound Cypher backend"
             .into(),
     )
@@ -116,7 +116,7 @@ mod tests {
         }
     }
 
-    // Partial refusal coverage for EG-DURABLE-KERNEL-R024.3; successful-operation acceptance remains open.
+    // Partial refusal coverage for MEDULLA-DURABLE-KERNEL-R024.3; successful-operation acceptance remains open.
     #[test]
     fn neo4j_well_formed_spec_is_refused_not_silently_accepted() {
         let mut registry = ForeignSourceRegistry::default();
@@ -129,7 +129,7 @@ mod tests {
         assert!(err.contains("not yet bound"), "unexpected error: {err}");
     }
 
-    // Partial refusal coverage for EG-DURABLE-KERNEL-R024.3; successful-operation acceptance remains open.
+    // Partial refusal coverage for MEDULLA-DURABLE-KERNEL-R024.3; successful-operation acceptance remains open.
     #[test]
     fn falkordb_well_formed_spec_is_refused_not_silently_accepted() {
         let mut registry = ForeignSourceRegistry::default();
@@ -142,7 +142,7 @@ mod tests {
         assert!(err.contains("not yet bound"), "unexpected error: {err}");
     }
 
-    // Partial refusal coverage for EG-DURABLE-KERNEL-R024.3; successful-operation acceptance remains open.
+    // Partial refusal coverage for MEDULLA-DURABLE-KERNEL-R024.3; successful-operation acceptance remains open.
     #[test]
     fn neo4j_rejects_an_empty_graph_before_reaching_the_refusal() {
         let mut registry = ForeignSourceRegistry::default();
@@ -157,7 +157,7 @@ mod tests {
         );
     }
 
-    // Partial refusal coverage for EG-DURABLE-KERNEL-R024.3; successful-operation acceptance remains open.
+    // Partial refusal coverage for MEDULLA-DURABLE-KERNEL-R024.3; successful-operation acceptance remains open.
     #[test]
     fn falkordb_rejects_the_wrong_backend_variant() {
         let mut registry = ForeignSourceRegistry::default();

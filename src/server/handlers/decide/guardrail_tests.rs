@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R127.2.2: real dispatcher, persisted rules and typed results.
+//! MEDULLA-DECISION-ENGINE-R127.2.2: real dispatcher, persisted rules and typed results.
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -75,7 +75,7 @@ fn decode(response: Response) -> (Vec<u8>, GuardrailEntailmentResult) {
     (bytes, result)
 }
 
-// spec: EG-DECISION-ENGINE-R127.2.2
+// spec: MEDULLA-DECISION-ENGINE-R127.2.2
 #[tokio::test]
 async fn guardrail_dispatch_proves_subclass_visibility_and_restart_stability() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -136,7 +136,7 @@ async fn guardrail_dispatch_proves_subclass_visibility_and_restart_stability() {
         .is_empty());
 }
 
-// spec: EG-DECISION-ENGINE-R127.2.2
+// spec: MEDULLA-DECISION-ENGINE-R127.2.2
 #[tokio::test]
 async fn guardrail_dispatch_refuses_foreign_tenants_and_malformed_tasks() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -158,7 +158,7 @@ async fn guardrail_dispatch_refuses_foreign_tenants_and_malformed_tasks() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R127.2.2
+// spec: MEDULLA-DECISION-ENGINE-R127.2.2
 #[test]
 fn guardrail_policy_is_read_only_and_declares_store_refusals() {
     let method = Method::GuardrailEntailment {

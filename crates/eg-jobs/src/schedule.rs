@@ -1,5 +1,5 @@
 //! Unified scheduling, leader election and cost-bounded resource allocation
-//! (EG-PLACEMENT-R751).
+//! (MEDULLA-PLACEMENT-R751).
 //!
 //! One schedule engine computes the due windows of cron, interval and one-shot
 //! specs from an injected clock. Ticks are idempotent per schedule and window;
@@ -294,7 +294,7 @@ mod tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R751.750
+    // spec: MEDULLA-PLACEMENT-R751.750
     #[test]
     fn schedule_types_round_trip_and_compute_due_windows() {
         let golden = r#"{"interval":{"every_ms":1000,"start_ms":500}}"#;
@@ -318,7 +318,7 @@ mod tests {
         assert!(!ReleaseChannel::Stable.sees(ReleaseChannel::Beta));
     }
 
-    // spec: EG-PLACEMENT-R751.751
+    // spec: MEDULLA-PLACEMENT-R751.751
     #[test]
     fn ticks_are_idempotent_leadership_is_fenced_and_slices_fit() {
         let mut ledger = TickLedger::default();
@@ -356,7 +356,7 @@ mod tests {
         );
     }
 
-    // spec: EG-PLACEMENT-R751.752
+    // spec: MEDULLA-PLACEMENT-R751.752
     #[test]
     fn replay_after_ack_stale_leader_and_over_budget_are_refused() {
         let mut ledger = TickLedger::default();

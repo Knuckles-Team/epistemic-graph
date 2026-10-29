@@ -1,6 +1,6 @@
 {
   "receipt_schema_version": 1,
-  "requirement": "EG-DECISION-ENGINE-R090.3",
+  "requirement": "MEDULLA-DECISION-ENGINE-R090.3",
   "outcome": "accepted_native_fixture",
   "source": {
     "measured_commit": "41cce5dd08d7f27aeacf23b6f01d177dfcbf7c59",
@@ -102,7 +102,7 @@
     },
     "quantile": "nearest_rank",
     "required_profile": "release",
-    "requirement": "EG-DECISION-ENGINE-R090.3",
+    "requirement": "MEDULLA-DECISION-ENGINE-R090.3",
     "runner_binary_bytes": 637136,
     "schema_version": 1,
     "server_binary_bytes": null,

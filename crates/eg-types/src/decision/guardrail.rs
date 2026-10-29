@@ -1,5 +1,5 @@
 //! Guardrail entailment: which governance rules, standards and SHACL shapes
-//! apply to a task class by ontology entailment (EG-DECISION-ENGINE-R127).
+//! apply to a task class by ontology entailment (MEDULLA-DECISION-ENGINE-R127).
 //!
 //! A [`GuardrailRule`] is data, not a native ontology term: it names the task
 //! class it governs (`applies_to_class`) by IRI. [`entailed_guardrails`]
@@ -11,7 +11,7 @@
 //! each answer carries the exact chain of `narrower -> broader` steps that
 //! proves it, so a reader can re-check the entailment rather than trust a
 //! boolean. The answer is advisory only; enforcement stays with the owning
-//! policy gate (EG-DECISION-ENGINE-R127).
+//! policy gate (MEDULLA-DECISION-ENGINE-R127).
 
 use std::collections::BTreeMap;
 
@@ -68,7 +68,7 @@ pub struct GuardrailRule {
     pub source_generation: String,
 }
 
-/// Typed promotion outcome (EG-DECISION-ENGINE-R129.2).
+/// Typed promotion outcome (MEDULLA-DECISION-ENGINE-R129.2).
 ///
 /// This wire type does not implement the invariant gate or activate rules.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,7 +89,7 @@ pub const GUARDRAIL_SOURCE_GENERATION_ATTRIBUTE: &str = "source_generation";
 
 impl GuardrailRule {
     /// The attributes a `GuardrailRule` component is published with
-    /// (EG-DECISION-ENGINE-R127.2.1); the component id is `rule_id`.
+    /// (MEDULLA-DECISION-ENGINE-R127.2.1); the component id is `rule_id`.
     pub fn to_attributes(&self) -> BTreeMap<String, String> {
         BTreeMap::from([
             (
@@ -166,7 +166,7 @@ pub struct EntailedGuardrail {
 }
 
 /// Which of `rules` apply to `task_iri`, by ontology entailment
-/// (EG-DECISION-ENGINE-R127): a rule whose `applies_to_class` is `task_iri`
+/// (MEDULLA-DECISION-ENGINE-R127): a rule whose `applies_to_class` is `task_iri`
 /// itself, or an ancestor of it, is entailed, carrying the path that proves
 /// it. A rule for an unrelated class (neither `task_iri` nor an ancestor) is
 /// never entailed. Pure and stable: the same `task_iri` and `rules` always
@@ -191,10 +191,10 @@ pub fn entailed_guardrails(task_iri: &str, rules: &[GuardrailRule]) -> Vec<Entai
         .collect()
 }
 
-/// EG-DECISION-ENGINE-R127.2: the guardrail-entailment query's single entry
+/// MEDULLA-DECISION-ENGINE-R127.2: the guardrail-entailment query's single entry
 /// point -- the one call a served method, backed by a stored
 /// [`GuardrailRule`] set, and its generated client invoke. Depends on
-/// EG-DECISION-ENGINE-R127.1's [`entailed_guardrails`]; validates the task
+/// MEDULLA-DECISION-ENGINE-R127.1's [`entailed_guardrails`]; validates the task
 /// IRI itself (something a pure function need not do) before delegating,
 /// refusing an empty one rather than silently answering with an empty rule
 /// set.
@@ -212,7 +212,7 @@ pub fn guardrail_entailment_query(
 mod tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R129.2
+    // spec: MEDULLA-DECISION-ENGINE-R129.2
     #[test]
     fn verdict_serialises_snake_case() {
         for (verdict, wire) in [
@@ -236,7 +236,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R129.2
+    // spec: MEDULLA-DECISION-ENGINE-R129.2
     #[test]
     fn verdict_rejects_unknown_variants_and_malformed_payloads() {
         for wire in [
@@ -251,7 +251,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R127.2.2
+    // spec: MEDULLA-DECISION-ENGINE-R127.2.2
     #[test]
     fn served_request_requires_a_qualified_task_iri() {
         for task in ["", " ", "research", "eg:task research", ":task", "eg:"] {
@@ -289,7 +289,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R127.1
+    // spec: MEDULLA-DECISION-ENGINE-R127.1
     #[test]
     fn a_rule_on_the_task_root_is_entailed_onto_a_subclassed_task() {
         let rules = vec![rule("governance:audit-trail", "eg:task")];
@@ -314,14 +314,14 @@ mod tests {
         assert!(entailed[0].entailment_path.is_empty());
     }
 
-    // spec: EG-DECISION-ENGINE-R127.1
+    // spec: MEDULLA-DECISION-ENGINE-R127.1
     #[test]
     fn a_rule_on_an_unrelated_class_is_never_entailed() {
         let rules = vec![rule("governance:capability-only", "eg:capability")];
         assert!(entailed_guardrails("eg:task/research", &rules).is_empty());
     }
 
-    // spec: EG-DECISION-ENGINE-R127.1
+    // spec: MEDULLA-DECISION-ENGINE-R127.1
     #[test]
     fn the_same_inputs_always_produce_the_same_premises() {
         let rules = vec![rule("governance:audit-trail", "eg:task")];

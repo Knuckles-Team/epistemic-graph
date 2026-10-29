@@ -1,4 +1,4 @@
-//! EG-DURABLE-KERNEL-R024.8: the Spark job backend's `ForeignSourceSpec`
+//! MEDULLA-DURABLE-KERNEL-R024.8: the Spark job backend's `ForeignSourceSpec`
 //! source.
 //!
 //! [`eg_types::wire::ForeignSourceSpec::SparkBatch`] already names a sealed,
@@ -33,7 +33,7 @@ pub fn register_spark(
     validate_spark_batch_shape(spec)?;
     Err(
         "federation: Spark job backend has no bound artifact-store driver yet \
-         (EG-DURABLE-KERNEL-R024.8); SparkBatch reads only a registered artifact"
+         (MEDULLA-DURABLE-KERNEL-R024.8); SparkBatch reads only a registered artifact"
             .into(),
     )
 }
@@ -89,7 +89,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.8
+    // spec: MEDULLA-DURABLE-KERNEL-R024.8
     #[test]
     fn well_formed_spec_is_refused_not_silently_accepted() {
         let mut registry = ForeignSourceRegistry::default();
@@ -97,7 +97,7 @@ mod tests {
         assert!(err.contains("no bound artifact-store driver"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.8
+    // spec: MEDULLA-DURABLE-KERNEL-R024.8
     #[test]
     fn caller_provided_path_without_the_artifact_scheme_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();
@@ -109,7 +109,7 @@ mod tests {
         assert!(err.contains("must start with"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.8
+    // spec: MEDULLA-DURABLE-KERNEL-R024.8
     #[test]
     fn empty_artifact_id_after_the_scheme_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();
@@ -121,7 +121,7 @@ mod tests {
         assert!(err.contains("empty artifact id"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.8
+    // spec: MEDULLA-DURABLE-KERNEL-R024.8
     #[test]
     fn score_field_matching_id_field_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();
@@ -138,7 +138,7 @@ mod tests {
         assert!(err.contains("must differ"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.8
+    // spec: MEDULLA-DURABLE-KERNEL-R024.8
     #[test]
     fn wrong_spec_variant_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();

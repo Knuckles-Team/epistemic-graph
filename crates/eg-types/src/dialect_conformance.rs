@@ -1,5 +1,5 @@
 //! Typed model for the per-dialect conformance harness
-//! (EG-UNIFIED-DATA-PLANE-R022): one report entry per adapter/engine-version
+//! (MEDULLA-UNIFIED-DATA-PLANE-R022): one report entry per adapter/engine-version
 //! pair, and a reviewed, named deviation rather than a self-updating
 //! baseline. This is the typed-model slice (`.1`): the entry/deviation shape
 //! and the refusal for an auto-suppressed (unreviewed) deviation. Running the
@@ -106,7 +106,7 @@ impl ConformanceReport {
     }
 }
 
-/// Where a source category's rows live by default (EG-UNIFIED-DATA-PLANE-R022.4.1):
+/// Where a source category's rows live by default (MEDULLA-UNIFIED-DATA-PLANE-R022.4.1):
 /// read at query time from the source (`virtual`) or stored by the engine
 /// (`ingested`). A fetched web page has no virtual category; it enters as a
 /// Document through `SourceIngest`.
@@ -144,7 +144,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn green_entry_without_deviation_validates() {
         let entry = DialectConformanceEntry {
@@ -156,7 +156,7 @@ mod tests {
         assert_eq!(entry.validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn deviated_entry_with_reviewed_deviation_validates() {
         let entry = DialectConformanceEntry {
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(entry.validate(), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn deviated_entry_without_deviation_is_refused() {
         let entry = DialectConformanceEntry {
@@ -183,7 +183,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn green_entry_with_deviation_is_refused() {
         let entry = DialectConformanceEntry {
@@ -198,7 +198,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn deviation_with_blank_reviewer_is_refused_not_auto_suppressed() {
         let entry = DialectConformanceEntry {
@@ -213,7 +213,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn report_validate_refuses_if_any_entry_is_malformed() {
         let report = ConformanceReport {
@@ -256,7 +256,7 @@ mod tests {
             .collect()
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R022.4.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R022.4.1
     #[test]
     fn matrix_states_residency() {
         use crate::metadata_acceleration::SourceCategory;

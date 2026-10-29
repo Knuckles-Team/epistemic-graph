@@ -1,5 +1,5 @@
 //! Required raft, backup, and persistence library-test selections for
-//! EG-DURABLE-KERNEL-R011. The declaration and concrete manifest are the
+//! MEDULLA-DURABLE-KERNEL-R011. The declaration and concrete manifest are the
 //! `.1` and `.2` slices. Executing this manifest before merge and recording
 //! exact-head CI receipts remain the `.3` and `.4` obligations.
 
@@ -161,7 +161,7 @@ pub fn required_test_modules() -> Vec<RequiredTestModule> {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R011.1
+    // spec: MEDULLA-DURABLE-KERNEL-R011.1
     #[test]
     fn the_three_named_categories_parse() {
         assert_eq!(
@@ -178,7 +178,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R011.1
+    // spec: MEDULLA-DURABLE-KERNEL-R011.1
     #[test]
     fn an_unrecognized_category_name_is_refused() {
         for bad in ["Raft", "raft ", "smoke", ""] {
@@ -187,7 +187,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R011.1
+    // spec: MEDULLA-DURABLE-KERNEL-R011.1
     #[test]
     fn a_complete_declaration_validates() {
         let module = RequiredTestModule {
@@ -199,7 +199,7 @@ mod tests {
         module.validate().unwrap();
     }
 
-    // spec: EG-DURABLE-KERNEL-R011.1
+    // spec: MEDULLA-DURABLE-KERNEL-R011.1
     #[test]
     fn a_declaration_with_no_crate_name_is_refused() {
         let module = RequiredTestModule {
@@ -214,7 +214,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R011.1
+    // spec: MEDULLA-DURABLE-KERNEL-R011.1
     #[test]
     fn a_declaration_with_no_test_filter_is_refused() {
         let module = RequiredTestModule {
@@ -229,7 +229,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R011.2
+    // spec: MEDULLA-DURABLE-KERNEL-R011.2
     #[test]
     fn required_manifest_covers_runtime_categories() {
         use RequiredTestModuleCategory::{Backup, Persistence, Raft};
@@ -276,7 +276,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R011.2
+    // spec: MEDULLA-DURABLE-KERNEL-R011.2
     #[test]
     fn required_manifest_rejects_empty_selection() {
         for module in required_test_modules() {
@@ -292,7 +292,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R011.2
+    // spec: MEDULLA-DURABLE-KERNEL-R011.2
     #[test]
     fn required_manifest_anchors_exist_in_source() {
         // Source bindings catch stale anchor names. Compiled discovery and runtime

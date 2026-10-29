@@ -1,6 +1,6 @@
 //! The workload classification every wire listener (native, RESP, pgwire,
 //! MySQL, MSSQL) must agree on before routing an operation
-//! (EG-DURABLE-KERNEL-R037): a `Point`/`Structure` operation goes to the
+//! (MEDULLA-DURABLE-KERNEL-R037): a `Point`/`Structure` operation goes to the
 //! native `KvStore`/`GraphCore` path without allocating a DataFusion
 //! session; a `Sql` statement goes to the planner. This is the typed-model
 //! slice (`.1`): the enum and a pure classifier over the operation's
@@ -45,7 +45,7 @@ impl WorkloadClass {
     }
 }
 
-/// The dispatch entry point (`EG-DURABLE-KERNEL-R037.2`): what a wire
+/// The dispatch entry point (`MEDULLA-DURABLE-KERNEL-R037.2`): what a wire
 /// listener's dispatcher calls, once per received operation, in place of
 /// unconditionally allocating a DataFusion session. Carries the decision a
 /// dispatcher needs — not just the class, but whether it must allocate a
@@ -94,7 +94,7 @@ impl std::error::Error for UnclassifiedOperation {}
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R037.1
+    // spec: MEDULLA-DURABLE-KERNEL-R037.1
     #[test]
     fn point_and_structure_operations_bypass_the_sql_planner() {
         for kind in ["get", "set", "incrby", "cas", "del", "expire"] {
@@ -107,14 +107,14 @@ mod tests {
         assert!(WorkloadClass::Structure.bypasses_sql_planner());
     }
 
-    // spec: EG-DURABLE-KERNEL-R037.1
+    // spec: MEDULLA-DURABLE-KERNEL-R037.1
     #[test]
     fn sql_routes_to_the_planner() {
         assert_eq!(WorkloadClass::classify("sql"), Ok(WorkloadClass::Sql));
         assert!(!WorkloadClass::Sql.bypasses_sql_planner());
     }
 
-    // spec: EG-DURABLE-KERNEL-R037.1
+    // spec: MEDULLA-DURABLE-KERNEL-R037.1
     #[test]
     fn unrecognized_operation_kind_is_refused_not_defaulted() {
         for bad in ["GET", "scan", "", "select"] {
@@ -123,7 +123,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R037.2
+    // spec: MEDULLA-DURABLE-KERNEL-R037.2
     #[test]
     fn dispatch_route_never_allocates_a_datafusion_session_for_point_or_structure() {
         for kind in ["get", "set", "hash", "list"] {
@@ -133,7 +133,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R037.2
+    // spec: MEDULLA-DURABLE-KERNEL-R037.2
     #[test]
     fn dispatch_route_allocates_a_datafusion_session_for_sql() {
         let decision = route("sql").unwrap();
@@ -141,7 +141,7 @@ mod tests {
         assert_eq!(decision.class, WorkloadClass::Sql);
     }
 
-    // spec: EG-DURABLE-KERNEL-R037.2
+    // spec: MEDULLA-DURABLE-KERNEL-R037.2
     #[test]
     fn dispatch_route_propagates_the_classifier_refusal() {
         assert!(route("unknown-op").is_err());

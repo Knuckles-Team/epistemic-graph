@@ -1,5 +1,5 @@
 //! Read-time access checks for sources that do not sync their ACLs
-//! (EG-FEDERATED-QUERY-R703.1, R703.2).
+//! (MEDULLA-FEDERATED-QUERY-R703.1, R703.2).
 //!
 //! A source pack declares its [`AccessMode`]. Hits from a `checked_at_read`
 //! source are grouped by source and checked through the source's port in
@@ -28,7 +28,7 @@ pub enum AccessMode {
     CheckedAtRead,
 }
 
-/// One bounded check sent to a source (EG-FEDERATED-QUERY-R703.1).
+/// One bounded check sent to a source (MEDULLA-FEDERATED-QUERY-R703.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AccessCheckRequest {
@@ -37,7 +37,7 @@ pub struct AccessCheckRequest {
     pub record_refs: Vec<String>,
 }
 
-/// The source's answer (EG-FEDERATED-QUERY-R703.1).
+/// The source's answer (MEDULLA-FEDERATED-QUERY-R703.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AccessCheckAnswer {
@@ -118,7 +118,7 @@ pub struct FilteredHits {
     pub checks_sent: usize,
 }
 
-/// Filter hits before bundle compile (EG-FEDERATED-QUERY-R703.2). Synced hits
+/// Filter hits before bundle compile (MEDULLA-FEDERATED-QUERY-R703.2). Synced hits
 /// pass; `checked_at_read` hits keep only what their source allows.
 pub fn filter_hits(
     hits: Vec<AccessHit>,
@@ -184,7 +184,7 @@ fn drop_all(batch: &[AccessHit], reason: DropReason, out: &mut FilteredHits) {
 mod tests {
     use super::*;
 
-    // spec: EG-FEDERATED-QUERY-R703.1
+    // spec: MEDULLA-FEDERATED-QUERY-R703.1
     #[test]
     fn request_round_trips() {
         let request = AccessCheckRequest {
@@ -250,7 +250,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R703.2
+    // spec: MEDULLA-FEDERATED-QUERY-R703.2
     #[test]
     fn timeout_drops_hits() {
         let hits = || {

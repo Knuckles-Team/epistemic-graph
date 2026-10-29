@@ -24,11 +24,11 @@ These individual passes do not make the failed overall facade job successful.
 
 ## Sequence
 
-1. **Contract foundation (EG-FINANCE-PRIMITIVES-R004, EG-FINANCE-PRIMITIVES-R006).** Add typed versioned records, ontology and SHACL shapes, temporal revision resolution and session/calendar semantics. Review migration of existing asset-class values. Generate clients and prove old `FinanceMarket` decoding.
-2. **Accounting authority (EG-FINANCE-PRIMITIVES-R005, EG-FINANCE-PRIMITIVES-R013).** Implement one fixed-point event-to-lot projection, valuation join and return kernels. Add independent vectors and property tests before exposing a public projection method. Reconcile imported activities against statement fixtures.
-3. **Strategy/evidence authority (EG-FINANCE-PRIMITIVES-R007, EG-FINANCE-PRIMITIVES-R008).** Implement immutable strategy specs and deterministic proposal evaluation. Feed run provenance into the existing sealed `BacktestRun`; calculate validation from the same split matrix and compare common horizons/costs.
-4. **Advisory and risk (EG-FINANCE-PRIMITIVES-R009, EG-FINANCE-PRIMITIVES-R010).** Add calibrated abstention and scorecards, seal `AnalysisSnapshot`, and implement leverage scenarios with explicit product/policy terms. Audit that no result acts as an order authorization.
-5. **Events and optional attached source (EG-FINANCE-PRIMITIVES-R011, EG-FINANCE-PRIMITIVES-R012).** Extend the finance event family with stable IDs and atomic outbox state. Qualify the optional read-only importer against disposable fixtures after account identity and revision contracts are stable.
+1. **Contract foundation (MEDULLA-FINANCE-PRIMITIVES-R004, MEDULLA-FINANCE-PRIMITIVES-R006).** Add typed versioned records, ontology and SHACL shapes, temporal revision resolution and session/calendar semantics. Review migration of existing asset-class values. Generate clients and prove old `FinanceMarket` decoding.
+2. **Accounting authority (MEDULLA-FINANCE-PRIMITIVES-R005, MEDULLA-FINANCE-PRIMITIVES-R013).** Implement one fixed-point event-to-lot projection, valuation join and return kernels. Add independent vectors and property tests before exposing a public projection method. Reconcile imported activities against statement fixtures.
+3. **Strategy/evidence authority (MEDULLA-FINANCE-PRIMITIVES-R007, MEDULLA-FINANCE-PRIMITIVES-R008).** Implement immutable strategy specs and deterministic proposal evaluation. Feed run provenance into the existing sealed `BacktestRun`; calculate validation from the same split matrix and compare common horizons/costs.
+4. **Advisory and risk (MEDULLA-FINANCE-PRIMITIVES-R009, MEDULLA-FINANCE-PRIMITIVES-R010).** Add calibrated abstention and scorecards, seal `AnalysisSnapshot`, and implement leverage scenarios with explicit product/policy terms. Audit that no result acts as an order authorization.
+5. **Events and optional attached source (MEDULLA-FINANCE-PRIMITIVES-R011, MEDULLA-FINANCE-PRIMITIVES-R012).** Extend the finance event family with stable IDs and atomic outbox state. Qualify the optional read-only importer against disposable fixtures after account identity and revision contracts are stable.
 6. **Final qualification.** Run the matrix in `test-spec.md` at an exact main head and add per-ID evidence. Publish a new contract version only after generated clients and compatibility tests are green.
 
 ## Decisions to resolve before implementation
@@ -125,7 +125,7 @@ The finance compute path is deterministic and side-effect free except explicitly
 ### Migration and compatibility
 
 Introduce v2 asset-class values with explicit aliases from existing values, then dual-read old records during a bounded migration. Version SHACL, contract and persisted payload together; do not reinterpret prior digests. Backfill account activities from trusted imports only after dedupe, reconcile derived balances against independent statements, and publish the new head only when a tenant's migration validates. Retain prior activity revisions for as-of replay. Existing `FinanceMarket` bars, flip IDs and analysis snapshot versions must keep decoding throughout migration.
-## EG-FINANCE-PRIMITIVES-R002 and EG-FINANCE-PRIMITIVES-R003 kernel reuse
+## MEDULLA-FINANCE-PRIMITIVES-R002 and MEDULLA-FINANCE-PRIMITIVES-R003 kernel reuse
 
 `crates/eg-numeric/src/evaluation/` is the shared numerical authority; `crates/eg-compute/src/finance/quant/validation.rs` and finance wire methods are callers. The UQL/series layer uses the same kernels through `eg-plan` and `eg-tsdb` without finance-specific copies. `crates/eg-compute/src/finance/market/backtest_run.rs` seals and verifies the finance record from its draft split matrix, while `eg-types` owns the versioned public record fields. If the generic `EvaluationRun` record is extended, share seal/no-look-ahead code with the decision replay path rather than diverging finance and decision validations. Generated clients derive from Rust descriptors; changing a method requires regenerated count, schema and binding checks.
 
@@ -133,14 +133,14 @@ Introduce v2 asset-class values with explicit aliases from existing values, then
 
 ### 2026-10-11: restore runtime acceptance children
 
-Affected rows: `EG-FINANCE-PRIMITIVES-R004.3`, `EG-FINANCE-PRIMITIVES-R005.2`, and `EG-FINANCE-PRIMITIVES-R011`.
+Affected rows: `MEDULLA-FINANCE-PRIMITIVES-R004.3`, `MEDULLA-FINANCE-PRIMITIVES-R005.2`, and `MEDULLA-FINANCE-PRIMITIVES-R011`.
 The former rollups counted only their typed children, despite their broader acceptance requirements.
 The restored children retain the original parent acceptance and every existing verified-child binding.
 The generator determines delivery states; this amendment provides no runtime evidence.
 
 ### 2026-10-11: correct R011.1 acceptance scope
 
-Affected row: `EG-FINANCE-PRIMITIVES-R011.1`.
+Affected row: `MEDULLA-FINANCE-PRIMITIVES-R011.1`.
 The former verification cell required outbox integration and idempotent delivery, despite the typed-envelope title, task and production-module scope.
 The corrected cell requires valid-envelope admission, four field refusals and distinct schemas for four alert kinds.
 The unchanged R011 parent retains the original publication and replay obligations. R011.2 and R011.3 retain their runtime acceptance children.
@@ -197,7 +197,7 @@ Record their actual passes as partial evidence only. R004.2.1.1 and R004.2.2.1
 track the missing complete matrices. Both schema groups remain open until those
 children pass native execution. Do not treat a sample as complete acceptance.
 
-## EG-FINANCE-PRIMITIVES-R018 factor research
+## MEDULLA-FINANCE-PRIMITIVES-R018 factor research
 
 Data flow: served finance wire method → route (`src/server/handlers/finance/route_families.rs:211`) → `rank_factors` → `information_coefficient` (`crates/eg-numeric/src/evaluation/skill.rs:16`) → `FactorRecord` node with provenance edges.
 Types: `FactorRecord` in `crates/eg-compute/src/finance/factor.rs`.
@@ -354,7 +354,7 @@ Any additional independent caller requires an explicit child before its migratio
 Each leaf retains its own positive and negative proof.
 The generic route and generated contract are prerequisites for served caller tests.
 R002.3 still requires method counts and client bindings to reconcile in the migration change.
-`EG-FEDERATED-QUERY-R022` owns textual admission; these definitions do not change that grammar.
+`MEDULLA-FEDERATED-QUERY-R022` owns textual admission; these definitions do not change that grammar.
 
 | Retained obligation | Explicit descendants |
 |---|---|
@@ -371,7 +371,7 @@ These scenarios have no new execution receipts. Existing parent receipts remain 
 <!-- spec-definition-patch:owner-batch-20261012-finance-primitives -->
 ## Owner definition and dependency plan — 2026-10-12
 
-### `EG-FINANCE-PRIMITIVES-R015.1` — EG:43
+### `MEDULLA-FINANCE-PRIMITIVES-R015.1` — EG:43
 
 - **Snapshot:** Define typed `FinanceOrderProposal.StageV1` and `PromoteV1` methods. `OrderProposalSnapshotV1` binds tenant/proposal/revision, predecessor and decision digests, payload schema, canonical payload hash, policy, and evidence refs. Hash stored bytes as-is. Refuse bytes that are noncanonical for the declared schema/version. `StageV1` accepts the snapshot and expected head revision/digest. It creates a sealed, create-only, content-addressed snapshot and returns its identity, digest, and state. Revision 1 has no predecessor. Each later revision names the exact prior digest and uses expected-head CAS. Exact retry is idempotent; conflicting bytes refuse.
 - **Admission:** `PromoteV1` binds the expected promoted head, candidate digest, required-gate manifest digest, and gate receipts. Recheck the staged payload hash and digest. Recheck R019 verification/approval and applicable R010 risk/sizing checks. Include per-instrument policy and designated approvers when applicable. Atomically write the promoted revision, append-only `derivedFrom` history, and `OrderAdmissionReceiptV1`. The receipt binds proposal/revision/snapshot/decision/policy/gate digests and transaction revision. A stale head, evidence mismatch, failed or unavailable gate, incomplete receipt set, or hook veto refuses. Refusal leaves pointer/history/receipt unchanged. Admission permits host review only; it sends no order. Keep `AnalysisSnapshot` informational-only. Preserve R019, DK R057, and Finance R015.
@@ -379,7 +379,7 @@ These scenarios have no new execution receipts. Existing parent receipts remain 
 - **Planned acceptance:** `StageV1` creates and independently reads back revision 1. Stage revision 2 with its correct predecessor. Prove exact retries are idempotent. Test same-revision byte changes, payload/hash mismatch, stale head, and missing evidence. Also test incomplete gate receipts and every failed or unavailable gate. Each refusal leaves the promoted pointer, history, and receipt absent and unchanged. Keep promotion refused until Graft SDK payload, gate registry, and Arbora confirmation definitions are served. Then test one atomic promotion receipt. No live-order behavior is claimed.
 - **Source:** `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`; no implementation or consumer receipt is claimed.
 
-### `EG-FINANCE-PRIMITIVES-R002.11` — EG:67
+### `MEDULLA-FINANCE-PRIMITIVES-R002.11` — EG:67
 
 - **Forecast:** Extend shared regime-HMM kernel R002.1.14 through typed model route R002.9. `RegimeForecastV1` accepts pinned model/source revisions, `as_of`, ordered positive integer horizons, `horizon_unit`, policy identity/revision/digest, and held-out dataset digest. Resolve ordered states, posterior `p0`, and transition matrix `T` only from the pinned HMM model/source revision. Refuse probability or `T` inputs from callers. Return `p_h=p0*T^h` as state-ordered vectors and report `max_s(p_h[s])`. Require finite, nonnegative probabilities. Require row/vector sums of one within pinned model precision.
 - **Calibration:** Score held-out realized states with categorical Brier `Brier_h=(1/N_h) Σ_n Σ_s(p_{n,h,s}-1[y_n=s])²` for each horizon. Bind dataset, model, state-order, and scoring revisions. Require `N_h` to meet positive `minimum_heldout_examples_by_horizon`. The versioned policy requires per-horizon `max_brier_by_horizon` in [0,2]. It requires `min_top_state_probability_by_horizon` in [0,1]. It also requires a positive integer `minimum_heldout_examples_by_horizon`. Every policy map covers each requested horizon exactly once. All three thresholds must pass for sizing eligibility. Output records horizon, dataset/model/state-order/scoring revisions, policy digest, sample count, Brier score, applied thresholds, and pass state.

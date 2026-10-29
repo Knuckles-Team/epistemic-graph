@@ -1,5 +1,5 @@
 //! Governance, permission sync, deletion reconciliation and container records
-//! for connector-sourced knowledge (EG-INGEST-WORKER-R900.1, R902.1, R903.1,
+//! for connector-sourced knowledge (MEDULLA-INGEST-WORKER-R900.1, R902.1, R903.1,
 //! R904.1).
 //!
 //! Pure data. Admission parsing and the `access`, `groups`, `enumeration` and
@@ -215,7 +215,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // spec: EG-INGEST-WORKER-R900.1
+    // spec: MEDULLA-INGEST-WORKER-R900.1
     #[test]
     fn record_governance_round_trips_and_rejects_invalid_shapes() {
         let value = json!({

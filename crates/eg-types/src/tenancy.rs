@@ -1,5 +1,5 @@
 //! Tenant sharing, parent chains, secured reads and ownership claims
-//! (EG-IDENTITY-R610). Pure data and rules; the UQL planner applies the scope
+//! (MEDULLA-IDENTITY-R610). Pure data and rules; the UQL planner applies the scope
 //! predicate this module builds.
 //!
 //! * A tenant sees its own graph, its ancestors' *shared* graphs nearest
@@ -342,7 +342,7 @@ mod tests {
         Marking::new(id).unwrap()
     }
 
-    // spec: EG-IDENTITY-R610.1
+    // spec: MEDULLA-IDENTITY-R610.1
     #[test]
     fn types_round_trip_and_reject_invalid_identifiers() {
         let link = TenantParent::new("acme", "root").unwrap();
@@ -392,7 +392,7 @@ mod tests {
         }
     }
 
-    // spec: EG-IDENTITY-R610.2
+    // spec: MEDULLA-IDENTITY-R610.2
     #[test]
     fn graph_precedence_marking_filter_claims_and_scope() {
         // Precedence: own, sharing ancestors nearest-first, commons last.

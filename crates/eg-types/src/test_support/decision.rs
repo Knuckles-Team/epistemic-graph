@@ -36,7 +36,7 @@ pub fn published_candidate(
 }
 
 /// A published `Tool` entry with a declared per-call cost and p95 latency,
-/// classified under `classification` (EG-DECISION-ENGINE-R061).
+/// classified under `classification` (MEDULLA-DECISION-ENGINE-R061).
 ///
 /// The one fixture both consuming paths read: the exact-solver path
 /// (`eg-compute::assemble::facts`, over `CandidateFacts::from_entry(&entry)`)
@@ -129,7 +129,7 @@ mod tests {
     use super::tool_entry_with_cost_latency;
     use crate::decision::CandidateFacts;
 
-    // spec: EG-DECISION-ENGINE-R061.1
+    // spec: MEDULLA-DECISION-ENGINE-R061.1
     #[test]
     fn the_fixture_entry_converts_to_candidate_facts_with_its_declared_cost_intact() {
         let entry = tool_entry_with_cost_latency(

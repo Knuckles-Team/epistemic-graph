@@ -1,4 +1,4 @@
-//! Typed connector prompt metadata used by agent assembly (EG-DECISION-ENGINE-R814.1.2).
+//! Typed connector prompt metadata used by agent assembly (MEDULLA-DECISION-ENGINE-R814.1.2).
 
 use std::collections::BTreeSet;
 
@@ -55,7 +55,7 @@ impl PromptCandidate {
 mod tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R814.1.2
+    // spec: MEDULLA-DECISION-ENGINE-R814.1.2
     #[test]
     fn candidate_round_trips_and_kind_follows_role() {
         let candidate = PromptCandidate {

@@ -33,10 +33,10 @@ mod decoder;
 mod document;
 mod header;
 mod html;
-/// Deterministic heading- and paragraph-aware chunking (EG-REPO-INGEST-R652).
+/// Deterministic heading- and paragraph-aware chunking (MEDULLA-REPO-INGEST-R652).
 pub mod processing;
 /// Source-free transcript turn records shared by supported line-delimited
-/// coding-agent transcript dialects (EG-REPO-INGEST-R800.1).
+/// coding-agent transcript dialects (MEDULLA-REPO-INGEST-R800.1).
 pub mod transcript;
 
 // ModalityContract implementation, behind the crate's opt-in contract feature.

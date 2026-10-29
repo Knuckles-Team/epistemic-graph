@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R009: the release workflow runs the full root Python suite.
+"""MEDULLA-CONTRACT-R009: the release workflow runs the full root Python suite.
 
 ``release.yml`` already ran the crate tests (``gates``) and the duplication
 census (``scanner-quality``), but historically had no step that ran the
@@ -90,7 +90,7 @@ def test_capability_dependencies_bootstrap_uv_for_the_test_interpreter(
     assert "if" not in python_setup
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_python_suite_job_runs_the_full_root_tests_directory() -> None:
     step = _test_step(_python_suite_job())
     run = step["run"]
@@ -101,7 +101,7 @@ def test_python_suite_job_runs_the_full_root_tests_directory() -> None:
     assert "--timeout=900" in run
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_python_suite_job_builds_the_real_artifacts_before_testing() -> None:
     job: dict = {
         "steps": sum(
@@ -118,7 +118,7 @@ def test_python_suite_job_builds_the_real_artifacts_before_testing() -> None:
     assert any("engine binary" in name for name in step_names)
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_pre_merge_gate_replica_runs_the_identical_suite() -> None:
     """The same job is the pre-merge gate on a PR and the release gate on push:
     one `timeout-minutes` expression, gated on `github.event_name ==
@@ -129,7 +129,7 @@ def test_pre_merge_gate_replica_runs_the_identical_suite() -> None:
     assert job["steps"].count(_test_step(job)) == 1
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_crate_jobs_still_run_alongside_it() -> None:
     """R009 adds the root suite ALONGSIDE the existing crate tests (`gates`,
     `gates-crates`), not instead of them. The dupehound adapter tests are part
@@ -354,7 +354,7 @@ def _assert_facade_upload_contract(upload: dict) -> None:
     }
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> None:
     workflow = _workflow()
     job = workflow["jobs"]["gates-facade"]
@@ -373,7 +373,7 @@ def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> No
     _assert_facade_upload_contract(upload)
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_offline_tools_are_subcommands_not_separate_executables() -> None:
     manifest = tomllib.loads((REPO / "Cargo.toml").read_text())
     names = {target["name"] for target in manifest["bin"]}
@@ -770,7 +770,7 @@ def _step_by_name(steps: list[dict], name: str) -> dict:
 # `gates-whisper`, which carries no compiler-cache env of its own and is
 # therefore pinned here. Both jobs are required gates, and the release
 # consumer waits on both, so neither target can drop out of the matrix.
-@pytest.mark.spec("EG-CONTRACT-R028")
+@pytest.mark.spec("MEDULLA-CONTRACT-R028")
 def test_sqlite_and_whisper_differential_commands_are_pinned_in_ci() -> None:
     workflow = _workflow()
     sqlite = _step_by_name(
@@ -858,7 +858,7 @@ def test_plan_fuzz_remains_independent_required_acceptance() -> None:
     jobs = _workflow()["jobs"]
     job = jobs["gates-plan-fuzz"]
     assert job["needs"] == "changes"
-    # Main pushes, the nightly schedule and dispatch (EG-CONTRACT-R053.7).
+    # Main pushes, the nightly schedule and dispatch (MEDULLA-CONTRACT-R053.7).
     assert job["if"] == (
         "needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'"
     )

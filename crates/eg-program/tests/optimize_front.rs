@@ -11,7 +11,7 @@ fn candidate(id: &str, scores: [f32; 2], cost_micro_usd: u64) -> PolicyCandidate
 }
 
 #[test]
-// spec: EG-DECISION-ENGINE-R800.1
+// spec: MEDULLA-DECISION-ENGINE-R800.1
 fn dominated_candidate_is_dropped() {
     let mut front = ParetoFront::<2>::default();
     assert!(front
@@ -25,7 +25,7 @@ fn dominated_candidate_is_dropped() {
 }
 
 #[test]
-// spec: EG-DECISION-ENGINE-R800.1
+// spec: MEDULLA-DECISION-ENGINE-R800.1
 fn scores_outside_unit_interval_are_refused() {
     let mut front = ParetoFront::<2>::default();
     let result = front.insert(candidate("invalid", [1.01, 0.5], 100));
@@ -34,7 +34,7 @@ fn scores_outside_unit_interval_are_refused() {
 }
 
 #[test]
-// spec: EG-DECISION-ENGINE-R800.1
+// spec: MEDULLA-DECISION-ENGINE-R800.1
 fn deserialization_rejects_invalid_candidates_and_dominated_fronts() {
     let invalid_candidate = r#"{
         "id":"invalid","parent":null,"genes_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

@@ -203,7 +203,7 @@ fn zig_function() {
     assert_eq!(f["language"], "zig");
 }
 
-// spec: EG-REPO-INGEST-R010
+// spec: MEDULLA-REPO-INGEST-R010
 #[test]
 fn cuda_cpp_fixture_preserves_cuda_label() {
     // CUDA reuses the C++ grammar (there is no ABI-compatible CUDA grammar

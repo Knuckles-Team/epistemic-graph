@@ -1,4 +1,4 @@
-//! EG-REPO-INGEST-R652.6: chunk a 1 MiB Markdown document; JSON on stdout.
+//! MEDULLA-REPO-INGEST-R652.6: chunk a 1 MiB Markdown document; JSON on stdout.
 //! Run with `cargo bench -p eg-document --bench document_chunk_tree`.
 //! Budget: p50 3 ms and p99 15 ms per document in the optimized profile.
 

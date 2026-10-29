@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "EG-DECISION-ENGINE-R090.3 native resource receipt",
+  "title": "MEDULLA-DECISION-ENGINE-R090.3 native resource receipt",
   "type": "object",
   "required": [
     "schema_version",
@@ -22,7 +22,7 @@
       "const": 1
     },
     "requirement": {
-      "const": "EG-DECISION-ENGINE-R090.3"
+      "const": "MEDULLA-DECISION-ENGINE-R090.3"
     },
     "status": {
       "enum": [

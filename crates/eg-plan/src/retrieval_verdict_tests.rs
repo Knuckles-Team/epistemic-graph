@@ -23,7 +23,7 @@ fn call(round: u32, fallback: FallbackPolicy) -> SufficiencyCall {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R081.2
+// spec: MEDULLA-FEDERATED-QUERY-R081.2
 #[test]
 fn repair_order_ends_at_round_limit() {
     let rule = SufficiencyRule::default();
@@ -65,7 +65,7 @@ fn repair_order_ends_at_round_limit() {
     assert_eq!(v.verdict, Verdict::Sufficient);
 }
 
-// spec: EG-FEDERATED-QUERY-R081.4
+// spec: MEDULLA-FEDERATED-QUERY-R081.4
 #[test]
 fn strict_insufficient_abstains() {
     let rule = SufficiencyRule::default();
@@ -113,7 +113,7 @@ fn pair(id: &str, e: f64, r: f64) -> ChunkScorePair {
 
 const BENCH: Option<&str> = Some("sha256:bench");
 
-// spec: EG-FEDERATED-QUERY-R081.7.2
+// spec: MEDULLA-FEDERATED-QUERY-R081.7.2
 #[test]
 fn dual_score_golden_cases_rescue_reject_and_count() {
     let receipt = select_chunks(
@@ -179,7 +179,7 @@ fn dual_score_golden_cases_rescue_reject_and_count() {
         .is_empty());
 }
 
-// spec: EG-FEDERATED-QUERY-R081.7.4
+// spec: MEDULLA-FEDERATED-QUERY-R081.7.4
 #[test]
 fn selection_refusals_fail_before_answer_assembly() {
     let missing = select_chunks(&policy(), BENCH, &[pair("a", f64::NAN, 0.9)]).unwrap_err();
@@ -318,7 +318,7 @@ fn hpolicy(beam: u32) -> DescentPolicy {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R081.9.2
+// spec: MEDULLA-FEDERATED-QUERY-R081.9.2
 #[test]
 fn hierarchy_descent_has_exact_stages_paths_and_entities() {
     let mut source = fixture();
@@ -361,7 +361,7 @@ fn hierarchy_descent_has_exact_stages_paths_and_entities() {
         .all(|(_, id)| !["s-Z", "s-Z1", "x9", "z1"].contains(&id.as_str())));
 }
 
-// spec: EG-FEDERATED-QUERY-R081.9.4
+// spec: MEDULLA-FEDERATED-QUERY-R081.9.4
 #[test]
 fn hierarchy_refusals_are_typed_and_bounded() {
     let mut cyclic = hierarchy();

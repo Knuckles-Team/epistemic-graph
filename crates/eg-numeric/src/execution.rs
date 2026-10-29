@@ -1,4 +1,4 @@
-//! Regime detection and optimal-execution kernels (EG-FINANCE-PRIMITIVES-R613).
+//! Regime detection and optimal-execution kernels (MEDULLA-FINANCE-PRIMITIVES-R613).
 //!
 //! A Markov chain over thresholded returns estimates a transition matrix and
 //! forecasts regime probabilities; Almgren-Chriss schedules solve the discrete
@@ -467,7 +467,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R613.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R613.1
     #[test]
     fn each_execution_type_round_trips_and_an_invalid_identifier_is_rejected() {
         let plan = almgren_chriss_schedule(&params(0.5, 4), false).unwrap();
@@ -518,7 +518,7 @@ mod tests {
         assert!(TransitionMatrix::new(vec![Ident::new("a").unwrap()], vec![vec![0.5]]).is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R613.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R613.2
     #[test]
     fn markov_chain_estimates_the_matrix_and_forecasts_regime_probabilities() {
         // Regimes at +-1%: up, down, up, up, down, flat -> states 2,0,2,2,0,1.
@@ -546,7 +546,7 @@ mod tests {
         assert_eq!(fit, fit_regime_chain(&returns, 0.01, 1).unwrap());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R613.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R613.2
     #[test]
     fn continuous_schedule_matches_the_hand_computed_sinh_trajectory() {
         // kappa T = ln 2 with eta = sigma = T = 1, so lambda = (ln 2)^2 and
@@ -561,7 +561,7 @@ mod tests {
         assert!(plan.continuous);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R613.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R613.2
     #[test]
     fn discrete_schedule_is_the_impact_minimiser_and_risk_aversion_front_loads() {
         let plan = almgren_chriss_schedule(&params(2.0, 5), false).unwrap();
@@ -593,7 +593,7 @@ mod tests {
         assert!((patient.trades[0] - 200.0).abs() < 0.01);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R613.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R613.2
     #[test]
     fn market_making_quote_and_pairs_signal_follow_their_formulas() {
         // gamma 0.1, sigma 2, T-t 1: variance term 0.4; inventory 5 shifts the
@@ -618,7 +618,7 @@ mod tests {
         assert_eq!(cheap.side, PairsSide::LongSpread);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R613.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R613.4
     #[test]
     fn non_positive_risk_aversion_horizon_or_volatility_is_refused_with_the_field_name() {
         let mut bad = params(0.5, 4);

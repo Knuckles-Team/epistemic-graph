@@ -609,7 +609,7 @@ impl TableChange {
     }
 }
 
-/// Who may write a catalog table (EG-FEDERATED-QUERY-R080.1). The graph is the
+/// Who may write a catalog table (MEDULLA-FEDERATED-QUERY-R080.1). The graph is the
 /// only write boundary: every Iceberg/Parquet projection the engine publishes
 /// is `ReadOnly`, and a write that arrives through one is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -680,7 +680,7 @@ mod tests {
     }
 
     #[test]
-    // spec: EG-FEDERATED-QUERY-R079.1
+    // spec: MEDULLA-FEDERATED-QUERY-R079.1
     fn manifest_publication_round_trips_every_field() {
         let record = publication();
         record.validate().unwrap();
@@ -688,7 +688,7 @@ mod tests {
     }
 
     #[test]
-    // spec: EG-FEDERATED-QUERY-R079.1
+    // spec: MEDULLA-FEDERATED-QUERY-R079.1
     fn manifest_publication_rejects_missing_version_binding() {
         let mut record = publication();
         record.committed_graph_version = None;
@@ -702,7 +702,7 @@ mod tests {
     }
 
     #[test]
-    // spec: EG-FEDERATED-QUERY-R079.1
+    // spec: MEDULLA-FEDERATED-QUERY-R079.1
     fn manifest_publication_rejects_unsupported_format() {
         let mut record = publication();
         record.format_version = ICEBERG_FORMAT_VERSION_V2 + 1;
@@ -1053,7 +1053,7 @@ mod tests {
         assert_eq!(first, second);
     }
 
-    // spec: EG-FEDERATED-QUERY-R080.1
+    // spec: MEDULLA-FEDERATED-QUERY-R080.1
     #[test]
     fn projection_access_round_trips_and_defaults_read_only() {
         for access in [ProjectionAccess::ReadOnly, ProjectionAccess::Authoritative] {

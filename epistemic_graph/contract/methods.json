@@ -20418,7 +20418,7 @@
       ],
       "id": "EnrichDocument",
       "is_wire_callable": true,
-      "note": "EG-UNIFIED-DATA-PLANE-R651.7: chunks one RLS-visible held Document and embeds the chunks. Chunk nodes, chunkOf edges, vectors and one enrichment record commit as one ChangeEnvelope. An enriched digest replays; a new digest supersedes the earlier chunks",
+      "note": "MEDULLA-UNIFIED-DATA-PLANE-R651.7: chunks one RLS-visible held Document and embeds the chunks. Chunk nodes, chunkOf edges, vectors and one enrichment record commit as one ChangeEnvelope. An enriched digest replays; a new digest supersedes the earlier chunks",
       "policy": {
         "audited": true,
         "authz_action": "source:ingest",
@@ -27032,7 +27032,7 @@
       "format_identities": [],
       "id": "NlQueryExplain",
       "is_wire_callable": true,
-      "note": "EG-FEDERATED-QUERY-R058.2.2.1: NlQuery plus the executed UQL text. It shares the planner, budget, authority and refusals of NlQuery",
+      "note": "MEDULLA-FEDERATED-QUERY-R058.2.2.1: NlQuery plus the executed UQL text. It shares the planner, budget, authority and refusals of NlQuery",
       "policy": {
         "audited": false,
         "authz_action": "query:nl",
@@ -27137,7 +27137,7 @@
       "format_identities": [],
       "id": "NlQueryPlan",
       "is_wire_callable": true,
-      "note": "EG-FEDERATED-QUERY-R058.2.2.2: typed plan-only UQL candidate and pins; no graph/source data read or authority claim",
+      "note": "MEDULLA-FEDERATED-QUERY-R058.2.2.2: typed plan-only UQL candidate and pins; no graph/source data read or authority claim",
       "policy": {
         "audited": false,
         "authz_action": "query:nl",
@@ -27556,7 +27556,7 @@
       "format_identities": [],
       "id": "SelectWebPages",
       "is_wire_callable": true,
-      "note": "EG-DECISION-ENGINE-R802: deterministic web page selection over search candidates. It dedupes by canonical URL and digest against held Documents and enforces a budget. It commits nothing and runs no model",
+      "note": "MEDULLA-DECISION-ENGINE-R802: deterministic web page selection over search candidates. It dedupes by canonical URL and digest against held Documents and enforces a budget. It commits nothing and runs no model",
       "policy": {
         "audited": false,
         "authz_action": "query:decide",
@@ -30474,7 +30474,7 @@
       "format_identities": [],
       "id": "CapabilityCoverage",
       "is_wire_callable": true,
-      "note": "EG-DECISION-ENGINE-R126.2.1. Reads ONE tenant-bound agent_library.redb snapshot and answers which visible components and A2A cards cover each capability of a task closure; ranks nothing, commits nothing",
+      "note": "MEDULLA-DECISION-ENGINE-R126.2.1. Reads ONE tenant-bound agent_library.redb snapshot and answers which visible components and A2A cards cover each capability of a task closure; ranks nothing, commits nothing",
       "policy": {
         "audited": false,
         "authz_action": "agent:assemble-read",
@@ -30537,7 +30537,7 @@
       "format_identities": [],
       "id": "GuardrailEntailment",
       "is_wire_callable": true,
-      "note": "EG-DECISION-ENGINE-R127.2.2. Reads ONE tenant-bound agent_library.redb snapshot of published rule heads and returns advisory ontology entailment paths and source generations; commits nothing and does not authorize execution",
+      "note": "MEDULLA-DECISION-ENGINE-R127.2.2. Reads ONE tenant-bound agent_library.redb snapshot of published rule heads and returns advisory ontology entailment paths and source generations; commits nothing and does not authorize execution",
       "policy": {
         "audited": false,
         "authz_action": "agent:assemble-read",
@@ -32138,7 +32138,7 @@
       "format_identities": [],
       "id": "KvGet",
       "is_wire_callable": true,
-      "note": "EG-DURABLE-KERNEL-R102. The key is scoped by verified tenant, principal (unless shared), request graph and namespace. It answers the value and its commit version",
+      "note": "MEDULLA-DURABLE-KERNEL-R102. The key is scoped by verified tenant, principal (unless shared), request graph and namespace. It answers the value and its commit version",
       "policy": {
         "audited": false,
         "authz_action": "kv:read",

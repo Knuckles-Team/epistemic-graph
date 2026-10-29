@@ -566,7 +566,7 @@ async fn route_fixture(h: &Harness) -> RouteFixture {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R122
+// spec: MEDULLA-DECISION-ENGINE-R122
 #[tokio::test]
 async fn fit_evaluate_publish_and_decide_end_to_end() {
     let h = Harness::new().await;
@@ -865,7 +865,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     log_tests::mixed_origin_aggregates_exclude_synthetic(&h, &schema_pin, record).await;
 }
 
-// spec: EG-DECISION-ENGINE-R020
+// spec: MEDULLA-DECISION-ENGINE-R020
 #[tokio::test]
 async fn exploration_on_a_security_question_is_refused_by_the_served_path() {
     let h = Harness::new().await;
@@ -976,7 +976,7 @@ async fn foreign_tenants_and_graph_candidates_are_refused() {
 /// its `CandidateSource` is the agent library or an RLS-filtered graph plan --
 /// a foreign tenant never reaches the graph ACL that would otherwise refuse
 /// the plan itself.
-// spec: EG-DECISION-ENGINE-R057
+// spec: MEDULLA-DECISION-ENGINE-R057
 #[tokio::test]
 async fn graph_sourced_candidates_from_a_foreign_tenant_are_refused() {
     let h = Harness::new().await;
@@ -1108,7 +1108,7 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
 /// own `DecisionLog.get` sees it; a different reader in the SAME tenant does
 /// not -- proving the row's RLS-routed read is finer than tenant scope.
 #[cfg(feature = "query")]
-// spec: EG-DECISION-ENGINE-R058
+// spec: MEDULLA-DECISION-ENGINE-R058
 #[tokio::test]
 async fn graph_sourced_records_are_principal_scoped_not_tenant_scoped_on_log_read() {
     let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;

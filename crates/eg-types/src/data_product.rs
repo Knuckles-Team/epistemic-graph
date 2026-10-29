@@ -1,7 +1,7 @@
-//! Data products, data contracts and access requests (EG-TYPED-PACKS-R805.1).
+//! Data products, data contracts and access requests (MEDULLA-TYPED-PACKS-R805.1).
 //!
 //! Pure data and field validation. Contract checks, grants and served
-//! admission are later children of `EG-TYPED-PACKS-R805`.
+//! admission are later children of `MEDULLA-TYPED-PACKS-R805`.
 
 use serde::{Deserialize, Serialize};
 

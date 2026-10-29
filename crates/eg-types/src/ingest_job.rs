@@ -1,5 +1,5 @@
 //! Typed ingest job envelope, lanes, partitioning and retry policy
-//! (EG-INGEST-WORKER-R001.1, R001.2, R001.3, R001.7, R001.8).
+//! (MEDULLA-INGEST-WORKER-R001.1, R001.2, R001.3, R001.7, R001.8).
 //!
 //! Pure data and pure functions. The served queue, the claim/ack path and the
 //! dead-letter routing are later rows (R001.4, R001.9 to R001.11).
@@ -217,7 +217,7 @@ mod tests {
         }
     }
 
-    // spec: EG-INGEST-WORKER-R001.1
+    // spec: MEDULLA-INGEST-WORKER-R001.1
     #[test]
     fn envelope_round_trips_and_refuses_invalid_shapes() {
         let ok = envelope();
@@ -264,7 +264,7 @@ mod tests {
         );
     }
 
-    // spec: EG-INGEST-WORKER-R001.2
+    // spec: MEDULLA-INGEST-WORKER-R001.2
     #[test]
     fn lane_for_every_kind() {
         assert_eq!(lane_for(IngestJobKind::Document), IngestLane::General);
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(IngestLane::Hydration.queue_name(), "ingest-hydration");
     }
 
-    // spec: EG-INGEST-WORKER-R001.3
+    // spec: MEDULLA-INGEST-WORKER-R001.3
     #[test]
     fn partition_key_orders_per_tenant_and_corpus() {
         let a = envelope();
@@ -308,7 +308,7 @@ mod tests {
         );
     }
 
-    // spec: EG-INGEST-WORKER-R001.7
+    // spec: MEDULLA-INGEST-WORKER-R001.7
     #[test]
     fn retry_policy_refusals() {
         assert_eq!(policy().validate(), Ok(()));
@@ -334,7 +334,7 @@ mod tests {
         assert_eq!(nan.validate(), Err(IngestJobError::InvalidJitter));
     }
 
-    // spec: EG-INGEST-WORKER-R001.8
+    // spec: MEDULLA-INGEST-WORKER-R001.8
     #[test]
     fn next_delay_is_bounded_growing_and_seeded() {
         let p = policy();

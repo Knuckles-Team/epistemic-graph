@@ -1,5 +1,5 @@
 // CONCEPT:EG-KG.domains.finance-compute.lot-accounting — deterministic
-// fixed-point lot/cost-basis matching (EG-FINANCE-PRIMITIVES-R005.1).
+// fixed-point lot/cost-basis matching (MEDULLA-FINANCE-PRIMITIVES-R005.1).
 //
 // Money and quantity are fixed-point integers scaled by `SCALE`, never
 // `f64`: replaying the same ordered activities must reproduce byte-identical
@@ -7,9 +7,9 @@
 //
 // Scope: the standalone FIFO/LIFO cost-basis matching engine only, over its
 // own minimal `LotActivity`/`Lot` types -- not finance-v1's wire
-// `Account`/`Activity`/`Lot`/`Position` records (EG-FINANCE-PRIMITIVES-R004.2,
+// `Account`/`Activity`/`Lot`/`Position` records (MEDULLA-FINANCE-PRIMITIVES-R004.2,
 // still landing). Wiring to those wire types, plus specific-lot/average-cost
-// elections and P&L/TWR/XIRR, are later EG-FINANCE-PRIMITIVES-R005 children.
+// elections and P&L/TWR/XIRR, are later MEDULLA-FINANCE-PRIMITIVES-R005 children.
 
 use std::fmt;
 
@@ -44,7 +44,7 @@ pub struct Lot {
 pub enum LotMethod {
     Fifo,
     Lifo,
-    /// Specific-lot election (EG-FINANCE-PRIMITIVES-R005.2.1): close exactly
+    /// Specific-lot election (MEDULLA-FINANCE-PRIMITIVES-R005.2.1): close exactly
     /// the open lot whose `opened_by` equals this sequence, never a
     /// FIFO/LIFO-chosen one.
     Specific(u64),
@@ -89,7 +89,7 @@ pub enum LotError {
         requested_ticks: i64,
         available_ticks: i64,
     },
-    /// A specific-lot election (EG-FINANCE-PRIMITIVES-R005.2.1) named a
+    /// A specific-lot election (MEDULLA-FINANCE-PRIMITIVES-R005.2.1) named a
     /// `requested_lot` sequence with no corresponding open lot.
     SpecificLotNotFound {
         sequence: u64,
@@ -344,7 +344,7 @@ pub struct AverageCostClosing {
 }
 
 /// The pooled position after replaying activities under the average-cost
-/// election (EG-FINANCE-PRIMITIVES-R005.2.2).
+/// election (MEDULLA-FINANCE-PRIMITIVES-R005.2.2).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AverageCostLedger {
     pub quantity_ticks: i64,
@@ -354,7 +354,7 @@ pub struct AverageCostLedger {
 }
 
 /// Replay buys and sells under the explicit average-cost election
-/// (EG-FINANCE-PRIMITIVES-R005.2.2). Basis is pooled; a sell removes
+/// (MEDULLA-FINANCE-PRIMITIVES-R005.2.2). Basis is pooled; a sell removes
 /// `basis * sold / quantity` rounded half up, and a sell of the whole pool
 /// removes the exact remaining basis so no residue is left behind. Checked
 /// arithmetic only; oversell and overflow refuse with no partial ledger.
@@ -450,7 +450,7 @@ pub struct TransferOutcome {
 }
 
 /// Move `transfer.quantity_ticks` of open lots from `source` to `destination`
-/// (EG-FINANCE-PRIMITIVES-R005.2.3), choosing source lots by `method`. Moved
+/// (MEDULLA-FINANCE-PRIMITIVES-R005.2.3), choosing source lots by `method`. Moved
 /// lots keep their `opened_by` identity and unit cost basis; a partial lot is
 /// split into a retained and a moved part. Quantity, basis and cash are
 /// conserved (cash net of the fee). Inputs are borrowed and untouched, so a
@@ -547,7 +547,7 @@ pub struct SplitOutcome {
 }
 
 /// Adjust every open lot for a `numerator:denominator` split
-/// (EG-FINANCE-PRIMITIVES-R005.2.4): a 2:1 forward split is `(2, 1)`, a 1:2
+/// (MEDULLA-FINANCE-PRIMITIVES-R005.2.4): a 2:1 forward split is `(2, 1)`, a 1:2
 /// reverse split is `(1, 2)`. New quantity is `remaining * num / den` rounded
 /// half up; the new unit cost is recomputed from the lot's pre-split basis,
 /// rounded half up, so aggregate basis is preserved to within the reported
@@ -612,8 +612,8 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.1
-    // spec: EG-FINANCE-PRIMITIVES-R005.1.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.1.1
     #[test]
     fn fifo_closes_the_oldest_lot_first() {
         // act(3, ...) is the sell that FIFO must close against the two buys
@@ -633,8 +633,8 @@ mod tests {
         assert_eq!(ledger.open[0].remaining_ticks, 3 * SCALE);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.1
-    // spec: EG-FINANCE-PRIMITIVES-R005.1.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.1.1
     #[test]
     fn lifo_closes_the_newest_lot_first() {
         // Same sign fix as fifo_closes_the_oldest_lot_first above: act(3,
@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(ledger.open[0].remaining_ticks, 3 * SCALE);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.1
     #[test]
     fn realized_gain_is_proceeds_minus_cost_times_quantity() {
         // act(2, ...) must be the sell that realizes the gain against the
@@ -711,7 +711,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.1
     #[test]
     fn specific_lot_closes_the_named_lot_not_the_fifo_choice() {
         let activities = [
@@ -739,7 +739,7 @@ mod tests {
             .any(|lot| lot.opened_by == 2 && lot.remaining_ticks == 2 * SCALE));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.1
     #[test]
     fn specific_lot_naming_an_absent_lot_is_refused() {
         let activities = [
@@ -760,7 +760,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.1
     #[test]
     fn specific_lot_without_enough_quantity_is_refused_even_if_other_lots_have_it() {
         let activities = [
@@ -792,7 +792,7 @@ mod tests {
         assert_eq!(first, second);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.2
     #[test]
     fn average_cost_election_preserves_basis() {
         // Buys: 10 @ 100 then 30 @ 120 -> pool 40 units, basis 4600, avg 115.
@@ -827,7 +827,7 @@ mod tests {
         assert_eq!(ledger, apply_activities_average_cost(&activities).unwrap());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.2
     #[test]
     fn average_cost_rounds_half_up_at_the_declared_scale_and_leaves_no_residue() {
         // 3 units for 1 tick of price each: basis 3 ticks per unit pool is
@@ -898,7 +898,7 @@ mod tests {
         assert_eq!(down.basis_ticks, 3);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.2
     #[test]
     fn average_cost_refuses_oversell_and_overflow() {
         let oversell = [act(1, 10, 100), act(2, -11, 100)];
@@ -927,7 +927,7 @@ mod tests {
             .open
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.3
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.3
     #[test]
     fn paired_transfer_conserves_quantity_cash_and_basis() {
         let source = open_lots();
@@ -971,7 +971,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.3
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.3
     #[test]
     fn unbalanced_or_oversized_transfers_refuse_without_a_partial_update() {
         let source = open_lots();
@@ -1010,7 +1010,7 @@ mod tests {
         assert_eq!(source, snapshot);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.4
     #[test]
     fn split_preserves_aggregate_basis() {
         let lots = open_lots();
@@ -1029,7 +1029,7 @@ mod tests {
         assert_eq!(forward, apply_split(&lots, 2, 1).unwrap());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.4
     #[test]
     fn fractional_split_follows_the_declared_rounding_and_bounds_the_residual() {
         let lots = open_lots();
@@ -1048,7 +1048,7 @@ mod tests {
         assert!(outcome.basis_residual.abs() <= bound);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R005.2.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R005.2.4
     #[test]
     fn invalid_split_ratio_and_overflow_refuse() {
         let lots = open_lots();

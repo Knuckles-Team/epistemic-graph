@@ -165,8 +165,8 @@ pub(crate) fn commit_context(
     mutation_context(store, TENANT, key, nonce, 0, "decision:commit")
 }
 
-// spec: EG-DECISION-ENGINE-R019
-// spec: EG-DECISION-ENGINE-R051
+// spec: MEDULLA-DECISION-ENGINE-R019
+// spec: MEDULLA-DECISION-ENGINE-R051
 #[test]
 fn a_record_commits_once_serves_its_body_and_replays_idempotently() {
     let (_dir, store) = open_agent_store();
@@ -194,7 +194,7 @@ fn a_record_commits_once_serves_its_body_and_replays_idempotently() {
     assert_eq!(again.result.component, first.result.component);
 }
 
-// spec: EG-DECISION-ENGINE-R019
+// spec: MEDULLA-DECISION-ENGINE-R019
 #[test]
 fn a_catalog_that_moved_since_the_decision_is_a_stale_refusal() {
     let (_dir, store) = open_agent_store();
@@ -220,8 +220,8 @@ fn a_catalog_that_moved_since_the_decision_is_a_stale_refusal() {
     assert!(error.starts_with("STALE_CATALOG: "), "{error}");
 }
 
-// spec: EG-DECISION-ENGINE-R019
-// spec: EG-DECISION-ENGINE-R051
+// spec: MEDULLA-DECISION-ENGINE-R019
+// spec: MEDULLA-DECISION-ENGINE-R051
 #[test]
 fn a_fabricated_record_whose_facts_differ_from_the_published_revision_is_refused() {
     let (_dir, store) = open_agent_store();
@@ -240,7 +240,7 @@ fn a_fabricated_record_whose_facts_differ_from_the_published_revision_is_refused
     assert!(error.starts_with("CANDIDATE_FACTS_CHANGED: "), "{error}");
 }
 
-// spec: EG-DECISION-ENGINE-R051
+// spec: MEDULLA-DECISION-ENGINE-R051
 #[test]
 fn a_record_from_another_tenant_is_refused() {
     let (_dir, store) = open_agent_store();
@@ -260,7 +260,7 @@ fn a_record_from_another_tenant_is_refused() {
 /// EH-070: the published graph pins the committed record through
 /// `synthesis_evidence`, and following the pin from the graph resolves the
 /// record that chose its agent.
-// spec: EG-DECISION-ENGINE-R068
+// spec: MEDULLA-DECISION-ENGINE-R068
 #[test]
 fn a_published_graph_resolves_to_its_decision_record_through_synthesis_evidence() {
     let (_dir, store) = open_agent_store();

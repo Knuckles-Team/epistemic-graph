@@ -1,4 +1,4 @@
-//! EG-UNIFIED-DATA-PLANE-R003 — the typed, hashed attached-source catalog graph. This is the
+//! MEDULLA-UNIFIED-DATA-PLANE-R003 — the typed, hashed attached-source catalog graph. This is the
 //! `.1` typed-model slice: [`AttachedCatalogGraph`] and its content hash, plus the refusal of an
 //! ambiguous catalog (two tables sharing the same schema-qualified name). Extracting a real
 //! catalog from a live dialect adapter's reader, and wiring an OBDA/`schema_context` consumer to
@@ -114,7 +114,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R003.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R003.1
     #[test]
     fn content_hash_is_stable_under_table_and_column_reordering() {
         let a = AttachedCatalogGraph {
@@ -142,7 +142,7 @@ mod tests {
         assert_eq!(a.content_hash(), b.content_hash());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R003.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R003.1
     #[test]
     fn content_hash_changes_with_the_catalog() {
         let a = AttachedCatalogGraph {
@@ -156,7 +156,7 @@ mod tests {
         assert_ne!(a.content_hash(), b.content_hash());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R003.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R003.1
     #[test]
     fn a_catalog_with_one_table_per_name_validates() {
         let graph = AttachedCatalogGraph {
@@ -170,7 +170,7 @@ mod tests {
         graph.validate().unwrap();
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R003.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R003.1
     #[test]
     fn a_duplicated_schema_qualified_table_name_is_refused() {
         let graph = AttachedCatalogGraph {

@@ -9,7 +9,7 @@
 # (specs/cross-source-competency/plan.md "Concepts and sources" table). One
 # vg:SourceAuthority per (source, class) pair, ranked (lower wins). The rows
 # are ontology data, not engine behaviour: an operator edits them in the
-# graph. Seeded by the delivery of EG-CQ-XSRC-R005.2/R005.3/R007.1/R008.1.1/
+# graph. Seeded by the delivery of MEDULLA-CQ-XSRC-R005.2/R005.3/R007.1/R008.1.1/
 # R008.2.3/R008.3.3; the rows each question needs are noted inline.
 
 # --- Connections ------------------------------------------------------------
@@ -29,7 +29,7 @@ xsaa:salesforce a vg:SourceConnection ; rdfs:label "salesforce-mcp" .
 xsaa:twenty a vg:SourceConnection ; rdfs:label "twenty-mcp" .
 xsaa:archimate a vg:SourceConnection ; rdfs:label "archimate-mcp" .
 
-# --- Suppliers and purchase items (EG-CQ-XSRC-R002.5 judgement: ERPNext is the
+# --- Suppliers and purchase items (MEDULLA-CQ-XSRC-R002.5 judgement: ERPNext is the
 #     transactional procurement system; LeanIX is the architecture catalogue) ---
 
 xsaa:supplier-erpnext a vg:SourceAuthority ;
@@ -54,7 +54,7 @@ xsaa:supply-chain-item-leanix a vg:SourceAuthority ;
     vg:authorityRank 2 .
 
 # --- Software components (the code host says what a component is; the
-#     registry says what an image is -- EG-CQ-XSRC-R002.6 judgement) ---
+#     registry says what an image is -- MEDULLA-CQ-XSRC-R002.6 judgement) ---
 
 xsaa:software-component-github a vg:SourceAuthority ;
     vg:authoritativeSource xsaa:github ;
@@ -89,14 +89,14 @@ xsaa:vulnerability-github a vg:SourceAuthority ;
     vg:authorityRank 2 .
 
 # --- Services (live health; the CMDB identity facet and the metrics alternate
-#     are seeded by the EG-CQ-XSRC-R003.1 delivery row) ---
+#     are seeded by the MEDULLA-CQ-XSRC-R003.1 delivery row) ---
 
 xsaa:service-uptime a vg:SourceAuthority ;
     vg:authoritativeSource xsaa:uptime ;
     vg:authorityFor infra:Service ;
     vg:authorityRank 1 .
 
-# --- Deployed workloads (EG-CQ-XSRC-R003.2: orchestrator first, portainer
+# --- Deployed workloads (MEDULLA-CQ-XSRC-R003.2: orchestrator first, portainer
 #     second) ---
 
 xsaa:workload-container-manager a vg:SourceAuthority ;
@@ -109,7 +109,7 @@ xsaa:workload-portainer a vg:SourceAuthority ;
     vg:authorityFor infra:Workload ;
     vg:authorityRank 2 .
 
-# --- Host readings (EG-CQ-XSRC-R008.2.3: metrics rank 1, systems-manager
+# --- Host readings (MEDULLA-CQ-XSRC-R008.2.3: metrics rank 1, systems-manager
 #     rank 2) ---
 
 xsaa:host-lgtm a vg:SourceAuthority ;
@@ -135,7 +135,7 @@ xsaa:business-capability-archimate a vg:SourceAuthority ;
     vg:authorityFor :BusinessCapability ;
     vg:authorityRank 2 .
 
-# --- Incidents and changes (EG-CQ-XSRC-R008.3.3: servicenow rank 1; erpnext
+# --- Incidents and changes (MEDULLA-CQ-XSRC-R008.3.3: servicenow rank 1; erpnext
 #     rank 2, which serves :ErpNextIssue, the owl:equivalentClass of
 #     :Incident) ---
 

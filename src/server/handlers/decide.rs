@@ -39,7 +39,7 @@ mod stat_evaluator;
 mod stat_executor;
 #[cfg(feature = "decide")]
 mod stat_generation;
-// EG-DECISION-ENGINE-R803: the contrastive harness composition decision.
+// MEDULLA-DECISION-ENGINE-R803: the contrastive harness composition decision.
 #[cfg(feature = "decide")]
 mod stat_harness_contrast;
 #[cfg(feature = "decide")]
@@ -65,7 +65,7 @@ mod stat_slate;
 mod stat_slate_attribution;
 #[cfg(feature = "decide")]
 mod stat_support;
-// EG-DECISION-ENGINE-R045: the smallest covering tool subset within a
+// MEDULLA-DECISION-ENGINE-R045: the smallest covering tool subset within a
 // context-token budget.
 #[cfg(feature = "decide")]
 mod stat_task_plan;

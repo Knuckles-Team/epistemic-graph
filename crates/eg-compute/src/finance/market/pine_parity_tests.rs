@@ -99,7 +99,7 @@ fn check_line(name: &str, got: &[IndicatorValue], tolerance: f64) {
     assert!(compared > 0, "{name} compared no warm bars");
 }
 
-// spec: EG-FINANCE-PRIMITIVES-R016
+// spec: MEDULLA-FINANCE-PRIMITIVES-R016
 #[test]
 fn sma_20_has_pine_parity() {
     check_line(
@@ -109,7 +109,7 @@ fn sma_20_has_pine_parity() {
     );
 }
 
-// spec: EG-FINANCE-PRIMITIVES-R016
+// spec: MEDULLA-FINANCE-PRIMITIVES-R016
 #[test]
 fn ema_21_has_pine_parity() {
     check_line(
@@ -119,7 +119,7 @@ fn ema_21_has_pine_parity() {
     );
 }
 
-// spec: EG-FINANCE-PRIMITIVES-R016
+// spec: MEDULLA-FINANCE-PRIMITIVES-R016
 #[test]
 fn sma_200_week_has_pine_parity() {
     let weeks = weekly();
@@ -131,7 +131,7 @@ fn sma_200_week_has_pine_parity() {
     );
 }
 
-// spec: EG-FINANCE-PRIMITIVES-R016
+// spec: MEDULLA-FINANCE-PRIMITIVES-R016
 #[test]
 fn band_20_21_weekly_has_pine_parity() {
     let name = "band_20_21_weekly";
@@ -162,7 +162,7 @@ fn band_20_21_weekly_has_pine_parity() {
     assert!(compared > 0, "{name} compared no warm bars");
 }
 
-// spec: EG-FINANCE-PRIMITIVES-R016
+// spec: MEDULLA-FINANCE-PRIMITIVES-R016
 #[test]
 fn heikin_ashi_has_pine_parity() {
     let name = "heikin_ashi";

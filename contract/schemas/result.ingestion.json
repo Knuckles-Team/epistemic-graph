@@ -432,7 +432,7 @@
       "type": "object"
     },
     "FetchBackend": {
-      "description": "The closed set of web fetch backends (EG-UNIFIED-DATA-PLANE-R651.7.1).",
+      "description": "The closed set of web fetch backends (MEDULLA-UNIFIED-DATA-PLANE-R651.7.1).",
       "enum": [
         "webarchiver",
         "archivebox"

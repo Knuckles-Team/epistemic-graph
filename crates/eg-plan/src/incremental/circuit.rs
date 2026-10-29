@@ -488,7 +488,7 @@ fn op_name(op: &Op) -> &'static str {
 // ── shared per-row predicate primitives (faithful to `exec.rs`) ───────────────
 
 /// The `Scan` label test: the SAME label set `exec::scan_label` and the label index
-/// read (spec: EG-FEDERATED-QUERY-R022.1).
+/// read (spec: MEDULLA-FEDERATED-QUERY-R022.1).
 fn label_matches(props: &Map<String, Value>, label: &str) -> bool {
     eg_core::graph::props_carry_label(props, label)
 }
@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn scan_matches_every_label_key() {
         // `type` and `node_type` both carry the label, exactly as exec::scan_label
-        // reads it (EG-FEDERATED-QUERY-R022.1); another label does not match.
+        // reads it (MEDULLA-FEDERATED-QUERY-R022.1); another label does not match.
         let plan = Plan::new(vec![Op::Scan {
             label: "Doc".into(),
         }]);

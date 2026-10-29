@@ -252,7 +252,7 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
 
 @pytest.mark.parametrize("job_name", ["gates-crates", "gates-storage"])
 def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) -> None:
-    """EG-CONTRACT-R035: prerequisite installation must work on every event."""
+    """MEDULLA-CONTRACT-R035: prerequisite installation must work on every event."""
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs[job_name]
     assert job["runs-on"] == "ubuntu-24.04"
@@ -282,8 +282,8 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
     )
 
 
-# spec: EG-CONTRACT-R031
-# spec: EG-CONTRACT-R031.1
+# spec: MEDULLA-CONTRACT-R031
+# spec: MEDULLA-CONTRACT-R031.1
 def test_light_runtime_and_spec_checks_are_centralized() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     assert jobs["light-gates"] == {
@@ -614,7 +614,7 @@ def test_frozen_commit_stage_entry_uses_complete_range(local_gate_repo, monkeypa
     assert not git("status", "--porcelain")
 
 
-# spec: EG-CONTRACT-R035
+# spec: MEDULLA-CONTRACT-R035
 def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     steps = jobs["gates"]["steps"]
@@ -744,7 +744,7 @@ def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> N
         "numpy-parity gate (compiled kernel vs numpy)",
         "numpy-free boundary contract (NE-249)",
         "engine kernel smoke test (import epistemic_graph.engine)",
-        "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
+        "installed-wheel no-source-tree-import check (MEDULLA-CONTRACT-R002.3)",
     }
     actual = {
         name
@@ -769,7 +769,7 @@ def test_job_environment_uses_only_allowed_expression_contexts(context: str) -> 
                 assert f"{context}[" not in value, name
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.13")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.13")
 def test_validated_wheel_export_follows_all_installed_checks() -> None:
     steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"][
         "gates-wheel"
@@ -789,7 +789,7 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
         "numpy-parity gate (compiled kernel vs numpy)",
         "numpy-free boundary contract (NE-249)",
         "engine kernel smoke test (import epistemic_graph.engine)",
-        "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
+        "installed-wheel no-source-tree-import check (MEDULLA-CONTRACT-R002.3)",
     ):
         index = names.index(prerequisite)
         assert index < package < upload
@@ -813,7 +813,7 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
     }
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.13")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.13")
 @pytest.mark.parametrize(
     "fault",
     [
@@ -942,7 +942,7 @@ def _assert_wheel_bundle(
         assert hashlib.sha256((repo / name).read_bytes()).hexdigest() == digest
 
 
-# spec: EG-CONTRACT-R053.13
+# spec: MEDULLA-CONTRACT-R053.13
 def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     assert "backward-python" not in jobs
@@ -966,7 +966,7 @@ def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
         assert jobs[name]["runs-on"] == "ubuntu-24.04"
 
 
-# spec: EG-CONTRACT-R035
+# spec: MEDULLA-CONTRACT-R035
 def test_tts_piper_job_skips_apt_when_native_packages_are_present() -> None:
     """The real-inference job must not spend its 10-minute PR budget on apt.
 

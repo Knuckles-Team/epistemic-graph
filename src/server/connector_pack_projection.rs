@@ -41,7 +41,7 @@ pub fn spawn(state: Arc<RwLock<ServerState>>) {
 ))]
 mod grant;
 
-// G9 boot regression (EG-DURABLE-KERNEL-R006.4/.5): listener bound before the
+// G9 boot regression (MEDULLA-DURABLE-KERNEL-R006.4/.5): listener bound before the
 // projection drain completes, post-bind reconcile/reload, cursor fast path.
 #[cfg(all(
     test,
@@ -143,7 +143,7 @@ pub(crate) mod worker {
         if progressed {
             // Bounded cadence: one INFO per non-empty sweep (a sweep claims at
             // most CLAIM_LIMIT rows), so a multi-minute drain is never silent
-            // in the log (EG-DURABLE-KERNEL-R006.4).
+            // in the log (MEDULLA-DURABLE-KERNEL-R006.4).
             tracing::info!(
                 rows_claimed = claimed,
                 committed_graphs,
@@ -155,7 +155,7 @@ pub(crate) mod worker {
     }
 
     /// Open/ensure the Agent Library store OUTSIDE the global write lock
-    /// (EG-DURABLE-KERNEL-R006.4). The open is slow on a large store, and pre-G9
+    /// (MEDULLA-DURABLE-KERNEL-R006.4). The open is slow on a large store, and pre-G9
     /// the first sweep held the `ServerState` write lock across it — queueing
     /// the pre-listener critical path (matview reload, listener bind) behind
     /// the whole drain. A read lock adopts an already-ensured handle; the open
@@ -219,7 +219,7 @@ pub(crate) mod worker {
     /// Project one leased import's connector and resolve the lease: ack on
     /// success, reject on a failed projection or an unreadable row. Returns
     /// whether the projection's graph commit ran (the sweep's drain log counts
-    /// it — EG-DURABLE-KERNEL-R006.4).
+    /// it — MEDULLA-DURABLE-KERNEL-R006.4).
     async fn settle(
         state: &Arc<RwLock<ServerState>>,
         store: &Arc<AgentLibraryStore>,

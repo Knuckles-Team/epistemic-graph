@@ -1,5 +1,5 @@
 //! Implicit-reasoning item recommendation over temporal semantic ids
-//! (EG-DECISION-ENGINE-R175.1).
+//! (MEDULLA-DECISION-ENGINE-R175.1).
 
 use serde::{Deserialize, Deserializer, Serialize};
 

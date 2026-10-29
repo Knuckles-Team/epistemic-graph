@@ -1,86 +1,86 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-SRC-AUTH",
+  "spec_id": "MEDULLA-SRC-AUTH",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-SRC-AUTH-R001",
-    "EG-SRC-AUTH-R001.1",
-    "EG-SRC-AUTH-R001.2",
-    "EG-SRC-AUTH-R001.3",
-    "EG-SRC-AUTH-R001.4",
-    "EG-SRC-AUTH-R001.5",
-    "EG-SRC-AUTH-R001.6",
-    "EG-SRC-AUTH-R002",
-    "EG-SRC-AUTH-R002.1",
-    "EG-SRC-AUTH-R002.2",
-    "EG-SRC-AUTH-R002.3",
-    "EG-SRC-AUTH-R002.4",
-    "EG-SRC-AUTH-R002.5",
-    "EG-SRC-AUTH-R002.6",
-    "EG-SRC-AUTH-R003",
-    "EG-SRC-AUTH-R003.1",
-    "EG-SRC-AUTH-R003.2",
-    "EG-SRC-AUTH-R003.3",
-    "EG-SRC-AUTH-R003.4",
-    "EG-SRC-AUTH-R003.5",
-    "EG-SRC-AUTH-R004",
-    "EG-SRC-AUTH-R004.1",
-    "EG-SRC-AUTH-R004.2",
-    "EG-SRC-AUTH-R004.3",
-    "EG-SRC-AUTH-R004.4",
-    "EG-SRC-AUTH-R004.5",
-    "EG-SRC-AUTH-R004.6",
-    "EG-SRC-AUTH-R004.7",
-    "EG-SRC-AUTH-R005",
-    "EG-SRC-AUTH-R005.1",
-    "EG-SRC-AUTH-R005.2",
-    "EG-SRC-AUTH-R005.3",
-    "EG-SRC-AUTH-R005.4",
-    "EG-SRC-AUTH-R006",
-    "EG-SRC-AUTH-R006.1",
-    "EG-SRC-AUTH-R006.2",
-    "EG-SRC-AUTH-R006.3",
-    "EG-SRC-AUTH-R006.4",
-    "EG-SRC-AUTH-R006.5",
-    "EG-SRC-AUTH-R007",
-    "EG-SRC-AUTH-R007.1",
-    "EG-SRC-AUTH-R007.2",
-    "EG-SRC-AUTH-R007.3",
-    "EG-SRC-AUTH-R007.4",
-    "EG-SRC-AUTH-R007.5",
-    "EG-SRC-AUTH-R008",
-    "EG-SRC-AUTH-R008.1",
-    "EG-SRC-AUTH-R008.2",
-    "EG-SRC-AUTH-R009",
-    "EG-SRC-AUTH-R009.1",
-    "EG-SRC-AUTH-R009.2",
-    "EG-SRC-AUTH-R009.3",
-    "EG-SRC-AUTH-R010",
-    "EG-SRC-AUTH-R010.1",
-    "EG-SRC-AUTH-R010.2",
-    "EG-SRC-AUTH-R010.3",
-    "EG-SRC-AUTH-R010.4",
-    "EG-SRC-AUTH-R010.5",
-    "EG-SRC-AUTH-R010.6",
-    "EG-SRC-AUTH-R011",
-    "EG-SRC-AUTH-R011.1",
-    "EG-SRC-AUTH-R011.2",
-    "EG-SRC-AUTH-R011.3",
-    "EG-SRC-AUTH-R011.4",
-    "EG-SRC-AUTH-R011.5",
-    "EG-SRC-AUTH-R011.6",
-    "EG-SRC-AUTH-R800",
-    "EG-SRC-AUTH-R800.1",
-    "EG-SRC-AUTH-R800.2",
-    "EG-SRC-AUTH-R800.3",
-    "EG-SRC-AUTH-R800.4",
-    "EG-SRC-AUTH-R800.5",
-    "EG-SRC-AUTH-R800.6"
+    "MEDULLA-SRC-AUTH-R001",
+    "MEDULLA-SRC-AUTH-R001.1",
+    "MEDULLA-SRC-AUTH-R001.2",
+    "MEDULLA-SRC-AUTH-R001.3",
+    "MEDULLA-SRC-AUTH-R001.4",
+    "MEDULLA-SRC-AUTH-R001.5",
+    "MEDULLA-SRC-AUTH-R001.6",
+    "MEDULLA-SRC-AUTH-R002",
+    "MEDULLA-SRC-AUTH-R002.1",
+    "MEDULLA-SRC-AUTH-R002.2",
+    "MEDULLA-SRC-AUTH-R002.3",
+    "MEDULLA-SRC-AUTH-R002.4",
+    "MEDULLA-SRC-AUTH-R002.5",
+    "MEDULLA-SRC-AUTH-R002.6",
+    "MEDULLA-SRC-AUTH-R003",
+    "MEDULLA-SRC-AUTH-R003.1",
+    "MEDULLA-SRC-AUTH-R003.2",
+    "MEDULLA-SRC-AUTH-R003.3",
+    "MEDULLA-SRC-AUTH-R003.4",
+    "MEDULLA-SRC-AUTH-R003.5",
+    "MEDULLA-SRC-AUTH-R004",
+    "MEDULLA-SRC-AUTH-R004.1",
+    "MEDULLA-SRC-AUTH-R004.2",
+    "MEDULLA-SRC-AUTH-R004.3",
+    "MEDULLA-SRC-AUTH-R004.4",
+    "MEDULLA-SRC-AUTH-R004.5",
+    "MEDULLA-SRC-AUTH-R004.6",
+    "MEDULLA-SRC-AUTH-R004.7",
+    "MEDULLA-SRC-AUTH-R005",
+    "MEDULLA-SRC-AUTH-R005.1",
+    "MEDULLA-SRC-AUTH-R005.2",
+    "MEDULLA-SRC-AUTH-R005.3",
+    "MEDULLA-SRC-AUTH-R005.4",
+    "MEDULLA-SRC-AUTH-R006",
+    "MEDULLA-SRC-AUTH-R006.1",
+    "MEDULLA-SRC-AUTH-R006.2",
+    "MEDULLA-SRC-AUTH-R006.3",
+    "MEDULLA-SRC-AUTH-R006.4",
+    "MEDULLA-SRC-AUTH-R006.5",
+    "MEDULLA-SRC-AUTH-R007",
+    "MEDULLA-SRC-AUTH-R007.1",
+    "MEDULLA-SRC-AUTH-R007.2",
+    "MEDULLA-SRC-AUTH-R007.3",
+    "MEDULLA-SRC-AUTH-R007.4",
+    "MEDULLA-SRC-AUTH-R007.5",
+    "MEDULLA-SRC-AUTH-R008",
+    "MEDULLA-SRC-AUTH-R008.1",
+    "MEDULLA-SRC-AUTH-R008.2",
+    "MEDULLA-SRC-AUTH-R009",
+    "MEDULLA-SRC-AUTH-R009.1",
+    "MEDULLA-SRC-AUTH-R009.2",
+    "MEDULLA-SRC-AUTH-R009.3",
+    "MEDULLA-SRC-AUTH-R010",
+    "MEDULLA-SRC-AUTH-R010.1",
+    "MEDULLA-SRC-AUTH-R010.2",
+    "MEDULLA-SRC-AUTH-R010.3",
+    "MEDULLA-SRC-AUTH-R010.4",
+    "MEDULLA-SRC-AUTH-R010.5",
+    "MEDULLA-SRC-AUTH-R010.6",
+    "MEDULLA-SRC-AUTH-R011",
+    "MEDULLA-SRC-AUTH-R011.1",
+    "MEDULLA-SRC-AUTH-R011.2",
+    "MEDULLA-SRC-AUTH-R011.3",
+    "MEDULLA-SRC-AUTH-R011.4",
+    "MEDULLA-SRC-AUTH-R011.5",
+    "MEDULLA-SRC-AUTH-R011.6",
+    "MEDULLA-SRC-AUTH-R800",
+    "MEDULLA-SRC-AUTH-R800.1",
+    "MEDULLA-SRC-AUTH-R800.2",
+    "MEDULLA-SRC-AUTH-R800.3",
+    "MEDULLA-SRC-AUTH-R800.4",
+    "MEDULLA-SRC-AUTH-R800.5",
+    "MEDULLA-SRC-AUTH-R800.6"
   ],
   "requirements": [
     {
-      "id": "EG-SRC-AUTH-R001",
+      "id": "MEDULLA-SRC-AUTH-R001",
       "title": "Authority vocabulary (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -94,16 +94,16 @@
         "crates/eg-core/tests/source_authority_vocab.rs:83"
       ],
       "rollup_of": [
-        "EG-SRC-AUTH-R001.1",
-        "EG-SRC-AUTH-R001.2",
-        "EG-SRC-AUTH-R001.3",
-        "EG-SRC-AUTH-R001.4",
-        "EG-SRC-AUTH-R001.5",
-        "EG-SRC-AUTH-R001.6"
+        "MEDULLA-SRC-AUTH-R001.1",
+        "MEDULLA-SRC-AUTH-R001.2",
+        "MEDULLA-SRC-AUTH-R001.3",
+        "MEDULLA-SRC-AUTH-R001.4",
+        "MEDULLA-SRC-AUTH-R001.5",
+        "MEDULLA-SRC-AUTH-R001.6"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R001.1",
+      "id": "MEDULLA-SRC-AUTH-R001.1",
       "title": "Add class `vg:SourceAuthority` with `vg:authoritativeSource`, `vg:authorityFor`, `vg:authorityRank`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -114,7 +114,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R001.2",
+      "id": "MEDULLA-SRC-AUTH-R001.2",
       "title": "Add `vg:authorityFacet` and `vg:authorityMapping`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -125,7 +125,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R001.3",
+      "id": "MEDULLA-SRC-AUTH-R001.3",
       "title": "Add `vg:scopeTenant`, `vg:scopePartition`, `vg:freshnessMaxAgeSeconds`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -136,7 +136,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R001.4",
+      "id": "MEDULLA-SRC-AUTH-R001.4",
       "title": "Add `vg:authorityContract` and `vg:allowFallback`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -147,7 +147,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R001.5",
+      "id": "MEDULLA-SRC-AUTH-R001.5",
       "title": "Add `vg:materialisation` and `vg:materialisationReason`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -158,7 +158,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R001.6",
+      "id": "MEDULLA-SRC-AUTH-R001.6",
       "title": "Add `vg:foreignSourceName` on `vg:SourceConnection`; widen the domain of `vg:approved` to `vg:SourceAuthority`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -169,7 +169,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R002",
+      "id": "MEDULLA-SRC-AUTH-R002",
       "title": "Authority shapes (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -183,16 +183,16 @@
         "crates/eg-shacl/tests/source_authority_shapes.rs:69"
       ],
       "rollup_of": [
-        "EG-SRC-AUTH-R002.1",
-        "EG-SRC-AUTH-R002.2",
-        "EG-SRC-AUTH-R002.3",
-        "EG-SRC-AUTH-R002.4",
-        "EG-SRC-AUTH-R002.5",
-        "EG-SRC-AUTH-R002.6"
+        "MEDULLA-SRC-AUTH-R002.1",
+        "MEDULLA-SRC-AUTH-R002.2",
+        "MEDULLA-SRC-AUTH-R002.3",
+        "MEDULLA-SRC-AUTH-R002.4",
+        "MEDULLA-SRC-AUTH-R002.5",
+        "MEDULLA-SRC-AUTH-R002.6"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R002.1",
+      "id": "MEDULLA-SRC-AUTH-R002.1",
       "title": "Shape: required cardinalities and node kinds",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -203,7 +203,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R002.2",
+      "id": "MEDULLA-SRC-AUTH-R002.2",
       "title": "Shape: mapping belongs to the named source and maps the named class",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -214,7 +214,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R002.3",
+      "id": "MEDULLA-SRC-AUTH-R002.3",
       "title": "Shape: a facet must be projected by the mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -225,7 +225,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R002.4",
+      "id": "MEDULLA-SRC-AUTH-R002.4",
       "title": "Shape: contract kind agrees with the connection's source kind",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -236,7 +236,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R002.5",
+      "id": "MEDULLA-SRC-AUTH-R002.5",
       "title": "Shape: accelerated materialisation needs reason, freshness bound and connection capability `copy`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -247,7 +247,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R002.6",
+      "id": "MEDULLA-SRC-AUTH-R002.6",
       "title": "Shape: equal-rank claims by different sources on one (class, facet, scope) are refused inside one graph",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -258,21 +258,21 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R003",
+      "id": "MEDULLA-SRC-AUTH-R003",
       "title": "Who may assert authority (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SRC-AUTH-R003.1",
-        "EG-SRC-AUTH-R003.2",
-        "EG-SRC-AUTH-R003.3",
-        "EG-SRC-AUTH-R003.4",
-        "EG-SRC-AUTH-R003.5"
+        "MEDULLA-SRC-AUTH-R003.1",
+        "MEDULLA-SRC-AUTH-R003.2",
+        "MEDULLA-SRC-AUTH-R003.3",
+        "MEDULLA-SRC-AUTH-R003.4",
+        "MEDULLA-SRC-AUTH-R003.5"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R003.1",
+      "id": "MEDULLA-SRC-AUTH-R003.1",
       "title": "Declare kind `governed.source-authority` with approver scope `governance:approve-source-authority` in `GOVERNED_KINDS`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -283,7 +283,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R003.2",
+      "id": "MEDULLA-SRC-AUTH-R003.2",
       "title": "Attach refuses `vg:approved true` inside a `Pack` or `Ingestion` origin schema source",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -294,14 +294,14 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R003.3",
+      "id": "MEDULLA-SRC-AUTH-R003.3",
       "title": "`AttachApproved` accepts an authority candidate. The approval lease binds its digest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R003.4",
+      "id": "MEDULLA-SRC-AUTH-R003.4",
       "title": "Planner derives effectiveness from origin, not from the flag",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -312,7 +312,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R003.5",
+      "id": "MEDULLA-SRC-AUTH-R003.5",
       "title": "Proposed rows are listed, never selected",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -323,23 +323,23 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R004",
+      "id": "MEDULLA-SRC-AUTH-R004",
       "title": "Selection reads authority (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SRC-AUTH-R004.1",
-        "EG-SRC-AUTH-R004.2",
-        "EG-SRC-AUTH-R004.3",
-        "EG-SRC-AUTH-R004.4",
-        "EG-SRC-AUTH-R004.5",
-        "EG-SRC-AUTH-R004.6",
-        "EG-SRC-AUTH-R004.7"
+        "MEDULLA-SRC-AUTH-R004.1",
+        "MEDULLA-SRC-AUTH-R004.2",
+        "MEDULLA-SRC-AUTH-R004.3",
+        "MEDULLA-SRC-AUTH-R004.4",
+        "MEDULLA-SRC-AUTH-R004.5",
+        "MEDULLA-SRC-AUTH-R004.6",
+        "MEDULLA-SRC-AUTH-R004.7"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R004.1",
+      "id": "MEDULLA-SRC-AUTH-R004.1",
       "title": "Add `AuthorityRow` and `with_authority` to `CoverageFixture`; replace the silent `insert` overwrite by a list per class",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -350,7 +350,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R004.2",
+      "id": "MEDULLA-SRC-AUTH-R004.2",
       "title": "`Premise::Authority` with row, source, class, facet, rank, scope, origin, generation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -361,7 +361,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R004.3",
+      "id": "MEDULLA-SRC-AUTH-R004.3",
       "title": "`Covered` gains `alternates`; order candidates by rank",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -372,7 +372,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R004.4",
+      "id": "MEDULLA-SRC-AUTH-R004.4",
       "title": "Superclass authority is inherited; a subclass row overrides it",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -383,7 +383,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R004.5",
+      "id": "MEDULLA-SRC-AUTH-R004.5",
       "title": "Live read: parse authority rows from the composed graph schema sources",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -394,14 +394,14 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R004.6",
+      "id": "MEDULLA-SRC-AUTH-R004.6",
       "title": "Build the `ConnectedSources` view from the owner-scoped foreign catalog",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R004.7",
+      "id": "MEDULLA-SRC-AUTH-R004.7",
       "title": "Facet-aware selection: a question reading property `p` uses the facet row for `p` before the class row",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -412,7 +412,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R005",
+      "id": "MEDULLA-SRC-AUTH-R005",
       "title": "Tie-breaking (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -425,14 +425,14 @@
         "crates/eg-rdf/src/source_selection/tests.rs:413"
       ],
       "rollup_of": [
-        "EG-SRC-AUTH-R005.1",
-        "EG-SRC-AUTH-R005.2",
-        "EG-SRC-AUTH-R005.3",
-        "EG-SRC-AUTH-R005.4"
+        "MEDULLA-SRC-AUTH-R005.1",
+        "MEDULLA-SRC-AUTH-R005.2",
+        "MEDULLA-SRC-AUTH-R005.3",
+        "MEDULLA-SRC-AUTH-R005.4"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R005.1",
+      "id": "MEDULLA-SRC-AUTH-R005.1",
       "title": "Order: facet over class over nearest superclass",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -443,7 +443,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R005.2",
+      "id": "MEDULLA-SRC-AUTH-R005.2",
       "title": "Scope specificity: matching tenant and partition beat unscoped",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -454,7 +454,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R005.3",
+      "id": "MEDULLA-SRC-AUTH-R005.3",
       "title": "Equal everything, different sources: `Abstained::Ambiguous` listing both rows; never choose by name",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -465,7 +465,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R005.4",
+      "id": "MEDULLA-SRC-AUTH-R005.4",
       "title": "`Premise::Tiebreak { winner, loser, rule }` records the deciding step",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -476,7 +476,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R006",
+      "id": "MEDULLA-SRC-AUTH-R006",
       "title": "Typed abstention (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -490,15 +490,15 @@
         "crates/eg-rdf/src/source_selection/tests.rs:548"
       ],
       "rollup_of": [
-        "EG-SRC-AUTH-R006.1",
-        "EG-SRC-AUTH-R006.2",
-        "EG-SRC-AUTH-R006.3",
-        "EG-SRC-AUTH-R006.4",
-        "EG-SRC-AUTH-R006.5"
+        "MEDULLA-SRC-AUTH-R006.1",
+        "MEDULLA-SRC-AUTH-R006.2",
+        "MEDULLA-SRC-AUTH-R006.3",
+        "MEDULLA-SRC-AUTH-R006.4",
+        "MEDULLA-SRC-AUTH-R006.5"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R006.1",
+      "id": "MEDULLA-SRC-AUTH-R006.1",
       "title": "Add `CoverageResult::Abstained { class, facet, reason, source, premises }` and the reason enum `Unconnected | UnapprovedMapping | Stale | ContractMismatch | Ambiguous`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -509,7 +509,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R006.2",
+      "id": "MEDULLA-SRC-AUTH-R006.2",
       "title": "Unconnected rank-1 authority abstains naming source and concept",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -520,7 +520,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R006.3",
+      "id": "MEDULLA-SRC-AUTH-R006.3",
       "title": "`allowFallback` tries the next ordered alternate and records `FallbackFrom`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -531,7 +531,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R006.4",
+      "id": "MEDULLA-SRC-AUTH-R006.4",
       "title": "Freshness: a stale copy falls back to live; stale and no live route abstains `Stale`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -542,7 +542,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R006.5",
+      "id": "MEDULLA-SRC-AUTH-R006.5",
       "title": "No authority row: one approved mapping serves with `Premise::Implicit`; several abstain `Ambiguous`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -553,21 +553,21 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R007",
+      "id": "MEDULLA-SRC-AUTH-R007",
       "title": "Audit trail (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SRC-AUTH-R007.1",
-        "EG-SRC-AUTH-R007.2",
-        "EG-SRC-AUTH-R007.3",
-        "EG-SRC-AUTH-R007.4",
-        "EG-SRC-AUTH-R007.5"
+        "MEDULLA-SRC-AUTH-R007.1",
+        "MEDULLA-SRC-AUTH-R007.2",
+        "MEDULLA-SRC-AUTH-R007.3",
+        "MEDULLA-SRC-AUTH-R007.4",
+        "MEDULLA-SRC-AUTH-R007.5"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R007.1",
+      "id": "MEDULLA-SRC-AUTH-R007.1",
       "title": "Add `AuthorityAudit` and `AuditEntry` types",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -582,7 +582,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R007.2",
+      "id": "MEDULLA-SRC-AUTH-R007.2",
       "title": "Build the audit from verdicts and premises only",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -593,7 +593,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R007.3",
+      "id": "MEDULLA-SRC-AUTH-R007.3",
       "title": "Audit lists `not_used` rows with reason (including `Proposed`)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -604,21 +604,21 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R007.4",
+      "id": "MEDULLA-SRC-AUTH-R007.4",
       "title": "Wire the audit into the cross-source report's `sources_used`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R007.5",
+      "id": "MEDULLA-SRC-AUTH-R007.5",
       "title": "Print the block in the served intent tool",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R008",
+      "id": "MEDULLA-SRC-AUTH-R008",
       "title": "Materialisation policy (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -629,12 +629,12 @@
         "crates/eg-rdf/src/source_selection/tests.rs:626"
       ],
       "rollup_of": [
-        "EG-SRC-AUTH-R008.1",
-        "EG-SRC-AUTH-R008.2"
+        "MEDULLA-SRC-AUTH-R008.1",
+        "MEDULLA-SRC-AUTH-R008.2"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R008.1",
+      "id": "MEDULLA-SRC-AUTH-R008.1",
       "title": "Selection reports `mode: live` for a `virtual` row and refuses a copy route for it",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -645,7 +645,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R008.2",
+      "id": "MEDULLA-SRC-AUTH-R008.2",
       "title": "An `accelerated` row resolves through `AccelerationPolicy` and carries its reason into the audit",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -656,19 +656,19 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R009",
+      "id": "MEDULLA-SRC-AUTH-R009",
       "title": "Consumers and acceptance (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SRC-AUTH-R009.1",
-        "EG-SRC-AUTH-R009.2",
-        "EG-SRC-AUTH-R009.3"
+        "MEDULLA-SRC-AUTH-R009.1",
+        "MEDULLA-SRC-AUTH-R009.2",
+        "MEDULLA-SRC-AUTH-R009.3"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R009.1",
+      "id": "MEDULLA-SRC-AUTH-R009.1",
       "title": "Fixture: ServiceNow rank 1 and PagerDuty rank 2 for `:Incident`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -679,7 +679,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R009.2",
+      "id": "MEDULLA-SRC-AUTH-R009.2",
       "title": "Decisive test: swapping two ranks changes `sources_used` with equal query text",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -690,29 +690,29 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R009.3",
-      "title": "Re-point `EG-CQ-XSRC-R001.1` and `R001.2` to this spec and mark them delivered by `R001.*` and `R002.*`",
+      "id": "MEDULLA-SRC-AUTH-R009.3",
+      "title": "Re-point `MEDULLA-CQ-XSRC-R001.1` and `R001.2` to this spec and mark them delivered by `R001.*` and `R002.*`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R010",
+      "id": "MEDULLA-SRC-AUTH-R010",
       "title": "Source trust role and live-truth preference (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SRC-AUTH-R010.1",
-        "EG-SRC-AUTH-R010.2",
-        "EG-SRC-AUTH-R010.3",
-        "EG-SRC-AUTH-R010.4",
-        "EG-SRC-AUTH-R010.5",
-        "EG-SRC-AUTH-R010.6"
+        "MEDULLA-SRC-AUTH-R010.1",
+        "MEDULLA-SRC-AUTH-R010.2",
+        "MEDULLA-SRC-AUTH-R010.3",
+        "MEDULLA-SRC-AUTH-R010.4",
+        "MEDULLA-SRC-AUTH-R010.5",
+        "MEDULLA-SRC-AUTH-R010.6"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R010.1",
+      "id": "MEDULLA-SRC-AUTH-R010.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -724,7 +724,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R010.2",
+      "id": "MEDULLA-SRC-AUTH-R010.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -735,14 +735,14 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R010.3",
+      "id": "MEDULLA-SRC-AUTH-R010.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R010.4",
+      "id": "MEDULLA-SRC-AUTH-R010.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -753,7 +753,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R010.5",
+      "id": "MEDULLA-SRC-AUTH-R010.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -764,29 +764,29 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R010.6",
+      "id": "MEDULLA-SRC-AUTH-R010.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R011",
+      "id": "MEDULLA-SRC-AUTH-R011",
       "title": "Untrusted taint mark on content that enters a run (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SRC-AUTH-R011.1",
-        "EG-SRC-AUTH-R011.2",
-        "EG-SRC-AUTH-R011.3",
-        "EG-SRC-AUTH-R011.4",
-        "EG-SRC-AUTH-R011.5",
-        "EG-SRC-AUTH-R011.6"
+        "MEDULLA-SRC-AUTH-R011.1",
+        "MEDULLA-SRC-AUTH-R011.2",
+        "MEDULLA-SRC-AUTH-R011.3",
+        "MEDULLA-SRC-AUTH-R011.4",
+        "MEDULLA-SRC-AUTH-R011.5",
+        "MEDULLA-SRC-AUTH-R011.6"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R011.1",
+      "id": "MEDULLA-SRC-AUTH-R011.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -798,7 +798,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R011.2",
+      "id": "MEDULLA-SRC-AUTH-R011.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -809,14 +809,14 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R011.3",
+      "id": "MEDULLA-SRC-AUTH-R011.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R011.4",
+      "id": "MEDULLA-SRC-AUTH-R011.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -827,7 +827,7 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R011.5",
+      "id": "MEDULLA-SRC-AUTH-R011.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -838,64 +838,64 @@
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R011.6",
+      "id": "MEDULLA-SRC-AUTH-R011.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R800",
+      "id": "MEDULLA-SRC-AUTH-R800",
       "title": "Concept id allocation, lineage and relational authority registry (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SRC-AUTH-R800.1",
-        "EG-SRC-AUTH-R800.2",
-        "EG-SRC-AUTH-R800.3",
-        "EG-SRC-AUTH-R800.4",
-        "EG-SRC-AUTH-R800.5",
-        "EG-SRC-AUTH-R800.6"
+        "MEDULLA-SRC-AUTH-R800.1",
+        "MEDULLA-SRC-AUTH-R800.2",
+        "MEDULLA-SRC-AUTH-R800.3",
+        "MEDULLA-SRC-AUTH-R800.4",
+        "MEDULLA-SRC-AUTH-R800.5",
+        "MEDULLA-SRC-AUTH-R800.6"
       ]
     },
     {
-      "id": "EG-SRC-AUTH-R800.1",
+      "id": "MEDULLA-SRC-AUTH-R800.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R800.2",
+      "id": "MEDULLA-SRC-AUTH-R800.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R800.3",
+      "id": "MEDULLA-SRC-AUTH-R800.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R800.4",
+      "id": "MEDULLA-SRC-AUTH-R800.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R800.5",
+      "id": "MEDULLA-SRC-AUTH-R800.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SRC-AUTH-R800.6",
+      "id": "MEDULLA-SRC-AUTH-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

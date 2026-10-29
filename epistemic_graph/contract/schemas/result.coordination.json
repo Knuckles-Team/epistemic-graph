@@ -475,7 +475,7 @@
         },
         {
           "const": "guardrail_rule",
-          "description": "A governance rule, standard or SHACL shape pack and the task class it\ngoverns (EG-DECISION-ENGINE-R127.2.1). The component id is the rule\nid; `applies_to_class` and `source_generation` travel as attributes\nand are refused at publish when missing or malformed, so every stored\nrule decodes into a [`crate::decision::guardrail::GuardrailRule`].",
+          "description": "A governance rule, standard or SHACL shape pack and the task class it\ngoverns (MEDULLA-DECISION-ENGINE-R127.2.1). The component id is the rule\nid; `applies_to_class` and `source_generation` travel as attributes\nand are refused at publish when missing or malformed, so every stored\nrule decodes into a [`crate::decision::guardrail::GuardrailRule`].",
           "type": "string"
         }
       ]
@@ -8045,32 +8045,32 @@
         },
         {
           "const": "pre_tool_risk",
-          "description": "An advisory risk score for a candidate tool invocation, read before\nthe call (EG-DECISION-ENGINE-R038). `Decide` is evaluate-only for\nevery kind (see this module's own doc), so the score it returns can\nonly ever inform a caller's own authorization step -- it carries no\nmechanism to itself gate or block the invocation.",
+          "description": "An advisory risk score for a candidate tool invocation, read before\nthe call (MEDULLA-DECISION-ENGINE-R038). `Decide` is evaluate-only for\nevery kind (see this module's own doc), so the score it returns can\nonly ever inform a caller's own authorization step -- it carries no\nmechanism to itself gate or block the invocation.",
           "type": "string"
         },
         {
           "const": "connector_event_triage",
-          "description": "Inbound connector-event classification, evaluate-only\n(EG-DECISION-ENGINE-R041): `Decide` returns a proposal and its\nevidence class and takes no action on the connector's behalf -- the\nsame evaluate-only guarantee this module's own doc states for every\nkind, named here for the connector-triage use case specifically.",
+          "description": "Inbound connector-event classification, evaluate-only\n(MEDULLA-DECISION-ENGINE-R041): `Decide` returns a proposal and its\nevidence class and takes no action on the connector's behalf -- the\nsame evaluate-only guarantee this module's own doc states for every\nkind, named here for the connector-triage use case specifically.",
           "type": "string"
         },
         {
           "const": "connector_tool_choice",
-          "description": "Which internal tool a connector should use for a task, advisory only\n(EG-DECISION-ENGINE-R042): `Decide` returns a proposal with evidence;\nthe connector's own deterministic authorization path, never `Decide`,\ngoverns whether a resulting write-back actually occurs.",
+          "description": "Which internal tool a connector should use for a task, advisory only\n(MEDULLA-DECISION-ENGINE-R042): `Decide` returns a proposal with evidence;\nthe connector's own deterministic authorization path, never `Decide`,\ngoverns whether a resulting write-back actually occurs.",
           "type": "string"
         },
         {
           "const": "connector_write_back",
-          "description": "A write-back proposal for a connector action, with supporting\nevidence (EG-DECISION-ENGINE-R043): the proposal never authorizes the\nwrite itself. Any exploration or statistical head behind it stays\noutside the connector's own deterministic authorization step, which\nalone approves the write.",
+          "description": "A write-back proposal for a connector action, with supporting\nevidence (MEDULLA-DECISION-ENGINE-R043): the proposal never authorizes the\nwrite itself. Any exploration or statistical head behind it stays\noutside the connector's own deterministic authorization step, which\nalone approves the write.",
           "type": "string"
         },
         {
           "const": "tool_subset",
-          "description": "The smallest tool subset covering every required capability within a\ncontext-token budget (EG-DECISION-ENGINE-R045). Candidates are\ndeclared (`CandidateSource::Declared`); required capabilities and the\nbudget are typed request params (`required_capabilities`,\n`context_budget_tokens`). See `stat_tool_subset`.",
+          "description": "The smallest tool subset covering every required capability within a\ncontext-token budget (MEDULLA-DECISION-ENGINE-R045). Candidates are\ndeclared (`CandidateSource::Declared`); required capabilities and the\nbudget are typed request params (`required_capabilities`,\n`context_budget_tokens`). See `stat_tool_subset`.",
           "type": "string"
         },
         {
           "const": "harness_config",
-          "description": "Evaluate-only harness configuration advice (EG-DECISION-ENGINE-R128).\nReturns proposed context, scaffold and action-space choices; never runs them.",
+          "description": "Evaluate-only harness configuration advice (MEDULLA-DECISION-ENGINE-R128).\nReturns proposed context, scaffold and action-space choices; never runs them.",
           "type": "string"
         },
         {
@@ -8080,57 +8080,57 @@
         },
         {
           "const": "harness_contrast",
-          "description": "The contrastive harness composition decision (EG-DECISION-ENGINE-R803):\ntwo to eight candidate component versions probed against the same\nbaseline under identical conditions; the engine adopts a candidate only\nwhen its measured `eval_score_delta` is positive and unbeaten, with\ncost as the tie-break, and abstains keeping the current harness when no\ncandidate improves. See `decision::harness_contrast`.",
+          "description": "The contrastive harness composition decision (MEDULLA-DECISION-ENGINE-R803):\ntwo to eight candidate component versions probed against the same\nbaseline under identical conditions; the engine adopts a candidate only\nwhen its measured `eval_score_delta` is positive and unbeaten, with\ncost as the tie-break, and abstains keeping the current harness when no\ncandidate improves. See `decision::harness_contrast`.",
           "type": "string"
         },
         {
           "const": "placement",
-          "description": "Evaluate-only deployment placement over the fixed target registry\n(EG-PLACEMENT-R001.2): `Decide` names the cheapest feasible target and\nwhy every other target was not chosen; it acquires no capacity and\ndeploys nothing. See `statistical::placement`.",
+          "description": "Evaluate-only deployment placement over the fixed target registry\n(MEDULLA-PLACEMENT-R001.2): `Decide` names the cheapest feasible target and\nwhy every other target was not chosen; it acquires no capacity and\ndeploys nothing. See `statistical::placement`.",
           "type": "string"
         },
         {
           "const": "context_budget",
-          "description": "Whether a prompt passes its window share and the bounded recursive\nsplit that makes it fit (EG-DECISION-ENGINE-R137). Evaluate-only. See\n`decision::context_budget`.",
+          "description": "Whether a prompt passes its window share and the bounded recursive\nsplit that makes it fit (MEDULLA-DECISION-ENGINE-R137). Evaluate-only. See\n`decision::context_budget`.",
           "type": "string"
         },
         {
           "const": "round_verdict",
-          "description": "Whether an evolution round's observed flips verify or falsify its\ndeclaration (EG-DECISION-ENGINE-R136). See `decision::evolution_round`.",
+          "description": "Whether an evolution round's observed flips verify or falsify its\ndeclaration (MEDULLA-DECISION-ENGINE-R136). See `decision::evolution_round`.",
           "type": "string"
         },
         {
           "const": "stage_allocation",
-          "description": "Which model each evolution stage runs on (EG-DECISION-ENGINE-R136).",
+          "description": "Which model each evolution stage runs on (MEDULLA-DECISION-ENGINE-R136).",
           "type": "string"
         },
         {
           "const": "probe_verdict",
-          "description": "The verdict of one red-team probe (EG-DECISION-ENGINE-R138). See\n`decision::red_team`.",
+          "description": "The verdict of one red-team probe (MEDULLA-DECISION-ENGINE-R138). See\n`decision::red_team`.",
           "type": "string"
         },
         {
           "const": "item_recommendation",
-          "description": "Catalog items for a query and a history (EG-DECISION-ENGINE-R175). See\n`decision::recommend`.",
+          "description": "Catalog items for a query and a history (MEDULLA-DECISION-ENGINE-R175). See\n`decision::recommend`.",
           "type": "string"
         },
         {
           "const": "load_set",
-          "description": "The tools, skills and agents one job needs (EG-DECISION-ENGINE-R176).\nSee `decision::load_set`.",
+          "description": "The tools, skills and agents one job needs (MEDULLA-DECISION-ENGINE-R176).\nSee `decision::load_set`.",
           "type": "string"
         },
         {
           "const": "usage_guidance",
-          "description": "How and when to use one connector for one job (EG-DECISION-ENGINE-R177).\nSee `decision::usage_guidance`.",
+          "description": "How and when to use one connector for one job (MEDULLA-DECISION-ENGINE-R177).\nSee `decision::usage_guidance`.",
           "type": "string"
         },
         {
           "const": "branch_outcome",
-          "description": "Branch outcome aggregation for planning decisions (EG-DECISION-ENGINE-R164).",
+          "description": "Branch outcome aggregation for planning decisions (MEDULLA-DECISION-ENGINE-R164).",
           "type": "string"
         },
         {
           "const": "edit_concentration",
-          "description": "Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).",
+          "description": "Edit concentration checks over a declared rolling round window (MEDULLA-DECISION-ENGINE-R173).",
           "type": "string"
         }
       ]
@@ -10967,7 +10967,7 @@
               "type": "null"
             }
           ],
-          "description": "The contrastive harness composition decision, present exactly when the\nquestion kind is `HarnessContrast` (EG-DECISION-ENGINE-R803)."
+          "description": "The contrastive harness composition decision, present exactly when the\nquestion kind is `HarnessContrast` (MEDULLA-DECISION-ENGINE-R803)."
         },
         "harness_evaluation": {
           "anyOf": [

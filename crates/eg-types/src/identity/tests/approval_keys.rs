@@ -71,7 +71,7 @@ fn unchanged_refusal(store: &mut IdentityStore, op: &IdentityOp, stamp: &Identit
     assert_eq!(*store, before);
 }
 
-// spec: EG-TYPED-PACKS-R085.5.1
+// spec: MEDULLA-TYPED-PACKS-R085.5.1
 #[test]
 fn lifecycle_persists_public_facts_and_enforces_rotation_and_revocation_cas() {
     let (mut store, stamp) = opened();
@@ -109,7 +109,7 @@ fn lifecycle_persists_public_facts_and_enforces_rotation_and_revocation_cas() {
     unchanged_refusal(&mut store, &revoke(3), &stamp, NOW);
 }
 
-// spec: EG-TYPED-PACKS-R085.5.1
+// spec: MEDULLA-TYPED-PACKS-R085.5.1
 #[test]
 fn registration_requires_broker_live_human_session_and_exact_tenant() {
     for case in 0..8 {
@@ -147,7 +147,7 @@ fn registration_requires_broker_live_human_session_and_exact_tenant() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R085.5.1
+// spec: MEDULLA-TYPED-PACKS-R085.5.1
 #[test]
 fn bindings_expiry_and_public_lookup_remain_closed() {
     let (mut store, stamp) = opened();
@@ -185,7 +185,7 @@ fn bindings_expiry_and_public_lookup_remain_closed() {
     unchanged_refusal(&mut store, &revoke(1), &public_reader, NOW);
 }
 
-// spec: EG-TYPED-PACKS-R085.5.1
+// spec: MEDULLA-TYPED-PACKS-R085.5.1
 #[test]
 fn registration_message_has_exact_domain_lengths_and_revision_binding() {
     let request = binding(0);
@@ -216,7 +216,7 @@ fn registration_message_has_exact_domain_lengths_and_revision_binding() {
     assert!(serde_json::from_value::<IdentityOp>(registration).is_err());
 }
 
-// spec: EG-TYPED-PACKS-R085.5.1
+// spec: MEDULLA-TYPED-PACKS-R085.5.1
 #[test]
 fn delegated_broker_cannot_attest_or_revoke_but_may_read_public_facts() {
     let (mut store, stamp) = opened();

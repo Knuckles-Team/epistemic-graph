@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R802.6: select from 50 search candidates, 10 of them
+//! MEDULLA-DECISION-ENGINE-R802.6: select from 50 search candidates, 10 of them
 //! held and fresh; JSON on stdout. Budget: p99 3 ms in the optimized profile.
 //! Run with `cargo bench -p eg-numeric --features decision --bench web_fetch_selection`.
 

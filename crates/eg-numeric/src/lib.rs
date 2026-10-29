@@ -46,8 +46,8 @@ pub mod risk;
 pub mod series;
 // Evaluation kernels (EH-530): special functions, backtest validation, predictive skill.
 pub mod evaluation;
-// Banking risk calculations (EG-FINANCE-PRIMITIVES-R901) and position sizing and
-// distribution-shift detection (EG-FINANCE-PRIMITIVES-R900).
+// Banking risk calculations (MEDULLA-FINANCE-PRIMITIVES-R901) and position sizing and
+// distribution-shift detection (MEDULLA-FINANCE-PRIMITIVES-R900).
 pub mod banking;
 pub mod execution;
 pub mod sizing;

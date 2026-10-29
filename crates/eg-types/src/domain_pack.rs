@@ -1,10 +1,10 @@
-//! A typed, versioned domain vocabulary pack (EG-TYPED-PACKS-R097.1).
+//! A typed, versioned domain vocabulary pack (MEDULLA-TYPED-PACKS-R097.1).
 //!
 //! Human-resources, legal, medical and government domain vocabularies —
 //! classes, enumerations, properties and their alignment to upper ontologies —
 //! publish through this typed model instead of each agent or connector
 //! carrying its own model classes. This is the producer-first slice of
-//! `EG-TYPED-PACKS-R097` (split per `SPEC-SIZING-AND-DEPENDENCIES.md` §5): the
+//! `MEDULLA-TYPED-PACKS-R097` (split per `SPEC-SIZING-AND-DEPENDENCIES.md` §5): the
 //! typed model plus validation and a round-trip test for one domain (HR).
 //! Wiring this pack through the `connector_pack` import boundary, the
 //! remaining three domains, and retiring Agent Utilities' `domains/*` and
@@ -337,7 +337,7 @@ mod tests {
         }
     }
 
-    /// EG-TYPED-PACKS-R097.1: a valid HR domain pack passes validation.
+    /// MEDULLA-TYPED-PACKS-R097.1: a valid HR domain pack passes validation.
     #[test]
     fn hr_fixture_validates() {
         hr_fixture().validate().expect("fixture must be valid");
@@ -393,7 +393,7 @@ mod tests {
         ));
     }
 
-    /// EG-TYPED-PACKS-R071.1.1: every crosswalk field, including the approved
+    /// MEDULLA-TYPED-PACKS-R071.1.1: every crosswalk field, including the approved
     /// target declaration and category, survives the wire round trip.
     #[test]
     fn crosswalk_round_trip_preserves_all_fields() {

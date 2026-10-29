@@ -772,7 +772,7 @@ pub(super) async fn dispatch_method_scoped_graph_methods(
         // handler (behind `nl-query`) turns NL→UQL and runs the deterministic
         // UQL pipeline; a build without `nl-query` reaches the graph_ops
         // "not available" catch-all like any other feature-off method.
-        // `NlQueryExplain` (EG-FEDERATED-QUERY-R058.2.2.1) routes exactly like `NlQuery`.
+        // `NlQueryExplain` (MEDULLA-FEDERATED-QUERY-R058.2.2.1) routes exactly like `NlQuery`.
         Method::NlQuery { text, graph } => {
             let target = nl_target_graph(&graph, &req.graph);
             dispatch_nl_method(ctx, &target, Method::NlQuery { text, graph }).await

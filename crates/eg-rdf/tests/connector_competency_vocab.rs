@@ -1,4 +1,4 @@
-//! Connector competency questions (EG-CQ-CONN) for the connectors whose
+//! Connector competency questions (MEDULLA-CQ-CONN) for the connectors whose
 //! vocabulary `specs/connector-competency/plan.md` marked MISSING.
 //!
 //! The terms these questions need were added to the owning ontology modules
@@ -137,7 +137,7 @@ fn assert_asof(row: &Row, asof_col: &str) {
 // qbittorrent, rom-manager
 // ---------------------------------------------------------------------------
 
-// spec: EG-CQ-CONN-R005.1
+// spec: MEDULLA-CQ-CONN-R005.1
 #[test]
 fn arr_wanted_titles_without_file_answer() {
     // "Which monitored movies and episodes are wanted but have no file, and
@@ -175,7 +175,7 @@ f:movie-3 a :Video ; :title "Movie Three" ; :isMonitored false ; :hasFile false 
     rows.iter().for_each(|row| assert_asof(row, "asof"));
 }
 
-// spec: EG-CQ-CONN-R005.2
+// spec: MEDULLA-CQ-CONN-R005.2
 #[test]
 fn arr_wanted_downloading_not_in_jellyfin_answers() {
     // "Which wanted Radarr titles are currently downloading in qBittorrent and
@@ -227,7 +227,7 @@ f:jf-2 a :Video ; owl:sameAs f:movie-2 ; {j2} .
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R007.1
+// spec: MEDULLA-CQ-CONN-R007.1
 #[test]
 fn audiobookshelf_partial_progress_by_user_answers() {
     // "Which audiobook series have a book with listening progress stopped
@@ -277,7 +277,7 @@ f:progress-3 a :PlaybackProgress ; :progressOf f:book-3 ; :progressViewer f:user
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R007.2
+// spec: MEDULLA-CQ-CONN-R007.2
 #[test]
 fn audiobookshelf_versus_downloads_one_side_answers() {
     // "Which audiobooks exist both in Audiobookshelf and as a downloaded file
@@ -337,7 +337,7 @@ f:job-2 a :DownloadJob ; :downloadStatus "completed" ; :downloadOutput f:dl-only
     assert_asof(&download_only[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R027.2
+// spec: MEDULLA-CQ-CONN-R027.2
 #[test]
 fn jellyfin_items_without_arr_entry_answer() {
     // "Which Jellyfin items have no matching Radarr or Sonarr entry, and so
@@ -372,7 +372,7 @@ f:sonarr-4 a :MediaEpisode ; owl:sameAs f:jf-4 ; dc:source "sonarr" ; dc:identif
     rows.iter().for_each(|row| assert_asof(row, "asof"));
 }
 
-// spec: EG-CQ-CONN-R038.1
+// spec: MEDULLA-CQ-CONN-R038.1
 #[test]
 fn media_downloader_failed_jobs_answer() {
     // "Which download jobs failed in the last week, with what error, for which
@@ -410,7 +410,7 @@ f:job-3 a :DownloadJob ; :downloadStatus "completed" ;
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R038.2
+// spec: MEDULLA-CQ-CONN-R038.2
 #[test]
 fn media_downloader_completed_never_added_answers() {
     // "Which completed downloads were never added to Jellyfin or Audiobookshelf?"
@@ -451,7 +451,7 @@ f:abs-3 a :Audiobook ; owl:sameAs f:file-3 ; dc:source "audiobookshelf" ; dc:ide
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R045.1
+// spec: MEDULLA-CQ-CONN-R045.1
 #[test]
 fn owncast_highest_peak_viewers_answer() {
     // "Which streams had the highest peak viewer count and how long did they run?"
@@ -502,7 +502,7 @@ ORDER BY DESC(?peak)"#,
     assert_asof(top, "asof");
 }
 
-// spec: EG-CQ-CONN-R051.1
+// spec: MEDULLA-CQ-CONN-R051.1
 #[test]
 fn qbittorrent_stalled_torrents_answer() {
     // "Which torrents are stalled, with what ratio and how long since last
@@ -541,7 +541,7 @@ f:torrent-3 a :Torrent ; :transferState "downloading" ; :shareRatio 0.0 ;
     rows.iter().for_each(|row| assert_asof(row, "asof"));
 }
 
-// spec: EG-CQ-CONN-R051.2
+// spec: MEDULLA-CQ-CONN-R051.2
 #[test]
 fn qbittorrent_stalled_blocking_wanted_titles_answers() {
     // "Which stalled torrents belong to a wanted Radarr or Sonarr title, and so
@@ -592,7 +592,7 @@ f:torrent-3 a :Torrent ; :transfersMedia f:episode-1 ; :transferState "downloadi
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R053.1
+// spec: MEDULLA-CQ-CONN-R053.1
 #[test]
 fn rom_manager_checksum_mismatch_answers() {
     // "Which ROMs in a platform collection fail a checksum match against the
@@ -626,7 +626,7 @@ f:rom-2 a :RomFile ; :romOf f:game-2 ; :expectedChecksum "bbb222" ; :actualCheck
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R053.2
+// spec: MEDULLA-CQ-CONN-R053.2
 #[test]
 fn rom_manager_downloaded_unconverted_answers() {
     // "Which ROMs were obtained by a media-downloader job and which are still
@@ -678,7 +678,7 @@ f:job-2 a :DownloadJob ; :downloadStatus "completed" ; :downloadOutput f:rom-2 ;
 // dataplatform-v1: data-science, documentdb, objectstore, sql, vector
 // ---------------------------------------------------------------------------
 
-// spec: EG-CQ-CONN-R058.1
+// spec: MEDULLA-CQ-CONN-R058.1
 #[test]
 fn sql_tables_without_primary_key_and_dangling_references_answer() {
     // "Which tables have no primary key, and which columns reference tables
@@ -731,7 +731,7 @@ f:audit-note a :Column ; :isPrimaryKey false ; :referencesTable f:orders ; {c2} 
     );
 }
 
-// spec: EG-CQ-CONN-R058.2
+// spec: MEDULLA-CQ-CONN-R058.2
 #[test]
 fn sql_tables_versus_egeria_catalog_answers() {
     // "Which SQL tables are not cataloged in Egeria, and which cataloged
@@ -782,7 +782,7 @@ f:asset-legacy a :DataAsset ; {a2} .
     );
 }
 
-// spec: EG-CQ-CONN-R016.1
+// spec: MEDULLA-CQ-CONN-R016.1
 #[test]
 fn documentdb_largest_collections_and_sparse_fields_answer() {
     // "Which collections have the most documents and which fields are missing
@@ -832,7 +832,7 @@ f:events-kind a :FieldProfile ; :profiledCollection f:events ; :fieldName "kind"
     assert_eq!(sparse[0]["field"], "email");
 }
 
-// spec: EG-CQ-CONN-R016.2
+// spec: MEDULLA-CQ-CONN-R016.2
 #[test]
 fn documentdb_collections_duplicating_sql_tables_answer() {
     // "Which documentdb collections duplicate a table in the SQL database, and
@@ -890,7 +890,7 @@ f:orders-table a :Table ; :lastWriteAt "2025-12-20T00:00:00Z"^^xsd:dateTime ; {t
     assert_asof(&rows[1], "asof");
 }
 
-// spec: EG-CQ-CONN-R041.1
+// spec: MEDULLA-CQ-CONN-R041.1
 #[test]
 fn objectstore_largest_buckets_and_unread_objects_answer() {
     // "Which buckets hold the most data and which objects have not been read in
@@ -948,7 +948,7 @@ f:object-new a :Blob ; :storedInContainer f:bucket-big ; :sizeBytes 700 ;
     assert_asof(&unread[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R041.2
+// spec: MEDULLA-CQ-CONN-R041.2
 #[test]
 fn objectstore_artifacts_unreferenced_by_models_answer() {
     // "Which object-store artifacts are not referenced by any model or dataset
@@ -986,7 +986,7 @@ f:distribution-1 a :Distribution ; :backedByBlob f:blob-dataset ; {d2} .
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R014.1
+// spec: MEDULLA-CQ-CONN-R014.1
 #[test]
 fn data_science_models_below_baseline_answer() {
     // "Which trained models have validation metrics below their baseline run,
@@ -1021,7 +1021,7 @@ f:eval-b a :ModelEvaluation ; :evaluatesModel f:model-b ; :evaluatedOn f:dataset
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R014.2
+// spec: MEDULLA-CQ-CONN-R014.2
 #[test]
 fn data_science_fine_tuned_models_without_evidence_answer() {
     // "Which fine-tuned models have no evaluation dataset trace in the trace
@@ -1062,7 +1062,7 @@ f:blob-1 a :Blob .
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R065.1
+// spec: MEDULLA-CQ-CONN-R065.1
 #[test]
 fn vector_largest_collections_and_dimension_mismatch_answer() {
     // "Which collections have the most vectors and which have an embedding
@@ -1111,7 +1111,7 @@ f:index-notes a :VectorIndex ; :vectorCount 100 ; :indexDimension 1024 ; :indexe
     assert_asof(&mismatch[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R065.2
+// spec: MEDULLA-CQ-CONN-R065.2
 #[test]
 fn vector_documents_without_embedding_answer() {
     // "Which Paperless-ngx documents have no embedding stored in the vector
@@ -1146,7 +1146,7 @@ f:embedding-1 a :Embedding ; :embeddingOf f:doc-1 ; :embeddingIn f:index-docs .
 // pulselink, scholarx, searxng
 // ---------------------------------------------------------------------------
 
-// spec: EG-CQ-CONN-R008.1
+// spec: MEDULLA-CQ-CONN-R008.1
 #[test]
 fn audio_transcriber_low_confidence_segments_answer() {
     // "Which recordings were transcribed with a low-confidence segment, and
@@ -1187,7 +1187,7 @@ f:segment-3 a :TranscriptSegment ; :segmentOf f:transcript-2 ; :segmentConfidenc
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R008.2
+// spec: MEDULLA-CQ-CONN-R008.2
 #[test]
 fn audio_transcriber_topics_shared_with_pulselink_answer() {
     // "Which transcribed recordings mention a topic that also appears in
@@ -1237,7 +1237,7 @@ f:video-transcript-1 a :Transcript ; :mentionsTopic f:topic-gpu ; {p1} .
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R050.1
+// spec: MEDULLA-CQ-CONN-R050.1
 #[test]
 fn pulselink_videos_with_term_in_transcript_answer() {
     // "Which videos on a topic had transcripts mentioning a given term this
@@ -1278,7 +1278,7 @@ f:transcript-3 a :Transcript ; :text "blackwell is also a surname" ;
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R050.2
+// spec: MEDULLA-CQ-CONN-R050.2
 #[test]
 fn pulselink_topics_missing_from_archive_answer() {
     // "Which topics appear in PulseLink video transcripts and SearXNG news but
@@ -1325,7 +1325,7 @@ f:capture-1 a :WebCapture ; :captureOf f:page-1 .
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R012.1
+// spec: MEDULLA-CQ-CONN-R012.1
 #[test]
 fn clarity_highest_rage_click_pages_answer() {
     // "Which pages have the highest rage-click or dead-click rate over the last
@@ -1371,7 +1371,7 @@ f:page-search a :WebResource ; :resourceUrl "https://example.invalid/search" ;
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R022.2
+// spec: MEDULLA-CQ-CONN-R022.2
 #[test]
 fn freshrss_articles_also_in_searxng_answer() {
     // "Which FreshRSS articles also appear in SearXNG results for the same
@@ -1418,7 +1418,7 @@ f:hit-3 a :SearchHit ; :resourceUrl "https://example.invalid/c" ; :answersQuery 
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R055.1
+// spec: MEDULLA-CQ-CONN-R055.1
 #[test]
 fn scholarx_recent_citing_papers_answer() {
     // "Which papers cite a given paper and were published in the last two
@@ -1451,7 +1451,7 @@ f:paper-3 a :ScholarlyPaper ; :title "Recent non-citer" ; :publicationYear 2025 
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R055.2
+// spec: MEDULLA-CQ-CONN-R055.2
 #[test]
 fn scholarx_papers_never_surfaced_by_searxng_answer() {
     // "Which papers on a topic are in ScholarX but were never surfaced by a
@@ -1483,7 +1483,7 @@ f:hit-1 a :SearchHit ; :answersQuery f:query-1 ; :resourceUrl "https://example.i
     assert_asof(&rows[0], "asof");
 }
 
-// spec: EG-CQ-CONN-R056.1
+// spec: MEDULLA-CQ-CONN-R056.1
 #[test]
 fn searxng_engines_by_result_count_answer() {
     // "Which engines returned no results for a given query, and which returned
@@ -1531,7 +1531,7 @@ f:result-4 a :SearchResult ; :answersQuery f:run-b .
     assert_eq!(most[0]["results"], "3");
 }
 
-// spec: EG-CQ-CONN-R056.2
+// spec: MEDULLA-CQ-CONN-R056.2
 #[test]
 fn searxng_urls_not_archived_answer() {
     // "Which URLs from a SearXNG query are not yet archived in ArchiveBox?"
@@ -1571,17 +1571,17 @@ f:capture-a a :WebCapture ; :captureOf f:page-a ; {c1} .
 // access contract, or the typed abstention naming the unconnected source.
 // ---------------------------------------------------------------------------
 
-// spec: EG-CQ-CONN-R005.3
+// spec: MEDULLA-CQ-CONN-R005.3
 #[test]
 fn arr_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R005.1",
+            id: "MEDULLA-CQ-CONN-R005.1",
             required: &[("radarr", "Video"), ("sonarr", "MediaEpisode")],
             answer: arr_wanted_titles_without_file_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R005.2",
+            id: "MEDULLA-CQ-CONN-R005.2",
             required: &[
                 ("radarr", "Video"),
                 ("qbittorrent", "Torrent"),
@@ -1592,17 +1592,17 @@ fn arr_acceptance_through_declared_contracts() {
     ]);
 }
 
-// spec: EG-CQ-CONN-R007.3
+// spec: MEDULLA-CQ-CONN-R007.3
 #[test]
 fn audiobookshelf_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R007.1",
+            id: "MEDULLA-CQ-CONN-R007.1",
             required: &[("audiobookshelf", "Audiobook")],
             answer: audiobookshelf_partial_progress_by_user_answers,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R007.2",
+            id: "MEDULLA-CQ-CONN-R007.2",
             required: &[
                 ("audiobookshelf", "Audiobook"),
                 ("media-downloader", "DownloadJob"),
@@ -1612,17 +1612,17 @@ fn audiobookshelf_acceptance_through_declared_contracts() {
     ]);
 }
 
-// spec: EG-CQ-CONN-R008.3
+// spec: MEDULLA-CQ-CONN-R008.3
 #[test]
 fn audio_transcriber_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R008.1",
+            id: "MEDULLA-CQ-CONN-R008.1",
             required: &[("audio-transcriber", "Transcript")],
             answer: audio_transcriber_low_confidence_segments_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R008.2",
+            id: "MEDULLA-CQ-CONN-R008.2",
             required: &[
                 ("audio-transcriber", "Transcript"),
                 ("pulselink", "Transcript"),
@@ -1632,51 +1632,51 @@ fn audio_transcriber_acceptance_through_declared_contracts() {
     ]);
 }
 
-// spec: EG-CQ-CONN-R014.3
+// spec: MEDULLA-CQ-CONN-R014.3
 #[test]
 fn data_science_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R014.1",
+            id: "MEDULLA-CQ-CONN-R014.1",
             required: &[("data-science", "ModelVersion")],
             answer: data_science_models_below_baseline_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R014.2",
+            id: "MEDULLA-CQ-CONN-R014.2",
             required: &[("data-science", "ModelVersion")],
             answer: data_science_fine_tuned_models_without_evidence_answer,
         },
     ]);
 }
 
-// spec: EG-CQ-CONN-R016.3
+// spec: MEDULLA-CQ-CONN-R016.3
 #[test]
 fn documentdb_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R016.1",
+            id: "MEDULLA-CQ-CONN-R016.1",
             required: &[("documentdb", "DocumentCollection")],
             answer: documentdb_largest_collections_and_sparse_fields_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R016.2",
+            id: "MEDULLA-CQ-CONN-R016.2",
             required: &[("documentdb", "DocumentCollection"), ("sql", "Table")],
             answer: documentdb_collections_duplicating_sql_tables_answer,
         },
     ]);
 }
 
-// spec: EG-CQ-CONN-R038.3
+// spec: MEDULLA-CQ-CONN-R038.3
 #[test]
 fn media_downloader_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R038.1",
+            id: "MEDULLA-CQ-CONN-R038.1",
             required: &[("media-downloader", "DownloadJob")],
             answer: media_downloader_failed_jobs_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R038.2",
+            id: "MEDULLA-CQ-CONN-R038.2",
             required: &[
                 ("media-downloader", "DownloadJob"),
                 ("audiobookshelf", "Audiobook"),
@@ -1687,51 +1687,51 @@ fn media_downloader_acceptance_through_declared_contracts() {
     ]);
 }
 
-// spec: EG-CQ-CONN-R041.3
+// spec: MEDULLA-CQ-CONN-R041.3
 #[test]
 fn objectstore_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R041.1",
+            id: "MEDULLA-CQ-CONN-R041.1",
             required: &[("objectstore", "StorageContainer")],
             answer: objectstore_largest_buckets_and_unread_objects_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R041.2",
+            id: "MEDULLA-CQ-CONN-R041.2",
             required: &[("objectstore", "Blob"), ("data-science", "ModelArtifact")],
             answer: objectstore_artifacts_unreferenced_by_models_answer,
         },
     ]);
 }
 
-// spec: EG-CQ-CONN-R050.3
+// spec: MEDULLA-CQ-CONN-R050.3
 #[test]
 fn pulselink_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R050.1",
+            id: "MEDULLA-CQ-CONN-R050.1",
             required: &[("pulselink", "Video")],
             answer: pulselink_videos_with_term_in_transcript_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R050.2",
+            id: "MEDULLA-CQ-CONN-R050.2",
             required: &[("pulselink", "Transcript"), ("searxng", "SearchHit")],
             answer: pulselink_topics_missing_from_archive_answer,
         },
     ]);
 }
 
-// spec: EG-CQ-CONN-R051.3
+// spec: MEDULLA-CQ-CONN-R051.3
 #[test]
 fn qbittorrent_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R051.1",
+            id: "MEDULLA-CQ-CONN-R051.1",
             required: &[("qbittorrent", "Torrent")],
             answer: qbittorrent_stalled_torrents_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R051.2",
+            id: "MEDULLA-CQ-CONN-R051.2",
             required: &[
                 ("qbittorrent", "Torrent"),
                 ("radarr", "Video"),
@@ -1742,17 +1742,17 @@ fn qbittorrent_acceptance_through_declared_contracts() {
     ]);
 }
 
-// spec: EG-CQ-CONN-R053.3
+// spec: MEDULLA-CQ-CONN-R053.3
 #[test]
 fn rom_manager_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R053.1",
+            id: "MEDULLA-CQ-CONN-R053.1",
             required: &[("rom-manager", "RomFile")],
             answer: rom_manager_checksum_mismatch_answers,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R053.2",
+            id: "MEDULLA-CQ-CONN-R053.2",
             required: &[
                 ("rom-manager", "RomFile"),
                 ("media-downloader", "DownloadJob"),
@@ -1762,68 +1762,68 @@ fn rom_manager_acceptance_through_declared_contracts() {
     ]);
 }
 
-// spec: EG-CQ-CONN-R055.3
+// spec: MEDULLA-CQ-CONN-R055.3
 #[test]
 fn scholarx_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R055.1",
+            id: "MEDULLA-CQ-CONN-R055.1",
             required: &[("scholarx", "ScholarlyPaper")],
             answer: scholarx_recent_citing_papers_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R055.2",
+            id: "MEDULLA-CQ-CONN-R055.2",
             required: &[("scholarx", "ScholarlyPaper"), ("searxng", "SearchHit")],
             answer: scholarx_papers_never_surfaced_by_searxng_answer,
         },
     ]);
 }
 
-// spec: EG-CQ-CONN-R056.3
+// spec: MEDULLA-CQ-CONN-R056.3
 #[test]
 fn searxng_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R056.1",
+            id: "MEDULLA-CQ-CONN-R056.1",
             required: &[("searxng", "SearchResult")],
             answer: searxng_engines_by_result_count_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R056.2",
+            id: "MEDULLA-CQ-CONN-R056.2",
             required: &[("searxng", "SearchHit"), ("archivebox", "WebCapture")],
             answer: searxng_urls_not_archived_answer,
         },
     ]);
 }
 
-// spec: EG-CQ-CONN-R058.3
+// spec: MEDULLA-CQ-CONN-R058.3
 #[test]
 fn sql_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R058.1",
+            id: "MEDULLA-CQ-CONN-R058.1",
             required: &[("sql", "Table")],
             answer: sql_tables_without_primary_key_and_dangling_references_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R058.2",
+            id: "MEDULLA-CQ-CONN-R058.2",
             required: &[("sql", "Table"), ("egeria", "DataAsset")],
             answer: sql_tables_versus_egeria_catalog_answers,
         },
     ]);
 }
 
-// spec: EG-CQ-CONN-R065.3
+// spec: MEDULLA-CQ-CONN-R065.3
 #[test]
 fn vector_acceptance_through_declared_contracts() {
     assert_acceptance(&[
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R065.1",
+            id: "MEDULLA-CQ-CONN-R065.1",
             required: &[("vector", "VectorIndex")],
             answer: vector_largest_collections_and_dimension_mismatch_answer,
         },
         AcceptanceQuestion {
-            id: "EG-CQ-CONN-R065.2",
+            id: "MEDULLA-CQ-CONN-R065.2",
             required: &[("vector", "Embedding"), ("paperless-ngx", "Document")],
             answer: vector_documents_without_embedding_answer,
         },

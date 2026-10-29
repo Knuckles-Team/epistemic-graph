@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R116.1: the one typed gate a consumer's call path must
+//! MEDULLA-DECISION-ENGINE-R116.1: the one typed gate a consumer's call path must
 //! pass through before reaching a decision method -- the published,
 //! versioned client contract -- refusing any route that bypasses it (a
 //! bespoke in-process facade or a private transport), so no second path to
@@ -23,7 +23,7 @@ pub struct CallPathRefusal {
 
 /// Admit `path` only when it names the published contract with a non-empty
 /// version; refuse any bespoke facade or private transport path
-/// (EG-DECISION-ENGINE-R116).
+/// (MEDULLA-DECISION-ENGINE-R116).
 pub fn admit_call_path(path: &ConsumerCallPath) -> Result<(), CallPathRefusal> {
     match path {
         ConsumerCallPath::Contract { contract_version } if !contract_version.is_empty() => Ok(()),
@@ -42,7 +42,7 @@ pub fn admit_call_path(path: &ConsumerCallPath) -> Result<(), CallPathRefusal> {
 mod tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R116.1
+    // spec: MEDULLA-DECISION-ENGINE-R116.1
     #[test]
     fn the_published_contract_path_is_admitted() {
         let path = ConsumerCallPath::Contract {
@@ -51,7 +51,7 @@ mod tests {
         assert!(admit_call_path(&path).is_ok());
     }
 
-    // spec: EG-DECISION-ENGINE-R116.1
+    // spec: MEDULLA-DECISION-ENGINE-R116.1
     #[test]
     fn a_bespoke_facade_is_always_refused() {
         let path = ConsumerCallPath::BespokeFacade {
@@ -61,7 +61,7 @@ mod tests {
         assert!(refusal.reason.contains("bespoke facade"));
     }
 
-    // spec: EG-DECISION-ENGINE-R116.1
+    // spec: MEDULLA-DECISION-ENGINE-R116.1
     #[test]
     fn an_empty_contract_version_is_refused() {
         let path = ConsumerCallPath::Contract {

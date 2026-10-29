@@ -1,5 +1,5 @@
 {
-  "requirement": "EG-TYPED-PACKS-R048.5",
+  "requirement": "MEDULLA-TYPED-PACKS-R048.5",
   "scope": "Subsequent Go/JavaScript client parity and scanner repair; the original 124-pass native receipt remains unchanged.",
   "wasm": {
     "previous_sha256": "041dcbfea49809c322df105f6902c31570972ecd4ce31685520e019cdd384f09",

@@ -1,4 +1,4 @@
-//! Worth-based admission and eviction for one cache tier (EG-DURABLE-KERNEL-R800).
+//! Worth-based admission and eviction for one cache tier (MEDULLA-DURABLE-KERNEL-R800).
 //!
 //! `worth = hits * rebuild_cost_ms / bytes`. An entry is admitted only when its
 //! worth reaches the tier's `min_worth`; under byte pressure the lowest-worth entry
@@ -7,7 +7,7 @@
 //! was built at advances, or once its volatility window passes. Every refusal is a
 //! miss with no content: this policy never returns a stale or cross-tenant hit.
 //!
-//! The wiring into the served versioned KV tier is EG-DURABLE-KERNEL-R800.3.
+//! The wiring into the served versioned KV tier is MEDULLA-DURABLE-KERNEL-R800.3.
 
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap};

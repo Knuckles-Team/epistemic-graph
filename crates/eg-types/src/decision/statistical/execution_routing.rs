@@ -1,4 +1,4 @@
-//! Typed execution-configuration routing (`EG-DECISION-ENGINE-R035`):
+//! Typed execution-configuration routing (`MEDULLA-DECISION-ENGINE-R035`):
 //! `graph.decide()` accepts requests to select among candidate models,
 //! prompts, skills, tools, harness modes, account modes, or sandbox
 //! configurations through the same typed decision mechanism as any other
@@ -17,7 +17,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The 7 kinds of execution configuration a routing decision may choose
-/// among (EG-DECISION-ENGINE-R035). Adding an eighth is a registry change
+/// among (MEDULLA-DECISION-ENGINE-R035). Adding an eighth is a registry change
 /// here, not a new code path at each caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

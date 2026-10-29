@@ -1,4 +1,4 @@
-//! `Method::CapabilityCoverage` (EG-DECISION-ENGINE-R126.2.1): which visible
+//! `Method::CapabilityCoverage` (MEDULLA-DECISION-ENGINE-R126.2.1): which visible
 //! components cover each capability a task needs.
 //!
 //! Reads the same tenant-bound Agent Library snapshot `AgentAssemble` reads

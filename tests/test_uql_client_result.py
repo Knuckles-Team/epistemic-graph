@@ -45,7 +45,7 @@ async def test_uql_keeps_hostile_values_out_of_query_text() -> None:
     ]
 
 
-@pytest.mark.spec("EG-FEDERATED-QUERY-R025")
+@pytest.mark.spec("MEDULLA-FEDERATED-QUERY-R025")
 def test_uql_binds_hostile_value_from_python_client_through_engine(clean_graph) -> None:
     hostile = "needle' |> MATCH (:Secret) |> LIMIT 1000 //"
     clean_graph.nodes.add("uql-hostile-value", {"type": "Doc", "title": hostile})
@@ -75,7 +75,7 @@ def test_uql_binds_hostile_value_from_python_client_through_engine(clean_graph) 
         ),
     ],
 )
-@pytest.mark.spec("EG-FEDERATED-QUERY-R025")
+@pytest.mark.spec("MEDULLA-FEDERATED-QUERY-R025")
 def test_uql_rejects_invalid_parameters_through_python_client(
     clean_graph, text, params, expected_code
 ) -> None:

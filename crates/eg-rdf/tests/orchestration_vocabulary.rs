@@ -28,7 +28,7 @@ fn iri_triple(subject: &str, predicate: &str, object: &str) -> Triple {
     )
 }
 
-// spec: EG-ORCH-VOCAB-R001.1
+// spec: MEDULLA-ORCH-VOCAB-R001.1
 #[test]
 fn task_step_resolves_and_precedes_accepts_it() {
     let mut triples = documents();
@@ -61,7 +61,7 @@ fn task_step_resolves_and_precedes_accepts_it() {
     ));
 }
 
-// spec: EG-ORCH-VOCAB-R004.1
+// spec: MEDULLA-ORCH-VOCAB-R004.1
 #[test]
 fn best_practice_is_a_development_standard() {
     let triples = documents();
@@ -84,7 +84,7 @@ fn best_practice_is_a_development_standard() {
         .entails_subclass(&format!("<{KG}BestPractice>"), &format!("<{KG}TaskStep>")));
 }
 
-// Pending native acceptance: EG-ORCH-VOCAB-R001.1 and EG-ORCH-VOCAB-R004.1.
+// Pending native acceptance: MEDULLA-ORCH-VOCAB-R001.1 and MEDULLA-ORCH-VOCAB-R004.1.
 #[test]
 fn contradictory_parent_mutations_are_detected() {
     for (class, parent) in [
@@ -123,14 +123,14 @@ mod run_trace {
         "toolCallCount",
     ];
 
-    // spec: EG-ORCH-VOCAB-R009.1
-    // spec: EG-ORCH-VOCAB-R009.2
-    // spec: EG-ORCH-VOCAB-R009.3
-    // spec: EG-ORCH-VOCAB-R009.4
-    // spec: EG-ORCH-VOCAB-R009.5
-    // spec: EG-ORCH-VOCAB-R009.6
-    // spec: EG-ORCH-VOCAB-R009.7
-    // spec: EG-ORCH-VOCAB-R009.8
+    // spec: MEDULLA-ORCH-VOCAB-R009.1
+    // spec: MEDULLA-ORCH-VOCAB-R009.2
+    // spec: MEDULLA-ORCH-VOCAB-R009.3
+    // spec: MEDULLA-ORCH-VOCAB-R009.4
+    // spec: MEDULLA-ORCH-VOCAB-R009.5
+    // spec: MEDULLA-ORCH-VOCAB-R009.6
+    // spec: MEDULLA-ORCH-VOCAB-R009.7
+    // spec: MEDULLA-ORCH-VOCAB-R009.8
     #[test]
     fn run_trace_properties_have_declared_domain_and_datatype() {
         let core = GraphCore::new();
@@ -165,7 +165,7 @@ mod run_trace {
         eg_shacl::validate_turtle(SHAPES, &data).unwrap().conforms
     }
 
-    // spec: EG-ORCH-VOCAB-R008.1
+    // spec: MEDULLA-ORCH-VOCAB-R008.1
     #[test]
     fn orchestration_shapes_are_loaded() {
         let sources = GraphSchemaSources::default();
@@ -175,7 +175,7 @@ mod run_trace {
         assert!(source.shapes_sha256.is_some());
     }
 
-    // spec: EG-ORCH-VOCAB-R009.1
+    // spec: MEDULLA-ORCH-VOCAB-R009.1
     #[test]
     fn termination_reason_uses_the_closed_vocabulary() {
         for reason in [
@@ -191,7 +191,7 @@ mod run_trace {
         assert!(!conforms("; :terminationReason 1"));
     }
 
-    // spec: EG-ORCH-VOCAB-R009.12
+    // spec: MEDULLA-ORCH-VOCAB-R009.12
     #[test]
     fn counter_shape_rejects_negative_and_fractional_counts() {
         assert!(conforms(""), "unknown measurements need not be invented");
@@ -223,7 +223,7 @@ mod run_trace {
         assert!(!conforms("; :costUsd \"unknown\""));
     }
 
-    // spec: EG-ORCH-VOCAB-R009.13
+    // spec: MEDULLA-ORCH-VOCAB-R009.13
     #[test]
     fn budget_shape_allows_overshoot_only_for_overflow() {
         for reason in [
@@ -410,7 +410,7 @@ mod vocabulary {
         format!("<{KG}{name}>")
     }
 
-    // spec: EG-ORCH-VOCAB-R001.2
+    // spec: MEDULLA-ORCH-VOCAB-R001.2
     #[test]
     fn has_step_resolves() {
         let view = view_of("");
@@ -418,7 +418,7 @@ mod vocabulary {
         consistent_with(FIXTURE);
     }
 
-    // spec: EG-ORCH-VOCAB-R001.3
+    // spec: MEDULLA-ORCH-VOCAB-R001.3
     #[test]
     fn step_shape_rejects_a_precedes_cycle() {
         assert!(violations(SHAPES, "TaskStepShape", FIXTURE).is_empty());
@@ -439,7 +439,7 @@ mod vocabulary {
             .any(|m| m.contains("more than one owning task")));
     }
 
-    // spec: EG-ORCH-VOCAB-R001.4
+    // spec: MEDULLA-ORCH-VOCAB-R001.4
     #[test]
     fn q1_returns_four_ordered_steps() {
         let view = view_of(FIXTURE);
@@ -459,7 +459,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R002.1
+    // spec: MEDULLA-ORCH-VOCAB-R002.1
     #[test]
     fn agent_kind_members_resolve() {
         let view = view_of("");
@@ -480,7 +480,7 @@ mod vocabulary {
         assert_eq!(kinds, expected);
     }
 
-    // spec: EG-ORCH-VOCAB-R002.2
+    // spec: MEDULLA-ORCH-VOCAB-R002.2
     #[test]
     fn has_agent_kind_resolves() {
         let view = view_of("");
@@ -493,7 +493,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R002.3
+    // spec: MEDULLA-ORCH-VOCAB-R002.3
     #[test]
     fn slot_requires_agent_kind_resolves() {
         let view = view_of("");
@@ -522,7 +522,7 @@ mod vocabulary {
         consistent_with(FIXTURE);
     }
 
-    // spec: EG-ORCH-VOCAB-R002.4
+    // spec: MEDULLA-ORCH-VOCAB-R002.4
     #[test]
     fn slot_shape_rejects_a_non_kind() {
         let kind = format!("{SWARM_NS}requiresAgentKind");
@@ -552,7 +552,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R002.5
+    // spec: MEDULLA-ORCH-VOCAB-R002.5
     #[test]
     fn q2_returns_slots_roles_kinds_and_width() {
         let view = view_of(FIXTURE);
@@ -583,7 +583,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R003.1
+    // spec: MEDULLA-ORCH-VOCAB-R003.1
     #[test]
     fn agent_template_is_an_agent() {
         let view = view_of("");
@@ -604,13 +604,13 @@ mod vocabulary {
         assert!(ask(&view, ":usesModel rdfs:domain :Agent"));
     }
 
-    // spec: EG-ORCH-VOCAB-R003.2
+    // spec: MEDULLA-ORCH-VOCAB-R003.2
     #[test]
     fn agent_library_resolves() {
         class_declared(&view_of(""), ":AgentLibrary");
     }
 
-    // spec: EG-ORCH-VOCAB-R003.3
+    // spec: MEDULLA-ORCH-VOCAB-R003.3
     #[test]
     fn member_of_library_resolves() {
         declared(
@@ -622,7 +622,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R003.4
+    // spec: MEDULLA-ORCH-VOCAB-R003.4
     #[test]
     fn instance_of_template_resolves() {
         declared(
@@ -634,7 +634,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R003.5
+    // spec: MEDULLA-ORCH-VOCAB-R003.5
     #[test]
     fn member_shape_rejects_a_member_without_capability() {
         assert!(violations(SHAPES, "LibraryMemberShape", FIXTURE).is_empty());
@@ -646,7 +646,7 @@ mod vocabulary {
         assert_eq!(found.len(), 1, "{found:?}");
     }
 
-    // spec: EG-ORCH-VOCAB-R003.7
+    // spec: MEDULLA-ORCH-VOCAB-R003.7
     #[test]
     fn q3_lists_template_and_a2a_candidates() {
         let view = view_of(FIXTURE);
@@ -665,7 +665,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R004.2
+    // spec: MEDULLA-ORCH-VOCAB-R004.2
     #[test]
     fn applies_to_task_class_resolves() {
         let view = view_of("");
@@ -680,7 +680,7 @@ mod vocabulary {
         assert!(classification.entails_subclass(&kg("BestPractice"), &kg("DevelopmentStandard")));
     }
 
-    // spec: EG-ORCH-VOCAB-R004.3
+    // spec: MEDULLA-ORCH-VOCAB-R004.3
     #[test]
     fn rule_scope_shape_rejects_a_rule_without_a_class() {
         assert!(violations(SHAPES, "RuleScopeShape", FIXTURE).is_empty());
@@ -696,7 +696,7 @@ mod vocabulary {
         }
     }
 
-    // spec: EG-ORCH-VOCAB-R004.5
+    // spec: MEDULLA-ORCH-VOCAB-R004.5
     #[test]
     fn q4_returns_entailed_rules_only() {
         let view = view_of(
@@ -731,7 +731,7 @@ mod vocabulary {
         assert_eq!(entailed[0].entailment_path[0].broader, "eg:task");
     }
 
-    // spec: EG-ORCH-VOCAB-R005.1
+    // spec: MEDULLA-ORCH-VOCAB-R005.1
     #[test]
     fn model_profile_is_a_model() {
         let view = view_of("");
@@ -745,7 +745,7 @@ mod vocabulary {
         ));
     }
 
-    // spec: EG-ORCH-VOCAB-R005.2
+    // spec: MEDULLA-ORCH-VOCAB-R005.2
     #[test]
     fn needs_skill_resolves() {
         declared(
@@ -757,7 +757,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R005.3
+    // spec: MEDULLA-ORCH-VOCAB-R005.3
     #[test]
     fn step_assigned_agent_resolves() {
         let view = view_of("");
@@ -773,7 +773,7 @@ mod vocabulary {
         assert!(!classification.entails_subclass(&kg("AgentTemplate"), &kg("A2AAgentCard")));
     }
 
-    // spec: EG-ORCH-VOCAB-R005.4
+    // spec: MEDULLA-ORCH-VOCAB-R005.4
     #[test]
     fn binding_shape_rejects_agent_without_model() {
         assert!(violations(SHAPES, "StepBindingShape", FIXTURE).is_empty());
@@ -802,7 +802,7 @@ mod vocabulary {
         }
     }
 
-    // spec: EG-ORCH-VOCAB-R005.6
+    // spec: MEDULLA-ORCH-VOCAB-R005.6
     #[test]
     fn q5_returns_bindings_per_step() {
         let view = view_of(FIXTURE);
@@ -838,7 +838,7 @@ mod vocabulary {
         assert_eq!(window, cells(&[&[Some("32768")]]));
     }
 
-    // spec: EG-ORCH-VOCAB-R006.1
+    // spec: MEDULLA-ORCH-VOCAB-R006.1
     #[test]
     fn hands_off_to_implies_precedes() {
         let view = view_of("");
@@ -867,7 +867,7 @@ mod vocabulary {
         consistent_with(FIXTURE);
     }
 
-    // spec: EG-ORCH-VOCAB-R006.2
+    // spec: MEDULLA-ORCH-VOCAB-R006.2
     #[test]
     fn feeds_resolves() {
         declared(
@@ -879,7 +879,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R006.3
+    // spec: MEDULLA-ORCH-VOCAB-R006.3
     #[test]
     fn loops_back_to_resolves() {
         declared(
@@ -891,7 +891,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R006.4
+    // spec: MEDULLA-ORCH-VOCAB-R006.4
     #[test]
     fn feeds_shape_rejects_a_forward_cycle_and_accepts_a_loop_back_edge() {
         let shape = "FeedsAcyclicShape";
@@ -914,7 +914,7 @@ mod vocabulary {
             .any(|m| m.contains("template's own slots")));
     }
 
-    // spec: EG-ORCH-VOCAB-R006.6
+    // spec: MEDULLA-ORCH-VOCAB-R006.6
     #[test]
     fn q6_returns_handoffs() {
         let view = view_of(FIXTURE);
@@ -925,7 +925,7 @@ mod vocabulary {
         assert_eq!(answer, cells(&[&[Some("s1"), Some("s2")]]));
     }
 
-    // spec: EG-ORCH-VOCAB-R006.6
+    // spec: MEDULLA-ORCH-VOCAB-R006.6
     #[test]
     fn q7_returns_dag_adjacency() {
         let view = view_of(FIXTURE);
@@ -942,7 +942,7 @@ mod vocabulary {
         assert!(violations(SWARM_SHAPES, "FeedsAcyclicShape", FIXTURE).is_empty());
     }
 
-    // spec: EG-ORCH-VOCAB-R009.9
+    // spec: MEDULLA-ORCH-VOCAB-R009.9
     #[test]
     fn applied_harness_config_links_trace_to_decision() {
         let view = view_of("");
@@ -962,7 +962,7 @@ mod vocabulary {
         ));
     }
 
-    // spec: EG-ORCH-VOCAB-R009.10
+    // spec: MEDULLA-ORCH-VOCAB-R009.10
     #[test]
     fn run_model_declared() {
         declared(
@@ -976,7 +976,7 @@ mod vocabulary {
         assert!(ask(&view_of(""), ":usesModel rdfs:domain :Agent"));
     }
 
-    // spec: EG-ORCH-VOCAB-R009.11
+    // spec: MEDULLA-ORCH-VOCAB-R009.11
     #[test]
     fn run_task_class_declared() {
         let view = view_of("");
@@ -1011,7 +1011,7 @@ mod vocabulary {
         format!(":trace a :RunTrace ; :status \"completed\" {properties}.")
     }
 
-    // spec: EG-ORCH-VOCAB-R009.14
+    // spec: MEDULLA-ORCH-VOCAB-R009.14
     #[test]
     fn completed_trace_shape_rejects_missing_termination_reason() {
         let shape = "RunTraceCompletedShape";
@@ -1038,7 +1038,7 @@ mod vocabulary {
         assert!(violations(SHAPES, shape, ":trace a :RunTrace .").is_empty());
     }
 
-    // spec: EG-ORCH-VOCAB-R011.1
+    // spec: MEDULLA-ORCH-VOCAB-R011.1
     #[test]
     fn evaluation_run_is_a_run_trace() {
         class_declared(&view_of(""), ":EvaluationRun");
@@ -1047,13 +1047,13 @@ mod vocabulary {
         assert!(!classification.entails_subclass(&kg("RunTrace"), &kg("EvaluationRun")));
     }
 
-    // spec: EG-ORCH-VOCAB-R011.2
+    // spec: MEDULLA-ORCH-VOCAB-R011.2
     #[test]
     fn measured_model_fact_declared() {
         class_declared(&view_of(""), ":MeasuredModelFact");
     }
 
-    // spec: EG-ORCH-VOCAB-R011.3
+    // spec: MEDULLA-ORCH-VOCAB-R011.3
     #[test]
     fn fact_of_model_and_measured_property_declared() {
         let view = view_of("");
@@ -1073,7 +1073,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R011.4
+    // spec: MEDULLA-ORCH-VOCAB-R011.4
     #[test]
     fn evidenced_by_run_declared() {
         declared(
@@ -1085,7 +1085,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R011.5
+    // spec: MEDULLA-ORCH-VOCAB-R011.5
     #[test]
     fn measured_supersedes_declared() {
         declared(
@@ -1097,7 +1097,7 @@ mod vocabulary {
         );
     }
 
-    // spec: EG-ORCH-VOCAB-R011.6
+    // spec: MEDULLA-ORCH-VOCAB-R011.6
     #[test]
     fn measured_fact_shape_rejects_missing_evidence() {
         let shape = "MeasuredModelFactShape";

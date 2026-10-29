@@ -698,7 +698,7 @@ ex:parent a owl:AsymmetricProperty .
         assert!(error.contains("AsymmetricProperty"));
     }
 
-    // spec: EG-SUPPLY-VOCAB-R001.1.2
+    // spec: MEDULLA-SUPPLY-VOCAB-R001.1.2
     #[test]
     fn default_catalog_composes_supply_chain_vocabulary() {
         const SUPPLY_ONTOLOGY: &str = "http://knuckles.team/kg/supply_chain";
@@ -754,11 +754,11 @@ ex:parent a owl:AsymmetricProperty .
         // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
         // realizable entity and disposition, the category of `:Skill`, plus BFO's
         // `Continuant owl:disjointWith Occurrent` (operator ruling, EH-363); plus 60 for
-        // the core connector parent classes (EG-TYPED-PACKS-R105.3); plus 10 for
-        // SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1); plus 138 for
+        // the core connector parent classes (MEDULLA-TYPED-PACKS-R105.3); plus 10 for
+        // SourceRecord and OpaqueSourceReference (MEDULLA-TYPED-PACKS-R105.3.1); plus 138 for
         // the world model: BFO material entity and object, the RO/BFO-aligned shared
         // relations, and the shared reference-term / quantity / observation vocabulary.
-        // plus 24 for the CQ-CONN chunk 5 core-foundation terms and shapes (EG-CQ-CONN-R074).
+        // plus 24 for the CQ-CONN chunk 5 core-foundation terms and shapes (MEDULLA-CQ-CONN-R074).
         assert_eq!(triples.len(), 1_119);
         for required in [
             "http://knuckles.team/kg#Concept",
@@ -803,37 +803,37 @@ ex:parent a owl:AsymmetricProperty .
         // into finance (EH-517); the fold itself moves triples without adding any.
         // +88: the virtual-graph module -- `core:virtual-graph@1`'s SourceConnection/
         // MetadataContract/VirtualMapping classes and properties plus
-        // `core:virtual-graph-shapes@1`'s SHACL shapes (EG-UNIFIED-DATA-PLANE-R037),
+        // `core:virtual-graph-shapes@1`'s SHACL shapes (MEDULLA-UNIFIED-DATA-PLANE-R037),
         // and their catalog import.
         // +95: Account/Position (45) and Activity/Lot (50) declarations and
-        // properties (EG-FINANCE-PRIMITIVES-R004.2.1/R004.2.2). The asset-class
+        // properties (MEDULLA-FINANCE-PRIMITIVES-R004.2.1/R004.2.2). The asset-class
         // comment replacement changes content, not the triple count.
-        // +8: TaskStep and BestPractice (EG-ORCH-VOCAB-R001.1/R004.1).
+        // +8: TaskStep and BestPractice (MEDULLA-ORCH-VOCAB-R001.1/R004.1).
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
-        // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
+        // declaration, domain, range and comment (MEDULLA-TYPED-PACKS-R066.2).
         // +136: the 19 connector parent classes across the core, software, sdlc,
-        // company, infrastructure and supply-chain modules (EG-TYPED-PACKS-R105.3).
+        // company, infrastructure and supply-chain modules (MEDULLA-TYPED-PACKS-R105.3).
         // +162: the service-operations module and the priority domain
-        // union (EG-TYPED-PACKS-R105.4).
-        // +32 (EG-ORCH-VOCAB-R009.12, R009.13): the RunTrace termination and
+        // union (MEDULLA-TYPED-PACKS-R105.4).
+        // +32 (MEDULLA-ORCH-VOCAB-R009.12, R009.13): the RunTrace termination and
         // budget properties.
-        // +205: the metadata-catalog module (204, EG-TYPED-PACKS-R106.1) and its
+        // +205: the metadata-catalog module (204, MEDULLA-TYPED-PACKS-R106.1) and its
         // catalog import (1).
         // +1052: the data-platform, IT4IT-delivery, media and retrieval domain
-        // modules and their catalog imports (EG-TYPED-PACKS-R105.6 to R105.9).
+        // modules and their catalog imports (MEDULLA-TYPED-PACKS-R105.6 to R105.9).
         // +236: the registered supply-chain vocabulary, commercial vocabulary,
         // and final catalog integration amendments.
         // +50: the shared data-platform vocabulary (EG-DATAPLAT-VOCAB-R001.1-.4),
         // plus one catalog import for its registered source.
         // +7: the shared versionOf relation's two module-local constrained
         // sub-properties (the shared predicate itself remains unconstrained).
-        // +10: SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1),
+        // +10: SourceRecord and OpaqueSourceReference (MEDULLA-TYPED-PACKS-R105.3.1),
         // plus one infrastructure ContainerImage → SoftwareComponent edge (R002.2).
-        // +5: the orchestration handsOffTo property (EG-CQ-ORCH-R006.1).
+        // +5: the orchestration handsOffTo property (MEDULLA-CQ-ORCH-R006.1).
         // +95: the connector-pack ingest vocabulary (94) and its catalog import
-        // (EG-TYPED-PACKS-R101.1).
+        // (MEDULLA-TYPED-PACKS-R101.1).
         // +78: the infrastructure and sdlc_lifecycle vocabulary added by the
-        // connector-competency chunk 4 rows (EG-CQ-CONN, #909).
+        // connector-competency chunk 4 rows (MEDULLA-CQ-CONN, #909).
         // +820: the C1 train's lane vocabularies on top of those (orchestration, finance,
         // connector, data-platform and sdd), net of terms main already defined; the pin is
         // the measured composed count.
@@ -873,20 +873,20 @@ ex:parent a owl:AsymmetricProperty .
         // `/core` foundation and generated aggregate catalog. Every domain
         // axiom remains in the immutable catalog; only those 71 document-level
         // authority triples change.
-        // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
+        // +1 (MEDULLA-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:Ontology` header subject (its shapes pack's prefix-declaration
         // subject is not itself one).
-        // +1 (EG-TYPED-PACKS-R106.1): the metadata-catalog module header; +4:
+        // +1 (MEDULLA-TYPED-PACKS-R106.1): the metadata-catalog module header; +4:
         // the data-platform, IT4IT-delivery, media and retrieval module headers;
         // +1: the shared data-platform vocabulary header.
         // +2: the commercial and newly registered supply-chain module headers.
         // +1: the connector-pack ingest vocabulary header (R101.1).
         assert_eq!(ontology_subjects.len(), 46);
-        // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
+        // +1 (MEDULLA-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:imports <.../core>`; +6: the service-operations module's five
         // imports and its catalog entry; +5: the metadata-catalog module's four
-        // imports and its catalog entry (EG-TYPED-PACKS-R106.1); +19: the four
-        // domain modules and their catalog imports (EG-TYPED-PACKS-R105.6-R105.9).
+        // imports and its catalog entry (MEDULLA-TYPED-PACKS-R106.1); +19: the four
+        // domain modules and their catalog imports (MEDULLA-TYPED-PACKS-R105.6-R105.9).
         // +6: commercial and supply-chain module imports and catalog entries;
         // +2: the data-platform vocabulary's core and virtual-graph imports;
         // +1: its catalog entry.
@@ -902,16 +902,16 @@ ex:parent a owl:AsymmetricProperty .
         // classes, 4 axioms each; +5: `:pipelineEventOf`. +122: the swarm-topology module.
         // +178: the finance module (EH-411); +30: EH-420/EH-421 finance records.
         // +9: EH-517 trading-class skos mappings.
-        // +84: the virtual-graph module (EG-UNIFIED-DATA-PLANE-R037).
+        // +84: the virtual-graph module (MEDULLA-UNIFIED-DATA-PLANE-R037).
         // +95: the portfolio-accounting declarations above are semantic axioms;
         // the ontology headers and import edges are unchanged.
         // +8: the two orchestration vocabulary class declarations.
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
-        // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
-        // +129: the 19 connector parent classes (EG-TYPED-PACKS-R105.3).
-        // +152: the service-operations module (EG-TYPED-PACKS-R105.4).
-        // +32: the RunTrace termination and budget properties (EG-ORCH-VOCAB-R009.12).
-        // +196: the metadata-catalog module (EG-TYPED-PACKS-R106.1).
+        // declaration, domain, range and comment (MEDULLA-TYPED-PACKS-R066.2).
+        // +129: the 19 connector parent classes (MEDULLA-TYPED-PACKS-R105.3).
+        // +152: the service-operations module (MEDULLA-TYPED-PACKS-R105.4).
+        // +32: the RunTrace termination and budget properties (MEDULLA-ORCH-VOCAB-R009.12).
+        // +196: the metadata-catalog module (MEDULLA-TYPED-PACKS-R106.1).
         // +1017: the data-platform, IT4IT-delivery, media and retrieval modules;
         // +45: semantic axioms from the shared data-platform vocabulary.
         // +224: semantic axioms from the final commercial/supply-chain catalog.
@@ -952,8 +952,8 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
-            // +1: cat:lineageTo, the inverse of :derivedFrom (EG-TYPED-PACKS-R106.1).
-            // +1: cp:hasContract, the inverse of cp:contractOf (EG-TYPED-PACKS-R102.1).
+            // +1: cat:lineageTo, the inverse of :derivedFrom (MEDULLA-TYPED-PACKS-R106.1).
+            // +1: cp:hasContract, the inverse of cp:contractOf (MEDULLA-TYPED-PACKS-R102.1).
             37
         );
         assert_eq!(
@@ -981,15 +981,15 @@ ex:parent a owl:AsymmetricProperty .
             // +9: finance (EH-411); +1: EH-420/EH-421.
             // +4: Account, Position, Activity and Lot specialize BFO GDC.
             // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
-            // +18: the connector parent classes (EG-TYPED-PACKS-R105.3).
-            // +18: the service-operations classes and alignments (EG-TYPED-PACKS-R105.4).
+            // +18: the connector parent classes (MEDULLA-TYPED-PACKS-R105.3).
+            // +18: the service-operations classes and alignments (MEDULLA-TYPED-PACKS-R105.4).
             // +31: the metadata-catalog classes and their EG core and W3C parents
-            // (EG-TYPED-PACKS-R106.1).
+            // (MEDULLA-TYPED-PACKS-R106.1).
             // +105: the data-platform, IT4IT-delivery, media and retrieval classes;
             // +1: the data-platform StoreMapping subclass edge.
             // +9: the commercial and registered supply-chain class placements;
             // +2: SourceRecord and OpaqueSourceReference; +1: ContainerImage's
-            // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
+            // SoftwareComponent parent (MEDULLA-TYPED-PACKS-R105.3.1/R002.2).
             // +3: the connector-pack ingest vocabulary subclass edges (R101.1).
             // +2: the connector-competency chunk 4 vocabulary (#909).
             // +22: the C1 train's lane vocabulary classes.
@@ -1005,7 +1005,7 @@ ex:parent a owl:AsymmetricProperty .
     /// the compose gate routes to. The EL/RL completion once derived
     /// `BFO:Entity ⊑ kg:Code` from this corpus (an unsound range rule) and collapsed the
     /// root class, and the corpus itself carried five genuinely unsatisfiable classes.
-    // spec: EG-FEDERATED-QUERY-R011
+    // spec: MEDULLA-FEDERATED-QUERY-R011
     #[test]
     fn shipped_core_corpus_is_coherent_under_the_el_rl_reasoner() {
         let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();

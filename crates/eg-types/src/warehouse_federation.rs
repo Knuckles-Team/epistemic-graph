@@ -1,5 +1,5 @@
 //! Typed source-kind model for federating read-only warehouse/lake sources
-//! (EG-UNIFIED-DATA-PLANE-R020): Snowflake, BigQuery, DuckDB, and Iceberg.
+//! (MEDULLA-UNIFIED-DATA-PLANE-R020): Snowflake, BigQuery, DuckDB, and Iceberg.
 //! This is the typed-model slice (`.1`): the closed source-kind vocabulary,
 //! its per-kind required-field contract, and the refusal for a config
 //! missing a field its declared kind requires. The query pushdown (Arrow
@@ -115,7 +115,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.1
     #[test]
     fn complete_snowflake_config_validates() {
         let cfg = config(
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(cfg.validate(), Ok(WarehouseSourceKind::Snowflake));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.1
     #[test]
     fn incomplete_config_is_refused_with_named_fields() {
         let cfg = config(WarehouseSourceKind::BigQuery, &[("project", "p")]);
@@ -133,21 +133,21 @@ mod tests {
         assert_eq!(err.missing, vec!["dataset".to_string()]);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.1
     #[test]
     fn empty_field_value_counts_as_missing() {
         let cfg = config(WarehouseSourceKind::DuckDb, &[("database_path", "")]);
         assert!(cfg.validate().is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.1
     #[test]
     fn absent_kind_is_refused_not_guessed() {
         let cfg = WarehouseSourceConfig::default();
         assert!(cfg.validate().is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.1
     #[test]
     fn flight_sql_is_offered_only_by_the_declared_kinds() {
         assert!(WarehouseSourceKind::Snowflake.offers_flight_sql());
@@ -156,7 +156,7 @@ mod tests {
         assert!(!WarehouseSourceKind::Iceberg.offers_flight_sql());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R020.1
     #[test]
     fn config_serializes_round_trip() {
         let cfg = config(WarehouseSourceKind::Iceberg, &[("catalog_uri", "http://x")]);

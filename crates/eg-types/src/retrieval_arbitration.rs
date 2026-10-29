@@ -1,6 +1,6 @@
 //! Typed arbitration values for the retrieval boundary.
 //!
-//! EG-FEDERATED-QUERY-R083.1 defines the value shared by a future planner
+//! MEDULLA-FEDERATED-QUERY-R083.1 defines the value shared by a future planner
 //! arbitration step and its caller: both the model prior and the retrieved
 //! answer remain present in every verdict.  This module deliberately owns only
 //! the serde data model.  Support classification, confidence comparison and

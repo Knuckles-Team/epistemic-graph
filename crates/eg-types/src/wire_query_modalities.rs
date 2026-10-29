@@ -493,7 +493,7 @@ pub enum ForeignSourceSpec {
         #[serde(default)]
         capabilities: ForeignOperationCapabilities,
     },
-    /// A brain-guarded source (EG-DURABLE-KERNEL-R024.6): an inner query that
+    /// A brain-guarded source (MEDULLA-DURABLE-KERNEL-R024.6): an inner query that
     /// MUST pass a named semantic/policy guard check (the "brain") before any
     /// row crosses the federation boundary. `guard_policy` names the guard a
     /// registration binds to; a spec naming an unbound or empty guard policy
@@ -526,7 +526,7 @@ pub struct ForeignOperationCapabilities {
     pub key_filter_pushdown: bool,
 }
 
-/// A WRITE-side mirror target (EG-DURABLE-KERNEL-R024's mirror-target half,
+/// A WRITE-side mirror target (MEDULLA-DURABLE-KERNEL-R024's mirror-target half,
 /// distinct from the read-side [`ForeignSourceSpec`]). A mirror target
 /// receives committed rows fanned out from the local mutation outbox; the
 /// wire DTO names the target, the binding/registration lives with
@@ -549,7 +549,7 @@ pub enum MirrorTargetSpec {
         targets: Vec<String>,
     },
     /// A single, directly-addressable downstream mirror target
-    /// (EG-DURABLE-KERNEL-R024.4) — the one-destination counterpart to
+    /// (MEDULLA-DURABLE-KERNEL-R024.4) — the one-destination counterpart to
     /// `FanOut`'s many. Resolved the same way `ForeignSourceSpec::Named`
     /// resolves a foreign source: through the executor's registry, never by
     /// this pure DTO.
@@ -557,10 +557,10 @@ pub enum MirrorTargetSpec {
         /// The registry key naming the one pre-registered mirror target.
         name: String,
     },
-    /// An outbox-based mirror (EG-DURABLE-KERNEL-R024.5): rows are pushed
+    /// An outbox-based mirror (MEDULLA-DURABLE-KERNEL-R024.5): rows are pushed
     /// downstream by replaying the local mutation outbox under a named
     /// consumer, reusing the outbox contract's own cursor/replay guarantees
-    /// (EG-DURABLE-KERNEL-R001/R002/R052: committed-only delivery, a stable
+    /// (MEDULLA-DURABLE-KERNEL-R001/R002/R052: committed-only delivery, a stable
     /// per-consumer cursor, idempotent replay after outage) rather than a
     /// separate ad hoc mirror loop. `consumer` names the outbox consumer
     /// this mirror target reads as; the executor resolves it the same way

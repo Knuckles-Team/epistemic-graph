@@ -6,11 +6,11 @@ Tests run against disposable fixtures per connector; no live credential is part 
 
 | Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
 |---|---|---|---|---|---|
-| T-AUD-001 | file rollups EG-CQ-CONN-R068 to R082 | Contract | Load each child row's ontology through the `CoreSpec` registry. | The module declares the added class or property with the stated domain and range; the module still loads. | PENDING |
-| `ontology_audit_software::Repository_declared` | EG-CQ-CONN-R069.2 | Contract | Load registered `core:software@1` and `core:sdlc_lifecycle@1` sources | The software module declares `:Repository` with its `:Collection` parent; a lifecycle-module declaration fails | PENDING |
-| `ontology_audit_software::Branch_declared` | EG-CQ-CONN-R069.3 | Contract | Load registered `core:software@1` and `core:sdlc_lifecycle@1` sources | The software module declares `:Branch` with its BFO parent; a lifecycle-module declaration fails | PENDING |
+| T-AUD-001 | file rollups MEDULLA-CQ-CONN-R068 to R082 | Contract | Load each child row's ontology through the `CoreSpec` registry. | The module declares the added class or property with the stated domain and range; the module still loads. | PENDING |
+| `ontology_audit_software::Repository_declared` | MEDULLA-CQ-CONN-R069.2 | Contract | Load registered `core:software@1` and `core:sdlc_lifecycle@1` sources | The software module declares `:Repository` with its `:Collection` parent; a lifecycle-module declaration fails | PENDING |
+| `ontology_audit_software::Branch_declared` | MEDULLA-CQ-CONN-R069.3 | Contract | Load registered `core:software@1` and `core:sdlc_lifecycle@1` sources | The software module declares `:Branch` with its BFO parent; a lifecycle-module declaration fails | PENDING |
 | T-AUD-002 | children with a SHACL shape | Contract | Validate a fixture node that violates the shape (for example `filledQty` above `orderQty`) | Validation reports the shape's message | PENDING |
-| T-AUD-003 | EG-CQ-CONN-R083 | Docs | Parse the Coverage cells for erpnext, salesforce and twenty after the `EG-SUPPLY-VOCAB-R003` terms land | `commercial_connector_prerequisites` checks all three Coverage rows and both Vocabulary cells. Producers in EG-SUPPLY-VOCAB-R003.7 through R003.17 resolve. Missing producers, unrelated-row-only edits and duplicate incompatible declarations fail; unavailable live fields cause typed abstention | PENDING |
+| T-AUD-003 | MEDULLA-CQ-CONN-R083 | Docs | Parse the Coverage cells for erpnext, salesforce and twenty after the `MEDULLA-SUPPLY-VOCAB-R003` terms land | `commercial_connector_prerequisites` checks all three Coverage rows and both Vocabulary cells. Producers in MEDULLA-SUPPLY-VOCAB-R003.7 through R003.17 resolve. Missing producers, unrelated-row-only edits and duplicate incompatible declarations fail; unavailable live fields cause typed abstention | PENDING |
 
 A term added to the wrong module must fail T-AUD-001 for the module named in the row. T-AUD-001 also asserts the exact full IRI and range; T-AUD-002 requires both valid and invalid fixtures.
 
@@ -28,36 +28,36 @@ These tests remain PENDING; this documentation change supplies no implementation
 
 | Test name | Requirement | Expected primary vocabulary | Evidence |
 |---|---|---|---|
-| `connector_audit_reassignment::ciso_assistant` | `EG-CQ-CONN-R011.3` | `government-v1.ttl` | PENDING |
-| `connector_audit_reassignment::dockerhub` | `EG-CQ-CONN-R015.3` | `infrastructure-v1.ttl` | PENDING |
-| `connector_audit_reassignment::egeria` | `EG-CQ-CONN-R017.3` | `core-foundation-v1.ttl` | PENDING |
-| `connector_audit_reassignment::github` | `EG-CQ-CONN-R023.3` | `sdlc_lifecycle-v1.ttl` | PENDING |
-| `connector_audit_reassignment::gitlab` | `EG-CQ-CONN-R024.3` | `sdlc_lifecycle-v1.ttl` | PENDING |
-| `connector_audit_reassignment::gramps` | `EG-CQ-CONN-R025.3` | `personal-v1.ttl` | PENDING |
-| `connector_audit_reassignment::home_assistant` | `EG-CQ-CONN-R026.3` | `infrastructure-v1.ttl` | PENDING |
-| `connector_audit_reassignment::langfuse` | `EG-CQ-CONN-R031.3` | `orchestration-v1.ttl` | PENDING |
-| `connector_audit_reassignment::legal_peripherals` | `EG-CQ-CONN-R033.3` | `core-foundation-v1.ttl` | PENDING |
-| `connector_audit_reassignment::nextcloud` | `EG-CQ-CONN-R040.3` | `personal-v1.ttl` | PENDING |
-| `connector_audit_reassignment::onetrust` | `EG-CQ-CONN-R043.3` | `government-v1.ttl` | PENDING |
-| `connector_audit_reassignment::paperless_ngx` | `EG-CQ-CONN-R046.3` | `personal-v1.ttl` | PENDING |
-| `connector_audit_reassignment::repository_manager` | `EG-CQ-CONN-R052.3` | `sdlc_lifecycle-v1.ttl` | PENDING |
-| `connector_audit_reassignment::servicenow` | `EG-CQ-CONN-R057.3` | `archimate-v1.ttl` | PENDING |
-| `connector_audit_reassignment::stirlingpdf` | `EG-CQ-CONN-R059.3` | `action-v1.ttl` | PENDING |
+| `connector_audit_reassignment::ciso_assistant` | `MEDULLA-CQ-CONN-R011.3` | `government-v1.ttl` | PENDING |
+| `connector_audit_reassignment::dockerhub` | `MEDULLA-CQ-CONN-R015.3` | `infrastructure-v1.ttl` | PENDING |
+| `connector_audit_reassignment::egeria` | `MEDULLA-CQ-CONN-R017.3` | `core-foundation-v1.ttl` | PENDING |
+| `connector_audit_reassignment::github` | `MEDULLA-CQ-CONN-R023.3` | `sdlc_lifecycle-v1.ttl` | PENDING |
+| `connector_audit_reassignment::gitlab` | `MEDULLA-CQ-CONN-R024.3` | `sdlc_lifecycle-v1.ttl` | PENDING |
+| `connector_audit_reassignment::gramps` | `MEDULLA-CQ-CONN-R025.3` | `personal-v1.ttl` | PENDING |
+| `connector_audit_reassignment::home_assistant` | `MEDULLA-CQ-CONN-R026.3` | `infrastructure-v1.ttl` | PENDING |
+| `connector_audit_reassignment::langfuse` | `MEDULLA-CQ-CONN-R031.3` | `orchestration-v1.ttl` | PENDING |
+| `connector_audit_reassignment::legal_peripherals` | `MEDULLA-CQ-CONN-R033.3` | `core-foundation-v1.ttl` | PENDING |
+| `connector_audit_reassignment::nextcloud` | `MEDULLA-CQ-CONN-R040.3` | `personal-v1.ttl` | PENDING |
+| `connector_audit_reassignment::onetrust` | `MEDULLA-CQ-CONN-R043.3` | `government-v1.ttl` | PENDING |
+| `connector_audit_reassignment::paperless_ngx` | `MEDULLA-CQ-CONN-R046.3` | `personal-v1.ttl` | PENDING |
+| `connector_audit_reassignment::repository_manager` | `MEDULLA-CQ-CONN-R052.3` | `sdlc_lifecycle-v1.ttl` | PENDING |
+| `connector_audit_reassignment::servicenow` | `MEDULLA-CQ-CONN-R057.3` | `archimate-v1.ttl` | PENDING |
+| `connector_audit_reassignment::stirlingpdf` | `MEDULLA-CQ-CONN-R059.3` | `action-v1.ttl` | PENDING |
 
 ## Connector-pack competency questions (R084)
 
-- `EG-CQ-CONN-R084`: Rollup closes when every child `.1` to `.6` passes its proving test.
-- `EG-CQ-CONN-R084.1`: `crates/eg-core/tests/connector_pack_competency.rs::finance_algorithm_selection_answers`.
-- `EG-CQ-CONN-R084.2`: `crates/eg-core/tests/connector_pack_competency.rs::positions_and_applicable_risk_analyses_answer`.
-- `EG-CQ-CONN-R084.3`: `crates/eg-core/tests/connector_pack_competency.rs::capability_to_surface_and_contract_answers`.
-- `EG-CQ-CONN-R084.4`: `crates/eg-core/tests/connector_pack_competency.rs::record_governance_answers`.
-- `EG-CQ-CONN-R084.5`: `crates/eg-core/tests/connector_pack_competency.rs::finance_method_terms_and_shape`.
-- `EG-CQ-CONN-R084.6`: `tests/typed_packs/test_connector_pack_competency_served.py::test_pack_questions_end_to_end`.
+- `MEDULLA-CQ-CONN-R084`: Rollup closes when every child `.1` to `.6` passes its proving test.
+- `MEDULLA-CQ-CONN-R084.1`: `crates/eg-core/tests/connector_pack_competency.rs::finance_algorithm_selection_answers`.
+- `MEDULLA-CQ-CONN-R084.2`: `crates/eg-core/tests/connector_pack_competency.rs::positions_and_applicable_risk_analyses_answer`.
+- `MEDULLA-CQ-CONN-R084.3`: `crates/eg-core/tests/connector_pack_competency.rs::capability_to_surface_and_contract_answers`.
+- `MEDULLA-CQ-CONN-R084.4`: `crates/eg-core/tests/connector_pack_competency.rs::record_governance_answers`.
+- `MEDULLA-CQ-CONN-R084.5`: `crates/eg-core/tests/connector_pack_competency.rs::finance_method_terms_and_shape`.
+- `MEDULLA-CQ-CONN-R084.6`: `tests/typed_packs/test_connector_pack_competency_served.py::test_pack_questions_end_to_end`.
 
-- `EG-CQ-CONN-R085`: See each child.
-- `EG-CQ-CONN-R085.1`: `crates/eg-core/tests/connector_auto_onboard.rs::fixture_parses_and_is_linked_to_the_parent`.
-- `EG-CQ-CONN-R085.2`: `crates/eg-core/tests/connector_auto_onboard.rs::parent_term_question_returns_native_and_live_connector_rows`.
-- `EG-CQ-CONN-R085.3`: `tests/typed_packs/test_connector_auto_onboard_served.py::test_check_uses_production_import_and_scan`.
-- `EG-CQ-CONN-R085.4`: `crates/eg-core/tests/connector_auto_onboard.rs::orphan_and_held_variants_abstain_by_name`.
-- `EG-CQ-CONN-R085.5`: `tests/typed_packs/test_connector_auto_onboard_served.py::test_answer_cites_digest_revision_fetch_time_and_load_set`.
-- `EG-CQ-CONN-R085.6`: `tests/typed_packs/test_connector_auto_onboard_served.py::test_onboarded_connector_answers_a_cross_ontology_live_question`.
+- `MEDULLA-CQ-CONN-R085`: See each child.
+- `MEDULLA-CQ-CONN-R085.1`: `crates/eg-core/tests/connector_auto_onboard.rs::fixture_parses_and_is_linked_to_the_parent`.
+- `MEDULLA-CQ-CONN-R085.2`: `crates/eg-core/tests/connector_auto_onboard.rs::parent_term_question_returns_native_and_live_connector_rows`.
+- `MEDULLA-CQ-CONN-R085.3`: `tests/typed_packs/test_connector_auto_onboard_served.py::test_check_uses_production_import_and_scan`.
+- `MEDULLA-CQ-CONN-R085.4`: `crates/eg-core/tests/connector_auto_onboard.rs::orphan_and_held_variants_abstain_by_name`.
+- `MEDULLA-CQ-CONN-R085.5`: `tests/typed_packs/test_connector_auto_onboard_served.py::test_answer_cites_digest_revision_fetch_time_and_load_set`.
+- `MEDULLA-CQ-CONN-R085.6`: `tests/typed_packs/test_connector_auto_onboard_served.py::test_onboarded_connector_answers_a_cross_ontology_live_question`.

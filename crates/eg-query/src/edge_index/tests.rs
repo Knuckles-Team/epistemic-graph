@@ -177,7 +177,7 @@ fn owned_by(owner: &str) -> RowPredicate {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R008
+// spec: MEDULLA-FEDERATED-QUERY-R008
 #[test]
 fn parallel_edges_keep_distinct_stable_identities() {
     let core = parallel_graph();
@@ -279,7 +279,7 @@ fn a_committed_edge_is_served_exactly_before_any_refresh() {
     assert_eq!(keys(&answer), vec![key("a", "b", 3)]);
 }
 
-// spec: EG-FEDERATED-QUERY-R008
+// spec: MEDULLA-FEDERATED-QUERY-R008
 #[test]
 fn a_removed_and_re_added_pair_is_never_served_stale() {
     let core = parallel_graph();
@@ -302,7 +302,7 @@ fn a_removed_and_re_added_pair_is_never_served_stale() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R009
+// spec: MEDULLA-FEDERATED-QUERY-R009
 #[test]
 fn an_unaccounted_write_takes_the_bounded_exact_path() {
     let core = parallel_graph();
@@ -362,7 +362,7 @@ fn scope_and_query_family_mismatches_are_refused() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R009
+// spec: MEDULLA-FEDERATED-QUERY-R009
 #[test]
 fn the_lifecycle_is_visible_in_the_index_manager_and_a_drop_is_fenced() {
     let core = parallel_graph();
@@ -399,7 +399,7 @@ fn the_lifecycle_is_visible_in_the_index_manager_and_a_drop_is_fenced() {
     assert_eq!(held.refresh(&core), EdgeRefreshOutcome::Retired, "fenced");
 }
 
-// spec: EG-FEDERATED-QUERY-R009
+// spec: MEDULLA-FEDERATED-QUERY-R009
 #[test]
 fn a_blocked_build_carries_its_typed_diagnostic() {
     let core = parallel_graph();
@@ -428,7 +428,7 @@ fn wave(seed: usize) -> f32 {
     (seed as f32 * 0.618_034).sin()
 }
 
-// spec: EG-FEDERATED-QUERY-R008
+// spec: MEDULLA-FEDERATED-QUERY-R008
 #[test]
 fn recall_holds_on_parallel_edges() {
     let nodes: Vec<String> = (0..20).map(|n| format!("n{n}")).collect();

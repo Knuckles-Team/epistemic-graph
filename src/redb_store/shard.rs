@@ -1207,7 +1207,7 @@ pub(crate) fn open_kernel_owned_store<D: OwnerDomain>(
     let physical = PhysicalStoreIdentity::new(physical_name)?;
     let existed = path.exists();
     // A fresh file binds its control scope inside the single create commit
-    // (EG-DURABLE-KERNEL-R006.1); the bind below then finds it current.
+    // (MEDULLA-DURABLE-KERNEL-R006.1); the bind below then finds it current.
     let kernel = if existed {
         StorageKernel::open_owner::<D>(path, physical, None)
     } else {

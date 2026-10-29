@@ -224,7 +224,7 @@ fn default_algorithm() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Generic durable task queue (EG-DURABLE-KERNEL-R071)
+// Generic durable task queue (MEDULLA-DURABLE-KERNEL-R071)
 // ---------------------------------------------------------------------------
 
 /// A task accepted by the durable queue.
@@ -748,8 +748,8 @@ mod task_queue_tests {
     }
 
     // The managed native qualification covers this pure model; served queue
-    // integration remains the separate EG-DURABLE-KERNEL-R072 requirement.
-    // spec: EG-DURABLE-KERNEL-R071
+    // integration remains the separate MEDULLA-DURABLE-KERNEL-R072 requirement.
+    // spec: MEDULLA-DURABLE-KERNEL-R071
     #[test]
     fn task_wire_types_round_trip() {
         assert_eq!(
@@ -766,7 +766,7 @@ mod task_queue_tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R071
+    // spec: MEDULLA-DURABLE-KERNEL-R071
     #[test]
     fn listed_task_queue_refusals_are_typed_and_leave_state_unchanged() {
         let mut queue = TaskQueue::default();
@@ -802,7 +802,7 @@ mod task_queue_tests {
         assert_eq!(queue.pending_len(), 1);
     }
 
-    // spec: EG-DURABLE-KERNEL-R071
+    // spec: MEDULLA-DURABLE-KERNEL-R071
     #[test]
     fn live_claim_acknowledges_and_removes_only_the_claimed_task() {
         let mut queue = TaskQueue::default();

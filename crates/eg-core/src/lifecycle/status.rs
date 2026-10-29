@@ -1,5 +1,5 @@
 //! Requirement state derived from the changeset log and bound tests
-//! (EG-SDLC-R005.2), per the shared spec standard:
+//! (MEDULLA-SDLC-R005.2), per the shared spec standard:
 //!
 //! ```text
 //! LANDED   := a default-branch changeset cites the ID

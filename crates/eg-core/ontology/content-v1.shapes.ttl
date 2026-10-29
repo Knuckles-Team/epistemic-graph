@@ -1,4 +1,4 @@
-# Content shapes (EG-MEDIA-VOCAB-R003.3, R004.4).
+# Content shapes (MEDULLA-MEDIA-VOCAB-R003.3, R004.4).
 #
 # SHACL Core only (aggregate-free, the virtual-graph shapes convention):
 # `sh:closed` alone refuses a subscriber property that carries a raw email

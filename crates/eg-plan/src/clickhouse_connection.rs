@@ -1,12 +1,12 @@
 //! ClickHouse attached-source driver config + connect/refusal path
-//! (CONCEPT:EG-UNIFIED-DATA-PLANE-R017.2.1).
+//! (CONCEPT:MEDULLA-UNIFIED-DATA-PLANE-R017.2.1).
 //!
 //! This slice covers ONLY the typed driver config and the refusal gate: it proves a
 //! [`ClickHouseDriverConfig`] can be built from validated host/port/database inputs,
 //! and that [`connect`] refuses an unsafe or invalid destination before issuing any
 //! HTTP/native-client request. It requires NO live ClickHouse server. Issuing a real
 //! request and pushing federated query fragments down to ClickHouse is the live slice
-//! `EG-UNIFIED-DATA-PLANE-R017.2.2`, mirroring the loopback-only refusal gate already
+//! `MEDULLA-UNIFIED-DATA-PLANE-R017.2.2`, mirroring the loopback-only refusal gate already
 //! used by `connect_remote_engine` in `crate::federation`.
 
 use std::net::ToSocketAddrs;
@@ -88,7 +88,7 @@ impl ClickHouseDriverConfig {
 /// Resolve the configured destination and refuse (never dial) anything that is not a
 /// local verified endpoint. Mirrors `connect_remote_engine`'s loopback-only gate in
 /// `crate::federation`; actually opening the HTTP/native-client session is the live
-/// slice `EG-UNIFIED-DATA-PLANE-R017.2.2`.
+/// slice `MEDULLA-UNIFIED-DATA-PLANE-R017.2.2`.
 pub fn connect(
     config: &ClickHouseDriverConfig,
 ) -> Result<ClickHouseConnection, ClickHouseConnectError> {
@@ -111,7 +111,7 @@ pub fn connect(
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.2.1
     #[test]
     fn valid_config_round_trips() {
         let config = ClickHouseDriverConfig::build("127.0.0.1", 8123, "default", false).unwrap();
@@ -121,7 +121,7 @@ mod tests {
         assert!(!config.tls);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.2.1
     #[test]
     fn empty_host_is_refused() {
         assert_eq!(
@@ -130,7 +130,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.2.1
     #[test]
     fn zero_port_is_refused() {
         assert_eq!(
@@ -139,7 +139,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.2.1
     #[test]
     fn empty_database_is_refused() {
         assert_eq!(
@@ -148,7 +148,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.2.1
     #[test]
     fn non_loopback_destination_is_refused_by_connect() {
         // A TEST-NET-3 (RFC 5737) literal IP: resolves with no DNS/network lookup, so
@@ -161,7 +161,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R017.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R017.2.1
     #[test]
     fn loopback_destination_passes_the_refusal_gate() {
         let config = ClickHouseDriverConfig::build("127.0.0.1", 8123, "default", false).unwrap();

@@ -1,4 +1,4 @@
-//! Defect intake (EG-SDLC-R003.2).
+//! Defect intake (MEDULLA-SDLC-R003.2).
 
 use eg_core::lifecycle::defect::{normalize_symptom, signature_digest, DefectBook, FileOutcome};
 use eg_types::lifecycle::{DefectIntake, DefectStatus, Symptom};
@@ -12,7 +12,7 @@ fn symptom(text: &str, at: u64) -> Symptom {
     }
 }
 
-// spec: EG-SDLC-R003.2
+// spec: MEDULLA-SDLC-R003.2
 #[test]
 fn same_signature_reuses_open_defect() {
     let a = "panic at src/a.rs:42:7 addr 0x7ffd1234 in /tmp/build-9z/out.log (line 12)";

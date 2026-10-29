@@ -1,4 +1,4 @@
-//! Served ShEx data-selection proof for EG-FEDERATED-QUERY-R084.2.
+//! Served ShEx data-selection proof for MEDULLA-FEDERATED-QUERY-R084.2.
 //!
 //! The handler must validate nonblank `data_graph` as inline Turtle, while an
 //! empty or whitespace-only value must select the projected live graph.  The
@@ -68,7 +68,7 @@ fn shex_report(response: &Response) -> eg_types::rdf_report::ShexValidationRepor
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R084.2
+// spec: MEDULLA-FEDERATED-QUERY-R084.2
 #[tokio::test]
 async fn inline_and_live_data_selection() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;

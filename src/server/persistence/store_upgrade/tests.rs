@@ -168,7 +168,7 @@ fn inspect_finds_nothing_to_do_on_current_stores_and_writes_nothing() {
     );
     let before = (file_digest(&library), file_digest(&shard));
     // The setup's graceful closes leave clean-shutdown markers beside each
-    // store (EG-DURABLE-KERNEL-R006.3); inspect must add or remove nothing.
+    // store (MEDULLA-DURABLE-KERNEL-R006.3); inspect must add or remove nothing.
     let entries_before = entry_names(dir.path());
 
     let report = inspect(dir.path());
@@ -436,7 +436,7 @@ fn apply_stops_at_the_first_failure_and_touches_no_later_store() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R011
+// spec: MEDULLA-TYPED-PACKS-R011
 #[test]
 fn the_server_refuses_an_upgradable_store_and_names_the_command() {
     let dir = data_dir();

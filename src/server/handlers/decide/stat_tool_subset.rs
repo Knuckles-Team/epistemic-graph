@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R045.2: wires the typed tool-subset selection
+//! MEDULLA-DECISION-ENGINE-R045.2: wires the typed tool-subset selection
 //! (`tool_subset::smallest_covering_subset`, R045.1) into the `ToolSubset`
 //! `Decide` question kind.
 //!

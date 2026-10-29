@@ -1,4 +1,4 @@
-# Virtual-graph shapes (EG-UNIFIED-DATA-PLANE-R037).
+# Virtual-graph shapes (MEDULLA-UNIFIED-DATA-PLANE-R037).
 #
 # SHACL Core plus aggregate-free `sh:sparql` only (DECIDE §4.8): an absence check
 # uses the `OPTIONAL ... FILTER(!BOUND(...))` form, never NOT EXISTS, exactly as

@@ -1,4 +1,4 @@
-//! Connector-competency chunk-4 question rows (EG-CQ-CONN-R053 to R066, the
+//! Connector-competency chunk-4 question rows (MEDULLA-CQ-CONN-R053 to R066, the
 //! `.1` single-source and `.2` cross-source children): typed-abstention
 //! acceptance.
 //!
@@ -10,7 +10,7 @@
 //! `MISSING`), and the assigned-vocabulary questions need producer terms that
 //! are not on main yet (named per test below). The engine therefore answers
 //! with the typed abstention: the source-selection `AuthorityAudit`
-//! (EG-SRC-AUTH-R007.1) whose `not_used` rows name the unconnected source with
+//! (MEDULLA-SRC-AUTH-R007.1) whose `not_used` rows name the unconnected source with
 //! the closed reason `Unconnected` — never an empty success. The answer-branch
 //! fixture SPARQL lands with the producer rows (the `.3` acceptance children).
 
@@ -71,7 +71,7 @@ fn assert_typed_abstention(abstention: &AuthorityAudit, expected_sources: &[&str
     }
 }
 
-// spec: EG-CQ-CONN-R053.1
+// spec: MEDULLA-CQ-CONN-R053.1
 #[test]
 fn rom_manager_single_source_question_abstains_by_name() {
     // "Which ROMs in a platform collection fail a checksum match against the
@@ -81,7 +81,7 @@ fn rom_manager_single_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["rom-manager"]);
 }
 
-// spec: EG-CQ-CONN-R053.2
+// spec: MEDULLA-CQ-CONN-R053.2
 #[test]
 fn rom_manager_cross_source_question_abstains_by_name() {
     // "Which ROMs were obtained by a media-downloader job and which are still
@@ -95,29 +95,29 @@ fn rom_manager_cross_source_question_abstains_by_name() {
     );
 }
 
-// spec: EG-CQ-CONN-R054.1
+// spec: MEDULLA-CQ-CONN-R054.1
 #[test]
 fn salesforce_single_source_question_abstains_by_name() {
     // "Which open opportunities close this quarter, with what amount and
     // owner?" — Vocabulary: commercial-v1.ttl (Opportunity/closeDate on main);
-    // the amount and owner terms are owned by EG-SUPPLY-VOCAB-R003.x and not on
+    // the amount and owner terms are owned by MEDULLA-SUPPLY-VOCAB-R003.x and not on
     // main yet, so the question's answer branch is blocked.
     let abstention = unconnected_abstention("salesforce", "Opportunity", &[]);
     assert_typed_abstention(&abstention, &["salesforce"]);
 }
 
-// spec: EG-CQ-CONN-R054.2
+// spec: MEDULLA-CQ-CONN-R054.2
 #[test]
 fn salesforce_cross_source_question_abstains_by_name() {
     // "Which Salesforce accounts have an open ServiceNow incident and an
     // opportunity closing this quarter?" (twenty, servicenow; account /
     // customer) — the account↔incident link and the incident state term
-    // (EG-CQ-CONN-R070.x) are not on main yet.
+    // (MEDULLA-CQ-CONN-R070.x) are not on main yet.
     let abstention = unconnected_abstention("salesforce", "Customer", &["servicenow", "twenty"]);
     assert_typed_abstention(&abstention, &["salesforce", "servicenow", "twenty"]);
 }
 
-// spec: EG-CQ-CONN-R055.1
+// spec: MEDULLA-CQ-CONN-R055.1
 #[test]
 fn scholarx_single_source_question_abstains_by_name() {
     // "Which papers cite a given paper and were published in the last two
@@ -126,7 +126,7 @@ fn scholarx_single_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["scholarx"]);
 }
 
-// spec: EG-CQ-CONN-R055.2
+// spec: MEDULLA-CQ-CONN-R055.2
 #[test]
 fn scholarx_cross_source_question_abstains_by_name() {
     // "Which papers on a topic are in ScholarX but were never surfaced by a
@@ -136,7 +136,7 @@ fn scholarx_cross_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["scholarx", "searxng", "langfuse"]);
 }
 
-// spec: EG-CQ-CONN-R056.1
+// spec: MEDULLA-CQ-CONN-R056.1
 #[test]
 fn searxng_single_source_question_abstains_by_name() {
     // "Which engines returned no results for a given query, and which returned
@@ -145,7 +145,7 @@ fn searxng_single_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["searxng"]);
 }
 
-// spec: EG-CQ-CONN-R056.2
+// spec: MEDULLA-CQ-CONN-R056.2
 #[test]
 fn searxng_cross_source_question_abstains_by_name() {
     // "Which URLs from a SearXNG query are not yet archived in ArchiveBox?"
@@ -155,28 +155,28 @@ fn searxng_cross_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["searxng", "freshrss", "archivebox"]);
 }
 
-// spec: EG-CQ-CONN-R057.1
+// spec: MEDULLA-CQ-CONN-R057.1
 #[test]
 fn servicenow_single_source_question_abstains_by_name() {
     // "Which incidents are open on a given configuration item and who is
     // assigned?" — Vocabulary: archimate-v1.ttl (Incident on main); the
     // ConfigurationItem / incidentState / incidentAssignee producer terms
-    // (EG-CQ-CONN-R070.5/.7/.8) are not on main yet.
+    // (MEDULLA-CQ-CONN-R070.5/.7/.8) are not on main yet.
     let abstention = unconnected_abstention("servicenow", "Incident", &[]);
     assert_typed_abstention(&abstention, &["servicenow"]);
 }
 
-// spec: EG-CQ-CONN-R057.2
+// spec: MEDULLA-CQ-CONN-R057.2
 #[test]
 fn servicenow_cross_source_question_abstains_by_name() {
     // "Which open incidents on a CI also show a Grafana alert and a failing
     // Uptime Kuma monitor?" (okta, lgtm; configuration item / service) — the
-    // Alert producer term (EG-CQ-CONN-R068.8) is not on main yet.
+    // Alert producer term (MEDULLA-CQ-CONN-R068.8) is not on main yet.
     let abstention = unconnected_abstention("servicenow", "Incident", &["lgtm", "okta"]);
     assert_typed_abstention(&abstention, &["servicenow", "lgtm", "okta"]);
 }
 
-// spec: EG-CQ-CONN-R058.1
+// spec: MEDULLA-CQ-CONN-R058.1
 #[test]
 fn sql_single_source_question_abstains_by_name() {
     // "Which tables have no primary key, and which columns reference tables
@@ -185,7 +185,7 @@ fn sql_single_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["sql"]);
 }
 
-// spec: EG-CQ-CONN-R058.2
+// spec: MEDULLA-CQ-CONN-R058.2
 #[test]
 fn sql_cross_source_question_abstains_by_name() {
     // "Which SQL tables are not cataloged in Egeria, and which cataloged
@@ -195,17 +195,17 @@ fn sql_cross_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["sql", "egeria", "documentdb"]);
 }
 
-// spec: EG-CQ-CONN-R059.1
+// spec: MEDULLA-CQ-CONN-R059.1
 #[test]
 fn stirlingpdf_single_source_question_abstains_by_name() {
     // "Which operations failed on which PDFs and with what error?" —
     // Vocabulary: action-v1.ttl (ActionInvocation on main); the failureReason
-    // producer term (EG-CQ-CONN-R082.1) is not on main yet.
+    // producer term (MEDULLA-CQ-CONN-R082.1) is not on main yet.
     let abstention = unconnected_abstention("stirlingpdf", "PdfOperation", &[]);
     assert_typed_abstention(&abstention, &["stirlingpdf"]);
 }
 
-// spec: EG-CQ-CONN-R059.2
+// spec: MEDULLA-CQ-CONN-R059.2
 #[test]
 fn stirlingpdf_cross_source_question_abstains_by_name() {
     // "Which PDFs processed by Stirling-PDF were stored in Paperless-ngx or
@@ -219,18 +219,18 @@ fn stirlingpdf_cross_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["stirlingpdf", "paperless-ngx", "nextcloud"]);
 }
 
-// spec: EG-CQ-CONN-R060.1
+// spec: MEDULLA-CQ-CONN-R060.1
 #[test]
 fn systems_manager_single_source_question_abstains_by_name() {
     // "Which hosts have pending OS updates and what is their uptime?" —
     // Vocabulary: infrastructure-v1.ttl (Host/OperatingSystem on main); the
-    // pendingUpdateCount / uptimeSeconds producer terms (EG-CQ-CONN-R068.21/
+    // pendingUpdateCount / uptimeSeconds producer terms (MEDULLA-CQ-CONN-R068.21/
     // R068.22) are not on main yet.
     let abstention = unconnected_abstention("systems-manager", "Host", &[]);
     assert_typed_abstention(&abstention, &["systems-manager"]);
 }
 
-// spec: EG-CQ-CONN-R060.2
+// spec: MEDULLA-CQ-CONN-R060.2
 #[test]
 fn systems_manager_cross_source_question_abstains_by_name() {
     // "Which hosts with pending updates have no Ansible Tower patch job
@@ -245,28 +245,28 @@ fn systems_manager_cross_source_question_abstains_by_name() {
     );
 }
 
-// spec: EG-CQ-CONN-R061.1
+// spec: MEDULLA-CQ-CONN-R061.1
 #[test]
 fn technitium_dns_single_source_question_abstains_by_name() {
     // "Which zones contain records pointing to an address that no host
     // answers on?" — Vocabulary: infrastructure-v1.ttl (DnsZone/DnsRecord on
-    // main); the recordType / recordValue producer terms (EG-CQ-CONN-R068.23/
+    // main); the recordType / recordValue producer terms (MEDULLA-CQ-CONN-R068.23/
     // R068.24) are not on main yet.
     let abstention = unconnected_abstention("technitium-dns", "DnsRecord", &[]);
     assert_typed_abstention(&abstention, &["technitium-dns"]);
 }
 
-// spec: EG-CQ-CONN-R061.2
+// spec: MEDULLA-CQ-CONN-R061.2
 #[test]
 fn technitium_dns_cross_source_question_abstains_by_name() {
     // "Which DNS A records have no Caddy route and no Uptime Kuma monitor?"
     // (caddy, uptime; hostname) — the record value and route-hostname terms
-    // (EG-CQ-CONN-R068.24/R068.6) are not on main yet.
+    // (MEDULLA-CQ-CONN-R068.24/R068.6) are not on main yet.
     let abstention = unconnected_abstention("technitium-dns", "DnsRecord", &["caddy", "uptime"]);
     assert_typed_abstention(&abstention, &["technitium-dns", "caddy", "uptime"]);
 }
 
-// spec: EG-CQ-CONN-R062.1
+// spec: MEDULLA-CQ-CONN-R062.1
 #[test]
 fn tunnel_manager_single_source_question_abstains_by_name() {
     // "Which SSH hosts in the inventory failed their last connection, and with
@@ -277,12 +277,12 @@ fn tunnel_manager_single_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["tunnel-manager"]);
 }
 
-// spec: EG-CQ-CONN-R062.2
+// spec: MEDULLA-CQ-CONN-R062.2
 #[test]
 fn tunnel_manager_cross_source_question_abstains_by_name() {
     // "Which hosts that tunnel-manager cannot reach are still listed as managed
     // in Ansible Tower?" (ansible-tower, systems-manager; host) — the
-    // AutomationJob producer terms (EG-CQ-CONN-R068.2/R068.3) are not on main
+    // AutomationJob producer terms (MEDULLA-CQ-CONN-R068.2/R068.3) are not on main
     // yet.
     let abstention = unconnected_abstention(
         "tunnel-manager",
@@ -295,18 +295,18 @@ fn tunnel_manager_cross_source_question_abstains_by_name() {
     );
 }
 
-// spec: EG-CQ-CONN-R063.1
+// spec: MEDULLA-CQ-CONN-R063.1
 #[test]
 fn twenty_single_source_question_abstains_by_name() {
     // "Which people at a company have no logged activity in the last 60 days
     // while a deal is open?" — Vocabulary: commercial-v1.ttl (Customer/
     // Opportunity on main); the Person / Company / activity producer terms are
-    // owned by EG-SUPPLY-VOCAB-R003.x and not on main yet.
+    // owned by MEDULLA-SUPPLY-VOCAB-R003.x and not on main yet.
     let abstention = unconnected_abstention("twenty", "Contact", &[]);
     assert_typed_abstention(&abstention, &["twenty"]);
 }
 
-// spec: EG-CQ-CONN-R063.2
+// spec: MEDULLA-CQ-CONN-R063.2
 #[test]
 fn twenty_cross_source_question_abstains_by_name() {
     // "Which Twenty contacts also exist as Salesforce contacts with different
@@ -316,7 +316,7 @@ fn twenty_cross_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["twenty", "salesforce", "listmonk"]);
 }
 
-// spec: EG-CQ-CONN-R064.1
+// spec: MEDULLA-CQ-CONN-R064.1
 #[test]
 fn uptime_single_source_question_abstains_by_name() {
     // "Which monitored services were down in the last 24 hours and for how
@@ -327,17 +327,17 @@ fn uptime_single_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["uptime"]);
 }
 
-// spec: EG-CQ-CONN-R064.2
+// spec: MEDULLA-CQ-CONN-R064.2
 #[test]
 fn uptime_cross_source_question_abstains_by_name() {
     // "Which services Uptime Kuma saw down had a Grafana alert or a Caddy
     // route error at the same time?" (lgtm, caddy; service / hostname) — the
-    // Alert producer term (EG-CQ-CONN-R068.8) is not on main yet.
+    // Alert producer term (MEDULLA-CQ-CONN-R068.8) is not on main yet.
     let abstention = unconnected_abstention("uptime", "MonitoredService", &["lgtm", "caddy"]);
     assert_typed_abstention(&abstention, &["uptime", "lgtm", "caddy"]);
 }
 
-// spec: EG-CQ-CONN-R065.1
+// spec: MEDULLA-CQ-CONN-R065.1
 #[test]
 fn vector_single_source_question_abstains_by_name() {
     // "Which collections have the most vectors and which have an embedding
@@ -346,7 +346,7 @@ fn vector_single_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["vector"]);
 }
 
-// spec: EG-CQ-CONN-R065.2
+// spec: MEDULLA-CQ-CONN-R065.2
 #[test]
 fn vector_cross_source_question_abstains_by_name() {
     // "Which Paperless-ngx documents have no embedding stored in the vector
@@ -357,7 +357,7 @@ fn vector_cross_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["vector", "paperless-ngx", "data-science"]);
 }
 
-// spec: EG-CQ-CONN-R066.1
+// spec: MEDULLA-CQ-CONN-R066.1
 #[test]
 fn wger_single_source_question_abstains_by_name() {
     // "Which workout routines were not completed in the last two weeks and
@@ -368,7 +368,7 @@ fn wger_single_source_question_abstains_by_name() {
     assert_typed_abstention(&abstention, &["wger"]);
 }
 
-// spec: EG-CQ-CONN-R066.2
+// spec: MEDULLA-CQ-CONN-R066.2
 #[test]
 fn wger_cross_source_question_abstains_by_name() {
     // "Which weeks of low workout completion coincide with a Mealie meal plan

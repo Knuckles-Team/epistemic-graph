@@ -18,7 +18,7 @@ ex:endpoint vg:url "https://example.invalid/data" .
     )
 }
 
-// spec: EG-DATAPLAT-VOCAB-R001.3
+// spec: MEDULLA-DATAPLAT-VOCAB-R001.3
 #[test]
 fn document_source_kind_accepted() {
     let document = validate_turtle(SHAPES, &source_connection("document"))

@@ -1393,7 +1393,7 @@ impl PersistenceBackend for DurableVersion {
 /// authoritative read now brings the projection up to the durable version, so
 /// the next stamped write agrees with the kernel. A projection ahead of its
 /// authority is still refused.
-// spec: EG-DURABLE-KERNEL-R031.2
+// spec: MEDULLA-DURABLE-KERNEL-R031.2
 #[tokio::test]
 async fn the_authoritative_version_accounts_a_durable_write_the_projection_missed() {
     let core = GraphCore::new();

@@ -1,10 +1,10 @@
 //! Dataset and column lineage records.
 //!
-//! * EG-UNIFIED-DATA-PLANE-R702: ETL runs, content-addressed dataset lineage
+//! * MEDULLA-UNIFIED-DATA-PLANE-R702: ETL runs, content-addressed dataset lineage
 //!   edges and the idempotent drain of lineage events. A malformed dataset
 //!   reference quarantines with a typed reason and its payload digest; it is
 //!   never dropped. A replayed event adds no edge.
-//! * EG-UNIFIED-DATA-PLANE-R763.1: column-level lineage edges.
+//! * MEDULLA-UNIFIED-DATA-PLANE-R763.1: column-level lineage edges.
 
 use std::collections::BTreeSet;
 
@@ -239,7 +239,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R702.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R702.1
     #[test]
     fn lineage_model_round_trips_and_addresses_by_content() {
         let a = DatasetId::address("pg://app", "public.orders").unwrap();
@@ -263,7 +263,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R702.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R702.2
     #[test]
     fn mapping_is_pure_and_drain_is_batched() {
         for size in [10usize, 1_000, 100_000] {
@@ -293,7 +293,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R702.4
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R702.4
     #[test]
     fn replay_adds_no_edge_and_malformed_ref_quarantines() {
         let mut drain = LineageDrain::new(16);
@@ -314,7 +314,7 @@ mod tests {
         assert_eq!(drain.edges(), &before);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R702.5
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R702.5
     #[test]
     fn quarantined_event_keeps_its_payload_digest() {
         let bad = event("e9", vec![], vec![dataset("lake", "b")]);

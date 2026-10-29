@@ -147,7 +147,7 @@ impl Response {
             _ => {
                 // The wire never carries uncoded text (it may name request values);
                 // keep it diagnosable for operators at debug level instead of
-                // dropping it silently (spec: EG-DURABLE-KERNEL-R043.8).
+                // dropping it silently (spec: MEDULLA-DURABLE-KERNEL-R043.8).
                 tracing::debug!(
                     target: "eg_types::response",
                     request_id = id,

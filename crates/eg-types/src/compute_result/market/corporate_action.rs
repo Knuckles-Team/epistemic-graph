@@ -1,4 +1,4 @@
-//! Point-in-time corporate actions (EG-FINANCE-PRIMITIVES-R006).
+//! Point-in-time corporate actions (MEDULLA-FINANCE-PRIMITIVES-R006).
 //!
 //! A corporate action is a fact about one immutable listing/instrument
 //! identity: a split, a dividend, a symbol change or a delisting. Actions are

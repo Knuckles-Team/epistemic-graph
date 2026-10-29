@@ -1,9 +1,9 @@
-//! EG-UNIFIED-DATA-PLANE-R026.2.1 — adapter skeleton for the Gramps pilot's
+//! MEDULLA-UNIFIED-DATA-PLANE-R026.2.1 — adapter skeleton for the Gramps pilot's
 //! P0 baseline: a typed baseline-digest record and its mapping to the P0
 //! phase exit artifact, plus the refusal path before any phase is marked
 //! closed. Running the real baseline capture against a live Gramps export,
 //! the Postgres control, and the unmodified corpus replay are
-//! EG-UNIFIED-DATA-PLANE-R026.2.2+.
+//! MEDULLA-UNIFIED-DATA-PLANE-R026.2.2+.
 
 use crate::gramps_pilot_phase::{GrampsPilotPhase, InvalidPhaseExit, PhaseExitArtifact};
 use serde::{Deserialize, Serialize};
@@ -75,7 +75,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.2.1
     #[test]
     fn well_formed_digest_maps_to_the_p0_phase_exit() {
         let exit = valid()
@@ -86,7 +86,7 @@ mod tests {
         assert_eq!(exit.reviewed_by, "audel");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.2.1
     #[test]
     fn refuses_zero_record_count() {
         let mut digest = valid();
@@ -97,7 +97,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.2.1
     #[test]
     fn refuses_empty_digest_hex() {
         let mut digest = valid();
@@ -108,7 +108,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.2.1
     #[test]
     fn refuses_an_unreviewed_exit() {
         let err = valid().to_phase_exit("   ").unwrap_err();
@@ -118,7 +118,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R026.2.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R026.2.1
     #[test]
     fn digest_serializes_round_trip() {
         let digest = valid();

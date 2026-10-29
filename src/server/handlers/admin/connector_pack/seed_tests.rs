@@ -64,7 +64,7 @@ fn seed(catalog_name: &str, content_digest: Digest256) -> SeedGraphImport {
     }
 }
 
-/// EG-TYPED-PACKS-R104.2: a changed catalog part replaces only that part;
+/// MEDULLA-TYPED-PACKS-R104.2: a changed catalog part replaces only that part;
 /// identity and references remain byte-identical in the one prepared state.
 #[test]
 fn changed_part_reimports_alone() {

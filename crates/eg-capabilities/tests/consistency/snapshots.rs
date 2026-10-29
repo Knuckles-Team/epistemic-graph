@@ -529,7 +529,7 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "WriteBack",
     #[cfg(feature = "modality-serving")]
     "ServedModality",
-    // Served KV mutations (EG-DURABLE-KERNEL-R102).
+    // Served KV mutations (MEDULLA-DURABLE-KERNEL-R102).
     "KvCas",
     "KvDelete",
     "KvPut",

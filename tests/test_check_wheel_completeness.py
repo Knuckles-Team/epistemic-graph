@@ -212,7 +212,7 @@ def test_a_windows_wheel_is_accepted(tmp_path: Path) -> None:
     assert check_wheel(wheel) == []
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.2")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.2")
 def test_a_wheel_carrying_the_server_binary_is_rejected(tmp_path: Path) -> None:
     """The server binary ships in epistemic-graph-server, not in this wheel."""
     members = _complete_members()

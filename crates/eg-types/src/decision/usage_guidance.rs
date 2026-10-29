@@ -1,4 +1,4 @@
-//! Connector usage guidance answered from the graph (EG-DECISION-ENGINE-R177.1).
+//! Connector usage guidance answered from the graph (MEDULLA-DECISION-ENGINE-R177.1).
 
 use serde::{Deserialize, Deserializer, Serialize};
 

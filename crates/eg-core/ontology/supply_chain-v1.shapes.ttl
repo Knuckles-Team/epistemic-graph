@@ -1,4 +1,4 @@
-# Supply-chain shapes (EG-SUPPLY-VOCAB-R001.4, R002.7).
+# Supply-chain shapes (MEDULLA-SUPPLY-VOCAB-R001.4, R002.7).
 #
 # SHACL Core plus aggregate-free `sh:sparql` only (DECIDE §4.8): the
 # supply-chain module ships its shapes as a standalone companion document;

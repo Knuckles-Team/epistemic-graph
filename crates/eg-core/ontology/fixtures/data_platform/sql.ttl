@@ -1,4 +1,4 @@
-# sql store-mapping fixture (EG-DATAPLAT-VOCAB-R006.1).
+# sql store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.1).
 #
 # One attached PostgreSQL database. Discovery is engine-side (R2RML virtual
 # graph over the attached catalog, unified-data-plane R003) with the sql_schema

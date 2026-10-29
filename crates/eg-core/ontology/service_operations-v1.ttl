@@ -10,7 +10,7 @@
 
 <http://knuckles.team/kg/service_operations> a owl:Ontology ;
     rdfs:label "Service Operations Ontology" ;
-    rdfs:comment "IT service operations core aligned to the Open Group IT4IT data objects (Detect to Correct, Request to Fulfil, Service Model): incident, problem, change, configuration item, business service, assignment group, ticket hierarchy, technology standard and phase, plus the edges the cross-source competency questions walk (EG-TYPED-PACKS-R105.4, R105.5). It also aligns the self-contained swarm-topology and virtual-graph modules to the core classes." ;
+    rdfs:comment "IT service operations core aligned to the Open Group IT4IT data objects (Detect to Correct, Request to Fulfil, Service Model): incident, problem, change, configuration item, business service, assignment group, ticket hierarchy, technology standard and phase, plus the edges the cross-source competency questions walk (MEDULLA-TYPED-PACKS-R105.4, R105.5). It also aligns the self-contained swarm-topology and virtual-graph modules to the core classes." ;
     dcterms:source "Open Group IT4IT Reference Architecture, data objects" ;
     owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/infrastructure>, <http://knuckles.team/kg/sdlc_lifecycle>, <http://knuckles.team/kg/trm>, <http://knuckles.team/kg/orchestration> .
 

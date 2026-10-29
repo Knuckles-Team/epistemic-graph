@@ -103,7 +103,7 @@
       ]
     },
     "AmlAlertResult": {
-      "description": "One raised AML alert (EG-FINANCE-PRIMITIVES-R901.3).",
+      "description": "One raised AML alert (MEDULLA-FINANCE-PRIMITIVES-R901.3).",
       "properties": {
         "amount_minor": {
           "format": "int64",
@@ -766,7 +766,7 @@
       "type": "string"
     },
     "CapitalRatiosResult": {
-      "description": "Basel-style capital ratios and their minimum checks (EG-FINANCE-PRIMITIVES-R901.3).",
+      "description": "Basel-style capital ratios and their minimum checks (MEDULLA-FINANCE-PRIMITIVES-R901.3).",
       "properties": {
         "cet1_meets_minimum": {
           "type": "boolean"
@@ -1809,7 +1809,7 @@
       ]
     },
     "DistributionShift": {
-      "description": "Two-sample distribution-shift verdict (EG-FINANCE-PRIMITIVES-R900.3).",
+      "description": "Two-sample distribution-shift verdict (MEDULLA-FINANCE-PRIMITIVES-R900.3).",
       "properties": {
         "p_value": {
           "format": "double",
@@ -2093,7 +2093,7 @@
       "type": "object"
     },
     "FactorRecordResult": {
-      "description": "One ranked factor with the provenance of its inputs (EG-FINANCE-PRIMITIVES-R018.3).",
+      "description": "One ranked factor with the provenance of its inputs (MEDULLA-FINANCE-PRIMITIVES-R018.3).",
       "properties": {
         "factor_id": {
           "type": "string"
@@ -5120,7 +5120,7 @@
       "type": "object"
     },
     "RegimeChainResult": {
-      "description": "A fitted three-state regime chain and its forecast (EG-FINANCE-PRIMITIVES-R613.3).",
+      "description": "A fitted three-state regime chain and its forecast (MEDULLA-FINANCE-PRIMITIVES-R613.3).",
       "properties": {
         "current_state": {
           "format": "uint",

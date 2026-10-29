@@ -1,4 +1,4 @@
-//! EG-TYPED-PACKS-R712 hot-path receipt: schema-drift classification of a
+//! MEDULLA-TYPED-PACKS-R712 hot-path receipt: schema-drift classification of a
 //! 1,000-field contract.
 //!
 //! Budget (spec): p50 under 0.5 ms, p99 under 3 ms per 1,000-field contract,

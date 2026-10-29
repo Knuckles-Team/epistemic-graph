@@ -1,5 +1,5 @@
 //! Typed catalog model for an attached MongoDB/DocumentDB source
-//! (EG-UNIFIED-DATA-PLANE-R019): the inferred document JSON shape EG uses as
+//! (MEDULLA-UNIFIED-DATA-PLANE-R019): the inferred document JSON shape EG uses as
 //! the source's catalog. This is the typed-model slice (`.1`): the shape
 //! model, its field-type vocabulary, and the refusal for a malformed field
 //! path. The native-driver connection, change-stream capture, and the
@@ -105,7 +105,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn valid_path_round_trips_through_insert() {
         let mut shape = DocumentCollectionShape {
@@ -116,7 +116,7 @@ mod tests {
         assert!(shape.fields.contains_key("address.city"));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn empty_path_is_refused() {
         assert_eq!(
@@ -125,26 +125,26 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn leading_or_trailing_dot_is_refused() {
         assert!(validate_field_path(".a").is_err());
         assert!(validate_field_path("a.").is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn empty_segment_is_refused() {
         assert!(validate_field_path("a..b").is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn operator_prefixed_segment_is_refused() {
         assert!(validate_field_path("a.$where").is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn malformed_path_is_refused_not_silently_inserted() {
         let mut shape = DocumentCollectionShape::default();
@@ -154,7 +154,7 @@ mod tests {
         assert_eq!(shape.fields.len(), before);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn mixed_type_is_a_distinct_variant_not_collapsed() {
         let f = DocumentField {
@@ -166,7 +166,7 @@ mod tests {
         assert_ne!(f.field_type, DocumentFieldType::String);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R019.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn catalog_serializes_round_trip() {
         let mut catalog = DocumentSourceCatalog {

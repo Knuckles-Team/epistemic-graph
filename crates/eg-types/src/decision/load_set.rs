@@ -1,4 +1,4 @@
-//! Job-scoped load set question and answer (EG-DECISION-ENGINE-R176.1).
+//! Job-scoped load set question and answer (MEDULLA-DECISION-ENGINE-R176.1).
 
 use serde::{Deserialize, Deserializer, Serialize};
 

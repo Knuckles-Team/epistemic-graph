@@ -438,7 +438,7 @@ def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
     [10, 15, 45, 60, 360, "${{ github.event_name == 'pull_request' && 45 || 60 }}"],
 )
 def test_workspace_clippy_budget_rejects_unscoped_limits(timeout: int | str) -> None:
-    """EG-CONTRACT-R031: only the workspace matrix leg receives extra time."""
+    """MEDULLA-CONTRACT-R031: only the workspace matrix leg receives extra time."""
     with pytest.raises(AssertionError):
         _assert_runner_budget(
             CI_WORKFLOW, "quality-advisory", {"timeout-minutes": timeout}
@@ -456,7 +456,7 @@ def test_workspace_clippy_budget_rejects_unscoped_limits(timeout: int | str) -> 
 def test_workspace_clippy_budget_cannot_expand_other_jobs(
     workflow: str, name: str
 ) -> None:
-    """EG-CONTRACT-R031: the matrix budget is not a general runner exception."""
+    """MEDULLA-CONTRACT-R031: the matrix budget is not a general runner exception."""
     budget = "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     with pytest.raises(AssertionError):
         _assert_runner_budget(Path(workflow), name, {"timeout-minutes": budget})
@@ -488,7 +488,7 @@ def test_release_concurrency_never_cancels_a_publication() -> None:
 
 
 def test_ci_concurrency_supersedes_older_runs_per_pr_and_per_ref() -> None:
-    """spec EG-CONTRACT-R053.7: main pushes and PR pushes cancel the older run."""
+    """spec MEDULLA-CONTRACT-R053.7: main pushes and PR pushes cancel the older run."""
     doc = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     concurrency = doc["concurrency"]
     assert concurrency["cancel-in-progress"] is True
@@ -801,7 +801,7 @@ def test_sdist_requires_engine_composition_helper(tmp_path):
         )
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.7")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.7")
 def test_tag_pipeline_builds_checks_and_publishes_only() -> None:
     """A tag publishes only a commit main CI already passed (spec R053.7)."""
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))

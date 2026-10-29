@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R035: the release workflow's `gates` job runs to completion as
+"""MEDULLA-CONTRACT-R035: the release workflow's `gates` job runs to completion as
 a whole, including its eg-compute `solve` test step, with no gap between a
 test target *declared* in the job and one actually *executed*.
 
@@ -59,7 +59,7 @@ def _required_feature(test_file: Path) -> str | None:
     return match.group(1) if match else None
 
 
-@pytest.mark.spec("EG-CONTRACT-R035")
+@pytest.mark.spec("MEDULLA-CONTRACT-R035")
 def test_eg_compute_solve_step_enables_the_solve_feature():
     """The one gates-job step covering eg-compute (`Test (lower crates, all
     features)`) must enable the `solve` feature, or `tests/solve.rs` compiles

@@ -376,7 +376,7 @@ fn identity_payload_digest(
 mod current_plan_identity_tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R028.5.3
+    // spec: MEDULLA-DURABLE-KERNEL-R028.5.3
     #[test]
     fn publication_attachment_changes_content_not_retry_identity() {
         let plain = Method::PublishCurrentPlan {
@@ -409,7 +409,7 @@ mod current_plan_identity_tests {
         assert_ne!(digest(attached), digest(changed));
     }
 
-    // spec: EG-DURABLE-KERNEL-R028.5
+    // spec: MEDULLA-DURABLE-KERNEL-R028.5
     #[test]
     fn publication_identity_separates_operation_revision_run_and_transport() {
         let request = eg_types::current_plan::sample_publish_request();
@@ -473,7 +473,7 @@ mod checkpoint_identity_tests {
     use super::*;
     use eg_types::run_checkpoint::{CheckpointContent, PublishRunCheckpointRequest};
 
-    // spec: EG-DURABLE-KERNEL-R028.1.1
+    // spec: MEDULLA-DURABLE-KERNEL-R028.1.1
     #[test]
     fn context_is_bound_to_checkpoint_retry_identity_and_body() {
         use sha2::Digest;

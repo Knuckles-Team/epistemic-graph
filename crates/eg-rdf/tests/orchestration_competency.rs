@@ -1,4 +1,4 @@
-//! Orchestration competency questions (EG-CQ-ORCH Q1-Q7): each question has its
+//! Orchestration competency questions (MEDULLA-CQ-ORCH Q1-Q7): each question has its
 //! ontology terms, shape, source-authority mapping, fixture and acceptance test.
 //!
 //! Every fixture is a disposable Turtle graph under
@@ -255,7 +255,7 @@ fn q_fixture_rows(n: usize) {
     assert!(!expected(&question).is_empty());
 }
 
-// spec: EG-CQ-ORCH-R001.1
+// spec: MEDULLA-CQ-ORCH-R001.1
 #[test]
 fn q1_ontology_terms_resolve() {
     let view = view_of("");
@@ -267,7 +267,7 @@ fn q1_ontology_terms_resolve() {
     ));
 }
 
-// spec: EG-CQ-ORCH-R001.2
+// spec: MEDULLA-CQ-ORCH-R001.2
 #[test]
 fn q1_shape_accepts_fixture_and_rejects_a_cycle() {
     let fixture = q(1).fixture;
@@ -278,25 +278,25 @@ fn q1_shape_accepts_fixture_and_rejects_a_cycle() {
     assert!(!messages(SHAPES, "TaskStepShape", &cycle).is_empty());
 }
 
-// spec: EG-CQ-ORCH-R001.3
+// spec: MEDULLA-CQ-ORCH-R001.3
 #[test]
 fn q1_source_authority_selects_declared_source() {
     assert_authority_selects_declared_source(&q(1));
 }
 
-// spec: EG-CQ-ORCH-R001.4
+// spec: MEDULLA-CQ-ORCH-R001.4
 #[test]
 fn q1_fixture_returns_expected_rows() {
     q_fixture_rows(1);
 }
 
-// spec: EG-CQ-ORCH-R001.5
+// spec: MEDULLA-CQ-ORCH-R001.5
 #[test]
 fn q1_answers_with_provenance() {
     assert_answers_with_provenance(1);
 }
 
-// spec: EG-CQ-ORCH-R002.1
+// spec: MEDULLA-CQ-ORCH-R002.1
 #[test]
 fn q2_ontology_terms_resolve() {
     let view = view_of("");
@@ -309,7 +309,7 @@ fn q2_ontology_terms_resolve() {
     ));
 }
 
-// spec: EG-CQ-ORCH-R002.2
+// spec: MEDULLA-CQ-ORCH-R002.2
 #[test]
 fn q2_shape_accepts_fixture_and_rejects_bad_width() {
     let fixture = q(2).fixture;
@@ -328,25 +328,25 @@ fn q2_shape_accepts_fixture_and_rejects_bad_width() {
     assert!(!validate_turtle(SWARM_SHAPES, &unbounded).unwrap().conforms);
 }
 
-// spec: EG-CQ-ORCH-R002.3
+// spec: MEDULLA-CQ-ORCH-R002.3
 #[test]
 fn q2_source_authority_selects_declared_source() {
     assert_authority_selects_declared_source(&q(2));
 }
 
-// spec: EG-CQ-ORCH-R002.4
+// spec: MEDULLA-CQ-ORCH-R002.4
 #[test]
 fn q2_fixture_returns_expected_rows() {
     q_fixture_rows(2);
 }
 
-// spec: EG-CQ-ORCH-R002.5
+// spec: MEDULLA-CQ-ORCH-R002.5
 #[test]
 fn q2_answers_with_provenance() {
     assert_answers_with_provenance(2);
 }
 
-// spec: EG-CQ-ORCH-R003.1
+// spec: MEDULLA-CQ-ORCH-R003.1
 #[test]
 fn q3_ontology_terms_resolve() {
     let view = view_of("");
@@ -356,7 +356,7 @@ fn q3_ontology_terms_resolve() {
     consistent(q(3).fixture);
 }
 
-// spec: EG-CQ-ORCH-R003.2
+// spec: MEDULLA-CQ-ORCH-R003.2
 #[test]
 fn q3_shape_accepts_fixture_and_rejects_member_without_capability() {
     assert!(messages(SHAPES, "LibraryMemberShape", q(3).fixture).is_empty());
@@ -364,25 +364,25 @@ fn q3_shape_accepts_fixture_and_rejects_member_without_capability() {
     assert!(!messages(SHAPES, "LibraryMemberShape", &useless).is_empty());
 }
 
-// spec: EG-CQ-ORCH-R003.3
+// spec: MEDULLA-CQ-ORCH-R003.3
 #[test]
 fn q3_source_authority_selects_declared_source() {
     assert_authority_selects_declared_source(&q(3));
 }
 
-// spec: EG-CQ-ORCH-R003.4
+// spec: MEDULLA-CQ-ORCH-R003.4
 #[test]
 fn q3_fixture_returns_expected_rows() {
     q_fixture_rows(3);
 }
 
-// spec: EG-CQ-ORCH-R003.5
+// spec: MEDULLA-CQ-ORCH-R003.5
 #[test]
 fn q3_answers_with_provenance() {
     assert_answers_with_provenance(3);
 }
 
-// spec: EG-CQ-ORCH-R004.1
+// spec: MEDULLA-CQ-ORCH-R004.1
 #[test]
 fn q4_ontology_terms_resolve() {
     let view = view_of("");
@@ -395,7 +395,7 @@ fn q4_ontology_terms_resolve() {
     consistent(q(4).fixture);
 }
 
-// spec: EG-CQ-ORCH-R004.2
+// spec: MEDULLA-CQ-ORCH-R004.2
 #[test]
 fn q4_shape_accepts_fixture_and_rejects_rule_without_class() {
     assert!(messages(SHAPES, "RuleScopeShape", q(4).fixture).is_empty());
@@ -403,25 +403,25 @@ fn q4_shape_accepts_fixture_and_rejects_rule_without_class() {
     assert!(!messages(SHAPES, "RuleScopeShape", &unscoped).is_empty());
 }
 
-// spec: EG-CQ-ORCH-R004.3
+// spec: MEDULLA-CQ-ORCH-R004.3
 #[test]
 fn q4_source_authority_selects_declared_source() {
     assert_authority_selects_declared_source(&q(4));
 }
 
-// spec: EG-CQ-ORCH-R004.4
+// spec: MEDULLA-CQ-ORCH-R004.4
 #[test]
 fn q4_fixture_returns_expected_rows() {
     q_fixture_rows(4);
 }
 
-// spec: EG-CQ-ORCH-R004.5
+// spec: MEDULLA-CQ-ORCH-R004.5
 #[test]
 fn q4_answers_with_provenance() {
     assert_answers_with_provenance(4);
 }
 
-// spec: EG-CQ-ORCH-R005.1
+// spec: MEDULLA-CQ-ORCH-R005.1
 #[test]
 fn q5_ontology_terms_resolve() {
     let view = view_of("");
@@ -431,7 +431,7 @@ fn q5_ontology_terms_resolve() {
     consistent(q(5).fixture);
 }
 
-// spec: EG-CQ-ORCH-R005.2
+// spec: MEDULLA-CQ-ORCH-R005.2
 #[test]
 fn q5_shape_accepts_fixture_and_rejects_agent_without_model() {
     assert!(messages(SHAPES, "StepBindingShape", q(5).fixture).is_empty());
@@ -439,25 +439,25 @@ fn q5_shape_accepts_fixture_and_rejects_agent_without_model() {
     assert!(!messages(SHAPES, "StepBindingShape", &bare).is_empty());
 }
 
-// spec: EG-CQ-ORCH-R005.3
+// spec: MEDULLA-CQ-ORCH-R005.3
 #[test]
 fn q5_source_authority_selects_declared_source() {
     assert_authority_selects_declared_source(&q(5));
 }
 
-// spec: EG-CQ-ORCH-R005.4
+// spec: MEDULLA-CQ-ORCH-R005.4
 #[test]
 fn q5_fixture_returns_expected_rows() {
     q_fixture_rows(5);
 }
 
-// spec: EG-CQ-ORCH-R005.5
+// spec: MEDULLA-CQ-ORCH-R005.5
 #[test]
 fn q5_answers_with_provenance() {
     assert_answers_with_provenance(5);
 }
 
-// spec: EG-CQ-ORCH-R006.1
+// spec: MEDULLA-CQ-ORCH-R006.1
 #[test]
 fn q6_ontology_terms_resolve() {
     let view = view_of("");
@@ -466,7 +466,7 @@ fn q6_ontology_terms_resolve() {
     consistent(q(6).fixture);
 }
 
-// spec: EG-CQ-ORCH-R006.2
+// spec: MEDULLA-CQ-ORCH-R006.2
 #[test]
 fn q6_shape_accepts_fixture_and_rejects_hand_off_to_a_non_step() {
     assert!(messages(SHAPES, "HandOffShape", q(6).fixture).is_empty());
@@ -480,25 +480,25 @@ fn q6_shape_accepts_fixture_and_rejects_hand_off_to_a_non_step() {
         .any(|m| m.contains("source")));
 }
 
-// spec: EG-CQ-ORCH-R006.3
+// spec: MEDULLA-CQ-ORCH-R006.3
 #[test]
 fn q6_source_authority_selects_declared_source() {
     assert_authority_selects_declared_source(&q(6));
 }
 
-// spec: EG-CQ-ORCH-R006.4
+// spec: MEDULLA-CQ-ORCH-R006.4
 #[test]
 fn q6_fixture_returns_expected_rows() {
     q_fixture_rows(6);
 }
 
-// spec: EG-CQ-ORCH-R006.5
+// spec: MEDULLA-CQ-ORCH-R006.5
 #[test]
 fn q6_answers_with_provenance() {
     assert_answers_with_provenance(6);
 }
 
-// spec: EG-CQ-ORCH-R007.1
+// spec: MEDULLA-CQ-ORCH-R007.1
 #[test]
 fn q7_ontology_terms_resolve() {
     let view = view_of("");
@@ -510,7 +510,7 @@ fn q7_ontology_terms_resolve() {
     consistent(q(7).fixture);
 }
 
-// spec: EG-CQ-ORCH-R007.2
+// spec: MEDULLA-CQ-ORCH-R007.2
 #[test]
 fn q7_shape_accepts_fixture_and_rejects_a_cycle_or_a_second_root() {
     let fixture = q(7).fixture;
@@ -531,19 +531,19 @@ fn q7_shape_accepts_fixture_and_rejects_a_cycle_or_a_second_root() {
     assert!(!messages(SWARM_SHAPES, "FeedsSingleRootShape", &two_roots).is_empty());
 }
 
-// spec: EG-CQ-ORCH-R007.3
+// spec: MEDULLA-CQ-ORCH-R007.3
 #[test]
 fn q7_source_authority_selects_declared_source() {
     assert_authority_selects_declared_source(&q(7));
 }
 
-// spec: EG-CQ-ORCH-R007.4
+// spec: MEDULLA-CQ-ORCH-R007.4
 #[test]
 fn q7_fixture_returns_expected_rows() {
     q_fixture_rows(7);
 }
 
-// spec: EG-CQ-ORCH-R007.5
+// spec: MEDULLA-CQ-ORCH-R007.5
 #[test]
 fn q7_answers_with_provenance() {
     assert_answers_with_provenance(7);

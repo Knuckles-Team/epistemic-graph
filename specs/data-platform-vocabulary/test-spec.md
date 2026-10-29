@@ -1,4 +1,4 @@
-# EG-DATAPLAT-VOCAB — Test specification
+# MEDULLA-DATAPLAT-VOCAB — Test specification
 
 Governing spec: [spec.md](spec.md).
 

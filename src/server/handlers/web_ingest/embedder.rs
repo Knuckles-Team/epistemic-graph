@@ -1,4 +1,4 @@
-//! The server-side chunk embedder (EG-UNIFIED-DATA-PLANE-R651.7).
+//! The server-side chunk embedder (MEDULLA-UNIFIED-DATA-PLANE-R651.7).
 //!
 //! Configured from the environment:
 //! - `EPISTEMIC_GRAPH_EMBEDDING_URL`: an OpenAI-compatible base URL
@@ -209,7 +209,7 @@ pub(crate) fn parse_response(
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R651.7.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.2
     #[test]
     fn endpoint_forms_and_response_order() {
         assert_eq!(endpoint("http://h:8000"), "http://h:8000/v1/embeddings");

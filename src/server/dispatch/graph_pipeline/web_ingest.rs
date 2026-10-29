@@ -1,5 +1,5 @@
-//! The graph-scoped routes of `EnrichDocument` (EG-UNIFIED-DATA-PLANE-R651.7)
-//! and `SelectWebPages` (EG-DECISION-ENGINE-R802).
+//! The graph-scoped routes of `EnrichDocument` (MEDULLA-UNIFIED-DATA-PLANE-R651.7)
+//! and `SelectWebPages` (MEDULLA-DECISION-ENGINE-R802).
 //!
 //! Both arrive after graph ACL, tenant binding, lazy-open and placement
 //! lookup. Enrichment reads one RLS-visible Document, embeds off the reactor

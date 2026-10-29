@@ -1,4 +1,4 @@
-//! Authority audit trail (EG-SRC-AUTH-R007.1).
+//! Authority audit trail (MEDULLA-SRC-AUTH-R007.1).
 //!
 //! Every cross-source answer carries "sources used and why" (rollup R007).
 //! The audit is the wire type the selection builds from its verdicts and
@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The trust role of a data source (EG-SRC-AUTH-R010): one per source,
+/// The trust role of a data source (MEDULLA-SRC-AUTH-R010): one per source,
 /// closed set. A conflict on one concept prefers the higher role before rank.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -23,7 +23,7 @@ pub enum SourceRole {
     Inspiration,
 }
 
-/// Why a row was considered but not used (EG-SRC-AUTH-R003.5, R006.1, R010.4).
+/// Why a row was considered but not used (MEDULLA-SRC-AUTH-R003.5, R006.1, R010.4).
 /// `Proposed` covers proposed rows, which are listed, never selected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -45,7 +45,7 @@ pub enum NotUsedReason {
     RoleInsufficient,
 }
 
-/// The materialisation mode a used row resolved to (EG-SRC-AUTH-R008):
+/// The materialisation mode a used row resolved to (MEDULLA-SRC-AUTH-R008):
 /// `live` for a `virtual` row, `accelerated` for a copy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -238,7 +238,7 @@ mod tests {
         }
     }
 
-    // spec: EG-SRC-AUTH-R007.1
+    // spec: MEDULLA-SRC-AUTH-R007.1
     #[test]
     fn authority_audit_round_trips_over_the_wire() {
         let audit = full_audit();
@@ -258,7 +258,7 @@ mod tests {
         );
     }
 
-    // spec: EG-SRC-AUTH-R007.1
+    // spec: MEDULLA-SRC-AUTH-R007.1
     #[test]
     fn the_wire_refuses_unknown_fields_and_open_values() {
         for (index, value) in [
@@ -292,7 +292,7 @@ mod tests {
         }
     }
 
-    // spec: EG-SRC-AUTH-R007.1
+    // spec: MEDULLA-SRC-AUTH-R007.1
     #[test]
     fn used_entries_must_carry_their_why_and_their_mode() {
         let mut audit = full_audit();
@@ -318,7 +318,7 @@ mod tests {
         );
     }
 
-    // spec: EG-SRC-AUTH-R007.1
+    // spec: MEDULLA-SRC-AUTH-R007.1
     #[test]
     fn set_aside_rows_carry_exactly_their_reason_and_no_blank_names() {
         let mut audit = full_audit();
@@ -335,7 +335,7 @@ mod tests {
         assert_eq!(audit.validate(), Err(InvalidAudit::BlankFacet));
     }
 
-    // spec: EG-SRC-AUTH-R007.1
+    // spec: MEDULLA-SRC-AUTH-R007.1
     #[cfg(feature = "contract-schema")]
     #[test]
     fn authority_audit_contract_schema_snapshot() {

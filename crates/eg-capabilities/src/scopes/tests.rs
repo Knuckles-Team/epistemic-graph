@@ -35,7 +35,7 @@ const OP_LEVEL_ACTIONS: &[&str] = &[
     "semantic:stage-read",
 ];
 
-// spec: EG-IDENTITY-R004
+// spec: MEDULLA-IDENTITY-R004
 #[test]
 fn the_registry_is_strictly_sorted_so_lookup_is_exact() {
     for pair in SCOPES.windows(2) {
@@ -48,7 +48,7 @@ fn the_registry_is_strictly_sorted_so_lookup_is_exact() {
     }
 }
 
-// spec: EG-IDENTITY-R004
+// spec: MEDULLA-IDENTITY-R004
 #[test]
 fn every_authorized_action_is_registered() {
     let mut missing: Vec<String> = crate::method_policy_entries()
@@ -62,7 +62,7 @@ fn every_authorized_action_is_registered() {
     assert!(missing.is_empty(), "unregistered scopes: {missing:?}");
 }
 
-// spec: EG-IDENTITY-R004
+// spec: MEDULLA-IDENTITY-R004
 #[test]
 fn the_rot_check_catches_an_unregistered_scope() {
     assert!(scope_entry("made:up").is_none());
@@ -70,7 +70,7 @@ fn the_rot_check_catches_an_unregistered_scope() {
     assert_eq!(ScopeRegistry.class_of("kg:read"), Some(ScopeClass::User));
 }
 
-// spec: EG-DECISION-ENGINE-R801.3
+// spec: MEDULLA-DECISION-ENGINE-R801.3
 #[test]
 fn usage_domain_registers_read_and_service_only_write_scopes() {
     use eg_types::identity::UserKind;
@@ -85,7 +85,7 @@ fn usage_domain_registers_read_and_service_only_write_scopes() {
     assert!(write.class.allows_kind(UserKind::Service));
 }
 
-// spec: EG-IDENTITY-R004
+// spec: MEDULLA-IDENTITY-R004
 #[test]
 fn foreign_column_reads_register_their_existing_action() {
     let entry = scope_entry("federation:read").expect("declared read action");
@@ -138,7 +138,7 @@ fn every_approver_scope_has_exactly_its_built_in_group() {
 /// (graph-os commit 51bf4fd511) requires these exact classes and owners from
 /// the EG contract, or it fails API registry construction. Pin them here so a
 /// future reclassification is caught at the source, not at GraphOS startup.
-// spec: EG-IDENTITY-R004
+// spec: MEDULLA-IDENTITY-R004
 #[test]
 fn graph_os_scope_classes_and_owners_match_the_api_contract() {
     for (scope, class, owner) in [
@@ -198,7 +198,7 @@ fn the_rulings_hold_in_the_registry() {
     }
 }
 
-// spec: EG-IDENTITY-R004
+// spec: MEDULLA-IDENTITY-R004
 #[test]
 fn graph_os_curated_scopes_preserve_principal_and_key_boundaries() {
     use eg_types::identity::UserKind;

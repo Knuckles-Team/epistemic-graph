@@ -20,7 +20,7 @@ fn policy() -> EntryTrustPolicy {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R132.1
+// spec: MEDULLA-DECISION-ENGINE-R132.1
 #[test]
 fn entry_trust_round_trips() {
     let trust = entry("e1", TrustTier::Attested, "8", "sha256:a").trust;
@@ -38,7 +38,7 @@ fn entry_trust_round_trips() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R132.2
+// spec: MEDULLA-DECISION-ENGINE-R132.2
 #[test]
 fn lower_tier_never_overrides_higher() {
     let entries = vec![

@@ -118,7 +118,7 @@ pub fn decode_relationship_mappings(
 mod tests {
     use super::*;
 
-    // spec: EG-TYPED-PACKS-R101.10
+    // spec: MEDULLA-TYPED-PACKS-R101.10
     #[test]
     fn extracts_declared_schema_mappings() {
         let mappings = decode_schema_mappings(
@@ -129,7 +129,7 @@ mod tests {
         assert_eq!(mappings["DemoItem"].fields["id"], "identifier");
     }
 
-    // spec: EG-TYPED-PACKS-R101.10
+    // spec: MEDULLA-TYPED-PACKS-R101.10
     #[test]
     fn a_declaration_without_mappings_declares_none() {
         assert!(decode_schema_mappings(br#"{"connector":"demo"}"#)
@@ -137,7 +137,7 @@ mod tests {
             .is_empty());
     }
 
-    // spec: EG-TYPED-PACKS-R101.10
+    // spec: MEDULLA-TYPED-PACKS-R101.10
     #[test]
     fn refuses_a_malformed_or_open_mapping() {
         for body in [
@@ -166,7 +166,7 @@ mod tests {
         }
     }
 
-    // spec: EG-TYPED-PACKS-R101.10
+    // spec: MEDULLA-TYPED-PACKS-R101.10
     #[cfg(feature = "rdf")]
     #[test]
     fn relations_come_from_object_properties() {

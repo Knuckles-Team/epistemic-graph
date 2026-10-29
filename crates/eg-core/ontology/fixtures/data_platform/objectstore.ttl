@@ -1,4 +1,4 @@
-# objectstore store-mapping fixture (EG-DATAPLAT-VOCAB-R006.3).
+# objectstore store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.3).
 #
 # One attached object store (S3/MinIO-style). Buckets list and objects
 # list/head are named MCP operations; object bytes are never mapped (objects

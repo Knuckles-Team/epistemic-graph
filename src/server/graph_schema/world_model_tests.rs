@@ -103,7 +103,7 @@ fn materialized() -> eg_rdf::rules::RuleReasonResult {
     eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default())
 }
 
-// spec: EG-TYPED-PACKS-R073
+// spec: MEDULLA-TYPED-PACKS-R073
 #[test]
 fn world_model_modules_are_core_modules_within_the_catalog_bound() {
     assert_core_catalog(&["life", "environment", "nutrition", "world-model-shapes"]);
@@ -113,8 +113,8 @@ fn world_model_modules_are_core_modules_within_the_catalog_bound() {
 /// check stays consistent and the full-ABox entry check is decided within the step
 /// budget the pre-world-model corpus needed. Timings are printed for the WRAPUP
 /// (eg-reasoning measured 2.6 s terminology, 2.7 s full ABox on R820).
-// spec: EG-FEDERATED-QUERY-R001
-// spec: EG-FEDERATED-QUERY-R010
+// spec: MEDULLA-FEDERATED-QUERY-R001
+// spec: MEDULLA-FEDERATED-QUERY-R010
 #[test]
 fn full_corpus_stays_within_the_recorded_reasoning_budgets() {
     let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
@@ -216,7 +216,7 @@ fn a_weather_event_occurs_in_a_weather_system_and_its_region() {
 /// `AllDisjointClasses(IC, GDC, Process, TemporalRegion)` makes an individual typed
 /// both inconsistent (the tableau reads the n-ary axiom since EH-363) and the class
 /// intersection unsatisfiable (EL⁺/RL).
-// spec: EG-FEDERATED-QUERY-R012
+// spec: MEDULLA-FEDERATED-QUERY-R012
 #[test]
 fn a_taxon_is_never_an_organism() {
     let mut triples = fixture_triples();
@@ -245,7 +245,7 @@ fn a_taxon_is_never_an_organism() {
 /// Mappings, not imports: every native class a world-model module declares carries at
 /// least one skos mapping to an external ontology or Wikidata, and each module imports
 /// only the EG documents it builds on.
-// spec: EG-TYPED-PACKS-R073
+// spec: MEDULLA-TYPED-PACKS-R073
 #[test]
 fn every_world_model_class_is_mapped_and_nothing_external_is_imported() {
     for (module, document, expected_imports) in WORLD_MODEL_MODULES {

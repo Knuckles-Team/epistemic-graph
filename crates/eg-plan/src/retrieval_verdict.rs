@@ -1,4 +1,4 @@
-//! Retrieval decisions (EG-FEDERATED-QUERY-R081): the sufficiency verdict and
+//! Retrieval decisions (MEDULLA-FEDERATED-QUERY-R081): the sufficiency verdict and
 //! its repair order (R081.2, R081.4), dual-score chunk selection (R081.7.2,
 //! R081.7.4) and bounded typed-hierarchy descent (R081.9.2, R081.9.4).
 //!
@@ -22,7 +22,7 @@ use eg_types::retrieval_verdict::{
 
 use crate::RowSet;
 
-/// The default rule's name (EG-FEDERATED-QUERY-R081.2).
+/// The default rule's name (MEDULLA-FEDERATED-QUERY-R081.2).
 pub const MIN_EVIDENCE_COUNT: &str = "min_evidence_count";
 /// The default rule's evidence threshold.
 pub const DEFAULT_MIN_EVIDENCE: u64 = 3;
@@ -46,7 +46,7 @@ impl Default for SufficiencyRule {
 }
 
 /// The round a verdict is asked for. `round_limit` is required; a call
-/// without one refuses (EG-FEDERATED-QUERY-R081.4).
+/// without one refuses (MEDULLA-FEDERATED-QUERY-R081.4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SufficiencyCall {
     /// 1-based round number.
@@ -59,7 +59,7 @@ pub struct SufficiencyCall {
     pub fallback: FallbackPolicy,
 }
 
-/// Judge one round (EG-FEDERATED-QUERY-R081.2). Repairs follow the declared
+/// Judge one round (MEDULLA-FEDERATED-QUERY-R081.2). Repairs follow the declared
 /// order — `BoostK`, then `SwitchMode`, then `Stop` — and a round at its
 /// limit always stops.
 pub fn judge_sufficiency(
@@ -122,7 +122,7 @@ pub enum AnswerMode {
     Abstain,
 }
 
-/// The answer mode a verdict allows (EG-FEDERATED-QUERY-R081.4).
+/// The answer mode a verdict allows (MEDULLA-FEDERATED-QUERY-R081.4).
 pub fn answer_mode(verdict: &SufficiencyVerdict) -> AnswerMode {
     match (verdict.verdict, verdict.fallback) {
         (Verdict::Sufficient, _) => AnswerMode::Answer,
@@ -136,7 +136,7 @@ pub fn answer_mode(verdict: &SufficiencyVerdict) -> AnswerMode {
 // ---------------------------------------------------------------------------
 
 /// Select chunks from their already computed embedding and cross-encoder
-/// scores (EG-FEDERATED-QUERY-R081.7.2). Activation requires the policy's
+/// scores (MEDULLA-FEDERATED-QUERY-R081.7.2). Activation requires the policy's
 /// benchmark digest to equal `approved_benchmark` (R081.7.4).
 pub fn select_chunks(
     policy: &SelectionPolicy,
@@ -469,7 +469,7 @@ impl<'a> Descent<'a> {
     }
 }
 
-/// Descend a typed hierarchy for `tenant` (EG-FEDERATED-QUERY-R081.9.2):
+/// Descend a typed hierarchy for `tenant` (MEDULLA-FEDERATED-QUERY-R081.9.2):
 /// score root summaries, refine kept communities level by level, then score
 /// the leaves' entities. Every stage applies the tenant predicate before it
 /// scores or truncates, and every bound refuses with the completed stages

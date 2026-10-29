@@ -1,5 +1,5 @@
 //! Contract tests for the registered commercial core module and its shapes
-//! companion (EG-SUPPLY-VOCAB-R003.13 to R003.16).
+//! companion (MEDULLA-SUPPLY-VOCAB-R003.13 to R003.16).
 
 use std::sync::Arc;
 
@@ -46,7 +46,7 @@ fn commercial_source() -> (GraphSchemaSources, Arc<str>, Arc<str>) {
     (sources, ontology, shapes)
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.13
+// spec: MEDULLA-SUPPLY-VOCAB-R003.13
 #[test]
 fn commercial_module_loads() {
     let (sources, ontology, _shapes) = commercial_source();
@@ -89,7 +89,7 @@ fn commercial_module_loads() {
         .contains("immutable catalog"));
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.14
+// spec: MEDULLA-SUPPLY-VOCAB-R003.14
 #[test]
 fn commercial_shapes_load() {
     let (sources, _ontology, shapes) = commercial_source();
@@ -133,7 +133,7 @@ fn commercial_shapes_load() {
         .contains("immutable catalog"));
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.15
+// spec: MEDULLA-SUPPLY-VOCAB-R003.15
 #[test]
 fn commercial_shared_namespace() {
     let (_sources, ontology, _shapes) = commercial_source();
@@ -197,7 +197,7 @@ fn commercial_shared_namespace() {
     ));
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.16
+// spec: MEDULLA-SUPPLY-VOCAB-R003.16
 #[test]
 fn commercial_close_date_declared() {
     let (_sources, ontology, _shapes) = commercial_source();
@@ -225,7 +225,7 @@ fn commercial_close_date_declared() {
 
 const EX: &str = "http://knuckles.team/test/commercial#";
 
-// spec: EG-SUPPLY-VOCAB-R003.17
+// spec: MEDULLA-SUPPLY-VOCAB-R003.17
 #[test]
 fn commercial_opportunity_date_shape() {
     let (_sources, _ontology, shapes) = commercial_source();
@@ -296,7 +296,7 @@ fn commercial_opportunity_date_shape() {
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.1.2
+// spec: MEDULLA-SUPPLY-VOCAB-R001.1.2
 #[test]
 fn supply_chain_module_loads_through_default_catalog() {
     let sources = GraphSchemaSources::default();

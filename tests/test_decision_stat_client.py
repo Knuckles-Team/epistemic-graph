@@ -77,8 +77,8 @@ def test_body_json_preserves_constant_names_as_strings(constant: str) -> None:
     assert ds.decode_body(digest, attributes) == body
 
 
-# spec: EG-DECISION-ENGINE-R134.111.7
-# spec: EG-DECISION-ENGINE-R134.111.12
+# spec: MEDULLA-DECISION-ENGINE-R134.111.7
+# spec: MEDULLA-DECISION-ENGINE-R134.111.12
 def test_task_plan_feature_schema_export_is_the_engine_body_and_digest():
     """The exported schema is self-consistent: its digest is the body's digest
     under the same codec the engine uses, and its publish identity is stable."""

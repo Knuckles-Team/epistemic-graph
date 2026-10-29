@@ -52,7 +52,7 @@ MAX_DATASET_ITEMS = 4_096
 #: own model of the plan (the pre-existing, historical source).
 SOURCE_IN_PROCESS = "synthetic_construction"
 #: A gold item's acceptability set was produced by driving the real served
-#: request path (EG-DECISION-ENGINE-R093) -- the same engine the trained
+#: request path (MEDULLA-DECISION-ENGINE-R093) -- the same engine the trained
 #: scorer runs inside, rather than the generator's in-process model of it.
 SOURCE_SERVED = "synthetic_served"
 
@@ -61,7 +61,7 @@ class UnverifiableGroundTruthError(ValueError):
     """An item claims :data:`SOURCE_SERVED` provenance but its label carries
     no verifiable ground truth. Training on it would silently teach the
     resident scorer from noise instead of from the served engine's own
-    answer (EG-DECISION-ENGINE-R093)."""
+    answer (MEDULLA-DECISION-ENGINE-R093)."""
 
 
 def verify_ground_truth(item: Mapping[str, Any]) -> None:

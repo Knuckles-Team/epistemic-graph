@@ -40,7 +40,7 @@ fn eliminated(assembly: &Assembly, component_id: &str) -> Option<Violation> {
         .map(|elimination| elimination.violation.clone())
 }
 
-// spec: EG-DECISION-ENGINE-R018, EG-DECISION-ENGINE-R052
+// spec: MEDULLA-DECISION-ENGINE-R018, MEDULLA-DECISION-ENGINE-R052
 #[test]
 fn unknown_cost_under_a_strict_budget_is_excluded_never_zero() {
     let mut library = research_library();
@@ -167,7 +167,7 @@ fn a_request_that_loosens_the_policy_is_refused() {
     assert_eq!(error.code, DecisionErrorCode::PolicyLoosening);
 }
 
-// spec: EG-DECISION-ENGINE-R002
+// spec: MEDULLA-DECISION-ENGINE-R002
 #[test]
 fn a_pack_annotated_capability_is_shown_as_a_claim() {
     let assembly = decide(request(&["eg:task/research"], &[]), research_library());
@@ -254,7 +254,7 @@ fn budget_exhaustion_is_a_typed_abstention_or_a_verified_answer() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R070
+// spec: MEDULLA-DECISION-ENGINE-R070
 #[test]
 fn the_nogood_loop_terminates_after_its_bounded_rounds() {
     let inputs = inputs(request(&["eg:task/research"], &[]), research_library());
@@ -298,7 +298,7 @@ fn required(
 /// one more is refused -- with no partial write -- as `CandidateScopeTooLarge`
 /// rather than silently truncated, the moment the inputs are built, before
 /// any decision step ever reads them.
-// spec: EG-DECISION-ENGINE-R065
+// spec: MEDULLA-DECISION-ENGINE-R065
 #[test]
 fn candidate_scope_at_the_boundary_builds_one_more_is_refused() {
     use eg_types::decision::{DecisionErrorCode, DecisionPolicy, MAX_ASSEMBLY_CANDIDATES};

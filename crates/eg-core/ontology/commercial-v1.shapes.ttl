@@ -1,9 +1,9 @@
-# Commercial shapes (EG-SUPPLY-VOCAB-R003.14).
+# Commercial shapes (MEDULLA-SUPPLY-VOCAB-R003.14).
 #
 # SHACL Core only (DECIDE §4.8): the commercial module ships its shapes in the
 # same core source as its ontology (the commercial CoreSpec shapes field), the
 # pattern every other shapes companion follows. The contract shape guards
-# EG-CQ-XSRC-R008.3.1; further commercial shapes land beside these, never
+# MEDULLA-CQ-XSRC-R008.3.1; further commercial shapes land beside these, never
 # replacing them.
 
 @prefix kg:  <http://knuckles.team/kg#> .

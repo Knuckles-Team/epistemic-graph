@@ -1,4 +1,4 @@
-//! Ingestion cost ladder with provenance rungs (EG-DECISION-ENGINE-R080.1).
+//! Ingestion cost ladder with provenance rungs (MEDULLA-DECISION-ENGINE-R080.1).
 //!
 //! Ingestion derives each fact through the cheapest sufficient rung of a
 //! six-level cost ladder: AST extraction, symbol or type resolution,
@@ -38,7 +38,7 @@ pub struct RungFact<T> {
 }
 
 /// Resolve a candidate fact against whatever fact (if any) a prior rung
-/// already established for the same slot (EG-DECISION-ENGINE-R080.1): a
+/// already established for the same slot (MEDULLA-DECISION-ENGINE-R080.1): a
 /// higher (more expensive, less deterministic) rung never overwrites a fact
 /// a lower rung already set, and between two candidates offered together the
 /// lowest-rung one wins. Pure: the same pair of inputs always resolves the
@@ -61,7 +61,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R080.1
+    // spec: MEDULLA-DECISION-ENGINE-R080.1
     #[test]
     fn the_lowest_sufficient_rung_wins_with_the_matching_provenance_tag() {
         let resolved = resolve_rung(None, fact("fn foo()", ProvenanceRung::AstExtraction));
@@ -69,7 +69,7 @@ mod tests {
         assert_eq!(resolved.value, "fn foo()");
     }
 
-    // spec: EG-DECISION-ENGINE-R080.1
+    // spec: MEDULLA-DECISION-ENGINE-R080.1
     #[test]
     fn a_higher_rung_never_overwrites_an_existing_deterministic_fact() {
         let deterministic = fact(
@@ -87,7 +87,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R080.1
+    // spec: MEDULLA-DECISION-ENGINE-R080.1
     #[test]
     fn a_lower_rung_offered_later_replaces_a_higher_rungs_guess() {
         let guess = fact(

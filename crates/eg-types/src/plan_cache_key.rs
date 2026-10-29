@@ -1,4 +1,4 @@
-//! The SQL plan cache's key and lookup outcome (EG-DURABLE-KERNEL-R041): a
+//! The SQL plan cache's key and lookup outcome (MEDULLA-DURABLE-KERNEL-R041): a
 //! repeated parameterized SQL execution plan is cached keyed by its
 //! statement digest AND the schema version it was compiled against, so a
 //! schema change invalidates every plan compiled under the old version
@@ -64,7 +64,7 @@ pub fn lookup(requested: &PlanCacheKey, candidate: Option<&PlanCacheKey>) -> Pla
     PlanCacheLookup::Hit
 }
 
-/// The SQL prepare site's one entry point (`EG-DURABLE-KERNEL-R041.2`): a
+/// The SQL prepare site's one entry point (`MEDULLA-DURABLE-KERNEL-R041.2`): a
 /// statement handler calls [`PlanCache::prepare`] instead of unconditionally
 /// recompiling. Generic over the compiled plan type `P` so this same cache
 /// serves the pgwire/MySQL/MSSQL prepare paths without each inventing its
@@ -139,7 +139,7 @@ mod tests {
         PlanCacheKey::new(Digest256::sha256(statement), schema_version)
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.1
+    // spec: MEDULLA-DURABLE-KERNEL-R041.1
     #[test]
     fn repeated_statement_same_schema_is_a_hit() {
         let requested = key(b"SELECT 1", 7);
@@ -147,14 +147,14 @@ mod tests {
         assert_eq!(lookup(&requested, Some(&cached)), PlanCacheLookup::Hit);
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.1
+    // spec: MEDULLA-DURABLE-KERNEL-R041.1
     #[test]
     fn nothing_cached_is_a_miss() {
         let requested = key(b"SELECT 1", 7);
         assert_eq!(lookup(&requested, None), PlanCacheLookup::Miss);
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.1
+    // spec: MEDULLA-DURABLE-KERNEL-R041.1
     #[test]
     fn schema_version_advance_invalidates_the_cached_plan() {
         let requested = key(b"SELECT 1", 8);
@@ -167,7 +167,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.1
+    // spec: MEDULLA-DURABLE-KERNEL-R041.1
     #[test]
     fn a_candidate_for_a_different_statement_is_never_reused() {
         let requested = key(b"SELECT 1", 7);
@@ -175,14 +175,14 @@ mod tests {
         assert_eq!(lookup(&requested, Some(&cached)), PlanCacheLookup::Miss);
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.1
+    // spec: MEDULLA-DURABLE-KERNEL-R041.1
     #[test]
     fn key_is_deterministic_across_separate_digest_computations() {
         assert_eq!(key(b"SELECT 1", 7), key(b"SELECT 1", 7));
         assert_ne!(key(b"SELECT 1", 7), key(b"SELECT 1", 8));
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.2
+    // spec: MEDULLA-DURABLE-KERNEL-R041.2
     #[test]
     fn prepare_compiles_once_then_reuses_the_cached_plan() {
         let mut cache: PlanCache<u32> = PlanCache::new();
@@ -204,7 +204,7 @@ mod tests {
         assert_eq!(cache.len(), 1);
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.2
+    // spec: MEDULLA-DURABLE-KERNEL-R041.2
     #[test]
     fn prepare_recompiles_after_the_schema_version_advances() {
         let mut cache: PlanCache<u32> = PlanCache::new();

@@ -1,5 +1,5 @@
 //! Per-unit embedding-admission classification for ingestion
-//! (`EG-DECISION-ENGINE-R079.1`): before any derived unit of text is sent to
+//! (`MEDULLA-DECISION-ENGINE-R079.1`): before any derived unit of text is sent to
 //! an embedding call, a deterministic classifier decides whether its
 //! content class is even eligible.
 //!
@@ -8,7 +8,7 @@
 //! cheaper-index lookup (exact/BM25/graph), no near-duplicate entropy or
 //! content-hash dedup, no size bound, no SQL-column cardinality rule, and
 //! no retrieval-telemetry feedback -- those are later slices of
-//! `EG-DECISION-ENGINE-R079` (`.2`/`.3`+), built on top of the typed gate
+//! `MEDULLA-DECISION-ENGINE-R079` (`.2`/`.3`+), built on top of the typed gate
 //! this one establishes.
 //!
 //! Three classes are admitted because they carry information a human wrote
@@ -106,7 +106,7 @@ mod tests {
     /// Feeds every excluded class and asserts `admits() == false`, and every
     /// eligible class and asserts `admits() == true` -- the acceptance text
     /// verbatim, as one test over the taxonomy rather than two.
-    // spec: EG-DECISION-ENGINE-R079.1
+    // spec: MEDULLA-DECISION-ENGINE-R079.1
     #[test]
     fn admission_gate_excludes_mechanical_classes_and_admits_human_written_ones() {
         for class in [

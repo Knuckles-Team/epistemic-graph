@@ -10,7 +10,7 @@ fn attached_request(revision: u64) -> PublishCurrentPlanRequest {
     request
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.2
 #[test]
 fn current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it() {
     for first_revision in [0, 1] {
@@ -58,7 +58,7 @@ fn current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.2
 #[test]
 fn current_plan_attachment_refusals_preserve_rows() {
     let tmp = open("current-plan-attachment-refusals");
@@ -136,7 +136,7 @@ fn current_plan_attachment_refusals_preserve_rows() {
     assert!(read(shard, "other", 2000).is_none());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.2
 #[test]
 fn terminal_or_superseded_lease_hides_but_does_not_erase_attachment() {
     for (field, value) in [

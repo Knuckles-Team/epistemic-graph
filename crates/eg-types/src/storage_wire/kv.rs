@@ -1,5 +1,5 @@
 //! Result bodies of the served namespaced key-value surface
-//! (`KvGet`/`KvPut`/`KvDelete`/`KvScan`/`KvCas`, EG-DURABLE-KERNEL-R102).
+//! (`KvGet`/`KvPut`/`KvDelete`/`KvScan`/`KvCas`, MEDULLA-DURABLE-KERNEL-R102).
 //!
 //! Every served row carries a `version`: the namespace's mutation-kernel commit
 //! version at the write that produced it. It is unique and strictly increasing

@@ -1,5 +1,5 @@
 //! Projection of a graph-native symbol edit to file bytes and one changeset
-//! (EG-SCM-R013.2).
+//! (MEDULLA-SCM-R013.2).
 //!
 //! Each symbol resolves, at the edit's base revision, to its path, blob digest
 //! and byte span. The ops of one file apply in descending span order, so bytes
@@ -30,7 +30,7 @@ pub trait SymbolResolver {
     fn resolve(&self, base_rev: &str, symbol_id: &str) -> Option<ResolvedSymbol>;
 }
 
-/// Reads and writes content-addressed blobs (EG-SCM-R001).
+/// Reads and writes content-addressed blobs (MEDULLA-SCM-R001).
 pub trait BlobAccess {
     fn read(&self, digest: &str) -> Option<Vec<u8>>;
     fn write(&mut self, bytes: &[u8]) -> String;

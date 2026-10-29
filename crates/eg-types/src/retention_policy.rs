@@ -1,9 +1,9 @@
-//! Typed retention-cleanup policy (EG-DURABLE-KERNEL-R700.1).
+//! Typed retention-cleanup policy (MEDULLA-DURABLE-KERNEL-R700.1).
 //!
-//! `RetentionPolicy { age, batch, holds }`. The shapes EG-DURABLE-KERNEL-R700.4
+//! `RetentionPolicy { age, batch, holds }`. The shapes MEDULLA-DURABLE-KERNEL-R700.4
 //! refuses cannot be built: `holds` is a required field, a policy without any
 //! hold check is refused at construction and on decode, and zero age or batch is
-//! refused. Scanning and removal are EG-DURABLE-KERNEL-R700.2 onwards.
+//! refused. Scanning and removal are MEDULLA-DURABLE-KERNEL-R700.2 onwards.
 
 use serde::{Deserialize, Serialize};
 
@@ -96,7 +96,7 @@ mod tests {
     const GOLDEN: &str =
         r#"{"age_ms":2592000000,"batch":500,"holds":["live_reference","legal_hold"]}"#;
 
-    // spec: EG-DURABLE-KERNEL-R700.1
+    // spec: MEDULLA-DURABLE-KERNEL-R700.1
     #[test]
     fn golden_vector_round_trips() {
         let policy = RetentionPolicy::new(
@@ -121,7 +121,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R700.1
+    // spec: MEDULLA-DURABLE-KERNEL-R700.1
     #[test]
     fn invalid_shapes_cannot_be_built_or_decoded() {
         assert_eq!(

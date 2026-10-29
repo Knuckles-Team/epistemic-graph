@@ -75,7 +75,7 @@ mod registry;
 pub mod rows;
 mod rowset;
 pub mod served;
-// EG-INGEST-WORKER-R901.1 — row-version evidence locus for source records.
+// MEDULLA-INGEST-WORKER-R901.1 — row-version evidence locus for source records.
 pub mod source_row_version;
 mod tck;
 mod txn;

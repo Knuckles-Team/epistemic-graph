@@ -789,7 +789,7 @@ pub const NODE_LABEL_KEYS: [&str; 3] = ["type", "node_type", "label"];
 /// [`NODE_LABEL_KEYS`] or in its multi-valued `labels` array — the SAME label
 /// set [`labels_of`] files into the label index, without allocating. The plan
 /// executor's label `Scan` uses this so a Scan sees exactly the nodes a label
-/// index lookup sees (spec: EG-FEDERATED-QUERY-R022.1).
+/// index lookup sees (spec: MEDULLA-FEDERATED-QUERY-R022.1).
 pub fn node_carries_label(val: &serde_json::Value, label: &str) -> bool {
     val.as_object()
         .is_some_and(|props| props_carry_label(props, label))

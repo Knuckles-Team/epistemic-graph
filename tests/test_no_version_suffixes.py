@@ -116,14 +116,14 @@ FALSE_POSITIVE_LINE_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     # -- Spec-named decision-engine request and answer types. ----------------
     #
-    # EG-DECISION-ENGINE-R134 names `RecommendRequestV1`,
+    # MEDULLA-DECISION-ENGINE-R134 names `RecommendRequestV1`,
     # `RecommendAnswerV1` and `AnswerCandidateRankingV1` as the typed records
     # of the answer-ranking and recommendation questions.
     (
         re.compile(
             r"\b(?:AnswerCandidateRanking|RecommendRequest|RecommendAnswer)V1\b"
         ),
-        "spec-named decision-engine record type (EG-DECISION-ENGINE-R134), "
+        "spec-named decision-engine record type (MEDULLA-DECISION-ENGINE-R134), "
         "not a versioned component",
     ),
     # -- Registered-ontology audit test modules (CQ-CONN spec family). -------
@@ -206,7 +206,7 @@ class NoVersionSuffixesTest(unittest.TestCase):
         else Path(__file__).resolve().parents[1]
     )
 
-    @pytest.mark.spec("EG-CONTRACT-R020")
+    @pytest.mark.spec("MEDULLA-CONTRACT-R020")
     def test_no_stray_version_suffixed_names(self):
         violations = find_violations(self.ROOT)
         if violations:

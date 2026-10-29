@@ -1,4 +1,4 @@
-//! EG-ORCH-VOCAB-R801.6 hot-path receipt: the versioned harness-component
+//! MEDULLA-ORCH-VOCAB-R801.6 hot-path receipt: the versioned harness-component
 //! write over a 1k-version chain.
 //!
 //! Budget (spec): p99 under 5 ms per write as the chain grows to 1,000

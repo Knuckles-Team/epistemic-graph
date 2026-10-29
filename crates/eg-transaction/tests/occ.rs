@@ -4,7 +4,7 @@ fn key(table: &str, k: &str) -> KeyRange {
     KeyRange::point(table, k.as_bytes())
 }
 
-// spec: EG-ENGINE-PARITY-R002.1
+// spec: MEDULLA-ENGINE-PARITY-R002.1
 #[test]
 fn write_skew_is_detected() {
     // Invariant: at least one of x and y stays on call. Each transaction
@@ -50,7 +50,7 @@ fn write_skew_is_detected() {
     assert!(scan.validate(&log).is_err());
 }
 
-// spec: EG-ENGINE-PARITY-R004.1
+// spec: MEDULLA-ENGINE-PARITY-R004.1
 #[test]
 fn disjoint_footprints_never_wait() {
     let writers: Vec<TxnFootprint> = (0..32)

@@ -107,7 +107,7 @@ fn require_supported_replay(record: &StatisticalDecisionRecord) -> Result<(), St
     Ok(())
 }
 
-/// The verify-replay of a `HarnessContrast` record (EG-DECISION-ENGINE-R803.5):
+/// The verify-replay of a `HarnessContrast` record (MEDULLA-DECISION-ENGINE-R803.5):
 /// the generic ladder re-run cannot reproduce the contrast outcome, so the
 /// stored inputs are re-derived by the decision's own deterministic core —
 /// its pins still resolve, its stored matrix carries exactly the recorded

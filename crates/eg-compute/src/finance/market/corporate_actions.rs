@@ -1,4 +1,4 @@
-//! Point-in-time corporate-action resolution (EG-FINANCE-PRIMITIVES-R006).
+//! Point-in-time corporate-action resolution (MEDULLA-FINANCE-PRIMITIVES-R006).
 //!
 //! A corporate action is identified by `(listing_id, effective_time)`.
 //! Versions are appended, never rewritten: a correction is a new record for

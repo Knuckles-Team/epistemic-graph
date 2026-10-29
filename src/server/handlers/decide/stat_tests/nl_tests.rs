@@ -55,8 +55,8 @@ fn nl_request(schema: &ComponentDependency, params: Vec<TypedParam>) -> DecideRe
     }
 }
 
-// spec: EG-DECISION-ENGINE-R098, EG-DECISION-ENGINE-R062
-// spec: EG-DECISION-ENGINE-R028
+// spec: MEDULLA-DECISION-ENGINE-R098, MEDULLA-DECISION-ENGINE-R062
+// spec: MEDULLA-DECISION-ENGINE-R028
 #[tokio::test]
 async fn an_utterance_routes_over_templates_and_an_llm_proposal_is_only_a_claim() {
     let h = Harness::new().await;
@@ -133,14 +133,14 @@ async fn an_utterance_routes_over_templates_and_an_llm_proposal_is_only_a_claim(
     ));
 }
 
-/// EG-DECISION-ENGINE-R098: the Decide ladder excludes generative free-text
+/// MEDULLA-DECISION-ENGINE-R098: the Decide ladder excludes generative free-text
 /// models by design. A bound `NlBinding`'s typed slot values are never
 /// free-form generated text: a `Text` slot's value is always a verbatim
 /// substring of the caller's own utterance, never a string invented by the
 /// engine, and an LLM proposal may only pick among already-published, fixed
 /// templates -- it can never supply its own response text, and an id outside
 /// the published set is refused rather than bound.
-// spec: EG-DECISION-ENGINE-R098
+// spec: MEDULLA-DECISION-ENGINE-R098
 #[tokio::test]
 async fn nl_binding_text_slots_are_verbatim_substrings_never_generated_text() {
     let h = Harness::new().await;

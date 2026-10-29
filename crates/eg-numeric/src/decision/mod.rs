@@ -13,7 +13,7 @@
 //! `targets` is a leaf; the resident scorer (`scorer`) sits under
 //! `head_eval` and `fit`, and `promotion` under `evaluate`. `legal_option_filter`
 //! is a standalone leaf: the typed caller-candidate-filter contract ahead of
-//! the real SHACL/SPARQL-backed derivation (EG-DECISION-ENGINE-R085.2).
+//! the real SHACL/SPARQL-backed derivation (MEDULLA-DECISION-ENGINE-R085.2).
 //!
 //! Nothing here reads a clock, a hash map's iteration order, or a thread pool:
 //! reductions are serial over sorted keys, ties break by option order (the

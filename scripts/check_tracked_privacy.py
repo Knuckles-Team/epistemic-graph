@@ -427,8 +427,8 @@ _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
 # D-EG-PRIVACY-R001-FALSEPOS (2026-10-09): this pattern's job is a bare host
 # alias (`r710`, `r820`, `host123`), but with no lookbehind on `-` it ALSO
 # matched the tail of this fleet's own hyphen-joined requirement-ID
-# convention (`EG-UNIFIED-DATA-PLANE-R001`, `EG-DECISION-ENGINE-R118`,
-# `AU-SEMANTIC-R004`, ...) whenever the "R" + 3-or-more-digit requirement
+# convention (`MEDULLA-UNIFIED-DATA-PLANE-R001`, `MEDULLA-DECISION-ENGINE-R118`,
+# `MERISTEM-SEMANTIC-R004`, ...) whenever the "R" + 3-or-more-digit requirement
 # number happened to follow a hyphen -- a false-positive flood from ordinary
 # spec/ADR prose (docs/architecture/unified_data_plane_adr.md's own seven
 # genuine requirement-ID citations), not a leak. Every verified host-alias

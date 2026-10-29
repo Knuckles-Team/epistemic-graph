@@ -1,5 +1,5 @@
 # Which business capabilities depend on a host that is over its temperature
-# limit? Classes only (EG-CQ-XSRC-R008.2.3): the limit is stated as data on
+# limit? Classes only (MEDULLA-CQ-XSRC-R008.2.3): the limit is stated as data on
 # the host, never hard-coded, and no source, endpoint or connector is named
 # here. The service-to-capability link is :supportsCapability (plan.md
 # decision D6).

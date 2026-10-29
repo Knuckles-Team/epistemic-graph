@@ -75,7 +75,7 @@ fn inspect(
 }
 
 /// The composed GraphSchema's ontology properties, reduced to what NL grounding
-/// links onto stored keys (EG-FEDERATED-QUERY-R058.4.8). The same composed
+/// links onto stored keys (MEDULLA-FEDERATED-QUERY-R058.4.8). The same composed
 /// documents and vocabulary view `OntologyInspect` serves; an unreadable
 /// composition links nothing.
 #[cfg(feature = "nl-query")]

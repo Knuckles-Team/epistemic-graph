@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R015 (`.1` slice): a closed, non-generative head-kind
+//! MEDULLA-DECISION-ENGINE-R015 (`.1` slice): a closed, non-generative head-kind
 //! vocabulary.
 //!
 //! The requirement is that the decision engine's statistical heads are small
@@ -97,7 +97,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R015.1
+    // spec: MEDULLA-DECISION-ENGINE-R015.1
     #[test]
     fn refuses_a_generative_model_name() {
         let refusal = StatisticalHeadKind::parse("generative_llm").unwrap_err();
@@ -114,7 +114,7 @@ mod tests {
         assert!(StatisticalHeadKind::parse("kolmogorov_arnold").is_err());
     }
 
-    // spec: EG-DECISION-ENGINE-R015.2.1
+    // spec: MEDULLA-DECISION-ENGINE-R015.2.1
     #[test]
     fn wires_the_production_head_kind_through_the_closed_registry() {
         assert_eq!(

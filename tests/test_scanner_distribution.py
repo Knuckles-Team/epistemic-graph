@@ -112,7 +112,7 @@ def test_goc70_is_manual_only_until_execution_is_bounded():
 
 def _assert_scanner_job_removed(jobs):
     """The advisory hosted scanner job was removed to bound pull-request CI
-    (EG-CONTRACT-R053.7). Every scanner stays in the manual hook profile that
+    (MEDULLA-CONTRACT-R053.7). Every scanner stays in the manual hook profile that
     scripts/ci_parity.sh runs, with tools provisioned by install_scanners.sh."""
     assert "scanner-quality" not in jobs
     hooks = _hooks()

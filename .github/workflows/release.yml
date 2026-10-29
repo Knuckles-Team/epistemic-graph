@@ -1,7 +1,7 @@
 name: Release
 
 # ─────────────────────────────────────────────────────────────────────────
-# Tag pipeline: build, check and publish ONLY (spec EG-CONTRACT-R053.7).
+# Tag pipeline: build, check and publish ONLY (spec MEDULLA-CONTRACT-R053.7).
 # Every test, gate, feature build and benchmark lives in ci.yml and runs on
 # pull requests and main. `guard` refuses to proceed unless ci.yml already
 # concluded `success` for this exact commit on main, so a tag publishes only
@@ -15,7 +15,7 @@ name: Release
 #   every uploader -> verify-pypi (checks every expected file reached PyPI)
 #
 # The public wheel compiles ONLY the two PyO3 extension modules (spec
-# EG-CONTRACT-R053.8). Each platform publishes the moment its own completeness
+# MEDULLA-CONTRACT-R053.8). Each platform publishes the moment its own completeness
 # and smoke checks pass, so a slow or failed platform never blocks the others.
 # `twine upload --skip-existing` makes every upload idempotent. The same pipeline
 # builds and publishes the `epistemic-graph-server` wheel and its container image.

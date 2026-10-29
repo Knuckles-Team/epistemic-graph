@@ -143,9 +143,9 @@ fn items() -> Vec<Item> {
     ]
 }
 
-// spec: EG-DECISION-ENGINE-R001.1
-// spec: EG-DECISION-ENGINE-R010
-// spec: EG-DECISION-ENGINE-R052
+// spec: MEDULLA-DECISION-ENGINE-R001.1
+// spec: MEDULLA-DECISION-ENGINE-R010
+// spec: MEDULLA-DECISION-ENGINE-R052
 #[test]
 fn every_routing_item_answers_inside_its_acceptability_set() {
     for item in items() {
@@ -184,7 +184,7 @@ fn every_routing_item_answers_inside_its_acceptability_set() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R048
+// spec: MEDULLA-DECISION-ENGINE-R048
 #[test]
 fn a_solved_record_carries_premises_derivations_and_a_claim_class() {
     let assembly = assemble(

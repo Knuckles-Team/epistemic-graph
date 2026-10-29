@@ -36,7 +36,7 @@ def _workspace_packages() -> set[str]:
 
 
 @pytest.mark.no_engine
-@pytest.mark.spec("EG-CONTRACT-R052.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R052.1")
 def test_module_inventory_matches_workspace_manifests() -> None:
     section = _section("#### Model: module owners and dependencies")
     table_rows = [
@@ -73,7 +73,7 @@ def test_module_inventory_matches_workspace_manifests() -> None:
 
 
 @pytest.mark.no_engine
-@pytest.mark.spec("EG-CONTRACT-R052.2")
+@pytest.mark.spec("MEDULLA-CONTRACT-R052.2")
 def test_build_package_and_runtime_boundaries_match_source() -> None:
     section = _section("#### Behavior: builds, packages, and deployments")
     features = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))[
@@ -117,7 +117,7 @@ ANCHOR = re.compile(
 
 
 @pytest.mark.no_engine
-@pytest.mark.spec("EG-CONTRACT-R052.3")
+@pytest.mark.spec("MEDULLA-CONTRACT-R052.3")
 def test_shared_contract_anchors_resolve_to_source() -> None:
     section = _section("#### Wiring: shared contracts and call sites")
     anchors = [

@@ -2,7 +2,7 @@
 //!
 //! Each question keeps its own answer or typed abstention and evidence class.
 //! Assembly wiring fills the envelope; this module only defines its stable
-//! serde and digestable shape (EG-CQ-ORCH-R008.1).
+//! serde and digestable shape (MEDULLA-CQ-ORCH-R008.1).
 
 use serde::{Deserialize, Serialize};
 
@@ -104,7 +104,7 @@ mod tests {
         }
     }
 
-    // spec: EG-CQ-ORCH-R008.1
+    // spec: MEDULLA-CQ-ORCH-R008.1
     #[test]
     fn execution_answer_round_trips_with_answer_and_abstention_parts() {
         let original = fixture();
@@ -115,7 +115,7 @@ mod tests {
         assert!(encoded.contains("\"status\":\"abstain\""));
     }
 
-    // spec: EG-CQ-ORCH-R008.1
+    // spec: MEDULLA-CQ-ORCH-R008.1
     #[test]
     fn execution_answer_digest_matches_golden_vector() {
         assert_eq!(

@@ -1,4 +1,4 @@
-//! Versioned harness components as graph facts (EG-ORCH-VOCAB-R801): the
+//! Versioned harness components as graph facts (MEDULLA-ORCH-VOCAB-R801): the
 //! serde shape of one version, the supersession behavior, the typed
 //! refusals and the version-history evidence.
 
@@ -29,7 +29,7 @@ fn version(
     }
 }
 
-// spec: EG-ORCH-VOCAB-R801.1
+// spec: MEDULLA-ORCH-VOCAB-R801.1
 #[test]
 fn component_version_round_trips() {
     let version = version(
@@ -67,7 +67,7 @@ fn component_version_round_trips() {
     assert!(serde_json::from_str::<HarnessComponentVersion>(&unknown_field).is_err());
 }
 
-// spec: EG-ORCH-VOCAB-R801.2
+// spec: MEDULLA-ORCH-VOCAB-R801.2
 #[test]
 fn newer_version_supersedes_and_old_stays_readable() {
     let mut versions = Vec::new();
@@ -138,7 +138,7 @@ fn newer_version_supersedes_and_old_stays_readable() {
         .all(|v| v.node_id() != v2.node_id() || v.valid_to.is_none()));
 }
 
-// spec: EG-ORCH-VOCAB-R801.4
+// spec: MEDULLA-ORCH-VOCAB-R801.4
 #[test]
 fn evidence_kind_confidence_and_immutability_refusals() {
     let mut versions = Vec::new();
@@ -206,7 +206,7 @@ fn evidence_kind_confidence_and_immutability_refusals() {
     assert_eq!(supersessions.len(), 0);
 }
 
-// spec: EG-ORCH-VOCAB-R801.5
+// spec: MEDULLA-ORCH-VOCAB-R801.5
 #[test]
 fn version_history_cites_evidence_and_digests() {
     let mut versions = Vec::new();

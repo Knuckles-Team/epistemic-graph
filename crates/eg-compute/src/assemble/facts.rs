@@ -129,7 +129,7 @@ pub(super) fn prompt_tokens(candidate: &CandidateFacts) -> Option<u32> {
     Some(*token_estimate)
 }
 
-/// EG-DECISION-ENGINE-R061: the exact-solver derivation layer here
+/// MEDULLA-DECISION-ENGINE-R061: the exact-solver derivation layer here
 /// (`per_call_cost`/`p95_latency`, over `CandidateFacts`) and the statistical
 /// candidate path (`eg-numeric`'s `CandidateView::from_component`, over the
 /// same `AgentComponentEntry`) read the same declared cost and latency.

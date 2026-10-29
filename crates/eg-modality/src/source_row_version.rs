@@ -1,4 +1,4 @@
-//! Row-version evidence locus for source records (EG-INGEST-WORKER-R901.1).
+//! Row-version evidence locus for source records (MEDULLA-INGEST-WORKER-R901.1).
 //!
 //! Reuses the [`EvidenceAddress::RowVersion`] locus and adds the opaque table
 //! reference and the evidence digest. Storage and supersession are later rows
@@ -82,7 +82,7 @@ mod tests {
         OpaqueRef::scoped(namespace, &format!("00000000000000{suffix:02x}")).unwrap()
     }
 
-    // spec: EG-INGEST-WORKER-R901.1
+    // spec: MEDULLA-INGEST-WORKER-R901.1
     #[test]
     fn row_version_round_trips_and_rejects_empty_table() {
         let row = SourceRowVersion::new(r("table", 1), r("row", 2), 7, "ab".repeat(32)).unwrap();

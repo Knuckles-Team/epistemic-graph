@@ -1,4 +1,4 @@
-//! Per-tenant usage ledger model (EG-DECISION-ENGINE-R801).
+//! Per-tenant usage ledger model (MEDULLA-DECISION-ENGINE-R801).
 //!
 //! A [`UsageRecord`] is one observed model call, recorded under the tenant of
 //! the verified caller. Prompt and completion content never cross the wire or

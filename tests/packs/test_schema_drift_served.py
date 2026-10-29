@@ -1,4 +1,4 @@
-"""EG-TYPED-PACKS-R712 served acceptance: schema-drift containment end to end.
+"""MEDULLA-TYPED-PACKS-R712 served acceptance: schema-drift containment end to end.
 
 Drives the existing GraphSchema wire methods (repair render /
 attach-approved / shadow validate) against the session engine:
@@ -166,7 +166,7 @@ def only_source(listed: GraphSchemaSourcesView, expected_lease_id: str) -> bool:
     )
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R712")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R712")
 @pytest.mark.asyncio
 async def test_breaking_drift_quarantines_and_activation_needs_approval() -> None:
     client = await EpistemicGraphClient.connect(

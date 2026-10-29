@@ -1,4 +1,4 @@
-//! Served incident authority (EG-UNIFIED-DATA-PLANE-R760). The engine owns
+//! Served incident authority (MEDULLA-UNIFIED-DATA-PLANE-R760). The engine owns
 //! anomaly records and incidents per tenant: correlation groups anomalies by
 //! entity and time window in one pass, an open incident with the same
 //! signature is reused, and a status moves only open -> acknowledged ->
@@ -249,7 +249,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R760.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R760.1
     #[test]
     fn incident_model_round_trips() {
         let mut authority = IncidentAuthority::default();
@@ -274,7 +274,7 @@ mod tests {
         assert!(serde_json::from_str::<IncidentStatus>("\"closed\"").is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R760.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R760.2
     #[test]
     fn correlation_groups_reuses_open_incident_and_orders_status() {
         let mut authority = IncidentAuthority::default();
@@ -312,7 +312,7 @@ mod tests {
         assert_ne!(&fresh[0], id, "a resolved incident is not reused");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R760.4
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R760.4
     #[test]
     fn refusals_change_nothing() {
         let mut authority = IncidentAuthority::default();
@@ -345,7 +345,7 @@ mod tests {
         assert_eq!(error.code(), "INCIDENT_NOT_FOUND");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R760.5
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R760.5
     #[test]
     fn evidence_per_signature_and_state_order() {
         let mut authority = IncidentAuthority::default();

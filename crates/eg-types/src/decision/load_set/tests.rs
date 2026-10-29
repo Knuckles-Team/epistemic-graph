@@ -1,7 +1,7 @@
 use super::*;
 use crate::decision::{PremiseClass, PremiseProvenance};
 
-// spec: EG-DECISION-ENGINE-R176.1
+// spec: MEDULLA-DECISION-ENGINE-R176.1
 #[test]
 fn load_set_round_trips() {
     let question: LoadSetQuestion =

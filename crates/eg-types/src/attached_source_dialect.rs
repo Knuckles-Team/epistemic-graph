@@ -1,5 +1,5 @@
 //! Typed model for the MySQL and MariaDB attached-source dialect entries
-//! (EG-UNIFIED-DATA-PLANE-R014). MySQL and MariaDB are forked engines with
+//! (MEDULLA-UNIFIED-DATA-PLANE-R014). MySQL and MariaDB are forked engines with
 //! diverging binlog GTID formats, `information_schema` extensions and type
 //! behavior past their common ancestor, so this keeps them as two separate,
 //! explicitly declared dialect entries rather than one collapsed "mysql"
@@ -9,14 +9,14 @@
 //! This is the R014.1 slice: the typed model plus its validation and
 //! refusal tests only. The driver, SQL rendering, catalog reader and binlog
 //! capture implementations are later slices, landed once the shared
-//! attached-source registry (EG-UNIFIED-DATA-PLANE-R002) exists to host
+//! attached-source registry (MEDULLA-UNIFIED-DATA-PLANE-R002) exists to host
 //! them.
 
 use serde::{Deserialize, Serialize};
 
 /// The two forked MySQL-family engines this adapter distinguishes. Kept as
 /// separate variants (never a shared "MySQL-family" catch-all) so each gets
-/// its own conformance entry, per EG-UNIFIED-DATA-PLANE-R014.
+/// its own conformance entry, per MEDULLA-UNIFIED-DATA-PLANE-R014.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SqlEngineKind {
@@ -93,7 +93,7 @@ impl SqlEngineDialectEntry {
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R014.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R014.1
     #[test]
     fn mysql_and_mariadb_are_distinct_entries() {
         let mysql = SqlEngineDialectEntry::declare(
@@ -124,7 +124,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R014.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R014.1
     #[test]
     fn refuses_missing_version_floor() {
         let err = SqlEngineDialectEntry::declare(
@@ -143,7 +143,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R014.1
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R014.1
     #[test]
     fn refuses_unreviewed_type_map_version() {
         let err = SqlEngineDialectEntry::declare(

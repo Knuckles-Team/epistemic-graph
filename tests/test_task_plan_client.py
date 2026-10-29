@@ -7,7 +7,7 @@ from epistemic_graph.decision_client import task_plan_request
 pytestmark = pytest.mark.no_engine
 
 
-# spec: EG-DECISION-ENGINE-R134.111.1
+# spec: MEDULLA-DECISION-ENGINE-R134.111.1
 def test_task_plan_request_uses_typed_proposal():
     proposal = {
         "tasks": [{"task_id": "a", "prompt": "Read evidence", "depends_on": []}],

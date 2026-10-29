@@ -426,7 +426,7 @@ class DecisionClient:
         ``as_model=True`` opts into the generated, nested Pydantic
         ``DecisionBatch`` model (its records, outcomes and resolution/evidence
         markers all typed) instead of the raw payload. Default is ``False``:
-        this is a decision-type-scoped pilot (EG-DECISION-ENGINE-R076), not a
+        this is a decision-type-scoped pilot (MEDULLA-DECISION-ENGINE-R076), not a
         change to this client's general opaque-result behavior.
         """
         from epistemic_graph.generated.query import decode_decide, send_decide

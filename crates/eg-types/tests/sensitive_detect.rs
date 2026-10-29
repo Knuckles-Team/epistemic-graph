@@ -1,6 +1,6 @@
 use eg_types::sensitive_detect::{Detection, SensitiveDetectionMethod, SensitiveDetector};
 
-// spec: EG-TYPED-PACKS-R803.1
+// spec: MEDULLA-TYPED-PACKS-R803.1
 #[test]
 fn records_round_trip() {
     let detector = SensitiveDetector {

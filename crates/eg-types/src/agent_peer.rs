@@ -1,8 +1,8 @@
-//! Typed A2A peer record (EG-DURABLE-KERNEL-R851.1).
+//! Typed A2A peer record (MEDULLA-DURABLE-KERNEL-R851.1).
 //!
 //! The engine keys peers by `name`. A peer carries only a reference to its
 //! credential, never the credential value. Register, delete, list and their
-//! refusals are EG-DURABLE-KERNEL-R851.2 onwards.
+//! refusals are MEDULLA-DURABLE-KERNEL-R851.2 onwards.
 
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +30,7 @@ pub struct AgentPeer {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R851.1
+    // spec: MEDULLA-DURABLE-KERNEL-R851.1
     #[test]
     fn peer_round_trips_through_the_wire_codec() {
         let peer = AgentPeer {

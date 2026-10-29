@@ -375,7 +375,7 @@ async fn served_filtered_ranktext_returns_every_matching_candidate() {
     );
 }
 
-/// EG-FEDERATED-QUERY-R027 candidate evidence: the Method::Uql route must preserve the
+/// MEDULLA-FEDERATED-QUERY-R027 candidate evidence: the Method::Uql route must preserve the
 /// plan-level multi-stage EXPLAIN/PROFILE/RETURN contract, rather than proving it only
 /// through `eg_plan::uql::serve::run_statement`.
 #[tokio::test]

@@ -199,7 +199,7 @@ $($variants)*
     },
 
     /// Fractional-Kelly stake from accuracy and win/loss ratio, clamped to `[0, max_risk]`
-    /// (EG-FINANCE-PRIMITIVES-R900.3). `fraction` defaults to one half, `max_risk` to 0.02.
+    /// (MEDULLA-FINANCE-PRIMITIVES-R900.3). `fraction` defaults to one half, `max_risk` to 0.02.
     FinancePositionSize {
         accuracy: f64,
         win_loss_ratio: f64,
@@ -210,14 +210,14 @@ $($variants)*
     },
 
     /// Two-sample Kolmogorov-Smirnov shift test between a reference and a current sample
-    /// (EG-FINANCE-PRIMITIVES-R900.3); `shifted` when the statistic exceeds `threshold`.
+    /// (MEDULLA-FINANCE-PRIMITIVES-R900.3); `shifted` when the statistic exceeds `threshold`.
     FinanceDistributionShift {
         reference: Vec<f64>,
         current: Vec<f64>,
         threshold: f64,
     },
 
-    // ── Banking risk / execution / factor kernels (EG-FINANCE-PRIMITIVES-R901/R613/R018 .3) ──
+    // ── Banking risk / execution / factor kernels (MEDULLA-FINANCE-PRIMITIVES-R901/R613/R018 .3) ──
     FinanceAmlScreen {
         rule_id: String,
         version: u32,

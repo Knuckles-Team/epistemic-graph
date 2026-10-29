@@ -87,7 +87,7 @@ mod tests {
 
     /// R104.1: every model field round-trips, and the closed part key rejects
     /// an unknown map member before any seed import handler can run.
-    // spec: EG-TYPED-PACKS-R104.1
+    // spec: MEDULLA-TYPED-PACKS-R104.1
     #[test]
     fn seed_import_round_trips() {
         let import = sample();

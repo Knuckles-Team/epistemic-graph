@@ -169,7 +169,7 @@ mod bounded_tests {
 mod identity_tests {
     use super::*;
 
-    // spec: EG-TYPED-PACKS-R093.1
+    // spec: MEDULLA-TYPED-PACKS-R093.1
     #[test]
     fn independent_parses_keep_blank_nodes_local_and_references_intact() {
         let doc = "_:b0 <urn:p> _:b0 . [] <urn:p> _:b0 .";

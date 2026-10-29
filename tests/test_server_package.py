@@ -31,7 +31,7 @@ def _version() -> str:
     return tomllib.loads((ROOT / "Cargo.toml").read_text())["package"]["version"]
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_package_wraps_the_root_server_bin_with_the_full_feature_set() -> None:
     project = tomllib.loads((PACKAGE / "pyproject.toml").read_text())
     maturin = project["tool"]["maturin"]
@@ -44,7 +44,7 @@ def test_package_wraps_the_root_server_bin_with_the_full_feature_set() -> None:
     assert "--profile release-server" in ACTION.read_text()
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_release_builds_every_platform_natively_and_uploads_each() -> None:
     jobs = _yaml(RELEASE)["jobs"]
     job = jobs["build-server"]
@@ -85,7 +85,7 @@ def test_release_builds_every_platform_natively_and_uploads_each() -> None:
         assert tag in verify
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_compile_cache_is_saved_by_main_ci_and_only_restored_by_release() -> None:
     action = ACTION.read_text()
     assert "shared-key: egs-${{ steps.env.outputs.key }}" in action
@@ -104,7 +104,7 @@ def test_compile_cache_is_saved_by_main_ci_and_only_restored_by_release() -> Non
     assert "cache-save" not in build.get("with", {})
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.10")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.10")
 def test_package_ships_binary_path_and_its_tests() -> None:
     init = (PACKAGE / "epistemic_graph_server/__init__.py").read_text()
     assert "def binary_path()" in init
@@ -114,7 +114,7 @@ def test_package_ships_binary_path_and_its_tests() -> None:
     assert "from epistemic_graph_server import binary_path" in server_binary
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.11")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.11")
 def test_image_is_built_from_the_wheel_and_published_as_one_manifest() -> None:
     dockerfile = DOCKERFILE.read_text()
     assert "AS runtime" in dockerfile
@@ -136,7 +136,7 @@ def test_image_is_built_from_the_wheel_and_published_as_one_manifest() -> None:
     assert "epistemic-graph-server" in str(manifest["steps"])
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.12")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.12")
 def test_package_version_is_bumped_with_the_engine() -> None:
     version = _version()
     project = tomllib.loads((PACKAGE / "pyproject.toml").read_text())["project"]
@@ -154,7 +154,7 @@ def test_package_version_is_bumped_with_the_engine() -> None:
     assert "ARG EGS_VERSION={current_version}" in cfg
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.12")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.12")
 def test_dispatch_can_package_a_tagged_version_behind_the_guard() -> None:
     doc = _yaml(RELEASE)
     triggers = doc[True] if True in doc else doc["on"]
@@ -187,7 +187,7 @@ def test_tag_release_creates_the_github_release_after_pypi() -> None:
     assert "--latest" in script
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_server_sdist_is_built_proven_published_and_verified() -> None:
     jobs = _yaml(RELEASE)["jobs"]
     steps = jobs["build-server"]["steps"]
@@ -241,7 +241,7 @@ def _path_crates(manifest_dir: Path, seen: dict[Path, None]) -> None:
                         _path_crates(crate, seen)
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_sdist_carries_every_path_crate_cargo_needs_to_load_the_manifest() -> None:
     """maturin drops path crates reached only through unselected optional features,
     but `cargo metadata` still loads their manifests, so the isolated rebuild fails

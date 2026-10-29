@@ -1,5 +1,5 @@
-//! Web page ingest: Document enrichment (EG-UNIFIED-DATA-PLANE-R651.7) and
-//! page selection (EG-DECISION-ENGINE-R802).
+//! Web page ingest: Document enrichment (MEDULLA-UNIFIED-DATA-PLANE-R651.7) and
+//! page selection (MEDULLA-DECISION-ENGINE-R802).
 //!
 //! Enrichment chunks one held Document with `eg_document::processing`,
 //! embeds the chunks, and lowers chunk nodes, `chunkOf` edges, vectors and one
@@ -324,7 +324,7 @@ pub(crate) fn chunks(
     chunk_text(&document.text, config)
 }
 
-// ── Page selection (EG-DECISION-ENGINE-R802) ────────────────────────────────
+// ── Page selection (MEDULLA-DECISION-ENGINE-R802) ────────────────────────────────
 
 /// Unix milliseconds of a stored `retrieved_at`: a number (seconds below
 /// 10^11, else milliseconds) or an RFC 3339 UTC timestamp.

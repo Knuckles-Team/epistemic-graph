@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R045.2: a served `ToolSubset` question selects the
+//! MEDULLA-DECISION-ENGINE-R045.2: a served `ToolSubset` question selects the
 //! smallest covering tool subset within the caller's context budget.
 
 use super::*;
@@ -65,7 +65,7 @@ fn tool_subset_request(
     }
 }
 
-// spec: EG-DECISION-ENGINE-R045.2
+// spec: MEDULLA-DECISION-ENGINE-R045.2
 #[tokio::test]
 async fn tool_subset_question_selects_the_minimal_covering_tools_within_budget() {
     let h = Harness::new().await;

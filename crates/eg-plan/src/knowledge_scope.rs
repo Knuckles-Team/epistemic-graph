@@ -1,4 +1,4 @@
-//! Agent knowledge scopes (EG-FEDERATED-QUERY-R704.1, R704.2).
+//! Agent knowledge scopes (MEDULLA-FEDERATED-QUERY-R704.1, R704.2).
 //!
 //! A scope narrows what an agent's retrieval may read: named knowledge sets,
 //! containers, source kinds and a time floor. It is a prefilter applied before
@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// An agent's knowledge scope (EG-FEDERATED-QUERY-R704.1). Empty lists do not
+/// An agent's knowledge scope (MEDULLA-FEDERATED-QUERY-R704.1). Empty lists do not
 /// constrain that dimension.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,7 +59,7 @@ impl KnowledgeScope {
     }
 }
 
-/// Keep the top `k` scored candidates inside `scope` (EG-FEDERATED-QUERY-R704.2).
+/// Keep the top `k` scored candidates inside `scope` (MEDULLA-FEDERATED-QUERY-R704.2).
 /// `candidates` are what the caller may already read; the scope filters them
 /// before truncation, ties by id.
 pub fn scoped_top_k(
@@ -90,7 +90,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R704.1
+    // spec: MEDULLA-FEDERATED-QUERY-R704.1
     #[test]
     fn scope_round_trips() {
         let s = scope();
@@ -113,7 +113,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R704.2
+    // spec: MEDULLA-FEDERATED-QUERY-R704.2
     #[test]
     fn scope_prefilters_before_truncation() {
         // The three best-scoring candidates are all out of scope; post-filtering a

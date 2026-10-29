@@ -87,7 +87,7 @@ pub fn plan_and_execute_opt(
     }
 }
 
-// ── Disclosed, typed NL→UQL results (CONCEPT:EG-KG.query.core-query-input, EG-FEDERATED-QUERY-R058) ──────
+// ── Disclosed, typed NL→UQL results (CONCEPT:EG-KG.query.core-query-input, MEDULLA-FEDERATED-QUERY-R058) ──────
 //
 // A natural-language request is never query authority itself: it is the configured
 // `NlPlanner` that translates it to UQL TEXT, and it is the ENGINE that parses and runs
@@ -98,7 +98,7 @@ pub fn plan_and_execute_opt(
 // rather than silently run.
 
 /// A refusal of a planner's output, BEFORE it is treated as query authority
-/// (EG-FEDERATED-QUERY-R058). Every variant is a clean, typed error — never a panic and
+/// (MEDULLA-FEDERATED-QUERY-R058). Every variant is a clean, typed error — never a panic and
 /// never a silent fallback to running unparsed/over-budget text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NlQueryError {
@@ -123,7 +123,7 @@ pub enum NlQueryError {
         message: String,
     },
     /// Every planner step named something the parser or the graph schema refused
-    /// (EG-FEDERATED-QUERY-R058.4.7.1). `steps` holds each step's text and typed
+    /// (MEDULLA-FEDERATED-QUERY-R058.4.7.1). `steps` holds each step's text and typed
     /// outcome; nothing was executed.
     Ungrounded {
         /// Every refused step, in order.
@@ -163,7 +163,7 @@ impl std::fmt::Display for NlQueryError {
 impl std::error::Error for NlQueryError {}
 
 /// A hard cap on a planner's produced UQL text, enforced BEFORE parsing or execution
-/// (EG-FEDERATED-QUERY-R058). Guards against a runaway or hostile planner answer
+/// (MEDULLA-FEDERATED-QUERY-R058). Guards against a runaway or hostile planner answer
 /// consuming parser/execution resources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NlQueryBudget {
@@ -181,7 +181,7 @@ impl Default for NlQueryBudget {
 
 impl NlQueryBudget {
     /// Refuse `uql` BEFORE it is parsed or executed when it exceeds this budget's
-    /// character cap (EG-FEDERATED-QUERY-R058.2.1) — the SAME typed check [`plan_only`]
+    /// character cap (MEDULLA-FEDERATED-QUERY-R058.2.1) — the SAME typed check [`plan_only`]
     /// and [`plan_and_execute_typed`] apply internally, exposed here so a caller (e.g.
     /// the server dispatch handler) can enforce the identical bound before the planner's
     /// text ever reaches the parser.
@@ -190,7 +190,7 @@ impl NlQueryBudget {
     }
 }
 
-/// Every natural-language result (EG-FEDERATED-QUERY-R058): carries the EXACT UQL text —
+/// Every natural-language result (MEDULLA-FEDERATED-QUERY-R058): carries the EXACT UQL text —
 /// executed, or, in plan-only mode, the unexecuted candidate — alongside any data.
 /// `rows` is `None` exactly in plan-only mode, so plan-only mode is a property of the
 /// typed VALUE, not just of the call site that produced it.
@@ -213,7 +213,7 @@ impl NlQueryResult {
 
 /// Plan `nl` into UQL via `planner`, enforcing `budget` and parsing with the SAME grammar
 /// [`crate::uql::parse`] uses for any caller-written query — but never execute it
-/// (EG-FEDERATED-QUERY-R058). Returns the typed candidate so a caller can review the exact
+/// (MEDULLA-FEDERATED-QUERY-R058). Returns the typed candidate so a caller can review the exact
 /// UQL before it ever touches data. Notably, this function takes no [`PlanCtx`]/view at
 /// all: there is no data for it to read even by accident.
 pub fn plan_only(
@@ -235,7 +235,7 @@ pub fn plan_only(
 
 /// The executing counterpart of [`plan_only`]: plan + budget + parse exactly as
 /// [`plan_only`] does, then execute through the engine's EXISTING deterministic pipeline,
-/// returning the EXECUTED UQL alongside the rows (EG-FEDERATED-QUERY-R058 — "every
+/// returning the EXECUTED UQL alongside the rows (MEDULLA-FEDERATED-QUERY-R058 — "every
 /// natural-language result carries the exact UQL that was executed").
 pub fn plan_and_execute_typed(
     planner: &dyn NlPlanner,
@@ -457,7 +457,7 @@ impl UreqNlPlanner {
 
     /// The default extra request-body members: `chat_template_kwargs.enable_thinking=false`,
     /// so a reasoning model answers the planner prompt directly instead of spending
-    /// minutes on hidden reasoning tokens (EG-FEDERATED-QUERY-R058.5).
+    /// minutes on hidden reasoning tokens (MEDULLA-FEDERATED-QUERY-R058.5).
     pub fn default_extra_body() -> serde_json::Map<String, serde_json::Value> {
         let mut m = serde_json::Map::new();
         m.insert(
@@ -759,9 +759,9 @@ mod tests {
         }
     }
 
-    // ── EG-FEDERATED-QUERY-R058.1: the typed NL→UQL disclosure model ──────────────────
+    // ── MEDULLA-FEDERATED-QUERY-R058.1: the typed NL→UQL disclosure model ──────────────────
 
-    /// Plan-only mode (EG-FEDERATED-QUERY-R058) returns the typed candidate UQL without
+    /// Plan-only mode (MEDULLA-FEDERATED-QUERY-R058) returns the typed candidate UQL without
     /// ever executing it. [`plan_only`] takes no `PlanCtx`/view at all, so this is a
     /// structural guarantee, not just an assertion: there is no data for it to read even
     /// by accident.
@@ -786,7 +786,7 @@ mod tests {
     }
 
     /// The executed result carries the EXACT UQL that ran, alongside the rows
-    /// (EG-FEDERATED-QUERY-R058).
+    /// (MEDULLA-FEDERATED-QUERY-R058).
     #[test]
     fn r058_executed_result_carries_the_exact_uql_that_ran() {
         let fx = crate::fixture::build();
@@ -804,7 +804,7 @@ mod tests {
     }
 
     /// Planner output that fails to parse is refused with a typed `ParseFailed` error —
-    /// never silently run and never a panic (EG-FEDERATED-QUERY-R058).
+    /// never silently run and never a panic (MEDULLA-FEDERATED-QUERY-R058).
     #[test]
     fn r058_malformed_planner_output_is_refused_not_executed() {
         let fx = crate::fixture::build();
@@ -829,7 +829,7 @@ mod tests {
 
     /// Planner output that exceeds the configured budget is refused with a typed
     /// `BudgetExceeded` error BEFORE it is ever parsed or executed
-    /// (EG-FEDERATED-QUERY-R058).
+    /// (MEDULLA-FEDERATED-QUERY-R058).
     #[test]
     fn r058_over_budget_candidate_is_refused_before_parse_or_execute() {
         let fx = crate::fixture::build();
@@ -854,13 +854,13 @@ mod tests {
         ));
     }
 
-    // ── EG-FEDERATED-QUERY-R058.2.1: dispatch-callable budget check ───────────────────
+    // ── MEDULLA-FEDERATED-QUERY-R058.2.1: dispatch-callable budget check ───────────────────
 
     /// The dispatch handler enforces the IDENTICAL character budget the typed
     /// disclosure model does, via the same typed `BudgetExceeded` error — exposed as a
     /// plain `NlQueryBudget::check` so the server path can refuse an over-budget
-    /// planner answer before it ever reaches the parser (EG-FEDERATED-QUERY-R058.2.1).
-    // spec: EG-FEDERATED-QUERY-R058.2.1
+    /// planner answer before it ever reaches the parser (MEDULLA-FEDERATED-QUERY-R058.2.1).
+    // spec: MEDULLA-FEDERATED-QUERY-R058.2.1
     #[test]
     fn r058_2_1_budget_check_refuses_over_budget_text_before_parsing() {
         let budget = NlQueryBudget { max_uql_len: 8 };

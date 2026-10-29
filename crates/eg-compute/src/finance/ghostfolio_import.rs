@@ -1,5 +1,5 @@
 // CONCEPT:EG-KG.domains.finance-compute.ghostfolio-import — the typed,
-// one-way Ghostfolio activity mapping (EG-FINANCE-PRIMITIVES-R012.1).
+// one-way Ghostfolio activity mapping (MEDULLA-FINANCE-PRIMITIVES-R012.1).
 //
 // An optional Ghostfolio instance on the shared Postgres database attaches
 // through the typed source registry; a one-way mapper converts its
@@ -25,7 +25,7 @@ pub struct GhostfolioFlowRefusal {
 }
 
 /// Admit `direction` only when it imports FROM Ghostfolio; a write-back flow
-/// is refused unconditionally (EG-FINANCE-PRIMITIVES-R012: "without EG
+/// is refused unconditionally (MEDULLA-FINANCE-PRIMITIVES-R012: "without EG
 /// writing back into Ghostfolio's own schema").
 pub fn admit_ghostfolio_flow(
     direction: GhostfolioFlowDirection,
@@ -40,8 +40,8 @@ pub fn admit_ghostfolio_flow(
 }
 
 /// One Ghostfolio activity mapped into a finance-v1-shaped record
-/// (EG-FINANCE-PRIMITIVES-R012.1). Fixed-point `i64` ticks, never `f64`
-/// (matching `lot_accounting::SCALE`, EG-FINANCE-PRIMITIVES-R005.1), so the
+/// (MEDULLA-FINANCE-PRIMITIVES-R012.1). Fixed-point `i64` ticks, never `f64`
+/// (matching `lot_accounting::SCALE`, MEDULLA-FINANCE-PRIMITIVES-R005.1), so the
 /// mapping replays byte-identically.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappedGhostfolioActivity {
@@ -61,7 +61,7 @@ pub struct GhostfolioMappingRefusal {
 
 /// Map one Ghostfolio activity, refusing an activity with no source id
 /// (idempotent re-import needs it) or a non-positive price
-/// (EG-FINANCE-PRIMITIVES-R012.1).
+/// (MEDULLA-FINANCE-PRIMITIVES-R012.1).
 pub fn map_ghostfolio_activity(
     ghostfolio_activity_id: &str,
     quantity_ticks: i64,
@@ -85,7 +85,7 @@ pub fn map_ghostfolio_activity(
 }
 
 /// A Ghostfolio source attached through the typed source registry
-/// (EG-FINANCE-PRIMITIVES-R012.2): an opaque registry-assigned `source_name`
+/// (MEDULLA-FINANCE-PRIMITIVES-R012.2): an opaque registry-assigned `source_name`
 /// plus the `admit_ghostfolio_flow` gate it must pass before any activity is
 /// imported through it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,7 +102,7 @@ pub struct GhostfolioRegistrationRefusal {
 /// Register an optional Ghostfolio instance under `source_name` through the
 /// typed source registry, refusing an empty name and refusing (via
 /// `admit_ghostfolio_flow`) any direction other than
-/// `ImportFromGhostfolio` (EG-FINANCE-PRIMITIVES-R012.2).
+/// `ImportFromGhostfolio` (MEDULLA-FINANCE-PRIMITIVES-R012.2).
 pub fn register_ghostfolio_source(
     source_name: &str,
 ) -> Result<GhostfolioSourceRegistration, GhostfolioRegistrationRefusal> {
@@ -125,7 +125,7 @@ pub fn register_ghostfolio_source(
 /// quantity_ticks, price_ticks)` rows through a registered source, mapping
 /// each one with `map_ghostfolio_activity` and deduplicating by
 /// `ghostfolio_activity_id` so that importing the same fixture twice (or a
-/// fixture with a repeated row) is idempotent (EG-FINANCE-PRIMITIVES-R012.2).
+/// fixture with a repeated row) is idempotent (MEDULLA-FINANCE-PRIMITIVES-R012.2).
 /// A row that fails to map is dropped rather than aborting the whole import.
 pub fn import_ghostfolio_fixture(
     registration: &GhostfolioSourceRegistration,
@@ -149,13 +149,13 @@ pub fn import_ghostfolio_fixture(
 mod tests {
     use super::*;
 
-    // spec: EG-FINANCE-PRIMITIVES-R012.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn importing_from_ghostfolio_is_admitted() {
         assert!(admit_ghostfolio_flow(GhostfolioFlowDirection::ImportFromGhostfolio).is_ok());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R012.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn writing_back_to_ghostfolio_is_always_refused() {
         let refusal =
@@ -163,7 +163,7 @@ mod tests {
         assert!(refusal.reason.contains("one-way"));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R012.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn a_valid_activity_maps_successfully() {
         let mapped = map_ghostfolio_activity("gf-activity-1", 10 * 100_000_000, 5 * 100_000_000)
@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(mapped.ghostfolio_activity_id, "gf-activity-1");
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R012.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn an_activity_with_no_source_id_is_refused() {
         let outcome = map_ghostfolio_activity("", 10, 5);
@@ -181,21 +181,21 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R012.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn an_activity_with_a_non_positive_price_is_refused() {
         let outcome = map_ghostfolio_activity("gf-activity-2", 10, 0);
         assert!(outcome.is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R012.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R012.2
     #[test]
     fn an_empty_source_name_is_refused() {
         let outcome = register_ghostfolio_source("");
         assert!(outcome.is_err());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R012.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R012.2
     #[test]
     fn importing_a_disposable_fixture_is_idempotent_under_a_repeated_row() {
         let registration = register_ghostfolio_source("disposable-ghostfolio-fixture")
@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(imported_again, imported);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R012.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R012.2
     #[test]
     fn a_row_that_fails_to_map_is_dropped_not_fatal() {
         let registration = register_ghostfolio_source("disposable-ghostfolio-fixture")

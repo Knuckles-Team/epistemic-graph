@@ -1,8 +1,8 @@
-//! Served agent-bus records (EG-DURABLE-KERNEL-R095.1000).
+//! Served agent-bus records (MEDULLA-DURABLE-KERNEL-R095.1000).
 //!
 //! A [`BusParticipant`] is one session's row on a tenant's bus; a [`HubPeer`] is
 //! a federated hub with the scope it may receive. Registration, roster, send,
-//! dispatch and federation behavior are EG-DURABLE-KERNEL-R095.1001 onwards.
+//! dispatch and federation behavior are MEDULLA-DURABLE-KERNEL-R095.1001 onwards.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;

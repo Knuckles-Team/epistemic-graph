@@ -1,5 +1,5 @@
 //! Cross-application entity resolution over [`EntityLinkProposal`]
-//! (EG-UNIFIED-DATA-PLANE-R030.2, R030.3, R030.700).
+//! (MEDULLA-UNIFIED-DATA-PLANE-R030.2, R030.3, R030.700).
 //!
 //! * Blocking groups records by a normalized-name key so only records in
 //!   one block are compared, and field similarity scores each pair.
@@ -365,7 +365,7 @@ mod tests {
         ]
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R030.2
     #[test]
     fn blocking_and_similarity_generate_unapproved_candidates() {
         assert_eq!(blocking_key("Ada Lovelace"), blocking_key("lovelace, ADA"));
@@ -382,7 +382,7 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.3
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R030.3
     #[test]
     fn fellegi_sunter_classifies_and_approval_gates_assertion() {
         let proposals = propose_links(&fixture(), &model());
@@ -413,7 +413,7 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.700
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R030.700
     #[test]
     fn evidence_kinds_and_merge_decisions() {
         let opaque = identity_evidence("x7Qp9ZkL2mWv", "x7Qp9ZkL2mWv", None, None);

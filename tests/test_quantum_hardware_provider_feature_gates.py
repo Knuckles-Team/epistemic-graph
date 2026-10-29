@@ -41,7 +41,7 @@ def _gated_modules(source: str) -> set[str]:
     }
 
 
-@pytest.mark.spec("EG-CONTRACT-R042")
+@pytest.mark.spec("MEDULLA-CONTRACT-R042")
 def test_provider_adapters_are_feature_gated_and_off_by_default() -> None:
     # (1) Crate manifest: the three providers are opt-in features, and a
     # default build enables none of them (the network dependencies stay

@@ -55,25 +55,25 @@
 
 pub mod algebra;
 pub mod cost;
-// EG-UNIFIED-DATA-PLANE-R020.2.1 — warehouse federation pushdown-transport
+// MEDULLA-UNIFIED-DATA-PLANE-R020.2.1 — warehouse federation pushdown-transport
 // dispatch: Arrow Flight SQL vs. native per WarehouseSourceKind, with a
 // refusal for an invalid config or an unmet Flight SQL preference. Pure
 // `std` + `eg-types`, no I/O; issuing the pushed-down query is a later
 // child.
 pub mod warehouse_pushdown;
-// EG-UNIFIED-DATA-PLANE-R005 — mapping approval-state machine for named R2RML
+// MEDULLA-UNIFIED-DATA-PLANE-R005 — mapping approval-state machine for named R2RML
 // virtual graphs; an unapproved or model-only mapping refuses to be queried.
 pub mod virtual_graph_mapping;
-// EG-UNIFIED-DATA-PLANE-R006 — typed pushdown decision/fallback-reason,
+// MEDULLA-UNIFIED-DATA-PLANE-R006 — typed pushdown decision/fallback-reason,
 // refusing a self-contradictory pushed-down-with-fallback state.
 pub mod pushdown_plan;
-// EG-UNIFIED-DATA-PLANE-R007 — named pushdown operations and a dialect's
+// MEDULLA-UNIFIED-DATA-PLANE-R007 — named pushdown operations and a dialect's
 // declared capability set, refusing an unknown operation name.
 pub mod federation_capabilities;
-// EG-UNIFIED-DATA-PLANE-R011 — typed freshness route and a bounded
+// MEDULLA-UNIFIED-DATA-PLANE-R011 — typed freshness route and a bounded
 // read-your-writes wait, refusing an unbounded (zero-timeout) wait.
 pub mod freshness_router;
-// EG-FEDERATED-QUERY-R654.2 bounded source slice: deterministic hub ranking
+// MEDULLA-FEDERATED-QUERY-R654.2 bounded source slice: deterministic hub ranking
 // over an already-resolved code subgraph. Anchor resolution, bounded expansion,
 // operations diagnosis and served CodeContext wiring remain later slices.
 #[cfg(feature = "query")]
@@ -161,13 +161,13 @@ pub mod runtime;
 // additionally gated on `nl-query` (it pulls the shared `ureq` rustls client). Kept OUT
 // of pi.
 /// ClickHouse attached-source driver config + connect/refusal path
-/// (EG-UNIFIED-DATA-PLANE-R017.2.1). Pure `std`, always compiled: no heavy HTTP/native
+/// (MEDULLA-UNIFIED-DATA-PLANE-R017.2.1). Pure `std`, always compiled: no heavy HTTP/native
 /// client dependency is needed until the live slice (`R017.2.2`) issues real requests.
 pub mod clickhouse_connection;
 #[cfg(feature = "nl-query")]
 pub mod nl;
 /// Oracle/Db2 attached-source driver config + connect/refusal path
-/// (EG-UNIFIED-DATA-PLANE-R018.2.1). Pure `std`, always compiled: no driver/ODBC
+/// (MEDULLA-UNIFIED-DATA-PLANE-R018.2.1). Pure `std`, always compiled: no driver/ODBC
 /// client dependency is needed until the live slice (`R018.2.2`) issues real reads.
 pub mod relational_connection;
 // The federation foreign-source seam (CONCEPT:EG-KG.query.query-federation) — the `ForeignSource` trait +
@@ -175,16 +175,16 @@ pub mod relational_connection;
 #[cfg(feature = "federation")]
 pub mod federation;
 /// AGE graph reads bound to the existing guarded PostgreSQL federation transport
-/// (EG-DURABLE-KERNEL-R024.1).
+/// (MEDULLA-DURABLE-KERNEL-R024.1).
 #[cfg(feature = "federation-sql")]
 pub mod federation_age;
-/// The brain-guarded backend source (EG-DURABLE-KERNEL-R024.6): typed shape
+/// The brain-guarded backend source (MEDULLA-DURABLE-KERNEL-R024.6): typed shape
 /// validation plus an explicit, named refusal, since no bound guard-policy
 /// evaluation driver exists yet.
 #[cfg(feature = "federation")]
 pub mod federation_brain_guarded;
 /// The Neo4j/FalkorDb halves of the Cypher transpiler source
-/// (EG-DURABLE-KERNEL-R024.3): typed shape validation plus an explicit,
+/// (MEDULLA-DURABLE-KERNEL-R024.3): typed shape validation plus an explicit,
 /// named refusal, since no bound Bolt/RESP driver exists yet. AGE (the
 /// third Cypher dialect) is bound in `federation_age` behind
 /// `federation-sql`.
@@ -195,7 +195,7 @@ pub mod federation_cypher_unbound;
 #[cfg(feature = "federation")]
 pub mod federation_opt;
 /// The Spark job backend source's explicit-registration half
-/// (EG-DURABLE-KERNEL-R024.8): typed `artifact://`-scheme shape validation
+/// (MEDULLA-DURABLE-KERNEL-R024.8): typed `artifact://`-scheme shape validation
 /// plus an explicit, named refusal, since no bound Spark artifact-store
 /// driver exists yet. `federation::source_for`'s generic dispatch already
 /// refuses an inline `SparkBatch` spec through `Oq2Unbound`; this is the
@@ -207,13 +207,13 @@ pub mod federation_spark;
 #[cfg(feature = "federation")]
 pub mod federation_ssrf;
 /// Learned, provenanced join cardinality statistics for ordering joins across foreign
-/// sources (EG-FEDERATED-QUERY-R048.1 — typed-model slice of R048).
+/// sources (MEDULLA-FEDERATED-QUERY-R048.1 — typed-model slice of R048).
 #[cfg(feature = "federation")]
 pub mod federation_stats;
 /// Explicitly bound, probed Trino client protocol source (EH-580).
 #[cfg(feature = "federation-sql")]
 pub mod federation_trino;
-/// The write-side mirror-target seam (EG-DURABLE-KERNEL-R024.2) — the
+/// The write-side mirror-target seam (MEDULLA-DURABLE-KERNEL-R024.2) — the
 /// `MirrorTarget` trait binding a [`eg_types::wire::MirrorTargetSpec`] to a
 /// driver. Mirrors `federation`'s read-side `ForeignSource` seam.
 #[cfg(feature = "federation")]
@@ -261,18 +261,18 @@ pub use leanrag::{
 };
 pub use rowset::RowSet;
 
-/// Read-time access checks for `checked_at_read` sources (EG-FEDERATED-QUERY-R703).
+/// Read-time access checks for `checked_at_read` sources (MEDULLA-FEDERATED-QUERY-R703).
 pub mod access_check;
-/// Document boosts from retrieval feedback (EG-FEDERATED-QUERY-R705).
+/// Document boosts from retrieval feedback (MEDULLA-FEDERATED-QUERY-R705).
 pub mod feedback_boost;
-/// Agent knowledge scopes applied before truncation (EG-FEDERATED-QUERY-R704).
+/// Agent knowledge scopes applied before truncation (MEDULLA-FEDERATED-QUERY-R704).
 pub mod knowledge_scope;
-/// Column mask and row-filter policies (EG-FEDERATED-QUERY-R706).
+/// Column mask and row-filter policies (MEDULLA-FEDERATED-QUERY-R706).
 pub mod policy_mask;
-/// Retrieval sufficiency, selection and hierarchy decisions (EG-FEDERATED-QUERY-R081).
+/// Retrieval sufficiency, selection and hierarchy decisions (MEDULLA-FEDERATED-QUERY-R081).
 pub mod retrieval_verdict;
 pub mod rowset;
-/// Stored, versioned queries (EG-FEDERATED-QUERY-R708).
+/// Stored, versioned queries (MEDULLA-FEDERATED-QUERY-R708).
 pub mod stored_query;
 
 /// The `PROPAGATE` cone as plain ids (EH-526): what a standing impact watch recomputes.

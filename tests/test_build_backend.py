@@ -135,7 +135,7 @@ def _test_cache_inputs(label: str) -> dict[str, object]:
 
 @pytest.mark.parametrize("entrypoint", ["build_wheel", "build_editable"])
 @pytest.mark.parametrize("suffix", ["abi3.so", "pyd"])
-@pytest.mark.spec("EG-CONTRACT-R053.2")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.2")
 def test_build_backend_folds_numeric_into_engine_base(
     monkeypatch, editable_cache: Path, tmp_path: Path, entrypoint: str, suffix: str
 ) -> None:

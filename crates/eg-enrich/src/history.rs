@@ -1,5 +1,5 @@
 //! Commit history as a graph of commits, authors, files and change coupling
-//! (EG-REPO-INGEST-R601).
+//! (MEDULLA-REPO-INGEST-R601).
 //!
 //! Each commit is applied once per digest; a re-run adds only unseen commits.
 //! A history above the configured bound is truncated at a commit boundary and
@@ -278,7 +278,7 @@ mod tests {
         .unwrap()
     }
 
-    // spec: EG-REPO-INGEST-R601.1
+    // spec: MEDULLA-REPO-INGEST-R601.1
     #[test]
     fn history_types_round_trip_and_invalid_identifiers_are_refused() {
         let record = commit(1, &["a.rs"]);
@@ -315,7 +315,7 @@ mod tests {
         assert!(Id::new("bad path").is_err());
     }
 
-    // spec: EG-REPO-INGEST-R601.2
+    // spec: MEDULLA-REPO-INGEST-R601.2
     #[test]
     fn commits_apply_once_churn_aggregates_and_coupling_respects_floors() {
         let config = HistoryConfig::default();
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(graph.file_churn[&id("a.rs")].commits, 3);
     }
 
-    // spec: EG-REPO-INGEST-R601.4
+    // spec: MEDULLA-REPO-INGEST-R601.4
     #[test]
     fn a_history_above_the_bound_is_truncated_at_a_commit_boundary() {
         let config = HistoryConfig {
@@ -369,7 +369,7 @@ mod tests {
         );
     }
 
-    // spec: EG-REPO-INGEST-R601.5
+    // spec: MEDULLA-REPO-INGEST-R601.5
     #[test]
     fn the_run_report_counts_added_skipped_and_coupling() {
         let config = HistoryConfig::default();

@@ -648,7 +648,7 @@ async fn edge_snapshot(
     )
 }
 
-// spec: EG-DURABLE-KERNEL-R080.2
+// spec: MEDULLA-DURABLE-KERNEL-R080.2
 #[tokio::test]
 async fn t20_served_supersession_closes_prior_links_successor_and_refuses_replay() {
     let state = state();

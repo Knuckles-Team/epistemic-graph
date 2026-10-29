@@ -284,7 +284,7 @@ mod tests {
     /// "op", rename_all = "snake_case", deny_unknown_fields)]` and lists no
     /// `Prepare`/`Commit`/`Abort` case. A request naming one of those `op`
     /// values is refused at deserialization, before any admission logic runs.
-    // spec: EG-TYPED-PACKS-R010
+    // spec: MEDULLA-TYPED-PACKS-R010
     #[test]
     fn pack_admission_exposes_only_import_with_no_staged_protocol_variant() {
         for staged_op in ["prepare", "commit", "abort"] {
@@ -310,7 +310,7 @@ mod tests {
     /// R018: body bytes are read through `AgentComponent.Content` alone --
     /// `ConnectorPackOp` lists no body-read case, so a request naming one is
     /// refused at deserialization, before any handler runs.
-    // spec: EG-TYPED-PACKS-R018
+    // spec: MEDULLA-TYPED-PACKS-R018
     #[test]
     fn pack_op_exposes_no_body_read_variant() {
         for body_read_op in ["body_read", "read_body"] {

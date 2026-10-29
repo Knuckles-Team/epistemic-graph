@@ -307,7 +307,7 @@ mod tests {
             assert_eq!(sql, uql, "SQL and the row evaluator disagree on {pred:?}");
         }
 
-        // spec: EG-FEDERATED-QUERY-R021
+        // spec: MEDULLA-FEDERATED-QUERY-R021
         #[test]
         fn the_sql_leg_and_the_row_evaluator_keep_identical_rows() {
             let (view, rows) = fixture();

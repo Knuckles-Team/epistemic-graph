@@ -54,7 +54,7 @@ impl GraphCore {
 
     /// Add (or idempotently overwrite) the edge identified by the
     /// `(source_id, target_id, relation_type)` triple (spec:
-    /// EG-REPO-INGEST-R009.1). One-shot convenience over
+    /// MEDULLA-REPO-INGEST-R009.1). One-shot convenience over
     /// [`GraphTxn::add_typed_edge`] — see its doc for the idempotency and
     /// migration semantics.
     pub fn add_typed_edge(
@@ -70,7 +70,7 @@ impl GraphCore {
 
     /// Remove only the edge(s) between `source_id` and `target_id` typed
     /// `relation_type`, leaving any other typed edge between the same
-    /// endpoints untouched (spec: EG-REPO-INGEST-R009.1). One-shot
+    /// endpoints untouched (spec: MEDULLA-REPO-INGEST-R009.1). One-shot
     /// convenience over [`GraphTxn::remove_typed_edge`].
     pub fn remove_typed_edge(&self, source_id: String, target_id: String, relation_type: String) {
         self.txn()
@@ -79,7 +79,7 @@ impl GraphCore {
 
     /// Every typed edge between `source_id` and `target_id`, keyed by its
     /// `(source, target, relation_type)` identity triple (spec:
-    /// EG-REPO-INGEST-R009.1). Returns each stored edge's `relation_type`
+    /// MEDULLA-REPO-INGEST-R009.1). Returns each stored edge's `relation_type`
     /// (read by [`blob_relation_type`]) paired with its full property blob;
     /// an endpoint pair with no stored edges returns an empty `Vec`.
     pub fn typed_edges_between(&self, source_id: &str, target_id: &str) -> Vec<(String, Vec<u8>)> {
@@ -268,7 +268,7 @@ mod typed_edge_identity_tests {
         rmp_serde::to_vec_named(&value).unwrap()
     }
 
-    // spec: EG-REPO-INGEST-R009.1
+    // spec: MEDULLA-REPO-INGEST-R009.1
     #[test]
     fn typed_edges_are_addressable_by_relation_type_triple() {
         let core = GraphCore::new();

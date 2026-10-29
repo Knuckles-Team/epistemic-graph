@@ -1,5 +1,5 @@
 //! Native parser contracts for the shared media vocabulary, lane A
-//! (EG-MEDIA-VOCAB-R001 to R013, rows .1 to .4 each).
+//! (MEDULLA-MEDIA-VOCAB-R001 to R013, rows .1 to .4 each).
 //!
 //! `mv:` and `cv:` are documentation prefixes for sections of the shared
 //! `http://knuckles.team/kg#` namespace (specs/media-and-personal-vocabulary/
@@ -182,7 +182,7 @@ fn assert_domain_range(triples: &[Triple], local: &str, domain: &str, range: &st
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R001.1
+// spec: MEDULLA-MEDIA-VOCAB-R001.1
 #[test]
 fn media_work_classes_present_with_creative_work_path() {
     let triples = load(MEDIA);
@@ -218,7 +218,7 @@ fn media_work_classes_present_with_creative_work_path() {
     assert_domain_range(&triples, "partOfAlbum", "MusicTrack", "MusicAlbum");
 }
 
-// spec: EG-MEDIA-VOCAB-R001.2
+// spec: MEDULLA-MEDIA-VOCAB-R001.2
 #[test]
 fn library_file_and_artist_terms_present() {
     let triples = load(MEDIA);
@@ -282,7 +282,7 @@ fn library_file_and_artist_terms_present() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R001.3
+// spec: MEDULLA-MEDIA-VOCAB-R001.3
 #[test]
 fn playback_session_and_broadcast_terms_present() {
     let triples = load(MEDIA);
@@ -346,7 +346,7 @@ fn playback_session_and_broadcast_terms_present() {
     assert_domain_range(&triples, "lastConnectAt", "BroadcastStream", "xsd:dateTime");
 }
 
-// spec: EG-MEDIA-VOCAB-R001.4
+// spec: MEDULLA-MEDIA-VOCAB-R001.4
 #[test]
 fn download_request_transfer_and_indexer_terms_present() {
     let triples = load(MEDIA);
@@ -397,7 +397,7 @@ fn download_request_transfer_and_indexer_terms_present() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R001.5
+// spec: MEDULLA-MEDIA-VOCAB-R001.5
 #[test]
 fn transcript_segment_terms_reuse_personal_transcript() {
     let media = load(MEDIA);
@@ -443,7 +443,7 @@ fn transcript_segment_terms_reuse_personal_transcript() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R001.6
+// spec: MEDULLA-MEDIA-VOCAB-R001.6
 #[test]
 fn connector_alias_collisions_are_baseline_two_and_media_adds_none() {
     // List every class IRI declared in two or more ontology/*.ttl documents.
@@ -521,7 +521,7 @@ fn connector_alias_collisions_are_baseline_two_and_media_adds_none() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R002.1
+// spec: MEDULLA-MEDIA-VOCAB-R002.1
 #[test]
 fn content_feed_article_and_search_terms_present() {
     let content = load(CONTENT);
@@ -566,7 +566,7 @@ fn content_feed_article_and_search_terms_present() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R002.2
+// spec: MEDULLA-MEDIA-VOCAB-R002.2
 #[test]
 fn content_social_and_email_terms_present() {
     let content = load_content_channel();
@@ -591,7 +591,7 @@ fn content_social_and_email_terms_present() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R003.1
+// spec: MEDULLA-MEDIA-VOCAB-R003.1
 #[test]
 fn identity_keys_preserve_distinct_records_and_provenance() {
     let media = load(MEDIA);
@@ -694,7 +694,7 @@ f:repeated a :TelevisionSeries ; :tvdbId "81190" ; dc:source "sonarr" ; dc:ident
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R003.2
+// spec: MEDULLA-MEDIA-VOCAB-R003.2
 #[test]
 fn normalisation_fixture_table_passes() {
     // The rules live in the rdfs:comment of the key properties.
@@ -781,7 +781,7 @@ fn normalize_canonical_url(raw: &str) -> String {
     )
 }
 
-// spec: EG-MEDIA-VOCAB-R003.3
+// spec: MEDULLA-MEDIA-VOCAB-R003.3
 #[test]
 fn subscriber_identity_is_a_keyed_hash_never_a_raw_address() {
     let content = load_content_channel();
@@ -820,7 +820,7 @@ fn subscriber_identity_is_a_keyed_hash_never_a_raw_address() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R004.1
+// spec: MEDULLA-MEDIA-VOCAB-R004.1
 #[test]
 fn media_work_key_shape_is_declared_and_aggregate_free() {
     let shapes = load(MEDIA_SHAPES);
@@ -837,7 +837,7 @@ fn media_work_key_shape_is_declared_and_aggregate_free() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R004.2
+// spec: MEDULLA-MEDIA-VOCAB-R004.2
 #[test]
 fn download_transfer_info_hash_shape_is_declared() {
     let shapes = load(MEDIA_SHAPES);
@@ -849,7 +849,7 @@ fn download_transfer_info_hash_shape_is_declared() {
     assert_shape_pattern(&shapes, "^[0-9a-f]{64}$");
 }
 
-// spec: EG-MEDIA-VOCAB-R004.3
+// spec: MEDULLA-MEDIA-VOCAB-R004.3
 #[test]
 fn download_request_state_shape_is_declared() {
     let shapes = load(MEDIA_SHAPES);
@@ -868,7 +868,7 @@ fn download_request_state_shape_is_declared() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R004.4
+// spec: MEDULLA-MEDIA-VOCAB-R004.4
 #[test]
 fn content_shapes_carry_one_canonical_url_and_are_aggregate_free() {
     let shapes = load(CONTENT_SHAPES);
@@ -1034,7 +1034,7 @@ fn assert_shape_sparql_message(triples: &[Triple], _local: &str, fragment: &str)
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R002.4
+// spec: MEDULLA-MEDIA-VOCAB-R002.4
 #[test]
 fn content_properties_present() {
     let content = load_content_channel();
@@ -1063,7 +1063,7 @@ fn content_properties_present() {
 }
 
 // ---------------------------------------------------------------------------
-// Virtual-graph mapping harness (EG-MEDIA-VOCAB-R005 to R013, rows .1 to .3).
+// Virtual-graph mapping harness (MEDULLA-MEDIA-VOCAB-R005 to R013, rows .1 to .3).
 //
 // Each connector owns a `vg:VirtualMapping` mapping fixture
 // (tests/fixtures/media_vocab/<connector>_mapping.ttl) plus a recorded tool
@@ -1571,7 +1571,7 @@ fn connector_competency_vocab_cell(plan: &str, row: &str) -> String {
         .to_string()
 }
 
-// spec: EG-MEDIA-VOCAB-R005.1
+// spec: MEDULLA-MEDIA-VOCAB-R005.1
 #[test]
 fn media_vocab_arr_mapping_rows_resolve_existing_terms() {
     let document = include_str!("fixtures/media_vocab/arr_mapping.ttl");
@@ -1644,7 +1644,7 @@ fn media_vocab_arr_mapping_rows_resolve_existing_terms() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R005.2
+// spec: MEDULLA-MEDIA-VOCAB-R005.2
 #[test]
 fn media_vocab_arr_response_round_trips_through_mapping() {
     let document = include_str!("fixtures/media_vocab/arr_mapping.ttl");
@@ -1704,7 +1704,7 @@ fn media_vocab_arr_response_round_trips_through_mapping() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R005.3
+// spec: MEDULLA-MEDIA-VOCAB-R005.3
 #[test]
 fn media_vocab_arr_single() {
     // "Which monitored movies and episodes are wanted but have no file, and
@@ -1776,7 +1776,7 @@ fn media_vocab_arr_single() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R005.4
+// spec: MEDULLA-MEDIA-VOCAB-R005.4
 #[test]
 fn media_vocab_arr_vocabulary_docs_truth() {
     let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
@@ -1788,7 +1788,7 @@ fn media_vocab_arr_vocabulary_docs_truth() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R006.1
+// spec: MEDULLA-MEDIA-VOCAB-R006.1
 #[test]
 fn media_vocab_jellyfin_mapping_rows_resolve_existing_terms() {
     let document = include_str!("fixtures/media_vocab/jellyfin_mapping.ttl");
@@ -1857,7 +1857,7 @@ fn media_vocab_jellyfin_mapping_rows_resolve_existing_terms() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R006.2
+// spec: MEDULLA-MEDIA-VOCAB-R006.2
 #[test]
 fn media_vocab_jellyfin_response_round_trips_through_mapping() {
     let document = include_str!("fixtures/media_vocab/jellyfin_mapping.ttl");
@@ -1944,7 +1944,7 @@ fn media_vocab_jellyfin_response_round_trips_through_mapping() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R006.3
+// spec: MEDULLA-MEDIA-VOCAB-R006.3
 #[test]
 fn media_vocab_jellyfin_single() {
     // "Which movies in a library have never been played and were added more
@@ -1986,7 +1986,7 @@ fn media_vocab_jellyfin_single() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R006.4
+// spec: MEDULLA-MEDIA-VOCAB-R006.4
 #[test]
 fn media_vocab_jellyfin_vocabulary_docs_truth() {
     let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
@@ -1998,7 +1998,7 @@ fn media_vocab_jellyfin_vocabulary_docs_truth() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R007.1
+// spec: MEDULLA-MEDIA-VOCAB-R007.1
 #[test]
 fn media_vocab_audiobookshelf_mapping_rows_resolve_existing_terms() {
     let document = include_str!("fixtures/media_vocab/audiobookshelf_mapping.ttl");
@@ -2065,7 +2065,7 @@ fn media_vocab_audiobookshelf_mapping_rows_resolve_existing_terms() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R007.2
+// spec: MEDULLA-MEDIA-VOCAB-R007.2
 #[test]
 fn media_vocab_audiobookshelf_response_round_trips_through_mapping() {
     let document = include_str!("fixtures/media_vocab/audiobookshelf_mapping.ttl");
@@ -2168,7 +2168,7 @@ fn media_vocab_audiobookshelf_response_round_trips_through_mapping() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R007.3
+// spec: MEDULLA-MEDIA-VOCAB-R007.3
 #[test]
 fn media_vocab_audiobookshelf_single() {
     // "Which audiobook series have a book with listening progress stopped
@@ -2231,7 +2231,7 @@ fn media_vocab_audiobookshelf_single() {
     assert_eq!(abstention.owner, "audiobookshelf-mcp");
 }
 
-// spec: EG-MEDIA-VOCAB-R007.4
+// spec: MEDULLA-MEDIA-VOCAB-R007.4
 #[test]
 fn media_vocab_audiobookshelf_vocabulary_docs_truth() {
     let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
@@ -2243,7 +2243,7 @@ fn media_vocab_audiobookshelf_vocabulary_docs_truth() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R008.1
+// spec: MEDULLA-MEDIA-VOCAB-R008.1
 #[test]
 fn media_vocab_qbittorrent_mapping_rows_resolve_existing_terms() {
     let document = include_str!("fixtures/media_vocab/qbittorrent_mapping.ttl");
@@ -2307,7 +2307,7 @@ fn media_vocab_qbittorrent_mapping_rows_resolve_existing_terms() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R008.2
+// spec: MEDULLA-MEDIA-VOCAB-R008.2
 #[test]
 fn media_vocab_qbittorrent_response_round_trips_through_mapping() {
     let document = include_str!("fixtures/media_vocab/qbittorrent_mapping.ttl");
@@ -2378,7 +2378,7 @@ fn media_vocab_qbittorrent_response_round_trips_through_mapping() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R008.3
+// spec: MEDULLA-MEDIA-VOCAB-R008.3
 #[test]
 fn media_vocab_qbittorrent_single() {
     // "Which torrents are stalled, with what ratio and how long since last
@@ -2437,7 +2437,7 @@ fn media_vocab_qbittorrent_single() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R008.4
+// spec: MEDULLA-MEDIA-VOCAB-R008.4
 #[test]
 fn media_vocab_qbittorrent_vocabulary_docs_truth() {
     let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
@@ -2449,7 +2449,7 @@ fn media_vocab_qbittorrent_vocabulary_docs_truth() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R009.1
+// spec: MEDULLA-MEDIA-VOCAB-R009.1
 #[test]
 fn media_vocab_rom_manager_mapping_rows_resolve_existing_terms() {
     let document = include_str!("fixtures/media_vocab/rom-manager_mapping.ttl");
@@ -2511,7 +2511,7 @@ fn media_vocab_rom_manager_mapping_rows_resolve_existing_terms() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R009.2
+// spec: MEDULLA-MEDIA-VOCAB-R009.2
 #[test]
 fn media_vocab_rom_manager_response_round_trips_through_mapping() {
     let document = include_str!("fixtures/media_vocab/rom-manager_mapping.ttl");
@@ -2589,7 +2589,7 @@ fn media_vocab_rom_manager_response_round_trips_through_mapping() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R009.3
+// spec: MEDULLA-MEDIA-VOCAB-R009.3
 #[test]
 fn media_vocab_rom_manager_single() {
     // "Which ROMs in a platform collection fail a checksum match against the
@@ -2669,7 +2669,7 @@ fn media_vocab_rom_manager_single() {
     assert_eq!(abstention.owner, "rom-manager");
 }
 
-// spec: EG-MEDIA-VOCAB-R009.4
+// spec: MEDULLA-MEDIA-VOCAB-R009.4
 #[test]
 fn media_vocab_rom_manager_vocabulary_docs_truth() {
     let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
@@ -2681,7 +2681,7 @@ fn media_vocab_rom_manager_vocabulary_docs_truth() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R010.1
+// spec: MEDULLA-MEDIA-VOCAB-R010.1
 #[test]
 fn media_vocab_owncast_mapping_rows_resolve_existing_terms() {
     let document = include_str!("fixtures/media_vocab/owncast_mapping.ttl");
@@ -2746,7 +2746,7 @@ fn media_vocab_owncast_mapping_rows_resolve_existing_terms() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R010.2
+// spec: MEDULLA-MEDIA-VOCAB-R010.2
 #[test]
 fn media_vocab_owncast_response_round_trips_through_mapping() {
     let document = include_str!("fixtures/media_vocab/owncast_mapping.ttl");
@@ -2842,7 +2842,7 @@ fn media_vocab_owncast_response_round_trips_through_mapping() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R010.3
+// spec: MEDULLA-MEDIA-VOCAB-R010.3
 #[test]
 fn media_vocab_owncast_single() {
     // "Which streams had the highest peak viewer count and how long did they
@@ -2908,7 +2908,7 @@ fn media_vocab_owncast_single() {
     assert_eq!(abstention.owner, "owncast-agent");
 }
 
-// spec: EG-MEDIA-VOCAB-R010.4
+// spec: MEDULLA-MEDIA-VOCAB-R010.4
 #[test]
 fn media_vocab_owncast_vocabulary_docs_truth() {
     let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
@@ -2920,7 +2920,7 @@ fn media_vocab_owncast_vocabulary_docs_truth() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R011.1
+// spec: MEDULLA-MEDIA-VOCAB-R011.1
 #[test]
 fn media_vocab_media_downloader_mapping_rows_resolve_existing_terms() {
     let document = include_str!("fixtures/media_vocab/media-downloader_mapping.ttl");
@@ -2982,7 +2982,7 @@ fn media_vocab_media_downloader_mapping_rows_resolve_existing_terms() {
     }
 }
 
-// spec: EG-MEDIA-VOCAB-R011.2
+// spec: MEDULLA-MEDIA-VOCAB-R011.2
 #[test]
 fn media_vocab_media_downloader_response_round_trips_through_mapping() {
     let document = include_str!("fixtures/media_vocab/media-downloader_mapping.ttl");
@@ -3051,7 +3051,7 @@ fn media_vocab_media_downloader_response_round_trips_through_mapping() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R011.3
+// spec: MEDULLA-MEDIA-VOCAB-R011.3
 #[test]
 fn media_vocab_media_downloader_single() {
     // "Which download jobs failed in the last week, with what error, for
@@ -3116,7 +3116,7 @@ fn media_vocab_media_downloader_single() {
     assert_eq!(abstention.owner, "media-downloader");
 }
 
-// spec: EG-MEDIA-VOCAB-R011.4
+// spec: MEDULLA-MEDIA-VOCAB-R011.4
 #[test]
 fn media_vocab_media_downloader_vocabulary_docs_truth() {
     let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
@@ -3128,7 +3128,7 @@ fn media_vocab_media_downloader_vocabulary_docs_truth() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R012.1
+// spec: MEDULLA-MEDIA-VOCAB-R012.1
 #[test]
 fn media_vocab_audio_transcriber_mapping_rows_resolve_existing_terms() {
     let document = include_str!("fixtures/media_vocab/audio-transcriber_mapping.ttl");
@@ -3196,7 +3196,7 @@ fn media_vocab_audio_transcriber_mapping_rows_resolve_existing_terms() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R012.2
+// spec: MEDULLA-MEDIA-VOCAB-R012.2
 #[test]
 fn media_vocab_audio_transcriber_response_round_trips_through_mapping() {
     let document = include_str!("fixtures/media_vocab/audio-transcriber_mapping.ttl");
@@ -3280,7 +3280,7 @@ fn media_vocab_audio_transcriber_response_round_trips_through_mapping() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R012.3
+// spec: MEDULLA-MEDIA-VOCAB-R012.3
 #[test]
 fn media_vocab_audio_transcriber_single() {
     // "Which recordings were transcribed with a low-confidence segment, and
@@ -3366,7 +3366,7 @@ fn media_vocab_audio_transcriber_single() {
     assert_eq!(abstention.owner, "audio-transcriber");
 }
 
-// spec: EG-MEDIA-VOCAB-R012.4
+// spec: MEDULLA-MEDIA-VOCAB-R012.4
 #[test]
 fn media_vocab_audio_transcriber_vocabulary_docs_truth() {
     let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
@@ -3378,7 +3378,7 @@ fn media_vocab_audio_transcriber_vocabulary_docs_truth() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R013.1
+// spec: MEDULLA-MEDIA-VOCAB-R013.1
 #[test]
 fn media_vocab_freshrss_mapping_rows_resolve_existing_terms() {
     let document = include_str!("fixtures/media_vocab/freshrss_mapping.ttl");
@@ -3462,7 +3462,7 @@ fn media_vocab_freshrss_mapping_rows_resolve_existing_terms() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R013.2
+// spec: MEDULLA-MEDIA-VOCAB-R013.2
 #[test]
 fn media_vocab_freshrss_response_round_trips_through_mapping() {
     let document = include_str!("fixtures/media_vocab/freshrss_mapping.ttl");
@@ -3548,7 +3548,7 @@ fn media_vocab_freshrss_response_round_trips_through_mapping() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R013.3
+// spec: MEDULLA-MEDIA-VOCAB-R013.3
 #[test]
 fn media_vocab_freshrss_single() {
     // "Which unread articles from a given feed were published in the last
@@ -3636,7 +3636,7 @@ fn media_vocab_freshrss_single() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R013.4
+// spec: MEDULLA-MEDIA-VOCAB-R013.4
 #[test]
 fn media_vocab_freshrss_vocabulary_docs_truth() {
     let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)

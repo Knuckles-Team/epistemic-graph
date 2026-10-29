@@ -1,4 +1,4 @@
-# EG-INGEST-WORKER - Design and implementation plan
+# MEDULLA-INGEST-WORKER - Design and implementation plan
 
 Governing spec: [spec.md](spec.md).
 
@@ -19,19 +19,19 @@ The Meristem `kg-ingest-worker` was a standalone process joining the Kafka consu
 
 ## Existing system and reuse
 
-Found in this repository: work-item methods (ClaimWorkItem, SubmitWorkItem, RenewWorkItemLease, CommitWorkItemResult, DeferWorkItem, CancelWorkItem) in the coordination domain. SourceIngest dead_letter and enrichment admission (EG-REPO-INGEST-R002, R006) are also present, along with the broker's consumer QoS acks. Not found: a served task queue (landing via EG-DURABLE-KERNEL-R071 to R073) or a worker registry (R074). No ingest-specific lane, depth read or metrics exists. No Kafka path is wanted.
+Found in this repository: work-item methods (ClaimWorkItem, SubmitWorkItem, RenewWorkItemLease, CommitWorkItemResult, DeferWorkItem, CancelWorkItem) in the coordination domain. SourceIngest dead_letter and enrichment admission (MEDULLA-REPO-INGEST-R002, R006) are also present, along with the broker's consumer QoS acks. Not found: a served task queue (landing via MEDULLA-DURABLE-KERNEL-R071 to R073) or a worker registry (R074). No ingest-specific lane, depth read or metrics exists. No Kafka path is wanted.
 
 ## Architecture and ownership decision
 
 The engine owns state and policy: queue, leases, retry, dead letter, depth, metrics. The running process is owned by the connector Graft SDK runner, with Arbora as host only.
 - Not the engine: job bodies parse files, call LLMs and touch source systems and credentials. The engine is a store and must not run source effects or hold their secrets.
 - Not Arbora: it is the door and supervisor. Embedding job logic there recreates the monolith and ties worker scale to the front door.
-- The Graft SDK already owns source effects and the halve-and-resend retry against Medulla batch refusals (EG-REPO-INGEST-R008), so the worker is a client of the engine in the same shape.
-- Native fast stages (parse, symbols, stats) stay in-engine per EG-REPO-INGEST-R006; this worker drains only the deferred, source-effect and enrichment jobs.
+- The Graft SDK already owns source effects and the halve-and-resend retry against Medulla batch refusals (MEDULLA-REPO-INGEST-R008), so the worker is a client of the engine in the same shape.
+- Native fast stages (parse, symbols, stats) stay in-engine per MEDULLA-REPO-INGEST-R006; this worker drains only the deferred, source-effect and enrichment jobs.
 
 ## Wiring
 
-enqueue_ingest_job is called by SourceIngest when it defers enrichment and by Graft SDK producers. Run_ingest_worker claims through the generated client methods (EG-DURABLE-KERNEL-R073). The identity scopes already in the engine contract apply, and any new scope is a named dependency row. Config keys: queue depth limit, retry policy, lease seconds, worker count, engine endpoint.
+enqueue_ingest_job is called by SourceIngest when it defers enrichment and by Graft SDK producers. Run_ingest_worker claims through the generated client methods (MEDULLA-DURABLE-KERNEL-R073). The identity scopes already in the engine contract apply, and any new scope is a named dependency row. Config keys: queue depth limit, retry policy, lease seconds, worker count, engine endpoint.
 
 ## Failure and Backpressure
 
@@ -56,7 +56,7 @@ Failed outcome: redeliver with jittered delay until the ceiling, then one dead-l
 
 Kafka compatibility, the analytics worker, the job bodies' parsing and LLM logic (Graft SDK existing runners).
 
-## EG-INGEST-WORKER-R002 ontology induction with admission tests
+## MEDULLA-INGEST-WORKER-R002 ontology induction with admission tests
 
 Data flow: served ingest queue claim → runner → `ingest_document` body → induction → `score_proposal` (creates the call site in `src/server/handlers/source_ingestion.rs`) → `Admitted` or `Draft` → instance population.
 Types: `OntologyProposal` in `crates/eg-types/src/ontology_proposal.rs`.
@@ -64,10 +64,10 @@ Attach point: the job body after induction. The production caller is the runner 
 Failure: a failing score keeps the draft and populates nothing.
 Reuses the queue and ack path of R001.4. New: the proposal and its scores.
 Decision: admit only after scoring. Rejected: admitting at once and repairing later, which pollutes instances.
-Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
+Cross-repository dependency: `SCION-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
 That Graft SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
 
-## EG-INGEST-WORKER-R003 knowledge atoms
+## MEDULLA-INGEST-WORKER-R003 knowledge atoms
 
 Data flow: claim → `ingest_document` body (`src/server/handlers/source_ingestion.rs`, created by R002.3) → `decompose` → atom store; query → `select_atoms` → context.
 Types: `KnowledgeAtom{atom_id, kind, text, provenance_key, tenant}` in `crates/eg-types/src/knowledge_atom.rs`.
@@ -76,7 +76,7 @@ Failure: an atom without provenance is refused and not stored.
 Existing code: `crates/eg-document/src/contract.rs:141` (chunk validation). Reachable today: no. Search terms with no hit: knowledge atom, memory atom, provenance_key, assemble_context, ContextPack.
 Reuses document chunks. New: the atom type, decomposition and selection.
 Decision: select atoms per query. Rejected: sending whole documents as context, which spends budget on irrelevant text.
-Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
+Cross-repository dependency: `SCION-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
 That Graft SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
 
 ## Document and transcript producers within R003
@@ -122,7 +122,7 @@ Decision: validate the complete source batch before committing its graph project
 Rejected alternative: commit individual messages or atoms during normalization, which exposes partial knowledge after failure.
 The named defaults `complete_document`, `content_identity`, `source_sequence` and `source_identity` must be replaceable through versioned policy.
 
-Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies `run_ingest_worker`; its delivery state remains `SPECIFIED`.
+Cross-repository dependency: `SCION-SOURCE-INGEST-R010` specifies `run_ingest_worker`; its delivery state remains `SPECIFIED`.
 This planned worker must capture sources, perform source effects, parse external formats and submit normalized records.
 `ARBORA-` owns the hosted entry and worker supervision; `AU-` emits harness events only in this ingestion boundary.
 Medulla must validate, store and select knowledge; no connector credential or source-effect loop moves into Medulla.
@@ -156,11 +156,11 @@ Three more batch kinds keep the held copy true to the source:
 | `containers` | R904 | Upserts the container tree. Scope filters name subtrees. |
 
 All four enter through `admit_records` in `src/server/handlers/source_ingestion.rs`. The Graft SDK
-connector contract `SDK-SOURCE-INGEST-R805` produces them. A restricted record whose access
+connector contract `SCION-SOURCE-INGEST-R805` produces them. A restricted record whose access
 snapshot is older than its bound fails closed at retrieval.
 
 ## Stream content versions (R910)
 
 A connector sync sends one source stream as one or more batches. Today the content version object id is the batch id. The second batch then names a prior digest that its own object never held. The engine refuses it with `STALE_CONTENT_VERSION`, and the ingest runner of ARBORA-OPS-R020.6.6 stops.
 
-The fix keys the content version on the stream. `admit_records` in `src/server/handlers/source_ingestion.rs` stamps the stream object id. The content guard in `src/redb_store/store_state.rs` reads the stream head. Equal content counts as unchanged. A true head mismatch still refuses. The mutation scope version of EG-DURABLE-KERNEL-R031 is a separate guard.
+The fix keys the content version on the stream. `admit_records` in `src/server/handlers/source_ingestion.rs` stamps the stream object id. The content guard in `src/redb_store/store_state.rs` reads the stream head. Equal content counts as unchanged. A true head mismatch still refuses. The mutation scope version of MEDULLA-DURABLE-KERNEL-R031 is a separate guard.

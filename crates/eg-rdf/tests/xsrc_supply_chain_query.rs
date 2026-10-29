@@ -1,4 +1,4 @@
-//! Cross-source question fixtures (EG-CQ-XSRC-R005.2, R005.3, R008.1.1,
+//! Cross-source question fixtures (MEDULLA-CQ-XSRC-R005.2, R005.3, R008.1.1,
 //! R008.2.3, R008.3.3): the class-only SPARQL questions parse and name no
 //! connector, and their plan — derived from the seeded `vg:SourceAuthority`
 //! rows, not from the query text — names exactly the sources the authority
@@ -204,7 +204,7 @@ fn plan_and_collect(
     (per_class, all)
 }
 
-// spec: EG-CQ-XSRC-R005.2
+// spec: MEDULLA-CQ-XSRC-R005.2
 #[test]
 fn the_supply_chain_question_names_classes_only_and_parses() {
     let fixture = include_str!("fixtures/xsrc_supply_chain_impact.sparql");
@@ -218,7 +218,7 @@ fn the_supply_chain_question_names_classes_only_and_parses() {
     assert_fixture_parses(fixture);
 }
 
-// spec: EG-CQ-XSRC-R005.3
+// spec: MEDULLA-CQ-XSRC-R005.3
 #[test]
 fn the_planned_sources_equal_the_authority_derived_set() {
     let classes = [
@@ -276,7 +276,7 @@ fn the_planned_sources_equal_the_authority_derived_set() {
     }
 }
 
-// spec: EG-CQ-XSRC-R008.1.1
+// spec: MEDULLA-CQ-XSRC-R008.1.1
 #[test]
 fn the_vulnerable_image_question_plans_to_exactly_the_named_sources() {
     let fixture = include_str!("fixtures/xsrc_vulnerable_image.sparql");
@@ -319,7 +319,7 @@ fn the_vulnerable_image_question_plans_to_exactly_the_named_sources() {
     );
 }
 
-// spec: EG-CQ-XSRC-R008.2.3
+// spec: MEDULLA-CQ-XSRC-R008.2.3
 #[test]
 fn the_capability_host_limit_question_plans_to_exactly_the_named_sources() {
     let fixture = include_str!("fixtures/xsrc_capability_host_limit.sparql");
@@ -352,7 +352,7 @@ fn the_capability_host_limit_question_plans_to_exactly_the_named_sources() {
     );
 }
 
-// spec: EG-CQ-XSRC-R008.3.3
+// spec: MEDULLA-CQ-XSRC-R008.3.3
 #[test]
 fn the_incident_contract_question_plans_to_exactly_the_named_sources() {
     let fixture = include_str!("fixtures/xsrc_incident_contract.sparql");

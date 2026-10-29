@@ -366,7 +366,7 @@ mod tests {
         Mock(Mutex::new(pages))
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.7
+    // spec: MEDULLA-DURABLE-KERNEL-R024.7
     #[test]
     fn statement_pages_stream_into_bounded_rowset() {
         let src = source();

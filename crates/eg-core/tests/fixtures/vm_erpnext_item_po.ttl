@@ -1,6 +1,6 @@
 # Virtual-mapping fixture: erpnext Item and Purchase Order to
 # kg:SupplyChainItem and the suppliesItem derivation edges
-# (EG-SUPPLY-VOCAB-R005.2).
+# (MEDULLA-SUPPLY-VOCAB-R005.2).
 #
 # Recorded over the erpnext `itemAccess` and `purchaseOrderAccess` access
 # contracts (mcp_tool erpnext_agent_resource). The Supplier-to-Item edge

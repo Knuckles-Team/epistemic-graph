@@ -1,5 +1,5 @@
 //! Retrieval decisions Medulla owns: the sufficiency verdict with its repair
-//! step and fallback policy (EG-FEDERATED-QUERY-R081.1), the dual-score chunk
+//! step and fallback policy (MEDULLA-FEDERATED-QUERY-R081.1), the dual-score chunk
 //! selection contract (R081.7.1), retrieval feedback and critique (R081.8.1)
 //! and the bounded typed-hierarchy descent contract (R081.9.1).
 //!
@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// A verdict call carried no `round_limit` (EG-FEDERATED-QUERY-R081.4).
+/// A verdict call carried no `round_limit` (MEDULLA-FEDERATED-QUERY-R081.4).
 pub const RETRIEVAL_ROUND_LIMIT_REQUIRED: &str = "RETRIEVAL_ROUND_LIMIT_REQUIRED";
 /// A chunk lacks one of its two scores, or a score is non-finite or stale (R081.7.4).
 pub const RETRIEVAL_SCORE_PAIR_REQUIRED: &str = "RETRIEVAL_SCORE_PAIR_REQUIRED";
@@ -133,7 +133,7 @@ pub enum FallbackPolicy {
     Strict,
 }
 
-/// Medulla's judgement of one retrieval round (EG-FEDERATED-QUERY-R081.1).
+/// Medulla's judgement of one retrieval round (MEDULLA-FEDERATED-QUERY-R081.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -179,7 +179,7 @@ pub enum ScoreNormalization {
     MinMax { constant_value: f64 },
 }
 
-/// The declared selection policy (EG-FEDERATED-QUERY-R081.7.1).
+/// The declared selection policy (MEDULLA-FEDERATED-QUERY-R081.7.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -308,7 +308,7 @@ pub struct ChunkSelection {
     pub selected: bool,
 }
 
-/// What one selection decided (EG-FEDERATED-QUERY-R081.7.1).
+/// What one selection decided (MEDULLA-FEDERATED-QUERY-R081.7.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -403,7 +403,7 @@ pub struct DocumentRelevance {
     pub relevance: f64,
 }
 
-/// One round's revision-bound feedback (EG-FEDERATED-QUERY-R081.8.1).
+/// One round's revision-bound feedback (MEDULLA-FEDERATED-QUERY-R081.8.1).
 ///
 /// Termination is not decided here: the R082 stop rule is the one stop authority.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -502,7 +502,7 @@ pub enum DescentStage {
     Entity,
 }
 
-/// The declared descent policy (EG-FEDERATED-QUERY-R081.9.1).
+/// The declared descent policy (MEDULLA-FEDERATED-QUERY-R081.9.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -623,7 +623,7 @@ pub struct HierarchyVisit {
     pub path: Vec<String>,
 }
 
-/// What one descent did (EG-FEDERATED-QUERY-R081.9.1).
+/// What one descent did (MEDULLA-FEDERATED-QUERY-R081.9.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -643,7 +643,7 @@ pub struct DescentReceipt {
     pub incomplete: bool,
 }
 
-// ---- Typed document-section hierarchy (EG-FEDERATED-QUERY-R081.9.7.1) ----
+// ---- Typed document-section hierarchy (MEDULLA-FEDERATED-QUERY-R081.9.7.1) ----
 // The community descent contract above uses the `Descent*` names; the section-aware
 // `Hierarchy*` policy and receipt below follow R081.9.1/R081.9.7.1.
 
@@ -1147,7 +1147,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R081.1
+    // spec: MEDULLA-FEDERATED-QUERY-R081.1
     #[test]
     fn verdict_round_trips_and_rejects_unknown() {
         for (verdict, repair, fallback) in [
@@ -1192,7 +1192,7 @@ mod tests {
         assert!(serde_json::from_str::<SufficiencyVerdict>(bad_repair).is_err());
     }
 
-    // spec: EG-FEDERATED-QUERY-R081.7.1
+    // spec: MEDULLA-FEDERATED-QUERY-R081.7.1
     #[test]
     fn selection_contract_round_trips_and_refuses_invalid_inputs() {
         let p = policy();
@@ -1354,7 +1354,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R081.9.1
+    // spec: MEDULLA-FEDERATED-QUERY-R081.9.1
     #[test]
     fn hierarchy_policy_refuses_absent_revision_bad_links_and_zero_limits() {
         let policy = DescentPolicy {

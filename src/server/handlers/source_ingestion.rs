@@ -1736,7 +1736,7 @@ pub(crate) fn finish(prepared: PreparedSourceIngestion, response: Response) -> R
         >(&bytes)
         .map_err(|error| format!("invalid native ingestion commit result: {error}")),
         // `ApplyChangeEnvelope` declares a JSON result (F3d); a served commit
-        // answers in that form (EG-TYPED-PACKS-R101.9 regression test).
+        // answers in that form (MEDULLA-TYPED-PACKS-R101.9 regression test).
         Some(ResultPayload::Json(value)) => serde_json::from_value::<
             eg_types::result_contract::transactions::ChangeEnvelopeApplied,
         >(value)

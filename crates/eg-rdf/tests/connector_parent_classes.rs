@@ -1,5 +1,5 @@
 //! Parent classes for the connector concepts that recur across the fleet
-//! (EG-TYPED-PACKS-R105.3).
+//! (MEDULLA-TYPED-PACKS-R105.3).
 #![cfg(feature = "owl")]
 
 mod common;
@@ -34,7 +34,7 @@ fn has_literal(triples: &[Triple], subject: &str, predicate: &str) -> bool {
     })
 }
 
-// spec: EG-TYPED-PACKS-R105.3
+// spec: MEDULLA-TYPED-PACKS-R105.3
 #[test]
 fn recurring_connector_concepts_sit_under_their_upper_classes() {
     let triples = documents();
@@ -87,7 +87,7 @@ fn recurring_connector_concepts_sit_under_their_upper_classes() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R105.3.1
+// spec: MEDULLA-TYPED-PACKS-R105.3.1
 #[test]
 fn source_record_classes_have_narrow_parents() {
     let triples = documents();

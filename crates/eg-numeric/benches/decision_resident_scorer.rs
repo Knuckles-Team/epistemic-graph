@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R090.3: Linux native resource evidence, JSON on stdout.
+//! MEDULLA-DECISION-ENGINE-R090.3: Linux native resource evidence, JSON on stdout.
 //! Run with --profile release; see the owning test-spec for provenance.
 #![allow(dead_code, unused_imports)]
 
@@ -215,7 +215,7 @@ fn measure(name: &str, head: &DecisionHeadBody, rows: &[Vec<i64>]) -> Value {
     })
 }
 
-// spec: EG-DECISION-ENGINE-R090.3
+// spec: MEDULLA-DECISION-ENGINE-R090.3
 #[cfg(target_os = "linux")]
 fn resident_scorer_meets_declared_budget() -> i32 {
     require_optimized_profile();
@@ -260,7 +260,7 @@ fn resident_scorer_meets_declared_budget() -> i32 {
         "inconclusive"
     };
     println!("{}", serde_json::to_string_pretty(&json!({
-        "schema_version": 1, "requirement": "EG-DECISION-ENGINE-R090.3",
+        "schema_version": 1, "requirement": "MEDULLA-DECISION-ENGINE-R090.3",
         "status": status, "clock": "CLOCK_THREAD_CPUTIME_ID", "quantile": "nearest_rank",
         "required_profile": "release", "build_provenance": "external_receipt_required",
         "architecture": std::env::consts::ARCH,

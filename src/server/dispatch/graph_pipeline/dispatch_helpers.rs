@@ -684,7 +684,7 @@ mod tests {
     /// by the next write stamped from the serving version (a source ingest's
     /// `VersionExpectation::Graph`) must not meet a +1 skew — `STALE_VERSION`
     /// at the kernel — on an otherwise quiet graph.
-    // spec: EG-DURABLE-KERNEL-R031.1
+    // spec: MEDULLA-DURABLE-KERNEL-R031.1
     #[tokio::test(flavor = "multi_thread")]
     async fn an_audit_append_accounts_the_serving_version_for_stamped_writes() {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;

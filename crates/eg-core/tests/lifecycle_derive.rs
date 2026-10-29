@@ -1,4 +1,4 @@
-//! Lifecycle edge derivation (EG-SDLC-R001.2, R001.4, R001.5).
+//! Lifecycle edge derivation (MEDULLA-SDLC-R001.2, R001.4, R001.5).
 
 use std::collections::BTreeMap;
 
@@ -57,7 +57,7 @@ fn full_view() -> CodeGraphView {
         changed_spans: BTreeMap::from([("a.rs".to_string(), vec![Span { start: 40, end: 70 }])]),
         on_default_branch: true,
         test_bindings: vec![TestBinding {
-            requirement: "EG-X-R001".into(),
+            requirement: "MEDULLA-X-R001".into(),
             test: "test::t1".into(),
         }],
         test_calls: vec![TestCall {
@@ -77,11 +77,11 @@ fn full_view() -> CodeGraphView {
     }
 }
 
-// spec: EG-SDLC-R001.2
+// spec: MEDULLA-SDLC-R001.2
 #[test]
 fn rules_emit_expected_edges() {
     let trailers = Trailers {
-        spec_ids: vec!["EG-X-R001".into()],
+        spec_ids: vec!["MEDULLA-X-R001".into()],
         fixes: vec!["def-2".into()],
         ..Trailers::default()
     };
@@ -91,20 +91,20 @@ fn rules_emit_expected_edges() {
     let expected = [
         (E::Changes, "c1", "sym::f", "changes.span_overlap"),
         (E::Changes, "c1", "sym::g", "changes.span_overlap"),
-        (E::CitesRequirement, "c1", "EG-X-R001", "cites.trailer"),
+        (E::CitesRequirement, "c1", "MEDULLA-X-R001", "cites.trailer"),
         (
             E::Implements,
             "sym::f",
-            "EG-X-R001",
+            "MEDULLA-X-R001",
             "implements.cited_change",
         ),
         (
             E::Implements,
             "sym::g",
-            "EG-X-R001",
+            "MEDULLA-X-R001",
             "implements.cited_change",
         ),
-        (E::VerifiedBy, "EG-X-R001", "test::t1", "verified.binding"),
+        (E::VerifiedBy, "MEDULLA-X-R001", "test::t1", "verified.binding"),
         (E::Exercises, "test::t1", "sym::f", "exercises.call_graph"),
         (E::FixedBy, "def-2", "c1", "fixed.trailer"),
         (E::IntroducedBy, "def-1", "c1", "introduced.bisect"),
@@ -145,7 +145,7 @@ fn seeded_store() -> LifecycleStore {
         ("sym::f", K::CodeSymbol),
         ("sym::g", K::CodeSymbol),
         ("sym::h", K::CodeSymbol),
-        ("EG-X-R001", K::Requirement),
+        ("MEDULLA-X-R001", K::Requirement),
         ("test::t1", K::TestCase),
         ("def-1", K::Defect),
         ("medulla@1.0", K::Release),
@@ -157,13 +157,13 @@ fn seeded_store() -> LifecycleStore {
     store
 }
 
-// spec: EG-SDLC-R001.4
+// spec: MEDULLA-SDLC-R001.4
 #[test]
 fn manual_edge_write_is_refused() {
     let mut store = seeded_store();
     let before = store.clone();
     for kind in E::ALL.into_iter().filter(|k| k.is_derived()) {
-        let err = store.write_edge(kind, "sym::f", "EG-X-R001").unwrap_err();
+        let err = store.write_edge(kind, "sym::f", "MEDULLA-X-R001").unwrap_err();
         assert_eq!(err.code(), "LIFECYCLE_EDGE_DERIVED_ONLY");
     }
     let err = store
@@ -189,7 +189,7 @@ fn manual_edge_write_is_refused() {
     assert_eq!(store.edge_count(), 1);
 }
 
-// spec: EG-SDLC-R001.5
+// spec: MEDULLA-SDLC-R001.5
 #[test]
 fn rebuild_equals_incremental() {
     let seed = seeded_store();
@@ -199,7 +199,7 @@ fn rebuild_equals_incremental() {
     for i in 0..200u32 {
         let trailers = Trailers {
             spec_ids: if i % 3 == 0 {
-                vec!["EG-X-R001".into()]
+                vec!["MEDULLA-X-R001".into()]
             } else {
                 vec![]
             },

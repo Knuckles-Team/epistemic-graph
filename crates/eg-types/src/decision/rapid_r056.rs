@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R056 (`.1` slice): a statistical-path solver
+//! MEDULLA-DECISION-ENGINE-R056 (`.1` slice): a statistical-path solver
 //! certificate with the same verification shape as the core assembly path.
 //!
 //! The requirement is that the exact 0-1 solver and its certificate
@@ -48,7 +48,7 @@ impl StatisticalSolverCertificate {
     /// Build a certificate for a solved statistical-path 0-1 program,
     /// refusing one that reports exploring more branches than the
     /// deterministic solver's own node budget -- the node-budget guarantee
-    /// the core assembly path's solver enforces (`EG-DECISION-ENGINE-R011`).
+    /// the core assembly path's solver enforces (`MEDULLA-DECISION-ENGINE-R011`).
     pub fn solved(
         model_digest: impl Into<String>,
         branch_count: u64,
@@ -80,7 +80,7 @@ mod tests {
         assert!(certificate.verify("digest-a").is_ok());
     }
 
-    // spec: EG-DECISION-ENGINE-R056.1
+    // spec: MEDULLA-DECISION-ENGINE-R056.1
     #[test]
     fn refuses_a_stale_model_digest() {
         let certificate = StatisticalSolverCertificate {
@@ -97,7 +97,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R056.2.1
+    // spec: MEDULLA-DECISION-ENGINE-R056.2.1
     #[test]
     fn refuses_a_certificate_exceeding_the_solver_node_budget() {
         let refusal = StatisticalSolverCertificate::solved("digest-a", 101, 100).unwrap_err();

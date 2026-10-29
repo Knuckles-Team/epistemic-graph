@@ -1,5 +1,5 @@
 //! `iceberg('namespace.table')` end to end over a real partitioned table
-//! (EG-FEDERATED-QUERY-R051): the provider is built by a sync caller, then scanned by
+//! (MEDULLA-FEDERATED-QUERY-R051): the provider is built by a sync caller, then scanned by
 //! DataFusion on a different runtime, and the manifest planner prunes data files from the
 //! filter DataFusion pushes at scan time.
 //!
@@ -381,7 +381,7 @@ fn runtime() -> tokio::runtime::Runtime {
         .expect("runtime")
 }
 
-// spec: EG-FEDERATED-QUERY-R051
+// spec: MEDULLA-FEDERATED-QUERY-R051
 #[test]
 fn a_partitioned_table_is_scanned_through_the_provider_with_files_pruned() {
     let writer = runtime();

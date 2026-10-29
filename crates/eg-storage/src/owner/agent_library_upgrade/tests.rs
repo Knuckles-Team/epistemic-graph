@@ -104,7 +104,7 @@ fn inspected_bytes_are_rechecked_before_any_upgrade_write() {
     assert!(StorageKernel::open_owner::<AgentLibraryOwner>(&path, identity(), None).is_err());
 }
 
-// spec: EG-TYPED-PACKS-R017
+// spec: MEDULLA-TYPED-PACKS-R017
 #[test]
 fn earlier_connector_packless_layout_is_not_upgradeable() {
     let directory = private_local_tempdir();
@@ -339,7 +339,7 @@ fn assert_graph_upgrade_preserves_rows(
     assert_eq!(read.open_table(added).unwrap().len().unwrap(), 0);
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5
+// spec: MEDULLA-DURABLE-KERNEL-R028.5
 #[test]
 fn current_plan_upgrade_preserves_existing_graph_rows() {
     assert_graph_upgrade_preserves_rows(
@@ -350,7 +350,7 @@ fn current_plan_upgrade_preserves_existing_graph_rows() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn checkpoint_upgrade_preserves_existing_graph_rows() {
     assert_graph_upgrade_preserves_rows(

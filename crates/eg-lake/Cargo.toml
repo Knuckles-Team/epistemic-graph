@@ -52,7 +52,7 @@ contract = ["dep:eg-modality"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-# `ProjectionAccess` (EG-FEDERATED-QUERY-R080.1) is the canonical lake-catalog vocabulary.
+# `ProjectionAccess` (MEDULLA-FEDERATED-QUERY-R080.1) is the canonical lake-catalog vocabulary.
 eg-types = { path = "../eg-types" }
 serde_json = "1.0"
 # ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default

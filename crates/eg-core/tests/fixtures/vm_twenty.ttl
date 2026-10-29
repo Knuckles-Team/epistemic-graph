@@ -1,5 +1,5 @@
 # Virtual-mapping fixture: twenty Company to kg:Customer (rank 2)
-# (EG-SUPPLY-VOCAB-R005.8).
+# (MEDULLA-SUPPLY-VOCAB-R005.8).
 #
 # Recorded over the twenty GraphQL `crm` tool. Twenty is the rank-2 source
 # for Customer (salesforce Account is rank 1). Twenty has no contract object

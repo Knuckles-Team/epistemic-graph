@@ -1,5 +1,5 @@
 //! Schema-grounded NL planning over ingested ServiceNow data
-//! (EG-FEDERATED-QUERY-R058.4.7.1, R058.4.8).
+//! (MEDULLA-FEDERATED-QUERY-R058.4.7.1, R058.4.8).
 //!
 //! The fixture is shaped the way the connector source runner stores ServiceNow
 //! records: `node_type` is the declared record type and the properties keep the
@@ -430,7 +430,7 @@ fn run_case(case: &Case, view: &GraphView, context: &SchemaContext) {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn evidence_questions_are_grounded_or_refused_over_servicenow_data() {
     let view = servicenow_view();
@@ -442,7 +442,7 @@ fn evidence_questions_are_grounded_or_refused_over_servicenow_data() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.8
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.8
 #[test]
 fn mapped_servicenow_properties_are_offered_under_their_ontology_names() {
     let view = servicenow_view();
@@ -475,7 +475,7 @@ fn mapped_servicenow_properties_are_offered_under_their_ontology_names() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn a_refused_step_goes_back_to_the_planner_with_its_typed_reason() {
     let view = servicenow_view();
@@ -500,7 +500,7 @@ fn a_refused_step_goes_back_to_the_planner_with_its_typed_reason() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn unknown_names_are_typed_violations_and_never_execute() {
     let view = servicenow_view();
@@ -538,7 +538,7 @@ fn unknown_names_are_typed_violations_and_never_execute() {
     ));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn foreign_row_properties_are_checked_against_the_local_snapshot() {
     let view = servicenow_view();
@@ -589,7 +589,7 @@ fn foreign_row_properties_are_checked_against_the_local_snapshot() {
         .is_ok());
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.8
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.8
 #[test]
 fn ontology_links_respect_domains_and_ambiguity() {
     let view = servicenow_view();
@@ -615,7 +615,7 @@ fn ontology_links_respect_domains_and_ambiguity() {
     assert!(context.label("ChangeRequest").unwrap().ontology.is_empty());
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn an_empty_graph_refuses_every_labelled_match() {
     let context = SchemaContext::from_view(&GraphCore::new().analysis_snapshot());
@@ -629,7 +629,7 @@ fn an_empty_graph_refuses_every_labelled_match() {
     assert!(matches!(err, NlQueryError::Ungrounded { ref steps } if steps.len() == 2));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn an_over_budget_answer_is_refused_at_once() {
     let view = servicenow_view();
@@ -641,7 +641,7 @@ fn an_over_budget_answer_is_refused_at_once() {
     assert_eq!(planner.hints().len(), 1);
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[cfg(feature = "text")]
 #[test]
 fn fused_branches_ground_local_names_and_repair_properties() {
@@ -715,7 +715,7 @@ fn fused_branches_ground_local_names_and_repair_properties() {
     ));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn stored_label_fields_and_unlabelled_node_fields_remain_queryable() {
     let core = GraphCore::new();
@@ -742,7 +742,7 @@ fn stored_label_fields_and_unlabelled_node_fields_remain_queryable() {
     assert!(context.hint("description").contains("description"));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn edge_predicates_are_grounded_against_edges_instead_of_nodes() {
     use eg_types::wire::{EdgeDir, PropagateModel};
@@ -808,7 +808,7 @@ fn edge_predicates_are_grounded_against_edges_instead_of_nodes() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn jsonpath_root_keys_are_checked_without_guessing_nested_document_shapes() {
     let context = SchemaContext::from_view(&servicenow_view());
@@ -851,7 +851,7 @@ fn jsonpath_root_keys_are_checked_without_guessing_nested_document_shapes() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn snapshot_schema_is_complete_past_the_former_scan_cap() {
     const FORMER_SCAN_CAP: usize = 4096;
@@ -885,7 +885,7 @@ fn snapshot_schema_is_complete_past_the_former_scan_cap() {
         .is_ok());
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn attribution_properties_and_owen_groups_are_grounded_and_repaired() {
     use eg_types::wire::{AttributionInput, AttributionMethod, AttributionValue};
@@ -920,7 +920,7 @@ fn attribution_properties_and_owen_groups_are_grounded_and_repaired() {
     assert!(text.contains("BY assignment_group"), "{text}");
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[cfg(feature = "federation")]
 #[test]
 fn named_foreign_scans_require_authority_and_joins_preserve_local_scope() {
@@ -963,7 +963,7 @@ fn named_foreign_scans_require_authority_and_joins_preserve_local_scope() {
     ));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[cfg(feature = "text")]
 #[test]
 fn mixed_fusion_cannot_erase_local_property_checks() {
@@ -1016,7 +1016,7 @@ fn mixed_fusion_cannot_erase_local_property_checks() {
     ));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[cfg(feature = "federation")]
 #[test]
 fn inline_foreign_adapter_cannot_bypass_the_declared_source_catalog() {
@@ -1041,7 +1041,7 @@ fn inline_foreign_adapter_cannot_bypass_the_declared_source_catalog() {
     assert!(matches!(violation, SchemaViolation::UnboundForeignSource));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[cfg(any(feature = "owl", feature = "geo", feature = "tensor"))]
 #[test]
 fn modal_source_stages_replace_incoming_node_scope_and_validate_layers() {
@@ -1106,7 +1106,7 @@ fn modal_source_stages_replace_incoming_node_scope_and_validate_layers() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[cfg(feature = "federation")]
 #[test]
 fn foreign_id_filters_rematerialize_local_properties_before_execution() {
@@ -1133,7 +1133,7 @@ fn foreign_id_filters_rematerialize_local_properties_before_execution() {
     ));
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[cfg(feature = "numeric")]
 #[test]
 fn grounded_attribution_runs_numeric_input_and_owen_group_properties() {
@@ -1168,7 +1168,7 @@ fn grounded_attribution_runs_numeric_input_and_owen_group_properties() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[test]
 fn a_native_record_source_cannot_retain_the_previous_graph_label_scope() {
     let context = SchemaContext::from_view(&servicenow_view());

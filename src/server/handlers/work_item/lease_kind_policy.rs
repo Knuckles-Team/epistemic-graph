@@ -210,7 +210,7 @@ mod tests {
         assert!(!set.permits("service:graph-os", "rbac.elevation"));
     }
 
-    // spec: EG-DURABLE-KERNEL-R039.3
+    // spec: MEDULLA-DURABLE-KERNEL-R039.3
     #[test]
     fn lease_write_alone_cannot_change_pending_work_item_state() {
         use crate::server::auth::VerifiedRequestContext;
@@ -230,7 +230,7 @@ mod tests {
         assert!(super::require_pending_work_authority(PENDING_CALL_KIND, &both).is_ok());
     }
 
-    // spec: EG-DURABLE-KERNEL-R039.3
+    // spec: MEDULLA-DURABLE-KERNEL-R039.3
     #[test]
     fn absent_lookup_returns_a_terminal_refusal_before_any_later_registration() {
         use crate::server::auth::VerifiedRequestContext;
@@ -249,7 +249,7 @@ mod tests {
         assert!(super::check_resolved_kind(&verified, &policy, Some(PENDING_CALL_KIND)).is_ok());
         assert!(stop_dispatch.is_some());
     }
-    // spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
+    // spec: MEDULLA-DURABLE-KERNEL-R039.4, MEDULLA-DURABLE-KERNEL-R039.4.1
     #[test]
     fn paired_storage_is_unavailable_on_both_served_writes() {
         use crate::protocol::Method;

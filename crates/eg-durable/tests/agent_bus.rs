@@ -1,6 +1,6 @@
 use eg_durable::{BusParticipant, HubPeer};
 
-// spec: EG-DURABLE-KERNEL-R095.1000
+// spec: MEDULLA-DURABLE-KERNEL-R095.1000
 #[test]
 fn participant_and_hub_peer_round_trip() {
     let participant = BusParticipant {

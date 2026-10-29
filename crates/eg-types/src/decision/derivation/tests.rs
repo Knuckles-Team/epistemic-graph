@@ -135,10 +135,10 @@ fn the_coverage_chain_is_the_shortest_and_re_checks() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R126.1
+// spec: MEDULLA-DECISION-ENGINE-R126.1
 #[test]
 fn capability_coverage_joins_derived_library_coverage_with_self_declared_a2a_coverage() {
-    // EG-DECISION-ENGINE-R126: reuses required_capabilities/coverage_chain
+    // MEDULLA-DECISION-ENGINE-R126: reuses required_capabilities/coverage_chain
     // rather than any new derivation rule.
     let required =
         required_capabilities(&requirements(&[], &["eg:capability/retrieval"]), ONTOLOGY)
@@ -188,7 +188,7 @@ fn tampered(edit: impl FnOnce(&mut Vec<DerivationEdge>)) -> CoverageDerivation {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R003
+// spec: MEDULLA-DECISION-ENGINE-R003
 #[test]
 fn a_tampered_chain_is_refused_at_the_step_that_lies() {
     let web = candidate("tool-web", &["eg:capability/retrieval/web-search"]);
@@ -216,7 +216,7 @@ fn a_tampered_chain_is_refused_at_the_step_that_lies() {
     ));
 }
 
-// spec: EG-DECISION-ENGINE-R048
+// spec: MEDULLA-DECISION-ENGINE-R048
 #[test]
 fn the_weakest_premise_classifies_and_a_definition_never_weakens() {
     assert_eq!(weakest([]), EvidenceClass::Proof);

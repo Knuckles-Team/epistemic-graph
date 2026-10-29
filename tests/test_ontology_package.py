@@ -11,7 +11,7 @@ import pytest
 from epistemic_graph import ontology
 from scripts import inject_ontology
 
-pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-CONTRACT-R015.1")]
+pytestmark = [pytest.mark.no_engine, pytest.mark.spec("MEDULLA-CONTRACT-R015.1")]
 
 SOURCE = Path(__file__).resolve().parent.parent / "crates/eg-core/ontology"
 

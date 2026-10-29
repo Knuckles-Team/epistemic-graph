@@ -11,7 +11,7 @@ fn rule() -> QualityRule {
     }
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R762.1
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R762.1
 #[test]
 fn rule_round_trips() {
     let original = rule();
@@ -43,7 +43,7 @@ fn rule_round_trips() {
     assert_eq!(bad.validate().unwrap_err().code(), "QUALITY_RULE_INVALID");
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R762.7
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R762.7
 #[test]
 fn profile_yields_proposed_rules() {
     use eg_types::profile::{ColumnProfile, ProfileMethod};

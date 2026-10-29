@@ -1,4 +1,4 @@
-//! Column profile record (EG-UNIFIED-DATA-PLANE-R761.1): the statistics one
+//! Column profile record (MEDULLA-UNIFIED-DATA-PLANE-R761.1): the statistics one
 //! `DatasetProfile` job records for one column of an attached or native
 //! dataset, and how they were measured.
 

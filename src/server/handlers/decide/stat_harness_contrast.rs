@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R803: wires the contrastive harness composition
+//! MEDULLA-DECISION-ENGINE-R803: wires the contrastive harness composition
 //! decision into the `HarnessContrast` `Decide` question kind.
 //!
 //! The caller declares each candidate component version as an option

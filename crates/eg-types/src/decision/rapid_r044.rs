@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R044 (`.1` slice): a typed A2A routing resolution.
+//! MEDULLA-DECISION-ENGINE-R044 (`.1` slice): a typed A2A routing resolution.
 //!
 //! An inbound A2A task must be routed to an existing or assembled agent
 //! graph with a recorded resolution kind and evidence class, not an
@@ -94,7 +94,7 @@ mod tests {
         assert_eq!(refusal, A2ARoutingRefusal::EmptyGraphId);
     }
 
-    // spec: EG-DECISION-ENGINE-R044.1
+    // spec: MEDULLA-DECISION-ENGINE-R044.1
     #[test]
     fn refuses_an_abstention_claiming_proof_grade_evidence() {
         let refusal =
@@ -108,7 +108,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R044.2.1
+    // spec: MEDULLA-DECISION-ENGINE-R044.2.1
     #[test]
     fn routes_to_a_known_graph_and_abstains_otherwise() {
         let known = vec!["graph-1".to_string(), "graph-2".to_string()];

@@ -341,7 +341,7 @@ fn bounded_memory_large_blob_group_commit() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R008
+// spec: MEDULLA-TYPED-PACKS-R008
 #[test]
 fn a_referenced_then_released_blob_survives_grace_and_increfs_stay_idempotent_on_count() {
     // A blob held, then released: still inside the grace window it is kept;
@@ -366,8 +366,8 @@ fn a_referenced_then_released_blob_survives_grace_and_increfs_stay_idempotent_on
     assert!(store.get_manifest(&blob.digest).unwrap().is_none());
 }
 
-// spec: EG-DECISION-ENGINE-R097
-// spec: EG-DURABLE-KERNEL-R050
+// spec: MEDULLA-DECISION-ENGINE-R097
+// spec: MEDULLA-DURABLE-KERNEL-R050
 #[test]
 fn an_unreferenced_committed_blob_survives_until_its_grace_has_passed() {
     // A blob that was committed but not yet referenced is inside the window
@@ -417,7 +417,7 @@ fn concurrent_increfs_never_lose_a_reference() {
 /// blob is at refcount 0, so a swallowed `incref` is a premature delete of a
 /// LIVE chunk. A blob that N threads referenced and N-1 dereferenced is still
 /// live, and a sweep must reclaim none of it — its bytes must still read back.
-// spec: EG-DURABLE-KERNEL-R059
+// spec: MEDULLA-DURABLE-KERNEL-R059
 #[test]
 fn a_sweep_racing_refcounts_never_deletes_a_live_chunk() {
     let store = Arc::new(RedbChunkStore::open_temp().unwrap());
@@ -546,7 +546,7 @@ fn a_chunk_shared_with_a_direct_reference_survives_the_manifest_that_named_it() 
 /// reclaimed once idle past the upload TTL — the upload row AND its chunks
 /// that nothing else reaches — and left alone while still within the TTL. At
 /// base, `sweep_rows` never reads `cas_uploads` at all.
-// spec: EG-DURABLE-KERNEL-R062
+// spec: MEDULLA-DURABLE-KERNEL-R062
 #[test]
 fn an_abandoned_upload_is_reclaimed_past_its_ttl_and_kept_before_it() {
     let store = RedbChunkStore::open_temp().unwrap();
@@ -640,7 +640,7 @@ fn a_cursor_id_names_exactly_one_upload_for_the_life_of_the_store() {
 /// allocator seeded from it (see `mod.rs`'s
 /// `a_fresh_allocator_over_a_restarted_store_never_proposes_a_used_id`) never
 /// proposes an id a prior process ever began.
-// spec: EG-DURABLE-KERNEL-R044
+// spec: MEDULLA-DURABLE-KERNEL-R044
 #[test]
 fn the_upload_cursor_high_water_mark_survives_a_restart() {
     let dir = tempfile::tempdir().unwrap();
@@ -674,7 +674,7 @@ fn the_upload_cursor_high_water_mark_survives_a_restart() {
 /// key, so two genuinely separate `BlobRef` calls from the same owner take one
 /// reference, and two separate `BlobUnref` calls after only one acquire never
 /// underflow.
-// spec: EG-DURABLE-KERNEL-R051
+// spec: MEDULLA-DURABLE-KERNEL-R051
 #[test]
 fn a_named_holder_acquire_and_release_are_idempotent_across_distinct_operations() {
     let store = RedbChunkStore::open_temp().unwrap();

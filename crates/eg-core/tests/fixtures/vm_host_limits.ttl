@@ -1,5 +1,5 @@
 # Virtual-mapping fixture: fan-manager and systems-manager to
-# infra:HostLimit (EG-SUPPLY-VOCAB-R006.7).
+# infra:HostLimit (MEDULLA-SUPPLY-VOCAB-R006.7).
 #
 # A HostLimit row is a normalized (reading, limit) pair, so one row is
 # assembled from two sides: the fan-manager reading and the policy ceiling

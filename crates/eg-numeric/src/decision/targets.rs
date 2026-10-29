@@ -79,7 +79,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R026.1
+    // spec: MEDULLA-DECISION-ENGINE-R026.1
     #[test]
     fn calibration_applies_the_pub_crate_inverse_probability_audit_weight() {
         assert_eq!(audit_weight(&item(None)), 1.0);

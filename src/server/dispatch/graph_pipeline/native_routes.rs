@@ -472,7 +472,7 @@ async fn route_source_ingestion_request(
     // Stamp the batch from the authoritative scope version, not the RAM
     // projection alone: a durable scope write the projection missed would
     // otherwise make the kernel refuse this batch as STALE_VERSION
-    // (EG-DURABLE-KERNEL-R031.2).
+    // (MEDULLA-DURABLE-KERNEL-R031.2).
     let graph_version = match ctx.persistence.as_ref() {
         Some(persistence) => match crate::server::mutation_batch::authoritative_graph_version(
             persistence,

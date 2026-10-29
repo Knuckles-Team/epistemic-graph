@@ -31,7 +31,7 @@ fn resolve(
     apply_kept(store, &op, &stamp, now)
 }
 
-// spec: EG-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.1
 #[test]
 fn projection_survives_persistence_and_reports_post_touch_facts() {
     let mut store: IdentityStore =
@@ -63,7 +63,7 @@ fn projection_survives_persistence_and_reports_post_touch_facts() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.1
 #[test]
 fn legacy_unbound_and_non_session_resolutions_omit_projection() {
     let mut store = opened();
@@ -90,7 +90,7 @@ fn legacy_unbound_and_non_session_resolutions_omit_projection() {
         .is_none());
 }
 
-// spec: EG-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.1
 #[test]
 fn projection_preserves_existing_pending_and_nonlive_behavior() {
     let mut store = opened();
@@ -125,7 +125,7 @@ fn projection_preserves_existing_pending_and_nonlive_behavior() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.1
 #[cfg(feature = "contract-schema")]
 #[test]
 fn projection_schema_requires_explicit_nullable_mfa() {
@@ -139,7 +139,7 @@ fn projection_schema_requires_explicit_nullable_mfa() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R085.1
+// spec: MEDULLA-TYPED-PACKS-R085.1
 #[test]
 fn resolve_preserves_creation_tenant_and_exact_mfa_timestamp() {
     let mut store = opened();
@@ -165,7 +165,7 @@ fn resolve_preserves_creation_tenant_and_exact_mfa_timestamp() {
     assert_eq!(record.mfa_at_ms, Some(NOW - 17));
 }
 
-// spec: EG-TYPED-PACKS-R085.7.1
+// spec: MEDULLA-TYPED-PACKS-R085.7.1
 #[test]
 fn original_reference_inspection_is_owner_bound_and_does_not_touch() {
     let mut store = opened();
@@ -201,7 +201,7 @@ fn original_reference_inspection_is_owner_bound_and_does_not_touch() {
     assert!(apply_kept(&mut store, &op, &owner, NOW).is_err());
 }
 
-// spec: EG-TYPED-PACKS-R085.7.1
+// spec: MEDULLA-TYPED-PACKS-R085.7.1
 #[test]
 fn reference_inspection_refuses_pending_disabled_and_ambiguous_records() {
     let original = opened();
@@ -217,7 +217,7 @@ fn reference_inspection_refuses_pending_disabled_and_ambiguous_records() {
     assert!(apply_kept(&mut disabled, &op, &owner, NOW).is_err());
 }
 
-// spec: EG-TYPED-PACKS-R085.4.1
+// spec: MEDULLA-TYPED-PACKS-R085.4.1
 #[test]
 fn renewal_preserves_original_scope_ceiling_and_refuses_legacy_evidence() {
     let original = opened();
@@ -276,7 +276,7 @@ fn renewal_preserves_original_scope_ceiling_and_refuses_legacy_evidence() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R085.6.1
+// spec: MEDULLA-TYPED-PACKS-R085.6.1
 #[test]
 fn credential_observation_preserves_state_and_existing_refusals() {
     let mut store = opened();
@@ -307,7 +307,7 @@ fn credential_observation_preserves_state_and_existing_refusals() {
     assert!(apply_kept(&mut store, &op, &caller, NOW + 61_002).is_err());
 }
 
-// spec: EG-TYPED-PACKS-R085.6.1
+// spec: MEDULLA-TYPED-PACKS-R085.6.1
 #[test]
 fn omitted_refresh_preserves_legacy_touch_and_authority() {
     let request: SessionTouch =
@@ -331,8 +331,8 @@ fn omitted_refresh_preserves_legacy_touch_and_authority() {
     assert!(apply_kept(&mut store, &observe, &caller, NOW + 61_001).is_err());
 }
 
-// spec: EG-TYPED-PACKS-R085.7.1
-// spec: EG-TYPED-PACKS-R085.4.1
+// spec: MEDULLA-TYPED-PACKS-R085.7.1
+// spec: MEDULLA-TYPED-PACKS-R085.4.1
 #[test]
 fn reference_operations_refuse_service_principal_substitution_without_mutation() {
     let mut store = opened();
@@ -361,7 +361,7 @@ fn reference_operations_refuse_service_principal_substitution_without_mutation()
     }
 }
 
-// spec: EG-TYPED-PACKS-R085.4.1
+// spec: MEDULLA-TYPED-PACKS-R085.4.1
 #[test]
 fn renewal_clamps_idle_to_original_absolute_expiry_and_preserves_subject_mfa() {
     let mut store = opened();
@@ -382,7 +382,7 @@ fn renewal_clamps_idle_to_original_absolute_expiry_and_preserves_subject_mfa() {
     assert_eq!(store, renewed);
 }
 
-// spec: EG-TYPED-PACKS-R085.4.1
+// spec: MEDULLA-TYPED-PACKS-R085.4.1
 #[test]
 fn renewal_refuses_invalid_authority_without_mutation() {
     for reason in [
@@ -417,7 +417,7 @@ fn renewal_refuses_invalid_authority_without_mutation() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R085.4.1
+// spec: MEDULLA-TYPED-PACKS-R085.4.1
 #[test]
 fn repeated_renewal_never_becomes_issuer_reauthentication() {
     let mut store = opened();

@@ -1,6 +1,6 @@
 //! Domain parent modules aligned to open standards: IT4IT delivery, data platform and
 //! machine learning, media and content, search / retrieval / information sources
-//! (EG-TYPED-PACKS-R105.6 to EG-TYPED-PACKS-R105.9).
+//! (MEDULLA-TYPED-PACKS-R105.6 to MEDULLA-TYPED-PACKS-R105.9).
 #![cfg(feature = "owl")]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -651,62 +651,62 @@ fn check_no_duplicate_declarations(module: &str, rows: &[ClassRow]) {
     }
 }
 
-// spec: EG-TYPED-PACKS-R105.6
+// spec: MEDULLA-TYPED-PACKS-R105.6
 #[test]
 fn it4it_delivery_classes_exist_with_their_parents() {
     check_classes("it4it_delivery", IT4IT_DELIVERY_CLASSES);
     check_no_duplicate_declarations("it4it_delivery", IT4IT_DELIVERY_CLASSES);
 }
 
-// spec: EG-TYPED-PACKS-R105.6
+// spec: MEDULLA-TYPED-PACKS-R105.6
 #[test]
 fn it4it_delivery_edges_declare_domain_and_range() {
     check_edges("it4it_delivery", IT4IT_DELIVERY_EDGES);
 }
 
-// spec: EG-TYPED-PACKS-R105.7
+// spec: MEDULLA-TYPED-PACKS-R105.7
 #[test]
 fn dataplatform_classes_exist_with_their_parents() {
     check_classes("dataplatform", DATAPLATFORM_CLASSES);
     check_no_duplicate_declarations("dataplatform", DATAPLATFORM_CLASSES);
 }
 
-// spec: EG-TYPED-PACKS-R105.7
+// spec: MEDULLA-TYPED-PACKS-R105.7
 #[test]
 fn dataplatform_edges_declare_domain_and_range() {
     check_edges("dataplatform", DATAPLATFORM_EDGES);
 }
 
-// spec: EG-TYPED-PACKS-R105.8
+// spec: MEDULLA-TYPED-PACKS-R105.8
 #[test]
 fn media_classes_exist_with_their_parents() {
     check_classes("media", MEDIA_CLASSES);
     check_no_duplicate_declarations("media", MEDIA_CLASSES);
 }
 
-// spec: EG-TYPED-PACKS-R105.8
+// spec: MEDULLA-TYPED-PACKS-R105.8
 #[test]
 fn media_edges_declare_domain_and_range() {
     check_edges("media", MEDIA_EDGES);
 }
 
-// spec: EG-TYPED-PACKS-R105.9
+// spec: MEDULLA-TYPED-PACKS-R105.9
 #[test]
 fn retrieval_classes_exist_with_their_parents() {
     check_classes("retrieval", RETRIEVAL_CLASSES);
     check_no_duplicate_declarations("retrieval", RETRIEVAL_CLASSES);
 }
 
-// spec: EG-TYPED-PACKS-R105.9
+// spec: MEDULLA-TYPED-PACKS-R105.9
 #[test]
 fn retrieval_edges_declare_domain_and_range() {
     check_edges("retrieval", RETRIEVAL_EDGES);
 }
 
-// spec: EG-TYPED-PACKS-R105.6
-// spec: EG-TYPED-PACKS-R105.7
-// spec: EG-TYPED-PACKS-R105.8
-// spec: EG-TYPED-PACKS-R105.9
+// spec: MEDULLA-TYPED-PACKS-R105.6
+// spec: MEDULLA-TYPED-PACKS-R105.7
+// spec: MEDULLA-TYPED-PACKS-R105.8
+// spec: MEDULLA-TYPED-PACKS-R105.9
 #[test]
 fn reused_core_classes_are_not_redeclared_by_the_domain_modules() {
     // Release, Job, Runner, Metric, Dataset and Model keep their single home.

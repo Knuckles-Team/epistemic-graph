@@ -38,7 +38,7 @@ fn legacy_nl_entry_points_accept_output_at_the_budget_boundary() {
     assert_eq!(direct.id_set(), optional.id_set());
 }
 
-// Covers the read-only guarantee tracked by EG-FEDERATED-QUERY-R058.3.2.
+// Covers the read-only guarantee tracked by MEDULLA-FEDERATED-QUERY-R058.3.2.
 #[test]
 fn nl_entry_points_refuse_mutating_statements() {
     let fx = crate::fixture::build();
@@ -275,7 +275,7 @@ fn serve_once(delay: std::time::Duration) -> (String, std::sync::mpsc::Receiver<
     (endpoint, rx)
 }
 
-// spec: EG-FEDERATED-QUERY-R058.5
+// spec: MEDULLA-FEDERATED-QUERY-R058.5
 #[test]
 fn planner_request_defaults_disable_thinking() {
     let (endpoint, rx) = serve_once(std::time::Duration::ZERO);
@@ -287,7 +287,7 @@ fn planner_request_defaults_disable_thinking() {
     assert_eq!(body["model"], "m");
 }
 
-// spec: EG-FEDERATED-QUERY-R058.5
+// spec: MEDULLA-FEDERATED-QUERY-R058.5
 #[test]
 fn planner_sends_configured_extra_body_and_honours_read_timeout() {
     let (endpoint, rx) = serve_once(std::time::Duration::ZERO);
@@ -316,7 +316,7 @@ fn planner_sends_configured_extra_body_and_honours_read_timeout() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R058.5
+// spec: MEDULLA-FEDERATED-QUERY-R058.5
 #[test]
 fn planner_refuses_invalid_request_config_with_typed_errors() {
     let new = || UreqNlPlanner::new("http://127.0.0.1:1".into(), "m".into(), String::new());

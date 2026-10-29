@@ -100,7 +100,7 @@ pub(crate) fn validate_recovery_content(
 /// The identity half of [`validate_recovery_content`]: the persisted root, every
 /// scope binding and its version row, and every fence's stamped identity. It is
 /// O(scopes), not O(rows), and it runs on EVERY open, including one whose
-/// clean-shutdown marker lets it skip the row scan (EG-DURABLE-KERNEL-R006.3):
+/// clean-shutdown marker lets it skip the row scan (MEDULLA-DURABLE-KERNEL-R006.3):
 /// the marker may skip the row scan, never the identity, binding or fence checks.
 pub(crate) fn validate_recovery_identity(
     expected: &StoreIncarnation,
