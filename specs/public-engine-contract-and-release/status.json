@@ -100,12 +100,15 @@
       "landed_in": [
         "6cd6c7ea0c87",
         "72c7dfa478ba",
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "ef6683f9eb58"
       ],
       "verified_by": [
         "tests/test_generated_models.py:105",
         "tests/test_generated_models.py:122",
-        "tests/test_generated_models.py:69"
+        "tests/test_generated_models.py:69",
+        "tests/test_generated_union_variants.py:59",
+        "tests/test_generated_union_variants.py:74"
       ],
       "rollup_of": [
         "EG-CONTRACT-R001.1",
@@ -337,8 +340,8 @@
         "tests/test_release_python_suite_contract.py:104",
         "tests/test_release_python_suite_contract.py:121",
         "tests/test_release_python_suite_contract.py:132",
-        "tests/test_release_python_suite_contract.py:357",
-        "tests/test_release_python_suite_contract.py:376"
+        "tests/test_release_python_suite_contract.py:360",
+        "tests/test_release_python_suite_contract.py:379"
       ]
     },
     {
@@ -425,8 +428,8 @@
         "394f82a01e83"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:495",
-        "crates/eg-capabilities/src/error_routing.rs:448",
+        "crates/eg-capabilities/src/contract/errors.rs:512",
+        "crates/eg-capabilities/src/error_routing.rs:452",
         "crates/eg-types/src/governed_change/tests.rs:196",
         "src/server/auth.rs:2184",
         "src/server/transport/tests.rs:145"
@@ -644,7 +647,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:773"
+        "tests/test_release_python_suite_contract.py:779"
       ]
     },
     {
@@ -714,7 +717,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:364"
+        "tests/test_release_feature_matrix.py:365"
       ]
     },
     {
@@ -750,7 +753,7 @@
       ],
       "verified_by": [
         "tests/test_ci_change_scope.py:617",
-        "tests/test_ci_change_scope.py:969",
+        "tests/test_ci_change_scope.py:970",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -888,7 +891,7 @@
         "5bf5b719de7e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:343"
+        "tests/test_release_feature_matrix.py:344"
       ]
     },
     {
@@ -1033,9 +1036,9 @@
       "verified_by": [
         "tests/test_build_backend.py:138",
         "tests/test_check_wheel_completeness.py:215",
-        "tests/test_ci_change_scope.py:772",
-        "tests/test_ci_change_scope.py:816",
-        "tests/test_ci_change_scope.py:945"
+        "tests/test_ci_change_scope.py:773",
+        "tests/test_ci_change_scope.py:817",
+        "tests/test_ci_change_scope.py:946"
       ],
       "rollup_of": [
         "EG-CONTRACT-R053.1",
@@ -1129,7 +1132,7 @@
         "805fce6204d9"
       ],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:804"
+        "tests/test_release_full_wheel_contract.py:807"
       ]
     },
     {
@@ -1226,9 +1229,9 @@
         "be072c1cf996"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:772",
-        "tests/test_ci_change_scope.py:816",
-        "tests/test_ci_change_scope.py:945"
+        "tests/test_ci_change_scope.py:773",
+        "tests/test_ci_change_scope.py:817",
+        "tests/test_ci_change_scope.py:946"
       ]
     }
   ]
