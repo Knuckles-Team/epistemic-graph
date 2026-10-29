@@ -354,7 +354,7 @@ Any additional independent caller requires an explicit child before its migratio
 Each leaf retains its own positive and negative proof.
 The generic route and generated contract are prerequisites for served caller tests.
 R002.3 still requires method counts and client bindings to reconcile in the migration change.
-The held query lane owns missing textual admission; these definitions do not change that grammar.
+`EG-FEDERATED-QUERY-R022` owns textual admission; these definitions do not change that grammar.
 
 | Retained obligation | Explicit descendants |
 |---|---|

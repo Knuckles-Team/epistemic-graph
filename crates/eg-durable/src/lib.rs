@@ -73,15 +73,20 @@
 // tests only (child of EG-UNIFIED-DATA-PLANE-R008, "Normalize change capture into
 // a durable, replayable framework"). No CdcHub, durable position storage, or
 // replay here — see `change_envelope`'s module doc for exact scope.
+// EG-DURABLE-KERNEL-R095.1000 — served agent-bus participant and hub-peer records.
+pub mod agent_bus;
 pub mod change_envelope;
 pub mod hydration;
 pub mod mirror;
 pub mod project;
 pub mod route;
+// EG-DURABLE-KERNEL-R850.1 — ordered topic-log entry and cursor records.
+pub mod topic;
 // EG-UNIFIED-DATA-PLANE-R009 — named consumer checkpoint position and the
 // idempotent-apply guard (replaying a stale position is a no-op).
 pub mod idempotent_consumer;
 
+pub use agent_bus::{BusParticipant, HubPeer};
 pub use change_envelope::{ChangeEnvelope, ChangeOp, InvalidChangeEnvelope};
 pub use hydration::{
     BaselinePlan, CoverageReport, DeltaManifest, DeltaManifestEntry, DeltaManifestKey, FileClass,
@@ -93,3 +98,4 @@ pub use route::{
     route_call_shape, route_work_shape, CallShape, DurableBackendKind, DurableBackendRef,
     JobsBackend, MutationStoreSagaBackend, PythonDurableRunBackend, StatechartBackend, WorkShape,
 };
+pub use topic::{TopicCursor, TopicEntry};

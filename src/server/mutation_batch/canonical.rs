@@ -561,6 +561,17 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::FinanceOfiSeries { .. }
         | Method::FinanceEmpiricalKelly { .. }
         | Method::FinanceKellyFraction { .. }
+        | Method::FinancePositionSize { .. }
+        | Method::FinanceAmlScreen { .. }
+        | Method::FinanceCapitalRatios { .. }
+        | Method::FinanceExpectedLoss { .. }
+        | Method::FinanceSettlementChain { .. }
+        | Method::FinanceRegimeChain { .. }
+        | Method::FinanceExecutionSchedule { .. }
+        | Method::FinanceMarketMakingQuote { .. }
+        | Method::FinancePairsSignal { .. }
+        | Method::FinanceFactorRank { .. }
+        | Method::FinanceDistributionShift { .. }
         | Method::FinanceDownsideDeviation { .. }
         | Method::FinanceKalmanVolatility { .. }
         | Method::Reinforce { .. }

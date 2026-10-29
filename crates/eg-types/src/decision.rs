@@ -21,19 +21,25 @@
 //! Every algorithm -- derivation, solving, verification, execution, fitting --
 //! lives above this module. These are data types and their bounds.
 
+pub mod answer_ranking;
 pub mod branch_outcomes;
 pub mod concentration;
+pub mod context_budget;
 pub mod coverage;
 pub mod defect_triage;
 pub mod derivation;
 pub mod digest;
+pub mod entry_trust;
 pub mod errors;
+pub mod evolution_round;
 pub mod execution_answer;
 pub mod guardrail;
 pub mod harness_contrast;
 pub mod ingestion_admission;
 pub mod ingestion_ladder;
 pub mod jobs;
+pub mod limit_guard;
+pub mod load_set;
 pub mod numeric;
 pub mod policy;
 pub mod promotion;
@@ -41,13 +47,16 @@ pub mod prompt_candidate;
 pub mod rapid_r015;
 pub mod rapid_r044;
 pub mod rapid_r056;
+pub mod recommend;
 pub mod record;
+pub mod red_team;
 pub mod replay;
 pub mod request;
 pub mod skill_upgrade;
 pub mod statistical;
 pub mod task_plan;
 pub mod topology;
+pub mod usage_guidance;
 pub mod web_fetch_selection;
 
 /// Format identity (RF-ADR-006) of an assembly decision record.

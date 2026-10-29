@@ -8,6 +8,7 @@
 @prefix : <http://knuckles.team/kg#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 :BusinessActor a owl:Class ;
     rdfs:label "Business Actor" ;
@@ -72,9 +73,36 @@ IT service/ITSM system, regardless of vendor (ServiceNow :Incident, ERPNext
 Application Event. CONCEPT:KG-2.9.""" ;
     rdfs:subClassOf :ApplicationLayer .
 
+:ConfigurationItem a owl:Class ;
+    rdfs:label "Configuration Item" ;
+    rdfs:comment """Crosswalk anchor for a ServiceNow configuration item (CI): the
+canonical application-layer node an :Incident or :Change affects.
+CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :ApplicationLayer .
+
 :BusinessProcess a owl:Class ;
     rdfs:label "Business Process" ;
     rdfs:comment """Canonical anchor for a business process, regardless of the BPM/ITSM
 tool that models or raises it (Camunda process definitions, ServiceNow :Change).
 ArchiMate: Business Layer -> Business Process. CONCEPT:KG-2.9.""" ;
     rdfs:subClassOf :BusinessLayer .
+
+:affectsConfigurationItem a owl:ObjectProperty ;
+    rdfs:label "affects configuration item" ;
+    rdfs:comment """Links a ServiceNow :Incident or :Change to the :ConfigurationItem
+it affects (crosswalk anchor).""" ;
+    rdfs:domain [ a owl:Class ;
+        owl:unionOf ( :Incident :Change ) ] ;
+    rdfs:range :ConfigurationItem .
+
+:incidentState a owl:DatatypeProperty ;
+    rdfs:label "incident state" ;
+    rdfs:comment "The state of a ServiceNow :Incident (new, in_progress, resolved, closed)." ;
+    rdfs:domain :Incident ;
+    rdfs:range xsd:string .
+
+:incidentAssignee a owl:ObjectProperty ;
+    rdfs:label "incident assignee" ;
+    rdfs:comment "Links a ServiceNow :Incident to the :Person it is assigned to." ;
+    rdfs:domain :Incident ;
+    rdfs:range :Person .

@@ -622,7 +622,7 @@
         "f17f47ab300f"
       ],
       "verified_by": [
-        "src/server/graph_schema/compose.rs:990"
+        "src/server/graph_schema/compose.rs:1002"
       ]
     },
     {
@@ -746,7 +746,7 @@
         "c3b87d31ac11"
       ],
       "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:231"
+        "crates/eg-capabilities/tests/contract_registry.rs:233"
       ]
     },
     {
@@ -2155,9 +2155,11 @@
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a21954646d05"
+        "a21954646d05",
+        "c1c753f7f08e"
       ],
       "verified_by": [
+        "crates/eg-plan/src/leanrag.rs:1344",
         "crates/eg-plan/src/retrieval_verdict_tests.rs:364"
       ]
     },

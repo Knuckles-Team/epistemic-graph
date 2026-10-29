@@ -20,7 +20,7 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use common::{has_iri, parse_all};
+use common::{assert_acceptance, has_iri, parse_all, AcceptanceQuestion};
 use eg_core::graph::{GraphCore, GraphView};
 use eg_rdf::mapping::{load_triples, parse_turtle, IriStore};
 use eg_rdf::sparql::{execute, Dataset, Projection, QueryOutcome};
@@ -1566,6 +1566,270 @@ f:capture-a a :WebCapture ; :captureOf f:page-a ; {c1} .
 // ---------------------------------------------------------------------------
 // Vocabulary: every term these questions rely on is declared by the module
 // that owns it, with its parent class, domain and range.
+// ---------------------------------------------------------------------------
+// `.3` acceptance rows: both questions of a connector through its declared
+// access contract, or the typed abstention naming the unconnected source.
+// ---------------------------------------------------------------------------
+
+// spec: EG-CQ-CONN-R005.3
+#[test]
+fn arr_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R005.1",
+            required: &[("radarr", "Video"), ("sonarr", "MediaEpisode")],
+            answer: arr_wanted_titles_without_file_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R005.2",
+            required: &[
+                ("radarr", "Video"),
+                ("qbittorrent", "Torrent"),
+                ("jellyfin", "Video"),
+            ],
+            answer: arr_wanted_downloading_not_in_jellyfin_answers,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R007.3
+#[test]
+fn audiobookshelf_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R007.1",
+            required: &[("audiobookshelf", "Audiobook")],
+            answer: audiobookshelf_partial_progress_by_user_answers,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R007.2",
+            required: &[
+                ("audiobookshelf", "Audiobook"),
+                ("media-downloader", "DownloadJob"),
+            ],
+            answer: audiobookshelf_versus_downloads_one_side_answers,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R008.3
+#[test]
+fn audio_transcriber_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R008.1",
+            required: &[("audio-transcriber", "Transcript")],
+            answer: audio_transcriber_low_confidence_segments_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R008.2",
+            required: &[
+                ("audio-transcriber", "Transcript"),
+                ("pulselink", "Transcript"),
+            ],
+            answer: audio_transcriber_topics_shared_with_pulselink_answer,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R014.3
+#[test]
+fn data_science_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R014.1",
+            required: &[("data-science", "ModelVersion")],
+            answer: data_science_models_below_baseline_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R014.2",
+            required: &[("data-science", "ModelVersion")],
+            answer: data_science_fine_tuned_models_without_evidence_answer,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R016.3
+#[test]
+fn documentdb_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R016.1",
+            required: &[("documentdb", "DocumentCollection")],
+            answer: documentdb_largest_collections_and_sparse_fields_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R016.2",
+            required: &[("documentdb", "DocumentCollection"), ("sql", "Table")],
+            answer: documentdb_collections_duplicating_sql_tables_answer,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R038.3
+#[test]
+fn media_downloader_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R038.1",
+            required: &[("media-downloader", "DownloadJob")],
+            answer: media_downloader_failed_jobs_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R038.2",
+            required: &[
+                ("media-downloader", "DownloadJob"),
+                ("audiobookshelf", "Audiobook"),
+                ("jellyfin", "Video"),
+            ],
+            answer: media_downloader_completed_never_added_answers,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R041.3
+#[test]
+fn objectstore_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R041.1",
+            required: &[("objectstore", "StorageContainer")],
+            answer: objectstore_largest_buckets_and_unread_objects_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R041.2",
+            required: &[("objectstore", "Blob"), ("data-science", "ModelArtifact")],
+            answer: objectstore_artifacts_unreferenced_by_models_answer,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R050.3
+#[test]
+fn pulselink_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R050.1",
+            required: &[("pulselink", "Video")],
+            answer: pulselink_videos_with_term_in_transcript_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R050.2",
+            required: &[("pulselink", "Transcript"), ("searxng", "SearchHit")],
+            answer: pulselink_topics_missing_from_archive_answer,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R051.3
+#[test]
+fn qbittorrent_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R051.1",
+            required: &[("qbittorrent", "Torrent")],
+            answer: qbittorrent_stalled_torrents_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R051.2",
+            required: &[
+                ("qbittorrent", "Torrent"),
+                ("radarr", "Video"),
+                ("sonarr", "MediaEpisode"),
+            ],
+            answer: qbittorrent_stalled_blocking_wanted_titles_answers,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R053.3
+#[test]
+fn rom_manager_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R053.1",
+            required: &[("rom-manager", "RomFile")],
+            answer: rom_manager_checksum_mismatch_answers,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R053.2",
+            required: &[
+                ("rom-manager", "RomFile"),
+                ("media-downloader", "DownloadJob"),
+            ],
+            answer: rom_manager_downloaded_unconverted_answers,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R055.3
+#[test]
+fn scholarx_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R055.1",
+            required: &[("scholarx", "ScholarlyPaper")],
+            answer: scholarx_recent_citing_papers_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R055.2",
+            required: &[("scholarx", "ScholarlyPaper"), ("searxng", "SearchHit")],
+            answer: scholarx_papers_never_surfaced_by_searxng_answer,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R056.3
+#[test]
+fn searxng_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R056.1",
+            required: &[("searxng", "SearchResult")],
+            answer: searxng_engines_by_result_count_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R056.2",
+            required: &[("searxng", "SearchHit"), ("archivebox", "WebCapture")],
+            answer: searxng_urls_not_archived_answer,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R058.3
+#[test]
+fn sql_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R058.1",
+            required: &[("sql", "Table")],
+            answer: sql_tables_without_primary_key_and_dangling_references_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R058.2",
+            required: &[("sql", "Table"), ("egeria", "DataAsset")],
+            answer: sql_tables_versus_egeria_catalog_answers,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R065.3
+#[test]
+fn vector_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R065.1",
+            required: &[("vector", "VectorIndex")],
+            answer: vector_largest_collections_and_dimension_mismatch_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R065.2",
+            required: &[("vector", "Embedding"), ("paperless-ngx", "Document")],
+            answer: vector_documents_without_embedding_answer,
+        },
+    ]);
+}
+
 // ---------------------------------------------------------------------------
 
 const KG: &str = "http://knuckles.team/kg#";

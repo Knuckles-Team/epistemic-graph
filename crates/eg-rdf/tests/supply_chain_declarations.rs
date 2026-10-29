@@ -382,6 +382,88 @@ fn uses_component_declares_the_runtime_chain_axiom() {
     );
 }
 
+// spec: EG-CQ-XSRC-R002.3
+#[test]
+fn vulnerability_and_affects_component_terms_are_listed() {
+    let triples = parse_turtle(DOCUMENT).unwrap();
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}Vulnerability"),
+        RDF_TYPE,
+        &format!("{OWL}Class")
+    ));
+    let domain = format!("{RDFS}domain");
+    let range = format!("{RDFS}range");
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}affectsComponent"),
+        RDF_TYPE,
+        &format!("{OWL}ObjectProperty")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}affectsComponent"),
+        &domain,
+        &format!("{KG}Vulnerability")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}affectsComponent"),
+        &range,
+        &format!("{KG}ComponentVersion")
+    ));
+    // The trm count property is left unchanged: trm still declares only the
+    // count, and does not gain the :Vulnerability class this file owns.
+    let trm = parse_turtle(include_str!("../../eg-core/ontology/trm-v1.ttl")).unwrap();
+    assert!(has_iri(
+        &trm,
+        &format!("{KG}vulnerabilityCount"),
+        RDF_TYPE,
+        &format!("{OWL}DatatypeProperty")
+    ));
+    assert!(!trm.iter().any(
+        |triple| triple.subject == NamedNode::new(format!("{KG}Vulnerability")).unwrap().into()
+    ));
+}
+
+// spec: EG-CQ-XSRC-R004.1
+#[test]
+fn supplies_service_declares_the_supplier_chain_axiom() {
+    let triples = parse_turtle(DOCUMENT).unwrap();
+    let subject = format!("{KG}suppliesService");
+    assert!(has_iri(
+        &triples,
+        &subject,
+        RDF_TYPE,
+        &format!("{OWL}ObjectProperty")
+    ));
+    let domain = format!("{RDFS}domain");
+    let range = format!("{RDFS}range");
+    assert!(has_iri(
+        &triples,
+        &subject,
+        &domain,
+        &format!("{INFRA}Service")
+    ));
+    assert!(has_iri(
+        &triples,
+        &subject,
+        &range,
+        &format!("{KG}Supplier")
+    ));
+    let chain = union_members(&triples, &subject, &format!("{OWL}propertyChainAxiom"));
+    assert_eq!(
+        chain,
+        vec![
+            format!("{KG}containsComponent"),
+            format!("{KG}deployedAs"),
+            format!("{KG}publishedBy"),
+            format!("{KG}supplyChainVersionOf"),
+            format!("{KG}usesImage"),
+        ]
+    );
+}
+
 // spec: EG-SUPPLY-VOCAB-R002.6
 #[test]
 fn vulnerability_terms_declared_and_trm_count_untouched() {

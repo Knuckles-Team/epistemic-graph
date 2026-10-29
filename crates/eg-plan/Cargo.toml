@@ -602,3 +602,10 @@ required-features = ["query"]
 name = "knowledge_oracle"
 path = "tests/knowledge_oracle.rs"
 required-features = ["epistemic", "text"]
+
+# Needs `KnowledgeBatchRow` (feature `knowledge-batch`); without it the file does
+# not compile.
+[[test]]
+name = "result_stream_memory"
+path = "tests/result_stream_memory.rs"
+required-features = ["knowledge-batch"]

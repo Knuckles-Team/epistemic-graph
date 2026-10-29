@@ -162,6 +162,7 @@ class AgentComponentFactsTool(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     cost: CostFacts | None = None
+    declared_by: ToolFactDeclarer | None = None
     destructive_hint: bool | None = None
     effect: ToolEffect
     facts: Literal["tool"]
@@ -172,7 +173,10 @@ class AgentComponentFactsTool(BaseModel):
     open_world_hint: bool | None = None
     output_schema_digest: str | None = None
     read_only_hint: bool | None = None
+    read_only_unproven: bool | None = None
     required_scopes: list[str]
+    schema_tokens: Annotated[int, Field(ge=0)] | None = None
+    side_effects: ToolSideEffects | None = None
 
 
 class AgentComponentFactsToolset(BaseModel):
@@ -1499,6 +1503,19 @@ class ToolEffect(str, Enum):
     WRITE = "write"
 
 
+class ToolFactDeclarer(str, Enum):
+    CONNECTOR = "connector"
+    MCP_HINT = "mcp_hint"
+    CERTIFIED = "certified"
+
+
+class ToolSideEffects(str, Enum):
+    NONE = "none"
+    WORKSPACE_WRITE = "workspace_write"
+    EXTERNAL_WRITE = "external_write"
+    NETWORK = "network"
+
+
 class ToolsetTransport(str, Enum):
     MCP = "mcp"
     FUNCTION = "function"
@@ -2507,6 +2524,8 @@ __all__ = [
     "TemplateFacts",
     "Term",
     "ToolEffect",
+    "ToolFactDeclarer",
+    "ToolSideEffects",
     "ToolsetTransport",
     "TopologyAdmission",
     "TopologyCaps",
