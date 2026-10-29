@@ -75,6 +75,12 @@ class is added.""" ;
     rdfs:domain :Person ;
     rdfs:range :Customer .
 
+:customerLastActivityAt a owl:DatatypeProperty ;
+    rdfs:label "customer last activity at" ;
+    rdfs:comment "The last time a Customer was active (a purchase, a contact, a contract event); the shapes companion keeps the value a dateTime. Module-local: the media module alone constrains the transfer property :lastActivityAt." ;
+    rdfs:domain :Customer ;
+    rdfs:range xsd:dateTime .
+
 :supportsCapability a owl:ObjectProperty ;
     rdfs:label "supports capability" ;
     rdfs:comment "Links a Service to the BusinessCapability it supports. Chosen as the service-to-capability relation: the epistemic :supports (core-foundation) links evidence to claims and no archimate relation carries service to capability, while the commercial shapes already target this IRI (plan.md decision D6, EG-CQ-XSRC-R008.2.3)." ;

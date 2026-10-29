@@ -3647,3 +3647,38 @@ fn media_vocab_freshrss_vocabulary_docs_truth() {
         "the freshrss Vocabulary cell names content-v1, not MISSING"
     );
 }
+
+// spec: EG-MEDIA-VOCAB-R002.3
+#[test]
+fn content_message_terms_reuse_team_without_redeclaration() {
+    let content = load(MEDIA);
+    assert_class(&content, "MessageChannel");
+    assert_class(&content, "ChatMessage");
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}ChatMessage"),
+            &format!("{RDFS}subClassOf"),
+            &format!("{KG}Document")
+        ),
+        ":ChatMessage is under the shared :Document"
+    );
+    for property in ["memberCount", "lastPostAt", "postedAt"] {
+        assert_typed(&content, property, "DatatypeProperty");
+    }
+    assert_typed(&content, "postedBy", "ObjectProperty");
+    assert!(
+        has_iri(
+            &content,
+            &format!("{KG}postedBy"),
+            &format!("{RDFS}range"),
+            &format!("{KG}Person")
+        ),
+        "postedBy ranges to :Person"
+    );
+    // The shared :Team is reused, never redeclared by the media module.
+    assert!(
+        !declared_classes(&content).contains(&format!("{KG}Team")),
+        "media-v1 must not redeclare :Team"
+    );
+}
