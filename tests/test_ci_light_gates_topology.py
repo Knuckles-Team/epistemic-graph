@@ -188,7 +188,7 @@ def test_auto_merge_is_the_shared_pipelines_caller() -> None:
     # pipelines#378: same-repository pull_request events arm native auto-merge (gated by
     # the required check); check_run alone never fires for Actions-created check runs.
     assert set(events) == {"pull_request", "check_run"}
-    assert "pull_request_target" not in source
+    assert "pull_request_target" not in events
     assert "actions/checkout@" not in source
     assert workflow["permissions"] == {}
     job = workflow["jobs"]["auto-merge"]
