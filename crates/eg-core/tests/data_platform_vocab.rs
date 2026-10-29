@@ -387,9 +387,11 @@ fn object_values(triples: &[Triple], subject: &str, predicate: &str) -> Vec<Stri
         .filter_map(|triple| match &triple.object {
             Term::NamedNode(node) => Some(node.as_str().to_string()),
             Term::Literal(literal) => Some(literal.value().to_string()),
-            Term::BlankNode(node) => Some(format!("_:{}", node.as_str())),
-            // RDF-star quoted triples are not object values for these assertions.
-            Term::Triple(_) => None,
+            other => match other {
+                Term::BlankNode(node) => Some(format!("_:{}", node.as_str())),
+                // RDF-star quoted triples are not object values for these assertions.
+                _ => None,
+            },
         })
         .collect()
 }
