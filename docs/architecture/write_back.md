@@ -1,6 +1,6 @@
 # Governed connector write-back
 
-`Method::WriteBack` is the durable half of RF-ADR-009 D18. Epistemic-graph owns
+`Method::WriteBack` is the durable half of RF-ADR-009 D18. Medulla owns
 versioned `SourceChangeSet` records and append-only `WriteBackReceipt` and
 `ReconciliationReceipt` streams. It does not contain a vendor client and never
 calls a source system. The agent-connector-sdk owns those source transports.
@@ -8,7 +8,7 @@ calls a source system. The agent-connector-sdk owns those source transports.
 ```mermaid
 sequenceDiagram
     participant G as arbora
-    participant E as epistemic-graph
+    participant E as Medulla
     participant S as agent-connector-sdk
     participant V as source system
     G->>E: create authorized SourceChangeSet

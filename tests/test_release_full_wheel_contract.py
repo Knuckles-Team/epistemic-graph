@@ -346,9 +346,9 @@ def test_self_hosted_runners_are_unreachable_from_pull_requests() -> None:
             if "self-hosted" not in _runner_labels(job):
                 continue
             condition = " ".join(str(job.get("if", "")).split())
-            assert (
-                "github.repository == 'Knuckles-Team/epistemic-graph'" in condition
-            ), f"{workflow.name}:{name}"
+            assert "github.repository == 'Knuckles-Team/medulla'" in condition, (
+                f"{workflow.name}:{name}"
+            )
             assert "pull_request" not in condition, f"{workflow.name}:{name}"
             assert "startsWith(github.ref, 'refs/tags/v')" in condition, (
                 f"{workflow.name}:{name}"
@@ -395,10 +395,12 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "python-suite",
             "gates-pyo3",
             "clippy-release-profiles",
+            "dupehound-census",
         }:
             expected = {
                 ("ci.yml", "gates-facade"): 60,
                 ("ci.yml", "clippy-release-profiles"): 60,
+                ("ci.yml", "dupehound-census"): 60,
             }.get(
                 (workflow.name, name),
                 "${{ github.event_name == 'pull_request' && 45 || 60 }}",
@@ -409,24 +411,19 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
 
 
 def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
+    thirty_min = "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     pr_scoped = {
-        (
-            "ci.yml",
-            "quality-advisory",
-        ): "${{ github.event_name == 'pull_request' && 30 || 60 }}",
-        (
-            "ci.yml",
-            "gates-crates",
-        ): "${{ github.event_name == 'pull_request' && 30 || 60 }}",
-        (
-            "ci.yml",
-            "gates-storage",
-        ): "${{ github.event_name == 'pull_request' && 30 || 60 }}",
+        ("ci.yml", "quality-advisory"): thirty_min,
+        ("ci.yml", "gates-crates"): thirty_min,
+        ("ci.yml", "gates-storage"): thirty_min,
     }.get(
-        (workflow.name, name),
-        "${{ github.event_name == 'pull_request' && 10 || 60 }}",
+        (workflow.name, name), "${{ github.event_name == 'pull_request' && 10 || 60 }}"
     )
-    if (workflow.name, name) == ("ci.yml", "quality-advisory"):
+    if (workflow.name, name) in {
+        ("ci.yml", "quality-advisory"),
+        ("ci.yml", "gates-crates"),
+        ("ci.yml", "gates-storage"),
+    }:
         assert job.get("timeout-minutes") == pr_scoped
     else:
         assert job.get("timeout-minutes") in (360, 5, pr_scoped), (

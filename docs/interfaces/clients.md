@@ -8,7 +8,7 @@ online **backup/restore**, and **NL→query** surfaces.
 Network clients use out-of-process **framed MessagePack** over UDS/TCP. For
 that deployment shape, the wire is the API: Python, JavaScript, and Go mirror
 the serde-tagged `Method` enum in
-[`crates/eg-types/src/protocol.rs`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/crates/eg-types/src/protocol.rs) by sending the
+[`crates/eg-types/src/protocol.rs`](https://github.com/Knuckles-Team/medulla/blob/main/crates/eg-types/src/protocol.rs) by sending the
 variant name and its exact parameter fields. The separate
 `epistemic_graph.engine` binding embeds the Rust graph core directly for
 single-process use and does not traverse the wire.
@@ -88,10 +88,10 @@ validation, issuer/audience policy, and credential renewal remain required.
 
 | Language | Location | Scope | Tested |
 |----------|----------|-------|--------|
-| **Python** | [`epistemic_graph/client.py`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/epistemic_graph/client.py) | **Full** — graph/vector/RDF/SQL/txn/broker plus governed `modalities` and native `knowledge` streaming. | `tests/test_pb_clients.py`, `tests/test_modality_stream_clients.py`, and the `gen_contract --check` engine-contract gate. |
+| **Python** | [`epistemic_graph/client.py`](https://github.com/Knuckles-Team/medulla/blob/main/epistemic_graph/client.py) | **Full** — graph/vector/RDF/SQL/txn/broker plus governed `modalities` and native `knowledge` streaming. | `tests/test_pb_clients.py`, `tests/test_modality_stream_clients.py`, and the `gen_contract --check` engine-contract gate. |
 | **Python embedded** | `epistemic_graph.engine` in the release wheel | In-process graph creation and node operations for explicit local/ephemeral use. | Wheel-completeness and transport-parity gates. |
-| **JS / Node** | [`clients/js`](https://github.com/Knuckles-Team/epistemic-graph/tree/main/clients/js) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run the package tests before release. |
-| **Go** | [`clients/go`](https://github.com/Knuckles-Team/epistemic-graph/tree/main/clients/go) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run `go test ./...` before release. |
+| **JS / Node** | [`clients/js`](https://github.com/Knuckles-Team/medulla/tree/main/clients/js) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run the package tests before release. |
+| **Go** | [`clients/go`](https://github.com/Knuckles-Team/medulla/tree/main/clients/go) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run `go test ./...` before release. |
 
 The thin clients are honest reference bindings: they carry the transport (framing + HMAC
 auth + result decode) and the B1.7 method surface, and each README states plainly that

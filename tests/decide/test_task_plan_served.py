@@ -87,6 +87,14 @@ def _proposal():
     }
 
 
+# The engine checks these windows against its own wall clock on every publish
+# and read, so they must outlast a debug engine stalled by a loaded host (a 30 s
+# snapshot window expired mid-test). The snapshot must end inside the lease.
+_CONTEXT_WINDOW_MS = 3_600_000
+_LEASE_MS = 3_600_000
+_SNAPSHOT_WINDOW_MS = 1_800_000
+
+
 def _persist_and_read(
     client,
     proposal,
@@ -115,7 +123,7 @@ def _persist_and_read(
         "graph": "__commons__",
         "placement_epoch": None,
         "issued_at_ms": now_ms,
-        "expires_at_ms": now_ms + 60_000,
+        "expires_at_ms": now_ms + _CONTEXT_WINDOW_MS,
     }
     admitted = client.work_items.submit(
         {
@@ -149,7 +157,7 @@ def _persist_and_read(
             "fairness_group": None,
             "worker_ref": run_id,
             "now_ms": now_ms,
-            "lease_ms": 60_000,
+            "lease_ms": _LEASE_MS,
             "max_tenant_in_flight": 4096,
         },
         idempotency_key=run_id + ":claim",
@@ -166,7 +174,7 @@ def _persist_and_read(
             "run_id": run_id,
             "revision": 0,
             "observed_at_ms": now_ms,
-            "expires_at_ms": now_ms + 30_000,
+            "expires_at_ms": now_ms + _SNAPSHOT_WINDOW_MS,
             "items": [],
             "task_plan": plan,
         },
@@ -225,6 +233,7 @@ def _persist_and_read(
     return run_id, restored
 
 
+# spec: EG-DECISION-ENGINE-R134.111
 # spec: EG-DECISION-ENGINE-R134.111.3
 # spec: EG-DECISION-ENGINE-R134.111.5
 # spec: EG-DURABLE-KERNEL-R028.5.3

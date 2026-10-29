@@ -25,6 +25,8 @@ from ._shared import (
     ObservationRef,
     ShellProficiency,
     StoppingBehaviour,
+    ToolFactDeclarer,
+    ToolSideEffects,
 )
 
 CONNECTOR_PACK_SCHEMA_VERSION = 2
@@ -292,6 +294,7 @@ class PackAnnotations(BaseModel):
 
     contract_version: str | None = None
     cost: DeclaredCost | None = None
+    declared_by: ToolFactDeclarer | None = None
     destructive_hint: bool | None = None
     idempotent_hint: bool | None = None
     latency_declared: DeclaredLatency | None = None
@@ -303,7 +306,9 @@ class PackAnnotations(BaseModel):
     read_only_hint: bool | None = None
     required_scopes: BoundedVec_string_64 = Field(default_factory=list)
     requires_capabilities: BoundedVec_string_64 = Field(default_factory=list)
+    schema_tokens: Annotated[int, Field(ge=0)] | None = None
     sdk_contract_pin: str | None = None
+    side_effects: ToolSideEffects | None = None
     tool_mode: PackToolMode | None = None
 
 
@@ -759,4 +764,6 @@ __all__ = [
     "PackWriteErrorCode",
     "ShellProficiency",
     "StoppingBehaviour",
+    "ToolFactDeclarer",
+    "ToolSideEffects",
 ]

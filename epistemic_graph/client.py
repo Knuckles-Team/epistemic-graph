@@ -9054,6 +9054,38 @@ class FinanceClient:
             )
         ).payload
 
+    async def position_size(
+        self,
+        accuracy: float,
+        win_loss_ratio: float,
+        fraction: float | None = None,
+        max_risk: float | None = None,
+    ) -> float:
+        """Fractional-Kelly stake clamped to [0, max_risk].
+
+        The default is half Kelly with a 0.02 cap.
+        """
+        return await _gen.compute.send_finance_position_size(
+            self._client,
+            {
+                "accuracy": accuracy,
+                "win_loss_ratio": win_loss_ratio,
+                "fraction": fraction,
+                "max_risk": max_risk,
+            },
+        )
+
+    async def distribution_shift(
+        self, reference: list[float], current: list[float], threshold: float
+    ) -> dict[str, Any]:
+        """Two-sample KS shift test: {statistic, p_value, shifted}."""
+        return (
+            await _gen.compute.send_finance_distribution_shift(
+                self._client,
+                {"reference": reference, "current": current, "threshold": threshold},
+            )
+        ).payload
+
     # ── Backtest validation
     # (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest)
     # ─────────────────────────
@@ -9464,8 +9496,9 @@ class FinanceClient:
         ``op`` is one of ``encode_points``, ``resolve`` (over records and/or
         stored points), ``rollup``, ``indicators``, ``signal_replay``,
         ``signal_advance``, ``signal_scan``, ``flip_confidence``,
-        ``backtest_run``, ``decimate`` (M4 chart thinning) or
-        ``analysis_snapshot`` (seal or re-verify an analysis record);
+        ``backtest_run``, ``decimate`` (M4 chart thinning),
+        ``liquidity_panel`` (versioned FRED net liquidity and heat components),
+        or ``analysis_snapshot`` (seal or re-verify an analysis record);
         ``params`` are that op's fields. Prices are integer
         ticks and indicator values integer milli-ticks. Pure compute and
         informational only: no result authorises an order.

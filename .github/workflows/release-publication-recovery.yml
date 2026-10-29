@@ -29,7 +29,7 @@ jobs:
     if: >-
       github.repository_id == '1248541673'
       && github.repository_owner_id == '119072828'
-      && github.repository == 'Knuckles-Team/epistemic-graph'
+      && github.repository == 'Knuckles-Team/medulla'
       && github.ref == 'refs/heads/main'
       && github.actor_id == '8661571'
       && github.actor == github.triggering_actor

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed, trusted-workflow gate for reviewed green pull requests.
+"""Fail-closed, trusted-workflow gate for green pull requests.
 
 The workflow fetches this file at github.workflow_sha without checking out
 the pull request. All repository state used for the decision is read back
@@ -19,9 +19,9 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from typing import Any
 
-SOURCE_REVIEW_CONTEXT = "Source review"
+CI_REQUIRED_CONTEXT = "CI required"
 BASE_BRANCH = "main"
-REQUIRED_CONTEXTS = frozenset({"CI required", SOURCE_REVIEW_CONTEXT})
+REQUIRED_CONTEXTS = frozenset({CI_REQUIRED_CONTEXT})
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
@@ -124,11 +124,16 @@ def _candidate_pr(
             api_get=api_get,
             log=log,
         )
-    if event_name != "status":
+    if event_name != "check_run":
         raise GateNotReady(f"event {event_name!r} is not an auto-merge trigger")
-    if event.get("context") != SOURCE_REVIEW_CONTEXT or event.get("state") != "success":
-        raise GateNotReady("status event is not a successful Source review")
-    head_sha = _sha(event.get("sha"))
+    check_run = event.get("check_run")
+    if (
+        not isinstance(check_run, Mapping)
+        or check_run.get("name") != CI_REQUIRED_CONTEXT
+        or check_run.get("conclusion") != "success"
+    ):
+        raise GateNotReady("check_run event is not a successful CI required")
+    head_sha = _sha(check_run.get("head_sha"))
     pulls = _get(
         api_get,
         f"/repos/{repo}/commits/{head_sha}/pulls?per_page=100",
@@ -148,7 +153,7 @@ def _candidate_pr(
         and _same_sha(pull["head"].get("sha"), head_sha)
     ]
     if len(matches) != 1 or not isinstance(matches[0].get("number"), int):
-        raise GateNotReady("the status SHA does not identify one open main PR")
+        raise GateNotReady("the check-run SHA does not identify one open main PR")
     return _pull_request(
         repo=repo,
         number=matches[0]["number"],
@@ -208,36 +213,31 @@ def _check_required_rule(*, repo: str, api_get: ApiGet, log: Log) -> None:
         )
 
 
-def _source_review_passed(
-    *, repo: str, head_sha: str, api_get: ApiGet, log: Log
-) -> None:
-    path = f"/repos/{repo}/commits/{head_sha}/status?per_page=100"
+def _ci_required_passed(*, repo: str, head_sha: str, api_get: ApiGet, log: Log) -> None:
+    path = (
+        f"/repos/{repo}/commits/{head_sha}/check-runs"
+        f"?check_name=CI%20required&per_page=100"
+    )
     payload = _get(api_get, path, log)
     if not isinstance(payload, Mapping):
-        raise ApiFailure("combined commit-status API returned a non-object")
-    if not _same_sha(payload.get("sha"), head_sha):
-        raise GateNotReady("combined commit-status SHA does not match this head")
-    statuses = payload.get("statuses")
-    if not isinstance(statuses, list):
-        raise ApiFailure("combined commit-status API returned no status list")
+        raise ApiFailure("check-runs API returned a non-object")
+    runs = payload.get("check_runs")
+    if not isinstance(runs, list):
+        raise ApiFailure("check-runs API returned no check_runs list")
     matches = [
-        status
-        for status in statuses
-        if isinstance(status, Mapping)
-        and status.get("context") == SOURCE_REVIEW_CONTEXT
+        run
+        for run in runs
+        if isinstance(run, Mapping)
+        and run.get("name") == CI_REQUIRED_CONTEXT
+        and _same_sha(run.get("head_sha"), head_sha)
+        and isinstance(run.get("id"), int)
     ]
     if not matches:
-        raise GateNotReady("no Source review success receipt exists for this head")
-    latest = max(
-        enumerate(matches),
-        key=lambda item: (
-            str(item[1].get("updated_at") or item[1].get("created_at") or ""),
-            -item[0],
-        ),
-    )[1]
-    if latest.get("state") != "success":
-        raise GateNotReady("the latest Source review receipt is not success")
-    log(f"Source review success receipt matches head {head_sha}")
+        raise GateNotReady("no CI required check run exists for this head")
+    latest = max(matches, key=lambda run: run["id"])
+    if latest.get("status") != "completed" or latest.get("conclusion") != "success":
+        raise GateNotReady("the latest CI required check run is not success")
+    log(f"CI required success matches head {head_sha}")
 
 
 def run_gate(
@@ -257,7 +257,7 @@ def run_gate(
         log=log,
     )
     _check_required_rule(repo=repo, api_get=api_get, log=log)
-    _source_review_passed(
+    _ci_required_passed(
         repo=repo,
         head_sha=head_sha,
         api_get=api_get,

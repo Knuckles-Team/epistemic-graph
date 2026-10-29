@@ -116,11 +116,6 @@ Persist prior-session notes only as R085 versioned memory snapshots. Bind stable
 
 Open Meristem decisions: the capture trigger, note-kind mapping, relevance score and threshold, staleness rule, and presentation/selection of conflicting notes. Automatic capture and transparent contextual reuse remain held until Meristem defines those inputs and consumer behavior.
 
-### `EG-DURABLE-KERNEL-R084.7` — EG:28
-
-**Definition hold.** The supported durable write boundary remains one graph through `ApplyMutation`, expected-version arbitration. R039 remains the sole redb authority. R024.1 foreign sources are read-only; R036 mirror cursors describe replay, not distributed transaction coordination. R084’s one-graph conflict behavior does not imply tenant-wide order across independent backends. No write to read-only sources or atomic multi-backend operation is authorized by this row.
-
-The owner decision is missing: allowed writable backend kinds and their registry owner. Coordinator owner. Tenant-versus-graph ordering key. Atomic-commit versus eventual-mirror contract. Owners must also define failure, idempotency, retry and receipt semantics for partial target failure. Preserve R084.1-.6 and R039 unchanged. Keep this child SPECIFIED and held until those choices are reviewed. Source SHA-256 `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->

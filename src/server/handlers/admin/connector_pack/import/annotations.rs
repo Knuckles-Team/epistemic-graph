@@ -62,7 +62,19 @@ pub(super) fn check_annotations(
         }
     }
     check_cost_and_latency(annotations, &mut findings);
+    if annotations.schema_tokens == Some(0) {
+        findings.violations.push((
+            PackViolationCode::InvalidAnnotation,
+            "schema_tokens must be at least 1; omit it when unknown",
+        ));
+    }
     if let Some(model) = &annotations.model {
+        if model.context_window_tokens == 0 {
+            findings.violations.push((
+                PackViolationCode::InvalidFacts,
+                "contextWindowTokens must be at least 1",
+            ));
+        }
         if model.max_output_tokens > model.context_window_tokens {
             findings.violations.push((
                 PackViolationCode::InvalidFacts,
@@ -298,6 +310,61 @@ mod tests {
             check_annotations(PackEntryKind::Prompt, &declared).violations[0].0,
             PackViolationCode::InvalidAnnotation
         );
+    }
+
+    // spec: EG-TYPED-PACKS-R045.4
+    #[test]
+    fn unknown_side_effect_is_refused() {
+        for (field, value) in [("side_effects", "filesystem"), ("declared_by", "vendor")] {
+            let error =
+                serde_json::from_value::<PackAnnotations>(serde_json::json!({ field: value }))
+                    .expect_err("an unknown closed value never reaches admission");
+            assert!(error
+                .to_string()
+                .starts_with(&format!("{field}: unknown value")));
+        }
+        let zero = PackAnnotations {
+            schema_tokens: Some(0),
+            ..PackAnnotations::default()
+        };
+        let findings = check_annotations(PackEntryKind::Tool, &zero);
+        assert_eq!(findings.violations.len(), 1);
+        assert_eq!(
+            findings.violations[0].0,
+            PackViolationCode::InvalidAnnotation
+        );
+        assert!(findings.violations[0].1.contains("schema_tokens"));
+        let sized = PackAnnotations {
+            schema_tokens: Some(1),
+            ..PackAnnotations::default()
+        };
+        assert!(codes(&sized).is_empty());
+    }
+
+    #[test]
+    fn context_window_zero_is_refused_by_the_pack_validator() {
+        let model = |window: u64, output: u64| PackAnnotations {
+            model: Some(eg_types::connector_pack::PackModelFacts {
+                provider: "vendor".into(),
+                model_identity: "vendor/m".into(),
+                context_window_tokens: window,
+                max_output_tokens: output,
+                supports_tools: Some(true),
+                supports_structured_output: Some(true),
+                supports_vision: Some(false),
+                input_capabilities: None,
+                shell_proficiency: None,
+                stopping_behaviour: None,
+            }),
+            ..PackAnnotations::default()
+        };
+        let findings = check_annotations(PackEntryKind::ModelProfile, &model(0, 0));
+        assert_eq!(findings.violations.len(), 1);
+        assert_eq!(findings.violations[0].0, PackViolationCode::InvalidFacts);
+        assert!(findings.violations[0].1.contains("contextWindowTokens"));
+        assert!(check_annotations(PackEntryKind::ModelProfile, &model(1, 1))
+            .violations
+            .is_empty());
     }
 }
 

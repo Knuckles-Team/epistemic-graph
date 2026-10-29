@@ -1,6 +1,6 @@
 # Ontology and SHACL authority
 
-Epistemic Graph is the sole runtime authority for OWL/RDF ontology composition,
+Medulla is the sole runtime authority for OWL/RDF ontology composition,
 reasoning, Datalog materialization, and SHACL validation. Agent Utilities is a
 control-plane consumer. It does not load a private root ontology, resolve
 `owl:imports`, run a Python reasoner, or validate with a local SHACL engine.

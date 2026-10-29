@@ -13,7 +13,7 @@ import test from "node:test";
 import { decode } from "@msgpack/msgpack";
 
 import { canonicalMethodBody } from "./codec.mjs";
-import { EpistemicGraphThinClient } from "./index.mjs";
+import { MedullaThinClient } from "./index.mjs";
 
 function contractJson(name) {
   return JSON.parse(readFileSync(new URL(`../../contract/${name}`, import.meta.url), "utf8"));
@@ -36,7 +36,7 @@ test("vectors cover every published method", () => {
 // spec: EG-CONTRACT-R004
 test("signer matches the engine for every method-body vector", async (t) => {
   assert.ok(vectors.length > 0 && envelope.secret, "the vector file carries vectors and an envelope");
-  const client = new EpistemicGraphThinClient({
+  const client = new MedullaThinClient({
     host: "engine.invalid",
     port: 9100,
     authSecret: envelope.secret,

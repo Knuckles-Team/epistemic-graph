@@ -363,6 +363,7 @@ pub(super) fn probe_rank_selection(scale: usize) -> Result<Observation, ProbeErr
         leaf_budget: 8,
     };
     let (result, latency) = timed(|| retriever.retrieve(&[1.0, 0.0], params));
+    let result = result.map_err(|error| format!("hierarchical retrieval refused: {error:?}"))?;
     let unique = result.context_ids().into_iter().collect::<HashSet<_>>();
     Ok(Observation {
         work_units: scale.max(1) as u64,

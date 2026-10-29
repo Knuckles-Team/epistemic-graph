@@ -1,6 +1,6 @@
 # Capabilities & parity matrix
 
-This page is the **operation-by-operation truth table** for epistemic-graph as a universal database. It
+This page is the **operation-by-operation truth table** for Medulla as a universal database. It
 is checked against the source, not against intent. Legend:
 
 - **✅ supported** — implemented and covered by tests.
@@ -498,7 +498,7 @@ result batches. See [numeric_kernel.md](architecture/numeric_kernel.md).
 | Element-wise (`sqrt/log/exp/abs/tanh/clip/maximum/minimum/where/nan_to_num/isnan`) | ✅ | `crates/eg-numeric/src/elementwise.rs`; nan/inf edge-cased |
 | LAPACK-class linalg (`norm/dot/matmul/solve/svd/eigh/pinv/lstsq/qr/cholesky/det/inv/matrix_power`) — pure-Rust faer, **no system BLAS/LAPACK** | ✅ | `crates/eg-numeric/src/linalg.rs`; singular → LinAlgError (isolated parity reference) |
 | Random (`normal/uniform/integers`, seedable, deterministic) | ✅ | `crates/eg-numeric/src/random.rs`; distributional parity |
-| Surface A — Python extension `epistemic_graph.numeric` (bounded built-in scalar/rectangular-sequence ↔ scalar/nested-list conversion) → `agent_utilities.numeric.xp` | ✅ | compiled as a wheel-composition component and **folded into the one `epistemic-graph` wheel**; Agent Utilities requires `epistemic-graph[full]`, whose compatibility extra adds no numeric runtime dependency; there is no second published numeric package or missing-kernel fallback (AU-KG.compute.is-installed-kernel-discovery/EG-KG.compute.tensor-gpu-distance) |
+| Surface A — Python extension `epistemic_graph.numeric` (bounded built-in scalar/rectangular-sequence ↔ scalar/nested-list conversion) → `agent_utilities.numeric.xp` | ✅ | compiled as a wheel-composition component and **folded into the one `medulla` wheel**; Agent Utilities requires `medulla[full]`, whose compatibility extra adds no numeric runtime dependency; there is no second published numeric package or missing-kernel fallback (AU-KG.compute.is-installed-kernel-discovery/EG-KG.compute.tensor-gpu-distance) |
 | Surface B — SQL analytics UDFs/UDAFs over the kernel: `cosine_sim`/`l2_normalize`/`zscore` scalars + `covariance` UDAF (in-engine over resident columns) | ✅ | CONCEPT:EG-KG.query.surface-b-numeric-operators; `crates/eg-query/src/sql/numeric.rs`; `crates/eg-query/tests/numeric_udfs.rs` |
 | Surface B — kernel-backed batch vector op via the client/Method path (`BatchL2Normalize`) | ✅ | CONCEPT:EG-KG.compute.l2-normalize-batch-vectors; `src/server/handlers/graph_ops.rs`; `client.batch_l2_normalize()` |
 | Surface B — `svd(vec_col)`/`pca(vec_col,k)` column→matrix SQL UDAFs (aggregate a vector column into a dense matrix → faer `svdvals`/`eigh`; singular values / top-k principal-component directions) | ✅ | CONCEPT:EG-KG.query.svd-eg-pca-column/EG-KG.query.concept-6; `crates/eg-query/src/sql/numeric.rs`; `crates/eg-query/tests/numeric_udfs.rs` |

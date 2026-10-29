@@ -1,6 +1,6 @@
 # Observability interface
 
-epistemic-graph is a full **observability backend** — an OpenObserve-class store for the logs + metrics +
+Medulla is a full **observability backend** — an OpenObserve-class store for the logs + metrics +
 traces trilogy — served from the same durable engine (feature `obs`, in the one main build; out of the
 one main build). Logs land as time-series + full-text documents, metrics answer PromQL, spans answer trace
 search, and a super-cluster `/federated` fan-out unifies multiple regions. It is cross-modal: an ingest

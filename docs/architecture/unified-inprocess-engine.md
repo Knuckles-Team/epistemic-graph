@@ -451,7 +451,7 @@ target wheel's `RECORD`, never the other's extension). `scripts/check_wheel_comp
 (which already asserts the numeric kernel ships) gets a matching assertion for the engine
 extension once §11's packaging work lands.
 
-**Runtime, not install-time, selection.** `pip install epistemic-graph` always gets both
+**Runtime, not install-time, selection.** `pip install medulla` always gets both
 artifacts (the `bin` **and** the extension) once this ships — installing does not commit
 the operator to a transport. `arbora` picks the transport (`EmbeddedTransport` vs
 `SocketTransport`, §4) from its own config at **startup**, which is exactly what W-D

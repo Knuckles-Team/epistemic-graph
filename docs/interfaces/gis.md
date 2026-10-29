@@ -1,6 +1,6 @@
 # GIS / spatial interface
 
-epistemic-graph carries a native **geospatial modality** — a pure-Rust `eg-geo` crate (geo/geo-types + an
+Medulla carries a native **geospatial modality** — a pure-Rust `eg-geo` crate (geo/geo-types + an
 in-house packed Hilbert / STR R-tree; **no GEOS / PROJ C deps**) behind the `geo` feature (folded into
 in the one main build). Geometries persist as a typed value in the redb per-graph store, a
 durable R-tree indexes them, and spatial predicates compose with graph traversal / vector / SQL in one

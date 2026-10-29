@@ -2,7 +2,7 @@
 
 > **Purpose of this page.** This is the code-checked, line-anchored catalog of every
 > capability the "Epistemic OS Hardening" program (Phase 0 → Phase 3 + the "exceed"
-> tracks) shipped into `epistemic-graph`. It exists so a static audit can use
+> tracks) shipped into Medulla. It exists so a static audit can use
 > `CHANGELOG.md` for release history and `docs/capabilities.md` for the
 > operation-by-operation parity matrix) can read *what is actually true of the shipped
 > code* without re-deriving it from source. Where the program's original intent and the

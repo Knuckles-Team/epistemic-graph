@@ -63,7 +63,7 @@ flowchart TB
         C["client.asr.transcribe_file(...)"]
     end
 
-    subgraph engine["epistemic-graph engine (facade, feature asr-whisper)"]
+    subgraph engine["Medulla engine (facade, feature asr-whisper)"]
         D["dispatch.rs\nMethod::Asr { op } — self-routes,\nNOT graph-scoped, ahead of\ndispatch_graph_op"]
         H["handlers/asr.rs\nspawn_blocking, maps AsrOp -> JSON"]
     end

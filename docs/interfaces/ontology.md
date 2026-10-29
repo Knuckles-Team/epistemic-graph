@@ -1,6 +1,6 @@
 # Ontology hosting & lifecycle
 
-epistemic-graph is an **ontology server**: it hosts OWL/RDFS ontologies, maps them onto the property
+Medulla is an **ontology server**: it hosts OWL/RDFS ontologies, maps them onto the property
 graph, and reasons over them in-engine with the OWL 2 EL⁺/RL reasoner (`eg-rdf/owl`). Reasoning is
 pure-Rust (no horned-owl, no whelk-rs) and adds two things most triple-stores don't: **confidence
 weighting** and **Ebbinghaus time-decay** of derived facts.

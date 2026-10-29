@@ -74,6 +74,9 @@ Question, then Arbora intent tool (Arbora repo), then Medulla `select_sources` r
 **D5. Shared supplier/item relation: DECIDED `:suppliesItem`, no `:suppliedBy` redeclaration.**
 `kg:suppliesItem` is the canonical EG relation. It links `kg:Supplier` to `kg:SupplyChainItem`. Existing `kg:suppliedBy` declarations remain source-owned, including the ERPNext purchase-order relation. This competency does not narrow or redeclare them. This amends `EG-CQ-XSRC-R002.1`; `EG-SUPPLY-VOCAB-R003.6` records the cross-spec amendment.
 
+**D6. Service-to-capability relation: DECIDED `kg:supportsCapability`.**
+Checked `kg:supports` (`core-foundation-v1.ttl`): it is the epistemic evidence-to-claim link (an Evidence node to the belief/claim it supports), not a service-to-capability relation. No archimate relation carries service to capability (`archimate-v1.ttl` declares `:BusinessCapability` with no service link). The commercial shapes already target `kg:supportsCapability` (Service → BusinessCapability), so the R008.2.3 fixture uses it and `commercial-v1.ttl` now declares it.
+
 ## Agent memory acceptance question (R009)
 
 R009 is the acceptance question for the agent-memory substrate. It composes `EG-FEDERATED-QUERY-R720` stages with `EG-DECISION-ENGINE-R700.7` contradiction records. arbora serves the program through [`ARBORA-OPS-R018`](https://github.com/Knuckles-Team/arbora/blob/main/specs/hosted-api-operations/requirements.md). `EG-DURABLE-KERNEL-R042.2` measures its latency.

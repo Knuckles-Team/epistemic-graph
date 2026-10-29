@@ -166,6 +166,10 @@ pub mod runtime;
 pub mod clickhouse_connection;
 #[cfg(feature = "nl-query")]
 pub mod nl;
+/// Oracle/Db2 attached-source driver config + connect/refusal path
+/// (EG-UNIFIED-DATA-PLANE-R018.2.1). Pure `std`, always compiled: no driver/ODBC
+/// client dependency is needed until the live slice (`R018.2.2`) issues real reads.
+pub mod relational_connection;
 // The federation foreign-source seam (CONCEPT:EG-KG.query.query-federation) — the `ForeignSource` trait +
 // the remote-engine / HTTP-JSON kinds backing `Op::ForeignScan`. Implies `query`.
 #[cfg(feature = "federation")]

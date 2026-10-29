@@ -63,9 +63,9 @@
         "944faa2cebf9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:146",
-        "crates/eg-core/tests/data_platform_vocab.rs:22",
-        "crates/eg-core/tests/data_platform_vocab.rs:97",
+        "crates/eg-core/tests/data_platform_vocab.rs:100",
+        "crates/eg-core/tests/data_platform_vocab.rs:149",
+        "crates/eg-core/tests/data_platform_vocab.rs:25",
         "crates/eg-shacl/tests/data_platform_vocab.rs:21"
       ],
       "rollup_of": [
@@ -83,7 +83,7 @@
         "944faa2cebf9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:22"
+        "crates/eg-core/tests/data_platform_vocab.rs:25"
       ]
     },
     {
@@ -94,7 +94,7 @@
         "944faa2cebf9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:97"
+        "crates/eg-core/tests/data_platform_vocab.rs:100"
       ]
     },
     {
@@ -116,7 +116,7 @@
         "944faa2cebf9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:146"
+        "crates/eg-core/tests/data_platform_vocab.rs:149"
       ]
     },
     {
@@ -137,10 +137,11 @@
       "title": "Add `dp:Database`, `dp:Schema`, `dp:Table`, `dp:View`, `dp:Column`, `dp:ForeignKey`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4f816faa7f1e"
+        "4f816faa7f1e",
+        "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:232"
+        "crates/eg-core/tests/data_platform_vocab.rs:235"
       ]
     },
     {
@@ -148,10 +149,11 @@
       "title": "Add `dp:inSchema`, `dp:hasColumn`, `dp:referencesTable`, `dp:isPrimaryKey`, `dp:sqlDialect` with domain/range. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R002.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4f816faa7f1e"
+        "4f816faa7f1e",
+        "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:248"
+        "crates/eg-core/tests/data_platform_vocab.rs:251"
       ]
     },
     {
@@ -159,10 +161,11 @@
       "title": "Add `dp:Collection`, `dp:DocumentField`, `dp:fieldPath`, `dp:fieldType`, `dp:presenceRatio`, `dp:documentCount`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4f816faa7f1e"
+        "4f816faa7f1e",
+        "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:259"
+        "crates/eg-core/tests/data_platform_vocab.rs:262"
       ]
     },
     {
@@ -192,7 +195,7 @@
         "4f816faa7f1e"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:271"
+        "crates/eg-core/tests/data_platform_vocab.rs:274"
       ]
     },
     {
@@ -200,10 +203,11 @@
       "title": "Add `dp:VectorCollection`, `dp:EmbeddingSpace`, `dp:embeddingModel`, `dp:dimensions`, `dp:distanceMetric`, `dp:usesEmbeddingSpace`, `dp:vectorCount`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4f816faa7f1e"
+        "4f816faa7f1e",
+        "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:293"
+        "crates/eg-core/tests/data_platform_vocab.rs:296"
       ]
     },
     {
@@ -231,10 +235,11 @@
       "title": "Add `dp:Topic`, `dp:Partition`, `dp:ConsumerGroup`, `dp:PartitionLag`, `dp:partitionOf`, `dp:subscribesTo`, `dp:lag`, `dp:groupState`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4f816faa7f1e"
+        "4f816faa7f1e",
+        "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:310"
+        "crates/eg-core/tests/data_platform_vocab.rs:313"
       ]
     },
     {
@@ -252,7 +257,7 @@
         "4f816faa7f1e"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:323"
+        "crates/eg-core/tests/data_platform_vocab.rs:326"
       ]
     },
     {
@@ -260,10 +265,11 @@
       "title": "Add `dp:Dataset` as a subclass of the existing core `:Dataset`, `dp:Model` as a general trained-model class (not equivalent to the narrower LLM/embedding `:Model`), `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4f816faa7f1e"
+        "4f816faa7f1e",
+        "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:340"
+        "crates/eg-core/tests/data_platform_vocab.rs:343"
       ]
     },
     {
@@ -283,23 +289,35 @@
     {
       "id": "EG-DATAPLAT-VOCAB-R005.1",
       "title": "Add `dp:SecretEngine`, `dp:SecretPath`, `dp:AccessPolicy`, `dp:RotationState`, `dp:hasRotationState`, `dp:lastRotatedAt`, `dp:currentVersion`, `dp:pathName`, `dp:PolicyPathGrant`, `dp:grantPolicy`, `dp:grantPath`, `dp:grantsCapability`, `dp:leaseExpiresAt`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f3b6984f260a"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:414"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R005.2",
       "title": "Add closed shapes (`sh:closed true`) for the five secret-metadata classes, including `dp:PolicyPathGrant`. Allow only their applicable metadata properties, including shared store/provenance links, and reject every other property. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R005.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f3b6984f260a"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:536"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R005.3",
       "title": "Refusal test row: a `dp:SecretPath` carrying a `value` (and one carrying `token`) triple fails validation, and the vocabulary file contains no property named value, secret, token, password, ciphertext or rules. Touches `crates/eg-core/tests/data_platform_vocab.rs`. Depends on `EG-DATAPLAT-VOCAB-R005.2`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f3b6984f260a"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:589"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R005.4",
@@ -335,9 +353,13 @@
     {
       "id": "EG-DATAPLAT-VOCAB-R006.1",
       "title": "Add the `sql` `dp:StoreMapping` fixture for `sql_schema:tables`, `columns`, `foreign_keys`, `constraints` with `dp:accelerationMode` V (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/sql.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f3b6984f260a"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:710"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R006.2",
@@ -384,9 +406,13 @@
     {
       "id": "EG-DATAPLAT-VOCAB-R006.8",
       "title": "Add the `data-science` `dp:StoreMapping` fixture for `load_dataset`, `dataset_lineage`, `rank_models`, `evaluate_model` with `dp:accelerationMode` V; M for run history (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/data-science.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f3b6984f260a"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/data_platform_vocab.rs:724"
+      ]
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R007",

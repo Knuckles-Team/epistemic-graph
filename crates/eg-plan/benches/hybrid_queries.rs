@@ -802,7 +802,7 @@ fn bench_leanrag_bounded_topk(c: &mut Criterion) {
         };
         group.throughput(Throughput::Elements((fixture.summaries * fanout) as u64));
         group.bench_with_input(BenchmarkId::from_parameter(fanout), &fanout, |b, _| {
-            b.iter(|| black_box(retriever.retrieve(black_box(&[1.0, 1.0]), params)))
+            b.iter(|| black_box(retriever.retrieve(black_box(&[1.0, 1.0]), params).unwrap()))
         });
     }
     group.finish();

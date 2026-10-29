@@ -9,6 +9,7 @@
 #![allow(clippy::result_large_err)]
 
 mod market;
+mod numeric_kernels;
 mod route_families;
 mod routes;
 mod signal_models;

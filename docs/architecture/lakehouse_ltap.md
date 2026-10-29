@@ -1,6 +1,6 @@
 # LTAP lakehouse interop (eg-lake, EG-KG.storage.lsn-as-snapshot-returns)
 
-`epistemic-graph` is transactional (redb-authoritative, cross-modal ACID) **and** analytical (DataFusion
+Medulla is transactional (redb-authoritative, cross-modal ACID) **and** analytical (DataFusion
 SQL, columnar segments, window frames). Program B adds the third leg — **lakehouse interoperability** —
 making the engine an **LTAP** (Lakehouse-Transactional-Analytical Processing) superset: external lakehouse
 engines read the engine's own tables as open **Parquet + Delta/Iceberg** with **zero ETL**, while writes
@@ -25,7 +25,7 @@ each remain **opt-in at runtime**: nothing runs unless `GRAPH_SERVICE_PERSIST_DI
 
 ```mermaid
 flowchart LR
-    subgraph Engine["epistemic-graph (LTAP)"]
+    subgraph Engine["Medulla (LTAP)"]
         TBL["User tables + columnar segments<br/>(eg-query / TableStore)"]
         SNAP["Versioned snapshots + Op::AsOf<br/>(LSN-style as-of)"]
         LAKE["eg-lake: async columnar materializer"]
@@ -75,7 +75,7 @@ flowchart LR
 
 ## Why it is an LTAP superset
 
-| Leg | In epistemic-graph |
+| Leg | In Medulla |
 |-----|--------------------|
 | **T**ransactional | redb-authoritative, commit-before-ack, cross-modal ACID `WriteTransaction`, multi-Raft + cross-shard 2PC |
 | **A**nalytical | DataFusion 43 `SELECT` (joins/CTE/window), columnar struct-of-arrays segments (EG-089), PromQL/TSDB |

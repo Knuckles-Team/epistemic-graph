@@ -644,6 +644,12 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "FACTOR_RECORD_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "decision",
       "code": "FEATURE_SCHEMA_INVALID",
       "http_status_hint": 400,
@@ -1426,6 +1432,12 @@
     {
       "class": "decision",
       "code": "REPLAY_SPEC_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "REPOSITORY_BATCH_TOO_LARGE",
       "http_status_hint": 400,
       "retryable": false
     },

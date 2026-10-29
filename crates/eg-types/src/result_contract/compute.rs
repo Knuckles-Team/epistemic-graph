@@ -179,6 +179,26 @@ method_results! {
     #[cfg(feature = "finance")]
     FinanceConvergenceGate(FinanceConvergenceGate) => Raw<finance::ConvergenceGate>;
     FinanceEmpiricalKelly(FinanceEmpiricalKelly) => Float<f64>;
+    FinancePositionSize(FinancePositionSize) => Float<f64>;
+    #[cfg(feature = "finance")]
+    FinanceAmlScreen(FinanceAmlScreen) => Raw<finance::AmlScreenResult>;
+    #[cfg(feature = "finance")]
+    FinanceCapitalRatios(FinanceCapitalRatios) => Raw<finance::CapitalRatiosResult>;
+    FinanceExpectedLoss(FinanceExpectedLoss) => Float<f64>;
+    #[cfg(feature = "finance")]
+    FinanceSettlementChain(FinanceSettlementChain) => Raw<Vec<finance::SettlementLegResult>>;
+    #[cfg(feature = "finance")]
+    FinanceRegimeChain(FinanceRegimeChain) => Raw<finance::RegimeChainResult>;
+    #[cfg(feature = "finance")]
+    FinanceExecutionSchedule(FinanceExecutionSchedule) => Raw<finance::ExecutionScheduleResult>;
+    #[cfg(feature = "finance")]
+    FinanceMarketMakingQuote(FinanceMarketMakingQuote) => Raw<finance::MarketMakingQuoteResult>;
+    #[cfg(feature = "finance")]
+    FinancePairsSignal(FinancePairsSignal) => Raw<finance::PairsSignalResult>;
+    #[cfg(feature = "finance")]
+    FinanceFactorRank(FinanceFactorRank) => Raw<Vec<finance::FactorRecordResult>>;
+    #[cfg(feature = "finance")]
+    FinanceDistributionShift(FinanceDistributionShift) => Raw<finance::DistributionShift>;
     FinanceSabrImpliedVol(FinanceSabrImpliedVol) => Float<f64>;
     FinanceSabrSmile(FinanceSabrSmile) => Raw<Vec<f64>>;
     #[cfg(feature = "finance")]
@@ -257,6 +277,8 @@ method_results! {
     FinanceMarketBacktestRun(FinanceMarket / "backtest_run") => Raw<market::BacktestRun>;
     #[cfg(feature = "finance")]
     FinanceMarketDecimate(FinanceMarket / "decimate") => Raw<market::DecimatedChart>;
+    #[cfg(feature = "finance")]
+    FinanceMarketLiquidityPanel(FinanceMarket / "liquidity_panel") => Raw<market::LiquidityPanel>;
     #[cfg(feature = "finance")]
     FinanceMarketAnalysisSnapshot(FinanceMarket / "analysis_snapshot") => Raw<market::AnalysisSnapshot>;
     // ── signal fusion and the strategic-insider model (EH-423 / AUD-30) ──

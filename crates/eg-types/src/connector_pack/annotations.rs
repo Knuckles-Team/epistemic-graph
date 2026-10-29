@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent_component::{
     DeclaredCost, DeclaredLatency, MeasuredFact, ModelInputCapabilities, ShellProficiency,
-    StoppingBehaviour,
+    StoppingBehaviour, ToolFactDeclarer, ToolSideEffects,
 };
 use crate::contract::BoundedVec;
 
@@ -100,6 +100,43 @@ pub struct PackAnnotations {
     /// Meaningful on tools only.
     #[serde(default)]
     pub tool_mode: Option<PackToolMode>,
+    /// What the tool may change. Absent is unknown; see
+    /// [`PackAnnotations::effective_side_effects`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_effects: Option<ToolSideEffects>,
+    /// Who declared the effect facts. Absent reads as `connector`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_by: Option<ToolFactDeclarer>,
+    /// The tool schema's size in tokens. Absent is unknown, never zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_tokens: Option<u32>,
+}
+
+impl PackAnnotations {
+    /// An absent read-only hint is `false`: nothing has claimed the tool is safe.
+    pub fn effective_read_only(&self) -> bool {
+        self.read_only_hint.unwrap_or(false)
+    }
+
+    /// Absent side effects read as the least permissive answer.
+    pub fn effective_side_effects(&self) -> ToolSideEffects {
+        self.side_effects.unwrap_or(ToolSideEffects::ExternalWrite)
+    }
+
+    /// Absent declarer reads as the connector author.
+    pub fn effective_declared_by(&self) -> ToolFactDeclarer {
+        self.declared_by.unwrap_or(ToolFactDeclarer::Connector)
+    }
+
+    /// The declared schema size. Absent stays absent; no caller may read it as zero.
+    pub fn effective_schema_tokens(&self) -> Option<u32> {
+        self.schema_tokens
+    }
+
+    /// A read-only hint is unproven when it is only an MCP hint.
+    pub fn read_only_unproven(&self) -> bool {
+        self.effective_read_only() && self.effective_declared_by() == ToolFactDeclarer::McpHint
+    }
 }
 
 /// How an SDK tool presents its arguments.
@@ -109,4 +146,91 @@ pub struct PackAnnotations {
 pub enum PackToolMode {
     Condensed,
     Verbose,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // spec: EG-TYPED-PACKS-R045.1
+    #[test]
+    fn new_fields_roundtrip() {
+        for side_effects in [
+            ToolSideEffects::None,
+            ToolSideEffects::WorkspaceWrite,
+            ToolSideEffects::ExternalWrite,
+            ToolSideEffects::Network,
+        ] {
+            for declared_by in [
+                ToolFactDeclarer::Connector,
+                ToolFactDeclarer::McpHint,
+                ToolFactDeclarer::Certified,
+            ] {
+                let annotations = PackAnnotations {
+                    side_effects: Some(side_effects),
+                    declared_by: Some(declared_by),
+                    schema_tokens: Some(812),
+                    ..PackAnnotations::default()
+                };
+                let wire = serde_json::to_value(&annotations).unwrap();
+                assert_eq!(wire["side_effects"], side_effects.as_str());
+                assert_eq!(wire["declared_by"], declared_by.as_str());
+                assert_eq!(wire["schema_tokens"], 812);
+                assert_eq!(
+                    serde_json::from_value::<PackAnnotations>(wire).unwrap(),
+                    annotations
+                );
+            }
+        }
+        let legacy: PackAnnotations = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(legacy.side_effects, None);
+        assert_eq!(legacy.declared_by, None);
+        assert_eq!(legacy.schema_tokens, None);
+        let wire = serde_json::to_value(&legacy).unwrap();
+        for field in ["side_effects", "declared_by", "schema_tokens"] {
+            assert!(wire.get(field).is_none(), "{field} must stay off the wire");
+        }
+    }
+
+    // spec: EG-TYPED-PACKS-R045.2
+    #[test]
+    fn absent_facts_take_safe_defaults() {
+        let absent = PackAnnotations::default();
+        assert!(!absent.effective_read_only());
+        assert_eq!(
+            absent.effective_side_effects(),
+            ToolSideEffects::ExternalWrite
+        );
+        assert_eq!(absent.effective_declared_by(), ToolFactDeclarer::Connector);
+        assert_eq!(absent.effective_schema_tokens(), None);
+        assert!(!absent.read_only_unproven());
+        let hinted = PackAnnotations {
+            read_only_hint: Some(true),
+            declared_by: Some(ToolFactDeclarer::McpHint),
+            ..PackAnnotations::default()
+        };
+        assert!(hinted.effective_read_only());
+        assert!(hinted.read_only_unproven());
+        let certified = PackAnnotations {
+            declared_by: Some(ToolFactDeclarer::Certified),
+            ..hinted
+        };
+        assert!(!certified.read_only_unproven());
+    }
+
+    // spec: EG-TYPED-PACKS-R045.4
+    #[test]
+    fn unknown_closed_values_are_refused_naming_the_field() {
+        for (field, value) in [("side_effects", "filesystem"), ("declared_by", "vendor")] {
+            let error =
+                serde_json::from_value::<PackAnnotations>(serde_json::json!({ field: value }))
+                    .expect_err("an unknown closed value must refuse");
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("{field}: unknown value `{value}`")),
+                "{error}"
+            );
+        }
+    }
 }

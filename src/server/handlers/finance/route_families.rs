@@ -465,6 +465,45 @@ pub(super) fn handle_sizing(req_id: u64, method: Method) -> Result<Response, Met
                 ResultPayload::scalar::<results::FinanceKellyFraction>(v),
             )
         }
+        Method::FinancePositionSize {
+            accuracy,
+            win_loss_ratio,
+            fraction,
+            max_risk,
+        } => {
+            use crate::finance::sizing::{
+                kelly_fraction, KellyInput, DEFAULT_KELLY_FRACTION, DEFAULT_MAX_RISK,
+            };
+            match KellyInput::new(
+                accuracy,
+                win_loss_ratio,
+                fraction.unwrap_or(DEFAULT_KELLY_FRACTION),
+                max_risk.unwrap_or(DEFAULT_MAX_RISK),
+            ) {
+                Ok(input) => Response::ok(
+                    req_id,
+                    ResultPayload::scalar::<results::FinancePositionSize>(kelly_fraction(&input)),
+                ),
+                Err(error) => Response::err(req_id, format!("INVALID_ARGUMENT: {error}")),
+            }
+        }
+        Method::FinanceDistributionShift {
+            reference,
+            current,
+            threshold,
+        } => match crate::finance::sizing::distribution_shift(&reference, &current, threshold) {
+            Ok(shift) => Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceDistributionShift>(
+                    eg_types::compute_result::finance::DistributionShift {
+                        statistic: shift.statistic,
+                        p_value: shift.p_value,
+                        shifted: shift.shifted,
+                    },
+                ),
+            ),
+            Err(error) => Response::err(req_id, format!("INVALID_ARGUMENT: {error}")),
+        },
         Method::FinanceBayesianKelly {
             alpha,
             beta,

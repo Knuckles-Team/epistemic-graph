@@ -1,6 +1,6 @@
 # Interfaces
 
-epistemic-graph is a **drop-in substrate**: existing clients connect to it as if it were the
+Medulla is a **drop-in substrate**: existing clients connect to it as if it were the
 database they already speak. This is the curated map of the `interfaces/` tree (17 pages) — start
 with the connection guide, then jump straight to the surface the operator needs.
 

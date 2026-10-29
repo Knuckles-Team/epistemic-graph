@@ -1236,6 +1236,55 @@ jobs:
           - { name: 'slim-server', flags: '--no-default-features --features server' }
     steps: *eg-clippy-steps
 
+  # Nightly schedule only. The tracked-tree duplicate-function census is
+  # advisory evidence (scripts/check_dupehound_census.py): it never blocks
+  # CI required and its receipts are uploaded as an artifact.
+  dupehound-census:
+    timeout-minutes: 60
+    name: Dupehound tracked-tree census (advisory)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: '.python-version'
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - name: Provision pinned scanner toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/install_scanners.sh "$RUNNER_TEMP/eg-scanners"
+          echo "$RUNNER_TEMP/eg-scanners/dupehound/bin" >> "$GITHUB_PATH"
+      - name: Dupehound tracked-tree census (advisory)
+        run: |
+          set -euo pipefail
+          python3 scripts/check_dupehound_census.py \
+            --repository agent-packages/epistemic-graph \
+            --commit HEAD \
+            --profile dupehound-full-tree-v1:epistemic-graph \
+            --raw-output "$RUNNER_TEMP/dupehound.raw.json" \
+            --stderr-output "$RUNNER_TEMP/dupehound.stderr.txt" \
+            --normalized-output "$RUNNER_TEMP/dupehound.scanner-evidence.json" \
+            --manifest-output "$RUNNER_TEMP/dupehound.manifest.json"
+      - name: Upload Dupehound census evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dupehound-census-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/dupehound.raw.json
+            ${{ runner.temp }}/dupehound.stderr.txt
+            ${{ runner.temp }}/dupehound.scanner-evidence.json
+            ${{ runner.temp }}/dupehound.manifest.json
+
   # ── Optional feature-combination build analysis. Failures stay visible in
   # Actions but cannot delay a release.
   feature-matrix:
@@ -1324,7 +1373,7 @@ jobs:
     timeout-minutes: 360
     name: wheel cache ${{ matrix.name }}
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.runner }}
     continue-on-error: true
@@ -1383,7 +1432,7 @@ jobs:
     timeout-minutes: 360
     name: server wheel cache linux-${{ matrix.arch }}
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     continue-on-error: true
@@ -1411,7 +1460,7 @@ jobs:
     name: engine-main wheel (linux-x86_64)
     needs: [light-gates, changes, gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, quality-advisory, clippy-release-profiles, security]
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'
       && needs.gates.result == 'success'
     runs-on: ubuntu-latest

@@ -690,9 +690,13 @@
     {
       "id": "EG-MEDIA-VOCAB-R014.1",
       "title": "Add the `scholarx` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_b.rs:94"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R014.2",
@@ -731,9 +735,13 @@
     {
       "id": "EG-MEDIA-VOCAB-R015.1",
       "title": "Add the `searxng` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_b.rs:111"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R015.2",
@@ -813,9 +821,13 @@
     {
       "id": "EG-MEDIA-VOCAB-R017.1",
       "title": "Add the `postiz` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_b.rs:127"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R017.2",
@@ -854,9 +866,13 @@
     {
       "id": "EG-MEDIA-VOCAB-R018.1",
       "title": "Add the `listmonk` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_b.rs:142"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R018.2",
@@ -895,9 +911,13 @@
     {
       "id": "EG-MEDIA-VOCAB-R019.1",
       "title": "Add the `mattermost` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_b.rs:172"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R019.2",
@@ -1038,7 +1058,7 @@
     },
     {
       "id": "EG-MEDIA-VOCAB-R002.5",
-      "title": "Receipt-bound paper facts; citation-edge hold",
+      "title": "Receipt-bound paper facts; citation edges",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

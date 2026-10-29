@@ -121,6 +121,17 @@
 | `FinanceKyleLambda` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceSurveillanceRisk` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKellyFraction` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinancePositionSize` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceAmlScreen` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceCapitalRatios` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceExpectedLoss` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceSettlementChain` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceRegimeChain` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceExecutionSchedule` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceMarketMakingQuote` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinancePairsSignal` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceFactorRank` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceDistributionShift` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceBayesianKelly` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinancePosteriorCredibleInterval` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinancePurgedCpcv` | false | None | `compute:finance` | true | false | false | None |  |

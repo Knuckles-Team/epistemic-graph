@@ -1,7 +1,7 @@
-<section class="site-hero" aria-labelledby="epistemic-graph-title">
+<section class="site-hero" aria-labelledby="medulla-title">
   <p class="site-hero__eyebrow">The knowledge engine</p>
 
-  <h1 class="site-hero__title" id="epistemic-graph-title">
+  <h1 class="site-hero__title" id="medulla-title">
     Make connected knowledge durable, explainable, and computable.
   </h1>
 
@@ -54,7 +54,7 @@ authority, durability, audit, CDC, and transaction properties.
 ## Where this engine fits
 
 <figure class="site-card">
-  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Medulla stores knowledge. Connectors synchronize source systems.">
+  <img src="https://raw.githubusercontent.com/Knuckles-Team/medulla/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Medulla stores knowledge. Connectors synchronize source systems.">
   <figcaption>Medulla is the durable authority at the base of the shared runtime.</figcaption>
 </figure>
 
@@ -122,7 +122,7 @@ The release wheel includes the in-process engine binding, so the shortest path
 needs no server, port, certificate, or background process:
 
 ```bash
-python -m pip install epistemic-graph
+python -m pip install medulla
 python - <<'PY'
 import msgpack
 from epistemic_graph.engine import Engine
@@ -141,7 +141,7 @@ configuration.
 
 ## Specification delivery
 
-[Open the specification dashboard](https://knuckles-team.github.io/epistemic-graph/spec-delivery/)
+[Open the specification dashboard](https://knuckles-team.github.io/medulla/spec-delivery/)
 for documented specifications, separate requirement status, delivery evidence,
 and open pull request and issue snapshots. It refreshes on pushes to `main`.
 Completion requires recorded delivery and acceptance; a merged requirement does

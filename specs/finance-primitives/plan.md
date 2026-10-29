@@ -19,7 +19,7 @@ The existing native finance tests passed at that same immutable head. Bind the
 unchanged catalog placement, valid-record, and malformed-record tests to R004.2.1
 and R004.2.2. They exercise Account, Position, Activity, and Lot declarations and
 their SHACL records. The failure fixtures cover missing links and invalid vocabulary.
-Evidence: [facade job 114434983311](https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38127544759/job/114434983311).
+Evidence: [facade job 114434983311](https://github.com/Knuckles-Team/medulla/actions/runs/38127544759/job/114434983311).
 These individual passes do not make the failed overall facade job successful.
 
 ## Sequence
@@ -354,7 +354,7 @@ Any additional independent caller requires an explicit child before its migratio
 Each leaf retains its own positive and negative proof.
 The generic route and generated contract are prerequisites for served caller tests.
 R002.3 still requires method counts and client bindings to reconcile in the migration change.
-The held query lane owns missing textual admission; these definitions do not change that grammar.
+`EG-FEDERATED-QUERY-R022` owns textual admission; these definitions do not change that grammar.
 
 | Retained obligation | Explicit descendants |
 |---|---|
@@ -389,3 +389,22 @@ These scenarios have no new execution receipts. Existing parent receipts remain 
 - **Source:** `037f3edf5fe38f55ac24d6e0cc7bd85f1efc60cadf7c97b66b44978613a7acb6`; no runtime evidence is claimed.
 
 <!-- /spec-definition-patch -->
+
+## Net liquidity panel source prerequisite
+
+The SDK finance-source R005.1 depends on a graph-owned liquidity panel. The
+Bellwether source catalog names the components WALCL, WDTGAL and RRPONTSYD.
+The first two FRED series use millions of USD; the third uses billions of USD.
+The first version computes WALCL minus WDTGAL minus one thousand times RRPONTSYD,
+with the result converted to exact USD. It exposes a three-component heat strip of
+signed contributions and their change from the preceding observation.
+
+Inputs carry series identity, observation date, vintage date, observation time
+and exact source value. A request names an as-of time, version and maximum age.
+For each component, use the newest eligible observation and vintage. Refuse
+missing, stale, conflicting, future or overflowing inputs. Keep input source
+references in the result. Never claim intraday publication precision from a
+FRED vintage date alone. Use a caller-provided observation time for the
+availability fence. This is a compute result, not a live market or trading
+recommendation. Add native vectors and a served-client integration test before
+a release or verification claim.

@@ -1,4 +1,4 @@
-# Run Epistemic Graph locally
+# Run Medulla locally
 
 The release wheel contains the Python package, the Rust server binary, and the
 in-process engine binding. Start with the embedded binding when the operator wants to
@@ -7,7 +7,7 @@ evaluate the graph API without configuring a service.
 ## Install and create a graph
 
 ```bash
-python -m pip install epistemic-graph
+python -m pip install medulla
 python - <<'PY'
 import msgpack
 from epistemic_graph.engine import Engine

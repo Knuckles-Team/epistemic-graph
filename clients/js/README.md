@@ -1,4 +1,4 @@
-# epistemic-graph — thin JS/Node client (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
+# Medulla — thin JS/Node client (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
 
 A **deliberately thin** Node client for the Program-B engine `Method`s that had no
 client surface. It is **not a full SDK** — the canonical, full-featured client is the
@@ -36,7 +36,7 @@ PyO3/FFI, so the wire is the API):
   malformed delegation chain.
 - **Canonical body:** the MAC covers the engine's canonical re-derivation of the
   body, computed by the embedded `eg_method_codec.wasm` run by Node's WebAssembly (see
-  the [wire contract](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docs/interfaces/clients.md#wire-contract-all-three)). `vectors.test.mjs` replays every contract method-body
+  the [wire contract](https://github.com/Knuckles-Team/medulla/blob/main/docs/interfaces/clients.md#wire-contract-all-three)). `vectors.test.mjs` replays every contract method-body
   vector through the signer.
 - **Compact results:** a top-level msgpack `bin` result is a second `Raw` layer and is
   decoded once more (matching the Python client).
@@ -51,16 +51,16 @@ in the `pi` engine build — it is a client.
 ## Usage
 
 ```js
-import { EpistemicGraphThinClient } from "@epistemic-graph/thin-client";
+import { MedullaThinClient } from "@knuckles-team/medulla-client";
 
-const c = new EpistemicGraphThinClient({
+const c = new MedullaThinClient({
   socketPath: process.env.GRAPH_SERVICE_SOCKET,
   authSecret: process.env.GRAPH_SERVICE_AUTH_SECRET,
   graph: "agent:planner",
   verifiedContext: {
     principal: "service:graph-client",
     tenant: "tenant:default",
-    audience: "epistemic-graph",
+    audience: "epistemic-graph"  # OIDC audience value, unchanged by the rename,
     agent_id: "service:graph-client",
     roles: ["graph-client"],
     scopes: ["graph:read", "graph:write"],
