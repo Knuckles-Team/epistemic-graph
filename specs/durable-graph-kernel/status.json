@@ -4581,13 +4581,15 @@
       "title": "Bind run ownership during native admission",
       "delivery_state": "SPECIFIED",
       "landed_in": [
+        "9a5cddb5e038",
         "d7c03a9c3606"
       ],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:273",
         "tests/adopt_workitem_authenticated_replay.rs:460",
-        "tests/test_work_item_retry_identity.py:128",
-        "tests/test_work_item_retry_identity.py:274"
+        "tests/test_work_item_retry_identity.py:129",
+        "tests/test_work_item_retry_identity.py:275",
+        "tests/test_work_item_retry_identity.py:294"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.4.1",
