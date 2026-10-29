@@ -3648,7 +3648,7 @@ fn media_vocab_freshrss_vocabulary_docs_truth() {
     );
 }
 
-// spec: EG-MEDIA-VOCAB-R002.3
+// spec: MEDULLA-MEDIA-VOCAB-R002.3
 #[test]
 fn content_message_terms_reuse_team_without_redeclaration() {
     let content = load(MEDIA);

@@ -956,8 +956,8 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
-            // +1: cat:lineageTo, the inverse of :derivedFrom (EG-TYPED-PACKS-R106.1).
-            // +1: cp:hasContract, the inverse of cp:contractOf (EG-TYPED-PACKS-R102.1).
+            // +1: cat:lineageTo, the inverse of :derivedFrom (MEDULLA-TYPED-PACKS-R106.1).
+            // +1: cp:hasContract, the inverse of cp:contractOf (MEDULLA-TYPED-PACKS-R102.1).
             // +2 (#972): :serviceSupplier inverseOf :suppliesService, and the
             // inverse-of-serviceRunsOn step in the suppliesServiceViaHost chain.
             39

@@ -467,7 +467,7 @@ fn chain_steps(triples: &[eg_rdf::oxrdf::Triple], subject: &str) -> Vec<Vec<Stri
     chains
 }
 
-// spec: EG-CQ-XSRC-R004.1
+// spec: MEDULLA-CQ-XSRC-R004.1
 #[test]
 fn supplier_service_carries_the_software_chain_and_inverts_supplies_service() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -496,7 +496,7 @@ fn supplier_service_carries_the_software_chain_and_inverts_supplies_service() {
     );
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.3
+// spec: MEDULLA-SUPPLY-VOCAB-R001.3
 #[test]
 fn supplies_service_has_the_only_domain_and_range_and_no_chain_recurses() {
     let triples = parse_turtle(DOCUMENT).unwrap();
@@ -575,7 +575,7 @@ fn supplies_service_has_the_only_domain_and_range_and_no_chain_recurses() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.3
+// spec: MEDULLA-SUPPLY-VOCAB-R001.3
 #[test]
 fn service_runs_on_is_a_service_scoped_runs_on() {
     let triples =

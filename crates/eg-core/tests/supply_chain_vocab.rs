@@ -1892,7 +1892,7 @@ fn every_d4_concept_is_covered_or_carries_a_typed_abstention() {
 
 const VM_GITLAB_GITHUB: &str = "http://knuckles.team/test/vm-gitlab-github#";
 
-// spec: EG-SUPPLY-VOCAB-R006.6
+// spec: MEDULLA-SUPPLY-VOCAB-R006.6
 #[test]
 fn gitlab_dependencies_and_github_dependabot_map_rank_two() {
     let fixture = include_str!("fixtures/vm_gitlab_github.ttl");
@@ -1992,7 +1992,7 @@ fn gitlab_dependencies_and_github_dependabot_map_rank_two() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R003.12
+// spec: MEDULLA-SUPPLY-VOCAB-R003.12
 #[test]
 fn last_activity_at_declared_and_datatyped() {
     let triples = load_commercial();

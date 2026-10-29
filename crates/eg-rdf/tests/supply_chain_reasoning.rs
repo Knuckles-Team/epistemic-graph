@@ -99,7 +99,7 @@ fn supplies_service_infers_supplier_to_service_from_the_software_path() {
     assert_eq!(derived.rule, "RL-inverseOf");
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.3
+// spec: MEDULLA-SUPPLY-VOCAB-R001.3
 #[test]
 fn supplies_service_infers_supplier_to_service_from_the_physical_path() {
     let mut triples = documents();
@@ -125,7 +125,7 @@ fn supplies_service_infers_supplier_to_service_from_the_physical_path() {
     }
 }
 
-// spec: EG-SUPPLY-VOCAB-R001.3
+// spec: MEDULLA-SUPPLY-VOCAB-R001.3
 #[test]
 fn container_or_pod_runs_on_path_infers_no_supplier_service_edge() {
     let mut triples = documents();

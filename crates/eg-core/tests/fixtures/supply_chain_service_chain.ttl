@@ -1,4 +1,4 @@
-# Supply-chain physical-chain ABox fixture (EG-SUPPLY-VOCAB-R001.3).
+# Supply-chain physical-chain ABox fixture (MEDULLA-SUPPLY-VOCAB-R001.3).
 #
 # One supplier supplies one item; the item is realized by one deployed
 # asset; the asset is hosted on one host; one independently typed

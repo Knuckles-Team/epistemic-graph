@@ -964,9 +964,9 @@ adds named stored queries with materialized results. R709 adds the GeoSPARQL fun
 `crates/eg-plan/src/rowset.rs` defines `RowSet`, the one currency between plan operators. `crates/eg-modality/src/rowset.rs` defines `RowSetShape` for each modality. The UQL grammar already holds the `CONFIDENCE`, `BELIEF AS OF`, `CONTRADICTS` and `EVIDENCE FOR` stages. R720 adds the `DECAY` and `CLUSTER BY EMBEDDING` stages and the epistemic row fields. `CLUSTER BY EMBEDDING` reuses `crates/eg-compute/src/mining/cluster.rs`. R721 binds every modality to the contract, the planner and the redb store registry.
 
 <!-- spec-definition-patch:low-storage-ann-plan-20261026 -->
-## EG-FEDERATED-QUERY-R040.5 — low-storage ANN integration plan
+## MEDULLA-FEDERATED-QUERY-R040.5 — low-storage ANN integration plan
 
-This is a definition and integration plan. It claims no native, served, deployed, or benchmark evidence. Medulla (`EG-FEDERATED-QUERY`) stays the owner. The semantic-index lifecycle, the filtered ANN contract, and source authority stay the only authorities.
+This is a definition and integration plan. It claims no native, served, deployed, or benchmark evidence. Medulla (`MEDULLA-FEDERATED-QUERY`) stays the owner. The semantic-index lifecycle, the filtered ANN contract, and source authority stay the only authorities.
 
 ### Measurement boundary
 

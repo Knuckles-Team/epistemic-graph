@@ -2,71 +2,71 @@
 
 Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first; each child is one 5-minute unit.
 
-- [ ] Physical and commercial supply chain terms (rollup). **EG-SUPPLY-VOCAB-R001**
-  - [ ] Shared supplier and item vocabulary (rollup). **EG-SUPPLY-VOCAB-R001.1**
-    - [x] Declare shared supplier and item terms. **EG-SUPPLY-VOCAB-R001.1.1**
-    - [ ] Install shared terms in the core catalog and prove native entailment. **EG-SUPPLY-VOCAB-R001.1.2**
-  - [ ] Add `:realizedByAsset` and `:assetHost`. **EG-SUPPLY-VOCAB-R001.2**
-  - [ ] Add `:suppliesService` with the physical chain axiom. **EG-SUPPLY-VOCAB-R001.3**
-  - [ ] SHACL shapes for supplier and item. **EG-SUPPLY-VOCAB-R001.4**
-- [ ] Software supply chain terms (rollup). **EG-SUPPLY-VOCAB-R002**
-  - [ ] Add `:SoftwareComponent`, `:ComponentVersion`, `:versionOf` and `:versionString`. **EG-SUPPLY-VOCAB-R002.1**
-  - [ ] Declare `infra:ContainerImage` a `kg:SoftwareComponent`. **EG-SUPPLY-VOCAB-R002.2**
-  - [ ] Add `:containsComponent` and `:publishedBy`. **EG-SUPPLY-VOCAB-R002.3**
-  - [ ] Add `:usesImage` and `:deployedAs`. **EG-SUPPLY-VOCAB-R002.4**
-  - [ ] Add `:usesComponent` with the runtime chain axiom. **EG-SUPPLY-VOCAB-R002.5**
-  - [ ] Add `:Vulnerability` with `:cveId`, `:severity`, `:fixedInVersion`, `:affectsComponent` and `:hasVulnerability`. **EG-SUPPLY-VOCAB-R002.6**
-  - [ ] SHACL shapes for component version, vulnerability and `usesComponent`. **EG-SUPPLY-VOCAB-R002.7**
-- [ ] Commercial and capability terms (rollup). **EG-SUPPLY-VOCAB-R003**
-  - [ ] Add `:Customer`. **EG-SUPPLY-VOCAB-R003.1**
-  - [ ] Add `:CustomerContract`, `:contractCustomer`, `:coversService`, `:contractStatus` and `:contractEnd`. **EG-SUPPLY-VOCAB-R003.2**
-  - [ ] Add `:affectsService`. **EG-SUPPLY-VOCAB-R003.3**
-  - [ ] Add `:supportsCapability`. **EG-SUPPLY-VOCAB-R003.4**
-  - [ ] SHACL shapes for contract and capability link. **EG-SUPPLY-VOCAB-R003.5**
-  - [ ] Record the amendment to `EG-CQ-XSRC-R008.3.1`. **EG-SUPPLY-VOCAB-R003.6**
-  - [ ] **EG-SUPPLY-VOCAB-R003.13**: Register the commercial module; run `commercial_vocabulary::commercial_module_loads`.
-  - [ ] **EG-SUPPLY-VOCAB-R003.14**: Register the commercial shapes companion; run `commercial_vocabulary::commercial_shapes_load`.
-  - [ ] **EG-SUPPLY-VOCAB-R003.15**: Preserve canonical commercial namespaces; run `commercial_vocabulary::commercial_shared_namespace`.
-  - [ ] **EG-SUPPLY-VOCAB-R003.16**: Declare the Opportunity date property; run `commercial_vocabulary::commercial_close_date_declared`.
-  - [ ] Declare party links on `kg:Organization` (no `:Party` class). **EG-SUPPLY-VOCAB-R003.7**
-  - [ ] Add `:PurchaseOrder`. **EG-SUPPLY-VOCAB-R003.8**
-  - [ ] Add `:PurchaseInvoice`. **EG-SUPPLY-VOCAB-R003.9**
-  - [ ] Add `:Opportunity`. **EG-SUPPLY-VOCAB-R003.10**
-  - [ ] Reuse `:Person` for `:Contact` and declare the link. **EG-SUPPLY-VOCAB-R003.11**
-  - [ ] Add `:customerLastActivityAt`. **EG-SUPPLY-VOCAB-R003.12**
-  - [ ] **EG-SUPPLY-VOCAB-R003.17**: Restore the Opportunity date constraint; run `commercial_vocabulary::commercial_opportunity_date_shape`.
-- [ ] Host limit terms (rollup). **EG-SUPPLY-VOCAB-R004**
-  - [ ] Add `infra:HostLimit`, `:limitOf`, `:limitKind`, `:readingValue`, `:limitValue`, `:limitUnit`. **EG-SUPPLY-VOCAB-R004.1**
-  - [ ] SHACL shape for `HostLimit`. **EG-SUPPLY-VOCAB-R004.2**
-  - [ ] Declared-threshold fixture for capacity limits. **EG-SUPPLY-VOCAB-R004.3**
-- [ ] Virtual mappings: procurement, commercial, change and capability sources (rollup). **EG-SUPPLY-VOCAB-R005**
-  - [ ] Mapping fixture: erpnext `Supplier` to `kg:Supplier`. **EG-SUPPLY-VOCAB-R005.1**
-  - [ ] Mapping fixture: erpnext `Item` and `Purchase Order` to `kg:SupplyChainItem` and `kg:suppliesItem`. **EG-SUPPLY-VOCAB-R005.2**
-  - [ ] Resolve erpnext manifest classes (cross-repo: agent-packages `erpnext-agent`). **EG-SUPPLY-VOCAB-R005.3**
-  - [ ] Mapping fixture: leanix `Provider` to `kg:Supplier` (rank 2) and `supports` to `kg:supportsCapability`. **EG-SUPPLY-VOCAB-R005.4**
-  - [ ] Mapping fixture: servicenow `Incident`, `Change` and CI relation to `kg:affectsService`. **EG-SUPPLY-VOCAB-R005.5**
-  - [ ] Mapping fixture: salesforce `Account` to `kg:Customer` and `Contract` to `kg:CustomerContract`. **EG-SUPPLY-VOCAB-R005.6**
-  - [ ] Add the Salesforce `Contract` class and access contract (cross-repo: agent-packages `salesforce-agent`). **EG-SUPPLY-VOCAB-R005.7**
-  - [ ] Mapping fixture: twenty `Company` to `kg:Customer` (rank 2). **EG-SUPPLY-VOCAB-R005.8**
-  - [ ] Record the `coversService` source (BLOCKED, owner: operator plus salesforce-agent). **EG-SUPPLY-VOCAB-R005.9**
-- [ ] Virtual mappings: software, runtime and host sources (rollup). **EG-SUPPLY-VOCAB-R006**
-  - [ ] Add the container-manager access contract (cross-repo: agent-packages `container-manager-mcp`). **EG-SUPPLY-VOCAB-R006.1**
-  - [ ] Add the uptime-kuma access contract (cross-repo: agent-packages `uptime-kuma-agent`). **EG-SUPPLY-VOCAB-R006.2**
-  - [ ] Mapping fixture: container-manager workload and image to `kg:deployedAs` and `kg:usesImage`. **EG-SUPPLY-VOCAB-R006.3**
-  - [ ] Mapping fixture: uptime monitor to service health. **EG-SUPPLY-VOCAB-R006.4**
-  - [ ] Mapping fixture: dockerhub image, SBOM and Scout CVEs to `containsComponent` and `Vulnerability`. **EG-SUPPLY-VOCAB-R006.5**
-  - [ ] Mapping fixture: gitlab `dependencies` and github Dependabot alerts (rank 2). **EG-SUPPLY-VOCAB-R006.6**
-  - [ ] Mapping fixture: fan-manager and systems-manager to `infra:HostLimit`. **EG-SUPPLY-VOCAB-R006.7**
-- [ ] Entity resolution blocking keys (rollup). **EG-SUPPLY-VOCAB-R007**
-  - [ ] Blocking-key fixture for supplier, service, host, image and customer. **EG-SUPPLY-VOCAB-R007.1**
-  - [ ] Test: a digest key is exact; a name-only key is a proposal. **EG-SUPPLY-VOCAB-R007.2**
-- [ ] Impact traversal and acceptance (rollup). **EG-SUPPLY-VOCAB-R008**
-  - [ ] Class-only impact query fixture. **EG-SUPPLY-VOCAB-R008.1**
-  - [ ] Recorded-response fixture: one row per source concept. **EG-SUPPLY-VOCAB-R008.2**
-  - [ ] Blocked-register test. **EG-SUPPLY-VOCAB-R008.3**
-- [ ] EG-SUPPLY-VOCAB-R009.1 Add the ecosystem package class
-- [ ] EG-SUPPLY-VOCAB-R009.2 Propagate a finding to dependents
-- [ ] EG-SUPPLY-VOCAB-R009.3 Attach propagation to the impact operation
-- [ ] EG-SUPPLY-VOCAB-R009.4 Refuse an unknown package
-- [ ] EG-SUPPLY-VOCAB-R009.5 Show the dependency path
-- [ ] EG-SUPPLY-VOCAB-R009.6 Prove propagation through the served operation
+- [ ] Physical and commercial supply chain terms (rollup). **MEDULLA-SUPPLY-VOCAB-R001**
+  - [ ] Shared supplier and item vocabulary (rollup). **MEDULLA-SUPPLY-VOCAB-R001.1**
+    - [x] Declare shared supplier and item terms. **MEDULLA-SUPPLY-VOCAB-R001.1.1**
+    - [ ] Install shared terms in the core catalog and prove native entailment. **MEDULLA-SUPPLY-VOCAB-R001.1.2**
+  - [ ] Add `:realizedByAsset` and `:assetHost`. **MEDULLA-SUPPLY-VOCAB-R001.2**
+  - [ ] Add `:suppliesService` with the physical chain axiom. **MEDULLA-SUPPLY-VOCAB-R001.3**
+  - [ ] SHACL shapes for supplier and item. **MEDULLA-SUPPLY-VOCAB-R001.4**
+- [ ] Software supply chain terms (rollup). **MEDULLA-SUPPLY-VOCAB-R002**
+  - [ ] Add `:SoftwareComponent`, `:ComponentVersion`, `:versionOf` and `:versionString`. **MEDULLA-SUPPLY-VOCAB-R002.1**
+  - [ ] Declare `infra:ContainerImage` a `kg:SoftwareComponent`. **MEDULLA-SUPPLY-VOCAB-R002.2**
+  - [ ] Add `:containsComponent` and `:publishedBy`. **MEDULLA-SUPPLY-VOCAB-R002.3**
+  - [ ] Add `:usesImage` and `:deployedAs`. **MEDULLA-SUPPLY-VOCAB-R002.4**
+  - [ ] Add `:usesComponent` with the runtime chain axiom. **MEDULLA-SUPPLY-VOCAB-R002.5**
+  - [ ] Add `:Vulnerability` with `:cveId`, `:severity`, `:fixedInVersion`, `:affectsComponent` and `:hasVulnerability`. **MEDULLA-SUPPLY-VOCAB-R002.6**
+  - [ ] SHACL shapes for component version, vulnerability and `usesComponent`. **MEDULLA-SUPPLY-VOCAB-R002.7**
+- [ ] Commercial and capability terms (rollup). **MEDULLA-SUPPLY-VOCAB-R003**
+  - [ ] Add `:Customer`. **MEDULLA-SUPPLY-VOCAB-R003.1**
+  - [ ] Add `:CustomerContract`, `:contractCustomer`, `:coversService`, `:contractStatus` and `:contractEnd`. **MEDULLA-SUPPLY-VOCAB-R003.2**
+  - [ ] Add `:affectsService`. **MEDULLA-SUPPLY-VOCAB-R003.3**
+  - [ ] Add `:supportsCapability`. **MEDULLA-SUPPLY-VOCAB-R003.4**
+  - [ ] SHACL shapes for contract and capability link. **MEDULLA-SUPPLY-VOCAB-R003.5**
+  - [ ] Record the amendment to `MEDULLA-CQ-XSRC-R008.3.1`. **MEDULLA-SUPPLY-VOCAB-R003.6**
+  - [ ] **MEDULLA-SUPPLY-VOCAB-R003.13**: Register the commercial module; run `commercial_vocabulary::commercial_module_loads`.
+  - [ ] **MEDULLA-SUPPLY-VOCAB-R003.14**: Register the commercial shapes companion; run `commercial_vocabulary::commercial_shapes_load`.
+  - [ ] **MEDULLA-SUPPLY-VOCAB-R003.15**: Preserve canonical commercial namespaces; run `commercial_vocabulary::commercial_shared_namespace`.
+  - [ ] **MEDULLA-SUPPLY-VOCAB-R003.16**: Declare the Opportunity date property; run `commercial_vocabulary::commercial_close_date_declared`.
+  - [ ] Declare party links on `kg:Organization` (no `:Party` class). **MEDULLA-SUPPLY-VOCAB-R003.7**
+  - [ ] Add `:PurchaseOrder`. **MEDULLA-SUPPLY-VOCAB-R003.8**
+  - [ ] Add `:PurchaseInvoice`. **MEDULLA-SUPPLY-VOCAB-R003.9**
+  - [ ] Add `:Opportunity`. **MEDULLA-SUPPLY-VOCAB-R003.10**
+  - [ ] Reuse `:Person` for `:Contact` and declare the link. **MEDULLA-SUPPLY-VOCAB-R003.11**
+  - [ ] Add `:customerLastActivityAt`. **MEDULLA-SUPPLY-VOCAB-R003.12**
+  - [ ] **MEDULLA-SUPPLY-VOCAB-R003.17**: Restore the Opportunity date constraint; run `commercial_vocabulary::commercial_opportunity_date_shape`.
+- [ ] Host limit terms (rollup). **MEDULLA-SUPPLY-VOCAB-R004**
+  - [ ] Add `infra:HostLimit`, `:limitOf`, `:limitKind`, `:readingValue`, `:limitValue`, `:limitUnit`. **MEDULLA-SUPPLY-VOCAB-R004.1**
+  - [ ] SHACL shape for `HostLimit`. **MEDULLA-SUPPLY-VOCAB-R004.2**
+  - [ ] Declared-threshold fixture for capacity limits. **MEDULLA-SUPPLY-VOCAB-R004.3**
+- [ ] Virtual mappings: procurement, commercial, change and capability sources (rollup). **MEDULLA-SUPPLY-VOCAB-R005**
+  - [ ] Mapping fixture: erpnext `Supplier` to `kg:Supplier`. **MEDULLA-SUPPLY-VOCAB-R005.1**
+  - [ ] Mapping fixture: erpnext `Item` and `Purchase Order` to `kg:SupplyChainItem` and `kg:suppliesItem`. **MEDULLA-SUPPLY-VOCAB-R005.2**
+  - [ ] Resolve erpnext manifest classes (cross-repo: agent-packages `erpnext-agent`). **MEDULLA-SUPPLY-VOCAB-R005.3**
+  - [ ] Mapping fixture: leanix `Provider` to `kg:Supplier` (rank 2) and `supports` to `kg:supportsCapability`. **MEDULLA-SUPPLY-VOCAB-R005.4**
+  - [ ] Mapping fixture: servicenow `Incident`, `Change` and CI relation to `kg:affectsService`. **MEDULLA-SUPPLY-VOCAB-R005.5**
+  - [ ] Mapping fixture: salesforce `Account` to `kg:Customer` and `Contract` to `kg:CustomerContract`. **MEDULLA-SUPPLY-VOCAB-R005.6**
+  - [ ] Add the Salesforce `Contract` class and access contract (cross-repo: agent-packages `salesforce-agent`). **MEDULLA-SUPPLY-VOCAB-R005.7**
+  - [ ] Mapping fixture: twenty `Company` to `kg:Customer` (rank 2). **MEDULLA-SUPPLY-VOCAB-R005.8**
+  - [ ] Record the `coversService` source (BLOCKED, owner: operator plus salesforce-agent). **MEDULLA-SUPPLY-VOCAB-R005.9**
+- [ ] Virtual mappings: software, runtime and host sources (rollup). **MEDULLA-SUPPLY-VOCAB-R006**
+  - [ ] Add the container-manager access contract (cross-repo: agent-packages `container-manager-mcp`). **MEDULLA-SUPPLY-VOCAB-R006.1**
+  - [ ] Add the uptime-kuma access contract (cross-repo: agent-packages `uptime-kuma-agent`). **MEDULLA-SUPPLY-VOCAB-R006.2**
+  - [ ] Mapping fixture: container-manager workload and image to `kg:deployedAs` and `kg:usesImage`. **MEDULLA-SUPPLY-VOCAB-R006.3**
+  - [ ] Mapping fixture: uptime monitor to service health. **MEDULLA-SUPPLY-VOCAB-R006.4**
+  - [ ] Mapping fixture: dockerhub image, SBOM and Scout CVEs to `containsComponent` and `Vulnerability`. **MEDULLA-SUPPLY-VOCAB-R006.5**
+  - [ ] Mapping fixture: gitlab `dependencies` and github Dependabot alerts (rank 2). **MEDULLA-SUPPLY-VOCAB-R006.6**
+  - [ ] Mapping fixture: fan-manager and systems-manager to `infra:HostLimit`. **MEDULLA-SUPPLY-VOCAB-R006.7**
+- [ ] Entity resolution blocking keys (rollup). **MEDULLA-SUPPLY-VOCAB-R007**
+  - [ ] Blocking-key fixture for supplier, service, host, image and customer. **MEDULLA-SUPPLY-VOCAB-R007.1**
+  - [ ] Test: a digest key is exact; a name-only key is a proposal. **MEDULLA-SUPPLY-VOCAB-R007.2**
+- [ ] Impact traversal and acceptance (rollup). **MEDULLA-SUPPLY-VOCAB-R008**
+  - [ ] Class-only impact query fixture. **MEDULLA-SUPPLY-VOCAB-R008.1**
+  - [ ] Recorded-response fixture: one row per source concept. **MEDULLA-SUPPLY-VOCAB-R008.2**
+  - [ ] Blocked-register test. **MEDULLA-SUPPLY-VOCAB-R008.3**
+- [ ] MEDULLA-SUPPLY-VOCAB-R009.1 Add the ecosystem package class
+- [ ] MEDULLA-SUPPLY-VOCAB-R009.2 Propagate a finding to dependents
+- [ ] MEDULLA-SUPPLY-VOCAB-R009.3 Attach propagation to the impact operation
+- [ ] MEDULLA-SUPPLY-VOCAB-R009.4 Refuse an unknown package
+- [ ] MEDULLA-SUPPLY-VOCAB-R009.5 Show the dependency path
+- [ ] MEDULLA-SUPPLY-VOCAB-R009.6 Prove propagation through the served operation

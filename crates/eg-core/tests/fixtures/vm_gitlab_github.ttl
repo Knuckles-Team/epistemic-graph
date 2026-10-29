@@ -1,6 +1,6 @@
 # Virtual-mapping fixture: gitlab dependencies and github Dependabot
 # alerts to ComponentVersion and Vulnerability (rank 2)
-# (EG-SUPPLY-VOCAB-R006.6).
+# (MEDULLA-SUPPLY-VOCAB-R006.6).
 #
 # Recorded over the `gitlab_vulnerabilities` tool (action `dependencies` for
 # the project dependency list, action `vulnerabilities` for advisories) and
