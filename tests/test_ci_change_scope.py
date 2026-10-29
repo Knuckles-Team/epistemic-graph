@@ -638,7 +638,7 @@ def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
     [
         (
             "gates-wheel",
-            "6813e079e24f89bca2422161a8b09f8f1e681bfd7d337229bab34bfb46b6b0a8",
+            "fe17095b5a5293151a3998892230fa6af4bc0c60e718a55d7cbb4af3009abc17",
         ),
         (
             "gates-whisper",
@@ -734,6 +734,7 @@ def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> N
         "numpy-parity gate (compiled kernel vs numpy)",
         "numpy-free boundary contract (NE-249)",
         "engine kernel smoke test (import medulla.engine)",
+        "pre-rename shim smoke test (import epistemic_graph)",
         "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
     }
     actual = {
@@ -779,6 +780,7 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
         "numpy-parity gate (compiled kernel vs numpy)",
         "numpy-free boundary contract (NE-249)",
         "engine kernel smoke test (import medulla.engine)",
+        "pre-rename shim smoke test (import epistemic_graph)",
         "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
     ):
         index = names.index(prerequisite)
