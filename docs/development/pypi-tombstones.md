@@ -43,8 +43,8 @@ The workflow refuses to run unless:
 * the `confirm` input is exactly `publish-tombstones`, and
 * each built wheel contains nothing outside its `.dist-info/` directory.
 
-No PyPI trusted-publisher setting needs to change: the upload authenticates with the
-secret token, not OIDC, so the workflow requests no `id-token` permission.
+No PyPI trusted-publisher setting needs to change. The upload authenticates with the
+secret token, not OIDC. So the workflow requests no `id-token` permission.
 
 The version is a fixed floor, not a value wired to `Cargo.toml`. It must sort above the
 last release published under the retired name, which is 2.27.7. Nothing in the release
