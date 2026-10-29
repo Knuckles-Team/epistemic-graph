@@ -41,7 +41,10 @@ def test_pages_preserves_tag_only_native_dashboard_deployment() -> None:
     # version tags and manual dispatch reach the github-pages environment.
     assert workflow["jobs"]["pages"] == {
         "name": "Deploy GitHub Pages",
-        "if": "github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')",
+        "if": (
+            "github.event_name == 'workflow_dispatch' || "
+            "startsWith(github.ref, 'refs/tags/v')"
+        ),
         "uses": "Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main",
         "with": {
             "content_source": "docs",
