@@ -302,12 +302,11 @@ def verify_task_plan_receipt(
     # Return the plan exactly as the engine serves it: a ``None`` task call is
     # an absent key (``skip_serializing_if``), not ``null``, and the caller
     # round-trips this body into ``PublishCurrentPlan`` unchanged.
-    plan = (
-        None
-        if decoded.task_plan is None
-        else decoded.task_plan.model_dump(mode="json", by_alias=True, exclude_none=True)
-    )
-    _require_task_plan(plan is not None, "missing plan")
+    served_plan = decoded.task_plan
+    _require_task_plan(served_plan is not None, "missing plan")
+    if served_plan is None:  # Narrowing for the type checker; _require_task_plan raised.
+        raise ValueError("task_plan receipt mismatch: missing plan")
+    plan = served_plan.model_dump(mode="json", by_alias=True, exclude_none=True)
     return _verify_task_plan_claims(plan, asked)
 
 
