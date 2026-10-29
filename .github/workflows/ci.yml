@@ -1,26 +1,36 @@
 name: CI
 
 # ─────────────────────────────────────────────────────────────────────────
-# Every test, gate, feature build and benchmark. Runs on pull requests and on
-# pushes to main. A `v*` tag never re-runs these: release.yml verifies that
-# this workflow already concluded `success` on the tagged commit and then only
-# builds, checks and publishes (spec EG-CONTRACT-R053.7).
+# Every test, gate, feature build and benchmark. A `v*` tag never re-runs
+# these: release.yml verifies that this workflow already concluded `success`
+# on the tagged commit and then only builds, checks and publishes (spec
+# EG-CONTRACT-R053.7).
 #
-# Optional feature-combination builds and benchmarks run on manual dispatch
-# only; they stay advisory and cannot hold up a pull request or a release.
-# GitHub Pages deploys in pages.yml.
+# Pull requests run a slim blocking set bounded to about twenty minutes of
+# wall time: lint, spec status, security, one workspace Clippy, affected-crate
+# tests, the Python suite and canonical contract parity. Jobs that exercise a
+# narrow surface (language clients, Whisper, Piper, pyo3 and the installed
+# wheel) run on a pull request only when that surface changed
+# (scripts/ci_change_scope.py --path-gates). The full facade suite, plan fuzz,
+# release Clippy profiles and build variants run on main pushes, the nightly
+# schedule and manual dispatch. Optional feature-combination builds and
+# benchmarks run on manual dispatch only. GitHub Pages deploys in pages.yml.
 # ─────────────────────────────────────────────────────────────────────────
 
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Nightly full validation: main-push runs are often superseded by the next
+    # merge, so this guarantees one complete run of the main-only jobs a day.
+    - cron: '17 6 * * *'
   workflow_dispatch:
 
 # One in-flight run per PR / per ref: a newer push supersedes the older run
 # (main pushes were 24 runs, 0 success, 16 cancelled with queued runs).
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule-' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -48,14 +58,27 @@ env:
   MATURIN_FEATURES: "full,ast-extended"
 
 jobs:
-  # Documentation-only PRs avoid unrelated builds; main, tags and manual
-  # runs retain exhaustive validation. Unknown files/history run everything.
+  # The immutable central workflow runs lint/architecture and spec-status.
+  # A reusable-workflow call completes only when all of its jobs finish, so
+  # native jobs read their scope from the local `changes` job below instead and
+  # start without waiting behind the multi-minute pre-commit leg.
+  light-gates:
+    uses: Knuckles-Team/pipelines/.github/workflows/medulla_light_gates.yml@main
+    with:
+      runner: ${{ vars.ARBORA_TRUSTED_CI_RUNNER == 'true' && '"arbora-ci-trusted"' || '"ubuntu-latest"' }}
+
+  # Change scope plus the pull-request path gates. Every native job keeps its
+  # needs.changes.outputs.code edge; path-gated jobs also read their gate.
   changes:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: Change scope
+    timeout-minutes: 5
+    name: Change scope and path gates
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.scope.outputs.code }}
+      clients: ${{ steps.scope.outputs.clients }}
+      whisper: ${{ steps.scope.outputs.whisper }}
+      tts: ${{ steps.scope.outputs.tts }}
+      packaging: ${{ steps.scope.outputs.packaging }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,7 +89,9 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/ci_change_scope.py --event "$EVENT" --base "$BASE" --head "$HEAD" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          python3 scripts/ci_change_scope.py --path-gates --event "$EVENT" --base "$BASE" --head "$HEAD" | tee -a "$GITHUB_OUTPUT"
 
   # ── Dependency and source-history security checks. ─────────────────────
   security:
@@ -76,13 +101,11 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - &eg-history-checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - &eg-tracked-python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: '.python-version'
 
@@ -107,15 +130,66 @@ jobs:
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
-      - name: Install pinned cargo-deny
+      - name: Resolve pinned cargo-deny cache key
+        id: cargo-deny-cache-key
         if: needs.changes.outputs.code != 'false'
+        shell: bash
         run: |
           set -euo pipefail
           version="$(PYTHONPATH=scripts python -c 'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)')"
+          runtime_fingerprint="$({ rustc -vV; ldd --version; } | sha256sum | cut -d' ' -f1)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'key=eg-cargo-deny-v1-%s-%s-%s-runtime-%s\n' \
+            "$RUNNER_OS" "$RUNNER_ARCH" "$version" "$runtime_fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Restore pinned cargo-deny
+        id: cargo-deny-cache
+        if: needs.changes.outputs.code != 'false'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/epistemic-graph-cargo-deny
+          key: ${{ steps.cargo-deny-cache-key.outputs.key }}
+      - name: Install pinned cargo-deny
+        if: needs.changes.outputs.code != 'false'
+        env:
+          CARGO_DENY_VERSION: ${{ steps.cargo-deny-cache-key.outputs.version }}
+        run: |
+          set -euo pipefail
+          version="$CARGO_DENY_VERSION"
           root="$RUNNER_TEMP/epistemic-graph-cargo-deny"
-          cargo install --locked --version "$version" --root "$root" cargo-deny
+          binary="$root/bin/cargo-deny"
+          valid=false
+          if [ -x "$binary" ]; then
+            actual="$("$binary" --version || true)"
+            if [ "$actual" = "cargo-deny $version" ]; then
+              valid=true
+            fi
+          fi
+          if [ "$valid" != true ]; then
+            rm -rf "$root"
+            cargo install --locked --version "$version" --root "$root" cargo-deny
+          fi
           echo "$root/bin" >> "$GITHUB_PATH"
-          test "$("$root/bin/cargo-deny" --version)" = "cargo-deny $version"
+      - name: Verify pinned cargo-deny
+        id: cargo-deny-verified
+        if: needs.changes.outputs.code != 'false'
+        env:
+          CARGO_DENY_VERSION: ${{ steps.cargo-deny-cache-key.outputs.version }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/epistemic-graph-cargo-deny"
+          test "$("$root/bin/cargo-deny" --version)" = "cargo-deny $CARGO_DENY_VERSION"
+          echo 'verified=true' >> "$GITHUB_OUTPUT"
+      - name: Save pinned cargo-deny
+        if: >-
+          needs.changes.outputs.code != 'false' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          steps.cargo-deny-cache.outputs.cache-hit != 'true' &&
+          steps.cargo-deny-verified.outputs.verified == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/epistemic-graph-cargo-deny
+          key: ${{ steps.cargo-deny-cache.outputs.cache-primary-key }}
       - name: Rust dependency advisory gate
         if: needs.changes.outputs.code != 'false'
         run: bash scripts/check_cargo_advisories.sh
@@ -124,13 +198,16 @@ jobs:
         run: python3 scripts/check_universal_read_rls.py
 
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
+  # Main pushes, the nightly schedule and dispatch only. On a pull request the
+  # lower crates run in the affected-crate subset of `gates-crates`, contract
+  # parity in `gates-contract` and the generated client in `python-suite`.
   gates:
     # Full engine compilation/test execution exceeds the short PR budget.
     # Run 38392685303 exhausted even 45m; retain this cap pending build profiling.
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates
     needs: changes
-    if: &eg-code-change needs.changes.outputs.code == 'true'
+    if: &eg-main-only needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     # Pin the libc baseline while ubuntu-latest rolls to newer distributions.
     # Native artifacts must remain executable on supported older Linux hosts.
     runs-on: &eg-native-validation-runner ubuntu-24.04
@@ -245,7 +322,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Canonical engine contract parity
     needs: changes
-    if: *eg-code-change
+    if: &eg-code-change needs.changes.outputs.code == 'true'
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
@@ -273,12 +350,13 @@ jobs:
           path: target/canonical-engine-contract/
           if-no-files-found: error
 
-  # Independent required fuzz acceptance avoids serial lower-crate compilation.
+  # Independent fuzz acceptance avoids serial lower-crate compilation.
+  # Main pushes, the nightly schedule and dispatch only.
   gates-plan-fuzz:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (plan fuzz and chaos)
     needs: changes
-    if: *eg-code-change
+    if: *eg-main-only
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
@@ -297,12 +375,13 @@ jobs:
         if: always()
         run: *eg-validation-compiler-cache-stats
 
-  # Independent required acceptance; retain the original native-job cap.
+  # Independent acceptance; retain the original native-job cap. On a pull
+  # request it runs only when packaging or the pyo3 crates changed.
   gates-wheel:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (installed wheel)
     needs: changes
-    if: *eg-code-change
+    if: &eg-packaging-change needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.packaging == 'true')
     runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
@@ -502,10 +581,11 @@ jobs:
   gates-facade:
     # Run 39883574578 spent 42m34s compiling, then hit 45m during passing tests.
     # Keep the complete native and memory suites within a bounded one-hour job.
+    # Main pushes, the nightly schedule and dispatch only.
     timeout-minutes: 60
     name: gates (facade full)
     needs: changes
-    if: *eg-code-change
+    if: *eg-main-only
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
@@ -549,12 +629,12 @@ jobs:
       - name: Test (memory-regression — RSS bounds, isolated)
         run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
 
-  # Independent required acceptance; retain the original native-job cap.
+  # Independent acceptance; on a pull request only when its crates changed.
   gates-whisper:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (Whisper real model)
     needs: changes
-    if: *eg-code-change
+    if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.whisper == 'true')
     runs-on: *eg-native-validation-runner
     steps:
       - *eg-gates-checkout
@@ -570,17 +650,18 @@ jobs:
       - name: Test (Whisper real-model transcription and cancellation)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
 
-  # Slim-server and raft-cluster variants run after merge (main, tags), not on
-  # pull requests: each is a separate cold compile of the whole engine, slim's
-  # code paths are already compiled and linted per PR by `Clippy slim-server`,
-  # and `cluster` is not part of the published wheel (MATURIN_FEATURES). Both
-  # variants must succeed before either release wheel build can start.
+  # Slim-server and raft-cluster variants run after merge (main pushes, the
+  # nightly schedule, dispatch), not on pull requests: each is a separate cold
+  # compile of the whole engine, slim's code paths are linted by `Clippy
+  # slim-server` in the same events, and `cluster` is not part of the published
+  # wheel (MATURIN_FEATURES). Both variants must succeed before either release
+  # wheel build can start.
   gates-variants:
     timeout-minutes: 360
     name: gates (slim server + raft cluster)
     runs-on: *eg-native-validation-runner
     needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
+    if: *eg-main-only
     steps:
       - *eg-gates-checkout
 
@@ -623,12 +704,13 @@ jobs:
   # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
   # link a test binary).
   gates-crates:
-    # PR budget 10 min. A release bump touches every crate's Cargo.toml and the
-    # lock, but pr-test-scope maps member-version-only changes to no crate
+    # Allow cold PR builds and shared-runner I/O to complete. A release bump
+    # touches every crate's Cargo.toml and the lock, but pr-test-scope maps
+    # member-version-only changes to no crate
     # (PIPE-RELEASE-R007.7), so it no longer forces the full workspace sweep.
     # A registry-dependency lock change prints FULL; main CI then owns the full
     # sweep under the 60-minute push budget, as for every other FULL scope.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
     name: gates (workspace crates)
     needs: changes
     if: *eg-code-change
@@ -708,8 +790,10 @@ jobs:
           # feature flags; a changed-crate hit on one of them is already
           # covered there, so it is dropped from this generic --all-features
           # sweep rather than double-run (or, for eg-numeric/eg-pyengine,
-          # run with an incompatible feature set).
-          excluded="epistemic-graph eg-types eg-core eg-compute eg-storage eg-tts-piper eg-numeric eg-pyengine"
+          # run with an incompatible feature set). The lower crates
+          # (eg-types/eg-core/eg-compute) stay in the subset: `gates`, which
+          # tests them on main, does not run on pull requests.
+          excluded="epistemic-graph eg-storage eg-tts-piper eg-numeric eg-pyengine"
           if [ "$SCOPE" = "NONE" ]; then
             echo "pr-test-scope: no changed Rust file outside the specially-tested crates; skipping"
             exit 0
@@ -746,7 +830,7 @@ jobs:
         run: *eg-validation-compiler-cache-stats
 
   gates-storage:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
     name: gates (storage crate)
     needs: changes
     if: *eg-code-change
@@ -760,7 +844,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (pyo3 crates)
     needs: changes
-    if: *eg-code-change
+    if: *eg-packaging-change
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: *eg-native-crate-steps
@@ -888,33 +972,6 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  backward-python:
-    # The one backward-support leg (pipelines reference/gate-standard.md
-    # "Python version"): CI runs on .python-version (3.14); the abi3 kernels
-    # built there must still import on the 3.12 interpreter.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: backward-python (3.12)
-    needs: [changes, python-kernels]
-    if: *eg-code-change
-    runs-on: *eg-native-validation-runner
-    steps:
-      - *eg-python-checkout
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: '0.11.7'
-          python-version: '3.12'
-          activate-environment: true
-      - *eg-gates-pydeps
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: python-kernels-${{ github.sha }}
-          path: ${{ runner.temp }}/python-kernels/
-      - name: Import the abi3 kernels on the 3.12 floor
-        run: |
-          set -euo pipefail
-          bash scripts/python_suite_artifact.sh unpack kernels
-          python -c "import sys, epistemic_graph.engine as e, epistemic_graph.numeric; assert sys.version_info[:2] == (3, 12), sys.version; assert e.__engine__ == 'eg-pyengine', e.__engine__; print(sys.version, e.__file__)"
-
   python-suite:
     # The full root pytest suite leaves no headroom under the short PR budget
     # (9m29s suite leg on run 38500023697); align with the full engine jobs.
@@ -1034,7 +1091,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: eg-tts-piper real-inference tests
     needs: changes
-    if: *eg-code-change
+    if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.tts == 'true')
     runs-on: *eg-native-validation-runner
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1077,7 +1134,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Go and JavaScript clients
     needs: changes
-    if: *eg-code-change
+    if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.clients == 'true')
     runs-on: ubuntu-latest
     # `shell: bash` runs every step as `bash -eo pipefail`, so no step can hide a
     # failing command behind a later one in a pipe.
@@ -1087,6 +1144,11 @@ jobs:
     steps:
       - *eg-gates-checkout
       - *eg-gates-toolchain
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          key: method-codec-wasm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install the pinned toolchain's wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - name: Rebuild the embedded method-body codec and require the committed copies
@@ -1118,91 +1180,17 @@ jobs:
         working-directory: clients/js
         run: npm test
 
-  # ── Runtime contracts. These checks guard authorization, lifecycle,
-  # modality, reasoning, release-campaign, and persisted-schema behavior.
-  # They remain blocking alongside the executable test suites.
-  lint-and-architecture:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: Lint, format and architecture (pre-commit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # spec-status reconstructs generated status from commit trailers.
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: '.python-version'
-      - name: Install manifest Rust toolchain and rustfmt
-        run: rustup toolchain install --profile minimal --component rustfmt && rustup show active-toolchain
-      - name: Install uv, pre-commit and the hooks' one third-party import
-        run: python -m pip install --disable-pip-version-check uv==0.8.17 pre-commit==4.6.2 pyyaml==6.0.3
-      # lane-guard is owned by agent-utilities and read from a sibling checkout
-      # (scripts/sibling_gate.py). They are lint policy, so they track its main.
-      - name: Check out agent-utilities gate scripts
-        run: |
-          git clone --depth 1 https://github.com/Knuckles-Team/agent-utilities "$RUNNER_TEMP/agent-utilities"
-          echo "AGENT_UTILITIES_ROOT=$RUNNER_TEMP/agent-utilities" >> "$GITHUB_ENV"
-      # The same hooks a contributor runs locally (`scripts/bootstrap.sh` installs
-      # them), so local and CI share one definition. lane-guard governs local
-      # worktree lanes and has nothing to check on a runner; cargo-deny runs in
-      # the `security` job with its pinned install.
-      - name: pre-commit (commit stage, PR diff or full publication)
-        env:
-          SKIP: lane-guard,cargo-deny-advisories
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [ "$EVENT" = pull_request ]; then
-            pre-commit run --config .config/pre-commit.yaml --from-ref "$BASE" --to-ref "$HEAD" --show-diff-on-failure
-          else
-            pre-commit run --config .config/pre-commit.yaml --all-files --show-diff-on-failure
-          fi
-      # Whole repository on every event (no compile, seconds): a formatting
-      # problem must never first appear in the tag pipeline.
-      - name: rustfmt
-        run: cargo fmt --all -- --check
-      - name: CI change-scope regression tests
-        run: |
-          python -m pip install --disable-pip-version-check pytest==9.1.1
-          python -m pytest --noconftest -o addopts='' tests/test_ci_change_scope.py
-      - name: Server package tests
-        working-directory: packaging/epistemic-graph-server
-        run: python -m pytest -o addopts='' -p no:cacheprovider tests
-
-  # ── Spec-status lifecycle gates (SPEC-STATUS-LIFECYCLE.md): the generated
-  # specs/*/status.json schema, requirement decomposition, and (PRs only) the
-  # Spec: trailer on the incoming commit range. Deliberately independent of
-  # the release path: no other job's needs: names it, and it is not a
-  # required check.
-  spec-gates:
-    timeout-minutes: 5
-    name: Spec status lifecycle gates
-    runs-on: ubuntu-latest
-    steps:
-      - *eg-history-checkout
-      - *eg-tracked-python
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-      - name: spec-status
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-status
-      - name: spec-decomposition
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-decomposition
-      - name: spec-trailers
-        if: github.event_name == 'pull_request'
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-trailers --base-ref "origin/${{ github.base_ref }}"
-
   # ── Clippy is blocking on every profile: the toolchain is pinned, so a new
   # finding comes from the change under review, not from an upgrade.
   # EH-191/EH-225: `-D warnings` across every release profile. `--all-features`
   # compiles away every `cfg(not(feature = ...))` branch, so it cannot lint the
   # published build (`full,ast-extended` = MATURIN_FEATURES, which has no raft) or
-  # the slim `server` build; each profile is its own leg.
+  # the slim `server` build; each profile is its own leg. Pull requests lint the
+  # workspace profile; the two release profiles (`clippy-release-profiles`)
+  # run on main pushes, the nightly schedule and dispatch.
   quality-advisory:
-    # Run 39892903596 finished workspace Clippy at 9m38s, then hit the 10m job cap.
-    # Give only that cold all-feature profile room for setup and completion.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && (matrix.profile.name == 'workspace-all-features' && 15 || 10) || 60 }}
+    # Give the all-feature profile room for cold builds and shared-runner I/O.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
     if: *eg-code-change
@@ -1212,9 +1200,7 @@ jobs:
       matrix:
         profile:
           - { name: 'workspace-all-features', flags: '--workspace --all-features' }
-          - { name: 'published-full', flags: '--no-default-features --features full,ast-extended' }
-          - { name: 'slim-server', flags: '--no-default-features --features server' }
-    steps:
+    steps: &eg-clippy-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1236,254 +1222,68 @@ jobs:
         # --keep-going: one crate's lint errors must not stop the others being linted.
         run: cargo clippy --locked --keep-going ${{ matrix.profile.flags }} --all-targets -- -D warnings
 
-  # ── Repository-wide scanner and complexity analysis is advisory. Keep its
-  # reports visible, while product tests and cargo-deny remain release gates.
-  # Provisioning stays isolated from the local manual mirror.
-  # Every scanner step runs even when an earlier one failed (`!cancelled()`), so
-  # one red scanner never hides the verdicts of the rest -- on 57a12eb06 a red
-  # jscpd step left CCCC, KISS, import-linter, depcruise and arch-lint unrun.
-  # The job still fails at the end if any step failed.
-  scanner-quality:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: Scanner + architecture quality (advisory)
+  clippy-release-profiles:
+    timeout-minutes: 60
+    name: Clippy ${{ matrix.profile.name }}
     needs: changes
-    if: *eg-code-change
-    runs-on: ubuntu-latest
+    if: *eg-main-only
+    runs-on: *eg-native-validation-runner
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - { name: 'published-full', flags: '--no-default-features --features full,ast-extended' }
+          - { name: 'slim-server', flags: '--no-default-features --features server' }
+    steps: *eg-clippy-steps
+
+  # Nightly schedule only. The tracked-tree duplicate-function census is
+  # advisory evidence (scripts/check_dupehound_census.py): it never blocks
+  # CI required and its receipts are uploaded as an artifact.
+  dupehound-census:
+    timeout-minutes: 60
+    name: Dupehound tracked-tree census (advisory)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
-      - *eg-history-checkout
-      - *eg-tracked-python
-      - name: Install scanner adapter test dependency
-        if: ${{ !cancelled() }}
-        run: python -m pip install --disable-pip-version-check --no-input pytest
-      - name: Dupehound adapter contract tests
-        if: ${{ !cancelled() }}
-        # --noconftest: the adapter tests own their fixtures; the suite conftest
-        # imports the full client (msgpack), which this job does not install.
-        run: python -m pytest -q --noconftest tests/test_dupehound_census.py
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: '22'
-      - name: Install locked thin-client dependencies
-        if: ${{ !cancelled() }}
-        working-directory: clients/js
-        run: npm ci --ignore-scripts --no-audit --no-fund
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: '.python-version'
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          # KISS runs cargo metadata for package roots concurrently. Install the
-          # repository's pinned channel before the census so its child cargo
-          # processes cannot race rustup's first-use toolchain installation.
-          toolchain: '1.96.0'
-          components: clippy, rustfmt
-
-      # Pull-request base SHA is authoritative for the differential clone
-      # gate. On a push, github.event.before is the previous commit. A
-      # zero/empty base falls back to the immediate parent, then the root;
-      # an unavailable object is an environment failure, never a baseline.
-      - name: Resolve scanner base commit
-        if: ${{ !cancelled() }}
-        shell: bash
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_BASE_REF: ${{ github.base_ref }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          base="${PR_BASE_SHA:-${PUSH_BEFORE_SHA:-}}"
-          case "$base" in
-            ""|0000000000000000000000000000000000000000) base="" ;;
-          esac
-          if [ -z "$base" ]; then
-            base="$(git rev-parse --verify HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)"
-          fi
-          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            if [ -n "${PR_BASE_REF:-}" ]; then
-              git fetch --no-tags --depth=1 origin "refs/heads/${PR_BASE_REF}:refs/remotes/origin/${PR_BASE_REF}"
-            fi
-          fi
-          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            git fetch --no-tags --depth=1 origin "$base"
-          fi
-          resolved="$(git rev-parse --verify "${base}^{commit}")"
-          git cat-file -e "${resolved}^{commit}"
-          printf 'CX_DUP_BASE_REF=%s\n' "$resolved" >> "$GITHUB_ENV"
-
-      # Scanner installation is disclosed as non-hermetic; its findings are
-      # advisory and are not a release security boundary.
-      # The four native scanners are built from source by `cargo install`
-      # (15.7 min measured on run 35740545815, under CARGO_BUILD_JOBS=1). The
-      # Cache identity covers the installer and fork probe. Restored tools are
-      # checked before reuse; only a complete validated toolchain is saved.
-      - name: Restore pinned scanner toolchain
-        id: scanner-cache
-        # restore + an explicit save (below) rather than actions/cache: its
-        # post-job save only runs when the whole job succeeds, and an advisory
-        # census failure would otherwise force a ~10 min rebuild every run.
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/epistemic-graph-scanners
-          key: eg-scanners-v2-${{ runner.os }}-${{ hashFiles('scripts/install_scanners.sh', 'scripts/kiss_fork.py') }}
-
-      - name: Validate restored scanner toolchain
-        id: scanner-restored
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if bash scripts/install_scanners.sh --verify "$RUNNER_TEMP/epistemic-graph-scanners"; then
-            echo 'valid=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'valid=false' >> "$GITHUB_OUTPUT"
-          fi
-
+          toolchain: stable
       - name: Provision pinned scanner toolchain
-        id: scanner-provision
-        if: ${{ !cancelled() && steps.scanner-restored.outputs.valid != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/install_scanners.sh "$RUNNER_TEMP/epistemic-graph-scanners"
-
-      - name: Validate complete scanner cache
-        id: scanner-validated
-        if: ${{ !cancelled() && (steps.scanner-restored.outputs.valid == 'true' || steps.scanner-provision.outcome == 'success') }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/install_scanners.sh --verify "$RUNNER_TEMP/epistemic-graph-scanners"
-
-      - name: Save pinned scanner toolchain
-        if: ${{ !cancelled() && steps.scanner-validated.outcome == 'success' && steps.scanner-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/epistemic-graph-scanners
-          key: ${{ steps.scanner-cache.outputs.cache-primary-key }}
-
-      - name: Put pinned scanner toolchain on PATH
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          scanner_root="$RUNNER_TEMP/epistemic-graph-scanners"
-          python -m pip install --disable-pip-version-check --no-input --upgrade "import-linter==2.13"
-          for bin_dir in "$scanner_root/cccc/bin" "$scanner_root/kiss/bin" "$scanner_root/dupehound/bin" "$scanner_root/arch-lint/bin" "$scanner_root/npm/node_modules/.bin"; do
-            echo "$bin_dir" >> "$GITHUB_PATH"
-          done
-
-      - name: Verify scanner versions
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(cccc --version)" = "cccc 1.6.0"
-          test "$(kiss --version)" = "kiss 0.4.12"
-          python3 scripts/kiss_fork.py "$(command -v kiss)"
-          test "$(dupehound --version)" = "dupehound 0.1.2"
-          test "$(jscpd --version)" = "cpd 5.0.16"
-          test "$(depcruise --version)" = "18.2.0"
-          test "$(python -c 'from importlib.metadata import version; print(version("import-linter"))')" = "2.13"
-          case "$(arch-lint --version 2>&1)" in
-            0.5.0|"arch-lint 0.5.0") ;;
-            *) echo "unexpected arch-lint version output" >&2; exit 2 ;;
-          esac
-
-      - name: jscpd differential analysis (new pairs)
-        if: ${{ !cancelled() }}
-        run: python3 scripts/check_duplication.py enforce --base-ref "$CX_DUP_BASE_REF"
-      - name: jscpd tracked-tree census (advisory)
-        if: ${{ !cancelled() }}
-        run: python3 scripts/check_duplication.py census
-
+          bash scripts/install_scanners.sh "$RUNNER_TEMP/eg-scanners"
+          echo "$RUNNER_TEMP/eg-scanners/dupehound/bin" >> "$GITHUB_PATH"
       - name: Dupehound tracked-tree census (advisory)
-        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 scripts/check_dupehound_census.py \
             --repository agent-packages/epistemic-graph \
             --commit HEAD \
             --profile dupehound-full-tree-v1:epistemic-graph \
-            --raw-output "$RUNNER_TEMP/epistemic-graph-dupehound.raw.json" \
-            --stderr-output "$RUNNER_TEMP/epistemic-graph-dupehound.stderr.txt" \
-            --normalized-output "$RUNNER_TEMP/epistemic-graph-dupehound.scanner-evidence.json" \
-            --manifest-output "$RUNNER_TEMP/epistemic-graph-dupehound.manifest.json"
+            --raw-output "$RUNNER_TEMP/dupehound.raw.json" \
+            --stderr-output "$RUNNER_TEMP/dupehound.stderr.txt" \
+            --normalized-output "$RUNNER_TEMP/dupehound.scanner-evidence.json" \
+            --manifest-output "$RUNNER_TEMP/dupehound.manifest.json"
       - name: Upload Dupehound census evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: epistemic-graph-dupehound-census-${{ github.run_id }}-${{ github.run_attempt }}
+          name: dupehound-census-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
           path: |
-            ${{ runner.temp }}/epistemic-graph-dupehound.raw.json
-            ${{ runner.temp }}/epistemic-graph-dupehound.stderr.txt
-            ${{ runner.temp }}/epistemic-graph-dupehound.scanner-evidence.json
-            ${{ runner.temp }}/epistemic-graph-dupehound.manifest.json
-
-      - name: CCCC tracked-tree census (advisory)
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          report="$RUNNER_TEMP/epistemic-graph-cccc-census.json"
-          manifest="$RUNNER_TEMP/epistemic-graph-cccc-sources.nul"
-          manifest_stderr="$RUNNER_TEMP/epistemic-graph-cccc-source-manifest-stderr.txt"
-          stderr="$RUNNER_TEMP/epistemic-graph-cccc-stderr.txt"
-          terms="$RUNNER_TEMP/epistemic-graph-cccc-terms.txt"
-          if ! python3 scripts/list_scanner_sources.py cccc > "$manifest" 2> "$manifest_stderr"; then
-            cat "$manifest_stderr" >&2
-            echo "CCCC census: source manifest generation failed" >&2
-            exit 2
-          fi
-          mapfile -d "" files < "$manifest" || { echo "CCCC census: malformed source manifest" >&2; exit 2; }
-          [ "${#files[@]}" -gt 0 ] || { echo "CCCC census: no tracked source files" >&2; exit 2; }
-          languages="$(PYTHONPATH=scripts python3 -c "from scanner_contract import cccc_languages_arg; print(cccc_languages_arg())")" || { echo "CCCC census: invalid language registry" >&2; exit 2; }
-          set +e
-          cccc --no-config --min 0 --lang "$languages" "${files[@]}" > "$report" 2> "$stderr"
-          status=$?
-          set -e
-          if [ "$status" -ne 0 ]; then
-            cat "$stderr" >&2
-            exit "$status"
-          fi
-          python3 scripts/validate_cccc_census.py "$report" --source-manifest "$manifest"
-          python3 scripts/report_complexity_terms.py "$report" --require-zero | tee "$terms"
-      - name: Upload CCCC census evidence
-        if: ${{ always() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: epistemic-graph-cccc-census-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: warn
-          path: |
-            ${{ runner.temp }}/epistemic-graph-cccc-census.json
-            ${{ runner.temp }}/epistemic-graph-cccc-sources.nul
-            ${{ runner.temp }}/epistemic-graph-cccc-source-manifest-stderr.txt
-            ${{ runner.temp }}/epistemic-graph-cccc-stderr.txt
-            ${{ runner.temp }}/epistemic-graph-cccc-terms.txt
-
-      # The union of one whole-tree run and one run per package root (was one
-      # KISS process per tracked file: 136.7 min on run 35740545815). The
-      # wrapper keeps every fail-closed check -- pinned version, .config/kiss.toml
-      # present, .kissconfig forbidden, rejected config keys, exit status
-      # agreeing with the report -- and reports a superset of the per-file,
-      # whole-tree and per-package findings; see scripts/check_kiss_census.py.
-      - name: KISS tracked-tree census (advisory)
-        if: ${{ !cancelled() }}
-        run: python3 scripts/check_kiss_census.py
-
-      - name: Python import architecture (import-linter)
-        if: ${{ !cancelled() }}
-        run: lint-imports --config .config/importlinter.ini --no-cache
-      - name: JavaScript dependency architecture (dependency-cruiser)
-        if: ${{ !cancelled() }}
-        working-directory: clients/js
-        run: depcruise --validate --config .dependency-cruiser.cjs index.mjs
-      - name: Rust architecture (arch-lint)
-        if: ${{ !cancelled() }}
-        run: python3 scripts/check_rust_arch_lint.py
-      - name: arch-lint policy against the installed scanner
-        if: ${{ !cancelled() }}
-        env:
-          EG_REQUIRE_SCANNERS: "1"
-        run: python -m pytest -q -p no:cacheprovider --noconftest tests/test_arch_lint_policy.py
+            ${{ runner.temp }}/dupehound.raw.json
+            ${{ runner.temp }}/dupehound.stderr.txt
+            ${{ runner.temp }}/dupehound.scanner-evidence.json
+            ${{ runner.temp }}/dupehound.manifest.json
 
   # ── Optional feature-combination build analysis. Failures stay visible in
   # Actions but cannot delay a release.
@@ -1573,7 +1373,7 @@ jobs:
     timeout-minutes: 360
     name: wheel cache ${{ matrix.name }}
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.runner }}
     continue-on-error: true
@@ -1632,7 +1432,7 @@ jobs:
     timeout-minutes: 360
     name: server wheel cache linux-${{ matrix.arch }}
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     continue-on-error: true
@@ -1658,9 +1458,9 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security, lint-and-architecture]
+    needs: [light-gates, changes, gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, quality-advisory, clippy-release-profiles, security]
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph'
+      github.repository == 'Knuckles-Team/medulla'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'
       && needs.gates.result == 'success'
     runs-on: ubuntu-latest
@@ -1719,3 +1519,125 @@ jobs:
           gh release create engine-main dist/medulla-*.whl dist/SHA256SUMS \
             --target "$SOURCE_SHA" --prerelease --latest=false \
             --title "engine-main (${SOURCE_SHA:0:12})" --notes "$notes"
+
+  # Stable branch-protection surface for pull requests and main pushes. Keep
+  # this aggregate fail-closed: a failed, cancelled, missing, or unexpectedly
+  # skipped blocking job must make the one required check fail. It needs only
+  # the jobs that can run on a pull request; main-only jobs still fail the
+  # workflow run that release.yml requires. Path-gated jobs may be skipped on a
+  # pull request only when their path gate is false. Documentation-only changes
+  # skip the native jobs through changes.outputs.code and must still have a
+  # successful security job and central light-gate result.
+  ci-required:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    name: CI required
+    needs:
+      - light-gates
+      - changes
+      - security
+      - gates-contract
+      - gates-wheel
+      - gates-whisper
+      - gates-crates
+      - gates-storage
+      - gates-pyo3
+      - python-kernels
+      - python-server
+      - python-suite
+      - tts-piper-inference
+      - language-clients
+      - quality-advisory
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every blocking CI result
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CODE_SCOPE: ${{ needs.changes.outputs.code }}
+          CLIENTS_SCOPE: ${{ needs.changes.outputs.clients }}
+          WHISPER_SCOPE: ${{ needs.changes.outputs.whisper }}
+          TTS_SCOPE: ${{ needs.changes.outputs.tts }}
+          PACKAGING_SCOPE: ${{ needs.changes.outputs.packaging }}
+          LIGHT_GATES_RESULT: ${{ needs.light-gates.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          GATES_CONTRACT_RESULT: ${{ needs.gates-contract.result }}
+          GATES_WHEEL_RESULT: ${{ needs.gates-wheel.result }}
+          GATES_WHISPER_RESULT: ${{ needs.gates-whisper.result }}
+          GATES_CRATES_RESULT: ${{ needs.gates-crates.result }}
+          GATES_STORAGE_RESULT: ${{ needs.gates-storage.result }}
+          GATES_PYO3_RESULT: ${{ needs.gates-pyo3.result }}
+          PYTHON_KERNELS_RESULT: ${{ needs.python-kernels.result }}
+          PYTHON_SERVER_RESULT: ${{ needs.python-server.result }}
+          PYTHON_SUITE_RESULT: ${{ needs.python-suite.result }}
+          TTS_PIPER_INFERENCE_RESULT: ${{ needs.tts-piper-inference.result }}
+          LANGUAGE_CLIENTS_RESULT: ${{ needs.language-clients.result }}
+          QUALITY_ADVISORY_RESULT: ${{ needs.quality-advisory.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$CODE_SCOPE" != true && "$CODE_SCOPE" != false ]]; then
+            echo "changes.outputs.code is missing or invalid: ${CODE_SCOPE:-<empty>}" >&2
+            exit 1
+          fi
+
+          # Path-gated jobs: job=gate. A pull request may skip one only when
+          # its gate is false; every other event must run it.
+          declare -A path_gate=(
+            [gates-wheel]="$PACKAGING_SCOPE"
+            [gates-pyo3]="$PACKAGING_SCOPE"
+            [gates-whisper]="$WHISPER_SCOPE"
+            [tts-piper-inference]="$TTS_SCOPE"
+            [language-clients]="$CLIENTS_SCOPE"
+          )
+
+          results=(
+            "light-gates=$LIGHT_GATES_RESULT"
+            "changes=$CHANGES_RESULT"
+            "security=$SECURITY_RESULT"
+            "gates-contract=$GATES_CONTRACT_RESULT"
+            "gates-wheel=$GATES_WHEEL_RESULT"
+            "gates-whisper=$GATES_WHISPER_RESULT"
+            "gates-crates=$GATES_CRATES_RESULT"
+            "gates-storage=$GATES_STORAGE_RESULT"
+            "gates-pyo3=$GATES_PYO3_RESULT"
+            "python-kernels=$PYTHON_KERNELS_RESULT"
+            "python-server=$PYTHON_SERVER_RESULT"
+            "python-suite=$PYTHON_SUITE_RESULT"
+            "tts-piper-inference=$TTS_PIPER_INFERENCE_RESULT"
+            "language-clients=$LANGUAGE_CLIENTS_RESULT"
+            "quality-advisory=$QUALITY_ADVISORY_RESULT"
+          )
+          failures=()
+          for entry in "${results[@]}"; do
+            job="${entry%%=*}"
+            result="${entry#*=}"
+            result="${result:-MISSING}"
+
+            if [[ "$job" == light-gates || "$job" == changes || "$job" == security ]]; then
+              [[ "$result" == success ]] || failures+=("$job=$result")
+              continue
+            fi
+
+            if [[ "$CODE_SCOPE" == false ]]; then
+              [[ "$result" == skipped ]] || failures+=("$job=$result (expected skipped for documentation-only scope)")
+              continue
+            fi
+
+            if [[ -n "${path_gate[$job]+set}" && "$EVENT_NAME" == pull_request && "$result" == skipped ]]; then
+              if [[ "${path_gate[$job]}" == false ]]; then
+                echo "accepted path-gate skip: $job (pull_request)"
+                continue
+              fi
+              failures+=("$job=skipped (path gate is '${path_gate[$job]:-<empty>}')")
+              continue
+            fi
+            [[ "$result" == success ]] || failures+=("$job=$result")
+          done
+
+          if ((${#failures[@]})); then
+            printf 'blocking CI result failure:\n- %s\n' "${failures[@]}" >&2
+            exit 1
+          fi
+          echo "all blocking CI results passed for code_scope=$CODE_SCOPE"

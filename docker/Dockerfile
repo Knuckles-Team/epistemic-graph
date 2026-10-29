@@ -4,7 +4,7 @@
 # release workflow, else the exact published release). The final stage is a slim base carrying
 # only the binary.
 #
-#   docker build -f docker/Dockerfile -t <registry>/epistemic-graph-server:<tag> .
+#   docker build -f docker/Dockerfile -t <registry>/medulla-stem:<tag> .
 
 FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a /uv /bin/uv
@@ -23,9 +23,9 @@ RUN set -eu; \
     cp "$(readlink -f /opt/venv/bin/epistemic-graph-server)" /epistemic-graph-server
 
 FROM debian:bookworm-slim AS runtime
-LABEL org.opencontainers.image.title="epistemic-graph-server" \
-      org.opencontainers.image.description="Native epistemic-graph server executable" \
-      org.opencontainers.image.source="https://github.com/Knuckles-Team/epistemic-graph"
+LABEL org.opencontainers.image.title="medulla-stem" \
+      org.opencontainers.image.description="Native Medulla server executable" \
+      org.opencontainers.image.source="https://github.com/Knuckles-Team/medulla"
 ENV GRAPH_SERVICE_PERSIST_DIR=/var/lib/epistemic-graph/data \
     GRAPH_SERVICE_TCP_ADDR=127.0.0.1:9100 \
     GRAPH_SERVICE_METRICS_ADDR=127.0.0.1:9101

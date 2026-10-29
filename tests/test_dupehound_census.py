@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.no_engine
@@ -466,13 +467,16 @@ def test_empty_production_universe_is_not_applicable_without_native_scan(
     assert context.tool["invocation"] == []
 
 
-def test_release_workflow_wires_the_adapter_without_changing_changed_gate():
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert "scripts/check_dupehound_census.py" in workflow
-    assert "dupehound-full-tree-v1:epistemic-graph" in workflow
-    assert "python -m pytest -q --noconftest tests/test_dupehound_census.py" in workflow
-    assert "actions/upload-artifact" in workflow
-    assert "epistemic-graph-dupehound.stderr.txt" in workflow
+def test_census_adapter_stays_separate_from_the_changed_gate():
+    # The census runs only on the nightly schedule, as a non-blocking job that
+    # CI required does not wait for; the changed-function gate never runs it.
+    doc = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text("utf-8"))
+    job = doc["jobs"]["dupehound-census"]
+    assert job["if"] == "github.event_name == 'schedule'"
+    assert job["continue-on-error"] is True
+    assert "dupehound-census" not in doc["jobs"]["ci-required"]["needs"]
+    runs = [step.get("run", "") for step in job["steps"]]
+    assert any("scripts/check_dupehound_census.py" in run for run in runs)
     assert "--no-default-excludes" in (
         ROOT / "scripts/check_dupehound_census.py"
     ).read_text(encoding="utf-8")

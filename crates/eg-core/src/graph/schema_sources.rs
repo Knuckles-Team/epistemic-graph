@@ -25,8 +25,10 @@ use super::LegacyIntegrityPolicy;
 /// data-platform vocabulary plus the data-platform, IT4IT-delivery, media and
 /// retrieval domain modules (51, EG-DATAPLAT-VOCAB-R001.1 and
 /// EG-TYPED-PACKS-R105.6 to R105.9), the commercial module with its shapes
-/// companion (52, EG-SUPPLY-VOCAB-R003.13), and the supply-chain vocabulary
-/// (53, EG-SUPPLY-VOCAB-R001.1.2).
+/// companion (52, EG-SUPPLY-VOCAB-R003.13), the supply-chain vocabulary
+/// (53, EG-SUPPLY-VOCAB-R001.1.2), and the connector-pack vocabulary with its
+/// shapes companion (54, EG-TYPED-PACKS-R101.1 to R102.1), and the government
+/// and foundation shapes companions (55, 56, EG-CQ-CONN-R073.1, R074.1).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -375,6 +377,7 @@ fn validate_dynamic_sources(dynamic: &BTreeMap<String, GraphSchemaSource>) -> Re
     for (source_id, source) in dynamic {
         validate_dynamic_identity(source_id, &source.origin)?;
         source.validate()?;
+        reject_pack_or_ingestion_approval_claim(source_id, source)?;
         total = total
             .checked_add(source.byte_len())
             .ok_or_else(|| "dynamic schema byte count overflowed".to_string())?;
@@ -385,6 +388,150 @@ fn validate_dynamic_sources(dynamic: &BTreeMap<String, GraphSchemaSource>) -> Re
         ));
     }
     Ok(())
+}
+
+/// EG-SRC-AUTH-R003.2: the virtual-graph `approved` flag is an operator
+/// assertion. A `Pack` or `Ingestion` origin attaching a document that carries
+/// a truthy `vg:approved` triple is refused at the attach seam with the typed
+/// code `APPROVAL_CLAIM_REFUSED`; the same document under an `Operator`,
+/// `Admin` or `Approved` origin is not a claim and may attach.
+fn reject_pack_or_ingestion_approval_claim(
+    source_id: &str,
+    source: &GraphSchemaSource,
+) -> Result<(), String> {
+    let claim_origin = matches!(
+        source.origin,
+        SchemaSourceOrigin::Pack { .. } | SchemaSourceOrigin::Ingestion { .. }
+    );
+    if !claim_origin {
+        return Ok(());
+    }
+    for (label, document) in [
+        ("shapes", source.shapes_ttl.as_deref()),
+        ("ontology", source.ontology_ttl.as_deref()),
+    ] {
+        if document.is_some_and(document_claims_virtual_graph_approval) {
+            return Err(format!(
+                "APPROVAL_CLAIM_REFUSED: {label} document of '{source_id}' asserts \
+                 vg:approved true; approval is an operator assertion and may not ride a \
+                 pack or ingestion origin"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Conservative line scan for a truthy `vg:approved` triple. This crate has no
+/// RDF parser, so the scan recognises the predicate as the full IRI or as any
+/// `@prefix` label that resolves to the virtual-graph namespace, and the value
+/// as the first term after the predicate (falling through to the next line
+/// across a property-list continuation). A comment never starts inside an IRI,
+/// so only a `#` at line start or after whitespace terminates a line.
+fn document_claims_virtual_graph_approval(document: &str) -> bool {
+    const APPROVED: &str = "http://knuckles.team/kg/virtual-graph#approved";
+    let lines: Vec<&str> = document.lines().collect();
+    let mut needles: Vec<String> = vec![format!("<{APPROVED}>")];
+    for (label, iri) in prefix_bindings(&lines) {
+        if format!("{iri}approved") == APPROVED {
+            needles.push(format!("{label}:approved"));
+        }
+    }
+    for (index, line) in lines.iter().enumerate() {
+        let text = strip_line_comment(line);
+        for needle in &needles {
+            for position in text
+                .match_indices(needle.as_str())
+                .map(|(position, _)| position)
+            {
+                let before = &text[..position];
+                let before_ok = match before.chars().next_back() {
+                    None => true,
+                    Some(c) => c.is_whitespace() || c == '(',
+                };
+                if !before_ok {
+                    continue;
+                }
+                let after = &text[position + needle.len()..];
+                let after_ok = match after.chars().next() {
+                    None => true,
+                    Some(c) => c.is_whitespace() || c == ';' || c == '.',
+                };
+                if !after_ok {
+                    continue;
+                }
+                let rest = after.trim_start();
+                let value = if rest.is_empty() || rest.starts_with(';') || rest.starts_with('.') {
+                    // The predicate ends the line: across a property-list
+                    // continuation the value, if any, starts the next line.
+                    next_line_first_term(&lines[index + 1..])
+                } else {
+                    Some(rest.split([';', '.']).next().unwrap_or("").trim())
+                };
+                if value.is_some_and(is_truthy_approval_literal) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// `@prefix label: <iri> .` bindings declared in the document.
+fn prefix_bindings(lines: &[&str]) -> BTreeMap<String, String> {
+    let mut prefixes: BTreeMap<String, String> = BTreeMap::new();
+    for line in lines {
+        let Some(declaration) = strip_line_comment(line)
+            .trim_start()
+            .strip_prefix("@prefix")
+        else {
+            continue;
+        };
+        let Some((label, rest)) = declaration.trim_start().split_once(':') else {
+            continue;
+        };
+        let label = label.trim();
+        let iri = rest
+            .trim_start()
+            .strip_prefix('<')
+            .and_then(|value| value.split_once('>').map(|(iri, _)| iri))
+            .unwrap_or("");
+        if !label.is_empty() && !iri.is_empty() {
+            prefixes.insert(label.to_string(), iri.to_string());
+        }
+    }
+    prefixes
+}
+
+/// The first term of the first non-blank, non-comment line after a
+/// property-list continuation.
+fn next_line_first_term<'a>(lines: &'a [&'a str]) -> Option<&'a str> {
+    for line in lines {
+        let text = strip_line_comment(line).trim();
+        if text.is_empty() {
+            continue;
+        }
+        return Some(text.split([';', '.']).next().unwrap_or("").trim());
+    }
+    None
+}
+
+/// Drop a trailing Turtle comment. A `#` inside an IRI (such as the
+/// virtual-graph namespace) is not a comment start; only a `#` at line start
+/// or after whitespace is.
+fn strip_line_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'#' && (index == 0 || bytes[index - 1].is_ascii_whitespace()) {
+            return &line[..index];
+        }
+    }
+    line
+}
+
+/// `true`, `1` and their quoted forms, with or without a datatype suffix.
+fn is_truthy_approval_literal(term: &str) -> bool {
+    let base = term.split("^^").next().unwrap_or(term);
+    matches!(base, "true" | "1" | "\"true\"" | "\"1\"")
 }
 
 fn validate_dynamic_identity(source_id: &str, origin: &SchemaSourceOrigin) -> Result<(), String> {
@@ -575,6 +722,14 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/core-foundation-v1.ttl")),
         },
+        // The core-foundation SHACL shapes are their own core source, the
+        // same pattern as orchestration-shapes and finance-shapes.
+        CoreSpec {
+            module: "foundation-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/core-foundation-v1.shapes.ttl")),
+            ontology: None,
+        },
         CoreSpec {
             module: "capability",
             version: 1,
@@ -665,10 +820,18 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/government-v1.ttl")),
         },
+        // The government SHACL shapes are their own core source, the same
+        // pattern as orchestration-shapes and finance-shapes.
+        CoreSpec {
+            module: "government-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/government-v1.shapes.ttl")),
+            ontology: None,
+        },
         CoreSpec {
             module: "harness",
             version: 1,
-            shapes: None,
+            shapes: Some(include_str!("../../ontology/harness-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/harness-v1.ttl")),
         },
         CoreSpec {
@@ -686,7 +849,7 @@ fn core_specs() -> &'static [CoreSpec] {
         CoreSpec {
             module: "infrastructure",
             version: 1,
-            shapes: None,
+            shapes: Some(include_str!("../../ontology/infrastructure-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/infrastructure-v1.ttl")),
         },
         CoreSpec {
@@ -874,10 +1037,14 @@ fn core_specs() -> &'static [CoreSpec] {
         },
         // EG-DATAPLAT-VOCAB-R001.4: shared data-platform terms are one immutable
         // core source and import the virtual-graph attachment vocabulary.
+        // The SHACL shapes companion (EG-DATAPLAT-VOCAB-R002.4+, including the
+        // closed secret-metadata shapes of EG-DATAPLAT-VOCAB-R005.2) is wired
+        // into the SAME source's shapes field, as the commercial module does
+        // (EG-SUPPLY-VOCAB-R003.14) — one registered artifact per module.
         CoreSpec {
             module: "data-platform",
             version: 1,
-            shapes: None,
+            shapes: Some(include_str!("../../ontology/data_platform-v1.shapes.ttl")),
             ontology: Some(include_str!("../../ontology/data_platform-v1.ttl")),
         },
         CoreSpec {
@@ -900,6 +1067,16 @@ fn core_specs() -> &'static [CoreSpec] {
             version: 1,
             shapes: None,
             ontology: Some(include_str!("../../ontology/supply_chain-v1.ttl")),
+        },
+        // EG-TYPED-PACKS-R101.1/R102.1: the connector-pack ingest-contract and
+        // surface vocabulary, registered once, with its shapes companion wired
+        // into the same CoreSpec shapes field (the commercial pattern,
+        // EG-SUPPLY-VOCAB-R003.13/R003.14).
+        CoreSpec {
+            module: "connector-pack",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/connector_pack-v1.shapes.ttl")),
+            ontology: Some(include_str!("../../ontology/connector_pack-v1.ttl")),
         },
     ];
     SPECS
@@ -975,7 +1152,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 53);
+        assert_eq!(sources.core.len(), 56);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1242,15 +1419,15 @@ mod tests {
             ),
             (
                 "action",
-                "ecbbd3b188a10d231920d30a66dc9c69ebc659c4cfd857cfbd888d5bbc71f24c",
+                "eb539c1652be9fa0bc9c60881221e081a17c6afb9c3cdb9d21cd73521819c98a",
             ),
             (
                 "archimate",
-                "64da730d94db932bb679ae124b2fa6c2e4d490252b04a29f592b4dfef8e857d7",
+                "e6d754a3194e3a8d97504c366f82b31f8f3b04f0abb68c80e0e14dffdf6454ad",
             ),
             (
                 "capability",
-                "23bef29fbbc23ce086f187f5f8fe3a23b442d09ef30e5febf221817d7d3b9456",
+                "e20f971c54e0c49672d10bc83fd44c3f2a343412e77fedc7f0501ec75fb482f2",
             ),
             (
                 "argumentation",
@@ -1262,7 +1439,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "10305673e8685d7880c4e8ed40921eeadb3e3380b2094f66a7038cbf8fe28546",
+                "2609d11179adc65fa951b045c656e1d0444bc5f9c6e9c7c2108e7096cc858ec6",
             ),
             (
                 "company",
@@ -1273,12 +1450,20 @@ mod tests {
                 "416c839ba3cc5e53631cc7b601c8542cbe3d12fd78587c31cd62b8d2662ce1d3",
             ),
             (
+                "connector-pack",
+                "129b2707c8bbd818bfd71d2678d0352152a5aacadc0704e27d5951e5a00f2fae",
+            ),
+            (
                 "concepts",
                 "297fad75a6d0ef0135a6f8026fcc72ea4cddadcc79531c9e62fb57d35eb5fa6a",
             ),
             (
                 "foundation",
-                "c9bd8c1c66bcb6d142cf5d75659e87dc8c8c5b061d78ddcc370681a1c44ac41e",
+                "60aad5fa80fb5c30da26dbc3e89d28f39bfa61f333cfe311b568778a3dd1ab0e",
+            ),
+            (
+                "foundation-shapes",
+                "ba532a3f531cc41b195ef7bce35bde44676046928fa300ba46574ed3f8c75e23",
             ),
             (
                 "documentation",
@@ -1298,7 +1483,11 @@ mod tests {
             ),
             (
                 "government",
-                "7f3f909c1d726d5394a189115782d4eb6e9fa04f736eda8e6e1be10c8eb98e71",
+                "1603a25737cb7457590c0bf9a16564c0a8ba173316d09c65f0fa01a537f09fa4",
+            ),
+            (
+                "government-shapes",
+                "46bd34ae2277727244c99ff0bea6eaa15d781481ebe90f61443764b3d021cb40",
             ),
             (
                 "harness",
@@ -1314,7 +1503,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "9b86de53197e7c294fba6f7fb28efc9f32f95eb69d52d2d117316a23fb22426a",
+                "8fac3d843e19599d54c7a7bf2bb8e814444626b816b3dea59abaa42cc60023bf",
             ),
             (
                 "medical",
@@ -1326,15 +1515,15 @@ mod tests {
             ),
             (
                 "orchestration",
-                "0bc001c5098354a6f9b6e0fbfd974c0714c00b086536530dd212da694cb07469",
+                "71d5ceee33e90c545ddb427679a44a88b5a8781a93a4065df2faf3a4dcd9f43d",
             ),
             (
                 "orchestration-shapes",
-                "fd4e60fe31e5666576d0b0f817ab2fd0846e84e66e53a9634ff54600861a887c",
+                "816fc9d0bafd4e57026d36131351410a89fb483b6342402c52e676732292fac8",
             ),
             (
                 "personal",
-                "55ba0a0b4173d123d59e594fe8a8ca84716bd7a320407cbbed247c4ca30dfabe",
+                "399357c7ed3cecc8537010390c1d5c6708ea96b233c951c5cd473d8827a79511",
             ),
             (
                 "process_intelligence",
@@ -1342,7 +1531,7 @@ mod tests {
             ),
             (
                 "sdd",
-                "db421a14086da905ff377173cd1006e0b3fb520ca9361b53a05e0c18a700d387",
+                "7fc49c182c7f1d0a3af1caf8cdf72f623fa200c1057eafb77c121538e372c050",
             ),
             (
                 "service_operations",
@@ -1350,11 +1539,11 @@ mod tests {
             ),
             (
                 "dataplatform",
-                "3efdde3316dd8e72b876f47e67d9d510f5af466852d951f7b1006d9355bf4c62",
+                "f31c8ded176afd68dfd0649a97929f4761520214e4efb97a67617d20439ec94f",
             ),
             (
                 "data-platform",
-                "8d76ccb12efc61c9724f9c6ff0368ea95bb7a97b16cd423a01de919bc0ee2007",
+                "03d30f8521e1adbfce3ac284bade4df85909801b3051a521b0bca3a7a1475f5e",
             ),
             (
                 "it4it_delivery",
@@ -1362,15 +1551,15 @@ mod tests {
             ),
             (
                 "media",
-                "9ec45d345d8995429c75603cdd4ea9b726e72d5b467c68c5d45706cd1e9e0a5a",
+                "fbacbd3c1a8527e79733bdbb67bd2d719bd1412db7d7017b71bea5c35a27eac5",
             ),
             (
                 "retrieval",
-                "a4aded0ccadcf3bf5fae62d5071dc330e4e73e56daf7b2dfb8e288d865a0346f",
+                "2c45883c6dd7bac72e96447e8033f500ec7feb8b6d4a6d7969571ee45680e311",
             ),
             (
                 "sdlc_lifecycle",
-                "a3acaecdc8df53c2fda939b643a63a1cc2c9a040c8a26062c9c47c52bc3428d2",
+                "4ab13d77447cd3d0daae61cdbfd884a0d3ec67ea7d165b8c689f79b7eda4de98",
             ),
             (
                 "software",
@@ -1402,22 +1591,23 @@ mod tests {
             ),
             (
                 "swarm-topology",
-                "ef6e340dd1b9b4802dd3ddf5c11ba35aa73a68f753c91339d13b2105b2d06382",
+                "bd849e8b40e5cf4b5ca018660ca5c1ad735559abec8d83d88b2aaf57cc5318a1",
             ),
             (
                 "swarm-topology-shapes",
-                "0c68fa2aeffa973e4869a91a916863cce58b661870e82130ea693413fb8a1732",
+                "1072f280c5761d749574f913967ab1fbdef04681795e43db961c8b5e9c3a4413",
             ),
             // R004.1 and R004.2.1/.2 added the asset-class migration and portfolio
             // records; semantic acceptance/refusal fixtures live in
             // src/server/graph_schema/finance_tests.rs. Pin both updated artifacts.
+            // R004.2.3-R004.2.6 added the portfolio-group, strategy and leverage records.
             (
                 "finance",
-                "cea770e406de84a6366aa23607594e98bf96ebfac229f30230bef0c63ff35ff9",
+                "daa1a6e0f66bc95b108beacdf23676b2236397ca3504fb2c3535829203328ee6",
             ),
             (
                 "finance-shapes",
-                "77c33f7959115828a21b5f3a161de10bc8e24eeeee039abca6557681d1b9925c",
+                "f541fb730a8852eab40265eefeeb3ff1ad445415cf95a17a403df87a5279362c",
             ),
             (
                 "worldview",
@@ -1437,22 +1627,25 @@ mod tests {
             ),
             (
                 "virtual-graph",
-                "16d5934a22a256fc6eaa86ff33b47bd7d815e2f81bea7b1d1022327cf92b8a2b",
+                "1dc1e43c3f9565bbece22a981a1b07e8cbe97034776f50d08ff279368eb0a963",
             ),
             (
                 "virtual-graph-shapes",
-                "313fdb8ea2d27847dc860a9a36ff18dee7b97ba0eb4d132dc161b8f88decc956",
+                "96af31e002d61552f35d86e352505ffa6513da805b3186f4190804893b0b306c",
             ),
             // EG-SUPPLY-VOCAB-R003.13: the commercial module (ontology plus its
             // shapes companion) joins the catalog; the pin follows the ontology.
             (
                 "commercial",
-                "2faf2564a0a8715030cd64f4ca342312db5f71a4f654cd05b5761eb3d18ac53d",
+                "779d53f8bcf2155d8af2006d0265bc0161f01169bd0f20be67e9dd31b15c58fb",
             ),
             (
                 "supply_chain",
-                "640999e7f89656c1e599c82ee240faf5d434480526fa6b6aeaf6a03eef4a2007",
+                "2cf4119c4348b57abbb792d7a32bf9173469e1ca9bf50d1b6e84fa163d1dcfdc",
             ),
+            // EG-TYPED-PACKS-R101.1/R102.1: the connector-pack module (ontology
+            // plus its surface shapes companion) joins the catalog; the pin
+            // follows the ontology.
         ];
         let catalog = current_core_catalog();
         let pinned_modules: BTreeSet<_> = expected.iter().map(|(module, _)| *module).collect();
@@ -1481,5 +1674,116 @@ mod tests {
             assert!(document.contains("http://knuckles.team/kg"));
             assert!(!document.contains("@prefix eg:"));
         }
+    }
+
+    // spec: EG-SRC-AUTH-R003.2
+    #[test]
+    fn pack_or_ingestion_attach_refuses_virtual_graph_approval_claims() {
+        let approved_mapping = concat!(
+            "@prefix vg: <http://knuckles.team/kg/virtual-graph#> .\n",
+            "@prefix m: <http://example.org/mapping#> .\n",
+            "m:incidentMapping a vg:Mapping ;\n",
+            "    vg:mappedClass m:Incident ;\n",
+            "    vg:approved true .\n"
+        );
+        let approved_authority = concat!(
+            "@prefix vg: <http://knuckles.team/kg/virtual-graph#> .\n",
+            "@prefix a: <http://example.org/authority#> .\n",
+            "a:incidentAuthority a vg:SourceAuthority ;\n",
+            "    vg:authorityFor a:Incident ;\n",
+            "    vg:approved true .\n"
+        );
+        let iri_claim = concat!(
+            "@prefix m: <http://example.org/mapping#> .\n",
+            "m:iriMapping a m:Thing ;\n",
+            "    <http://knuckles.team/kg/virtual-graph#approved> true .\n"
+        );
+        let pack = |record_id: &str, document: String| {
+            GraphSchemaSource::new(
+                SchemaSourceOrigin::Pack {
+                    connector: "servicenow".to_string(),
+                    record_id: record_id.to_string(),
+                },
+                Some(Arc::from(document)),
+                None,
+                0,
+            )
+            .unwrap()
+        };
+        let mut sources = GraphSchemaSources::default();
+
+        // The approved mapping row, carried in a pack shapes document, is
+        // refused with the typed code.
+        let error = sources
+            .attach_dynamic(
+                "pack:servicenow".to_string(),
+                pack("rec:1", approved_mapping.to_string()),
+            )
+            .unwrap_err();
+        assert!(error.starts_with("APPROVAL_CLAIM_REFUSED:"), "{error}");
+
+        // The approved authority row, carried in a pack ontology document, is
+        // refused the same way.
+        let authority_pack = GraphSchemaSource::new(
+            SchemaSourceOrigin::Pack {
+                connector: "pagerduty".to_string(),
+                record_id: "rec:1".to_string(),
+            },
+            None,
+            Some(Arc::from(approved_authority)),
+            0,
+        )
+        .unwrap();
+        let error = sources
+            .attach_dynamic("pack:pagerduty".to_string(), authority_pack)
+            .unwrap_err();
+        assert!(error.starts_with("APPROVAL_CLAIM_REFUSED:"), "{error}");
+
+        // The same refusal holds for the ingestion origin.
+        let ingestion = GraphSchemaSource::new(
+            SchemaSourceOrigin::Ingestion {
+                mapping: "incident".to_string(),
+                revision: 1,
+            },
+            Some(Arc::from(approved_mapping)),
+            None,
+            0,
+        )
+        .unwrap();
+        let error = sources
+            .attach_dynamic("ingest:incident".to_string(), ingestion)
+            .unwrap_err();
+        assert!(error.starts_with("APPROVAL_CLAIM_REFUSED:"), "{error}");
+        assert!(sources.dynamic.is_empty());
+
+        // The full-IRI predicate form is refused as well.
+        let error = sources
+            .attach_dynamic(
+                "pack:servicenow".to_string(),
+                pack("rec:2", iri_claim.to_string()),
+            )
+            .unwrap_err();
+        assert!(error.starts_with("APPROVAL_CLAIM_REFUSED:"), "{error}");
+        assert!(sources.dynamic.is_empty());
+
+        // The refusal is origin-scoped: a document without the claim attaches,
+        // and the same claim text under the operator origin attaches.
+        let not_approved = approved_mapping.replace("vg:approved true .", "vg:approved false .");
+        sources
+            .attach_dynamic("pack:servicenow".to_string(), pack("rec:3", not_approved))
+            .unwrap();
+        sources
+            .attach_dynamic(
+                OPERATOR_SOURCE_ID.to_string(),
+                GraphSchemaSource::new(
+                    SchemaSourceOrigin::Operator,
+                    Some(Arc::from(approved_mapping)),
+                    None,
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(sources.dynamic.len(), 2);
     }
 }

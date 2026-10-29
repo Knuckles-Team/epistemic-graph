@@ -2,7 +2,7 @@
 
 ## Sequence
 
-1. **Freeze the baseline.** Record the exact public default-branch SHA, method registry and feature profiles. Record source kinds, index generations and existing tests. Document compatible code and missing or incompatible implementations. Record acceptance evidence separately. Historical delivery claims do not establish current acceptance.
+1. **Freeze the baseline.** Record the exact public default-branch SHA. Record the method registry and feature profiles. Record source kinds, index generations and existing tests. Document compatible code and missing or incompatible implementations. Record acceptance evidence separately. Historical delivery claims do not establish current acceptance.
 2. **Close the read contract.** Make UQL grammar, lowering, printer, method registry, generated Python sender, proof and error codes agree. Add `LET`/`JOIN`, named score channels and `EXPLAIN`/`PROFILE` only where they can execute; otherwise return `UQL_UNSUPPORTED` with a stable span. Preserve the shared read snapshot and typed parameter path.
 3. **Qualify federation phase 1.** Run full-fetch versus optimized oracles for SQL, HTTP, OBDA and registered foreign sources. Repair any unsound pushdown or missing residual. Validate read-only rendering and single outbound guard. Attach budget/trace to the served plan.
 4. **Complete phase 2.** Add column-carrying rows, direct OBDA solutions, per-source concurrency, SPARQL `SERVICE` bind joins, Iceberg manifest pruning and RemoteEngine pushdown. Keep each capability off until its conformance oracle passes. The attached-source owner supplies registry identity and approved mappings.
@@ -30,7 +30,7 @@
 - Treat SQL without explicit ordering as an unordered relation; tests compare multisets. With explicit ordering, compare ordered rows and top-N exactly.
 - Treat source-feature claims as untrusted until probes or conformance establish them; a failed probe lowers capability.
 - A missing watermark disables foreign-result cache. A failed semantic generation activation leaves the prior valid generation or uses a correct fallback. It does not return silently stale rows.
-- Keep optional source kinds independently gated so a missing driver or live service does not block pure parser, planner, and mock tests for contributors.
+- Keep optional source kinds independently gated. A missing driver or live service must not block pure parser, planner, and mock tests for contributors.
 
 The [architecture](plan.md) defines interfaces and ownership. The [test specification](test-spec.md) is the release contract, and [tasks](tasks.md) maps stable work IDs to reviewable deliveries.
 
@@ -79,7 +79,7 @@ Time-series operators preserve `series@timestamp` identity and f64 channel value
 
 #### EG-FEDERATED-QUERY-R045 / EG-FEDERATED-QUERY-R052 implementation seam
 
-Extend `crates/eg-plan/src/federation.rs`, `federation_opt/` and the existing `ForeignSource` capability/result contract so `ForeignRows` carries columns through planning and execution. Keep exact residual evaluation in the shared optimizer, then project final requested columns after residual, order and proof needs are satisfied. Use the registered `RemoteEngineSource::fetch_uql` path and `Method::Uql` contract for pushed remote fragments. Resolve signed context and owner grant in the server foreign catalog before the request; do not create a second remote client, parser or source registry. Generated Python and wire shapes change only from Rust contract sources.
+Extend `crates/eg-plan/src/federation.rs`, `federation_opt/` and the existing `ForeignSource` capability/result contract. Make `ForeignRows` carry columns through planning and execution. Keep exact residual evaluation in the shared optimizer. Project requested columns after residual, ordering and proof requirements are satisfied. Use the registered `RemoteEngineSource::fetch_uql` path and `Method::Uql` contract for pushed fragments. Resolve signed context and the owner grant in the server foreign catalog first. Do not create a second remote client, parser or source registry. Generate Python and wire shapes only from Rust contract sources.
 
 The local `unified-data-plane` spec supplies `AttachedSourceIdentity`, owner grants, dialect capability evidence, source watermark, and approved named virtual-graph mapping. This spec consumes those values via the existing foreign catalog and planner. Mapping proposal approval, catalog extraction, change capture, dialect certification and native/accelerated route policy stay there. Query tests must cover an attached-source implementation without depending on a private deployment.
 
@@ -107,6 +107,19 @@ or hosted release gates. No broader acceptance is claimed.
 
 ## Amendments
 
+### 2026-10-27 — EG-FEDERATED-QUERY-R013 central authorization clarification
+
+The original R013 wording required `ACCESS_DENIED` whenever a caller named another principal's source.
+The centralized authorization contract requires identical concealment for unknown and ungranted resources.
+That wording exposed a known-but-ungranted source and conflicted with the existing contract.
+The corrected binding reuses `may_use_shared` and adds no new grant or visibility API.
+Unknown and known-but-ungranted names return the executor's typed not-found response.
+An effective exact share grant makes the source identity visible.
+A grantee's unqualified plain-name use then returns stable `ACCESS_DENIED`.
+The qualified shared name remains the only usable path.
+This follow-up claims no R013 acceptance or native execution.
+Central policy review remains required before status promotion.
+
 ### 2026-10-11 — EG-FEDERATED-QUERY-R058.3.1 source-guard repair
 
 Scope the no-cache guard to production NL handlers, excluding the adjacent
@@ -114,8 +127,8 @@ transaction handler and the test module's own forbidden-reference fixtures.
 Missing source boundaries fail closed. Negative controls inject `ResultCache`,
 a direct `served_response` call, and a generic `served_response` call into
 the production NL section. Preserve the uncached response-path assertion.
-Standalone exact-source Rust tests establish this structural guard only; they
-do not establish full facade compilation or end-to-end NL query behavior.
+Standalone exact-source Rust tests establish this structural guard only. They do
+not establish full facade compilation or end-to-end NL query behavior.
 
 ## Recovered requirement: vectorized SQL columns
 
@@ -209,7 +222,7 @@ Attach point: `execute` at `crates/eg-plan/src/exec.rs:536`. Production caller: 
 Failure: A gap below the margin returns `ARBITRATION_ABSTAIN` with both candidates. A candidate without a class returns `CANDIDATE_CLASS_REQUIRED`.
 Consumers: AU-RETRIEVAL (R006)
 Moves from Meristem: shortcut_risks.py:42, agent_control_contracts.py:73 (prior probe and evidence classes)
-Existing code: `crates/eg-plan/src/exec.rs:536`; `crates/eg-compute/src/assemble/conclude.rs:69` (typed abstention pattern). Reachable today: no.
+Existing code: `crates/eg-plan/src/exec.rs:536`. The typed abstention pattern is at `crates/eg-compute/src/assemble/conclude.rs:69`. It is not reachable today.
 Existing-code search: no arbitration exists in the engine. Search terms: `arbitrat`, `abstain`, `margin`, `parametric`, `prior_probe`.
 Reuses: the typed abstention pattern and the ranked evidence side. New: the candidate type, the margin rule, the verdict.
 Decision: One margin rule in the engine over two candidates. Rejected alternative: a learned arbiter, because it needs labelled disagreement data.
@@ -581,12 +594,12 @@ Verification reads the actual lease in the verified tenant and request graph, th
 
 Source inspected at Medulla `560b391592cd405f999fbc72ba8ee8ff64782bd4`:
 
-- [Foreign-query handler](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/src/server/handlers/federation.rs#L21) uses `OwnerScopedCall`. Its `query_columns:66` validates read authority and resolves the owner-scoped catalog. The new methods attach beside it.
-- [Dispatch attachment](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/src/server/dispatch/graph_pipeline/pipeline.rs#L333) reaches that handler under the existing federation feature.
-- [Control-lease contract](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-types/src/control_lease.rs#L1) already defines immutable grants, expiry and one-way CAS transitions. `src/redb_store/work_item/control_lease.rs:58` and `:130` are existing issuance and read seams. Reserved-kind producer wiring is new.
-- [SQL validation](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation.rs#L933) rejects non-query statements, locking reads and SELECT INTO. Destination validation and database read-only transactions already exist. Complete effect checks and typed parameterized approval remain obligations.
-- [Column rendering](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation_opt/columns.rs#L215) reuses `sql_text` helpers. Current literal rendering does not establish native parameter binding.
-- [Existing result fetch](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation.rs#L1255) returns a vector. `handlers/federation.rs:112` collects output. `handlers/knowledge_stream/families.rs:93` also adapts a materialized SQL result. Bounded output batches do not prove flat producer memory.
+- [Foreign-query handler](https://github.com/Knuckles-Team/medulla/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/src/server/handlers/federation.rs#L21) uses `OwnerScopedCall`. Its `query_columns:66` validates read authority and resolves the owner-scoped catalog. The new methods attach beside it.
+- [Dispatch attachment](https://github.com/Knuckles-Team/medulla/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/src/server/dispatch/graph_pipeline/pipeline.rs#L333) reaches that handler under the existing federation feature.
+- [Control-lease contract](https://github.com/Knuckles-Team/medulla/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-types/src/control_lease.rs#L1) already defines immutable grants, expiry and one-way CAS transitions. `src/redb_store/work_item/control_lease.rs:58` and `:130` are existing issuance and read seams. Reserved-kind producer wiring is new.
+- [SQL validation](https://github.com/Knuckles-Team/medulla/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation.rs#L933) rejects non-query statements, locking reads and SELECT INTO. Destination validation and database read-only transactions already exist. Complete effect checks and typed parameterized approval remain obligations.
+- [Column rendering](https://github.com/Knuckles-Team/medulla/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation_opt/columns.rs#L215) reuses `sql_text` helpers. Current literal rendering does not establish native parameter binding.
+- [Existing result fetch](https://github.com/Knuckles-Team/medulla/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation.rs#L1255) returns a vector. `handlers/federation.rs:112` collects output. `handlers/knowledge_stream/families.rs:93` also adapts a materialized SQL result. Bounded output batches do not prove flat producer memory.
 
 ### Graft SDK handoff and evidence
 
@@ -965,7 +978,52 @@ Every fixture pins three inputs independently:
 - **Embedding model:** the complete `EmbeddingSpaceRef` identity. That identity holds model id, revision, tokenizer and preprocessing digest, dimension, and normalization. It also holds the exact embedder implementation and configuration digest. Each test chooses and records a real model or uses the existing deterministic test embedder.
 - **Build space:** a lane-private build workspace identity and a measured scratch peak. It also holds the graph policy, the codebook and quantizer policy, and the source snapshot and model digests. Scratch bytes count toward the build peak. They never become an unaccounted resident artifact.
 
-### Existing authority and proposed additions
+### 2026-10-25: R722 first import slice
+
+R722.1 starts at the existing admitted pack import. EG reads `ac:AccessContract`
+from the ontology body that the import verified. It stores each typed source claim
+on that body's existing tenant-scoped member row. The member's digest and revision
+pin the claim. A publisher cannot approve a claim; every imported claim is held.
+Missing fields in older member records decode to no registrations. Such records
+remain unbound. Unchanged imports keep their current member rows.
+
+Projection preparation reads claims from the same current head and body holders
+as the schema projection. It checks each claim's connector and resource identity.
+This slice records no credential and writes no source data row. It does not bind
+a live driver, advertise pushdown or make a held source readable. The admission
+approval method, runtime catalog binding and governed Arbora source transport
+remain open under R722.2 through R722.6. Tests must exercise signed pack import,
+tenant isolation, unchanged import, old-row decoding and store reopen.
+
+### 2026-10-25: R722.2 admitted source approval contract
+
+The approval slice reuses the existing `Method::ConnectorPack` operation set and
+Agent Library owner write. The wire operation is `approve_source`, backed by
+`ConnectorPackOp::ApproveSource` and the existing `agent:pack-control` action;
+`admin:connector-pack` remains the authority for Bind, Unbind, Retire and
+Reproject. This is an admitted management call made by Arbora after the
+R042.2 read-only/admitted policy decision, not a manual review workflow.
+
+`ConnectorPackSourceApprovalRequest` has exactly `context`, `connector`,
+`contract_iri`, `resource_uri`, `expected_head: PackHeadRef`, and
+`contract_digest: Digest256`. The verified context supplies tenant, owner,
+caller, nonce and replay/policy binding. EG resolves source kind, operation,
+entity, class and mapping identity from the current `PackSourceRegistration`;
+the request cannot carry a second source declaration or an `approved` flag.
+The digest is the current member body's `body_sha256`. Under the tenant pack
+lock, EG re-reads the current `PackHeadRef` and matching member. EG compares both
+head fields and the body digest. EG changes only that held registration to
+`approved` in the existing owner batch. A changed re-import has a new
+current head/member and is held again. An exact already-approved target is
+idempotent; stale head, absent registration or digest mismatch refuses.
+
+The result body is `ConnectorPackSourceApprovalResult`. It carries the schema
+version, tenant, connector, current head, approved registration, contract digest,
+`batch_id`, and `committed_version`. These fields match the existing
+connector-pack binding result's durable batch evidence. The durable mutation ledger remains
+the engine receipt; Arbora records its R042.2 policy id/reason alongside this
+engine result. The source driver is not called by approval, and no source rows
+are copied.
 
 | Concern | Already wired and reused | R040.5 addition (new work) |
 |---|---|---|
@@ -985,7 +1043,65 @@ The existing `TextEmbedder` stays the query-text resolver. Every returned vector
 
 The manifest is non-authoritative derived state. Source text, graph records, model bindings, and embedding-space revisions stay authoritative in their current owners. Every build or replacement uses the existing semantic-index fences and generation promotion. A cache miss, an unavailable model, or a compact-artifact failure never creates a source and never serves a stale index. Workers follow this contract. The plan adds no directory and no framework.
 
-### Bounded implementation order
+### 2026-10-26: R722.3 tracked owner-bound execution seam (pending)
+
+This amendment closes the first missing binding contract without adding a source
+authority. R085 remains the EG owner of immutable source-query meaning and
+approval verification. R722.2 remains the owner of the current pack registration,
+approval state and head/body-digest CAS. R042 remains the admitted read policy,
+and R043.7 remains the Arbora owner of `FleetSourceExecutor` and `fleet.call`.
+SDK-SOURCE-INGEST-R004.7-.12 is the existing SQL receiver contract. This
+amendment reuses its approval, page, digest and phase-verification invariants.
+It does not claim that the receiver already accepts generic
+MCP/API/A2A/GraphQL pack operations. The SDK
+owner must map or extend it before serving R722. A second registry or
+caller-supplied authority must not replace any owner.
+
+The first EG implementation leaf is the internal request-scoped
+`ForeignSourceRegistry::register_bound(name, spec, source)` binding on the
+existing owner-scoped registry. It retains the immutable spec and marks the
+callback as effective; it is not an authenticated or approval API. The future
+owner-scoped handler must verify the catalog/authority tuple before entering
+this internal seam:
+
+1. The authenticated host obtains an approved `PackSourceRegistration` from the
+   one catalog and re-reads its current head/member. The binding is accepted only
+   when the tuple matches the registration. The tuple includes the connector,
+   contract IRI, resource URI, source kind and class IRI. It also includes the
+   operation, entity, key field, contract digest and member `body_sha256`. The
+   tuple must match the immutable plan/query digest. Verified request context
+   supplies tenant, owner, actor, delegation and authority. The driver
+   descriptor cannot supply those values.
+2. The host uses the new typed four-phase operations `ForeignReadOpen`,
+   `ForeignReadChunk`, `ForeignReadComplete` and `ForeignReadAbort` over the
+   existing authenticated engine request/response transport. These typed
+   operations use the existing transport. They add no listener or source
+   authority. The four-phase wire contract remains pending. Open
+   returns a server-owned opaque handle bound to tenant, owner, actor, plan,
+   registration and digests. Every chunk carries the handle, its monotone
+   sequence and bounded cumulative rows/bytes. Each chunk also carries the
+   source identity plus any schema/snapshot revision declared by the operation.
+   Complete or Abort is the one terminal transition. Handles expire,
+   refuse replay, and re-check the current approval and source identity at each
+   phase. Credentials, URLs and DSNs never cross this envelope.
+3. Arbora routes the phases through its existing `FleetSourceExecutor` and
+   governed `fleet.call` read path. EG receives only the verified bound callback
+   or page; it never opens a connector URL itself. An unavailable source returns
+   native rows plus the explicit source gap under R722.4.
+4. The naive and optimized EG resolution paths both prefer this verified bound
+   driver while preserving the `ForeignSourceSpec` identity/fingerprint. A
+   declared but unbound operation source still returns `Oq2Unbound`. It never
+   becomes an empty result or falls back to an ungoverned network call.
+
+The owner/file matrix is deliberately narrow. EG owns the registry and both
+resolution paths (`crates/eg-plan/src/federation.rs` and
+`crates/eg-plan/src/federation_opt/remote.rs`). EG also owns the owner-scoped
+seam at `src/server/foreign_catalog.rs`. Arbora owns the executor and gateway
+call (`arbora/fleet/source_executor.py`). SDK owns the generated receiver and
+page contract. `agent_connector_sdk/access_contract.py` and the mapped
+SDK-SOURCE-INGEST-R004.7-.12 contract cover that surface. The cross-repository
+implementation remains incomplete until all three owners record served
+evidence.
 
 1. Add the typed manifest, accounting, and refusal model in `eg-ann`. Bind source revision, `EmbeddingSpaceRef`, `DocumentEncodingPolicy`, build workspace, and finite ceilings.
 2. Add the compact graph artifact by reusing HNSW and IVF-PQ traversal and codecs. Compare compact candidates with the exact oracle. Keep the compatibility path.
@@ -994,10 +1110,71 @@ The manifest is non-authoritative derived state. Source text, graph records, mod
 5. Add disabled-by-default hub pruning with a deterministic policy and connectivity checks.
 6. Attach the result to `run_unified_with` and `PlanCtx`. Then run the native and authenticated integration cases in the test specification. Each requirement stays open until its own receipt and qualified native check exist.
 
-### Budget and benchmark policy
+The focused acceptance matrix has four parts. (a) A native registry test proves
+a bound driver retains the registered spec identity. It wins over a
+spec-derived fallback in both naive and optimized paths. (b) Native/server refusal tests
+cover unbound, wrong-owner/tenant, stale-head, changed-body/contract, revoked,
+expired, replayed and over-limit handles. Each refusal occurs before any
+`fleet.call`. (c) A served test proves an approved connector query reaches
+`FleetSourceExecutor` through `fleet.call`. It emits live rows with
+connector/contract/mapping/fetch-time provenance. It writes no source rows. It
+returns an explicit gap with native rows when the source is unavailable. (d) A
+served UQL/DAG test proves concurrent dependencies, cancellation/terminal
+completion and equality between naive and optimized resolution. These tests
+remain pending. This amendment makes no R722.3-.6 status changes.
+
+### 2026-10-26: R722.3 native DTO and query-pin evidence (pending
+cross-owner integration)
 
 Set explicit budgets and check them before work. Bound persisted bytes, build-scratch peak, resident bytes, and graph degree. Also bound candidates, visits, rescore items, embedding calls, batch items and bytes, cache entries and bytes, and elapsed query work.
 
 Report declared limits and measured values. Include bytes, rows, visits, p50 and p99, and re-embedding count. Include cache hit and miss counts. Include recall@k against an exact full-scan oracle. Fix corpus sizes and query-selectivity levels. This definition makes no Medulla guarantee about storage-reduction percentage, universal recall, or model quality.
 
-<!-- /spec-definition-patch -->
+The current EG leaf adds the typed `ForeignReadOpen`/`ForeignReadChunk`/
+`ForeignReadComplete`/`ForeignReadAbort` DTOs and the optional query
+correlation handle without changing the existing query result shape. The
+authoritative `gen_contract` generator must project these declarations to the
+contract catalog, JSON schemas and Python clients; generated outputs are not
+hand-edited. `ExplainPlanResult.plan_digest` is additive and optional so a
+historical response without the field still decodes. The server emits `Some`
+using the same named-MessagePack `Plan` digest that the foreign-read binder
+checks. A foreign-read client fails closed when the field is absent. It must not
+guess a digest.
+
+The open result returns the server-derived `source_identity`, and every chunk
+echoes the same `{source_ref, source_revision, schema_digest, snapshot_ref}`
+tuple. `source_ref` is the approved registration resource URI; the other three
+values come from the current approved pack head and contract digest. A mismatch
+or stale approval refuses before page acceptance. `ForeignReadRow.score` is
+`Option<f32>` in the named MessagePack row currency: `None` is nil and a present
+score is IEEE-754 binary32. The one-row empty-cell fixture is 39 bytes for nil
+and 43 bytes for a present score; binary64 is not a compatible encoding.
+
+Mapped cells remain in the existing `ForeignRows`/`ColumnPlan` value and
+residual/projection path. `contract_iri` is the canonical mapping identity from
+the approved SDK access contract; `resource_uri` identifies the source resource
+and callers must not reuse it as `mapping_iri`. The focused EG test proves that a
+bounded page keeps mapped cells and provenance through residual filtering and
+projection. This is a native/fixture leaf only: the served `fleet.call`, SDK
+generic receiver and live R722.5/R722.6 evidence remain pending.
+
+This amendment makes no R722.3--R722.6 status changes.
+
+### 2026-10-26: R722.3 server-owned UQL query context (pending served integration)
+
+The authenticated UQL `prepare=true` response uses the existing additive
+`Explain` result with optional `plan_digest` and `query_digest` fields for the
+exact executable text and typed parameters. The server computes both from the
+parsed binding and typed parameter map, reusing the existing canonical digest
+helpers, without executing the statement. The later ordinary UQL request must
+repeat the same text and parameters when presenting the execution reference.
+This avoids treating the literal `EXPLAIN` prefix as a different query. A host
+must fail closed when either value is absent and must not reproduce the Rust
+MessagePack/framing rules locally. `ForeignReadOpen` remains the authority/CAS
+gate for the approved registration and source identity. This context extension
+does not approve a source, create a driver, or add a second registry.
+The high-level Python UQL client forwards only the server-issued execution
+reference returned after that open/complete lifecycle. Served approval,
+FleetSourceExecutor and live-row evidence remain pending under R722.3--R722.6.
+
+This amendment makes no R722.3--R722.6 status changes.

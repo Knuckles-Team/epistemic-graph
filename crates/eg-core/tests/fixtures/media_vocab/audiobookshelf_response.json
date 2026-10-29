@@ -1,0 +1,21 @@
+{
+  "Library": [
+    { "id": "lib1", "name": "Audiobooks" }
+  ],
+  "Item": [
+    { "id": "it1", "title": "The Proulary Cycle, Book One", "isbn": "978-0-14-032855-1", "series": "urn:eg-media-vocab:audiobookshelf:Series:s1", "sequence": 1, "authors": "urn:eg-media-vocab:audiobookshelf:Author:a1" },
+    { "id": "it2", "title": "The Proulary Cycle, Book Two", "isbn": "978-0-14-032856-8", "series": "urn:eg-media-vocab:audiobookshelf:Series:s1", "sequence": 2, "authors": "urn:eg-media-vocab:audiobookshelf:Author:a1" }
+  ],
+  "Series": [
+    { "id": "s1", "name": "The Proulary Cycle" }
+  ],
+  "Author": [
+    { "id": "a1", "name": "Ada Lovelace" }
+  ],
+  "PodcastShow": [
+    { "id": "p1", "name": "The Homelab Hour" }
+  ],
+  "PodcastEpisode": [
+    { "id": "e1", "title": "S01E01 - The Rack Mount" }
+  ]
+}

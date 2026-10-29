@@ -49,7 +49,9 @@
       "title": "Structured trailers on a changeset",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/source_changeset.rs:120"
+      ]
     },
     {
       "id": "EG-SCM-R003",
@@ -140,16 +142,24 @@
     {
       "id": "EG-SCM-R013.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34a85d665c7d"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/source_symbol_edit.rs:5"
+      ]
     },
     {
       "id": "EG-SCM-R013.2",
       "title": "Projection",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f7d398abd14"
+      ],
+      "verified_by": [
+        "crates/eg-compute/tests/source_symbol_edit.rs:95"
+      ]
     },
     {
       "id": "EG-SCM-R013.3",

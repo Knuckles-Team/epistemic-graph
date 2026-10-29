@@ -181,9 +181,25 @@ def test_crates_gate_cannot_disappear(release_matrix, mutation):
         _assert_matrix(workflow, manifests)
 
 
+# Pull requests lint the workspace profile (`quality-advisory`); the release
+# profiles run in `clippy-release-profiles` on main pushes, nightly and dispatch.
+CLIPPY_JOBS = ("quality-advisory", "clippy-release-profiles")
+
+
+def _clippy_profiles(workflow):
+    return [
+        profile
+        for name in CLIPPY_JOBS
+        for profile in workflow["jobs"][name]["strategy"]["matrix"]["profile"]
+    ]
+
+
 def _assert_required_clippy_declarations(workflow):
     job = workflow["jobs"]["quality-advisory"]
-    profiles = job["strategy"]["matrix"]["profile"]
+    assert workflow["jobs"]["clippy-release-profiles"]["steps"] == job["steps"], (
+        "release Clippy profiles must share the blocking Clippy steps"
+    )
+    profiles = _clippy_profiles(workflow)
     required = {
         "published-full": "--no-default-features --features full,ast-extended",
         "workspace-all-features": "--workspace --all-features",
@@ -227,6 +243,10 @@ def _drop_published_full_profile(job):
     profiles[:] = [p for p in profiles if p["name"] != "published-full"]
 
 
+def _drop_published_full_release_profile(workflow):
+    _drop_published_full_profile(workflow["jobs"]["clippy-release-profiles"])
+
+
 def _break_profile_flags(job):
     job["strategy"]["matrix"]["profile"][0]["flags"] = "--workspace"
 
@@ -246,11 +266,22 @@ def _drop_header_install_step(job):
     ]
 
 
+def _on_workspace_job(mutate):
+    return lambda workflow: mutate(workflow["jobs"]["quality-advisory"])
+
+
+def _diverge_release_profile_steps(workflow):
+    job = workflow["jobs"]["clippy-release-profiles"]
+    job["steps"] = [dict(step) for step in job["steps"]]
+    _comment_out_clippy_command(job)
+
+
 CLIPPY_DECLARATION_MUTATIONS = {
-    "profile": _drop_published_full_profile,
-    "flags": _break_profile_flags,
-    "command": _comment_out_clippy_command,
-    "headers": _drop_header_install_step,
+    "profile": _drop_published_full_release_profile,
+    "flags": _on_workspace_job(_break_profile_flags),
+    "command": _on_workspace_job(_comment_out_clippy_command),
+    "headers": _on_workspace_job(_drop_header_install_step),
+    "release-steps": _diverge_release_profile_steps,
 }
 
 
@@ -258,7 +289,7 @@ CLIPPY_DECLARATION_MUTATIONS = {
 @pytest.mark.parametrize("mutation", list(CLIPPY_DECLARATION_MUTATIONS))
 def test_required_clippy_declaration_drift_is_refused(release_matrix, mutation):
     workflow, _ = release_matrix
-    CLIPPY_DECLARATION_MUTATIONS[mutation](workflow["jobs"]["quality-advisory"])
+    CLIPPY_DECLARATION_MUTATIONS[mutation](workflow)
     with pytest.raises(AssertionError):
         _assert_required_clippy_declarations(workflow)
 
@@ -271,7 +302,11 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
     jobs = workflow["jobs"]
     job = jobs["gates-pyo3"]
     assert job["needs"] == "changes"
-    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    assert job["if"] == (
+        "needs.changes.outputs.code == 'true' && "
+        "(github.event_name != 'pull_request' || "
+        "needs.changes.outputs.packaging == 'true')"
+    )
     assert (
         job["timeout-minutes"]
         == "${{ github.event_name == 'pull_request' && 45 || 60 }}"
@@ -308,7 +343,7 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
 @pytest.mark.spec("EG-CONTRACT-R046")
 def test_release_workflow_checks_the_slim_server_profile(release_matrix):
     workflow, _ = release_matrix
-    profiles = workflow["jobs"]["quality-advisory"]["strategy"]["matrix"]["profile"]
+    profiles = _clippy_profiles(workflow)
     matches = [profile for profile in profiles if profile["name"] == "slim-server"]
     assert len(matches) == 1, "slim-server Clippy profile must occur once"
     assert shlex.split(matches[0]["flags"]) == shlex.split(
@@ -329,7 +364,7 @@ def test_release_workflow_checks_the_slim_server_profile(release_matrix):
 @pytest.mark.spec("EG-CONTRACT-R032")
 def test_slim_server_clippy_profile_lints_with_warnings_denied(release_matrix):
     workflow, _ = release_matrix
-    job = workflow["jobs"]["quality-advisory"]
+    job = workflow["jobs"]["clippy-release-profiles"]
     profiles = job["strategy"]["matrix"]["profile"]
     matches = [profile for profile in profiles if profile["name"] == "slim-server"]
     assert len(matches) == 1, "slim-server Clippy profile must occur once"
@@ -365,16 +400,23 @@ def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matr
     assert "--prerelease" in publish["run"]
 
 
-def test_only_workspace_clippy_receives_the_measured_cold_build_budget(release_matrix):
+def test_only_workspace_clippy_runs_on_pull_requests(release_matrix):
     workflow, _ = release_matrix
     job = workflow["jobs"]["quality-advisory"]
     assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && "
-        "(matrix.profile.name == 'workspace-all-features' && 15 || 10) || 60 }}"
+        "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     )
+    assert job["if"] == "needs.changes.outputs.code == 'true'"
     assert job["strategy"]["fail-fast"] is False
-    assert {p["name"] for p in job["strategy"]["matrix"]["profile"]} == {
-        "workspace-all-features",
+    assert [p["name"] for p in job["strategy"]["matrix"]["profile"]] == [
+        "workspace-all-features"
+    ]
+    release = workflow["jobs"]["clippy-release-profiles"]
+    assert release["if"] == (
+        "needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'"
+    )
+    assert release["strategy"]["fail-fast"] is False
+    assert {p["name"] for p in release["strategy"]["matrix"]["profile"]} == {
         "published-full",
         "slim-server",
     }

@@ -1,14 +1,13 @@
 # Native Visualization (D-VZ-1)
 
-Neither `agent-utilities` nor `epistemic-graph` ships a visualization library, and
-`matplotlib` does not scale — it draws every point in either case of how multiple pixels
-exist on screen. This engine ships its own **LOD-native** visualization stack
-instead: a declarative chart IR, a columnar store, decimation/density kernels, a
-static export backend, an interactive rendering surface, and a content-addressed
-render cache — architecturally inspired by `open-source-libraries/xy`
-(Apache-2.0), reimplemented in-tree rather than depended on (that project is
-alpha and Python-first; a dependency there will put this engine's visualization
-surface behind someone else's API churn).
+Neither `agent-utilities` nor Medulla ships a visualization library. `matplotlib` does not
+scale here: it draws every point, whatever the pixel count. This engine ships its own
+**LOD-native** visualization stack instead. The stack has a declarative chart IR and a
+columnar store. It has decimation and density kernels, plus a static export backend. An
+interactive rendering surface and a content-addressed render cache complete it. The design is
+inspired by `open-source-libraries/xy` (Apache-2.0). This engine reimplements that design
+in-tree rather than depending on it. That project is alpha and Python-first. A dependency
+there may put this engine's visualization surface behind someone else's API churn.
 
 ## Lane map
 
@@ -45,7 +44,7 @@ flowchart LR
         Browser["Browser (GET /, GET /tile)"]
     end
 
-    subgraph Engine["epistemic-graph engine"]
+    subgraph Engine["Medulla engine"]
         Handler["handlers::viz\n(RPC entry point)"]
         Interactive["server::viz_interactive\n(loopback HTTP, feature viz-interactive)"]
         EngineState["server::viz_engine::VizEngineState\n(V4 — one instance, shared)"]

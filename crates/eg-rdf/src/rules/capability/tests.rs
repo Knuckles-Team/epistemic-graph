@@ -44,6 +44,10 @@ fn tool(effect: ToolEffect) -> AgentComponentFacts {
         modalities: ModalityFacts::default(),
         cost: None,
         latency_declared: None,
+        side_effects: None,
+        declared_by: None,
+        schema_tokens: None,
+        read_only_unproven: false,
     }
 }
 
@@ -241,6 +245,10 @@ fn measured_model_facts_project_ontology_names() {
         component_id: "model:measured",
         facts: &baseline,
     });
+    assert!(atoms.iter().any(|(name, args, _)| {
+        name == "eg:fact/contextWindowTokens"
+            && args == &["model:measured".to_string(), "128000".to_string()]
+    }));
     assert!(!atoms
         .iter()
         .any(|(name, _, _)| name == "eg:fact/shellProficiency"

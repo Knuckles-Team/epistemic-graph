@@ -197,7 +197,7 @@
       ],
       "verified_by": [
         "crates/eg-compute/src/finance/market/record_tests.rs:405",
-        "src/server/graph_schema/finance_tests.rs:139"
+        "src/server/graph_schema/finance_tests.rs:143"
       ]
     },
     {
@@ -209,9 +209,9 @@
         "31cbdeb6d98b"
       ],
       "verified_by": [
-        "crates/eg-numeric/src/evaluation/backtest.rs:193",
-        "crates/eg-numeric/src/evaluation/backtest.rs:204",
-        "crates/eg-numeric/src/evaluation/skill.rs:237"
+        "crates/eg-numeric/src/evaluation/backtest.rs:294",
+        "crates/eg-numeric/src/evaluation/backtest.rs:305",
+        "crates/eg-numeric/src/evaluation/skill.rs:292"
       ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R002.1",
@@ -253,72 +253,112 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.1",
       "title": "Rolling z-score shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/series/kernel.rs:280"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.2",
       "title": "EWMA shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/series/kernel.rs:307"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.3",
       "title": "Information coefficient shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/evaluation/skill.rs:341"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.4",
       "title": "Information ratio shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/evaluation/skill.rs:369"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.5",
       "title": "Effective sample size shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/evaluation/skill.rs:394"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.6",
       "title": "Diebold-Mariano shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/evaluation/backtest.rs:325"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.7",
       "title": "Deflated Sharpe shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/evaluation/backtest.rs:352"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.8",
       "title": "Purged combinatorial cross-validation shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/evaluation/backtest.rs:373"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.9",
       "title": "Probability of backtest overfitting shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/evaluation/backtest.rs:406"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.10",
       "title": "Brier shared kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c5fcf0d6ef08"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/evaluation/skill.rs:415"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.1.11",
@@ -864,18 +904,27 @@
         "0ae2193fae8d"
       ],
       "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:299"
+        "src/server/graph_schema/finance_tests.rs:308"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2",
       "title": "finance-v1 Account/Activity/Lot/Position/PortfolioGroup/StrategySpec/StrategyRun/LeverageTerms Rust record types",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1d12fc4e1fff",
+        "994ffe8ffa60",
         "a189dbe4067f",
+        "b92fb5fade51",
         "fd0aa73cb7b5"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:239",
+        "src/server/graph_schema/finance_tests.rs:269",
+        "src/server/graph_schema/finance_tests.rs:45",
+        "src/server/graph_schema/finance_tests.rs:452",
+        "src/server/graph_schema/finance_tests.rs:497"
+      ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R004.2.1",
         "EG-FINANCE-PRIMITIVES-R004.2.2",
@@ -888,17 +937,19 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.1",
       "title": "Account and Position OWL classes and SHACL shapes",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1d12fc4e1fff",
         "994ffe8ffa60",
         "a189dbe4067f",
+        "b92fb5fade51",
         "fd0aa73cb7b5"
       ],
       "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:230",
-        "src/server/graph_schema/finance_tests.rs:260",
-        "src/server/graph_schema/finance_tests.rs:45"
+        "src/server/graph_schema/finance_tests.rs:239",
+        "src/server/graph_schema/finance_tests.rs:269",
+        "src/server/graph_schema/finance_tests.rs:45",
+        "src/server/graph_schema/finance_tests.rs:452"
       ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R004.2.1.1"
@@ -907,17 +958,19 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.2",
       "title": "Activity and Lot OWL classes and SHACL shapes",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1d12fc4e1fff",
         "994ffe8ffa60",
         "a189dbe4067f",
+        "b92fb5fade51",
         "fd0aa73cb7b5"
       ],
       "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:230",
-        "src/server/graph_schema/finance_tests.rs:260",
-        "src/server/graph_schema/finance_tests.rs:45"
+        "src/server/graph_schema/finance_tests.rs:239",
+        "src/server/graph_schema/finance_tests.rs:269",
+        "src/server/graph_schema/finance_tests.rs:45",
+        "src/server/graph_schema/finance_tests.rs:497"
       ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R004.2.2.1"
@@ -926,44 +979,68 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.1.1",
       "title": "Account/Position complete shape acceptance",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b92fb5fade51"
+      ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:452"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.2.1",
       "title": "Activity/Lot complete shape acceptance",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b92fb5fade51"
+      ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:497"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.3",
       "title": "PortfolioGroup ontology and shapes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b92fb5fade51"
+      ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:553"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.4",
       "title": "StrategySpec ontology and shapes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b92fb5fade51"
+      ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:595"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.5",
       "title": "StrategyRun ontology and shapes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b92fb5fade51"
+      ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:666"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.6",
       "title": "LeverageTerms ontology and shapes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b92fb5fade51"
+      ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:701"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3",
@@ -1095,9 +1172,21 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005",
       "title": "Deterministic fixed-point portfolio accounting",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "72c7dfa478ba",
+        "ac32740601a8",
+        "ae9b7b3dbbc8",
+        "eadb412ffa03",
+        "eee78d6b3d1d"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/lot_accounting.rs:1013",
+        "crates/eg-compute/src/finance/lot_accounting.rs:1032",
+        "crates/eg-compute/src/finance/lot_accounting.rs:1051",
+        "crates/eg-compute/src/finance/lot_accounting.rs:615",
+        "crates/eg-compute/src/finance/lot_accounting.rs:616"
+      ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R005.1",
         "EG-FINANCE-PRIMITIVES-R005.2"
@@ -1113,11 +1202,11 @@
         "eee78d6b3d1d"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:283",
-        "crates/eg-compute/src/finance/lot_accounting.rs:284",
-        "crates/eg-compute/src/finance/lot_accounting.rs:304",
-        "crates/eg-compute/src/finance/lot_accounting.rs:305",
-        "crates/eg-compute/src/finance/lot_accounting.rs:323"
+        "crates/eg-compute/src/finance/lot_accounting.rs:615",
+        "crates/eg-compute/src/finance/lot_accounting.rs:616",
+        "crates/eg-compute/src/finance/lot_accounting.rs:636",
+        "crates/eg-compute/src/finance/lot_accounting.rs:637",
+        "crates/eg-compute/src/finance/lot_accounting.rs:655"
       ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R005.1.1"
@@ -1131,16 +1220,25 @@
         "ac32740601a8"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:284",
-        "crates/eg-compute/src/finance/lot_accounting.rs:305"
+        "crates/eg-compute/src/finance/lot_accounting.rs:616",
+        "crates/eg-compute/src/finance/lot_accounting.rs:637"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2",
       "title": "Specific-lot/average-cost elections and transfer/split invariants",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ae9b7b3dbbc8",
+        "eadb412ffa03"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/lot_accounting.rs:1013",
+        "crates/eg-compute/src/finance/lot_accounting.rs:1032",
+        "crates/eg-compute/src/finance/lot_accounting.rs:1051",
+        "crates/eg-compute/src/finance/lot_accounting.rs:714",
+        "crates/eg-compute/src/finance/lot_accounting.rs:742"
+      ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R005.2.1",
         "EG-FINANCE-PRIMITIVES-R005.2.2",
@@ -1156,31 +1254,48 @@
         "eadb412ffa03"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:382",
-        "crates/eg-compute/src/finance/lot_accounting.rs:410",
-        "crates/eg-compute/src/finance/lot_accounting.rs:431"
+        "crates/eg-compute/src/finance/lot_accounting.rs:714",
+        "crates/eg-compute/src/finance/lot_accounting.rs:742",
+        "crates/eg-compute/src/finance/lot_accounting.rs:763"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2.2",
       "title": "Average-cost election",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ae9b7b3dbbc8"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/lot_accounting.rs:795",
+        "crates/eg-compute/src/finance/lot_accounting.rs:830",
+        "crates/eg-compute/src/finance/lot_accounting.rs:901"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2.3",
       "title": "Transfer conservation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ae9b7b3dbbc8"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/lot_accounting.rs:930",
+        "crates/eg-compute/src/finance/lot_accounting.rs:974"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2.4",
       "title": "Split basis preservation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ae9b7b3dbbc8"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/lot_accounting.rs:1013",
+        "crates/eg-compute/src/finance/lot_accounting.rs:1032",
+        "crates/eg-compute/src/finance/lot_accounting.rs:1051"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R006",
@@ -1518,8 +1633,8 @@
         "532418b7e55b"
       ],
       "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:230",
-        "src/server/graph_schema/finance_tests.rs:83"
+        "src/server/graph_schema/finance_tests.rs:239",
+        "src/server/graph_schema/finance_tests.rs:87"
       ]
     },
     {
@@ -1581,30 +1696,48 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e4cd8ed48daa"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/factor.rs:169"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e4cd8ed48daa"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/factor.rs:187"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "40eb47bf49ca",
+        "d1b6f9006ea0"
+      ],
+      "verified_by": [
+        "tests/finance_served_numeric_kernels.rs:226",
+        "tests/finance_served_numeric_kernels.rs:244"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e4cd8ed48daa"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/factor.rs:223"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.5",
@@ -1652,30 +1785,51 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "12d343cc7839"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/execution.rs:470"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "12d343cc7839"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/execution.rs:521",
+        "crates/eg-numeric/src/execution.rs:549",
+        "crates/eg-numeric/src/execution.rs:564",
+        "crates/eg-numeric/src/execution.rs:596"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "40eb47bf49ca",
+        "d1b6f9006ea0"
+      ],
+      "verified_by": [
+        "tests/finance_served_numeric_kernels.rs:127",
+        "tests/finance_served_numeric_kernels.rs:197"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "12d343cc7839"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/execution.rs:621"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.5",
@@ -1791,30 +1945,53 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "12d343cc7839"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/sizing.rs:164",
+        "crates/eg-numeric/src/sizing.rs:181"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "12d343cc7839"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/sizing.rs:192",
+        "crates/eg-numeric/src/sizing.rs:203",
+        "crates/eg-numeric/src/sizing.rs:228"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bdb61b3c137d",
+        "d1b6f9006ea0"
+      ],
+      "verified_by": [
+        "tests/finance_served_sizing.rs:59",
+        "tests/finance_served_sizing.rs:75",
+        "tests/finance_served_sizing.rs:87"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "12d343cc7839"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/sizing.rs:244",
+        "crates/eg-numeric/src/sizing.rs:260"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.5",
@@ -1848,30 +2025,52 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "12d343cc7839"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/banking.rs:275"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "12d343cc7839"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/banking.rs:334",
+        "crates/eg-numeric/src/banking.rs:353",
+        "crates/eg-numeric/src/banking.rs:399",
+        "crates/eg-numeric/src/banking.rs:428"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "40eb47bf49ca",
+        "d1b6f9006ea0"
+      ],
+      "verified_by": [
+        "tests/finance_served_numeric_kernels.rs:105",
+        "tests/finance_served_numeric_kernels.rs:60"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "12d343cc7839"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/banking.rs:448",
+        "crates/eg-numeric/src/banking.rs:464"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.5",

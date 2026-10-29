@@ -18,18 +18,56 @@ pub(crate) async fn handle_uql(
     ctx: &QueryHandlerCtx<'_>,
     text: String,
     params: UqlParams,
+    prepare: bool,
+    foreign_execution: Option<eg_types::foreign_read::ForeignReadExecutionRef>,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
+    if prepare && foreign_execution.is_some() {
+        return Ok(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: prepare cannot carry a foreign-read execution",
+        ));
+    }
+    // Compute both pins once from the exact request and bound plan.  The
+    // foreign-read lifecycle accepts only these server-owned values; callers
+    // never need to reproduce Rust's named-MessagePack serialization.
+    let query_digest = match super::planning::foreign_uql_query_digest(&text, &params) {
+        Ok(digest) => digest,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    if let Some(execution) = foreign_execution.as_ref() {
+        if execution.query_digest != query_digest {
+            return Ok(Response::err(
+                req_id,
+                "FOREIGN_READ_QUERY_MISMATCH: query digest differs",
+            ));
+        }
+    }
     let (stmt, binding) = match bind_served_statement(req_id, &text, &params) {
         Ok(bound) => bound,
         Err(response) => return Ok(response),
     };
-    let legs = match ctx.served_legs(&binding).await {
+    let stmt_for_run = if prepare {
+        let mut prepared = stmt.clone();
+        prepared.mode = eg_plan::uql::Mode::Explain;
+        prepared
+    } else {
+        stmt
+    };
+    #[cfg(feature = "federation")]
+    let plan_digest = match crate::server::foreign_read::canonical_plan_digest(&binding) {
+        Ok(digest) => digest,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let legs = match ctx
+        .served_legs_with_foreign_execution(&binding, foreign_execution.as_ref())
+        .await
+    {
         Ok(legs) => legs,
         Err(resp) => return Ok(resp),
     };
     #[cfg(feature = "result-cache")]
-    let key = match uql_cache_key(ctx, &text, &params, &stmt, &legs) {
+    let key = match uql_cache_key(ctx, &text, &params, &stmt_for_run, &legs) {
         Ok(key) => key,
         Err(error) => return Ok(Response::err(req_id, error)),
     };
@@ -53,7 +91,20 @@ pub(crate) async fn handle_uql(
         snap,
         binding,
         legs,
-        move |_plan, plan_ctx| eg_plan::uql::serve::run_statement(&stmt, plan_ctx),
+        move |_plan, plan_ctx| {
+            let mut result = eg_plan::uql::serve::run_statement(&stmt_for_run, plan_ctx)?;
+            #[cfg(feature = "federation")]
+            if let eg_types::wire::UqlResult::Explain {
+                plan_digest: reported_plan_digest,
+                query_digest: reported_query_digest,
+                ..
+            } = &mut result
+            {
+                *reported_plan_digest = Some(plan_digest);
+                *reported_query_digest = Some(query_digest);
+            }
+            Ok(result)
+        },
     )
     .await;
     Ok(served_response::<query_results::Uql>(
@@ -110,7 +161,11 @@ mod served_tests {
     }
 
     async fn add_doc(state: &Arc<RwLock<ServerState>>, id: u64, node: &str, year: i64) {
-        let props = serde_json::json!({ "type": "Doc", "year": year });
+        let props = serde_json::json!({
+            "type": "Doc",
+            "node_type": "Doc",
+            "year": year,
+        });
         let bytes = rmp_serde::to_vec_named(&props).unwrap();
         let method = Method::AddNode {
             node_id: node.into(),
@@ -118,6 +173,19 @@ mod served_tests {
         };
         let r = dispatch_on_heap(state, req(id, method)).await;
         assert!(r.error.is_none(), "AddNode failed: {:?}", r.error);
+    }
+
+    async fn add_cites_edge(state: &Arc<RwLock<ServerState>>, id: u64, source: &str, target: &str) {
+        let method = Method::AddEdge {
+            source_id: source.into(),
+            target_id: target.into(),
+            properties_msgpack: rmp_serde::to_vec_named(
+                &serde_json::json!({ "relationship": "CITES" }),
+            )
+            .unwrap(),
+        };
+        let r = dispatch_on_heap(state, req(id, method)).await;
+        assert!(r.error.is_none(), "AddEdge failed: {:?}", r.error);
     }
 
     async fn uql(
@@ -133,6 +201,8 @@ mod served_tests {
         let method = Method::Uql {
             text: text.into(),
             params,
+            prepare: false,
+            foreign_execution: None,
         };
         dispatch_on_heap(state, req(id, method)).await
     }
@@ -174,5 +244,148 @@ mod served_tests {
             .error_detail
             .as_deref()
             .is_some_and(|detail| detail.contains("UQL_UNBOUND_PARAMETER")));
+    }
+    #[cfg(feature = "federation")]
+    #[tokio::test]
+    async fn explain_returns_server_owned_foreign_query_pins() {
+        let state = state();
+        let text = "EXPLAIN MATCH (:Doc) |> LIMIT 1";
+        let response = uql(&state, 6, text, &[]).await;
+        let UqlResult::Explain {
+            plan_digest: Some(plan_digest),
+            query_digest: Some(query_digest),
+            ..
+        } = body(&response)
+        else {
+            panic!("EXPLAIN must carry server-owned foreign-read pins: {response:?}");
+        };
+
+        let params = std::collections::BTreeMap::new();
+        let statement = eg_plan::uql::parse_statement(text, &params).expect("parse explain");
+        let binding = eg_plan::uql::serve::binding_plan(&statement);
+        assert_eq!(
+            query_digest,
+            super::super::planning::foreign_uql_query_digest(text, &params).expect("query digest")
+        );
+        assert_eq!(
+            plan_digest,
+            crate::server::foreign_read::canonical_plan_digest(&binding).expect("plan digest")
+        );
+    }
+
+    #[cfg(feature = "federation")]
+    #[tokio::test]
+    async fn prepare_returns_pins_for_the_exact_executable_text() {
+        let state = state();
+        let text = "MATCH (:Doc) |> LIMIT 1";
+        let response = dispatch_on_heap(
+            &state,
+            req(
+                7,
+                Method::Uql {
+                    text: text.into(),
+                    params: Default::default(),
+                    prepare: true,
+                    foreign_execution: None,
+                },
+            ),
+        )
+        .await;
+        let UqlResult::Explain {
+            plan_digest: Some(plan_digest),
+            query_digest: Some(query_digest),
+            ..
+        } = body(&response)
+        else {
+            panic!("prepare must return server-owned foreign-read pins: {response:?}");
+        };
+        let params = std::collections::BTreeMap::new();
+        let statement = eg_plan::uql::parse_statement(text, &params).expect("parse query");
+        let binding = eg_plan::uql::serve::binding_plan(&statement);
+        assert_eq!(
+            query_digest,
+            super::super::planning::foreign_uql_query_digest(text, &params).expect("query digest")
+        );
+        assert_eq!(
+            plan_digest,
+            crate::server::foreign_read::canonical_plan_digest(&binding).expect("plan digest")
+        );
+    }
+    // EG-FEDERATED-QUERY-R067 served acceptance; native qualification remains pending.
+    #[tokio::test]
+    async fn score_channels_survive_the_served_uql_path() {
+        let state = state();
+        add_doc(&state, 10, "d1", 2020).await;
+        add_doc(&state, 11, "d2", 2021).await;
+        add_doc(&state, 12, "d3", 2022).await;
+        add_cites_edge(&state, 13, "d1", "d2").await;
+        add_cites_edge(&state, 14, "d2", "d3").await;
+
+        let response = uql(
+            &state,
+            15,
+            "MATCH (:Doc) |> RERANK NODE_DISTANCE FROM 'd1' |> RERANK MENTIONS \
+             |> RETURN node_distance, mentions",
+            &[],
+        )
+        .await;
+        let UqlResult::Rows { columns, rows, .. } = body(&response) else {
+            panic!("served UQL rows expected")
+        };
+
+        assert_eq!(columns, vec!["node_distance", "mentions"]);
+        let d2 = rows.iter().find(|row| row.id == "d2").expect("d2 row");
+        assert_eq!(d2.channels.len(), columns.len());
+        assert!(d2.channels.iter().all(Option::is_some), "{d2:?}");
+        assert_eq!(d2.channels[1], Some(1.0));
+    }
+
+    // spec: EG-FEDERATED-QUERY-R028
+    #[tokio::test]
+    async fn with_knowledge_is_served_without_changing_row_identity() {
+        let state = state();
+        add_doc(&state, 10, "d1", 2020).await;
+        add_doc(&state, 11, "d2", 2024).await;
+
+        let plain = uql(&state, 12, "MATCH (:Doc) |> LIMIT 2", &[]).await;
+        let annotated = uql(
+            &state,
+            13,
+            "MATCH (:Doc) |> LIMIT 2 WITH KNOWLEDGE (year)",
+            &[],
+        )
+        .await;
+        let UqlResult::Rows {
+            rows: plain_rows, ..
+        } = body(&plain)
+        else {
+            panic!("plain UQL rows expected")
+        };
+        let UqlResult::Rows {
+            rows: annotated_rows,
+            ..
+        } = body(&annotated)
+        else {
+            panic!("annotated UQL rows expected")
+        };
+
+        assert_eq!(
+            annotated_rows
+                .iter()
+                .map(|row| (&row.id, row.score))
+                .collect::<Vec<_>>(),
+            plain_rows
+                .iter()
+                .map(|row| (&row.id, row.score))
+                .collect::<Vec<_>>()
+        );
+        for row in &annotated_rows {
+            let knowledge = row.knowledge.as_ref().expect("knowledge annotation");
+            assert_eq!(knowledge.kind, "Doc");
+            assert_eq!(
+                knowledge.projection.as_ref().and_then(|p| p.get("year")),
+                Some(&serde_json::json!(if row.id == "d1" { 2020 } else { 2024 }))
+            );
+        }
     }
 }

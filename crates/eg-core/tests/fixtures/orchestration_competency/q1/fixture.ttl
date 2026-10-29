@@ -1,0 +1,10 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# Task XYZ: roll a service to a new version. Steps are authored in the task-decomposition source.
+:TaskXYZ a swarm:SequentialDependency ; :hasStep :x1, :x2, :x3 .
+:x1 a :TaskStep ; rdfs:label "snapshot current state" ; :precedes :x2 ; dc:source <urn:source:task-decomposition> .
+:x2 a :TaskStep ; rdfs:label "apply the new version" ; :precedes :x3 ; dc:source <urn:source:task-decomposition> .
+:x3 a :TaskStep ; rdfs:label "verify the rollout" ; dc:source <urn:source:task-decomposition> .

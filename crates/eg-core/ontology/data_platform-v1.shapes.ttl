@@ -1,0 +1,209 @@
+# Data-platform shapes (EG-DATAPLAT-VOCAB-R002.4, EG-DATAPLAT-VOCAB-R005.2).
+#
+# SHACL Core plus aggregate-free `sh:sparql` only, in the same style as
+# `core:virtual-graph-shapes@1` (DECIDE §4.8): an absence check uses the
+# `OPTIONAL ... FILTER(!BOUND(...))` form, never NOT EXISTS, and there is no
+# aggregate in this file. The five secret-metadata classes are CLOSED, so any
+# property that is not on the allowed metadata list -- a value, data, token,
+# password, rules or ciphertext -- is itself the violation.
+
+@prefix dp:   <http://knuckles.team/kg/data-platform#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+dp:DocumentFieldShape a sh:NodeShape ;
+    sh:targetClass dp:DocumentField ;
+    sh:property [
+        sh:path dp:fieldType ;
+        sh:in ( "string" "int32" "int64" "double" "bool" "date" "object_id" "array" "document" "null" "mixed" ) ;
+        sh:message "fieldType is one of the DocumentFieldType list, including mixed."
+    ] ;
+    sh:property [
+        sh:path dp:presenceRatio ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:maxInclusive 1 ;
+        sh:message "presenceRatio is a decimal in [0,1]."
+    ] .
+
+dp:EmbeddingSpaceShape a sh:NodeShape ;
+    sh:targetClass dp:EmbeddingSpace ;
+    sh:property [
+        sh:path dp:dimensions ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 1 ;
+        sh:message "An embedding space names exactly one positive-integer dimensionality."
+    ] .
+
+dp:VectorCollectionShape a sh:NodeShape ;
+    sh:targetClass dp:VectorCollection ;
+    sh:property [
+        sh:path dp:usesEmbeddingSpace ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node dp:EmbeddingSpaceShape ;
+        sh:message "A vector collection uses exactly one embedding space."
+    ] .
+
+dp:PartitionLagShape a sh:NodeShape ;
+    sh:targetClass dp:PartitionLag ;
+    sh:property [
+        sh:path dp:lag ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 0 ;
+        sh:message "A partition lag carries exactly one non-negative integer lag."
+    ] ;
+    sh:property [
+        sh:path dp:asOf ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:dateTime ;
+        sh:message "A partition lag names exactly one asOf observation time."
+    ] .
+
+# Secret metadata: `sh:closed true` with the same technique as `vg:EndpointRefShape` —
+# the shape names exactly the metadata properties a node may carry (plus the
+# applicable shared store/provenance links), so any other property — a value,
+# `data`, `token`, `password`, `rules`, `ciphertext` — is itself the violation.
+
+dp:SecretEngineShape a sh:NodeShape ;
+    sh:targetClass dp:SecretEngine ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:pathName ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:viaConnection ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A secret engine carries only mount metadata -- no value, data, token, password, rules or ciphertext." .
+
+dp:SecretPathShape a sh:NodeShape ;
+    sh:targetClass dp:SecretPath ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:pathName ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path dp:hasRotationState ; sh:node dp:RotationStateShape ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:viaConnection ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A secret path name must not contain '=' or a base64-looking run longer than 64 characters — that is a value pasted into a path." ;
+        sh:prefixes dp:DataPlatformPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this dp:pathName ?path .
+                FILTER(contains(?path, "=") || regex(?path, "[A-Za-z0-9+/]{65,}"))
+            }
+        """ ;
+    ] ;
+    sh:message "A secret path carries only its path name and rotation metadata -- no value, data, token, password, rules or ciphertext." .
+
+dp:AccessPolicyShape a sh:NodeShape ;
+    sh:targetClass dp:AccessPolicy ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:leaseExpiresAt ; sh:datatype xsd:dateTime ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:viaConnection ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "An access policy carries only its lease metadata -- never the policy rule body." .
+
+dp:RotationStateShape a sh:NodeShape ;
+    sh:targetClass dp:RotationState ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:currentVersion ; sh:datatype xsd:integer ] ;
+    sh:property [ sh:path dp:lastRotatedAt ; sh:datatype xsd:dateTime ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A rotation state carries only version metadata -- no value, data, token, password, rules or ciphertext." .
+
+dp:PolicyPathGrantShape a sh:NodeShape ;
+    sh:targetClass dp:PolicyPathGrant ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:grantPolicy ; sh:node dp:AccessPolicyShape ] ;
+    sh:property [ sh:path dp:grantPath ; sh:node dp:SecretPathShape ] ;
+    sh:property [
+        sh:path dp:grantsCapability ; sh:datatype xsd:string ;
+        sh:in ( "read" "list" "create" "update" "delete" "sudo" "deny" )
+    ] ;
+    sh:property [ sh:path dp:leaseExpiresAt ; sh:datatype xsd:dateTime ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:viaConnection ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A policy-path grant carries only its policy, path and capabilities -- permissions are scoped to that policy/path pair." .
+
+# Store mapping: the operation a mapping routes reads through may never read a
+# secret value (EG-DATAPLAT-VOCAB-R005.4). The denylist below mirrors
+# `eg_plan::virtual_graph_mapping::REFUSED_VALUE_OPERATIONS` — the engine-side
+# check at mapping-approval time; this shape refuses the same rows at
+# graph-validation time.
+
+dp:StoreMappingShape a sh:NodeShape ;
+    sh:targetClass dp:StoreMapping ;
+    sh:property [ sh:path dp:viaOperation ; sh:datatype xsd:string ] ;
+    sh:property [
+        sh:path dp:accelerationMode ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "virtual" "materialised" ) ;
+        sh:message "accelerationMode is exactly one of virtual, materialised."
+    ] ;
+    sh:property [
+        sh:path dp:contractKind ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "r2rml-sql" "document-shape" "mcp-operation" ) ;
+        sh:message "contractKind is exactly one of r2rml-sql, document-shape, mcp-operation."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An mcp-operation contract requires the named viaOperation (EG-DATAPLAT-VOCAB-R007.2)." ;
+        sh:prefixes dp:DataPlatformPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this dp:contractKind "mcp-operation" .
+                OPTIONAL { $this dp:viaOperation ?operation }
+                FILTER(!BOUND(?operation))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A materialised mapping must record why it is materialised; virtual needs no reason (EG-DATAPLAT-VOCAB-R007.1)." ;
+        sh:prefixes dp:DataPlatformPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this dp:accelerationMode "materialised" .
+                OPTIONAL { $this dp:materialisationReason ?reason }
+                FILTER(!BOUND(?reason))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A mapping that routes reads through a secret-value operation is refused: kv read, logical read and unwrap are never mapped (EG-DATAPLAT-VOCAB-R005.4)." ;
+        sh:prefixes dp:DataPlatformPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this dp:viaOperation ?operation .
+                FILTER(?operation IN (
+                    "openbao_mcp_kv:kv2_get",
+                    "openbao_mcp_kv:kv1_get",
+                    "openbao_mcp_logical:read",
+                    "openbao_mcp_logical:unwrap"
+                ))
+            }
+        """ ;
+    ] ;
+    sh:message "A store mapping names the operation its reads route through, and that operation may never read a secret value." .
+
+dp:DataPlatformPrefixes a owl:Ontology ;
+    sh:declare [ sh:prefix "dp" ; sh:namespace "http://knuckles.team/kg/data-platform#"^^xsd:anyURI ] .

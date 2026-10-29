@@ -29,7 +29,7 @@
 //! The whole module is gated behind `federation` (which implies `query`): a default /
 //! Pi build links no ureq/rustls/ring and carries no `ForeignScan` variant.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::federation_ssrf::validate_http_json_target;
@@ -607,6 +607,8 @@ impl RemoteEngineSource<'_> {
         let request = self.signed_request(eg_types::protocol::Method::Uql {
             text: text.to_string(),
             params: std::collections::BTreeMap::new(),
+            prepare: false,
+            foreign_execution: None,
         })?;
         let raw = self.round_trip(&request)?;
         let result: eg_types::wire::UqlResult = eg_types::msgpack::decode_bounded(
@@ -1522,6 +1524,10 @@ pub struct ForeignSourceRegistry {
     /// The self-describing spec behind each `register_spec` entry — what lets the federation
     /// optimizer push keys / limits into a named source (EH-563).
     specs: HashMap<String, ForeignSourceSpec>,
+    /// Names whose source is a verified, request-scoped driver bound beside a retained spec.
+    /// A plain `register_spec` entry remains optimizer-resolvable from its own spec; only this
+    /// marker gives a bound callback precedence over that spec-derived fallback.
+    bound_names: HashSet<String>,
     cache_scope: Option<Arc<crate::federation_opt::FragmentCacheScope>>,
 }
 
@@ -1545,6 +1551,7 @@ impl ForeignSourceRegistry {
     pub fn register(&mut self, name: impl Into<String>, source: SharedForeignSource) -> &mut Self {
         let name = name.into();
         self.specs.remove(&name);
+        self.bound_names.remove(&name);
         self.sources.insert(name, source);
         self
     }
@@ -1560,6 +1567,44 @@ impl ForeignSourceRegistry {
         self
     }
 
+    /// Internal binding seam: retain a source spec beside a request-scoped callback.
+    ///
+    /// This is deliberately `pub(crate)`, not an authenticated or approval API. The future
+    /// owner-scoped serving adapter must perform carrier, tenant, registration, approval and
+    /// digest checks before entering this seam. It only retains the spec for provenance/identity
+    /// and marks the supplied callback as the source both resolvers must use.
+    pub(crate) fn register_bound(
+        &mut self,
+        name: impl Into<String>,
+        spec: ForeignSourceSpec,
+        source: SharedForeignSource,
+    ) -> &mut Self {
+        let name = name.into();
+        self.sources.insert(name.clone(), source);
+        self.specs.insert(name.clone(), spec);
+        self.bound_names.insert(name);
+        self
+    }
+
+    /// Install a callback supplied by a trusted Rust host beside its retained
+    /// source descriptor.
+    ///
+    /// This is deliberately a host-integration seam, not an authentication or
+    /// approval API.  A [`SharedForeignSource`] cannot arrive through the wire;
+    /// the serving facade must perform carrier, catalog, approval, head, and
+    /// body checks before calling this method.  Keeping that policy in the
+    /// facade lets this lower crate remain transport-agnostic while allowing a
+    /// request-scoped callback to take precedence over the descriptor's
+    /// fallback source.
+    pub fn register_bound_trusted_host(
+        &mut self,
+        name: impl Into<String>,
+        spec: ForeignSourceSpec,
+        source: SharedForeignSource,
+    ) -> &mut Self {
+        self.register_bound(name, spec, source)
+    }
+
     /// Exercise a mapped spec against a deterministic source in unit tests. A
     /// production registration always binds its real spec-derived transport.
     #[cfg(test)]
@@ -1569,10 +1614,21 @@ impl ForeignSourceRegistry {
         spec: ForeignSourceSpec,
         source: SharedForeignSource,
     ) -> &mut Self {
-        let name = name.into();
-        self.sources.insert(name.clone(), source);
-        self.specs.insert(name, spec);
-        self
+        self.register_bound(name, spec, source)
+    }
+
+    /// Return the retained spec and bound callback when this name was explicitly bound.
+    ///
+    /// Keeping this distinction separate from `spec()` preserves normal optimizer pushdown for
+    /// `register_spec` while allowing a verified request-scoped callback to take precedence.
+    pub(crate) fn bound_entry(
+        &self,
+        name: &str,
+    ) -> Option<(&ForeignSourceSpec, &SharedForeignSource)> {
+        if !self.bound_names.contains(name) {
+            return None;
+        }
+        Some((self.specs.get(name)?, self.sources.get(name)?))
     }
 
     /// The spec a `register_spec` entry was registered with (`None` for table/closure sources).

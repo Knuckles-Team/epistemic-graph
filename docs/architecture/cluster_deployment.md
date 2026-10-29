@@ -1,6 +1,6 @@
 # Multi-node Raft cluster — deployment & data migration (CONCEPT:AU-KG.backend.authority-has-already-acked)
 
-> How to run the epistemic-graph engine as a highly-available **Raft cluster** across
+> How to run the Medulla engine as a highly-available **Raft cluster** across
 > four runtime-selected nodes, and how to convert the **current authoritative node** (which
 > already holds the authoritative redb data) into the SEED of that cluster **without
 > data loss**. Built on openraft **0.10** (the v2 split-storage API + native graceful

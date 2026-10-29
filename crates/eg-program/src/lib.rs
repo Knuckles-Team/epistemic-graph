@@ -9,12 +9,14 @@
 
 mod commit;
 mod contracts;
+pub mod optimize;
 mod optimizer;
 mod plan;
 mod transport;
 
 pub use commit::*;
 pub use contracts::*;
+pub use optimize::*;
 pub use optimizer::*;
 pub use plan::*;
 pub use transport::*;

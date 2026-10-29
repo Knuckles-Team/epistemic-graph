@@ -19,6 +19,7 @@
 
 pub mod annotations;
 pub mod catalog_authority;
+pub mod contract_version;
 pub mod digest;
 pub mod ids;
 pub mod index;
@@ -28,6 +29,8 @@ pub mod record;
 pub mod result;
 pub mod seed_graph;
 pub mod self_served_catalog;
+pub mod source;
+pub use source::{PackSourceApproval, PackSourceKind, PackSourceRegistration};
 
 /// Format identity (RF-ADR-006) of [`index::ConnectorPackIndex`].
 pub const CONNECTOR_PACK_SCHEMA_VERSION: u16 = 2;
@@ -68,6 +71,28 @@ pub const CONNECTOR_PACK_RESULT_SCHEMA_ID: &str = "connector-pack-import-result.
 pub struct ConnectorSchemaMapping {
     pub ontology_class: String,
     pub fields: std::collections::BTreeMap<String, String>,
+    /// Datatype for a declared source field; target names remain in `fields`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub datatypes: std::collections::BTreeMap<String, String>,
+}
+
+/// Datatypes supported by authoritative connector source mappings.
+pub fn source_datatype_supported(value: &str) -> bool {
+    matches!(
+        value,
+        "xsd:string"
+            | "xsd:date"
+            | "xsd:dateTime"
+            | "xsd:anyURI"
+            | "xsd:boolean"
+            | "xsd:integer"
+            | "xsd:int"
+            | "xsd:long"
+            | "xsd:nonNegativeInteger"
+            | "xsd:decimal"
+            | "xsd:double"
+            | "xsd:float"
+    )
 }
 
 /// One relationship declared by a pack ontology object property.
@@ -97,16 +122,18 @@ pub use index::{
 pub use ops::{
     ConnectorPackBindRequest, ConnectorPackImportRequest, ConnectorPackOp,
     ConnectorPackReconcileRequest, ConnectorPackReprojectRequest, ConnectorPackRetireRequest,
-    ConnectorPackStatusRequest, ConnectorPackUnbindRequest, PackHeadRef,
+    ConnectorPackSourceApprovalRequest, ConnectorPackStatusRequest, ConnectorPackUnbindRequest,
+    PackHeadRef,
 };
 pub use record::{
     PackArchiveFacts, PackDisposition, PackEntryRecord, PackImportRecord, PackServerRecord,
 };
 pub use result::{
-    ConnectorPackBindingResult, ConnectorPackStatus, PackBodyReconcileReport,
-    PackDispositionCounts, PackHeadView, PackImportReceipt, PackImportResult, PackMemberCounts,
-    PackProjectionState, PackRetireResult, PackViolation, PackViolationCode, PackWarning,
-    PackWarningCode, PackWriteErrorCode, MAX_PROJECTION_FAILURE_DETAIL_BYTES,
+    ConnectorPackBindingResult, ConnectorPackSourceApprovalResult, ConnectorPackStatus,
+    PackBodyReconcileReport, PackDispositionCounts, PackHeadView, PackImportReceipt,
+    PackImportResult, PackMemberCounts, PackProjectionState, PackRetireResult, PackViolation,
+    PackViolationCode, PackWarning, PackWarningCode, PackWriteErrorCode,
+    MAX_PROJECTION_FAILURE_DETAIL_BYTES,
 };
 pub use seed_graph::{SeedGraphImport, SeedPart, SeedPartKey};
 pub use self_served_catalog::{

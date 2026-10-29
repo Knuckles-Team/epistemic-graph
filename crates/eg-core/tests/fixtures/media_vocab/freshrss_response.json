@@ -1,0 +1,16 @@
+{
+  "Article": [
+    { "id": "feed-2/a1", "title": "the quarterly update", "url": "https://Example-Blog.invalid/posts/quarterly-update?utm_source=rss&utm_medium=feed", "publishedAt": "2026-01-14T09:30:00Z", "isRead": false, "text": "the quarterly update is out" },
+    { "id": "feed-2/a2", "title": "the older post", "url": "https://example-blog.invalid/posts/older-post", "publishedAt": "2026-01-10T12:00:00Z", "isRead": false, "text": "an older post from last week" },
+    { "id": "feed-2/a3", "title": "the read post", "url": "https://example-blog.invalid/posts/read-post", "publishedAt": "2026-01-14T08:00:00Z", "isRead": true, "text": "an already-read post" },
+    { "id": "feed-1/a4", "title": "the other feed post", "url": "https://other-blog.invalid/posts/other-post", "publishedAt": "2026-01-14T07:00:00Z", "isRead": false, "text": "a post from the other feed" }
+  ],
+  "UnreadCount": [
+    { "id": "feed-2", "count": 2 },
+    { "id": "feed-1", "count": 1 }
+  ],
+  "Subscription": [
+    { "id": "feed-2", "title": "example blog", "url": "https://example-blog.invalid/feed.xml" },
+    { "id": "feed-1", "title": "other blog", "url": "https://other-blog.invalid/feed.xml" }
+  ]
+}

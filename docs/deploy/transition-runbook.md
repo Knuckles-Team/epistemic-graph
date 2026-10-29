@@ -1,6 +1,6 @@
 # Engine + arbora transition runbook (clean, self-checking deploy)
 
-> How to cleanly transition the epistemic-graph engine to a new build **and** restart
+> How to cleanly transition the Medulla engine to a new build **and** restart
 > arbora/messaging without the roughness that bit us on 2026-07-05. The one-command
 > path is `scripts/transition_deploy.sh --build`. This doc explains what it does, the
 > config hardening that stops arbora from silently talking to the wrong engine, and
@@ -123,9 +123,9 @@ the change — a long-running process caches the resolution at start.
 ### Editable installs MUST include the compiled numeric kernel (the crash-on-restart trap)
 
 The containers run the **latest source** via `PYTHONPATH=/au:/eg` layered over **old, non-editable**
-pip wheels (`epistemic-graph 0.31.0`, `agent-utilities 0.51.0`). `/au` main now hard-requires the
+pip wheels (`medulla 0.31.0`, `agent-utilities 0.51.0`). `/au` main now hard-requires the
 compiled **`eg-numeric` kernel** (`agent_utilities.numeric`, no numpy fallback), which ships as
-`epistemic_graph/numeric.abi3.so` **inside the `epistemic-graph[numeric]` wheel** — NOT in the `/eg`
+`epistemic_graph/numeric.abi3.so` **inside the `medulla[numeric]` wheel** — NOT in the `/eg`
 source tree. Because `/eg` source shadows `epistemic_graph.*`, the compiled submodule can never
 resolve, so `gateway/daemon.py` (host-daemon) crash-loops on `ImportError: epistemic-graph kernel
 required` — but only on **restart** (a long-running process imported once, before the cutover).
@@ -133,14 +133,14 @@ required` — but only on **restart** (a long-running process imported once, bef
 **Provision the kernel into the editable tree** (idempotent; `*.so` is gitignored):
 
 ```bash
-pip download --no-deps 'epistemic-graph==<engine-version>'
-python3 -c "import zipfile,glob; z=zipfile.ZipFile(glob.glob('epistemic_graph-*.whl')[0]); z.extract('epistemic_graph/numeric.abi3.so', '<repo>/epistemic-graph')"
-# → <repo>/epistemic-graph/epistemic_graph/numeric.abi3.so  (visible to every container mounting /eg)
+pip download --no-deps 'medulla==<engine-version>'
+python3 -c "import zipfile,glob; z=zipfile.ZipFile(glob.glob('medulla-*.whl')[0]); z.extract('epistemic_graph/numeric.abi3.so', '<repo>/medulla')"
+# → <repo>/medulla/epistemic_graph/numeric.abi3.so  (visible to every container mounting /eg)
 python3 -c "import epistemic_graph.numeric as n; assert n.__kernel__=='eg-numeric'"
 ```
 
 The clean long-term fix is to make these **true editable installs with extras** — `pip install -e
-/au` and either `pip install epistemic-graph[numeric]` (kernel-bearing wheel, no `/eg` shadow) or a
+/au` and either `pip install medulla[numeric]` (kernel-bearing wheel, no `/eg` shadow) or a
 maturin build of `/eg` that lands the `.so` — so "latest editable" actually includes the built
 artifacts. Until then, `transition_deploy.sh --preflight` checks the kernel is importable before it
 restarts anything.

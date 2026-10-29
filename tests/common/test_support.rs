@@ -476,6 +476,8 @@ pub fn uql(text: &str) -> Method {
     Method::Uql {
         text: text.into(),
         params: Default::default(),
+        prepare: false,
+        foreign_execution: None,
     }
 }
 
@@ -490,7 +492,12 @@ pub async fn unified_query(
         commons_request(
             auth_secret,
             id,
-            epistemic_graph::protocol::Method::UnifiedQuery { plan },
+            epistemic_graph::protocol::Method::UnifiedQuery {
+                plan,
+                foreign_execution: None,
+
+                foreign_executions: Default::default(),
+            },
         ),
     )
     .await

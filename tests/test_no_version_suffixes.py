@@ -114,6 +114,30 @@ FALSE_POSITIVE_LINE_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.compile(r"tests/fixtures/[a-z_]+_v[0-9]+\.json|method_policy_registry_v1"),
         "test fixture FILENAME, not a persisted table",
     ),
+    # -- Spec-named decision-engine request and answer types. ----------------
+    #
+    # EG-DECISION-ENGINE-R134 names `RecommendRequestV1`,
+    # `RecommendAnswerV1` and `AnswerCandidateRankingV1` as the typed records
+    # of the answer-ranking and recommendation questions.
+    (
+        re.compile(
+            r"\b(?:AnswerCandidateRanking|RecommendRequest|RecommendAnswer)V1\b"
+        ),
+        "spec-named decision-engine record type (EG-DECISION-ENGINE-R134), "
+        "not a versioned component",
+    ),
+    # -- Registered-ontology audit test modules (CQ-CONN spec family). -------
+    #
+    # `ontology_audit_<module>_v<n>` names the audit of registered core
+    # source `core:<module>@<n>`: the suffix is the registered source
+    # version pinned by the spec row's Verification text, not a component
+    # version (the module has no runtime state of its own).
+    (
+        re.compile(r"\bontology_audit_[a-z_]+_v[0-9]+\b"),
+        "registered-ontology audit test module: the suffix is the registered "
+        "core-source version (core:<module>@<n>) named by the CQ-CONN spec "
+        "rows, not a component version",
+    ),
 ]
 
 

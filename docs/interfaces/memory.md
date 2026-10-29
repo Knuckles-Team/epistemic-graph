@@ -1,6 +1,6 @@
 # Agent-native memory interface
 
-epistemic-graph carries a native **agent-memory** substrate in `eg-core`: a multi-level summary/abstraction
+Medulla carries a native **agent-memory** substrate in `eg-core`: a multi-level summary/abstraction
 ladder, episodic→semantic consolidation, importance decay + reinforcement, hierarchical (LeanRAG-style)
 retrieval, episodic trajectory memory for policy learning, and a scene-graph world model. These are
 **deterministic engine primitives** the agent-utilities memory loop schedules — the *content* work (LLM

@@ -1,0 +1,14 @@
+{
+  "Rom": [
+    { "hash": "d41d8cd98f00b204e9800998ecf8427e", "fileName": "sonic_adventure.zip", "md5": "d41d8cd98f00b204e9800998ecf8427e", "sha1": "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", "crc32": "7d1b2c4e", "game": "urn:eg-media-vocab:rom-manager:Game:08920168" },
+    { "hash": "098f6bcd4621d373cade4e832627b4f6", "fileName": "sonic_adventure_us.zip", "md5": "098f6bcd4621d373cade4e832627b4f6", "sha1": "a9993e364706816aba3e25717850c26c9cd0d89d", "crc32": "ab12cd34", "game": "urn:eg-media-vocab:rom-manager:Game:08920168" },
+    { "hash": "1679091c5a880faf6fb5e6087eb1b2dc", "fileName": "unknown_cart_03.zip", "md5": "1679091c5a880faf6fb5e6087eb1b2dc", "sha1": "5ba93b9d5f274da7a0e6529c64015d8969b5b3c2", "crc32": "99aa88bb" },
+    { "hash": "202cb962ac59075b964b07152d234b70", "fileName": "unknown_cart_04.zip", "md5": "202cb962ac59075b964b07152d234b70", "sha1": "411ba31a86bad7bfc356f8c6755e5b7d21b5e5ce", "crc32": "11223344" }
+  ],
+  "Platform": [
+    { "id": "p1", "name": "Sega Dreamcast" }
+  ],
+  "Game": [
+    { "code": "08920168", "title": "Sonic Adventure", "platform": "urn:eg-media-vocab:rom-manager:Platform:p1" }
+  ]
+}

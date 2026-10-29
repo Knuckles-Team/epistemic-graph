@@ -1,0 +1,14 @@
+# Recorded response (D4 row Supplier): erpnext `erpnext_agent_resource
+# list_documents` (doctype Supplier) is rank 1; leanix
+# `leanix_source_factsheets` (Provider) is rank 2. Projected by the approved
+# mappings (vm_erpnext_supplier.ttl, vm_leanix.ttl).
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:sup-001 a kg:Supplier ;
+    rdfs:label "Acme Corp" .
+
+ex:sup-002 a kg:Supplier ;
+    rdfs:label "Bosch GmbH" .

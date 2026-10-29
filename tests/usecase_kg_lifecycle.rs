@@ -366,7 +366,16 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
     let inferred = test_support::unified_ids(
         &test_support::dispatch(
             &state,
-            test_support::commons_request(SECRET, 17, Method::UnifiedQuery { plan: reason }),
+            test_support::commons_request(
+                SECRET,
+                17,
+                Method::UnifiedQuery {
+                    plan: reason,
+                    foreign_execution: None,
+
+                    foreign_executions: Default::default(),
+                },
+            ),
         )
         .await,
     );

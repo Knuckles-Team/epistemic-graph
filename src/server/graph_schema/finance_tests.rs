@@ -70,6 +70,10 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
         ("Position", "0000031"),
         ("Activity", "0000031"),
         ("Lot", "0000031"),
+        ("PortfolioGroup", "0000031"),
+        ("StrategySpec", "0000031"),
+        ("StrategyRun", "0000031"),
+        ("LeverageTerms", "0000031"),
     ];
     for (class, category) in placed {
         assert!(
@@ -85,7 +89,7 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
 fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
     let declared = declared_classes(&triples);
-    assert_eq!(declared.len(), 22);
+    assert_eq!(declared.len(), 28);
     let unmapped = unmapped_classes(&triples);
     assert!(unmapped.is_empty(), "unmapped classes {unmapped:?}");
     let imports: BTreeSet<&str> = triples
@@ -207,6 +211,11 @@ fn finance_shapes_are_their_own_document() {
             "Position",
             "Activity",
             "Lot",
+            "PortfolioGroup",
+            "StrategySpec",
+            "StrategyRun",
+            "LeverageTerms",
+            "FinanceAlgorithm",
         ],
     );
 }
@@ -321,5 +330,428 @@ mod shapes {
         assert!(!conforms(
             "ex:btc a :FinancialInstrument ; :assetClass \"bond\" ."
         ));
+    }
+
+    /// One field of a record under test. `valid` conforms; `alt` is a second,
+    /// different value; `wrong` has the wrong datatype or kind (or is outside
+    /// the closed vocabulary).
+    struct Field {
+        name: &'static str,
+        valid: &'static str,
+        alt: &'static str,
+        wrong: &'static str,
+        required: bool,
+        singleton: bool,
+    }
+
+    fn optional(mut field: Field) -> Field {
+        field.required = false;
+        field
+    }
+
+    const fn field(
+        name: &'static str,
+        valid: &'static str,
+        alt: &'static str,
+        wrong: &'static str,
+    ) -> Field {
+        Field {
+            name,
+            valid,
+            alt,
+            wrong,
+            required: true,
+            singleton: true,
+        }
+    }
+
+    fn node(class: &str, fields: &[(&str, &str)]) -> String {
+        let mut out = format!("ex:subject a :{class}");
+        for (name, value) in fields {
+            out.push_str(&format!(" ; :{name} {value}"));
+        }
+        out.push_str(" .");
+        out
+    }
+
+    fn base(fields: &[Field]) -> Vec<(&'static str, &'static str)> {
+        fields.iter().map(|f| (f.name, f.valid)).collect()
+    }
+
+    /// The complete shape matrix for one record class: a valid record conforms,
+    /// every required field's omission refuses, a wrong datatype or kind
+    /// refuses, a duplicated singleton refuses, and every declared vocabulary
+    /// value conforms while an unknown one refuses.
+    fn assert_matrix(class: &str, fields: &[Field], vocabularies: &[(&str, &[&str])]) {
+        let valid = base(fields);
+        assert!(conforms(&node(class, &valid)), "{class} valid record");
+        for target in fields {
+            if target.required {
+                let omitted: Vec<_> = valid
+                    .iter()
+                    .copied()
+                    .filter(|(n, _)| *n != target.name)
+                    .collect();
+                assert!(
+                    !conforms(&node(class, &omitted)),
+                    "{class} without {}",
+                    target.name
+                );
+            }
+            let mut wrong = valid.clone();
+            wrong.retain(|(n, _)| *n != target.name);
+            wrong.push((target.name, target.wrong));
+            assert!(
+                !conforms(&node(class, &wrong)),
+                "{class} wrong {}",
+                target.name
+            );
+            if target.singleton {
+                let mut twice = valid.clone();
+                twice.push((target.name, target.alt));
+                assert!(
+                    !conforms(&node(class, &twice)),
+                    "{class} duplicate {}",
+                    target.name
+                );
+            }
+        }
+        for &(name, values) in vocabularies {
+            for value in values {
+                let mut record: Vec<(&str, &str)> = valid.clone();
+                record.retain(|(n, _)| *n != name);
+                let quoted = format!("\"{value}\"");
+                record.push((name, quoted.as_str()));
+                assert!(conforms(&node(class, &record)), "{class} {name}={value}");
+            }
+        }
+    }
+
+    const IRI_WRONG: &str = "\"not-an-iri\"";
+    const TENANT: Field = field("recordTenant", "\"tenant-1\"", "\"tenant-2\"", "5");
+    const SOURCE: Field = field("recordSource", "\"broker-feed\"", "\"other-feed\"", "5");
+    const EFFECTIVE: Field = field(
+        "recordEffectiveAt",
+        "\"2026-09-24T00:00:00Z\"^^xsd:dateTime",
+        "\"2026-09-25T00:00:00Z\"^^xsd:dateTime",
+        "\"yesterday\"",
+    );
+    const KNOWN: Field = field(
+        "recordKnownAt",
+        "\"2026-09-24T01:00:00Z\"^^xsd:dateTime",
+        "\"2026-09-25T01:00:00Z\"^^xsd:dateTime",
+        "\"yesterday\"",
+    );
+    const VERSION: Field = field(
+        "recordSchemaVersion",
+        "\"finance-v1\"",
+        "\"finance-v2\"",
+        "\"finance-v2\"",
+    );
+
+    // spec: EG-FINANCE-PRIMITIVES-R004.2.1.1
+    #[test]
+    fn account_position_complete_schema_matrix() {
+        assert_matrix(
+            "Account",
+            &[
+                field("accountId", "\"acc-1\"", "\"acc-2\"", "5"),
+                field("baseCurrency", "\"USD\"", "\"EUR\"", "5"),
+                optional(field(
+                    "accountKind",
+                    "\"taxable\"",
+                    "\"ira\"",
+                    "\"checking\"",
+                )),
+            ],
+            &[(
+                "accountKind",
+                &["taxable", "ira", "roth_ira", "401k", "hsa", "custodial"],
+            )],
+        );
+        assert_matrix(
+            "Position",
+            &[
+                field("positionAccount", "ex:acc", "ex:acc2", IRI_WRONG),
+                field("positionInstrument", "ex:btc", "ex:eth", IRI_WRONG),
+                field(
+                    "positionQuantity",
+                    "\"1.5\"^^xsd:decimal",
+                    "\"2.5\"^^xsd:decimal",
+                    "\"abc\"",
+                ),
+                optional(field(
+                    "costBasisMethod",
+                    "\"fifo\"",
+                    "\"lifo\"",
+                    "\"lowest_cost\"",
+                )),
+            ],
+            &[(
+                "costBasisMethod",
+                &["fifo", "lifo", "specific_lot", "average_cost"],
+            )],
+        );
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R004.2.2.1
+    #[test]
+    fn activity_lot_complete_schema_matrix() {
+        assert_matrix(
+            "Activity",
+            &[
+                field("activityPosition", "ex:pos", "ex:pos2", IRI_WRONG),
+                field("activityKind", "\"buy\"", "\"sell\"", "\"deposit\""),
+                field(
+                    "activityQuantity",
+                    "\"1.5\"^^xsd:decimal",
+                    "\"2.5\"^^xsd:decimal",
+                    "\"abc\"",
+                ),
+                field(
+                    "activityTradeDate",
+                    "\"2026-09-24T00:00:00Z\"^^xsd:dateTime",
+                    "\"2026-09-25T00:00:00Z\"^^xsd:dateTime",
+                    "\"2026-09-24\"",
+                ),
+            ],
+            &[(
+                "activityKind",
+                &[
+                    "buy",
+                    "sell",
+                    "dividend",
+                    "transfer_in",
+                    "transfer_out",
+                    "split",
+                    "fee",
+                ],
+            )],
+        );
+        assert_matrix(
+            "Lot",
+            &[
+                field("lotPosition", "ex:pos", "ex:pos2", IRI_WRONG),
+                field("lotOpenedBy", "ex:act", "ex:act2", IRI_WRONG),
+                field(
+                    "lotQuantity",
+                    "\"1.5\"^^xsd:decimal",
+                    "\"2.5\"^^xsd:decimal",
+                    "\"abc\"",
+                ),
+                field(
+                    "lotUnitCostBasis",
+                    "\"42000.00\"^^xsd:decimal",
+                    "\"43000.00\"^^xsd:decimal",
+                    "\"abc\"",
+                ),
+            ],
+            &[],
+        );
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R004.2.3
+    #[test]
+    fn portfolio_group_schema_acceptance() {
+        let mut member = field("portfolioMember", "ex:pos", "ex:pos2", IRI_WRONG);
+        member.required = false;
+        member.singleton = false;
+        assert_matrix(
+            "PortfolioGroup",
+            &[
+                field("portfolioGroupName", "\"Retirement\"", "\"Other\"", "5"),
+                field("portfolioView", "\"basic\"", "\"holdings\"", "\"detailed\""),
+                member,
+                VERSION,
+                TENANT,
+                SOURCE,
+                EFFECTIVE,
+                KNOWN,
+            ],
+            &[("portfolioView", &["basic", "holdings"])],
+        );
+        // Several members, and an empty group, both conform.
+        let two = format!(
+            "{} ex:subject :portfolioMember ex:btc , ex:eth .",
+            node(
+                "PortfolioGroup",
+                &[
+                    ("portfolioGroupName", "\"Watch\""),
+                    ("portfolioView", "\"basic\""),
+                    ("recordSchemaVersion", "\"finance-v1\""),
+                    ("recordTenant", "\"t\""),
+                    ("recordSource", "\"s\""),
+                    (
+                        "recordEffectiveAt",
+                        "\"2026-09-24T00:00:00Z\"^^xsd:dateTime"
+                    ),
+                    ("recordKnownAt", "\"2026-09-24T00:00:00Z\"^^xsd:dateTime"),
+                ],
+            )
+        );
+        assert!(conforms(&two));
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R004.2.4
+    #[test]
+    fn strategy_spec_schema_acceptance() {
+        assert_matrix(
+            "StrategySpec",
+            &[
+                field("strategySpecId", "\"dca-monthly\"", "\"other\"", "5"),
+                field("strategySpecVersion", "3", "4", "\"three\""),
+                field(
+                    "strategySpecKind",
+                    "\"dca_fixed_amount\"",
+                    "\"trend_flip\"",
+                    "\"martingale\"",
+                ),
+                field(
+                    "strategySpecDigest",
+                    "\"sha256:0000000000000000000000000000000000000000000000000000000000000000\"",
+                    "\"sha256:1111111111111111111111111111111111111111111111111111111111111111\"",
+                    "\"sha1:00\"",
+                ),
+                field("strategySpecUniverse", "ex:group", "ex:group2", IRI_WRONG),
+                field("strategySpecCurrency", "\"USD\"", "\"EUR\"", "5"),
+                VERSION,
+                TENANT,
+                SOURCE,
+                EFFECTIVE,
+                KNOWN,
+            ],
+            &[(
+                "strategySpecKind",
+                &[
+                    "dca_fixed_amount",
+                    "dca_fixed_shares",
+                    "value_averaging",
+                    "trend_flip",
+                    "trend_moving_average",
+                    "rebalance_calendar",
+                    "rebalance_threshold",
+                ],
+            )],
+        );
+        let zero_version = strategy_spec_with_version("0");
+        assert!(!conforms(&zero_version), "version must be positive");
+        assert!(conforms(&strategy_spec_with_version("1")));
+    }
+
+    fn strategy_spec_with_version(version: &str) -> String {
+        node(
+            "StrategySpec",
+            &[
+                ("strategySpecId", "\"dca\""),
+                ("strategySpecVersion", version),
+                ("strategySpecKind", "\"dca_fixed_amount\""),
+                (
+                    "strategySpecDigest",
+                    "\"sha256:0000000000000000000000000000000000000000000000000000000000000000\"",
+                ),
+                ("strategySpecUniverse", "ex:group"),
+                ("strategySpecCurrency", "\"USD\""),
+                ("recordSchemaVersion", "\"finance-v1\""),
+                ("recordTenant", "\"t\""),
+                ("recordSource", "\"s\""),
+                (
+                    "recordEffectiveAt",
+                    "\"2026-09-24T00:00:00Z\"^^xsd:dateTime",
+                ),
+                ("recordKnownAt", "\"2026-09-24T00:00:00Z\"^^xsd:dateTime"),
+            ],
+        )
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R004.2.5
+    #[test]
+    fn strategy_run_schema_acceptance() {
+        assert_matrix(
+            "StrategyRun",
+            &[
+                field("strategyRunSpec", "ex:spec", "ex:spec2", IRI_WRONG),
+                field(
+                    "strategyRunStatus",
+                    "\"proposed\"",
+                    "\"missed\"",
+                    "\"executed\"",
+                ),
+                field(
+                    "strategyRunDecidedAt",
+                    "\"2026-09-24T00:00:00Z\"^^xsd:dateTime",
+                    "\"2026-09-25T00:00:00Z\"^^xsd:dateTime",
+                    "\"2026-09-24\"",
+                ),
+                field(
+                    "strategyRunInputDigest",
+                    "\"sha256:0000000000000000000000000000000000000000000000000000000000000000\"",
+                    "\"sha256:1111111111111111111111111111111111111111111111111111111111111111\"",
+                    "\"md5:00\"",
+                ),
+                VERSION,
+                TENANT,
+                SOURCE,
+                EFFECTIVE,
+                KNOWN,
+            ],
+            &[("strategyRunStatus", &["proposed", "missed", "abstained"])],
+        );
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R004.2.6
+    #[test]
+    fn leverage_terms_schema_acceptance() {
+        let fields = [
+            field("leverageInstrument", "ex:btc", "ex:eth", IRI_WRONG),
+            field("leverageProductType", "\"margin\"", "\"future\"", "\"cfd\""),
+            field(
+                "leveragePolicyVersion",
+                "\"us-2026-10\"",
+                "\"us-2026-11\"",
+                "5",
+            ),
+            field(
+                "leverageMultiplier",
+                "\"2.0\"^^xsd:decimal",
+                "\"3.0\"^^xsd:decimal",
+                "\"abc\"",
+            ),
+            field("leverageCurrency", "\"USD\"", "\"EUR\"", "5"),
+            field(
+                "leverageInitialMargin",
+                "\"5000.00\"^^xsd:decimal",
+                "\"6000.00\"^^xsd:decimal",
+                "\"abc\"",
+            ),
+            field(
+                "leverageMaintenanceMargin",
+                "\"4000.00\"^^xsd:decimal",
+                "\"4500.00\"^^xsd:decimal",
+                "\"abc\"",
+            ),
+            VERSION,
+            TENANT,
+            SOURCE,
+            EFFECTIVE,
+            KNOWN,
+        ];
+        assert_matrix(
+            "LeverageTerms",
+            &fields,
+            &[(
+                "leverageProductType",
+                &["margin", "future", "daily_reset_fund", "fx"],
+            )],
+        );
+        for (name, bad) in [
+            ("leverageMultiplier", "\"0\"^^xsd:decimal"),
+            ("leverageInitialMargin", "\"-1\"^^xsd:decimal"),
+            ("leverageMaintenanceMargin", "\"-1\"^^xsd:decimal"),
+        ] {
+            let mut record = base(&fields);
+            record.retain(|(n, _)| *n != name);
+            record.push((name, bad));
+            assert!(!conforms(&node("LeverageTerms", &record)), "{name}={bad}");
+        }
     }
 }

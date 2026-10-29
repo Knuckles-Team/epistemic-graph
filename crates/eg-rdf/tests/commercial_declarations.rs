@@ -11,6 +11,7 @@ use eg_rdf::oxrdf::{NamedNode, Term, Triple};
 const INFRA: &str = "http://knuckles.team/kg/infrastructure#";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const OWL: &str = "http://www.w3.org/2002/07/owl#";
+const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 
 fn documents() -> Vec<Triple> {
     parse_all(&[
@@ -145,4 +146,109 @@ fn customer_contract_and_covers_service_declared() {
         ),
         "the reused kg:Change retains its canonical BusinessProcess hierarchy"
     );
+}
+
+// spec: EG-SUPPLY-VOCAB-R003.2
+#[test]
+fn customer_contract_terms_listed_with_domain_and_range() {
+    let triples = documents();
+    let domain = format!("{RDFS}domain");
+    let range = format!("{RDFS}range");
+    // :CustomerContract and :coversService are already declared; this row
+    // completes the term set with the customer, status and end terms.
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}contractCustomer"),
+        RDF_TYPE,
+        &format!("{OWL}ObjectProperty")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}contractCustomer"),
+        &domain,
+        &format!("{KG}CustomerContract")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}contractCustomer"),
+        &range,
+        &format!("{KG}Customer")
+    ));
+    for property in ["contractStatus", "contractEnd"] {
+        assert!(has_iri(
+            &triples,
+            &format!("{KG}{property}"),
+            RDF_TYPE,
+            &format!("{OWL}DatatypeProperty")
+        ));
+        assert!(has_iri(
+            &triples,
+            &format!("{KG}{property}"),
+            &domain,
+            &format!("{KG}CustomerContract")
+        ));
+    }
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}contractStatus"),
+        &range,
+        &format!("{XSD}string")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}contractEnd"),
+        &range,
+        &format!("{XSD}dateTime")
+    ));
+}
+
+// spec: EG-SUPPLY-VOCAB-R003.4
+#[test]
+fn supports_capability_listed_with_domain_and_range() {
+    let triples = documents();
+    let domain = format!("{RDFS}domain");
+    let range = format!("{RDFS}range");
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}supportsCapability"),
+        RDF_TYPE,
+        &format!("{OWL}ObjectProperty")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}supportsCapability"),
+        &domain,
+        &format!("{INFRA}Service")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}supportsCapability"),
+        &range,
+        &format!("{KG}BusinessCapability")
+    ));
+}
+
+// spec: EG-SUPPLY-VOCAB-R003.8
+#[test]
+fn purchase_order_listed_with_exactly_one_declaration() {
+    let triples = documents();
+    assert!(has_iri(
+        &triples,
+        &format!("{KG}PurchaseOrder"),
+        RDF_TYPE,
+        &format!("{OWL}Class")
+    ));
+    // The grep check: exactly one class declaration for the term across the
+    // parsed commercial documents.
+    let subject = NamedNode::new(format!("{KG}PurchaseOrder")).unwrap();
+    let owl_class = format!("{OWL}Class");
+    let declarations = triples
+        .iter()
+        .filter(|triple| {
+            triple.subject == subject.clone().into()
+                && triple.predicate.as_str() == RDF_TYPE
+                && matches!(&triple.object, Term::NamedNode(n) if n.as_str() == owl_class)
+        })
+        .count();
+    assert_eq!(declarations, 1, "PurchaseOrder is declared exactly once");
 }

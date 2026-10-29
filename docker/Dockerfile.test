@@ -1,4 +1,4 @@
-# Dockerfile for building and testing epistemic-graph
+# Dockerfile for building and testing Medulla
 FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 COPY --from=rust:1.91.1-slim-bookworm@sha256:8514999d4786ef12efe89239e86b3d0a021b94b9d35108c8efe6c79ca7dc1a65 /usr/local/cargo /usr/local/cargo
 COPY --from=rust:1.91.1-slim-bookworm@sha256:8514999d4786ef12efe89239e86b3d0a021b94b9d35108c8efe6c79ca7dc1a65 /usr/local/rustup /usr/local/rustup

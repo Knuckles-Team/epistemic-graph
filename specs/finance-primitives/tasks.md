@@ -121,9 +121,9 @@ These children remain unverified. Intended paths and test names define future ac
 - [ ] **EG-FINANCE-PRIMITIVES-R004.3.3:** Record contract and generated-client acceptance. Source: `crates/eg-capabilities/src/bin/gen_contract.rs`. Complete the child rows before accepting this rollup.
 - [ ] **EG-FINANCE-PRIMITIVES-R004.3.3.1:** Finance record contract regeneration. Source: `crates/eg-capabilities/src/bin/gen_contract.rs; contract/methods.json; contract/schemas/`. Intended test: `tests/test_contract_wave_surface.py::test_finance_record_contract_surface (intended test)`.
 - [ ] **EG-FINANCE-PRIMITIVES-R004.3.3.2:** Finance generated-client round trips. Source: `crates/eg-capabilities/src/bin/gen_contract.rs; epistemic_graph/generated/`. Intended test: `tests/test_generated_client_contract.py::test_finance_record_client_round_trips (intended test)`.
-- [ ] **EG-FINANCE-PRIMITIVES-R005.2.2:** Average-cost election. Source: `crates/eg-compute/src/finance/lot_accounting.rs`. Intended test: `crates/eg-compute/src/finance/lot_accounting.rs::tests::average_cost_election_preserves_basis (intended test)`.
-- [ ] **EG-FINANCE-PRIMITIVES-R005.2.3:** Transfer conservation. Source: `crates/eg-compute/src/finance/lot_accounting.rs`. Intended test: `crates/eg-compute/src/finance/lot_accounting.rs::tests::paired_transfer_conserves_quantity_cash_and_basis (intended test)`.
-- [ ] **EG-FINANCE-PRIMITIVES-R005.2.4:** Split basis preservation. Source: `crates/eg-compute/src/finance/lot_accounting.rs`. Intended test: `crates/eg-compute/src/finance/lot_accounting.rs::tests::split_preserves_aggregate_basis (intended test)`.
+- [x] **EG-FINANCE-PRIMITIVES-R005.2.2:** Average-cost election. Source: `crates/eg-compute/src/finance/lot_accounting.rs`. Intended test: `crates/eg-compute/src/finance/lot_accounting.rs::tests::average_cost_election_preserves_basis (intended test)`.
+- [x] **EG-FINANCE-PRIMITIVES-R005.2.3:** Transfer conservation. Source: `crates/eg-compute/src/finance/lot_accounting.rs`. Intended test: `crates/eg-compute/src/finance/lot_accounting.rs::tests::paired_transfer_conserves_quantity_cash_and_basis (intended test)`.
+- [x] **EG-FINANCE-PRIMITIVES-R005.2.4:** Split basis preservation. Source: `crates/eg-compute/src/finance/lot_accounting.rs`. Intended test: `crates/eg-compute/src/finance/lot_accounting.rs::tests::split_preserves_aggregate_basis (intended test)`.
 - [ ] **EG-FINANCE-PRIMITIVES-R011.2:** Finance transactional append. Source: `src/server/mutation_batch/compile/finish_helpers.rs`. Complete the child rows before accepting this rollup.
 - [ ] **EG-FINANCE-PRIMITIVES-R011.2.1:** Finance envelope to outbox intent. Source: `src/server/mutation_batch/compile/finish_helpers.rs`. Intended test: `src/server/mutation_batch/compile.rs::tests::finance_alert_intents_preserve_schema_and_identity (intended test)`.
 - [ ] **EG-FINANCE-PRIMITIVES-R011.2.2:** Finance event atomic commit. Source: `src/server/mutation_batch.rs; src/server/mutation_batch/compile.rs`. Intended test: `src/server/mutation_batch/tests.rs::finance_alert_and_outbox_commit_atomically (intended test)`.
@@ -131,20 +131,20 @@ These children remain unverified. Intended paths and test names define future ac
 
 ## Remaining record-schema producers
 
-- [ ] **EG-FINANCE-PRIMITIVES-R004.2.3:** Add `PortfolioGroup` to the finance ontology and SHACL module. Reuse its existing record contract. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::portfolio_group_schema_acceptance (intended test)`. Target: one five-minute code slice; native validation may need more time.
-- [ ] **EG-FINANCE-PRIMITIVES-R004.2.4:** Add `StrategySpec` to the finance ontology and SHACL module. Reuse its existing record contract. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::strategy_spec_schema_acceptance (intended test)`. Target: one five-minute code slice; native validation may need more time.
-- [ ] **EG-FINANCE-PRIMITIVES-R004.2.5:** Add `StrategyRun` to the finance ontology and SHACL module. Reuse its existing record contract. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::strategy_run_schema_acceptance (intended test)`. Target: one five-minute code slice; native validation may need more time.
-- [ ] **EG-FINANCE-PRIMITIVES-R004.2.6:** Add `LeverageTerms` to the finance ontology and SHACL module. Reuse its existing record contract. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::leverage_terms_schema_acceptance (intended test)`. Target: one five-minute code slice; native validation may need more time.
+- [x] **EG-FINANCE-PRIMITIVES-R004.2.3:** Add `PortfolioGroup` to the finance ontology and SHACL module. Reuse its existing record contract. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::portfolio_group_schema_acceptance (intended test)`. Target: one five-minute code slice; native validation may need more time.
+- [x] **EG-FINANCE-PRIMITIVES-R004.2.4:** Add `StrategySpec` to the finance ontology and SHACL module. Reuse its existing record contract. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::strategy_spec_schema_acceptance (intended test)`. Target: one five-minute code slice; native validation may need more time.
+- [x] **EG-FINANCE-PRIMITIVES-R004.2.5:** Add `StrategyRun` to the finance ontology and SHACL module. Reuse its existing record contract. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::strategy_run_schema_acceptance (intended test)`. Target: one five-minute code slice; native validation may need more time.
+- [x] **EG-FINANCE-PRIMITIVES-R004.2.6:** Add `LeverageTerms` to the finance ontology and SHACL module. Reuse its existing record contract. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::leverage_terms_schema_acceptance (intended test)`. Target: one five-minute code slice; native validation may need more time.
 
 ## Complete schema acceptance
 
-- [ ] **EG-FINANCE-PRIMITIVES-R004.2.1.1:** Complete the `Account/Position` omission, invalid-link and vocabulary matrix. Existing sampled tests are partial evidence. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::account_position_complete_schema_matrix (intended test)`. Target: five-minute code slice; native execution may need more time.
-- [ ] **EG-FINANCE-PRIMITIVES-R004.2.2.1:** Complete the `Activity/Lot` omission, invalid-link and vocabulary matrix. Existing sampled tests are partial evidence. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::activity_lot_complete_schema_matrix (intended test)`. Target: five-minute code slice; native execution may need more time.
+- [x] **EG-FINANCE-PRIMITIVES-R004.2.1.1:** Complete the `Account/Position` omission, invalid-link and vocabulary matrix. Existing sampled tests are partial evidence. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::account_position_complete_schema_matrix (intended test)`. Target: five-minute code slice; native execution may need more time.
+- [x] **EG-FINANCE-PRIMITIVES-R004.2.2.1:** Complete the `Activity/Lot` omission, invalid-link and vocabulary matrix. Existing sampled tests are partial evidence. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::activity_lot_complete_schema_matrix (intended test)`. Target: five-minute code slice; native execution may need more time.
   - [ ] **EG-FINANCE-PRIMITIVES-R018:** Factor research records each factor as a typed node (rollup).
-  - [ ] **EG-FINANCE-PRIMITIVES-R018.1:** `FactorRecord` typed model
-  - [ ] **EG-FINANCE-PRIMITIVES-R018.2:** Ranking over the shared kernels
+  - [x] **EG-FINANCE-PRIMITIVES-R018.1:** `FactorRecord` typed model
+  - [x] **EG-FINANCE-PRIMITIVES-R018.2:** Ranking over the shared kernels
   - [ ] **EG-FINANCE-PRIMITIVES-R018.3:** Attach at the finance method route
-  - [ ] **EG-FINANCE-PRIMITIVES-R018.4:** Typed abstention on thin input
+  - [x] **EG-FINANCE-PRIMITIVES-R018.4:** Typed abstention on thin input
   - [ ] **EG-FINANCE-PRIMITIVES-R018.5:** Factor provenance edges
   - [ ] **EG-FINANCE-PRIMITIVES-R018.6:** Served factor ranking proof
 
@@ -166,16 +166,16 @@ The new scenarios have no execution receipts. This definition change introduces 
 
 ### R002 kernel and model units
 
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.1:** Rolling z-score shared kernel. Execute its positive and negative proof from test-spec.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.2:** EWMA shared kernel. Execute its positive and negative proof from test-spec.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.3:** Information coefficient shared kernel. Execute its positive and negative proof from test-spec.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.4:** Information ratio shared kernel. Execute its positive and negative proof from test-spec.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.5:** Effective sample size shared kernel. Execute its positive and negative proof from test-spec.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.6:** Diebold-Mariano shared kernel. Execute its positive and negative proof from test-spec.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.7:** Deflated Sharpe shared kernel. Execute its positive and negative proof from test-spec.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.8:** Purged combinatorial cross-validation shared kernel. Execute its positive and negative proof from test-spec.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.9:** Probability of backtest overfitting shared kernel. Execute its positive and negative proof from test-spec.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1.10:** Brier shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.1:** Rolling z-score shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.2:** EWMA shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.3:** Information coefficient shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.4:** Information ratio shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.5:** Effective sample size shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.6:** Diebold-Mariano shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.7:** Deflated Sharpe shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.8:** Purged combinatorial cross-validation shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.9:** Probability of backtest overfitting shared kernel. Execute its positive and negative proof from test-spec.md.
+- [x] **EG-FINANCE-PRIMITIVES-R002.1.10:** Brier shared kernel. Execute its positive and negative proof from test-spec.md.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.1.11:** Kalman shared kernel. Execute its positive and negative proof from test-spec.md.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.1.12:** Ornstein-Uhlenbeck shared kernel. Execute its positive and negative proof from test-spec.md.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.1.13:** ADF shared kernel. Execute its positive and negative proof from test-spec.md.

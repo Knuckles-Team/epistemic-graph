@@ -221,7 +221,21 @@ fn validate_imports(source_id: &str, triples: &[Triple], shapes: bool) -> Result
         .iter()
         .filter(|triple| triple.predicate.as_str() == OWL_IMPORTS)
     {
-        let allowed = matches!(&triple.object, Term::NamedNode(node) if document_iris.contains(node.as_str()));
+        let allowed = match &triple.object {
+            Term::NamedNode(node) if document_iris.contains(node.as_str()) => true,
+            // ConnectorPack admission validates the parent catalog as a
+            // server-resolved authority. Preserve that edge in the tenant's
+            // composed schema while keeping generic dynamic/admin sources
+            // closed over their own declared documents.
+            Term::NamedNode(node)
+                if !shapes
+                    && source_id.starts_with("pack:")
+                    && eg_rdf::pack::is_parent_ontology_iri(node.as_str()) =>
+            {
+                true
+            }
+            _ => false,
+        };
         if !allowed {
             return Err(format!(
                 "{}: source '{source_id}' imports a document outside its own authority",
@@ -628,6 +642,44 @@ ex:Shape a sh:NodeShape ; sh:targetClass ex:Thing ;
     }
 
     #[test]
+    fn pack_parent_import_is_retained_in_composed_schema() {
+        let mut sources = GraphSchemaSources::default();
+        let ontology = r#"
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<https://example.org/connector> a owl:Ontology ;
+    owl:imports <http://knuckles.team/kg> .
+<https://example.org/connector#Ticket> a owl:Class ;
+    rdfs:subClassOf <http://knuckles.team/kg#Event> .
+"#;
+        let source = GraphSchemaSource::new(
+            SchemaSourceOrigin::Pack {
+                connector: "example".to_string(),
+                record_id: "pack:example:1".to_string(),
+            },
+            None,
+            Some(Arc::from(ontology)),
+            0,
+        )
+        .unwrap();
+        sources
+            .attach_dynamic("pack:example".to_string(), source)
+            .unwrap();
+
+        let composed = validate_and_compose(&sources).unwrap();
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == OWL_IMPORTS
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == "https://example.org/connector")
+                && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == "http://knuckles.team/kg")
+        }));
+        assert!(composed.ontology.iter().any(|triple| {
+            triple.predicate.as_str() == RDF_TYPE
+                && matches!(&triple.subject, NamedOrBlankNode::NamedNode(node) if node.as_str() == "https://example.org/connector#Ticket")
+                && matches!(&triple.object, Term::NamedNode(node) if node.as_str() == "http://www.w3.org/2002/07/owl#Class")
+        }));
+    }
+
+    #[test]
     fn unsupported_owl_axiom_fails_closed_with_typed_code() {
         let mut sources = GraphSchemaSources::default();
         let unsupported = r#"
@@ -706,7 +758,8 @@ ex:parent a owl:AsymmetricProperty .
         // SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1); plus 138 for
         // the world model: BFO material entity and object, the RO/BFO-aligned shared
         // relations, and the shared reference-term / quantity / observation vocabulary.
-        assert_eq!(triples.len(), 1_095);
+        // plus 24 for the CQ-CONN chunk 5 core-foundation terms and shapes (EG-CQ-CONN-R074).
+        assert_eq!(triples.len(), 1_119);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -742,7 +795,7 @@ ex:parent a owl:AsymmetricProperty .
         // (EH-408/410 subsumption binding). +5: `:scheduledBy` (Pod → Workload).
         // +24: the EH-410 feed classes -- identity `:SecurityAuditEvent` and its four
         // subclasses, sdlc `:PipelineRunEvent` (4 triples each), and `:pipelineEventOf` (5).
-        // +123: the swarm-topology module (122) and its catalog import (1).
+        // +127: the swarm-topology module (126) and its catalog import (1).
         // +183: the finance module (182, EH-411) and its catalog import (1).
         // +30: the finance asset class, bar-series tick size and volume step, and the
         // analysis-snapshot record (EH-420/EH-421).
@@ -776,7 +829,19 @@ ex:parent a owl:AsymmetricProperty .
         // sub-properties (the shared predicate itself remains unconstrained).
         // +10: SourceRecord and OpaqueSourceReference (EG-TYPED-PACKS-R105.3.1),
         // plus one infrastructure ContainerImage → SoftwareComponent edge (R002.2).
-        assert_eq!(composed.ontology.len(), 15_648);
+        // +5: the orchestration handsOffTo property (EG-CQ-ORCH-R006.1).
+        // +95: the connector-pack ingest vocabulary (94) and its catalog import
+        // (EG-TYPED-PACKS-R101.1).
+        // +78: the infrastructure and sdlc_lifecycle vocabulary added by the
+        // connector-competency chunk 4 rows (EG-CQ-CONN, #909).
+        // +820: the C1 train's lane vocabularies on top of those (orchestration, finance,
+        // connector, data-platform and sdd), net of terms main already defined; the pin is
+        // the measured composed count.
+        // +536: the C2 train (connector-pack surface, media lane B, data-platform secrets,
+        // CQ-CONN chunk 5 and supply-vocab terms), net of terms main already defined; the pin
+        // is the measured composed count.
+        // +2: catalog imports for connector-seed and virtual-graph.
+        assert_eq!(composed.ontology.len(), 17_188);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -813,7 +878,8 @@ ex:parent a owl:AsymmetricProperty .
         // the data-platform, IT4IT-delivery, media and retrieval module headers;
         // +1: the shared data-platform vocabulary header.
         // +2: the commercial and newly registered supply-chain module headers.
-        assert_eq!(ontology_subjects.len(), 45);
+        // +1: the connector-pack ingest vocabulary header (R101.1).
+        assert_eq!(ontology_subjects.len(), 46);
         // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
         // `owl:imports <.../core>`; +6: the service-operations module's five
         // imports and its catalog entry; +5: the metadata-catalog module's four
@@ -822,11 +888,16 @@ ex:parent a owl:AsymmetricProperty .
         // +6: commercial and supply-chain module imports and catalog entries;
         // +2: the data-platform vocabulary's core and virtual-graph imports;
         // +1: its catalog entry.
-        assert_eq!(imports, 111);
+        // +2: the connector-pack import and catalog entry (R101.1).
+        // +1: the swarm-topology module imports the orchestration module.
+        // +3: the C2 train's government-shapes and foundation-shapes imports and the
+        // connector-pack shapes companion.
+        // +2: the connector-seed and virtual-graph catalog imports.
+        assert_eq!(imports, 119);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
-        // classes, 4 axioms each; +5: `:pipelineEventOf`. +118: the swarm-topology module.
+        // classes, 4 axioms each; +5: `:pipelineEventOf`. +122: the swarm-topology module.
         // +178: the finance module (EH-411); +30: EH-420/EH-421 finance records.
         // +9: EH-517 trading-class skos mappings.
         // +84: the virtual-graph module (EG-UNIFIED-DATA-PLANE-R037).
@@ -844,7 +915,12 @@ ex:parent a owl:AsymmetricProperty .
         // +224: semantic axioms from the final commercial/supply-chain catalog.
         // +7: the shared versionOf relation's two module-local constrained
         // sub-properties (the shared predicate itself remains unconstrained).
-        assert_eq!(semantic_axioms, 15_390);
+        // +90: semantic axioms from the connector-pack ingest vocabulary (R101.1).
+        // +83: semantic axioms from the connector-competency chunk 4 vocabulary (#909).
+        // +819: the same C1 train lane vocabularies, as semantic axioms.
+        // +533: the C2 train vocabularies (connector-pack surface, media lane B, secrets,
+        // CQ-CONN chunk 5, finance method terms), as semantic axioms.
+        assert_eq!(semantic_axioms, 16_919);
 
         let count_type = |object: &str| {
             composed
@@ -874,12 +950,14 @@ ex:parent a owl:AsymmetricProperty .
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
             // +1: cat:lineageTo, the inverse of :derivedFrom (EG-TYPED-PACKS-R106.1).
-            36
+            // +1: cp:hasContract, the inverse of cp:contractOf (EG-TYPED-PACKS-R102.1).
+            37
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#propertyChainAxiom"),
             // +1: the registered supply-chain usesComponent property chain.
-            6
+            // +1: the CQ-CONN chunk 5 property chain.
+            7
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#minCardinality"),
@@ -909,7 +987,12 @@ ex:parent a owl:AsymmetricProperty .
             // +9: the commercial and registered supply-chain class placements;
             // +2: SourceRecord and OpaqueSourceReference; +1: ContainerImage's
             // SoftwareComponent parent (EG-TYPED-PACKS-R105.3.1/R002.2).
-            649
+            // +3: the connector-pack ingest vocabulary subclass edges (R101.1).
+            // +2: the connector-competency chunk 4 vocabulary (#909).
+            // +22: the C1 train's lane vocabulary classes.
+            // +22: the C2 train's connector-pack surface, media lane B, secret-metadata and
+            // CQ-CONN chunk 5 classes.
+            698
         );
     }
 

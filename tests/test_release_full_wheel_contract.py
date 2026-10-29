@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import re
+import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
 import pytest
 import tomllib
 import yaml
-from check_sdist_completeness import required_sources, validate
+from check_sdist_completeness import _backend_sources, required_sources, validate
 
 pytestmark = pytest.mark.no_engine
 
@@ -343,9 +346,9 @@ def test_self_hosted_runners_are_unreachable_from_pull_requests() -> None:
             if "self-hosted" not in _runner_labels(job):
                 continue
             condition = " ".join(str(job.get("if", "")).split())
-            assert (
-                "github.repository == 'Knuckles-Team/epistemic-graph'" in condition
-            ), f"{workflow.name}:{name}"
+            assert "github.repository == 'Knuckles-Team/medulla'" in condition, (
+                f"{workflow.name}:{name}"
+            )
             assert "pull_request" not in condition, f"{workflow.name}:{name}"
             assert "startsWith(github.ref, 'refs/tags/v')" in condition, (
                 f"{workflow.name}:{name}"
@@ -391,8 +394,14 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "python-server",
             "python-suite",
             "gates-pyo3",
+            "clippy-release-profiles",
+            "dupehound-census",
         }:
-            expected = {("ci.yml", "gates-facade"): 60}.get(
+            expected = {
+                ("ci.yml", "gates-facade"): 60,
+                ("ci.yml", "clippy-release-profiles"): 60,
+                ("ci.yml", "dupehound-census"): 60,
+            }.get(
                 (workflow.name, name),
                 "${{ github.event_name == 'pull_request' && 45 || 60 }}",
             )
@@ -402,17 +411,19 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
 
 
 def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
+    thirty_min = "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     pr_scoped = {
-        ("ci.yml", "quality-advisory"): (
-            "${{ github.event_name == 'pull_request' && "
-            "(matrix.profile.name == 'workspace-all-features' "
-            "&& 15 || 10) || 60 }}"
-        )
+        ("ci.yml", "quality-advisory"): thirty_min,
+        ("ci.yml", "gates-crates"): thirty_min,
+        ("ci.yml", "gates-storage"): thirty_min,
     }.get(
-        (workflow.name, name),
-        "${{ github.event_name == 'pull_request' && 10 || 60 }}",
+        (workflow.name, name), "${{ github.event_name == 'pull_request' && 10 || 60 }}"
     )
-    if (workflow.name, name) == ("ci.yml", "quality-advisory"):
+    if (workflow.name, name) in {
+        ("ci.yml", "quality-advisory"),
+        ("ci.yml", "gates-crates"),
+        ("ci.yml", "gates-storage"),
+    }:
         assert job.get("timeout-minutes") == pr_scoped
     else:
         assert job.get("timeout-minutes") in (360, 5, pr_scoped), (
@@ -444,11 +455,7 @@ def test_workspace_clippy_budget_cannot_expand_other_jobs(
     workflow: str, name: str
 ) -> None:
     """EG-CONTRACT-R031: the matrix budget is not a general runner exception."""
-    budget = (
-        "${{ github.event_name == 'pull_request' && "
-        "(matrix.profile.name == 'workspace-all-features' "
-        "&& 15 || 10) || 60 }}"
-    )
+    budget = "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     with pytest.raises(AssertionError):
         _assert_runner_budget(Path(workflow), name, {"timeout-minutes": budget})
 
@@ -641,10 +648,55 @@ def test_extensions_only_sdist_inputs_are_the_real_build_inputs():
     assert not any(name.startswith(("benches/", ".cargo/")) for name in required)
     assert {
         "build_backend.py",
+        "scripts/configure_rust_path_remap.py",
         "scripts/inject_numeric_kernel.py",
+        "scripts/normalize_wheel_build_paths.py",
+        "scripts/normalize_wheel_sbom.py",
         "scripts/strip_wheel_executables.py",
         "crates/eg-pyengine/Cargo.toml",
     } <= required
+
+
+def test_sdist_backend_imports_from_declared_isolated_source_tree(tmp_path):
+    """The in-tree PEP 517 backend must import from the files shipped in sdist.
+
+    This deliberately imports only the backend and its Python helper closure;
+    it does not invoke maturin or compile native code.  Keeping the source tree
+    limited to the explicit sdist entries catches a missing transitive helper
+    before an isolated build reaches maturin.
+    """
+    project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    includes = {
+        entry["path"]
+        for entry in project["tool"]["maturin"]["include"]
+        if isinstance(entry, dict) and entry.get("format") == "sdist"
+    }
+    closure = _backend_sources(REPO)
+    assert closure <= includes
+
+    isolated = tmp_path / "sdist"
+    for relative in sorted(closure):
+        source = REPO / relative
+        destination = isolated / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import build_backend; print(build_backend.PROJECT_NAME)",
+        ],
+        cwd=isolated,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "medulla"
 
 
 def test_server_wheel_build_adds_swap_and_thin_links_aarch64():
@@ -779,7 +831,12 @@ def test_tag_pipeline_builds_checks_and_publishes_only() -> None:
     # Every gate, feature build and benchmark lives in ci.yml.
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     ci_triggers = ci[True] if True in ci else ci["on"]
-    assert set(ci_triggers) == {"push", "pull_request", "workflow_dispatch"}
+    assert set(ci_triggers) == {
+        "push",
+        "pull_request",
+        "schedule",
+        "workflow_dispatch",
+    }
     assert ci_triggers["push"] == {"branches": ["main"]}
     assert {"gates", "feature-matrix", "benchmarks", "engine-main-wheel"} <= set(
         ci["jobs"]

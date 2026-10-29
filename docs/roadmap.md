@@ -13,7 +13,7 @@ route through shared current-only machinery.
 
 ## Current recommendation-program status
 
-The 2026-07-13 Epistemic Graph/Agent Utilities recommendation program has no
+The 2026-07-13 Medulla/Agent Utilities recommendation program has no
 source-level items intentionally postponed. Its P0-P3 implementation surfaces,
 architecture gates, deployment manifests, failure harnesses, and certification
 commands are present. The generated capability ledger and the program closure

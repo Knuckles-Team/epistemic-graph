@@ -25,6 +25,8 @@ from ._shared import (
     ObservationRef,
     ShellProficiency,
     StoppingBehaviour,
+    ToolFactDeclarer,
+    ToolSideEffects,
 )
 
 CONNECTOR_PACK_SCHEMA_VERSION = 2
@@ -73,6 +75,13 @@ class ConnectorPackOpImport(BaseModel):
 
     op: Literal["import"]
     request: ConnectorPackImportRequest
+
+
+class ConnectorPackOpApproveSource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["approve_source"]
+    request: ConnectorPackSourceApprovalRequest
 
 
 class ConnectorPackOpBind(BaseModel):
@@ -155,6 +164,7 @@ class ConnectorPackOpCatalogRequestOwnerPrincipal(BaseModel):
 ConnectorPackOp = Annotated[
     ConnectorPackOpStatus
     | ConnectorPackOpImport
+    | ConnectorPackOpApproveSource
     | ConnectorPackOpBind
     | ConnectorPackOpUnbind
     | ConnectorPackOpRetire
@@ -189,6 +199,17 @@ class ConnectorPackRetireRequest(BaseModel):
     connector: str
     context: AgentLibraryMutationContext
     uris: BoundedVec_string_8192
+
+
+class ConnectorPackSourceApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    connector: str
+    context: AgentLibraryMutationContext
+    contract_digest: Digest256
+    contract_iri: str
+    expected_head: PackHeadRef
+    resource_uri: str
 
 
 class ConnectorPackStatus(BaseModel):
@@ -273,6 +294,7 @@ class PackAnnotations(BaseModel):
 
     contract_version: str | None = None
     cost: DeclaredCost | None = None
+    declared_by: ToolFactDeclarer | None = None
     destructive_hint: bool | None = None
     idempotent_hint: bool | None = None
     latency_declared: DeclaredLatency | None = None
@@ -284,7 +306,9 @@ class PackAnnotations(BaseModel):
     read_only_hint: bool | None = None
     required_scopes: BoundedVec_string_64 = Field(default_factory=list)
     requires_capabilities: BoundedVec_string_64 = Field(default_factory=list)
+    schema_tokens: Annotated[int, Field(ge=0)] | None = None
     sdk_contract_pin: str | None = None
+    side_effects: ToolSideEffects | None = None
     tool_mode: PackToolMode | None = None
 
 
@@ -547,6 +571,8 @@ class PackWriteErrorCode(str, Enum):
     BODY_MISSING = "BODY_MISSING"
     RESERVED_COMPONENT_ID = "RESERVED_COMPONENT_ID"
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
+    SOURCE_REGISTRATION_NOT_FOUND = "SOURCE_REGISTRATION_NOT_FOUND"
+    SOURCE_CONTRACT_MISMATCH = "SOURCE_CONTRACT_MISMATCH"
 
 
 BoundedVec_PackEntry_8192 = Annotated[list[PackEntry], Field(max_length=8192)]
@@ -572,6 +598,8 @@ ConnectorPackIndex.model_rebuild()
 ConnectorPackOpStatus.model_rebuild()
 
 ConnectorPackOpImport.model_rebuild()
+
+ConnectorPackOpApproveSource.model_rebuild()
 
 ConnectorPackOpBind.model_rebuild()
 
@@ -600,6 +628,8 @@ ConnectorPackReconcileRequest.model_rebuild()
 ConnectorPackReprojectRequest.model_rebuild()
 
 ConnectorPackRetireRequest.model_rebuild()
+
+ConnectorPackSourceApprovalRequest.model_rebuild()
 
 ConnectorPackStatus.model_rebuild()
 
@@ -670,6 +700,7 @@ __all__ = [
     "ConnectorPackImportRequest",
     "ConnectorPackIndex",
     "ConnectorPackOp",
+    "ConnectorPackOpApproveSource",
     "ConnectorPackOpAttestSelfServedCatalog",
     "ConnectorPackOpBind",
     "ConnectorPackOpCatalogAuthorityStatus",
@@ -686,6 +717,7 @@ __all__ = [
     "ConnectorPackReconcileRequest",
     "ConnectorPackReprojectRequest",
     "ConnectorPackRetireRequest",
+    "ConnectorPackSourceApprovalRequest",
     "ConnectorPackStatus",
     "ConnectorPackStatusRequest",
     "ConnectorPackUnbindRequest",
@@ -732,4 +764,6 @@ __all__ = [
     "PackWriteErrorCode",
     "ShellProficiency",
     "StoppingBehaviour",
+    "ToolFactDeclarer",
+    "ToolSideEffects",
 ]

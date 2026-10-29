@@ -92,8 +92,8 @@ vg:field a owl:DatatypeProperty ;
     rdfs:domain vg:PredicateFieldPair ;
     rdfs:range xsd:string .
 vg:approved a owl:DatatypeProperty ;
-    rdfs:comment "True once an operator approved this mapping. Only an approved mapping may serve reads." ;
-    rdfs:domain vg:VirtualMapping ;
+    rdfs:comment "True once an operator approved this mapping or authority row. Only an approved mapping may serve reads; the planner reads effectiveness from the schema source origin, not from this flag alone." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( vg:VirtualMapping vg:SourceAuthority ) ] ;
     rdfs:range xsd:boolean .
 
 vg:authoritativeSource a owl:ObjectProperty ;
@@ -108,6 +108,59 @@ vg:authorityRank a owl:DatatypeProperty ;
     rdfs:comment "The rank of one SourceAuthority for its class: an integer, lower wins. The planner serves the class from its lowest-ranked effective authority." ;
     rdfs:domain vg:SourceAuthority ;
     rdfs:range xsd:integer .
+vg:allowFallback a owl:DatatypeProperty ;
+    rdfs:comment "Whether a lower-ranked authority row may serve the class when this row's source is not connected. Default false: an unconnected rank-1 source is reported as a typed abstention, never replaced silently (EG-CQ-XSRC-R005.4)." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:boolean .
+
+# --- Source authority detail (EG-SRC-AUTH-R001) --------------------------------
+
+vg:authorityFacet a owl:ObjectProperty ;
+    rdfs:comment "The one ontology property a facet-scoped SourceAuthority covers. Absent: the row covers the whole class." ;
+    rdfs:domain vg:SourceAuthority .
+vg:authorityMapping a owl:ObjectProperty ;
+    rdfs:comment "The VirtualMapping through which one SourceAuthority's source serves its class." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range vg:VirtualMapping .
+vg:scopeTenant a owl:DatatypeProperty ;
+    rdfs:comment "The tenant one SourceAuthority is scoped to. Absent: unscoped." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:string .
+vg:scopePartition a owl:DatatypeProperty ;
+    rdfs:comment "The partition one SourceAuthority is scoped to. Absent: unscoped." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:string .
+vg:freshnessMaxAgeSeconds a owl:DatatypeProperty ;
+    rdfs:comment "The oldest watermark, in seconds, a copy served under this SourceAuthority may carry before it is stale." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:nonNegativeInteger .
+vg:authorityContract a owl:DatatypeProperty ;
+    rdfs:comment "The contract kind through which the source answers: api, mcp, a2a, virtual-graph or document." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:string .
+vg:allowFallback a owl:DatatypeProperty ;
+    rdfs:comment "Whether a lower-ranked authority row may serve the class when this row's source is not connected. Default false: an unconnected rank-1 source is a typed abstention, never replaced silently." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:boolean .
+vg:materialisation a owl:DatatypeProperty ;
+    rdfs:comment "virtual (the default: always read live) or accelerated (a governed copy may serve reads)." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:string .
+vg:materialisationReason a owl:DatatypeProperty ;
+    rdfs:comment "Why an accelerated SourceAuthority keeps a copy. Required when materialisation is accelerated." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:string .
+vg:foreignSourceName a owl:DatatypeProperty ;
+    rdfs:comment "The name under which one SourceConnection is registered in the owner-scoped foreign source catalog." ;
+    rdfs:domain vg:SourceConnection ;
+    rdfs:range xsd:string .
+vg:sourceRole a owl:DatatypeProperty ;
+    rdfs:comment "The trust role of one SourceConnection: live_truth, historical_context or inspiration. On a conflict the higher role wins before rank (EG-SRC-AUTH-R010)." ;
+    rdfs:domain vg:SourceConnection ;
+    rdfs:range xsd:string .
+vg:trustMark a owl:DatatypeProperty ;
+    rdfs:comment "The trust mark one content node carries: trusted or untrusted. Content entering a run is untrusted unless a rule marks it trusted (EG-SRC-AUTH-R011)." ;
+    rdfs:range xsd:string .
 
 # --- Classes -------------------------------------------------------------------
 

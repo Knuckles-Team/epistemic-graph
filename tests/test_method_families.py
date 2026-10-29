@@ -65,10 +65,13 @@ _WORK_ITEM_METHODS = frozenset(
         "CasWorkItemMetadata",
         # graph-os EG-2: native control-lease writes joined the WorkItemLease
         # family after the base commit; every classifier selects them with it.
+        "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
         # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
+        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
@@ -130,10 +133,13 @@ _DURABLE_AT_BASE = (
         "CancelWorkItem",
         "DeferWorkItem",
         "CasWorkItemMetadata",
+        "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
         # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
+        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
@@ -167,10 +173,13 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "CancelWorkItem",
         "DeferWorkItem",
         "CasWorkItemMetadata",
+        "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
         # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
+        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",

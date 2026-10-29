@@ -80,6 +80,10 @@ fn writes(tenant: &str) -> Vec<(&'static str, Value)> {
             "requests": [submit(tenant)]}}),
         ),
         (
+            "IssueHostStartGrant",
+            json!({"request": eg_types::test_support::host_start::host_start_request(tenant)}),
+        ),
+        (
             "IssueControlLease",
             json!({"request": {"tenant": tenant, "lease_id": "l",
             "kind": "k", "grant": {}, "issued_at_ms": 1, "expires_at_ms": 2,

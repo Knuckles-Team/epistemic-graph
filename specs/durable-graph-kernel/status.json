@@ -13,6 +13,8 @@
     "EG-DURABLE-KERNEL-R006.1",
     "EG-DURABLE-KERNEL-R006.2",
     "EG-DURABLE-KERNEL-R006.3",
+    "EG-DURABLE-KERNEL-R006.4",
+    "EG-DURABLE-KERNEL-R006.5",
     "EG-DURABLE-KERNEL-R007",
     "EG-DURABLE-KERNEL-R008",
     "EG-DURABLE-KERNEL-R009",
@@ -256,6 +258,11 @@
     "EG-DURABLE-KERNEL-R096.5",
     "EG-DURABLE-KERNEL-R096.6",
     "EG-DURABLE-KERNEL-R028.1",
+    "EG-DURABLE-KERNEL-R028.1.1",
+    "EG-DURABLE-KERNEL-R028.1.2",
+    "EG-DURABLE-KERNEL-R028.1.3",
+    "EG-DURABLE-KERNEL-R028.1.3.1",
+    "EG-DURABLE-KERNEL-R028.1.3.2",
     "EG-DURABLE-KERNEL-R085.9",
     "EG-DURABLE-KERNEL-R085.10",
     "EG-DURABLE-KERNEL-R084.7",
@@ -420,7 +427,11 @@
     "EG-DURABLE-KERNEL-R862.2",
     "EG-DURABLE-KERNEL-R862.3",
     "EG-DURABLE-KERNEL-R028.4.3",
-    "EG-DURABLE-KERNEL-R028.4.4"
+    "EG-DURABLE-KERNEL-R028.4.4",
+    "EG-DURABLE-KERNEL-R030.1.1",
+    "EG-DURABLE-KERNEL-R030.1.2",
+    "EG-DURABLE-KERNEL-R030.1.3",
+    "EG-DURABLE-KERNEL-R030.1.4"
   ],
   "requirements": [
     {
@@ -503,20 +514,22 @@
         "03670fc1f33c",
         "0c01d687aba9",
         "20c64b28144f",
-        "51d84d58e174",
-        "8dbb5bd9de53"
+        "4aefb9406e55",
+        "4fac49dd5da2"
       ],
       "verified_by": [
-        "crates/eg-storage/src/physical/tests.rs:1008",
-        "crates/eg-storage/src/physical/tests.rs:1023",
-        "crates/eg-storage/src/physical/tests.rs:768",
-        "crates/eg-storage/src/physical/tests.rs:782",
-        "crates/eg-storage/src/physical/tests.rs:793"
+        "crates/eg-storage/src/physical/tests.rs:1009",
+        "crates/eg-storage/src/physical/tests.rs:1077",
+        "crates/eg-storage/src/physical/tests.rs:769",
+        "crates/eg-storage/src/physical/tests.rs:783",
+        "crates/eg-storage/src/physical/tests.rs:794"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R006.1",
         "EG-DURABLE-KERNEL-R006.2",
-        "EG-DURABLE-KERNEL-R006.3"
+        "EG-DURABLE-KERNEL-R006.3",
+        "EG-DURABLE-KERNEL-R006.4",
+        "EG-DURABLE-KERNEL-R006.5"
       ]
     },
     {
@@ -530,11 +543,11 @@
         "d9fa4b417ab8"
       ],
       "verified_by": [
-        "crates/eg-storage/src/physical/tests.rs:1023",
-        "tests/shard_open_budget.rs:377",
-        "tests/shard_open_budget.rs:412",
-        "tests/shard_open_budget.rs:431",
-        "tests/shard_open_budget.rs:452"
+        "crates/eg-storage/src/physical/tests.rs:1077",
+        "tests/shard_open_budget.rs:388",
+        "tests/shard_open_budget.rs:423",
+        "tests/shard_open_budget.rs:442",
+        "tests/shard_open_budget.rs:463"
       ]
     },
     {
@@ -543,15 +556,15 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "20c64b28144f",
+        "4fac49dd5da2",
         "51d84d58e174",
         "ace497f2c64a",
-        "cdf5f87230de",
-        "d22dec0c32ed"
+        "cdf5f87230de"
       ],
       "verified_by": [
-        "tests/shard_open_budget.rs:359",
-        "tests/shard_open_budget.rs:369",
-        "tests/shard_open_budget.rs:479"
+        "tests/shard_open_budget.rs:370",
+        "tests/shard_open_budget.rs:380",
+        "tests/shard_open_budget.rs:490"
       ]
     },
     {
@@ -566,11 +579,33 @@
         "cdf5f87230de"
       ],
       "verified_by": [
-        "crates/eg-storage/src/physical/tests.rs:1008",
-        "crates/eg-storage/src/physical/tests.rs:768",
-        "crates/eg-storage/src/physical/tests.rs:782",
-        "crates/eg-storage/src/physical/tests.rs:793",
-        "crates/eg-storage/src/physical/tests.rs:821"
+        "crates/eg-storage/src/physical/tests.rs:1009",
+        "crates/eg-storage/src/physical/tests.rs:769",
+        "crates/eg-storage/src/physical/tests.rs:783",
+        "crates/eg-storage/src/physical/tests.rs:794",
+        "crates/eg-storage/src/physical/tests.rs:822"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R006.4",
+      "title": "Pre-listener boot does not block on write-lock-holding maintenance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4aefb9406e55"
+      ],
+      "verified_by": [
+        "src/server/connector_pack_projection/boot_regression.rs:378"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R006.5",
+      "title": "Ts startup reconciliation replays the legacy gap once, then uses the cursor fast path",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4aefb9406e55"
+      ],
+      "verified_by": [
+        "src/server/connector_pack_projection/boot_regression.rs:379"
       ]
     },
     {
@@ -624,8 +659,8 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "tests/test_jscpd_per_commit_gate.py:30",
-        "tests/test_jscpd_per_commit_gate.py:40"
+        "tests/test_jscpd_per_commit_gate.py:29",
+        "tests/test_jscpd_per_commit_gate.py:39"
       ]
     },
     {
@@ -639,7 +674,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:217"
+        "tests/test_release_feature_matrix.py:233"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R011.1",
@@ -702,8 +737,8 @@
         "c73eeb01d917"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:218",
-        "tests/test_release_feature_matrix.py:257"
+        "tests/test_release_feature_matrix.py:234",
+        "tests/test_release_feature_matrix.py:288"
       ]
     },
     {
@@ -759,11 +794,11 @@
         "3a14159c3768"
       ],
       "verified_by": [
-        "src/raft/flake_budget.rs:105",
-        "src/raft/flake_budget.rs:112",
-        "src/raft/flake_budget.rs:120",
-        "src/raft/flake_budget.rs:128",
-        "src/raft/flake_budget.rs:85"
+        "src/raft/flake_budget.rs:164",
+        "src/raft/flake_budget.rs:170",
+        "src/raft/flake_budget.rs:177",
+        "src/raft/flake_budget.rs:184",
+        "src/raft/flake_budget.rs:191"
       ]
     },
     {
@@ -1160,10 +1195,10 @@
       ],
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:174",
-        "crates/eg-types/src/governed_change/tests.rs:110",
-        "crates/eg-types/src/governed_change/tests.rs:148",
-        "crates/eg-types/src/governed_change/tests.rs:54",
-        "crates/eg-types/src/governed_change/tests.rs:77"
+        "crates/eg-types/src/governed_change/tests.rs:123",
+        "crates/eg-types/src/governed_change/tests.rs:161",
+        "crates/eg-types/src/governed_change/tests.rs:67",
+        "crates/eg-types/src/governed_change/tests.rs:90"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R027.1",
@@ -1183,10 +1218,10 @@
       ],
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:174",
-        "crates/eg-types/src/governed_change/tests.rs:110",
-        "crates/eg-types/src/governed_change/tests.rs:148",
-        "crates/eg-types/src/governed_change/tests.rs:54",
-        "crates/eg-types/src/governed_change/tests.rs:77"
+        "crates/eg-types/src/governed_change/tests.rs:123",
+        "crates/eg-types/src/governed_change/tests.rs:161",
+        "crates/eg-types/src/governed_change/tests.rs:67",
+        "crates/eg-types/src/governed_change/tests.rs:90"
       ]
     },
     {
@@ -1238,12 +1273,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R029",
       "title": "Universal read-RLS gate checks the current TsScan dispatch path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0447684dce7b",
-        "a676823d2b54"
+        "a676823d2b54",
+        "afb4b3238a33"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_universal_read_rls_gate.py:32"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R030",
@@ -1272,7 +1310,7 @@
       "verified_by": [
         "src/redb_store/operation_audit_tests.rs:278",
         "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:687",
-        "src/server/mutation_batch/tests.rs:1394"
+        "src/server/mutation_batch/tests.rs:1396"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R031.1",
@@ -1299,7 +1337,7 @@
         "aeb9c998476a"
       ],
       "verified_by": [
-        "src/server/mutation_batch/tests.rs:1394"
+        "src/server/mutation_batch/tests.rs:1396"
       ]
     },
     {
@@ -1309,7 +1347,8 @@
       "landed_in": [
         "19da6ec1bc9b",
         "1ef84395fa69",
-        "49c43fca68d0"
+        "49c43fca68d0",
+        "644cc8097bd3"
       ],
       "verified_by": [
         "crates/eg-types/src/fast_path.rs:109",
@@ -1323,11 +1362,12 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R032.1",
-      "title": "PrimaryKeyOperation and FastPathDecision are typed, and routing refuses rather than silently bypassing checks",
+      "title": "PrimaryKeyOperation and FastPathDecision are typed. Routing refuses instead of silently bypassing checks",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "19da6ec1bc9b",
-        "49c43fca68d0"
+        "49c43fca68d0",
+        "644cc8097bd3"
       ],
       "verified_by": [
         "crates/eg-types/src/fast_path.rs:109",
@@ -1568,15 +1608,16 @@
       "title": "The write path's durability selection: `write_plan`/`refuse_if_durable_log_write` are the one entry point a write admission calls",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "02b5abc7dd6d",
         "19da6ec1bc9b",
         "1a1ef47cb448"
       ],
       "verified_by": [
+        "crates/eg-storage/src/physical/tests.rs:1024",
         "crates/eg-types/src/durability_class.rs:251",
         "crates/eg-types/src/durability_class.rs:259",
         "crates/eg-types/src/durability_class.rs:267",
-        "crates/eg-types/src/durability_class.rs:275",
-        "crates/eg-types/src/durability_class.rs:284"
+        "crates/eg-types/src/durability_class.rs:275"
       ]
     },
     {
@@ -1990,7 +2031,7 @@
         "c143146d7855"
       ],
       "verified_by": [
-        "src/server/persistence/durable_stores.rs:671"
+        "src/server/persistence/durable_stores.rs:675"
       ]
     },
     {
@@ -2257,7 +2298,11 @@
       "title": "Typed durable task-queue model (enqueue/claim/ack) with refusal tests",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/jobs.rs:752",
+        "crates/eg-types/src/jobs.rs:769",
+        "crates/eg-types/src/jobs.rs:805"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R071.600"
       ]
@@ -2444,7 +2489,7 @@
       "verified_by": [
         "src/server/handlers/jobs/graph_tests.rs:145",
         "src/server/handlers/jobs/graph_tests.rs:170",
-        "src/server/handlers/jobs/graph_tests.rs:245"
+        "src/server/handlers/jobs/graph_tests.rs:270"
       ]
     },
     {
@@ -2540,23 +2585,36 @@
     {
       "id": "EG-DURABLE-KERNEL-R083.1",
       "title": "`KvBlockKey` typed model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/src/version.rs:141"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.2",
       "title": "Version-mismatch refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8823db907adf",
+        "c13fbabaca53"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/tests/version_mismatch.rs:3"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.3",
       "title": "Budgeted eviction by importance",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/src/graph_importance.rs:147"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.4",
@@ -2585,9 +2643,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R084.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "227c7f930a15"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/write_conflict.rs:41"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.2",
@@ -2741,9 +2803,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R086.4",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f036b2e99be1"
+      ],
+      "verified_by": [
+        "src/server/persistence/read_through.rs:28"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.5",
@@ -2762,9 +2828,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R086.7",
       "title": "Refusal: unavailable reads",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f8aef9dba62b"
+      ],
+      "verified_by": [
+        "src/server/persistence/read_through.rs:261"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R086.8",
@@ -2796,7 +2866,12 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/changeset_review.rs:234",
+        "crates/eg-types/src/changeset_review.rs:255",
+        "crates/eg-types/src/changeset_review.rs:273",
+        "crates/eg-types/src/changeset_review.rs:299"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R087.2",
@@ -2821,7 +2896,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/rule_correction.rs:144",
+        "crates/eg-types/src/rule_correction.rs:170"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R088.2",
@@ -2846,7 +2924,10 @@
       "title": "Typed verdict",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/step_verdict.rs:78",
+        "crates/eg-types/src/step_verdict.rs:94"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R089.2",
@@ -3081,7 +3162,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/concept_id.rs:146",
+        "crates/eg-types/src/concept_id.rs:205"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.2",
@@ -3186,7 +3270,9 @@
       "title": "Model: served agent bus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-durable/tests/agent_bus.rs:3"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R095.1001",
@@ -3282,7 +3368,74 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.1",
-      "title": "Run checkpoint and memory binding. Owner decisions remain open",
+      "title": "Run checkpoint and memory binding",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R028.1.1",
+        "EG-DURABLE-KERNEL-R028.1.2",
+        "EG-DURABLE-KERNEL-R028.1.3"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.1.1",
+      "title": "Native context-bound checkpoint transaction",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "591ec7592b23",
+        "644cc8097bd3",
+        "a0357cb95dc8"
+      ],
+      "verified_by": [
+        "crates/eg-capabilities/src/error_routing.rs:512",
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:353",
+        "crates/eg-storage/src/owner/lineage_tests.rs:224",
+        "crates/eg-storage/src/owner/lineage_tests.rs:245",
+        "crates/eg-storage/src/owner/lineage_tests.rs:283"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.1.2",
+      "title": "Remaining end-to-end checkpoint and conversation acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.1.3",
+      "title": "Checkpoint native and generated qualification remains open",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "03bea7bfbae7",
+        "591ec7592b23",
+        "644cc8097bd3"
+      ],
+      "verified_by": [
+        "tests/test_run_checkpoint_client.py:21",
+        "tests/test_run_checkpoint_client.py:49"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R028.1.3.1",
+        "EG-DURABLE-KERNEL-R028.1.3.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.1.3.1",
+      "title": "Hosted checkpoint exports and generated facade",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "03bea7bfbae7",
+        "591ec7592b23"
+      ],
+      "verified_by": [
+        "tests/test_run_checkpoint_client.py:22",
+        "tests/test_run_checkpoint_client.py:50"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.1.3.2",
+      "title": "Final composed-source native qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3303,10 +3456,11 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.7",
-      "title": "Definition hold: no cross-backend transaction contract is authorized",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: defines no behavior; one-graph R084.1-.6 stays the only write boundary and R039 the single redb durability authority. Cross-backend coordination is not authorized",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "defines no behavior; one-graph R084.1-.6 stays the only write boundary and R039 the single redb durability authority. Cross-backend coordination is not authorized"
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.8",
@@ -3374,7 +3528,7 @@
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:161",
         "crates/eg-types/src/change_envelope/material.rs:181",
-        "src/server/mod.rs:2163"
+        "src/server/mod.rs:2198"
       ]
     },
     {
@@ -3387,7 +3541,7 @@
       ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:198",
-        "src/server/mod.rs:2163"
+        "src/server/mod.rs:2198"
       ]
     },
     {
@@ -3538,7 +3692,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/mutation_batch/fanout.rs:40"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R099.2",
@@ -4080,7 +4236,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/retention_policy.rs:124",
+        "crates/eg-types/src/retention_policy.rs:99"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R700.2",
@@ -4177,16 +4336,25 @@
     {
       "id": "EG-DURABLE-KERNEL-R800.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/tests/tier_policy.rs:23"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/tests/tier_policy.rs:44",
+        "crates/eg-kvcache/tests/tier_policy.rs:76"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.3",
@@ -4198,9 +4366,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R800.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d3e7e28783b1"
+      ],
+      "verified_by": [
+        "crates/eg-kvcache/tests/tier_policy.rs:103"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R800.5",
@@ -4236,7 +4408,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-durable/src/topic.rs:38"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R850.2",
@@ -4293,7 +4467,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/agent_peer.rs:33"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R851.2",
@@ -4350,14 +4526,18 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/health_incident.rs:201"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/health_incident.rs:231"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.3",
@@ -4371,7 +4551,9 @@
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/health_incident.rs:257"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R852.5",
@@ -4418,10 +4600,10 @@
       ],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:316",
-        "src/redb_store/work_item/run_owner/tests.rs:115",
-        "src/redb_store/work_item/run_owner/tests.rs:147",
-        "src/redb_store/work_item/run_owner/tests.rs:446",
-        "src/redb_store/work_item/run_owner/tests.rs:48"
+        "src/redb_store/work_item/run_owner/tests.rs:106",
+        "src/redb_store/work_item/run_owner/tests.rs:138",
+        "src/redb_store/work_item/run_owner/tests.rs:39",
+        "src/redb_store/work_item/run_owner/tests.rs:437"
       ]
     },
     {
@@ -4440,11 +4622,11 @@
         "f9bfc0da8ae7"
       ],
       "verified_by": [
-        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:293",
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:342",
         "crates/eg-types/src/current_plan/tests.rs:110",
         "crates/eg-types/src/current_plan/tests.rs:3",
-        "src/redb_store/work_item/current_plan/tests.rs:135",
-        "src/redb_store/work_item/current_plan/tests.rs:66"
+        "src/redb_store/work_item/current_plan/tests.rs:121",
+        "src/redb_store/work_item/current_plan/tests.rs:52"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.5.1",
@@ -4458,7 +4640,13 @@
       "title": "Issuer-bound host-start record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R030.1.1",
+        "EG-DURABLE-KERNEL-R030.1.2",
+        "EG-DURABLE-KERNEL-R030.1.3",
+        "EG-DURABLE-KERNEL-R030.1.4"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R083.5",
@@ -4607,10 +4795,10 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/server/mutation_batch/digest.rs:319",
-        "tests/adopt_workitem_authenticated_replay.rs:588",
-        "tests/decide/test_task_plan_served.py:230",
-        "tests/decide/test_task_plan_served.py:351"
+        "src/server/mutation_batch/digest.rs:379",
+        "tests/adopt_workitem_authenticated_replay.rs:608",
+        "tests/decide/test_task_plan_served.py:239",
+        "tests/decide/test_task_plan_served.py:360"
       ]
     },
     {
@@ -4632,11 +4820,11 @@
         "b286edc1b3bf"
       ],
       "verified_by": [
-        "src/redb_store/work_item/run_owner/tests.rs:200",
-        "src/redb_store/work_item/run_owner/tests.rs:225",
-        "src/redb_store/work_item/run_owner/tests.rs:249",
-        "src/redb_store/work_item/run_owner/tests.rs:325",
-        "src/redb_store/work_item/run_owner/tests.rs:446"
+        "src/redb_store/work_item/run_owner/tests.rs:191",
+        "src/redb_store/work_item/run_owner/tests.rs:216",
+        "src/redb_store/work_item/run_owner/tests.rs:240",
+        "src/redb_store/work_item/run_owner/tests.rs:316",
+        "src/redb_store/work_item/run_owner/tests.rs:437"
       ]
     },
     {
@@ -4726,16 +4914,61 @@
         "a1874ae34e29"
       ],
       "verified_by": [
-        "src/redb_store/work_item/conversation/tests.rs:138",
-        "src/redb_store/work_item/conversation/tests.rs:159",
-        "src/redb_store/work_item/conversation/tests.rs:175",
-        "src/redb_store/work_item/conversation/tests.rs:215",
-        "src/redb_store/work_item/conversation/tests.rs:235"
+        "src/redb_store/work_item/conversation/tests.rs:123",
+        "src/redb_store/work_item/conversation/tests.rs:144",
+        "src/redb_store/work_item/conversation/tests.rs:160",
+        "src/redb_store/work_item/conversation/tests.rs:200",
+        "src/redb_store/work_item/conversation/tests.rs:220"
       ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.4.4",
       "title": "Replay a repeated run admission from its retained owner receipt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1.1",
+      "title": "Typed host-start assertions and client projection",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6cd74b05f9a5",
+        "a27a7c804f9e",
+        "c0d589973a64"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/host_start/tests.rs:8",
+        "tests/test_host_start_client.py:3"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1.2",
+      "title": "Durable native issuer provenance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6cd74b05f9a5",
+        "a27a7c804f9e"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/control_lease/host_start/tests.rs:12"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1.3",
+      "title": "Signed dispatch for dedicated host-start issuance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6cd74b05f9a5",
+        "a27a7c804f9e"
+      ],
+      "verified_by": [
+        "src/server/handlers/work_item/host_start_tests.rs:11"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1.4",
+      "title": "Complete host-start producer qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -76,6 +76,8 @@ pub mod ast;
 pub mod graph_algos;
 pub mod parser;
 pub mod screen;
+// EG-SCM-R013.2 — projection of a graph-native symbol edit to file bytes and one changeset.
+pub mod source_symbol_edit;
 /// Shared parser fixtures for this crate's unit tests and downstream test
 /// consumers. The feature is dev-only in the facade and absent from releases.
 #[cfg(all(any(test, feature = "test-support"), feature = "ast"))]

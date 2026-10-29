@@ -321,8 +321,8 @@
         "9a7674d1bae5"
       ],
       "verified_by": [
-        "src/server/foreign_catalog.rs:402",
-        "src/server/foreign_catalog.rs:426"
+        "src/server/foreign_catalog.rs:769",
+        "src/server/foreign_catalog.rs:793"
       ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R002.1",
@@ -341,8 +341,8 @@
         "d603182af742"
       ],
       "verified_by": [
-        "src/server/foreign_catalog.rs:403",
-        "src/server/foreign_catalog.rs:427"
+        "src/server/foreign_catalog.rs:770",
+        "src/server/foreign_catalog.rs:794"
       ]
     },
     {
@@ -444,9 +444,9 @@
         "79ba71d072a5"
       ],
       "verified_by": [
-        "crates/eg-plan/src/virtual_graph_mapping.rs:80",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:87",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:96"
+        "crates/eg-plan/src/virtual_graph_mapping.rs:120",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:127",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:136"
       ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R005.1"
@@ -461,9 +461,9 @@
         "3dd56fe53283"
       ],
       "verified_by": [
-        "crates/eg-plan/src/virtual_graph_mapping.rs:80",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:87",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:96"
+        "crates/eg-plan/src/virtual_graph_mapping.rs:120",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:127",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:136"
       ]
     },
     {
@@ -996,9 +996,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.2.1",
       "title": "`RelationalDriverConfig` builds from a validated engine/host/port/service name, and `connect` refuses an unsafe or invalid destination before issuing any request",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f3b6984f260a"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/relational_connection.rs:124",
+        "crates/eg-plan/src/relational_connection.rs:143",
+        "crates/eg-plan/src/relational_connection.rs:152",
+        "crates/eg-plan/src/relational_connection.rs:161",
+        "crates/eg-plan/src/relational_connection.rs:170"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.2.2",
@@ -1280,11 +1288,11 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/dialect_conformance.rs:121",
-        "crates/eg-types/src/dialect_conformance.rs:133",
-        "crates/eg-types/src/dialect_conformance.rs:145",
-        "crates/eg-types/src/dialect_conformance.rs:160",
-        "crates/eg-types/src/dialect_conformance.rs:175"
+        "crates/eg-types/src/dialect_conformance.rs:147",
+        "crates/eg-types/src/dialect_conformance.rs:159",
+        "crates/eg-types/src/dialect_conformance.rs:171",
+        "crates/eg-types/src/dialect_conformance.rs:186",
+        "crates/eg-types/src/dialect_conformance.rs:201"
       ]
     },
     {
@@ -1329,9 +1337,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.4",
       "title": "Source-category coverage matrix",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/dialect_conformance.rs:259"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R022.4.1"
       ]
@@ -1339,9 +1351,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.4.1",
       "title": "Residency column",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/dialect_conformance.rs:259"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023",
@@ -1957,26 +1973,34 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/entity_link_proposal.rs:109",
-        "crates/eg-types/src/entity_link_proposal.rs:116",
-        "crates/eg-types/src/entity_link_proposal.rs:123",
-        "crates/eg-types/src/entity_link_proposal.rs:130",
-        "crates/eg-types/src/entity_link_proposal.rs:137"
+        "crates/eg-types/src/entity_link_proposal.rs:129",
+        "crates/eg-types/src/entity_link_proposal.rs:136",
+        "crates/eg-types/src/entity_link_proposal.rs:143",
+        "crates/eg-types/src/entity_link_proposal.rs:150",
+        "crates/eg-types/src/entity_link_proposal.rs:157"
       ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.2",
       "title": "Blocking and field-similarity candidate generation across Gramps/Immich/Twenty/Firefly",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/entity_resolution.rs:368"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.3",
       "title": "Real Fellegi-Sunter scoring and the approval workflow",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/entity_resolution.rs:385"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R031",
@@ -2141,14 +2165,20 @@
       "title": "Model: served incident authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-stream/src/telemetry/incident_authority.rs:252"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.2",
       "title": "Behavior: served incident authority",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "56d38c583ffd"
+      ],
+      "verified_by": [
+        "crates/eg-stream/src/telemetry/incident_authority.rs:277"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.3",
@@ -2160,16 +2190,24 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.4",
       "title": "Refusal: served incident authority",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "56d38c583ffd"
+      ],
+      "verified_by": [
+        "crates/eg-stream/src/telemetry/incident_authority.rs:315"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.5",
       "title": "Evidence: served incident authority",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "56d38c583ffd"
+      ],
+      "verified_by": [
+        "crates/eg-stream/src/telemetry/incident_authority.rs:348"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.6",
@@ -2184,6 +2222,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3dd56fe53283",
+        "3e95357c7bce",
         "85f4ea82f45f",
         "9b6036853937"
       ],
@@ -2217,11 +2256,11 @@
         "9a7674d1bae5"
       ],
       "verified_by": [
-        "crates/eg-types/src/metadata_acceleration.rs:121",
-        "crates/eg-types/src/metadata_acceleration.rs:127",
-        "crates/eg-types/src/metadata_acceleration.rs:135",
-        "crates/eg-types/src/metadata_acceleration.rs:147",
-        "crates/eg-types/src/metadata_acceleration.rs:154"
+        "crates/eg-types/src/metadata_acceleration.rs:208",
+        "crates/eg-types/src/metadata_acceleration.rs:214",
+        "crates/eg-types/src/metadata_acceleration.rs:222",
+        "crates/eg-types/src/metadata_acceleration.rs:234",
+        "crates/eg-types/src/metadata_acceleration.rs:241"
       ]
     },
     {
@@ -2249,9 +2288,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.3.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/metadata_acceleration.rs:262"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.3.2",
@@ -2420,9 +2463,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/virtual_graph_view.rs:137"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6.2",
@@ -2541,16 +2588,25 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R039.1",
       "title": "`CatalogPrincipal` typed model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3d0e56ca6010"
+      ],
+      "verified_by": [
+        "crates/eg-lake/src/catalog.rs:342"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R039.2",
       "title": "Catalog authorization refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3d0e56ca6010"
+      ],
+      "verified_by": [
+        "crates/eg-lake/src/catalog.rs:359",
+        "crates/eg-lake/src/catalog.rs:373"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R039.3",
@@ -2591,16 +2647,25 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/embedding_promotion.rs:170"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/embedding_promotion.rs:181",
+        "crates/eg-types/src/embedding_promotion.rs:207"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.3",
@@ -2710,23 +2775,35 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R750.750",
       "title": "Model: Conversation history source, run audit rows and step store",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/run_history.rs:232"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R750.751",
       "title": "Behavior: Conversation history source, run audit rows and step store",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/run_history.rs:255"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R750.752",
       "title": "Refusal: Conversation history source, run audit rows and step store",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/run_history.rs:302"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R750.753",
@@ -2887,9 +2964,9 @@
         "b3d7b62e5f61"
       ],
       "verified_by": [
-        "crates/eg-document/src/processing.rs:269",
-        "crates/eg-document/src/processing.rs:282",
-        "crates/eg-document/src/processing.rs:301",
+        "crates/eg-document/src/processing.rs:371",
+        "crates/eg-document/src/processing.rs:384",
+        "crates/eg-document/src/processing.rs:403",
         "src/server/handlers/web_ingest/embedder.rs:212",
         "src/server/handlers/web_ingest_tests.rs:44"
       ]
@@ -2918,7 +2995,7 @@
         "d715658809da"
       ],
       "verified_by": [
-        "crates/eg-document/src/processing.rs:314",
+        "crates/eg-document/src/processing.rs:416",
         "src/server/handlers/web_ingest_tests.rs:113",
         "tests/web_document_enrich_served.rs:421"
       ]
@@ -2970,9 +3047,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/action_spec.rs:385"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.2",
@@ -2991,16 +3072,24 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/action_spec.rs:403"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/action_spec.rs:437"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R700.6",
@@ -3027,16 +3116,24 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/standards_drift.rs:229"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/standards_drift.rs:244"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.3",
@@ -3048,16 +3145,24 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/standards_drift.rs:273"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/standards_drift.rs:285"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.6",
@@ -3084,16 +3189,24 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/lineage.rs:242"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/lineage.rs:266"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.3",
@@ -3105,16 +3218,24 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/lineage.rs:296"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/lineage.rs:317"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702.6",
@@ -3140,9 +3261,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.700",
       "title": "Identity evidence kinds and merge decisions for candidate links: model and behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/entity_resolution.rs:416"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.701",
@@ -3169,9 +3294,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R761.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/profile.rs:28"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R761.2",
@@ -3228,9 +3357,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/quality.rs:14"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.2",
@@ -3270,9 +3403,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.7",
       "title": "Rule proposals from profiles",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/quality.rs:46"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.8",
@@ -3299,9 +3436,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R763.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/lineage.rs:3"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R763.2",
@@ -3358,16 +3499,24 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/asset_usage.rs:3"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af17a97c3f89"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/asset_usage.rs:32"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.3",

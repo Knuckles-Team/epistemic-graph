@@ -198,6 +198,100 @@ $($variants)*
         fraction: f64,
     },
 
+    /// Fractional-Kelly stake from accuracy and win/loss ratio, clamped to `[0, max_risk]`
+    /// (EG-FINANCE-PRIMITIVES-R900.3). `fraction` defaults to one half, `max_risk` to 0.02.
+    FinancePositionSize {
+        accuracy: f64,
+        win_loss_ratio: f64,
+        #[serde(default)]
+        fraction: Option<f64>,
+        #[serde(default)]
+        max_risk: Option<f64>,
+    },
+
+    /// Two-sample Kolmogorov-Smirnov shift test between a reference and a current sample
+    /// (EG-FINANCE-PRIMITIVES-R900.3); `shifted` when the statistic exceeds `threshold`.
+    FinanceDistributionShift {
+        reference: Vec<f64>,
+        current: Vec<f64>,
+        threshold: f64,
+    },
+
+    // ── Banking risk / execution / factor kernels (EG-FINANCE-PRIMITIVES-R901/R613/R018 .3) ──
+    FinanceAmlScreen {
+        rule_id: String,
+        version: u32,
+        threshold_minor: i64,
+        amount_minor: i64,
+    },
+
+    FinanceCapitalRatios {
+        cet1: i64,
+        at1: i64,
+        tier2: i64,
+        risk_weighted_assets: i64,
+        total_exposure: i64,
+    },
+
+    FinanceExpectedLoss {
+        pd: f64,
+        lgd: f64,
+        ead_minor: i64,
+    },
+
+    FinanceSettlementChain {
+        origin: String,
+        correspondents: Vec<String>,
+        beneficiary: String,
+        amount_minor: i64,
+    },
+
+    FinanceRegimeChain {
+        returns: Vec<f64>,
+        threshold: f64,
+        horizon: usize,
+    },
+
+    FinanceExecutionSchedule {
+        symbol: String,
+        total_shares: f64,
+        horizon: f64,
+        slices: usize,
+        volatility: f64,
+        risk_aversion: f64,
+        temporary_impact: f64,
+        permanent_impact: f64,
+        continuous: bool,
+    },
+
+    FinanceMarketMakingQuote {
+        symbol: String,
+        mid: f64,
+        inventory: f64,
+        risk_aversion: f64,
+        volatility: f64,
+        time_remaining: f64,
+        order_arrival_decay: f64,
+    },
+
+    FinancePairsSignal {
+        y_name: String,
+        x_name: String,
+        y: Vec<f64>,
+        x: Vec<f64>,
+        hedge_ratio: f64,
+        entry_z: f64,
+    },
+
+    /// Rank factors by absolute information ratio; `factor_ids`, `signals` and
+    /// `provenance_keys` are parallel, one entry per factor.
+    FinanceFactorRank {
+        factor_ids: Vec<String>,
+        signals: Vec<Vec<f64>>,
+        provenance_keys: Vec<Vec<String>>,
+        forward_returns: Vec<f64>,
+    },
+
     FinanceBayesianKelly {
         alpha: f64,
         beta: f64,

@@ -74,6 +74,10 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
             "CONNECTOR_RELATIONSHIP_",
             "ARCHIVE_",
             "MALFORMED_",
+            "SEED_",
+            "SOURCE_APPROVAL_",
+            "SOURCE_CONTRACT_",
+            "SOURCE_REGISTRATION_",
             "IMPORTER_",
             "INVALID_IMPORTER",
             "INVALID_RETIREMENT",
@@ -81,6 +85,9 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
             "UNKNOWN_PACK_ENTRY",
             "CORRUPT_CONNECTOR_",
             "COMPONENT_BODY_",
+            "SEED_",
+            "SOURCE_APPROVAL_",
+            "SOURCE_BINDING_",
         ],
     ),
     (
@@ -104,13 +111,17 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
 ];
 const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ("cluster", &["CLUSTER_", "FLEET_", "REGISTRY_", "RAFT_"]),
-    ("query", &["AST_", "SQL_OWNER_", "RESULT_TOO_LARGE"]),
+    (
+        "query",
+        &["AST_", "SQL_OWNER_", "RESULT_TOO_LARGE", "FOREIGN_READ_"],
+    ),
     (
         "transactions",
         &["CHANGE_BATCH_", "REPLAY_NONCE_", "STALE_GRAPH_"],
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    ("AnalyticsJob", &["INVALID_CONFIGURATION"]),
     ("GetRunWorkItem", &["RUN_ADMISSION_UNAVAILABLE"]),
     (
         "AgentComponent",
@@ -150,6 +161,12 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
             "WEB_SELECTION_TOO_MANY_CANDIDATES",
         ],
     ),
+    // EG-REPO-INGEST-R007/R008: an over-budget batch is refused whole.
+    ("IndexRepository", &["REPOSITORY_BATCH_TOO_LARGE"]),
+    // `ensure_job_workers` refuses an invalid analytics worker timing.
+    ("AnalyticsJob", &["INVALID_CONFIGURATION"]),
+    // EG-FINANCE-PRIMITIVES-R018.3: mismatched factor record lengths.
+    ("FinanceFactorRank", &["FACTOR_RECORD_INVALID"]),
     ("GetNodes", &["RESULT_TOO_LARGE"]),
     ("GetEdges", &["RESULT_TOO_LARGE"]),
     (
@@ -161,6 +178,8 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
     ("GraphQl", &["REPLAY_NONCE_CONSUMED"]),
     ("SubmitWorkItem", &["REPLAY_NONCE_CONSUMED"]),
     ("ClaimWorkItem", &["REPLAY_NONCE_CONSUMED"]),
+    ("PublishRunCheckpoint", &["REPLAY_NONCE_CONSUMED"]),
+    ("GetRunCheckpoint", &["CONFLICT"]),
     ("TsListSeries", &["REPLAY_NONCE_CONSUMED"]),
     // delegation/validation.rs refuses a retired Agent Library head or entry.
     (
@@ -181,6 +200,7 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "MutationOutbox",
         &[
             "CORRUPT_OUTBOX",
+            "INVALID_CONFIGURATION",
             "OUTBOX_OWNER_UNAVAILABLE",
             "OUTBOX_OWNER_UNKNOWN",
             "OUTBOX_SCOPE_MISMATCH",
@@ -261,6 +281,27 @@ fn add_server_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
 }
 
 fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
+    // Foreign reads revalidate current connector-pack approvals at every step.
+    // Add those refusal families without replacing each method's domain errors.
+    let id = d.id.as_str();
+    if matches!(id, "Uql" | "UnifiedQuery" | "RegisterForeignSource")
+        || id.starts_with("ForeignRead")
+    {
+        let prefixes = [
+            "SOURCE_APPROVAL_",
+            "SOURCE_BINDING_",
+            "SOURCE_CONTRACT_",
+            "SOURCE_REGISTRATION_",
+        ];
+        codes.extend(
+            ServerErrorCode::ALL
+                .iter()
+                .map(|code| code.as_str())
+                .filter(|code| prefixes.iter().any(|prefix| code.starts_with(prefix))),
+        );
+        // These two codes already belong to the connector-pack typed catalog.
+        codes.extend(["SOURCE_CONTRACT_MISMATCH", "SOURCE_REGISTRATION_NOT_FOUND"]);
+    }
     if d.policy.is_durable() {
         codes.insert("CORRUPT_MUTATION_LEDGER");
     }
@@ -295,7 +336,10 @@ fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
 
 fn add_typed_handler_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
     let id = d.id.as_str();
-    if matches!(id, "Uql" | "NlQuery" | "NlQueryExplain" | "KnowledgeStream") {
+    if matches!(
+        id,
+        "Uql" | "NlQuery" | "NlQueryExplain" | "NlQueryPlan" | "KnowledgeStream"
+    ) {
         codes.extend(typed_codes(UqlCode::ALL, UqlCode::as_str));
     }
     if id.starts_with("Decision") || id.starts_with("Decide") {
@@ -364,6 +408,34 @@ pub fn method_allows_error(method: &str, code: &str) -> bool {
 mod tests {
     use super::method_allows_error;
 
+    #[test]
+    fn connector_and_foreign_refusals_are_routed_to_their_served_methods() {
+        assert!(method_allows_error("ConnectorPack", "SEED_TURTLE_INVALID"));
+        assert!(method_allows_error(
+            "UnifiedQuery",
+            "SOURCE_APPROVAL_NOT_ADMITTED"
+        ));
+        assert!(method_allows_error(
+            "UnifiedQuery",
+            "SOURCE_BINDING_MISMATCH"
+        ));
+        assert!(method_allows_error("Uql", "SOURCE_APPROVAL_NOT_ADMITTED"));
+        assert!(method_allows_error(
+            "ForeignReadOpen",
+            "SOURCE_BINDING_MISMATCH"
+        ));
+        assert!(!method_allows_error(
+            "CreateGraph",
+            "SOURCE_BINDING_MISMATCH"
+        ));
+        assert!(method_allows_error("AnalyticsJob", "INVALID_CONFIGURATION"));
+        assert!(method_allows_error(
+            "MutationOutbox",
+            "INVALID_CONFIGURATION"
+        ));
+        assert!(!method_allows_error("CreateGraph", "INVALID_CONFIGURATION"));
+    }
+
     // spec: EG-DECISION-ENGINE-R073.5
     #[test]
     fn withdrawn_component_refusal_is_declared_for_component_admission() {
@@ -412,6 +484,7 @@ mod tests {
             "GraphQl",
             "SubmitWorkItem",
             "ClaimWorkItem",
+            "PublishRunCheckpoint",
             "TsListSeries",
         ] {
             assert!(
@@ -433,6 +506,21 @@ mod tests {
         assert!(!method_allows_error(
             "SubmitWorkItem",
             "CLUSTER_CONFIGURATION_INVALID"
+        ));
+    }
+
+    // spec: EG-DURABLE-KERNEL-R028.1.1
+    #[test]
+    fn checkpoint_refusals_are_declared_without_widening_other_reads() {
+        assert!(method_allows_error("GetRunCheckpoint", "CONFLICT"));
+        assert!(!method_allows_error(
+            "GetRunCheckpoint",
+            "REPLAY_NONCE_CONSUMED"
+        ));
+        assert!(!method_allows_error("GetNodes", "CONFLICT"));
+        assert!(!method_allows_error(
+            "PublishRunCheckpoint",
+            "UNSUPPORTED_COALITION"
         ));
     }
 

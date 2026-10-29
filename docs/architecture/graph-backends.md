@@ -1,6 +1,6 @@
 # Graph Backend Architecture
 
-**The epistemic-graph engine is the ONE database — the authority and system of
+**The Medulla engine is the ONE database — the authority and system of
 record.** A single Rust engine does compute, in-memory cache, semantic/ontology
 reasoning, AND durable persistence. All reads are served by the engine; all
 writes commit to the engine and then fan out — losslessly and asynchronously
@@ -40,7 +40,7 @@ plus mirrors.
 `link_nodes()` (all via `engine.execute()`), `search_hybrid()` (via
 `engine.semantic_search()`), `iter_nodes_by_types()`/`get_node_data()` (via
 the Rust `GraphComputeEngine`'s compute + cache), and the `QueryRouter` —
-all ultimately call into the epistemic-graph engine: the Rust-native
+all ultimately call into the Medulla engine: the Rust-native
 `EpistemicGraph` (compute + in-mem cache + semantic + durable persistence),
 **the** authority and system of record, serving all reads and acking all
 writes.
@@ -80,7 +80,7 @@ configured. An acked write survives a `kill -9`. The three guarantees that make
 > (read-old → write-new) before it binds its socket; the old files are left in
 > place as a backstop. On a large KG (thousands of graphs / a multi-hundred-MB
 > commons) this can take **minutes** — see the engine's
-> [binary-promotion runbook](https://github.com/knuckles-team/epistemic-graph/blob/main/docs/deploy/binary_promotion.md)
+> [binary-promotion runbook](https://github.com/Knuckles-Team/medulla/blob/main/docs/deploy/binary_promotion.md)
 > for the deploy-time health-start-period handling.
 
 To opt back into the pre-flip **rebuildable-cache** model — the engine as a fast
@@ -129,7 +129,7 @@ The first column is **the engine** — the one authority that serves reads and a
 writes. The rest are **mirror targets**: durable, full-openCypher (or SPARQL)
 stores that receive the replicated write stream for interop/BI/external-query/DR.
 
-| Capability | epistemic-graph (THE authority) | LadybugDB (mirror) | PostgreSQL/pg-age (mirror) | Neo4j (mirror) | FalkorDB (mirror) |
+| Capability | Medulla (THE authority) | LadybugDB (mirror) | PostgreSQL/pg-age (mirror) | Neo4j (mirror) | FalkorDB (mirror) |
 |---|:---:|:---:|:---:|:---:|:---:|
 | **Role** | **authority · system of record** | mirror (extra) | mirror (extra) | mirror (extra) | mirror (extra) |
 | Cypher Support | subset (id-anchored)¹ | Native (Kuzu) | **Native (AGE)** / transpiled | Native | Native |
@@ -221,7 +221,7 @@ requires pgvector; BM25 requires pg_search.
 
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_MIRROR_TARGETS` | unset | JSON/list of mirror connection names (declared in `KG_CONNECTIONS`) that receive the fanned-out write stream. There is no engine-mode selector or read-authority selector to configure alongside it: the epistemic-graph engine is unconditionally the read authority, and setting this list is the only thing that turns mirroring on |
+| `GRAPH_MIRROR_TARGETS` | unset | JSON/list of mirror connection names (declared in `KG_CONNECTIONS`) that receive the fanned-out write stream. There is no engine-mode selector or read-authority selector to configure alongside it: the Medulla engine is unconditionally the read authority, and setting this list is the only thing that turns mirroring on |
 | `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for EpistemicGraph (`file` mode) / LadybugDB |
 | `GRAPH_DB_URI` | — | Connection URI for Neo4j or PostgreSQL |
 | `GRAPH_DB_HOST` | `localhost` | Host for FalkorDB |
@@ -347,7 +347,7 @@ third-party graph as a data source — not just for mirroring:
 ## Mirror every write to N stores at once (CONCEPT:AU-KG.backend.mirror-health-repair)
 
 Where KG-2.63 lets you *target* several connections per call, **fan-out** makes
-mirroring available for every write: the epistemic-graph engine is
+mirroring available for every write: the Medulla engine is
 unconditionally the **authority** store that serves reads and acks writes, and
 each mutation is replicated — losslessly and asynchronously — to any set of
 durable backends named in `GRAPH_MIRROR_TARGETS`; the zero-infra default is
@@ -357,7 +357,7 @@ the only thing that turns fan-out on, and the read authority is always the
 engine.
 
 ```bash
-# Authority = epistemic-graph engine (fast in-mem reads + durable); mirror to Postgres-AGE,
+# Authority = Medulla engine (fast in-mem reads + durable); mirror to Postgres-AGE,
 # Neo4j and FalkorDB. The mirror set names entries declared in KG_CONNECTIONS.
 export GRAPH_MIRROR_TARGETS='["pg-age","prod-neo4j","team-falkor"]'
 export KG_CONNECTIONS='[
@@ -546,7 +546,7 @@ writes into one `core.txn()` under the per-graph topology write lock.
   different: the engine may still be finishing that work, so it is counted once
   and returned immediately rather than replayed and multiplied across the retry
   budget.
-- **Engine response guard (EG-KG.ingest.resets-socket-so-assimilation, epistemic-graph).** The engine itself caps
+- **Engine response guard (EG-KG.ingest.resets-socket-so-assimilation, Medulla).** The engine itself caps
   the unbounded full-graph dump: `oversize_dump_error` checks the cheap
   `node_count()` against `max_response_nodes()` (env
   `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`, default **50000**, `0` disables) **before**

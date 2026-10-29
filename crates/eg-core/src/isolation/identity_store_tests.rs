@@ -28,7 +28,8 @@ impl ScopeClassifier for Registry {
             }
             "rbac:approve-elevation"
             | "finance:approve-live-order"
-            | "governance:approve-schema-repair" => Some(ScopeClass::Approver),
+            | "governance:approve-schema-repair"
+            | "governance:approve-source-authority" => Some(ScopeClass::Approver),
             _ => None,
         }
     }
@@ -38,6 +39,7 @@ impl ScopeClassifier for Registry {
             "rbac:approve-elevation" => Some(ELEVATION_APPROVERS_GROUP),
             "finance:approve-live-order" => Some(LIVE_ORDER_APPROVERS_GROUP),
             "governance:approve-schema-repair" => Some(SCHEMA_APPROVERS_GROUP),
+            "governance:approve-source-authority" => Some(SOURCE_AUTHORITY_APPROVERS_GROUP),
             _ => None,
         }
     }

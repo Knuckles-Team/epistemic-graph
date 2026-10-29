@@ -1,4 +1,4 @@
-# Contributing to epistemic-graph
+# Contributing to Medulla
 
 This is the **Rust compute engine** for the
 [`agent-utilities`](https://github.com/Knuckles-Team/agent-utilities) ecosystem —
@@ -24,8 +24,8 @@ Take the operator's own git worktree on the operator's own branch (do not edit t
 directly — a concurrent session or sync may reset it):
 
 ```bash
-rm_worktree add epistemic-graph <your-branch>     # repository-manager MCP, or:
-git worktree add ${WORKTREE_ROOT}/epistemic-graph/<branch> -b <branch> main
+rm_worktree add medulla <your-branch>     # repository-manager MCP, or:
+git worktree add ${WORKTREE_ROOT}/medulla/<branch> -b <branch> main
 ```
 
 Commit early and often, push the operator's branch, and open a pull request against `main`;

@@ -2763,6 +2763,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syn 2.0.119",
+ "tempfile",
 ]
 
 [[package]]
@@ -2831,6 +2832,7 @@ dependencies = [
  "eg-ann",
  "eg-modality",
  "eg-rdf",
+ "eg-shacl",
  "eg-storage",
  "eg-transaction",
  "eg-types",
@@ -2852,6 +2854,7 @@ name = "eg-document"
 version = "0.1.0"
 dependencies = [
  "eg-modality",
+ "eg-types",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2861,8 +2864,18 @@ dependencies = [
 name = "eg-durable"
 version = "0.1.0"
 dependencies = [
+ "rmp-serde",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "eg-enrich"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -2960,6 +2973,7 @@ version = "0.1.0"
 dependencies = [
  "apache-avro 0.22.0",
  "eg-modality",
+ "eg-types",
  "iceberg",
  "iceberg-storage-opendal",
  "polars-core",
@@ -3387,6 +3401,7 @@ name = "eg-types"
 version = "0.27.0"
 dependencies = [
  "hex",
+ "oxiri",
  "rmp-serde",
  "schemars 1.2.3",
  "serde",
@@ -3507,6 +3522,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "chacha20poly1305",
+ "chrono",
  "clap",
  "criterion",
  "cyclonedds",

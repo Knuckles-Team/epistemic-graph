@@ -16,6 +16,7 @@ fn task_request(pin: &ComponentDependency) -> DecideRequest {
         task_id: id.into(),
         prompt: format!("Analyze {id} with evidence"),
         depends_on: BoundedVec::new(deps.into_iter().map(str::to_string).collect()).unwrap(),
+        call: None,
     })
     .collect();
     DecideRequest {
@@ -225,4 +226,85 @@ async fn canonical_task_plan_schema_publishes_once_and_routes() {
     };
     let batch = decide(&h, task_request(&pin)).await.unwrap();
     assert!(batch.records.as_slice()[0].task_plan.is_some());
+}
+
+fn with_call(request: &mut DecideRequest, reference: &str) {
+    let mut params = request.params.as_slice().to_vec();
+    let TypedValue::TaskPlan(proposal) = &mut params[0].value else {
+        unreachable!()
+    };
+    let mut tasks = proposal.tasks.as_slice().to_vec();
+    tasks[3].call = Some(eg_types::decision::task_plan::TaskPlanCall {
+        server: "github".into(),
+        tool: "create_issue".into(),
+        arguments: serde_json::json!({
+            "title": "Joined",
+            "body": { "$ref": reference },
+        }),
+    });
+    proposal.tasks = BoundedVec::new(tasks).unwrap();
+    request.params = BoundedVec::new(params).unwrap();
+}
+
+// spec: EG-DECISION-ENGINE-R134.111.12
+#[tokio::test]
+async fn decide_routes_task_plan_with_calls() {
+    let h = Harness::new().await;
+    let (pin, _) = publish_route_schema(&h);
+    let mut request = task_request(&pin);
+    with_call(&mut request, "steps.c.output.summary");
+    let batch = decide(&h, request).await.unwrap();
+    let record = &batch.records.as_slice()[0];
+    let plan = record.task_plan.as_ref().unwrap();
+    let join = plan.tasks.iter().find(|t| t.task_id == "join").unwrap();
+    let call = join.call.as_ref().unwrap();
+    assert_eq!(
+        (call.server.as_str(), call.tool.as_str()),
+        ("github", "create_issue")
+    );
+    assert_eq!(
+        call.arguments["body"],
+        serde_json::json!({ "$ref": "steps.c.output.summary" })
+    );
+    assert!(plan
+        .tasks
+        .iter()
+        .filter(|t| t.task_id != "join")
+        .all(|t| t.call.is_none()));
+    let mut request = task_request(&pin);
+    with_call(&mut request, "steps.b.output");
+    assert_invalid(
+        &h,
+        request,
+        "binding_not_dependency: task=join pointer=/body",
+    )
+    .await;
+}
+
+// spec: EG-DECISION-ENGINE-R134.111.11
+#[tokio::test]
+async fn premises_name_calls_and_bindings() {
+    let h = Harness::new().await;
+    let (pin, _) = publish_route_schema(&h);
+    let mut request = task_request(&pin);
+    with_call(&mut request, "steps.c.output.summary");
+    let batch = decide(&h, request).await.unwrap();
+    let record = &batch.records.as_slice()[0];
+    let claims: Vec<&str> = record
+        .premises
+        .iter()
+        .filter(|p| p.subject == "join" && p.class == eg_types::decision::PremiseClass::Claim)
+        .map(|p| p.fact.as_str())
+        .collect();
+    assert!(claims.contains(
+        &"task_plan_call:server=github;tool=create_issue;bindings=steps.c.output.summary"
+    ));
+    assert!(claims.contains(
+        &"task_plan_binding:pointer=/body;source_task=c;reference=steps.c.output.summary"
+    ));
+    assert_eq!(record.evidence_class, EvidenceClass::Claim);
+    assert_eq!(
+        eg_types::decision::digest::statistical_record_digest(record),
+        record.record_digest
+    );
 }

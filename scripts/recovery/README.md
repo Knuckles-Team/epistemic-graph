@@ -1,7 +1,7 @@
 # Fixed-source release recovery
 
 The reusable `.github/workflows/eg-release-recovery.yml` builds only
-`Knuckles-Team/epistemic-graph@29301642c205adc75d63cde2e69d7f53d85d707f`.
+`Knuckles-Team/medulla@29301642c205adc75d63cde2e69d7f53d85d707f`.
 It tests exact-source Piper, builds two folded wheels, requires byte equality,
 smokes the installed wheel, and uploads an artifact. It does not publish.
 
@@ -14,7 +14,7 @@ offline smoke, and full recovery execution are separate validation steps.
 1. Review the reusable workflow commit and record its full immutable SHA as `P`.
 2. Through the separately approved organization settings change, restrict runner
    group `eg-release-recovery` to this repository and this selected workflow:
-   `Knuckles-Team/epistemic-graph/.github/workflows/eg-release-recovery.yml@P`.
+   `Knuckles-Team/medulla/.github/workflows/eg-release-recovery.yml@P`.
    Substitute the actual 40-character SHA; do not use a branch or tag.
 3. After that review, render the inactive caller template with
    `python3 scripts/recovery/render_dispatch.py P /tmp/eg-release-recovery-dispatch.yml`.

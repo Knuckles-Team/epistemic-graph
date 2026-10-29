@@ -1,8 +1,11 @@
 """EH-219 typed WorkItem reads through ``EpistemicGraphClient.work_items``."""
 
+# spec: EG-DECISION-ENGINE-R801.8
+
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -293,3 +296,144 @@ def test_control_lease_list_sends_the_typed_filter_and_validates_views() -> None
         asyncio.run(
             _leases(FakeEngine({"leases": [{**LEASE, "x": 1}]})).list(tenant="tenant-a")
         )
+
+
+def test_session_usage_preserves_native_counts_and_partial_coverage() -> None:
+    result = {
+        "context_id": "context",
+        "counts": {"input_tokens": 17},
+        "expected_runs": 2,
+        "recorded_runs": 1,
+        "missing_runs": 1,
+        "count_coverage": {"input_tokens": 1},
+        "inventory_complete": False,
+    }
+    engine = FakeEngine(result)
+    assert (
+        asyncio.run(
+            _work_items(engine).session_usage(tenant="tenant", context_id="context")
+        )
+        == result
+    )
+    assert engine.sent == [
+        ("GetSessionUsage", {"tenant": "tenant", "context_id": "context"})
+    ]
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"context_id": "foreign"},
+        {"counts": {"input_tokens": True}},
+        {"counts": {"input_tokens": -1}},
+        {"recorded_runs": 3},
+        {"count_coverage": {"input_tokens": 2}},
+        {"inventory_complete": "yes"},
+        {"counts": {"input_tokens": 1.5}},
+        {"counts": {"input_tokens": "17"}},
+        {"counts": {"input_tokens": 9_007_199_254_740_992}},
+        {"count_coverage": {"output_tokens": 1}},
+        {"counts": {}, "count_coverage": {}},
+        {"count_coverage": {"input_tokens": True}},
+    ],
+)
+@pytest.mark.usefixtures("session_response_transport")
+def test_session_usage_rejects_malformed_native_receipts(patch: dict[str, Any]) -> None:
+    result = {
+        "context_id": "context",
+        "counts": {"input_tokens": 17},
+        "expected_runs": 2,
+        "recorded_runs": 1,
+        "missing_runs": 1,
+        "count_coverage": {"input_tokens": 1},
+        "inventory_complete": False,
+        **patch,
+    }
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            _work_items(FakeEngine(result)).session_usage(
+                tenant="tenant", context_id="context"
+            )
+        )
+
+
+@pytest.fixture
+def session_response_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate response validation; the unpatched transport test stays separate."""
+    from epistemic_graph import client as client_module
+
+    async def send(
+        engine: FakeEngine, params: object, graph: str | None
+    ) -> SimpleNamespace:
+        assert graph is None or graph == "control"
+        engine.sent.append(("GetSessionUsage", params))
+        return SimpleNamespace(payload=engine.answer)
+
+    monkeypatch.setattr(
+        client_module._gen.coordination, "send_get_session_usage", send, raising=False
+    )
+
+
+@pytest.mark.parametrize(
+    "counts", [{}, {"requests": 0}, {"input_tokens": 9_007_199_254_740_991}]
+)
+@pytest.mark.usefixtures("session_response_transport")
+def test_session_response_validation_preserves_unknown_zero_and_exact_maximum(
+    counts: dict[str, int],
+) -> None:
+    recorded = int(bool(counts))
+    result = {
+        "context_id": "context",
+        "counts": counts,
+        "expected_runs": 1,
+        "recorded_runs": recorded,
+        "missing_runs": 1 - recorded,
+        "count_coverage": {key: 1 for key in counts},
+        "inventory_complete": True,
+    }
+    assert (
+        asyncio.run(
+            _work_items(FakeEngine(result)).session_usage(
+                tenant="tenant", context_id="context"
+            )
+        )
+        == result
+    )
+
+
+def test_session_usage_forwards_explicit_owner_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from epistemic_graph import client as client_module
+
+    seen: list[str | None] = []
+    result = {
+        "context_id": "context",
+        "counts": {},
+        "expected_runs": 0,
+        "recorded_runs": 0,
+        "missing_runs": 0,
+        "count_coverage": {},
+        "inventory_complete": True,
+    }
+
+    async def send(
+        engine: FakeEngine, params: object, graph: str | None
+    ) -> SimpleNamespace:
+        seen.append(graph)
+        assert engine.answer == result
+        assert params == {"tenant": "tenant", "context_id": "context"}
+        return SimpleNamespace(payload=result)
+
+    monkeypatch.setattr(
+        client_module._gen.coordination, "send_get_session_usage", send, raising=False
+    )
+    assert (
+        asyncio.run(
+            _work_items(FakeEngine(result)).session_usage(
+                tenant="tenant", context_id="context", graph="control"
+            )
+        )
+        == result
+    )
+    assert seen == ["control"]

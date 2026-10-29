@@ -1,6 +1,6 @@
-# Technical Overview — epistemic-graph
+# Technical Overview — Medulla
 
-`epistemic-graph` is the Rust-native compute & storage engine for the agent-utilities ecosystem. It
+Medulla is the Rust-native compute & storage engine for the agent-utilities ecosystem. It
 is a **single durable engine** that unifies a property graph, vector ANN, SQL, RDF/SPARQL, OWL-2
 reasoning, time-series, content-addressed BLOB, full-text, and finance/data-science compute behind
 **one cross-modal `RowSet` planner**. Python reaches it **out-of-process** over length-prefixed
@@ -72,7 +72,7 @@ flowchart LR
     EGPLAN["eg-plan<br/>unified RowSet planner + ops"]
     EGGQL["eg-graphql<br/>GraphQL + Apollo Federation"]
     EGLAKE["eg-lake<br/>LTAP: Parquet · Delta · Iceberg · LSN as-of"]
-    FACADE["epistemic-graph<br/>facade + Tokio server + wire adapters + observability + LTAP egress + QoS scheduler + embedded"]
+    FACADE["Medulla<br/>facade + Tokio server + wire adapters + observability + LTAP egress + QoS scheduler + embedded"]
 
     EGT --> EGANN --> EGCORE
     EGT --> EGCORE

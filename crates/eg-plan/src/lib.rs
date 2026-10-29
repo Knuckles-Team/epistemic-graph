@@ -73,6 +73,11 @@ pub mod federation_capabilities;
 // EG-UNIFIED-DATA-PLANE-R011 — typed freshness route and a bounded
 // read-your-writes wait, refusing an unbounded (zero-timeout) wait.
 pub mod freshness_router;
+// EG-FEDERATED-QUERY-R654.2 bounded source slice: deterministic hub ranking
+// over an already-resolved code subgraph. Anchor resolution, bounded expansion,
+// operations diagnosis and served CodeContext wiring remain later slices.
+#[cfg(feature = "query")]
+pub mod code_context;
 
 /// Structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill) — the LeanRAG method as a
 /// library API over the EG-220 summary tier: retrieve at the summary/abstraction
@@ -161,6 +166,10 @@ pub mod runtime;
 pub mod clickhouse_connection;
 #[cfg(feature = "nl-query")]
 pub mod nl;
+/// Oracle/Db2 attached-source driver config + connect/refusal path
+/// (EG-UNIFIED-DATA-PLANE-R018.2.1). Pure `std`, always compiled: no driver/ODBC
+/// client dependency is needed until the live slice (`R018.2.2`) issues real reads.
+pub mod relational_connection;
 // The federation foreign-source seam (CONCEPT:EG-KG.query.query-federation) — the `ForeignSource` trait +
 // the remote-engine / HTTP-JSON kinds backing `Op::ForeignScan`. Implies `query`.
 #[cfg(feature = "federation")]
@@ -246,11 +255,25 @@ pub use cost::{CostModel, Order, Stats};
 #[cfg(feature = "query")]
 pub use cost::{Cardinality, CostEstimate};
 pub use leanrag::{
-    flat_top_k, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever, RetrievalParams, Scored,
+    flat_top_k, retrieve_vector_free, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever,
+    RetrievalParams, Scored, SectionGranularity, SectionRecord, SectionSpan, SectionTopology,
+    TraversalLimit, VectorFreeError, VectorFreeLimits, VectorFreeResult,
 };
 pub use rowset::RowSet;
 
+/// Read-time access checks for `checked_at_read` sources (EG-FEDERATED-QUERY-R703).
+pub mod access_check;
+/// Document boosts from retrieval feedback (EG-FEDERATED-QUERY-R705).
+pub mod feedback_boost;
+/// Agent knowledge scopes applied before truncation (EG-FEDERATED-QUERY-R704).
+pub mod knowledge_scope;
+/// Column mask and row-filter policies (EG-FEDERATED-QUERY-R706).
+pub mod policy_mask;
+/// Retrieval sufficiency, selection and hierarchy decisions (EG-FEDERATED-QUERY-R081).
+pub mod retrieval_verdict;
 pub mod rowset;
+/// Stored, versioned queries (EG-FEDERATED-QUERY-R708).
+pub mod stored_query;
 
 /// The `PROPAGATE` cone as plain ids (EH-526): what a standing impact watch recomputes.
 #[cfg(feature = "query")]
@@ -522,3 +545,5 @@ mod derive_tests;
 // is additionally `cfg`-gated on the modality feature(s) it needs.
 #[cfg(all(test, feature = "query"))]
 mod advanced_crossmodal_tests;
+
+pub mod document_connection;

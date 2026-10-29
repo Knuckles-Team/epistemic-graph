@@ -130,19 +130,14 @@ def test_pre_merge_gate_replica_runs_the_identical_suite() -> None:
 
 
 @pytest.mark.spec("EG-CONTRACT-R009")
-def test_crate_and_duplication_census_jobs_still_run_alongside_it() -> None:
-    """R009 adds the root suite ALONGSIDE the existing crate tests (`gates`)
-    and duplication census (`scanner-quality`), not instead of them."""
+def test_crate_jobs_still_run_alongside_it() -> None:
+    """R009 adds the root suite ALONGSIDE the existing crate tests (`gates`,
+    `gates-crates`), not instead of them. The dupehound adapter tests are part
+    of this suite now that the advisory hosted scanner job is removed."""
     jobs = _workflow()["jobs"]
-    assert "gates" in jobs
-    assert "scanner-quality" in jobs
-    scanner_step_names = [
-        str(step.get("name", "")) for step in jobs["scanner-quality"]["steps"]
-    ]
-    assert any(
-        "test_dupehound_census" in str(step.get("run", ""))
-        for step in jobs["scanner-quality"]["steps"]
-    ) or any("dupehound" in name.lower() for name in scanner_step_names)
+    assert {"gates", "gates-crates", "gates-storage"} <= set(jobs)
+    assert "scanner-quality" not in jobs
+    assert (REPO / "tests/test_dupehound_census.py").is_file()
 
 
 CODEGEN_ENV = {
@@ -291,7 +286,9 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     assert job["env"] == CACHE_BACKEND
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
     budget = (
-        45
+        30
+        if job_name in {"gates-crates", "gates-storage"}
+        else 45
         if job_name
         in {
             "gates",
@@ -301,7 +298,7 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
             "python-server",
             "gates-pyo3",
         }
-        else 10
+        else {"gates-crates": 30}.get(job_name, 10)
     )
     expected = {"gates-facade": 60}.get(
         job_name,
@@ -787,7 +784,7 @@ def test_sqlite_and_whisper_differential_commands_are_pinned_in_ci() -> None:
     for job_name in ("gates", "gates-whisper"):
         job = workflow["jobs"][job_name]
         assert job["needs"] == "changes"
-        assert job["if"] == "needs.changes.outputs.code == 'true'"
+        assert job["if"].startswith("needs.changes.outputs.code == 'true' && ")
     consumers = workflow["jobs"]["engine-main-wheel"]["needs"]
     assert "gates" in consumers and "gates-whisper" in consumers
 
@@ -853,7 +850,10 @@ def test_plan_fuzz_remains_independent_required_acceptance() -> None:
     jobs = _workflow()["jobs"]
     job = jobs["gates-plan-fuzz"]
     assert job["needs"] == "changes"
-    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    # Main pushes, the nightly schedule and dispatch (EG-CONTRACT-R053.7).
+    assert job["if"] == (
+        "needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'"
+    )
     assert "continue-on-error" not in job
     command = COMPILER_CACHE_COMMANDS["gates-plan-fuzz"][
         "Query-pipeline fuzz + chaos (eg-plan)"
@@ -888,7 +888,7 @@ def test_native_acceptance_uses_hosted_runners_for_every_event(job_name: str) ->
     job = _workflow()["jobs"][job_name]
     assert job["runs-on"] == "ubuntu-24.04"
     assert job["needs"] == "changes"
-    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    assert job["if"].startswith("needs.changes.outputs.code == 'true'")
     assert "continue-on-error" not in job
 
 

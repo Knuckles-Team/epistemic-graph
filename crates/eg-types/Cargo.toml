@@ -263,6 +263,7 @@ wire-contract = [
     "matview", "security", "federation", "geo", "tensor", "stream",
 ]
 [dependencies]
+oxiri = "0.2.11"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 thiserror = "2.0"

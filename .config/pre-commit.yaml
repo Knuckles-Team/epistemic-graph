@@ -81,7 +81,7 @@ repos:
       ))\.py$
     stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/Knuckles-Team/pipelines
-  rev: main # sanctioned exception to immutable pins; public-surface contract; shared theme reads .config/
+  rev: e07c5568e725e9dd3dd34b37ac175800e81dd112 # shared public-surface/spec hooks at the reviewed pipelines main
   hooks:
   - id: public-surface
     stages: [pre-commit, manual]
@@ -167,8 +167,8 @@ repos:
     always_run: true
     stages: [manual]
   # BUG-CX-136 scanner profile.  These hooks resolve already-installed tools
-  # only; provisioning belongs to the CI scanner-quality job below, never to a
-  # developer hook.  The wrappers own staged/index semantics and fail closed
+  # only; provisioning belongs to scripts/install_scanners.sh (`bootstrap.sh
+  # --scanners`), never to a developer hook.  The wrappers own staged/index semantics and fail closed
   # on a missing, drifted, or malformed tool/report.
   - id: dupehound-changed-functions
     name: Dupehound — changed functions only (no new structural clones)
@@ -423,8 +423,12 @@ repos:
     name: Every tracked tests/ file is owned in the component registry
     entry: python3 scripts/check_registry_test_ownership.py
     language: system
+    # The scanner's complete input universe is the tracked tests/ tree, the
+    # registry/tool configuration it reads, and the scanner itself. A new test
+    # under tests/ still selects it, while unrelated Rust/docs changes do not
+    # spend a full pass.
+    files: ^(tests/|architecture/component-registry\.yml$|scripts/check_registry_test_ownership\.py$|\.config/pre-commit\.yaml$|pyproject\.toml$|uv\.lock$|\.python-version$)
     pass_filenames: false
-    always_run: true
     stages: [pre-commit, pre-push, manual]
   - id: contract-method-reachability
     name: Every contract method reaches a dispatch arm, and its digests round-trip
@@ -489,8 +493,13 @@ repos:
     name: Every pinned cross-record reference has a production resolver
     entry: python3 scripts/check_pinned_reference_resolution.py
     language: system
+    # The gate reads exactly the server module tree, durable-layer registry,
+    # five contract declarations, parser/gate helpers, and execution/tool
+    # configuration below. Keep this regex aligned with that read set so
+    # resolver/declaration changes select the gate and unrelated files do not
+    # trigger a repository-wide parse.
+    files: ^(src/server/|crates/eg-storage/src/owner/registry\.rs$|crates/eg-types/src/(agent_component|agent_library|agent_graph|agent_template|delegation)\.rs$|scripts/(check_pinned_reference_resolution|rust_lexer|rust_module_tree)\.py$|\.config/pre-commit\.yaml$|pyproject\.toml$|uv\.lock$|\.python-version$)
     pass_filenames: false
-    always_run: true
     stages: [pre-commit, pre-push, manual]
   # RF-RULING-003: the engine contract replaced the `protocol-parity` pytest gate
   # and its `tests/protocol_unbound_baseline.txt` ratchet. `gen_contract --check`
@@ -684,7 +693,7 @@ repos:
   # `[advisories].ignore` list against the justified, <=90-day-expiring
   # `.config/cargo-audit-allow.txt` ledger before running the real check, and fails
   # closed (with install instructions) if cargo-deny itself isn't installed —
-  # never a silent pass. The blocking release `scanner-quality` job provisions
+  # never a silent pass. The blocking CI `Security checks` job provisions
   # the exact contract-pinned binary and invokes this same wrapper. The local
   # hook also runs when its version authority or verifier changes, not only
   # when the dependency surface changes.

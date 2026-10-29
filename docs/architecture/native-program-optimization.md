@@ -1,6 +1,6 @@
 # Native program optimization
 
-Epistemic Graph has one graph-native plane for typed LM programs and governed
+Medulla has one graph-native plane for typed LM programs and governed
 self-improvement: `eg-program`, enabled by `program-optimization` and included in
 `full`. It replaces a separate Python DSPy/LiteLLM optimizer and provider plane.
 

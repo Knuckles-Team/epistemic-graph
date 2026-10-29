@@ -138,6 +138,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "MinimumSpanningTree",
     "NlQuery",
     "NlQueryExplain",
+    "NlQueryPlan",
     "NodeCount",
     "NodeIds",
     "ObserveScreen",
@@ -360,7 +361,21 @@ pub(super) const REASON_FRESHNESS_METADATA: &str =
 pub(super) const REASON_FOREIGN_SOURCE_OWNER_SCOPED: &str =
     "QueryForeignColumns resolves a named source from the caller's own owner-scoped (verified tenant+principal) ForeignSourceCatalog behind kg:read and returns rows fetched from that external source -- never a GraphView/core.analysis_snapshot() row read";
 
+// `ForeignRead{Open,Chunk,Complete,Abort}` (handlers::federation) are gated on kg:read and run
+// against the caller's own owner-scoped approved-source catalog and foreign-read sessions; they
+// never construct a GraphView/GraphCore, and foreign rows are not local graph rows.
+pub(super) const REASON_FOREIGN_READ_SESSION_OWNER_SCOPED: &str =
+    "ForeignRead{Open,Chunk,Complete,Abort} resolve an approved source and a read session from the caller's own owner-scoped (verified tenant+principal) catalog behind kg:read and return rows fetched from that external source -- never a GraphView/core.analysis_snapshot() row read";
+
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
+    // REASON_FOREIGN_READ_SESSION_OWNER_SCOPED
+    ("ForeignReadAbort", REASON_FOREIGN_READ_SESSION_OWNER_SCOPED),
+    ("ForeignReadChunk", REASON_FOREIGN_READ_SESSION_OWNER_SCOPED),
+    (
+        "ForeignReadComplete",
+        REASON_FOREIGN_READ_SESSION_OWNER_SCOPED,
+    ),
+    ("ForeignReadOpen", REASON_FOREIGN_READ_SESSION_OWNER_SCOPED),
     // REASON_FOREIGN_SOURCE_OWNER_SCOPED (EH-572)
     ("QueryForeignColumns", REASON_FOREIGN_SOURCE_OWNER_SCOPED),
     // REASON_DECIDE_LIBRARY_SNAPSHOT
@@ -466,6 +481,17 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("FinanceKalmanFilter1d", REASON_PURE_COMPUTE),
     ("FinanceKalmanVolatility", REASON_PURE_COMPUTE),
     ("FinanceKellyFraction", REASON_PURE_COMPUTE),
+    ("FinancePositionSize", REASON_PURE_COMPUTE),
+    ("FinanceAmlScreen", REASON_PURE_COMPUTE),
+    ("FinanceCapitalRatios", REASON_PURE_COMPUTE),
+    ("FinanceExpectedLoss", REASON_PURE_COMPUTE),
+    ("FinanceSettlementChain", REASON_PURE_COMPUTE),
+    ("FinanceRegimeChain", REASON_PURE_COMPUTE),
+    ("FinanceExecutionSchedule", REASON_PURE_COMPUTE),
+    ("FinanceMarketMakingQuote", REASON_PURE_COMPUTE),
+    ("FinancePairsSignal", REASON_PURE_COMPUTE),
+    ("FinanceFactorRank", REASON_PURE_COMPUTE),
+    ("FinanceDistributionShift", REASON_PURE_COMPUTE),
     ("FinanceKyleLambda", REASON_PURE_COMPUTE),
     ("FinanceLogitQuotes", REASON_PURE_COMPUTE),
     ("FinanceMarket", REASON_PURE_COMPUTE),
@@ -539,7 +565,9 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_NATIVE_WORK_ITEM_TENANT_READ
     ("GetWorkItem", REASON_NATIVE_WORK_ITEM_TENANT_READ),
     ("GetCurrentPlan", REASON_NATIVE_WORK_ITEM_TENANT_READ),
+    ("GetRunCheckpoint", REASON_NATIVE_WORK_ITEM_TENANT_READ),
     ("GetRunWorkItem", REASON_NATIVE_WORK_ITEM_TENANT_READ),
+    ("GetSessionUsage", REASON_NATIVE_WORK_ITEM_TENANT_READ),
     ("ListWorkItems", REASON_NATIVE_WORK_ITEM_TENANT_READ),
     ("GetControlLease", REASON_NATIVE_WORK_ITEM_TENANT_READ),
     ("GetWorkItemOutcome", REASON_NATIVE_WORK_ITEM_TENANT_READ),

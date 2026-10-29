@@ -24,7 +24,7 @@ The governed runtime gateway and composition host for user interfaces, messaging
 
 The agent control plane for orchestration, workflows, evaluation, and agent skills.
 
-## Epistemic Graph
+## Medulla
 
 The durable multimodal knowledge and reasoning engine for graph data, evidence, and provenance.
 

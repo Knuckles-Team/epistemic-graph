@@ -476,8 +476,17 @@ fn envelope_v2_mac(
     req: &Request,
     params: &VerifiedEnvelopeParams,
 ) -> Option<HmacSha256> {
+    envelope_v2_mac_for_body(secret, req, params, &req.method.canonical_body_bytes())
+}
+
+fn envelope_v2_mac_for_body(
+    secret: &str,
+    req: &Request,
+    params: &VerifiedEnvelopeParams,
+    body: &[u8],
+) -> Option<HmacSha256> {
     let method_name = req.method.tag_name();
-    let body_hash = hex::encode(Sha256::digest(req.method.canonical_body_bytes()));
+    let body_hash = hex::encode(Sha256::digest(body));
     let bytes = build_envelope_v2_bytes(
         req.id,
         &req.graph,
@@ -491,6 +500,49 @@ fn envelope_v2_mac(
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).ok()?;
     mac.update(&bytes);
     Some(mac)
+}
+
+/// Reconstruct the pre-foreign-read query wire body from the decoded method.
+/// No legacy signature is accepted when a request carries an execution handle.
+#[cfg(feature = "query")]
+fn legacy_query_body(method: &Method) -> Option<Vec<u8>> {
+    #[derive(Serialize)]
+    #[serde(tag = "method", content = "params")]
+    enum LegacyQuery<'a> {
+        Uql {
+            text: &'a str,
+            params: &'a std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
+            #[serde(skip_serializing_if = "std::ops::Not::not")]
+            prepare: bool,
+        },
+        UnifiedQuery {
+            plan: &'a eg_types::wire::Plan,
+        },
+    }
+    let legacy = match method {
+        Method::Uql {
+            text,
+            params,
+            prepare,
+            foreign_execution: None,
+        } => LegacyQuery::Uql {
+            text,
+            params,
+            prepare: *prepare,
+        },
+        Method::UnifiedQuery {
+            plan,
+            foreign_execution: None,
+            foreign_executions,
+        } if foreign_executions.is_empty() => LegacyQuery::UnifiedQuery { plan },
+        _ => return None,
+    };
+    rmp_serde::to_vec_named(&legacy).ok()
+}
+
+#[cfg(not(feature = "query"))]
+fn legacy_query_body(_method: &Method) -> Option<Vec<u8>> {
+    None
 }
 
 /// Reference v2 signer.  External gateways should produce the same canonical
@@ -1067,7 +1119,11 @@ fn verify_envelope_v2_with(
     let mac =
         envelope_v2_mac(secret, req, &params).ok_or_else(|| "Authentication failed".to_string())?;
     if mac.verify_slice(&got_mac).is_err() {
-        return Err(BAD_SIGNATURE.to_string());
+        let legacy = legacy_query_body(&req.method).ok_or_else(|| BAD_SIGNATURE.to_string())?;
+        let mac = envelope_v2_mac_for_body(secret, req, &params, &legacy)
+            .ok_or_else(|| BAD_SIGNATURE.to_string())?;
+        mac.verify_slice(&got_mac)
+            .map_err(|_| BAD_SIGNATURE.to_string())?;
     }
 
     let now = now_secs();
@@ -1913,6 +1969,81 @@ mod tests {
 
     fn signed(id: u64, nonce: &str) -> Request {
         signed_v2_with_claims(id, nonce, verified_claims())
+    }
+
+    #[cfg(feature = "query")]
+    #[test]
+    fn legacy_query_signatures_accept_only_unattached_query_bodies() {
+        let _opt_out = require_oidc_off();
+        let methods = [
+            Method::Uql {
+                text: "MATCH (n) RETURN n".into(),
+                params: Default::default(),
+                prepare: false,
+                foreign_execution: None,
+            },
+            Method::UnifiedQuery {
+                plan: eg_plan::Plan::new(vec![]),
+                foreign_execution: None,
+                foreign_executions: Default::default(),
+            },
+        ];
+        let old_client_bodies = [
+            "82a66d6574686f64a355716ca6706172616d7382a474657874b24d4154434820286e292052455455524e206ea6706172616d7380",
+            "82a66d6574686f64ac556e69666965645175657279a6706172616d7381a4706c616e81a36f707390",
+        ];
+        for (index, (method, old_body)) in methods.into_iter().zip(old_client_bodies).enumerate() {
+            let claims = verified_claims();
+            let params = VerifiedEnvelopeParams {
+                context: &claims,
+                timestamp: now_secs(),
+                nonce: "legacy-query",
+                idempotency_key: "legacy-query",
+            };
+            let mut req = ping_request(600 + index as u64, "tenant-a-graph", String::new());
+            req.agent_id = Some(claims.agent_id.clone());
+            req.method = method;
+            req.auth_token = compute_verified_envelope_token(SECRET, &req, &params);
+            verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
+
+            let legacy = legacy_query_body(&req.method).unwrap();
+            assert_eq!(hex::encode(&legacy), old_body);
+            let mut envelope = decode_envelope(&req).unwrap();
+            envelope.mac = hex::encode(
+                envelope_v2_mac_for_body(SECRET, &req, &params, &legacy)
+                    .unwrap()
+                    .finalize()
+                    .into_bytes(),
+            );
+            req.auth_token = format!(
+                "{ENVELOPE_V2_PREFIX}{}",
+                hex::encode(serde_json::to_vec(&envelope).unwrap())
+            );
+            verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
+
+            let execution = eg_types::foreign_read::ForeignReadExecutionRef {
+                execution_id: 42,
+                query_digest: eg_types::contract::Digest256::sha256(b"legacy-query"),
+            };
+            match &mut req.method {
+                Method::Uql {
+                    foreign_execution, ..
+                } => *foreign_execution = Some(execution),
+                Method::UnifiedQuery {
+                    foreign_executions, ..
+                } => {
+                    *foreign_executions =
+                        eg_types::contract::BoundedVec::new(vec![execution]).unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert!(legacy_query_body(&req.method).is_none());
+            assert_eq!(
+                verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+                    .unwrap_err(),
+                BAD_SIGNATURE
+            );
+        }
     }
 
     #[test]

@@ -41,12 +41,36 @@ A specialization of :Concept (CONCEPT:KG-2.165).""" ;
     rdfs:domain :VoiceMessage ;
     rdfs:range xsd:integer .
 
+:birthPlace a owl:ObjectProperty ;
+    rdfs:label "birth place" ;
+    rdfs:comment "Links a Person to the Place of their birth (Gramps)." ;
+    rdfs:domain :Person ;
+    rdfs:range :Place .
+
+:birthYear a owl:DatatypeProperty ;
+    rdfs:label "birth year" ;
+    rdfs:comment "The year a Person was born (Gramps), as an xsd:gYear." ;
+    rdfs:domain :Person ;
+    rdfs:range xsd:gYear .
+
 :blockedByIncident a owl:ObjectProperty ;
     rdfs:label "blocked by incident" ;
     rdfs:comment """Links a CalendarEvent to an Incident that forces rescheduling.
 Cross-domain: personal schedule ↔ infrastructure.""" ;
     rdfs:domain :CalendarEvent ;
     rdfs:range :Incident .
+
+:documentType a owl:DatatypeProperty ;
+    rdfs:label "document type" ;
+    rdfs:comment "The classification of a Document (Paperless-ngx)." ;
+    rdfs:domain :Document ;
+    rdfs:range xsd:string .
+
+:dueDate a owl:DatatypeProperty ;
+    rdfs:label "due date" ;
+    rdfs:comment "The date a Document is due (Paperless-ngx)." ;
+    rdfs:domain :Document ;
+    rdfs:range xsd:date .
 
 :eventEnd a owl:DatatypeProperty ;
     rdfs:label "event end" ;
@@ -60,6 +84,12 @@ Cross-domain: personal schedule ↔ infrastructure.""" ;
     rdfs:label "event start" ;
     rdfs:domain :CalendarEvent ;
     rdfs:range xsd:dateTime .
+
+:isPublicLink a owl:DatatypeProperty ;
+    rdfs:label "is public link" ;
+    rdfs:comment "Whether a FileShare is a public (anyone-with-link) share (Nextcloud)." ;
+    rdfs:domain :FileShare ;
+    rdfs:range xsd:boolean .
 
 :originatedFrom a owl:ObjectProperty ;
     rdfs:label "originated from" ;
@@ -80,6 +110,18 @@ that created it. Enables provenance: voice → text → task → calendar.""" ;
     rdfs:domain :CalendarEvent ;
     rdfs:range :Person .
 
+:shareExpiresAt a owl:DatatypeProperty ;
+    rdfs:label "share expires at" ;
+    rdfs:comment "The date a FileShare link stops working (Nextcloud)." ;
+    rdfs:domain :FileShare ;
+    rdfs:range xsd:date .
+
+:sharesFile a owl:ObjectProperty ;
+    rdfs:label "shares file" ;
+    rdfs:comment "Links a FileShare to the Document (file or folder) it shares (Nextcloud)." ;
+    rdfs:domain :FileShare ;
+    rdfs:range :Document .
+
 :spawnsTask a owl:ObjectProperty ;
     rdfs:label "spawns task" ;
     rdfs:comment "Links a Transcript to a PersonalTask extracted from its content." ;
@@ -96,6 +138,12 @@ that created it. Enables provenance: voice → text → task → calendar.""" ;
     rdfs:comment "Values: low, medium, high, urgent." ;
     rdfs:domain :PersonalTask ;
     rdfs:range xsd:string .
+
+:totalAmount a owl:DatatypeProperty ;
+    rdfs:label "total amount" ;
+    rdfs:comment "The total amount on a Document, e.g. an invoice (Paperless-ngx)." ;
+    rdfs:domain :Document ;
+    rdfs:range xsd:decimal .
 
 :transcribedFrom a owl:ObjectProperty ;
     rdfs:label "transcribed from" ;
@@ -122,6 +170,12 @@ events → incident correlation.
 Standards alignment: schema:Event, iCalendar (RFC 5545),
 W3C PROV-O provenance.""" ;
     owl:imports <http://knuckles.team/kg/core> .
+
+:FileShare a owl:Class ;
+    rdfs:label "File Share" ;
+    rdfs:comment """A Nextcloud share of a file or folder: the shared
+:Document, its public-link flag and its expiry.""" ;
+    rdfs:subClassOf :File .
 
 :RecurringEvent a owl:Class ;
     rdfs:label "Recurring Event" ;
@@ -161,3 +215,28 @@ Google Calendar). BFO:Process via Event. Aligned to schema:Event.""" ;
     rdfs:subPropertyOf :eventLocation ;
     rdfs:domain :CalendarEvent ;
     rdfs:range xsd:string .
+
+# Connector competency vocabulary: transcripts (EG-CQ-CONN-vocab: connector competency terms)
+
+:TranscriptSegment a owl:Class ;
+    rdfs:label "Transcript Segment" ;
+    rdfs:comment "One timed span of a transcript with its own text and recognition confidence." ;
+    rdfs:subClassOf :Fragment .
+
+:segmentOf a owl:ObjectProperty ;
+    rdfs:label "segment of" ;
+    rdfs:comment "Links a transcript segment to its transcript." ;
+    rdfs:domain :TranscriptSegment ;
+    rdfs:range :Transcript .
+
+:segmentConfidence a owl:DatatypeProperty ;
+    rdfs:label "segment confidence" ;
+    rdfs:comment "Recognition confidence of one transcript segment, from 0.0 to 1.0." ;
+    rdfs:domain :TranscriptSegment ;
+    rdfs:range xsd:decimal .
+
+:hasTranscript a owl:ObjectProperty ;
+    rdfs:label "has transcript" ;
+    rdfs:comment "Links a recording or video to its transcript." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :MediaItem :VoiceMessage ) ] ;
+    rdfs:range :Transcript .

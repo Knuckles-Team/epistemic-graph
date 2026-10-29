@@ -110,12 +110,15 @@
     {
       "id": "EG-REPO-INGEST-R001",
       "title": "Reconcile mode re-admits stranded semantic intents",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "06a13bef2738",
+        "173804d141e3",
         "ac5638477288"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs:230"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R002",
@@ -381,11 +384,14 @@
     {
       "id": "EG-REPO-INGEST-R010",
       "title": "Tree-sitter grammar coverage expands to 18 more languages",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "97239d459287"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/tests/grammar_expansion.rs:206"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R011",
@@ -477,16 +483,25 @@
     {
       "id": "EG-REPO-INGEST-R600.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/code.rs:396",
+        "crates/eg-enrich/src/lib.rs:113"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R600.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/code.rs:441"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R600.3",
@@ -498,16 +513,24 @@
     {
       "id": "EG-REPO-INGEST-R600.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/code.rs:524"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R600.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/code.rs:539"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R600.6",
@@ -534,16 +557,24 @@
     {
       "id": "EG-REPO-INGEST-R601.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/history.rs:281"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R601.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/history.rs:318"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R601.3",
@@ -555,16 +586,24 @@
     {
       "id": "EG-REPO-INGEST-R601.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/history.rs:345"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R601.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/history.rs:372"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R601.6",
@@ -591,16 +630,24 @@
     {
       "id": "EG-REPO-INGEST-R602.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/links.rs:244"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R602.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/links.rs:292"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R602.3",
@@ -612,16 +659,24 @@
     {
       "id": "EG-REPO-INGEST-R602.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/links.rs:337"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R602.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/links.rs:351"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R602.6",
@@ -648,16 +703,24 @@
     {
       "id": "EG-REPO-INGEST-R603.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/fingerprint.rs:179"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R603.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/fingerprint.rs:210"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R603.3",
@@ -669,16 +732,24 @@
     {
       "id": "EG-REPO-INGEST-R603.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/fingerprint.rs:245"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R603.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8e2e528f865"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/fingerprint.rs:259"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R603.6",
@@ -705,16 +776,30 @@
     {
       "id": "EG-REPO-INGEST-R800.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "052265feef24"
+      ],
+      "verified_by": [
+        "crates/eg-document/src/transcript.rs:152",
+        "crates/eg-document/src/transcript.rs:227",
+        "crates/eg-document/src/transcript.rs:249"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R800.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "126caba49a2f"
+      ],
+      "verified_by": [
+        "crates/eg-document/src/runtime.rs:169",
+        "crates/eg-document/src/runtime.rs:183",
+        "crates/eg-document/src/runtime.rs:346",
+        "crates/eg-document/src/runtime.rs:369",
+        "crates/eg-document/src/runtime.rs:39"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R800.3",
@@ -764,7 +849,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-durable/src/hydration.rs:230",
+        "crates/eg-durable/src/hydration.rs:279"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R650.2",
@@ -975,16 +1063,24 @@
     {
       "id": "EG-REPO-INGEST-R700.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "735c7f056c07"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/code_health.rs:185"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R700.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "735c7f056c07"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/code_health.rs:232"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R700.3",
@@ -996,16 +1092,24 @@
     {
       "id": "EG-REPO-INGEST-R700.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "735c7f056c07"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/code_health.rs:252"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R700.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "735c7f056c07"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/code_health.rs:260"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R700.6",

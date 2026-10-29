@@ -524,9 +524,13 @@
     {
       "id": "EG-CQ-CONN-R003.2",
       "title": "archivebox cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af52e3911e71"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_c1.rs:174"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R003.3",
@@ -583,23 +587,35 @@
     {
       "id": "EG-CQ-CONN-R005.1",
       "title": "arr single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:140"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R005.2",
       "title": "arr cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:178"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R005.3",
       "title": "arr acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1574"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R006",
@@ -649,23 +665,35 @@
     {
       "id": "EG-CQ-CONN-R007.1",
       "title": "audiobookshelf single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:230"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R007.2",
       "title": "audiobookshelf cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:280"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R007.3",
       "title": "audiobookshelf acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1595"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R008",
@@ -682,23 +710,35 @@
     {
       "id": "EG-CQ-CONN-R008.1",
       "title": "audio-transcriber single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1149"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R008.2",
       "title": "audio-transcriber cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1190"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R008.3",
       "title": "audio-transcriber acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1615"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R009",
@@ -814,9 +854,14 @@
     {
       "id": "EG-CQ-CONN-R012.1",
       "title": "clarity single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1328"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R012.2",
@@ -847,9 +892,13 @@
     {
       "id": "EG-CQ-CONN-R013.1",
       "title": "container-manager single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4fb2b1de9c0a"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:664"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R013.2",
@@ -880,23 +929,35 @@
     {
       "id": "EG-CQ-CONN-R014.1",
       "title": "data-science single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:989"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R014.2",
       "title": "data-science cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1024"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R014.3",
       "title": "data-science acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1635"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R015",
@@ -946,23 +1007,35 @@
     {
       "id": "EG-CQ-CONN-R016.1",
       "title": "documentdb single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:785"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R016.2",
       "title": "documentdb cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:835"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R016.3",
       "title": "documentdb acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1652"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R017",
@@ -979,9 +1052,13 @@
     {
       "id": "EG-CQ-CONN-R017.1",
       "title": "egeria single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "af52e3911e71"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_c1.rs:77"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R017.2",
@@ -1066,9 +1143,16 @@
     {
       "id": "EG-CQ-CONN-R020",
       "title": "fan-manager competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4fb2b1de9c0a",
+        "f4de9d310511"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:222",
+        "crates/eg-rdf/tests/connector_competency.rs:543",
+        "crates/eg-rdf/tests/connector_competency.rs:557"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R020.1",
         "EG-CQ-CONN-R020.2",
@@ -1083,22 +1167,30 @@
         "f4de9d310511"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/connector_competency.rs:71"
+        "crates/eg-rdf/tests/connector_competency.rs:222"
       ]
     },
     {
       "id": "EG-CQ-CONN-R020.2",
       "title": "fan-manager cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4fb2b1de9c0a"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:543"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R020.3",
       "title": "fan-manager acceptance test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4fb2b1de9c0a"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:557"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R021",
@@ -1155,9 +1247,14 @@
     {
       "id": "EG-CQ-CONN-R022.2",
       "title": "freshrss cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1374"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R022.3",
@@ -1285,7 +1382,7 @@
         "f4de9d310511"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/connector_competency.rs:190"
+        "crates/eg-rdf/tests/connector_competency.rs:253"
       ]
     },
     {
@@ -1324,9 +1421,14 @@
     {
       "id": "EG-CQ-CONN-R027.2",
       "title": "jellyfin cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:340"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R027.3",
@@ -1416,9 +1518,13 @@
     {
       "id": "EG-CQ-CONN-R030.1",
       "title": "keycloak single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b759d6d7ab63"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_p12.rs:72"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R030.2",
@@ -1680,23 +1786,35 @@
     {
       "id": "EG-CQ-CONN-R038.1",
       "title": "media-downloader single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:375"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R038.2",
       "title": "media-downloader cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:413"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R038.3",
       "title": "media-downloader acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1669"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R039",
@@ -1718,15 +1836,19 @@
         "f4de9d310511"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/connector_competency.rs:280"
+        "crates/eg-rdf/tests/connector_competency.rs:343"
       ]
     },
     {
       "id": "EG-CQ-CONN-R039.2",
       "title": "microsoft cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d8a48968fc3d"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:1074"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R039.3",
@@ -1783,23 +1905,35 @@
     {
       "id": "EG-CQ-CONN-R041.1",
       "title": "objectstore single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:893"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R041.2",
       "title": "objectstore cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:951"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R041.3",
       "title": "objectstore acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1690"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R042",
@@ -1816,9 +1950,13 @@
     {
       "id": "EG-CQ-CONN-R042.1",
       "title": "okta single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d8a48968fc3d"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:995"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R042.2",
@@ -1915,9 +2053,14 @@
     {
       "id": "EG-CQ-CONN-R045.1",
       "title": "owncast single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:454"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R045.2",
@@ -2080,23 +2223,35 @@
     {
       "id": "EG-CQ-CONN-R050.1",
       "title": "pulselink single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1240"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R050.2",
       "title": "pulselink cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1281"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R050.3",
       "title": "pulselink acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1707"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R051",
@@ -2113,23 +2268,35 @@
     {
       "id": "EG-CQ-CONN-R051.1",
       "title": "qbittorrent single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:505"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R051.2",
       "title": "qbittorrent cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:544"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R051.3",
       "title": "qbittorrent acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1724"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R052",
@@ -2179,23 +2346,39 @@
     {
       "id": "EG-CQ-CONN-R053.1",
       "title": "rom-manager single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:74",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:595"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R053.2",
       "title": "rom-manager cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:84",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:629"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R053.3",
       "title": "rom-manager acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1745"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R054",
@@ -2212,16 +2395,24 @@
     {
       "id": "EG-CQ-CONN-R054.1",
       "title": "salesforce single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:98"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R054.2",
       "title": "salesforce cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:109"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R054.3",
@@ -2245,23 +2436,39 @@
     {
       "id": "EG-CQ-CONN-R055.1",
       "title": "scholarx single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:120",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1421"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R055.2",
       "title": "scholarx cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:129",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1454"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R055.3",
       "title": "scholarx acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1765"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R056",
@@ -2278,23 +2485,39 @@
     {
       "id": "EG-CQ-CONN-R056.1",
       "title": "searxng single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:139",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1486"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R056.2",
       "title": "searxng cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:148",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1534"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R056.3",
       "title": "searxng acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1782"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R057",
@@ -2311,16 +2534,24 @@
     {
       "id": "EG-CQ-CONN-R057.1",
       "title": "servicenow single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:158"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R057.2",
       "title": "servicenow cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:169"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R057.3",
@@ -2344,23 +2575,39 @@
     {
       "id": "EG-CQ-CONN-R058.1",
       "title": "sql single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:179",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:681"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R058.2",
       "title": "sql cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:188",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:734"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R058.3",
       "title": "sql acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1799"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R059",
@@ -2377,16 +2624,24 @@
     {
       "id": "EG-CQ-CONN-R059.1",
       "title": "stirlingpdf single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:198"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R059.2",
       "title": "stirlingpdf cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:208"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R059.3",
@@ -2410,16 +2665,24 @@
     {
       "id": "EG-CQ-CONN-R060.1",
       "title": "systems-manager single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:222"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R060.2",
       "title": "systems-manager cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:233"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R060.3",
@@ -2443,16 +2706,24 @@
     {
       "id": "EG-CQ-CONN-R061.1",
       "title": "technitium-dns single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:248"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R061.2",
       "title": "technitium-dns cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:259"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R061.3",
@@ -2476,16 +2747,24 @@
     {
       "id": "EG-CQ-CONN-R062.1",
       "title": "tunnel-manager single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:269"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R062.2",
       "title": "tunnel-manager cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:280"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R062.3",
@@ -2509,16 +2788,24 @@
     {
       "id": "EG-CQ-CONN-R063.1",
       "title": "twenty single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:298"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R063.2",
       "title": "twenty cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:309"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R063.3",
@@ -2530,9 +2817,18 @@
     {
       "id": "EG-CQ-CONN-R064",
       "title": "uptime competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4fb2b1de9c0a",
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:319",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:330",
+        "crates/eg-rdf/tests/connector_competency.rs:779",
+        "crates/eg-rdf/tests/connector_competency.rs:922",
+        "crates/eg-rdf/tests/connector_competency.rs:936"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R064.1",
         "EG-CQ-CONN-R064.2",
@@ -2542,23 +2838,39 @@
     {
       "id": "EG-CQ-CONN-R064.1",
       "title": "uptime single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4fb2b1de9c0a",
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:319",
+        "crates/eg-rdf/tests/connector_competency.rs:779"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R064.2",
       "title": "uptime cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4fb2b1de9c0a",
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:330",
+        "crates/eg-rdf/tests/connector_competency.rs:922"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R064.3",
       "title": "uptime acceptance test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4fb2b1de9c0a"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:936"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R065",
@@ -2575,23 +2887,39 @@
     {
       "id": "EG-CQ-CONN-R065.1",
       "title": "vector single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:340",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1065"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R065.2",
       "title": "vector cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:349",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1114"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R065.3",
       "title": "vector acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1816"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R066",
@@ -2608,16 +2936,24 @@
     {
       "id": "EG-CQ-CONN-R066.1",
       "title": "wger single-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:360"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R066.2",
       "title": "wger cross-source question",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:371"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R066.3",
@@ -2805,30 +3141,46 @@
     {
       "id": "EG-CQ-CONN-R068.13",
       "title": "lastPushedAt",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r068_infrastructure.rs:64"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R068.14",
       "title": "pullCount",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r068_infrastructure.rs:83"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R068.15",
       "title": "entityState",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r068_infrastructure.rs:138"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R068.16",
       "title": "unavailableSince",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r068_infrastructure.rs:157"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R068.17",
@@ -2964,23 +3316,35 @@
     {
       "id": "EG-CQ-CONN-R069.4",
       "title": "branchOf",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:63"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.5",
       "title": "headCommit",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:82"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.6",
       "title": "isDefaultBranch",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:101"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.7",
@@ -3006,37 +3370,57 @@
     {
       "id": "EG-CQ-CONN-R069.10",
       "title": "closesTicket",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:120"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.11",
       "title": "proposalState",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:144"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.12",
       "title": "requestedReviewer",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:202"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.13",
       "title": "PipelineJob",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:226"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.14",
       "title": "pipelineJobOf",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:237"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.15",
@@ -3076,30 +3460,46 @@
     {
       "id": "EG-CQ-CONN-R069.20",
       "title": "Worktree",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:256"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.21",
       "title": "worktreeState",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:267"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.22",
       "title": "tracksBranch",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:320"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R069.23",
       "title": "proposalBranch",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_r069_lifecycle.rs:339"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R070",
@@ -3149,30 +3549,46 @@
     {
       "id": "EG-CQ-CONN-R070.5",
       "title": "ConfigurationItem",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:539"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R070.6",
       "title": "affectsConfigurationItem",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:557"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R070.7",
       "title": "incidentState",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:574"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R070.8",
       "title": "incidentAssignee",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:599"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R071",
@@ -3321,77 +3737,119 @@
       "title": "shapes companion for government-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:636"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.2",
       "title": "RiskScenario",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:651"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.3",
       "title": "mitigatesRisk",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:659"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.4",
       "title": "inFramework",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:679"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.5",
       "title": "riskAffectsService",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:699"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.6",
       "title": "PrivacyAssessment",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:719"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.7",
       "title": "ProcessingActivity",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:727"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.8",
       "title": "assessmentCovers",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:735"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.9",
       "title": "assessmentDueDate",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:755"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.10",
       "title": "assessedVendor",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:789"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R073.11",
       "title": "assessmentStatus",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:809"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R074",
@@ -3413,42 +3871,64 @@
       "title": "shapes companion for core-foundation-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:851"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R074.2",
       "title": "GlossaryTerm",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:866"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R074.3",
       "title": "termAssignedTo",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:880"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R074.4",
       "title": "counterparty",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:900"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R074.5",
       "title": "agreementExpiresAt",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:927"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R074.6",
       "title": "hasRenewalAction",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:952"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R075",
@@ -3518,9 +3998,17 @@
     {
       "id": "EG-CQ-CONN-R076",
       "title": "personal-v1.ttl additions rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:292",
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:312",
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:337",
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:362",
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:387"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R076.1",
         "EG-CQ-CONN-R076.2",
@@ -3536,65 +4024,101 @@
     {
       "id": "EG-CQ-CONN-R076.1",
       "title": "birthPlace",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:292"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R076.2",
       "title": "birthYear",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:312"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R076.3",
       "title": "documentType",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:337"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R076.4",
       "title": "dueDate",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:362"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R076.5",
       "title": "totalAmount",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:387"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R076.6",
       "title": "FileShare",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:412"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R076.7",
       "title": "sharesFile",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:424"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R076.8",
       "title": "isPublicLink",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:444"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R076.9",
       "title": "shareExpiresAt",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:469"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R077",
@@ -3702,30 +4226,46 @@
     {
       "id": "EG-CQ-CONN-R079.2",
       "title": "promptVersion",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:180"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R079.3",
       "title": "tokenCost",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:205"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R079.4",
       "title": "tracePrompt",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:241"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R079.5",
       "title": "evaluationScore",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:261"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R080",
@@ -3844,9 +4384,13 @@
     {
       "id": "EG-CQ-CONN-R082",
       "title": "action-v1.ttl additions rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:504"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R082.1"
       ]
@@ -3854,9 +4398,13 @@
     {
       "id": "EG-CQ-CONN-R082.1",
       "title": "failureReason",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_ontology_terms.rs:504"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R083",
@@ -3911,9 +4459,13 @@
     {
       "id": "EG-CQ-CONN-R084.5",
       "title": "Finance method vocabulary",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "daf6db9e8161"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_pack_competency.rs:70"
+      ]
     },
     {
       "id": "EG-CQ-CONN-R084.6",

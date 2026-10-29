@@ -3,7 +3,7 @@
 //! `Decide` question kind.
 //!
 //! The caller declares each tool candidate (`CandidateSource::Declared`,
-//! classification = the capabilities it covers, a `token_cost` declared
+//! classification = the capabilities it covers, a `schema_tokens` declared
 //! number) and names the required capabilities and context budget as typed
 //! request params. The selected minimal covering subset is sealed as an
 //! `Advisory` outcome: one `ScoredOption` per selected tool at full (Q32
@@ -86,15 +86,13 @@ fn declared_candidates(request: &DecideRequest) -> Result<&[DeclaredOption], Str
     }
 }
 
-/// The declared `token_cost` number, or 0 when the caller did not declare
-/// one (a free tool).
-fn token_cost(option: &DeclaredOption) -> u32 {
+/// The declared schema size, if the caller supplied one.
+fn token_cost(option: &DeclaredOption) -> Option<u32> {
     option
         .numbers
         .iter()
-        .find(|number| number.key == "token_cost")
+        .find(|number| number.key == "schema_tokens")
         .map(|number| number.q32.max(0) as u32)
-        .unwrap_or(0)
 }
 
 fn request_body(request: &DecideRequest) -> Result<ToolSubsetRequestBody, String> {
@@ -103,11 +101,17 @@ fn request_body(request: &DecideRequest) -> Result<ToolSubsetRequestBody, String
     let options = declared_candidates(request)?;
     let mut candidates = Vec::with_capacity(options.len());
     for option in options {
+        let token_cost = token_cost(option).ok_or_else(|| {
+            refusal(
+                StatisticalErrorCode::ParameterInvalid,
+                "a tool_subset candidate must declare schema_tokens",
+            )
+        })?;
         candidates.push(ToolCoverageCandidate {
             tool_id: option.option_id.clone(),
             capabilities: BoundedVec::new(option.classification.iter().cloned().collect())
                 .map_err(|detail| refusal(StatisticalErrorCode::CandidateSetTooLarge, detail))?,
-            token_cost: token_cost(option),
+            token_cost,
         });
     }
     Ok(ToolSubsetRequestBody {

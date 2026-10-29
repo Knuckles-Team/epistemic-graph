@@ -670,7 +670,7 @@
         "bcbbe51307d8"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/ops.rs:249"
+        "crates/eg-types/src/connector_pack/ops.rs:287"
       ]
     },
     {
@@ -694,7 +694,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "src/server/mutation.rs:2396"
+        "src/server/mutation.rs:2398"
       ]
     },
     {
@@ -706,7 +706,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:198"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:210"
       ]
     },
     {
@@ -742,7 +742,7 @@
         "daa948722eca"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1318"
+        "crates/eg-types/src/agent_component.rs:1355"
       ]
     },
     {
@@ -764,7 +764,7 @@
         "71533e899d52"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/ops.rs:275",
+        "crates/eg-types/src/connector_pack/ops.rs:313",
         "src/server/handlers/admin/connector_pack/tests/admin.rs:241"
       ]
     },
@@ -992,7 +992,7 @@
         "f41725ac0f6f"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1357"
+        "crates/eg-types/src/agent_component.rs:1394"
       ]
     },
     {
@@ -1121,7 +1121,7 @@
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:205"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:210"
       ]
     },
     {
@@ -1149,35 +1149,46 @@
       "title": "Annotation type carries side effects, declarer and schema size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/annotations.rs:155"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R045.2",
       "title": "Absent facts take safe defaults, never zero",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/annotations.rs:195"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R045.3",
       "title": "The annotation digest covers the new fields without moving old vectors",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/digest.rs:449"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R045.4",
       "title": "Admission refuses an unknown side-effect or declarer value",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/annotations.rs:221",
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:315"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R045.5",
       "title": "Admission records an unproven read-only claim",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/facts.rs:228"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R045.6",
@@ -1216,7 +1227,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:256"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:268"
       ]
     },
     {
@@ -1228,7 +1239,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:257"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:269"
       ]
     },
     {
@@ -1262,7 +1273,7 @@
         "a565bdb085f2"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component/facts.rs:542"
+        "crates/eg-types/src/agent_component/facts.rs:651"
       ]
     },
     {
@@ -1273,10 +1284,10 @@
         "3a23459ceec7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/rules/capability/tests.rs:235",
-        "crates/eg-types/src/agent_component.rs:1480",
-        "crates/eg-types/src/agent_component.rs:1531",
-        "crates/eg-types/src/agent_component.rs:1570"
+        "crates/eg-rdf/src/rules/capability/tests.rs:239",
+        "crates/eg-types/src/agent_component.rs:1525",
+        "crates/eg-types/src/agent_component.rs:1576",
+        "crates/eg-types/src/agent_component.rs:1615"
       ]
     },
     {
@@ -1287,10 +1298,10 @@
         "3a23459ceec7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/rules/capability/tests.rs:236",
-        "crates/eg-types/src/agent_component.rs:1481",
-        "crates/eg-types/src/agent_component.rs:1532",
-        "crates/eg-types/src/agent_component.rs:1571"
+        "crates/eg-rdf/src/rules/capability/tests.rs:240",
+        "crates/eg-types/src/agent_component.rs:1526",
+        "crates/eg-types/src/agent_component.rs:1577",
+        "crates/eg-types/src/agent_component.rs:1616"
       ]
     },
     {
@@ -1305,7 +1316,7 @@
         "6be6da12f970"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/digest.rs:359",
+        "crates/eg-types/src/connector_pack/digest.rs:375",
         "tests/typed_packs/test_model_harness_facts.py:36"
       ]
     },
@@ -1318,7 +1329,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "crates/eg-types/src/connector_pack/digest.rs:405"
+        "crates/eg-types/src/connector_pack/digest.rs:421"
       ]
     },
     {
@@ -1470,7 +1481,7 @@
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:206"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:211"
       ]
     },
     {
@@ -1803,7 +1814,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-core/src/isolation/identity_store_tests.rs:463",
+        "crates/eg-core/src/isolation/identity_store_tests.rs:465",
         "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:5",
         "crates/eg-types/src/identity/tests/session_evidence.rs:128",
         "crates/eg-types/src/identity/tests/session_evidence.rs:142",
@@ -2336,9 +2347,15 @@
     {
       "id": "EG-TYPED-PACKS-R101.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5518276883bf",
+        "c6c185bfdb23",
+        "f01ca93a7a6c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_pack_vocabulary.rs:51"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R101.2",
@@ -2413,6 +2430,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1441a36e7b30",
+        "75dd94362178",
         "81059c6ca5db"
       ],
       "verified_by": [
@@ -2420,7 +2438,7 @@
         "crates/eg-types/src/connector_pack/index.rs:140",
         "src/server/handlers/admin/connector_pack/tests/scale.rs:140",
         "src/server/handlers/admin/connector_pack/tests/scale.rs:203",
-        "src/server/persistence/connector_pack/declaration.rs:101"
+        "src/server/persistence/connector_pack/declaration.rs:121"
       ]
     },
     {
@@ -2453,9 +2471,14 @@
     {
       "id": "EG-TYPED-PACKS-R102.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c6c185bfdb23"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_pack_vocabulary.rs:221",
+        "crates/eg-shacl/tests/connector_pack_shapes.rs:45"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R102.2",
@@ -2517,9 +2540,13 @@
     {
       "id": "EG-TYPED-PACKS-R103.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c4ea2dc5bdfa"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/graph_schema.rs:502"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R103.2",
@@ -2574,9 +2601,14 @@
     {
       "id": "EG-TYPED-PACKS-R104.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3e95357c7bce",
+        "9f321aa39539"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/seed_graph.rs:90"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R104.2",
@@ -2641,7 +2673,7 @@
       "verified_by": [
         "crates/eg-rdf/src/pack/tests.rs:143",
         "crates/eg-rdf/src/pack/tests.rs:158",
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:232",
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:244",
         "src/server/handlers/admin/connector_pack/tests/ontology.rs:154",
         "src/server/handlers/admin/connector_pack/tests/ontology.rs:161"
       ]
@@ -3297,7 +3329,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/stewardship.rs:21",
+        "crates/eg-types/tests/stewardship.rs:70"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R802.2",
@@ -3368,7 +3403,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/sensitive_detect.rs:3"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R803.2",
@@ -3483,7 +3520,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/data_product.rs:38",
+        "crates/eg-types/tests/data_product.rs:70"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R805.2",
@@ -3622,7 +3662,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/pack_contract.rs:32",
+        "crates/eg-types/tests/pack_contract.rs:78"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R107.2",
@@ -3936,10 +3979,14 @@
     {
       "id": "EG-TYPED-PACKS-R085.4.3",
       "title": "Renewal contract and served qualification",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "63841f955e6f",
+        "746d29e2e17f"
+      ],
       "verified_by": [
-        "src/server/dispatch/identity_store/resolution_context/tests.rs:681"
+        "src/server/dispatch/identity_store/resolution_context/tests.rs:681",
+        "src/server/dispatch/identity_store/resolution_context/tests.rs:781"
       ]
     },
     {

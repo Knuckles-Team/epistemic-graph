@@ -247,7 +247,9 @@ from ._shared import (
     TemplateFacts,
     Term,
     ToolEffect,
+    ToolFactDeclarer,
     ToolsetTransport,
+    ToolSideEffects,
     TopologyAdmission,
     TopologyCaps,
     TopologyFacts,
@@ -308,6 +310,7 @@ from .connector_pack import (
     ConnectorPackImportRequest,
     ConnectorPackIndex,
     ConnectorPackOp,
+    ConnectorPackOpApproveSource,
     ConnectorPackOpAttestSelfServedCatalog,
     ConnectorPackOpBind,
     ConnectorPackOpCatalogAuthorityStatus,
@@ -324,6 +327,7 @@ from .connector_pack import (
     ConnectorPackReconcileRequest,
     ConnectorPackReprojectRequest,
     ConnectorPackRetireRequest,
+    ConnectorPackSourceApprovalRequest,
     ConnectorPackStatus,
     ConnectorPackStatusRequest,
     ConnectorPackUnbindRequest,
@@ -441,7 +445,9 @@ from .graph_schema import (
     GraphSchemaOpAttachApproved,
     GraphSchemaOpAttachPack,
     GraphSchemaOpDetach,
+    GraphSchemaOpImportOntology,
     GraphSchemaOpValidateRepair,
+    GraphSchemaOpWithdrawOntology,
     GraphSchemaSourcesView,
     GraphSchemaSourceView,
     GraphSchemaTermKind,
@@ -1202,6 +1208,22 @@ class AgentTemplateStatusRequest(BaseModel):
 
 class AllocationRule(str, Enum):
     PROPORTIONAL = "proportional"
+
+
+class AmlAlertResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount_minor: int
+    kind: str
+    rule_id: str
+    rule_version: Annotated[int, Field(ge=0)]
+    severity: str
+
+
+class AmlScreenResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    alert: AmlAlertResult | None = None
 
 
 class AnalysisSnapshot(BaseModel):
@@ -2056,6 +2078,18 @@ class CapacityThrottleResult(BaseModel):
     schema_version: NativeControlSchemaVersion
 
 
+class CapitalRatiosResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cet1_meets_minimum: bool
+    cet1_ratio: float
+    leverage_meets_minimum: bool
+    leverage_ratio: float
+    tier1_ratio: float
+    total_capital_meets_minimum: bool
+    total_capital_ratio: float
+
+
 class CasWorkItemMetadataLeaseFence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2512,6 +2546,31 @@ class ChannelType(str, Enum):
     GROUP = "Group"
 
 
+class CheckpointClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fencing_token: Annotated[int, Field(ge=0)]
+    lease_epoch: Annotated[int, Field(ge=0)]
+    worker_id: str
+
+
+class CheckpointContent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content: str
+    long_term: list[CheckpointMemoryRef]
+    payload_digest: str
+    short_term: list[CheckpointMemoryRef]
+
+
+class CheckpointMemoryRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    document_id: str
+    revision: Annotated[int, Field(ge=0)]
+
+
 class ClaimAuthor(str, Enum):
     AGENT = "agent"
     PERSON = "person"
@@ -2940,6 +2999,19 @@ class ConnectorPackBindingResult(BaseModel):
     tenant_id: str
 
 
+class ConnectorPackSourceApprovalResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    batch_id: str
+    committed_version: Annotated[int, Field(ge=0)]
+    connector: str
+    contract_digest: Digest256
+    head: PackHeadRef
+    registration: PackSourceRegistration
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    tenant_id: str
+
+
 class ContentVersion(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -3056,6 +3128,7 @@ class ControlLeaseView(BaseModel):
     expires_at_ms: Annotated[int, Field(ge=0)]
     grant: dict[str, Any]
     hard_expires_at_ms: Annotated[int, Field(ge=0)]
+    host_start_provenance: HostStartProvenance | None = None
     issued_at_ms: Annotated[int, Field(ge=0)]
     kind: str
     lease_id: str
@@ -4508,6 +4581,14 @@ class DistResultScores(BaseModel):
     Scores: list[DistResultScoresBodyItem]
 
 
+class DistributionShift(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    p_value: float
+    shifted: bool
+    statistic: float
+
+
 class DocTerms(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5115,6 +5196,24 @@ class ExchangeCalendar(BaseModel):
     trading_weekdays: Annotated[int, Field(ge=0, le=255)]
 
 
+class ExecutionScheduleResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    continuous: bool
+    holdings: list[float]
+    horizon: float
+    objective: float
+    permanent_impact: float
+    risk_aversion: float
+    slices: Annotated[int, Field(ge=0)]
+    solver_status: str
+    symbol: str
+    temporary_impact: float
+    total_shares: float
+    trades: list[float]
+    volatility: float
+
+
 class ExistenceSignalWire(str, Enum):
     SUPPORTED = "Supported"
     CONTRADICTED = "Contradicted"
@@ -5160,6 +5259,7 @@ class ExplainPlanResult(BaseModel):
     after: list[ExplainNodeWire]
     applied_rules: list[str]
     before: list[ExplainNodeWire]
+    plan_digest: Digest256 | None = None
 
 
 class ExplainPolicyResult(BaseModel):
@@ -5186,6 +5286,16 @@ class ExternalLogin(BaseModel):
     session_token: Secret
     subject: str
     username_hint: str | None = None
+
+
+class FactorRecordResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    factor_id: str
+    information_coefficient: float
+    information_ratio: float
+    input_provenance_keys: list[str]
+    rank: Annotated[int, Field(ge=0)]
 
 
 class FeatureMatrixRefInline(BaseModel):
@@ -5377,6 +5487,13 @@ class FinanceMarketOpDecimate(BaseModel):
     request: DecimateRequest
 
 
+class FinanceMarketOpLiquidityPanel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["liquidity_panel"]
+    request: LiquidityPanelRequest
+
+
 class FinanceMarketOpAnalysisSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5395,6 +5512,7 @@ FinanceMarketOp = Annotated[
     | FinanceMarketOpFlipConfidence
     | FinanceMarketOpBacktestRun
     | FinanceMarketOpDecimate
+    | FinanceMarketOpLiquidityPanel
     | FinanceMarketOpAnalysisSnapshot,
     Field(discriminator="op"),
 ]
@@ -5786,6 +5904,114 @@ class ForeignOperationCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     key_filter_pushdown: bool | None = None
+
+
+class ForeignReadAbortRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    reason: str
+    sequence: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadAbortResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    reason: str
+    sequence: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadChunkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    rows: list[ForeignReadRow]
+    sequence: Annotated[int, Field(ge=0)]
+    source_identity: ForeignReadSourceIdentity
+
+
+class ForeignReadChunkResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    accepted_rows: Annotated[int, Field(ge=0)]
+    execution: ForeignReadExecutionRef
+    next_sequence: Annotated[int, Field(ge=0)]
+    sequence: Annotated[int, Field(ge=0)]
+    total_bytes: Annotated[int, Field(ge=0)]
+    total_rows: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    sequence: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadCompleteResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    sequence: Annotated[int, Field(ge=0)]
+    total_bytes: Annotated[int, Field(ge=0)]
+    total_rows: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadExecutionRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution_id: Annotated[int, Field(ge=0)]
+    query_digest: Digest256
+
+
+class ForeignReadLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    chunk_bytes: Annotated[int, Field(ge=0)]
+    chunk_rows: Annotated[int, Field(ge=0)]
+    deadline_ms: Annotated[int, Field(ge=0)]
+    max_bytes: Annotated[int, Field(ge=0)]
+    max_rows: Annotated[int, Field(ge=0)]
+
+
+class ForeignReadOpenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval: ConnectorPackSourceApprovalResult
+    limits: ForeignReadLimits
+    plan_digest: Digest256
+    query_digest: Digest256
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    source_name: str
+
+
+class ForeignReadOpenResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    execution: ForeignReadExecutionRef
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    next_sequence: Annotated[int, Field(ge=0)]
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    source_identity: ForeignReadSourceIdentity
+
+
+class ForeignReadRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: dict[str, Any] | None = None
+    id: str
+    provenance: list[str] = Field(default_factory=list)
+    score: float | None = None
+
+
+class ForeignReadSourceIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    schema_digest: Digest256
+    snapshot_ref: Digest256
+    source_ref: str
+    source_revision: Annotated[int, Field(ge=0)]
 
 
 class ForeignSourceFreshness(BaseModel):
@@ -6280,6 +6506,16 @@ class GenerationReceipt(BaseModel):
     ties: Annotated[int, Field(ge=0)]
     win_rate_lower_q16: int
     wins: Annotated[int, Field(ge=0)]
+
+
+class GetRunCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    current_claim: CheckpointClaim | None = None
+    run_id: str
+    tenant: str
+    work_item_id: str
 
 
 class GovernedActor(BaseModel):
@@ -6788,6 +7024,32 @@ class HealthReport(BaseModel):
     status: str
     uptime_s: Annotated[int, Field(ge=0)]
     version: str
+
+
+class HostStartBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    configuration_digest: str
+    interfaces: HostStartInterfaces
+    policy_revision: str
+    principal_ref: str
+    session_expires_at_ms: Annotated[int, Field(ge=0)]
+    session_ref: str
+    web_logs: bool
+    workspace_ref: str
+
+
+class HostStartInterfaces(str, Enum):
+    TERMINAL = "terminal"
+    WEB = "web"
+    BOTH = "both"
+
+
+class HostStartProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    issuer_ref: str
+    schema_version: Annotated[int, Field(ge=0)]
 
 
 class HttpFieldMap(BaseModel):
@@ -7969,6 +8231,16 @@ class IssueControlLeaseRequest(BaseModel):
     tenant: str
 
 
+class IssueHostStartGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding: HostStartBinding
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_id: str
+    tenant: str
+
+
 class ItemLabelGold(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -8849,6 +9121,66 @@ class Linkage(str, Enum):
     AVERAGE = "average"
 
 
+class LiquidityDirection(str, Enum):
+    INCREASING = "increasing"
+    DECREASING = "decreasing"
+    UNCHANGED = "unchanged"
+    UNAVAILABLE = "unavailable"
+
+
+class LiquidityHeatCell(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_usd: int | None = None
+    contribution_usd: int
+    direction: LiquidityDirection
+    observation_ms: int
+    observed_ms: int
+    previous_observation_ms: int | None = None
+    previous_observed_ms: int | None = None
+    previous_source_ref: str | None = None
+    previous_vintage_ms: int | None = None
+    series: LiquiditySeries
+    source_ref: str
+    vintage_ms: int
+
+
+class LiquidityObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    observation_ms: int
+    observed_ms: int
+    series: LiquiditySeries
+    source_ref: str
+    value_milliunits: int
+    vintage_ms: int
+
+
+class LiquidityPanel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of_ms: int
+    heat: list[LiquidityHeatCell]
+    max_age_ms: int
+    net_liquidity_usd: int
+    version: Annotated[int, Field(ge=0)]
+
+
+class LiquidityPanelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of_ms: int
+    max_age_ms: int
+    observations: list[LiquidityObservation]
+    version: Annotated[int, Field(ge=0)]
+
+
+class LiquiditySeries(str, Enum):
+    WALCL = "walcl"
+    WDTGAL = "wdtgal"
+    RRPONTSYD = "rrpontsyd"
+
+
 class ListControlLeasesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -8892,6 +9224,16 @@ class MappingRule(BaseModel):
     rule_id: str
     target: str
     value: str
+
+
+class MarketMakingQuoteResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ask: float
+    bid: float
+    reservation_price: float
+    spread: float
+    symbol: str
 
 
 class MaterialClass(str, Enum):
@@ -10747,6 +11089,83 @@ class MethodFinanceKellyFraction(BaseModel):
     params: MethodFinanceKellyFractionParams
 
 
+class MethodFinancePositionSize(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinancePositionSize"]
+    params: MethodFinancePositionSizeParams
+
+
+class MethodFinanceDistributionShift(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceDistributionShift"]
+    params: MethodFinanceDistributionShiftParams
+
+
+class MethodFinanceAmlScreen(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceAmlScreen"]
+    params: MethodFinanceAmlScreenParams
+
+
+class MethodFinanceCapitalRatios(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceCapitalRatios"]
+    params: MethodFinanceCapitalRatiosParams
+
+
+class MethodFinanceExpectedLoss(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceExpectedLoss"]
+    params: MethodFinanceExpectedLossParams
+
+
+class MethodFinanceSettlementChain(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceSettlementChain"]
+    params: MethodFinanceSettlementChainParams
+
+
+class MethodFinanceRegimeChain(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceRegimeChain"]
+    params: MethodFinanceRegimeChainParams
+
+
+class MethodFinanceExecutionSchedule(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceExecutionSchedule"]
+    params: MethodFinanceExecutionScheduleParams
+
+
+class MethodFinanceMarketMakingQuote(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceMarketMakingQuote"]
+    params: MethodFinanceMarketMakingQuoteParams
+
+
+class MethodFinancePairsSignal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinancePairsSignal"]
+    params: MethodFinancePairsSignalParams
+
+
+class MethodFinanceFactorRank(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceFactorRank"]
+    params: MethodFinanceFactorRankParams
+
+
 class MethodFinanceBayesianKelly(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11187,6 +11606,13 @@ class MethodNlQueryExplain(BaseModel):
     params: MethodNlQueryExplainParams
 
 
+class MethodNlQueryPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["NlQueryPlan"]
+    params: MethodNlQueryPlanParams
+
+
 class MethodRegisterForeignSource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11199,6 +11625,34 @@ class MethodQueryForeignColumns(BaseModel):
 
     method: Literal["QueryForeignColumns"]
     params: MethodQueryForeignColumnsParams
+
+
+class MethodForeignReadOpen(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadOpen"]
+    params: MethodForeignReadOpenParams
+
+
+class MethodForeignReadChunk(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadChunk"]
+    params: MethodForeignReadChunkParams
+
+
+class MethodForeignReadComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadComplete"]
+    params: MethodForeignReadCompleteParams
+
+
+class MethodForeignReadAbort(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ForeignReadAbort"]
+    params: MethodForeignReadAbortParams
 
 
 class MethodRegisterUdf(BaseModel):
@@ -12057,6 +12511,20 @@ class MethodEdgeSearch(BaseModel):
     params: MethodEdgeSearchParams
 
 
+class MethodPublishRunCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PublishRunCheckpoint"]
+    params: MethodPublishRunCheckpointParams
+
+
+class MethodGetRunCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetRunCheckpoint"]
+    params: MethodGetRunCheckpointParams
+
+
 class MethodPublishCurrentPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12069,6 +12537,13 @@ class MethodGetCurrentPlan(BaseModel):
 
     method: Literal["GetCurrentPlan"]
     params: MethodGetCurrentPlanParams
+
+
+class MethodGetSessionUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetSessionUsage"]
+    params: MethodGetSessionUsageParams
 
 
 class MethodGetRunWorkItem(BaseModel):
@@ -12097,6 +12572,13 @@ class MethodGetWorkItemOutcome(BaseModel):
 
     method: Literal["GetWorkItemOutcome"]
     params: MethodGetWorkItemOutcomeParams
+
+
+class MethodIssueHostStartGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["IssueHostStartGrant"]
+    params: MethodIssueHostStartGrantParams
 
 
 class MethodIssueControlLease(BaseModel):
@@ -12492,6 +12974,17 @@ Method = Annotated[
     | MethodFinanceKyleLambda
     | MethodFinanceSurveillanceRisk
     | MethodFinanceKellyFraction
+    | MethodFinancePositionSize
+    | MethodFinanceDistributionShift
+    | MethodFinanceAmlScreen
+    | MethodFinanceCapitalRatios
+    | MethodFinanceExpectedLoss
+    | MethodFinanceSettlementChain
+    | MethodFinanceRegimeChain
+    | MethodFinanceExecutionSchedule
+    | MethodFinanceMarketMakingQuote
+    | MethodFinancePairsSignal
+    | MethodFinanceFactorRank
     | MethodFinanceBayesianKelly
     | MethodFinancePosteriorCredibleInterval
     | MethodFinancePurgedCpcv
@@ -12555,8 +13048,13 @@ Method = Annotated[
     | MethodRankByProvenance
     | MethodNlQuery
     | MethodNlQueryExplain
+    | MethodNlQueryPlan
     | MethodRegisterForeignSource
     | MethodQueryForeignColumns
+    | MethodForeignReadOpen
+    | MethodForeignReadChunk
+    | MethodForeignReadComplete
+    | MethodForeignReadAbort
     | MethodRegisterUdf
     | MethodRunUdf
     | MethodDistributedCompute
@@ -12680,12 +13178,16 @@ Method = Annotated[
     | MethodMutationOutbox
     | MethodEdgeIndex
     | MethodEdgeSearch
+    | MethodPublishRunCheckpoint
+    | MethodGetRunCheckpoint
     | MethodPublishCurrentPlan
     | MethodGetCurrentPlan
+    | MethodGetSessionUsage
     | MethodGetRunWorkItem
     | MethodGetWorkItem
     | MethodListWorkItems
     | MethodGetWorkItemOutcome
+    | MethodIssueHostStartGrant
     | MethodIssueControlLease
     | MethodTransitionControlLease
     | MethodGetControlLease
@@ -13420,6 +13922,7 @@ class MethodDiscoverParams(BaseModel):
 
     k: Annotated[int, Field(ge=0)]
     keywords: list[str]
+    quality_policy_ref: str | None = None
     query_embedding: list[float]
 
 
@@ -13660,6 +14163,15 @@ class MethodFinanceAlphaCombinationEngineParams(BaseModel):
     returns_matrix: list[list[float]]
 
 
+class MethodFinanceAmlScreenParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount_minor: int
+    rule_id: str
+    threshold_minor: int
+    version: Annotated[int, Field(ge=0)]
+
+
 class MethodFinanceAvellanedaStoikovParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13705,6 +14217,16 @@ class MethodFinanceBrierScoreParams(BaseModel):
 
     forecasts: list[float]
     outcomes: list[float]
+
+
+class MethodFinanceCapitalRatiosParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    at1: int
+    cet1: int
+    risk_weighted_assets: int
+    tier2: int
+    total_exposure: int
 
 
 class MethodFinanceCombineAlphasParams(BaseModel):
@@ -13760,6 +14282,14 @@ class MethodFinanceDieboldMarianoParams(BaseModel):
     losses_b: list[float]
 
 
+class MethodFinanceDistributionShiftParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    current: list[float]
+    reference: list[float]
+    threshold: float
+
+
 class MethodFinanceDownsideDeviationParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13797,6 +14327,28 @@ class MethodFinanceEmpiricalKellyParams(BaseModel):
     seed: Annotated[int, Field(ge=0)]
 
 
+class MethodFinanceExecutionScheduleParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    continuous: bool
+    horizon: float
+    permanent_impact: float
+    risk_aversion: float
+    slices: Annotated[int, Field(ge=0)]
+    symbol: str
+    temporary_impact: float
+    total_shares: float
+    volatility: float
+
+
+class MethodFinanceExpectedLossParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ead_minor: int
+    lgd: float
+    pd: float
+
+
 class MethodFinanceExpectedPnlRateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13807,6 +14359,15 @@ class MethodFinanceExpectedPnlRateParams(BaseModel):
     p: float
     v_h: float
     v_l: float
+
+
+class MethodFinanceFactorRankParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    factor_ids: list[str]
+    forward_returns: list[float]
+    provenance_keys: list[list[str]]
+    signals: list[list[float]]
 
 
 class MethodFinanceForensicReportParams(BaseModel):
@@ -13934,6 +14495,18 @@ class MethodFinanceMarketImpactParams(BaseModel):
     order_quantity: float
 
 
+class MethodFinanceMarketMakingQuoteParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    inventory: float
+    mid: float
+    order_arrival_decay: float
+    risk_aversion: float
+    symbol: str
+    time_remaining: float
+    volatility: float
+
+
 class MethodFinanceMarketParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14036,12 +14609,32 @@ class MethodFinanceOuOptimalThresholdsParams(BaseModel):
     theta: float
 
 
+class MethodFinancePairsSignalParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entry_z: float
+    hedge_ratio: float
+    x: list[float]
+    x_name: str
+    y: list[float]
+    y_name: str
+
+
 class MethodFinancePairsTradingParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     lookback: Annotated[int, Field(ge=0)]
     prices_a: list[float]
     prices_b: list[float]
+
+
+class MethodFinancePositionSizeParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    accuracy: float
+    fraction: float | None = None
+    max_risk: float | None = None
+    win_loss_ratio: float
 
 
 class MethodFinancePosteriorCredibleIntervalParams(BaseModel):
@@ -14083,6 +14676,14 @@ class MethodFinanceRealizedVolTickParams(BaseModel):
 
     mid: list[float]
     window: Annotated[int, Field(ge=0)]
+
+
+class MethodFinanceRegimeChainParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    horizon: Annotated[int, Field(ge=0)]
+    returns: list[float]
+    threshold: float
 
 
 class MethodFinanceRiskMetricsParams(BaseModel):
@@ -14130,6 +14731,15 @@ class MethodFinanceSabrSmileParams(BaseModel):
     rho: float
     strikes: list[float]
     t: float
+
+
+class MethodFinanceSettlementChainParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount_minor: int
+    beneficiary: str
+    correspondents: list[str]
+    origin: str
 
 
 class MethodFinanceSignalDecayParams(BaseModel):
@@ -14224,6 +14834,30 @@ class MethodFleetCatalogParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: FleetCatalogOp
+
+
+class MethodForeignReadAbortParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadAbortRequest
+
+
+class MethodForeignReadChunkParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadChunkRequest
+
+
+class MethodForeignReadCompleteParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadCompleteRequest
+
+
+class MethodForeignReadOpenParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: ForeignReadOpenRequest
 
 
 class MethodFreshnessFeedParams(BaseModel):
@@ -14404,10 +15038,23 @@ class MethodGetPredecessorsParams(BaseModel):
     node_id: str
 
 
+class MethodGetRunCheckpointParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: GetRunCheckpointRequest
+
+
 class MethodGetRunWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     run_id: str
+    tenant: str
+
+
+class MethodGetSessionUsageParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
     tenant: str
 
 
@@ -14565,6 +15212,12 @@ class MethodIssueControlLeaseParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: IssueControlLeaseRequest
+
+
+class MethodIssueHostStartGrantParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: IssueHostStartGrantRequest
 
 
 class MethodJoinChannelParams(BaseModel):
@@ -15010,6 +15663,13 @@ class MethodNlQueryParams(BaseModel):
     text: str
 
 
+class MethodNlQueryPlanParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph: str | None = None
+    text: str
+
+
 class MethodObserveDevelopmentLaneParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15197,6 +15857,12 @@ class MethodPublishParams(BaseModel):
     exchange: str
     payload: _EgOctets
     routing_key: str
+
+
+class MethodPublishRunCheckpointParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: PublishRunCheckpointRequest
 
 
 class MethodQuantumParams(BaseModel):
@@ -15988,6 +16654,8 @@ class MethodUnbindQueueParams(BaseModel):
 class MethodUnifiedQueryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    foreign_execution: ForeignReadExecutionRef | None = None
+    foreign_executions: BoundedVec_ForeignReadExecutionRef_16 | None = None
     plan: Plan
 
 
@@ -16034,7 +16702,9 @@ class MethodUpdateResourceHostParams(BaseModel):
 class MethodUqlParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    foreign_execution: ForeignReadExecutionRef | None = None
     params: dict[str, UqlParam] | None = None
+    prepare: bool | None = None
     text: str
 
 
@@ -16454,6 +17124,14 @@ class NlQueryExplainResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     rows: list[NlQueryExplainResultRowsItem]
+    uql: str
+
+
+class NlQueryPlanResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    plan_digest: Digest256
+    query_digest: Digest256
     uql: str
 
 
@@ -17080,6 +17758,7 @@ class OpValidateShapeBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     keep: ShapeKeep
+    projection_base: str | None = None
     shape: str
     shapes: str
 
@@ -17396,6 +18075,45 @@ class PackRetireResult(BaseModel):
     retired: BoundedVec_ComponentDependency_8192
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     tenant_id: str
+
+
+class PackSourceApproval(str, Enum):
+    HELD = "held"
+    APPROVED = "approved"
+
+
+class PackSourceKind(str, Enum):
+    MCP_TOOL = "mcp_tool"
+    HTTP_ENDPOINT = "http_endpoint"
+    GRAPHQL_QUERY = "graphql_query"
+    A2A_SKILL = "a2a_skill"
+    VIRTUAL_GRAPH = "virtual_graph"
+
+
+class PackSourceRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval: PackSourceApproval | None = None
+    class_iri: str
+    connector: str
+    contract_iri: str
+    entity: str
+    key_field: str
+    operation: str
+    resource_uri: str
+    source_id: str
+    source_kind: PackSourceKind
+
+
+class PairsSignalResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entry_z: float
+    hedge_ratio: float
+    side: str
+    x: str
+    y: str
+    z_score: float
 
 
 class ParallelRelationRow(BaseModel):
@@ -18285,6 +19003,21 @@ class PublishCurrentPlanRequest(BaseModel):
     worker_id: str
 
 
+class PublishRunCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    expected_revision: Annotated[int, Field(ge=0)] | None = None
+    fencing_token: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_epoch: Annotated[int, Field(ge=0)]
+    run_id: str
+    snapshot: CheckpointContent
+    tenant: str
+    work_item_id: str
+    worker_id: str
+
+
 class QuantumExpectationResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -18755,6 +19488,20 @@ class RefitSpec(BaseModel):
 
     head_kind: HeadKind
     optimiser: OptimiserSpec
+
+
+class RegimeChainResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    current_state: Annotated[int, Field(ge=0)]
+    forecast: list[float]
+    hit_rate: float
+    horizon: Annotated[int, Field(ge=0)]
+    probabilities: list[list[float]]
+    solver_status: str
+    states: list[str]
+    threshold: float
+    transitions: Annotated[int, Field(ge=0)]
 
 
 class RegimeResult(BaseModel):
@@ -19637,6 +20384,30 @@ class RuleReasonResponse(BaseModel):
     facts: list[RuleFact]
     registered_rules: list[str]
     same_as: list[RuleReasonResponseSameAsItem]
+
+
+class RunCheckpointPublished(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    context_id: str
+    payload_digest: str
+    replayed: bool
+    revision: Annotated[int, Field(ge=0)]
+    run_id: str
+    work_item_id: str
+
+
+class RunCheckpointRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content: str
+    context_id: str
+    long_term: list[CheckpointMemoryRef]
+    payload_digest: str
+    revision: Annotated[int, Field(ge=0)]
+    short_term: list[CheckpointMemoryRef]
+    work_item: WorkItemView
 
 
 class RunCompletionInput(BaseModel):
@@ -21877,6 +22648,18 @@ class SessionTouch(BaseModel):
     session_token: Secret
 
 
+class SessionUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    count_coverage: dict[str, Annotated[int, Field(ge=0)]]
+    counts: dict[str, Annotated[int, Field(ge=0)]]
+    expected_runs: Annotated[int, Field(ge=0)]
+    inventory_complete: bool
+    missing_runs: Annotated[int, Field(ge=0)]
+    recorded_runs: Annotated[int, Field(ge=0)]
+
+
 class SessionView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -21890,6 +22673,15 @@ class SessionView(BaseModel):
     mfa_pending: bool
     principal_id: str
     revoked: bool
+
+
+class SettlementLegResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount_minor: int
+    from_: str = Field(..., alias="from")
+    sequence: Annotated[int, Field(ge=0)]
+    to: str
 
 
 class ShapeKeep(str, Enum):
@@ -22864,6 +23656,14 @@ class TaskPlan(BaseModel):
     total_tasks: Annotated[int, Field(ge=0, le=65535)]
 
 
+class TaskPlanCall(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    arguments: Any
+    server: str
+    tool: str
+
+
 class TaskPlanProposal(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -22876,6 +23676,7 @@ class TaskPlanProposal(BaseModel):
 class TaskPlanTask(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    call: TaskPlanCall | None = None
     depends_on: BoundedVec_string_64 = Field(default_factory=list)
     prompt: str
     task_id: str
@@ -23442,6 +24243,8 @@ class UqlResultExplainBody(BaseModel):
     incremental: bool
     incremental_note: str
     optimized: str
+    plan_digest: Digest256 | None = None
+    query_digest: Digest256 | None = None
     stages: list[UqlStageReport]
     warnings: list[str]
 
@@ -24198,6 +25001,14 @@ BoundedVec_FeatureStandardisation_32 = Annotated[
 ]
 
 
+BoundedVec_ForeignReadExecutionRef_16 = Annotated[
+    list[ForeignReadExecutionRef],
+    Field(
+        max_length=16,
+    ),
+]
+
+
 BoundedVec_GenerationEvalItem_1024 = Annotated[
     list[GenerationEvalItem],
     Field(
@@ -24723,6 +25534,9 @@ FinanceCrossSectionalRankResult = list[list[float]]
 FinanceDrawdownSeriesResult = list[float]
 
 
+FinanceFactorRankResult = list[FactorRecordResult]
+
+
 FinanceKalmanVolatilityResult = list[float]
 
 
@@ -24757,6 +25571,9 @@ FinanceRealizedVolTickResult = list[float]
 
 
 FinanceSabrSmileResult = list[float]
+
+
+FinanceSettlementChainResult = list[SettlementLegResult]
 
 
 FinanceSignalDecayResult = list[float]
@@ -24896,6 +25713,9 @@ GetNodePropertiesBatchResult = list[GetNodePropertiesBatchResultValueItem]
 
 
 GetRdfResult = str
+
+
+GetRunCheckpointResult = RunCheckpointRead | None
 
 
 GetRunWorkItemResult = RunWorkItemView | None
@@ -25428,6 +26248,16 @@ QuestionKind = (
     | Literal["harness_config"]
     | Literal["task_plan"]
     | Literal["harness_contrast"]
+    | Literal["placement"]
+    | Literal["context_budget"]
+    | Literal["round_verdict"]
+    | Literal["stage_allocation"]
+    | Literal["probe_verdict"]
+    | Literal["item_recommendation"]
+    | Literal["load_set"]
+    | Literal["usage_guidance"]
+    | Literal["branch_outcome"]
+    | Literal["edit_concentration"]
 )
 
 
@@ -25845,6 +26675,8 @@ __all__ = [
     "AgentUsageLimits",
     "Algorithm",
     "AllocationRule",
+    "AmlAlertResult",
+    "AmlScreenResult",
     "AnalysisSnapshot",
     "AnalysisSnapshotDraft",
     "AnalyticsJobRecord",
@@ -25953,6 +26785,7 @@ __all__ = [
     "BoundedVec_Elimination_64",
     "BoundedVec_FeatureStandardisation_32",
     "BoundedVec_FleetCatalogRow_256",
+    "BoundedVec_ForeignReadExecutionRef_16",
     "BoundedVec_GenerationEvalItem_1024",
     "BoundedVec_GraphSchemaSourceView_32",
     "BoundedVec_GraphSchemaSourceView_64",
@@ -26072,6 +26905,7 @@ __all__ = [
     "CapacityThrottlePolicy",
     "CapacityThrottleRequest",
     "CapacityThrottleResult",
+    "CapitalRatiosResult",
     "CaptureCompletion",
     "CaptureEligibility",
     "CaptureTraceFidelity",
@@ -26142,6 +26976,9 @@ __all__ = [
     "ChannelMessage",
     "ChannelSummary",
     "ChannelType",
+    "CheckpointClaim",
+    "CheckpointContent",
+    "CheckpointMemoryRef",
     "ClaimAuthor",
     "ClaimNextResult",
     "ClaimNextResultValue",
@@ -26215,6 +27052,7 @@ __all__ = [
     "ConnectorPackImportRequest",
     "ConnectorPackIndex",
     "ConnectorPackOp",
+    "ConnectorPackOpApproveSource",
     "ConnectorPackOpAttestSelfServedCatalog",
     "ConnectorPackOpBind",
     "ConnectorPackOpCatalogAuthorityStatus",
@@ -26231,6 +27069,8 @@ __all__ = [
     "ConnectorPackReconcileRequest",
     "ConnectorPackReprojectRequest",
     "ConnectorPackRetireRequest",
+    "ConnectorPackSourceApprovalRequest",
+    "ConnectorPackSourceApprovalResult",
     "ConnectorPackStatus",
     "ConnectorPackStatusRequest",
     "ConnectorPackUnbindRequest",
@@ -26462,6 +27302,7 @@ __all__ = [
     "DistResultLabelsBodyItem",
     "DistResultScores",
     "DistResultScoresBodyItem",
+    "DistributionShift",
     "DocTerms",
     "DpoResult",
     "DsLogSoftmaxResult",
@@ -26561,6 +27402,7 @@ __all__ = [
     "EvidenceResourceWireSegment",
     "EvidenceTimeRange",
     "ExchangeCalendar",
+    "ExecutionScheduleResult",
     "ExistenceSignalWire",
     "ExplainBeliefRedactedResult",
     "ExplainBeliefResponse",
@@ -26575,6 +27417,7 @@ __all__ = [
     "ExtractedEdge",
     "ExtractedNode",
     "FactQuality",
+    "FactorRecordResult",
     "FeatureMatrixRef",
     "FeatureMatrixRefBlob",
     "FeatureMatrixRefInline",
@@ -26594,6 +27437,7 @@ __all__ = [
     "FinanceCombineAlphasResult",
     "FinanceCrossSectionalRankResult",
     "FinanceDrawdownSeriesResult",
+    "FinanceFactorRankResult",
     "FinanceKalmanVolatilityResult",
     "FinanceMarketOp",
     "FinanceMarketOpAnalysisSnapshot",
@@ -26602,6 +27446,7 @@ __all__ = [
     "FinanceMarketOpEncodePoints",
     "FinanceMarketOpFlipConfidence",
     "FinanceMarketOpIndicators",
+    "FinanceMarketOpLiquidityPanel",
     "FinanceMarketOpResolve",
     "FinanceMarketOpRollup",
     "FinanceMarketOpSignalAdvance",
@@ -26618,6 +27463,7 @@ __all__ = [
     "FinancePurgedCpcvResult",
     "FinanceRealizedVolTickResult",
     "FinanceSabrSmileResult",
+    "FinanceSettlementChainResult",
     "FinanceSignalDecayResult",
     "FinanceSignalModelsOp",
     "FinanceSignalModelsOpBayesFuse",
@@ -26709,6 +27555,18 @@ __all__ = [
     "ForeignColumnRow",
     "ForeignCypherBackend",
     "ForeignOperationCapabilities",
+    "ForeignReadAbortRequest",
+    "ForeignReadAbortResult",
+    "ForeignReadChunkRequest",
+    "ForeignReadChunkResult",
+    "ForeignReadCompleteRequest",
+    "ForeignReadCompleteResult",
+    "ForeignReadExecutionRef",
+    "ForeignReadLimits",
+    "ForeignReadOpenRequest",
+    "ForeignReadOpenResult",
+    "ForeignReadRow",
+    "ForeignReadSourceIdentity",
     "ForeignSourceFreshness",
     "ForeignSourceSpec",
     "ForeignSourceSpecA2a",
@@ -26784,6 +27642,8 @@ __all__ = [
     "GetNodePropertiesBatchResult",
     "GetNodePropertiesBatchResultValueItem",
     "GetRdfResult",
+    "GetRunCheckpointRequest",
+    "GetRunCheckpointResult",
     "GetRunWorkItemResult",
     "GetShortestPathResult",
     "GetWorkItemOutcomeResult",
@@ -26820,7 +27680,9 @@ __all__ = [
     "GraphSchemaOpAttachApproved",
     "GraphSchemaOpAttachPack",
     "GraphSchemaOpDetach",
+    "GraphSchemaOpImportOntology",
     "GraphSchemaOpValidateRepair",
+    "GraphSchemaOpWithdrawOntology",
     "GraphSchemaSourceView",
     "GraphSchemaSourcesView",
     "GraphSchemaTermKind",
@@ -26864,6 +27726,9 @@ __all__ = [
     "HeadKind",
     "HealthReport",
     "HeldBlobRef",
+    "HostStartBinding",
+    "HostStartInterfaces",
+    "HostStartProvenance",
     "HttpFieldMap",
     "IdempotentPublish",
     "IdentityActor",
@@ -27014,6 +27879,7 @@ __all__ = [
     "InvalidationEvent",
     "InvalidationScope",
     "IssueControlLeaseRequest",
+    "IssueHostStartGrantRequest",
     "ItemLabel",
     "ItemLabelGold",
     "ItemLabelLogged",
@@ -27146,6 +28012,12 @@ __all__ = [
     "LinkPredictorFit",
     "LinkRequest",
     "Linkage",
+    "LiquidityDirection",
+    "LiquidityHeatCell",
+    "LiquidityObservation",
+    "LiquidityPanel",
+    "LiquidityPanelRequest",
+    "LiquiditySeries",
     "ListChannelsResult",
     "ListControlLeasesRequest",
     "ListGraphsResult",
@@ -27164,6 +28036,7 @@ __all__ = [
     "ManagedIndexTargetGraphEdges",
     "ManagedIndexTargetTableColumn",
     "MappingRule",
+    "MarketMakingQuoteResult",
     "MatchOntologyTermsResult",
     "MaterialClass",
     "MaterialOperation",
@@ -27457,6 +28330,8 @@ __all__ = [
     "MethodFinanceAdfTestParams",
     "MethodFinanceAlphaCombinationEngine",
     "MethodFinanceAlphaCombinationEngineParams",
+    "MethodFinanceAmlScreen",
+    "MethodFinanceAmlScreenParams",
     "MethodFinanceAvellanedaStoikov",
     "MethodFinanceAvellanedaStoikovParams",
     "MethodFinanceBayesianKelly",
@@ -27467,6 +28342,8 @@ __all__ = [
     "MethodFinanceBreakevenAlphaParams",
     "MethodFinanceBrierScore",
     "MethodFinanceBrierScoreParams",
+    "MethodFinanceCapitalRatios",
+    "MethodFinanceCapitalRatiosParams",
     "MethodFinanceCombineAlphas",
     "MethodFinanceCombineAlphasParams",
     "MethodFinanceConvergenceGate",
@@ -27481,6 +28358,8 @@ __all__ = [
     "MethodFinanceDetectRegimesParams",
     "MethodFinanceDieboldMariano",
     "MethodFinanceDieboldMarianoParams",
+    "MethodFinanceDistributionShift",
+    "MethodFinanceDistributionShiftParams",
     "MethodFinanceDownsideDeviation",
     "MethodFinanceDownsideDeviationParams",
     "MethodFinanceDrawdownSeries",
@@ -27491,8 +28370,14 @@ __all__ = [
     "MethodFinanceEfficientFrontierParams",
     "MethodFinanceEmpiricalKelly",
     "MethodFinanceEmpiricalKellyParams",
+    "MethodFinanceExecutionSchedule",
+    "MethodFinanceExecutionScheduleParams",
+    "MethodFinanceExpectedLoss",
+    "MethodFinanceExpectedLossParams",
     "MethodFinanceExpectedPnlRate",
     "MethodFinanceExpectedPnlRateParams",
+    "MethodFinanceFactorRank",
+    "MethodFinanceFactorRankParams",
     "MethodFinanceForensicReport",
     "MethodFinanceForensicReportParams",
     "MethodFinanceGlostenMilgromSpread",
@@ -27522,6 +28407,8 @@ __all__ = [
     "MethodFinanceMarket",
     "MethodFinanceMarketImpact",
     "MethodFinanceMarketImpactParams",
+    "MethodFinanceMarketMakingQuote",
+    "MethodFinanceMarketMakingQuoteParams",
     "MethodFinanceMarketParams",
     "MethodFinanceMarkovTransitionMatrix",
     "MethodFinanceMarkovTransitionMatrixParams",
@@ -27547,8 +28434,12 @@ __all__ = [
     "MethodFinanceOuCalibrateParams",
     "MethodFinanceOuOptimalThresholds",
     "MethodFinanceOuOptimalThresholdsParams",
+    "MethodFinancePairsSignal",
+    "MethodFinancePairsSignalParams",
     "MethodFinancePairsTrading",
     "MethodFinancePairsTradingParams",
+    "MethodFinancePositionSize",
+    "MethodFinancePositionSizeParams",
     "MethodFinancePosteriorCredibleInterval",
     "MethodFinancePosteriorCredibleIntervalParams",
     "MethodFinanceProbabilityBacktestOverfit",
@@ -27559,6 +28450,8 @@ __all__ = [
     "MethodFinanceQueueImbalanceParams",
     "MethodFinanceRealizedVolTick",
     "MethodFinanceRealizedVolTickParams",
+    "MethodFinanceRegimeChain",
+    "MethodFinanceRegimeChainParams",
     "MethodFinanceRiskMetrics",
     "MethodFinanceRiskMetricsParams",
     "MethodFinanceRiskParity",
@@ -27569,6 +28462,8 @@ __all__ = [
     "MethodFinanceSabrImpliedVolParams",
     "MethodFinanceSabrSmile",
     "MethodFinanceSabrSmileParams",
+    "MethodFinanceSettlementChain",
+    "MethodFinanceSettlementChainParams",
     "MethodFinanceSignalDecay",
     "MethodFinanceSignalDecayParams",
     "MethodFinanceSignalModels",
@@ -27594,6 +28489,14 @@ __all__ = [
     "MethodFiredTriggersParams",
     "MethodFleetCatalog",
     "MethodFleetCatalogParams",
+    "MethodForeignReadAbort",
+    "MethodForeignReadAbortParams",
+    "MethodForeignReadChunk",
+    "MethodForeignReadChunkParams",
+    "MethodForeignReadComplete",
+    "MethodForeignReadCompleteParams",
+    "MethodForeignReadOpen",
+    "MethodForeignReadOpenParams",
     "MethodFork",
     "MethodFreshnessFeed",
     "MethodFreshnessFeedParams",
@@ -27655,8 +28558,12 @@ __all__ = [
     "MethodGetPredecessors",
     "MethodGetPredecessorsParams",
     "MethodGetRdf",
+    "MethodGetRunCheckpoint",
+    "MethodGetRunCheckpointParams",
     "MethodGetRunWorkItem",
     "MethodGetRunWorkItemParams",
+    "MethodGetSessionUsage",
+    "MethodGetSessionUsageParams",
     "MethodGetShortestPath",
     "MethodGetShortestPathParams",
     "MethodGetSubgraph",
@@ -27705,6 +28612,8 @@ __all__ = [
     "MethodInvalidateEdgeParams",
     "MethodIssueControlLease",
     "MethodIssueControlLeaseParams",
+    "MethodIssueHostStartGrant",
+    "MethodIssueHostStartGrantParams",
     "MethodJoinChannel",
     "MethodJoinChannelParams",
     "MethodKgDelegate",
@@ -27799,6 +28708,8 @@ __all__ = [
     "MethodNlQueryExplain",
     "MethodNlQueryExplainParams",
     "MethodNlQueryParams",
+    "MethodNlQueryPlan",
+    "MethodNlQueryPlanParams",
     "MethodNodeCount",
     "MethodNodeIds",
     "MethodObserveDevelopmentLane",
@@ -27853,6 +28764,8 @@ __all__ = [
     "MethodPublishIdempotent",
     "MethodPublishIdempotentParams",
     "MethodPublishParams",
+    "MethodPublishRunCheckpoint",
+    "MethodPublishRunCheckpointParams",
     "MethodQuantum",
     "MethodQuantumParams",
     "MethodQueryDevelopmentLane",
@@ -28162,6 +29075,7 @@ __all__ = [
     "NlChoiceSourceLlmProposal",
     "NlQueryExplainResult",
     "NlQueryExplainResultRowsItem",
+    "NlQueryPlanResult",
     "NlQueryResult",
     "NlQueryResultValueItem",
     "NlTarget",
@@ -28337,6 +29251,9 @@ __all__ = [
     "PackRef",
     "PackRetireResult",
     "PackSection",
+    "PackSourceApproval",
+    "PackSourceKind",
+    "PackSourceRegistration",
     "PackToolMode",
     "PackViolation",
     "PackViolationCode",
@@ -28345,6 +29262,7 @@ __all__ = [
     "PackWriteErrorCode",
     "PageRankResult",
     "PageRankResultValueItem",
+    "PairsSignalResult",
     "ParallelRelationRow",
     "ParseFilesResult",
     "ParseResult",
@@ -28516,6 +29434,7 @@ __all__ = [
     "ProvisionedUser",
     "PruneStats",
     "PublishCurrentPlanRequest",
+    "PublishRunCheckpointRequest",
     "QuantScaleTag",
     "QuantisedValue",
     "QuantumExpectationResult",
@@ -28580,6 +29499,7 @@ __all__ = [
     "ReducedRow",
     "ReductionMiningResult",
     "RefitSpec",
+    "RegimeChainResult",
     "RegimeResult",
     "RegisteredServerCursor",
     "RegisteredServerListPage",
@@ -28677,6 +29597,8 @@ __all__ = [
     "RuleProofNode",
     "RuleReasonResponse",
     "RuleReasonResponseSameAsItem",
+    "RunCheckpointPublished",
+    "RunCheckpointRead",
     "RunCompletionInput",
     "RunCompletionPayload",
     "RunEvent",
@@ -28931,7 +29853,9 @@ __all__ = [
     "ServerTransport",
     "SessionRecordProjection",
     "SessionTouch",
+    "SessionUsage",
     "SessionView",
+    "SettlementLegResult",
     "Sha256Digest",
     "ShaclSeverity",
     "ShaclValidationReport",
@@ -29116,6 +30040,7 @@ __all__ = [
     "SurveillanceRisk",
     "SvmKernel",
     "TaskPlan",
+    "TaskPlanCall",
     "TaskPlanProposal",
     "TaskPlanTask",
     "TelemetryDeriveReceipt",
@@ -29158,7 +30083,9 @@ __all__ = [
     "TokenPurpose",
     "TokenRedeem",
     "ToolEffect",
+    "ToolFactDeclarer",
     "ToolMode",
+    "ToolSideEffects",
     "ToolsetTransport",
     "TopicTerms",
     "TopologicalSortResult",

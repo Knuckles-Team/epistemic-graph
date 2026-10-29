@@ -183,6 +183,11 @@ pub struct ServerState {
     /// every typed route use the same kernel authority.
     #[cfg(feature = "redb")]
     pub agent_library: Option<Arc<crate::server::persistence::agent_library::AgentLibraryStore>>,
+    /// Serializes physical opens while permitting the projection worker to open
+    /// outside the global state lock. The slot retains the shared winning handle.
+    #[cfg(feature = "redb")]
+    pub(crate) agent_library_open:
+        Arc<Mutex<Option<Arc<crate::server::persistence::agent_library::AgentLibraryStore>>>>,
     /// Cold-tenant access tracker (CONCEPT:EG-KG.sharding.eg-r6/EG-040, R6), feature `redb`. The
     /// dispatch read+write path calls `touch(graph)` on every graph access so the
     /// periodic cold-offload sweep (`offload_cold_tenants`) can hibernate graphs idle
@@ -345,6 +350,10 @@ pub struct ServerState {
     /// Always present (empty) with the feature on.
     #[cfg(feature = "federation")]
     pub foreign_sources: Arc<crate::server::foreign_catalog::ForeignSourceCatalog>,
+    /// Bounded host-driven foreign-read page buffers.  Durable approval remains
+    /// in the Agent Library; this map is only request-scoped execution state.
+    #[cfg(feature = "federation")]
+    pub(crate) foreign_reads: Arc<crate::server::foreign_read::ForeignReadSessions>,
     /// Generic namespaced Key→Value store (CONCEPT:EG-KG.storage.namespaced-kv-surface, feature `kv`). `Some` on a
     /// `kv` build: a durable `{persist_dir}/kv.redb` when a persist dir is set, else an
     /// in-memory scratch map. The `Kv*` handlers get/put/delete/scan/cas through it; it
@@ -480,6 +489,8 @@ impl ServerState {
             #[cfg(feature = "redb")]
             agent_library: None,
             #[cfg(feature = "redb")]
+            agent_library_open: Arc::default(),
+            #[cfg(feature = "redb")]
             cold_tracker: Arc::default(),
             #[cfg(feature = "viz-static-export")]
             viz_engine: None,
@@ -516,6 +527,8 @@ impl ServerState {
             matviews: Arc::default(),
             #[cfg(feature = "federation")]
             foreign_sources: Arc::default(),
+            #[cfg(feature = "federation")]
+            foreign_reads: Arc::default(),
             #[cfg(feature = "kv")]
             kv: None,
             #[cfg(feature = "lake")]
@@ -554,9 +567,7 @@ impl ServerState {
             .persist_dir
             .as_deref()
             .ok_or_else(|| "Agent Library requires a configured persist directory".to_string())?;
-        let store = Arc::new(
-            crate::server::persistence::agent_library::AgentLibraryStore::open(persist_dir)?,
-        );
+        let store = open_shared_agent_library(&self.agent_library_open, persist_dir)?;
         self.agent_library = Some(Arc::clone(&store));
         Ok(store)
     }
@@ -575,6 +586,22 @@ impl ServerState {
         });
         isolation
     }
+}
+
+/// Open one physical Agent Library handle across request and background paths.
+#[cfg(feature = "redb")]
+pub(crate) fn open_shared_agent_library(
+    slot: &Mutex<Option<Arc<crate::server::persistence::agent_library::AgentLibraryStore>>>,
+    persist_dir: &str,
+) -> Result<Arc<crate::server::persistence::agent_library::AgentLibraryStore>, String> {
+    let mut guard = slot.lock();
+    if let Some(store) = guard.as_ref() {
+        return Ok(Arc::clone(store));
+    }
+    let store =
+        Arc::new(crate::server::persistence::agent_library::AgentLibraryStore::open(persist_dir)?);
+    *guard = Some(Arc::clone(&store));
+    Ok(store)
 }
 
 impl ServerState {
@@ -597,6 +624,44 @@ impl ServerState {
 #[cfg(test)]
 mod construction_tests {
     use super::{IsolationLayer, ServerState};
+
+    #[cfg(feature = "redb")]
+    #[test]
+    fn concurrent_agent_library_opens_share_one_handle() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_str().unwrap().to_owned();
+        let slot = std::sync::Arc::new(parking_lot::Mutex::new(None));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let (slot, barrier, path) = (slot.clone(), barrier.clone(), path.clone());
+                std::thread::spawn(move || {
+                    crate::test_rendezvous::meet(&barrier, "agent library open");
+                    super::open_shared_agent_library(&slot, &path).unwrap()
+                })
+            })
+            .collect();
+        let handles: Vec<_> = threads
+            .into_iter()
+            .map(|thread| crate::test_rendezvous::join_bounded(thread, "agent library open"))
+            .collect();
+        assert!(handles
+            .iter()
+            .all(|handle| std::sync::Arc::ptr_eq(&handles[0], handle)));
+    }
+
+    #[cfg(feature = "redb")]
+    #[test]
+    fn failed_agent_library_open_does_not_poison_slot() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("not-a-directory");
+        std::fs::write(&file, b"fixture").unwrap();
+        let slot = parking_lot::Mutex::new(None);
+        assert!(super::open_shared_agent_library(&slot, file.to_str().unwrap()).is_err());
+        assert!(
+            super::open_shared_agent_library(&slot, directory.path().to_str().unwrap()).is_ok()
+        );
+    }
 
     /// Pins the baseline `ServerState::new` composes: the admission limits and
     /// transaction bounds, empty registries, and a CDC hub under `streaming`.

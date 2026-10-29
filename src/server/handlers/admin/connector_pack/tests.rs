@@ -32,6 +32,8 @@ mod ontology;
 mod outbox;
 mod scale;
 mod self_served_catalog;
+#[cfg(all(feature = "owl", feature = "shacl"))]
+mod source_approval;
 mod storage_acceptance;
 mod withdrawal;
 
@@ -408,6 +410,37 @@ pub(super) async fn import(
     let (mut index, archive) = pack.clone();
     index.archive.blob_digest = served.upload(&archive).await;
     import_uploaded(served, index, expected_head).await
+}
+
+/// Approve one held source declaration through the served ConnectorPack op.
+#[cfg(all(feature = "owl", feature = "shacl"))]
+pub(super) async fn approve_source(
+    served: &Served,
+    connector: &str,
+    contract_iri: &str,
+    resource_uri: &str,
+    expected_head: eg_types::connector_pack::PackHeadRef,
+    contract_digest: Digest256,
+) -> Response {
+    let key = format!(
+        "connector-pack:{connector}:approve-source:{}:{}:{}",
+        expected_head.binding_revision, contract_iri, resource_uri
+    );
+    served
+        .pack(
+            &key,
+            ConnectorPackOp::ApproveSource {
+                request: eg_types::connector_pack::ConnectorPackSourceApprovalRequest {
+                    context: context(&key),
+                    connector: ResourceId::new(connector).unwrap(),
+                    contract_iri: contract_iri.to_string(),
+                    resource_uri: resource_uri.to_string(),
+                    expected_head,
+                    contract_digest,
+                },
+            },
+        )
+        .await
 }
 
 /// Import an already uploaded pack as the admin, over `expected_head`.

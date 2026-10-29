@@ -1,6 +1,6 @@
 # UQL — the Unified Query Language
 
-UQL is epistemic-graph's human- and agent-writable query language. It is a **pure
+UQL is Medulla's human- and agent-writable query language. It is a **pure
 front-end** (CONCEPT:AU-KG.query.top-nodes-by-degree) over the engine's cross-modal plan
 algebra (CONCEPT:AU-KG.compute.vector): a UQL string parses to the *exact same* `wire::Plan`
 (an ordered `Vec<Op>`) that the structured `UnifiedQuery` API runs — it adds **no** new
@@ -296,9 +296,15 @@ TSSCAN ['px'] FROM 0 TO 86400 |> DERIVE ret(v0, 1) AS r, zscore(ewma(v0, 12), 60
 | Clause | Op | Feature |
 |--------|-----|---------|
 | `REASON <http://ex/Device> [ONTOLOGY '<turtle>']` | `Reason{target_class, ontology}` | `owl` |
-| `VALIDATE SHAPE <http://ex/S> [USING '<turtle>'] [KEEP CONFORMING\|VIOLATING]` | `ValidateShape{shape, shapes, keep}` — SHACL conformance filter; without `USING`, the graph's GraphSchema shapes | `owl` |
+| `VALIDATE SHAPE <http://ex/S> [USING '<turtle>'] [PROJECT '<namespace>'] [KEEP CONFORMING\|VIOLATING]` | `ValidateShape{shape, shapes, projection_base, keep}` — SHACL conformance filter; without `USING`, the graph's GraphSchema shapes | `owl` |
 | `EVIDENCE FOR 'c1'`, `CONTRADICTS 'c1'`, `SUPPORTED BY 'c1'` | evidence graph | `epistemic` |
 | `BELIEF AS OF @t`, `SOURCE RELIABILITY 's1'`, `CONFIDENCE`, `EXPLAIN BELIEF 'c1'` | belief scoring | `epistemic` |
+
+`VALIDATE SHAPE` defaults to the RDF identity projection. `PROJECT` opts into the
+same caller-supplied namespace policy as SPARQL for native graph node IDs,
+property names, relation names and node types. Returned rows retain their graph
+IDs. The stage refuses projected identity collisions. Native scalar strings are
+RDF strings; only explicitly typed RDF cells carry a different datatype.
 
 `SOURCE RELIABILITY 's1'` multiplies every row by the source's reliability. Its prior is the
 source's propagated belief confidence; when the served query has the caller's decision log

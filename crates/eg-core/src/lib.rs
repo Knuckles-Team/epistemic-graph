@@ -67,6 +67,8 @@ pub mod interrupt;
 pub mod isolation;
 /// CONCEPT:EG-KG.compute.jsonpath-evaluator — pure-Rust JSONPath evaluator + Postgres-`@>` containment.
 pub mod jsonpath;
+// EG-SDLC — derived lifecycle edges, defect intake, requirement state and trace.
+pub mod lifecycle;
 /// CONCEPT:EG-KG.ontology.codegen-from-rust-vocabulary — deterministic ontology/SHACL-shape
 /// text generated from a typed Rust vocabulary, with a byte-equality regeneration test
 /// (EG-TYPED-PACKS-R090.1). The canonical ontology/shape corpus itself is owned by the

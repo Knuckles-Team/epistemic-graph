@@ -30,6 +30,7 @@ pub(crate) fn pack_tenant_key(verified: &crate::server::auth::VerifiedRequestCon
 
 pub(crate) mod admin;
 pub(crate) mod admitted;
+pub(crate) mod approval;
 pub(crate) mod catalog_authority;
 pub(crate) mod commit;
 mod declaration;
@@ -67,6 +68,9 @@ pub(crate) struct ConnectorPackMemberRow {
     pub schema_mappings: Option<BTreeMap<String, ConnectorSchemaMapping>>,
     #[serde(default)]
     pub relationship_mappings: Option<BTreeMap<String, ConnectorRelationshipMapping>>,
+    /// Authoritative live-read claims; old rows contain none and stay unbound.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_registrations: Vec<eg_types::connector_pack::PackSourceRegistration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -303,6 +307,7 @@ impl AgentLibraryStore {
         let media_type = entry
             .attributes
             .get(eg_types::agent_component::COMPONENT_MEDIA_TYPE_ATTRIBUTE)
+            .or_else(|| entry.attributes.get("media_type"))
             .cloned()
             .unwrap_or_else(|| eg_types::agent_component::DEFAULT_COMPONENT_MEDIA_TYPE.to_string());
         Ok(ConnectorPackContentPointer {

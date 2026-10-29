@@ -17,6 +17,13 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.no_engine
+CENTRAL_LIGHT_GATES = (
+    "Knuckles-Team/pipelines/.github/workflows/medulla_light_gates.yml@main"
+)
+CENTRAL_RUNNER = (
+    "${{ vars.ARBORA_TRUSTED_CI_RUNNER == 'true' && "
+    "'\"arbora-ci-trusted\"' || '\"ubuntu-latest\"' }}"
+)
 
 
 def _hooks() -> dict[str, dict]:
@@ -103,74 +110,24 @@ def test_goc70_is_manual_only_until_execution_is_bounded():
     assert hooks["constrained-parallelism"]["stages"] == ["manual"]
 
 
-def _assert_scanner_rust_toolchain(steps):
-    """KISS package workers must inherit an already installed pinned channel."""
-    rust_setup = next(
-        step
-        for step in steps
-        if step.get("uses", "").startswith("dtolnay/rust-toolchain@")
-    )
-    pinned = tomllib.loads((REPO / "rust-toolchain.toml").read_text())["toolchain"]
-    assert rust_setup["with"]["toolchain"] == pinned["channel"]
-    assert set(rust_setup["with"]["components"].split(", ")) == set(
-        pinned["components"]
-    )
-
-
-def _assert_scanner_job(jobs, workflow_source):
-    scanner = jobs["scanner-quality"]
-    checkout = next(
-        step
-        for step in scanner["steps"]
-        if step.get("uses", "").startswith("actions/checkout@")
-    )
-    assert checkout["with"]["fetch-depth"] == 0
-    assert checkout["with"]["persist-credentials"] is False
-    assert scanner["continue-on-error"] is True
-    assert "scanner-quality" not in jobs["engine-main-wheel"]["needs"]
-    node_setup = next(
-        step
-        for step in scanner["steps"]
-        if step.get("uses", "").startswith("actions/setup-node@")
-    )
-    # dependency-cruiser 18 follows the active Node release lines and refuses
-    # Node 20 before it can print the pinned version.
-    assert node_setup["with"]["node-version"] == "22"
-    _assert_scanner_rust_toolchain(scanner["steps"])
-
-    all_runs = "\n".join(str(step["run"]) for step in scanner["steps"] if "run" in step)
-    for command in (
-        "scripts/install_scanners.sh",
-        "import-linter==2.13",
-        "check_duplication.py enforce --base-ref",
-        "check_duplication.py census",
-        "validate_cccc_census.py",
-        "--source-manifest",
-        "--require-zero",
-        "cccc --no-config --min 0",
-        "python3 scripts/check_kiss_census.py",
-        "lint-imports --config .config/importlinter.ini --no-cache",
-        "depcruise --validate --config .dependency-cruiser.cjs",
-        "python3 scripts/check_rust_arch_lint.py",
-    ):
-        assert command in all_runs, f"scanner-quality is missing {command!r}"
-    assert "arch-lint check" not in all_runs
-    assert "kiss check" not in all_runs, "the KISS census must go through its wrapper"
-    assert "Upload CCCC census evidence" in workflow_source
-    assert "epistemic-graph-cccc-stderr.txt" in workflow_source
-    assert (
-        _hooks()["rust-arch-lint"]["entry"] == "python3 scripts/check_rust_arch_lint.py"
-    )
-    assert "disclosed as non-hermetic" in workflow_source
-
-    base_step = next(
-        step
-        for step in scanner["steps"]
-        if step.get("name") == "Resolve scanner base commit"
-    )
-    assert "github.event.pull_request.base.sha" in str(base_step["env"])
-    assert "github.event.before" in str(base_step["env"])
-    assert checkout["with"]["fetch-depth"] == 0
+def _assert_scanner_job_removed(jobs):
+    """The advisory hosted scanner job was removed to bound pull-request CI
+    (EG-CONTRACT-R053.7). Every scanner stays in the manual hook profile that
+    scripts/ci_parity.sh runs, with tools provisioned by install_scanners.sh."""
+    assert "scanner-quality" not in jobs
+    hooks = _hooks()
+    for hook_id, command in {
+        "jscpd-differential": "check_duplication.py enforce --base-ref",
+        "jscpd-census": "check_duplication.py census",
+        "cccc-census": "validate_cccc_census.py",
+        "kiss-census": "python3 scripts/check_kiss_census.py",
+        "import-linter-architecture": "lint-imports",
+        "dependency-cruiser-architecture": "depcruise",
+        "rust-arch-lint": "python3 scripts/check_rust_arch_lint.py",
+    }.items():
+        assert command in str(hooks[hook_id]["entry"]), hook_id
+        assert hooks[hook_id]["stages"] == ["manual"], hook_id
+    assert "--hook-stage manual" in (REPO / "scripts/ci_parity.sh").read_text()
 
 
 def _assert_security_and_build_jobs(jobs):
@@ -182,7 +139,10 @@ def _assert_security_and_build_jobs(jobs):
         for step in security["steps"]
         if step.get("name") == "Install pinned cargo-deny"
     )
-    assert "load_contract().cargo_deny_version" in deny_install["run"]
+    assert deny_install["env"]["CARGO_DENY_VERSION"] == (
+        "${{ steps.cargo-deny-cache-key.outputs.version }}"
+    )
+    assert 'version="$CARGO_DENY_VERSION"' in deny_install["run"]
     advisory_steps = [
         step
         for step in security["steps"]
@@ -199,41 +159,31 @@ def _assert_security_and_build_jobs(jobs):
 
 
 def _assert_runtime_contract_jobs(jobs, security):
-    runtime_contracts = jobs["lint-and-architecture"]
-    assert "continue-on-error" not in runtime_contracts
-    # CI runs the same pre-commit config as a local commit, so every
-    # commit-stage architecture hook is a blocking CI gate by construction.
-    commands = [
-        line.strip()
-        for step in runtime_contracts["steps"]
-        for line in str(step.get("run", "")).splitlines()
-    ]
-    for scope in ('--from-ref "$BASE" --to-ref "$HEAD"', "--all-files"):
-        assert (
-            f"pre-commit run --config .config/pre-commit.yaml {scope} "
-            "--show-diff-on-failure"
-        ) in commands
+    # Runtime and spec checks are owned by the immutable central reusable
+    # workflow; native jobs read scope from the local `changes` job.
+    runtime_contracts = jobs["light-gates"]
+    assert runtime_contracts == {
+        "uses": CENTRAL_LIGHT_GATES,
+        "with": {"runner": CENTRAL_RUNNER},
+    }
+    assert "lint-and-architecture" not in jobs
+    assert "spec-gates" not in jobs
     assert "python3 scripts/check_universal_read_rls.py" in {
         step.get("run") for step in security["steps"]
     }
 
 
-@pytest.mark.parametrize("job_name", ["lint-and-architecture", "spec-gates"])
-def test_spec_status_gates_have_full_checkout_history(job_name: str):
-    """Spec-status derives generated status from commit trailers in git history."""
-    steps = _workflow()["jobs"][job_name]["steps"]
-    checkout = next(
-        step for step in steps if step.get("uses", "").startswith("actions/checkout@")
-    )
-    assert checkout["with"]["fetch-depth"] == 0
-    assert checkout["with"]["persist-credentials"] is False
+def test_spec_status_gates_are_delegated_to_the_central_workflow():
+    """The central workflow owns full-history checkout and spec-status steps."""
+    assert _workflow()["jobs"]["light-gates"] == {
+        "uses": CENTRAL_LIGHT_GATES,
+        "with": {"runner": CENTRAL_RUNNER},
+    }
 
 
-def test_release_scanner_job_is_full_history_advisory_and_pinned():
-    document = _workflow()
-    jobs = document["jobs"]
-    workflow_source = (REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    _assert_scanner_job(jobs, workflow_source)
+def test_scanners_run_in_the_manual_profile_not_hosted_ci():
+    jobs = _workflow()["jobs"]
+    _assert_scanner_job_removed(jobs)
     security = _assert_security_and_build_jobs(jobs)
     _assert_runtime_contract_jobs(jobs, security)
 
@@ -343,36 +293,6 @@ def test_native_architecture_configs_are_explicit_and_scoped():
     dependency_cruiser = (REPO / "clients/js/.dependency-cruiser.cjs").read_text()
     assert 'name: "no-circular"' in dependency_cruiser
     assert 'name: "no-unresolved"' in dependency_cruiser
-
-
-def test_scanner_job_reports_every_step_after_a_failure():
-    """One red scanner must not hide the rest (57a12eb06: a red jscpd step left
-    CCCC, KISS, import-linter, depcruise and arch-lint unrun)."""
-    steps = _workflow()["jobs"]["scanner-quality"]["steps"]
-    for step in steps:
-        if "run" in step:
-            assert str(step.get("if", "")).startswith("${{ !cancelled()"), step["name"]
-
-
-def test_scanner_cache_requires_validation_before_save():
-    steps = _workflow()["jobs"]["scanner-quality"]["steps"]
-    by_id = {step["id"]: step for step in steps if "id" in step}
-    restore = by_id["scanner-cache"]
-    assert restore["with"]["key"].startswith("eg-scanners-v2-")
-    assert "scripts/kiss_fork.py" in restore["with"]["key"]
-    assert "--verify" in by_id["scanner-restored"]["run"]
-    provision = by_id["scanner-provision"]
-    assert "steps.scanner-restored.outputs.valid != 'true'" in provision["if"]
-    assert "cache-hit" not in provision["if"]
-    validated = by_id["scanner-validated"]
-    assert "steps.scanner-provision.outcome == 'success'" in validated["if"]
-    assert "--verify" in validated["run"]
-    save = next(
-        step for step in steps if step.get("name") == "Save pinned scanner toolchain"
-    )
-    assert "steps.scanner-validated.outcome == 'success'" in save["if"]
-    assert "steps.scanner-cache.outputs.cache-hit != 'true'" in save["if"]
-    assert steps.index(validated) < steps.index(save)
 
 
 def _fake_scanner(path: Path, version: str, *, probe_ok: bool = True) -> None:

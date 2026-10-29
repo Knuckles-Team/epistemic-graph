@@ -1,4 +1,4 @@
-module github.com/epistemic-graph/clients/go
+module github.com/Knuckles-Team/medulla/clients/go
 
 go 1.25.0
 

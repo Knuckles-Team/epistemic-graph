@@ -111,9 +111,13 @@
     {
       "id": "EG-PLACEMENT-R001.2",
       "title": "Add the `Placement` question kind",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "735c7f056c07"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/placement.rs:539"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R001.3",
@@ -123,9 +127,9 @@
         "92a78d0a890b"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/placement.rs:107",
-        "crates/eg-types/src/decision/statistical/placement.rs:123",
-        "crates/eg-types/src/decision/statistical/placement.rs:139"
+        "crates/eg-types/src/decision/statistical/placement.rs:321",
+        "crates/eg-types/src/decision/statistical/placement.rs:337",
+        "crates/eg-types/src/decision/statistical/placement.rs:353"
       ]
     },
     {
@@ -136,11 +140,11 @@
         "1c906420efa9"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/placement.rs:180",
-        "crates/eg-types/src/decision/statistical/placement.rs:191",
-        "crates/eg-types/src/decision/statistical/placement.rs:202",
-        "crates/eg-types/src/decision/statistical/placement.rs:214",
-        "crates/eg-types/src/decision/statistical/placement.rs:227"
+        "crates/eg-types/src/decision/statistical/placement.rs:394",
+        "crates/eg-types/src/decision/statistical/placement.rs:405",
+        "crates/eg-types/src/decision/statistical/placement.rs:416",
+        "crates/eg-types/src/decision/statistical/placement.rs:428",
+        "crates/eg-types/src/decision/statistical/placement.rs:441"
       ]
     },
     {
@@ -153,9 +157,14 @@
     {
       "id": "EG-PLACEMENT-R001.6",
       "title": "Pure feasibility function",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "735c7f056c07"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/placement.rs:556",
+        "crates/eg-types/src/decision/statistical/placement.rs:626"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R001.7",
@@ -381,7 +390,7 @@
         "871e31f80156"
       ],
       "verified_by": [
-        "src/server/handlers/jobs/submit.rs:453"
+        "src/server/handlers/jobs/submit.rs:458"
       ]
     },
     {
@@ -392,7 +401,7 @@
         "23b021f818a8"
       ],
       "verified_by": [
-        "src/server/handlers/jobs/submit.rs:464"
+        "src/server/handlers/jobs/submit.rs:469"
       ]
     },
     {
@@ -423,7 +432,9 @@
       "title": "Plain labels are accepted and stored opaque",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/jobs/graph_tests.rs:248"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R003.6",
@@ -455,16 +466,24 @@
     {
       "id": "EG-PLACEMENT-R004.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "735c7f056c07"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/placement.rs:644"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R004.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "735c7f056c07"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/placement.rs:669"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R004.3",
@@ -581,23 +600,35 @@
     {
       "id": "EG-PLACEMENT-R750.750",
       "title": "Model: Admission pacing, priority classes, cognitive scheduling and model capacity control",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0322f8735464"
+      ],
+      "verified_by": [
+        "crates/eg-resource/src/admission.rs:421"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R750.751",
       "title": "Behavior: Admission pacing, priority classes, cognitive scheduling and model capacity control",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0322f8735464"
+      ],
+      "verified_by": [
+        "crates/eg-resource/src/admission.rs:484"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R750.752",
       "title": "Refusal: Admission pacing, priority classes, cognitive scheduling and model capacity control",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0322f8735464"
+      ],
+      "verified_by": [
+        "crates/eg-resource/src/admission.rs:520"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R750.753",
@@ -622,23 +653,35 @@
     {
       "id": "EG-PLACEMENT-R751.750",
       "title": "Model: Unified scheduling, leader election and cost-bounded resource allocation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9cdc2cef22c5"
+      ],
+      "verified_by": [
+        "crates/eg-jobs/src/schedule.rs:297"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R751.751",
       "title": "Behavior: Unified scheduling, leader election and cost-bounded resource allocation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9cdc2cef22c5"
+      ],
+      "verified_by": [
+        "crates/eg-jobs/src/schedule.rs:321"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R751.752",
       "title": "Refusal: Unified scheduling, leader election and cost-bounded resource allocation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9cdc2cef22c5"
+      ],
+      "verified_by": [
+        "crates/eg-jobs/src/schedule.rs:359"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R751.753",

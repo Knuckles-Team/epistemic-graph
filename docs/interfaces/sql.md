@@ -1,6 +1,6 @@
 # SQL interface
 
-epistemic-graph speaks SQL two ways:
+Medulla speaks SQL two ways:
 
 1. **In-engine** via the `query` feature — DataFusion 43 runs `SELECT` and the engine handles DML
    over the graph node store. This is what the unified planner's `Filter` op and the native client use.

@@ -12,6 +12,7 @@
 @prefix sh:    <http://www.w3.org/ns/shacl#> .
 @prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
 @prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix kg:    <http://knuckles.team/kg#> .
 
 # Task-class declarations and task instances share the same optional fact.
 swarm:ShellCentricShape a sh:NodeShape ;
@@ -90,6 +91,7 @@ swarm:SlotShape a sh:NodeShape ;
         sh:datatype xsd:integer ; sh:minInclusive 1 ; sh:maxInclusive 8
     ] ;
     sh:property [ sh:path swarm:lease ; sh:maxCount 6 ; sh:node swarm:LeaseFactShape ] ;
+    sh:property [ sh:path swarm:requiresAgentKind ; sh:maxCount 1 ; sh:class kg:AgentKind ] ;
     sh:sparql [
         a sh:SPARQLConstraint ;
         sh:message "A slot's minWidth is at most its maxWidth." ;
@@ -98,6 +100,62 @@ swarm:SlotShape a sh:NodeShape ;
             SELECT $this WHERE {
                 $this swarm:minWidth ?low ; swarm:maxWidth ?high .
                 FILTER(?low > ?high)
+            }
+        """ ;
+    ] .
+
+# A template has at most six slots, so a feeds cycle is found by unrolling the
+# chain up to six edges; the SHACL-SPARQL evaluator declines property paths.
+swarm:FeedsAcyclicShape a sh:NodeShape ;
+    sh:targetClass swarm:TopologyTemplate ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A slot reaches itself through swarm:feeds." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this swarm:hasSlot ?slot .
+                { ?slot swarm:feeds ?slot . }
+                UNION { ?slot swarm:feeds ?n1 . ?n1 swarm:feeds ?slot . }
+                UNION { ?slot swarm:feeds ?n1 . ?n1 swarm:feeds ?n2 . ?n2 swarm:feeds ?slot . }
+                UNION { ?slot swarm:feeds ?n1 . ?n1 swarm:feeds ?n2 . ?n2 swarm:feeds ?n3 . ?n3 swarm:feeds ?slot . }
+                UNION { ?slot swarm:feeds ?n1 . ?n1 swarm:feeds ?n2 . ?n2 swarm:feeds ?n3 . ?n3 swarm:feeds ?n4 . ?n4 swarm:feeds ?slot . }
+                UNION { ?slot swarm:feeds ?n1 . ?n1 swarm:feeds ?n2 . ?n2 swarm:feeds ?n3 . ?n3 swarm:feeds ?n4 . ?n4 swarm:feeds ?n5 . ?n5 swarm:feeds ?slot . }
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Both ends of a swarm:feeds edge belong to the template's own slots." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this swarm:hasSlot ?slot .
+                ?slot swarm:feeds ?target .
+                OPTIONAL { $this swarm:hasSlot ?own . FILTER(?own = ?target) }
+                FILTER(!BOUND(?own))
+            }
+        """ ;
+    ] .
+
+# A template whose slots are wired by swarm:feeds has exactly one root: the one
+# slot nothing feeds. Templates without feeds edges are not constrained.
+swarm:FeedsSingleRootShape a sh:NodeShape ;
+    sh:targetClass swarm:TopologyTemplate ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A feeds graph has more than one root slot." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this swarm:hasSlot ?wired .
+                ?wired swarm:feeds ?somewhere .
+                $this swarm:hasSlot ?a .
+                $this swarm:hasSlot ?b .
+                FILTER(?a != ?b)
+                OPTIONAL { ?x swarm:feeds ?a }
+                OPTIONAL { ?y swarm:feeds ?b }
+                FILTER(!BOUND(?x) && !BOUND(?y))
             }
         """ ;
     ] .

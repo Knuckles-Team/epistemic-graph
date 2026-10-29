@@ -8,6 +8,7 @@
 //! (`RemoteEngine`/`HttpJson`/`Sql`) are already proven in the sibling federation tests.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use eg_types::wire::{ForeignSourceSpec, Pred};
 
@@ -20,6 +21,52 @@ use crate::Plan;
 /// Build a `(String, Option<f32>)` row list from `(&str, Option<f32>)` pairs.
 fn rows(pairs: &[(&str, Option<f32>)]) -> Vec<(String, Option<f32>)> {
     pairs.iter().map(|(id, s)| (id.to_string(), *s)).collect()
+}
+
+fn bound_api_spec() -> ForeignSourceSpec {
+    ForeignSourceSpec::Api {
+        operation: "list_objects".into(),
+        capabilities: Default::default(),
+    }
+}
+
+struct BoundRows;
+
+impl crate::federation::ForeignSource for BoundRows {
+    fn fetch(&self) -> Result<RowSet, String> {
+        Ok(RowSet::from_ids(["bound-row".to_string()]))
+    }
+}
+
+/// EG-FEDERATED-QUERY-R722.3 — the naive registry path uses the verified bound callback while
+/// retaining the source spec needed for identity/provenance.
+#[test]
+fn eg722_bound_driver_resolves_naively_and_retains_spec() {
+    let spec = bound_api_spec();
+    let mut registry = ForeignSourceRegistry::new();
+    registry.register_bound("objects", spec.clone(), Arc::new(BoundRows));
+
+    assert_eq!(
+        registry.resolve("objects").unwrap().ids(),
+        vec!["bound-row"]
+    );
+    assert_eq!(registry.spec("objects"), Some(&spec));
+}
+
+/// EG-FEDERATED-QUERY-R722.3/R722.4 — a spec without a bound callback remains fail-closed.
+#[test]
+fn eg722_unbound_operation_spec_refuses_in_naive_path() {
+    let spec = bound_api_spec();
+    let mut registry = ForeignSourceRegistry::new();
+    registry.register_bound("objects", spec.clone(), Arc::new(BoundRows));
+    // A replacement by the ordinary spec path must clear the prior callback marker.
+    registry.register_spec("objects", spec);
+
+    let error = registry.resolve("objects").unwrap_err();
+    assert!(
+        error.contains("requires a verified registration and bound driver"),
+        "unbound operation source must refuse cleanly: {error}"
+    );
 }
 
 /// CONCEPT:EG-KG.query.closure-backed-source — a registered source resolves by name: a `Named` `Op::ForeignScan`

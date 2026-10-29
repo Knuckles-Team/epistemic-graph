@@ -1,0 +1,236 @@
+# Recorded virtual-graph mapping for the `arr` connector (EG-MEDIA-VOCAB-R005.1,
+# EG-CQ-CONN-R005). The rows are the `Connector mapping tables` entry for arr
+# in specs/media-and-personal-vocabulary/plan.md (operation -> class/property
+# -> contract kind), written as `vg:VirtualMapping` rows over the `vg:`
+# vocabulary in virtual_graph-v1.ttl and shaped by virtual_graph-v1.shapes.ttl.
+# `mv:` is a documentation prefix for this section of the shared
+# `http://knuckles.team/kg#` namespace; every ontology IRI stays in `:`.
+#
+# The metadata contract is the discovery of the recorded response
+# (arr_response.json, same directory): the discoveredEntity / discoveredField /
+# discoveredOperation values below are exactly the names that response uses,
+# and vg:contentDigest is sha256 over its bytes.
+
+@prefix :    <http://knuckles.team/kg#> .
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f:   <urn:eg-media-vocab:arr/> .
+
+f:connection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:declaredCapability "read" ;
+    vg:endpointRef [ a vg:EndpointRef ; vg:url "https://mcp.example.invalid/arr" ] .
+
+f:contract a vg:MetadataContract ;
+    vg:contractSource f:connection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:6a4f43ccf1f5dbf3386f92d74a8044adcb7f96d52b3c7facdbaf109f460bc2ca" ;
+    vg:discoveredEntity "Movie", "Series", "Episode", "WantedMissing", "QueueItem", "HistoryEntry", "Indexer", "Request", "Album", "Track", "Artist" ;
+    vg:discoveredField "id", "title", "tmdbId", "tvdbId", "monitored", "hasFile", "state", "work", "downloadId", "movie", "indexer", "eventType", "name", "enabled", "musicBrainzId", "requestedBy" ;
+    vg:discoveredOperation "radarr_action/get_movie", "radarr_action/get_wanted_missing", "radarr_action/get_queue", "radarr_action/get_history", "radarr_action/get_history_movie", "sonarr_action/get_series", "sonarr_action/get_episode", "sonarr_action/get_wanted_missing", "sonarr_action/get_queue", "sonarr_action/get_history_series", "lidarr_action/get_album", "lidarr_action/get_track", "lidarr_action/get_wanted_missing", "prowlarr_action/get_indexer", "prowlarr_action/get_indexerstats", "seerr_action/get_request" .
+
+# radarr_action/get_movie
+f:row-movie a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :Film ;
+    vg:mapsEntity "Movie" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :tmdbId ;
+        vg:field "tmdbId"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :isMonitored ;
+        vg:field "monitored"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :hasFile ;
+        vg:field "hasFile"
+    ] .
+
+# sonarr_action/get_series
+f:row-series a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :TelevisionSeries ;
+    vg:mapsEntity "Series" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :tmdbId ;
+        vg:field "tmdbId"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :tvdbId ;
+        vg:field "tvdbId"
+    ] .
+
+# sonarr_action/get_episode
+f:row-episode a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :TelevisionEpisode ;
+    vg:mapsEntity "Episode" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :tvdbId ;
+        vg:field "tvdbId"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :isMonitored ;
+        vg:field "monitored"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :hasFile ;
+        vg:field "hasFile"
+    ] .
+
+# radarr_action/get_wanted_missing, sonarr_action/get_wanted_missing
+f:row-wanted-missing a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :DownloadRequest ;
+    vg:mapsEntity "WantedMissing" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :downloadRequestState ;
+        vg:field "state"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :requestsWork ;
+        vg:field "work"
+    ] .
+
+# radarr_action/get_queue, sonarr_action/get_queue: the queue downloadId is the
+# torrent info-hash, case-folded on the way in (R003.2 normalisation).
+f:row-queue-item a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :DownloadTransfer ;
+    vg:mapsEntity "QueueItem" ;
+    vg:keyField "downloadId" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :infoHash ;
+        vg:field "downloadId"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :transferOf ;
+        vg:field "work"
+    ] .
+
+# radarr_action/get_history, get_history_movie; sonarr_action/get_history_series
+f:row-history-entry a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :GrabEvent ;
+    vg:mapsEntity "HistoryEntry" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :grabOf ;
+        vg:field "movie"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :grabbedFromIndexer ;
+        vg:field "indexer"
+    ] .
+
+# prowlarr_action/get_indexer, get_indexerstats
+f:row-indexer a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :MediaIndexer ;
+    vg:mapsEntity "Indexer" ;
+    vg:keyField "name" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :indexerEnabled ;
+        vg:field "enabled"
+    ] .
+
+# seerr_action/get_request
+f:row-request a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :DownloadRequest ;
+    vg:mapsEntity "Request" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :downloadRequestState ;
+        vg:field "state"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :requestsWork ;
+        vg:field "work"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :requestedBy ;
+        vg:field "requestedBy"
+    ] .
+
+# lidarr_action/get_album, get_track, get_wanted_missing
+f:row-album a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :MusicAlbum ;
+    vg:mapsEntity "Album" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :musicBrainzId ;
+        vg:field "musicBrainzId"
+    ] .
+
+f:row-track a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :MusicTrack ;
+    vg:mapsEntity "Track" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :musicBrainzId ;
+        vg:field "musicBrainzId"
+    ] .
+
+f:row-artist a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :MusicArtist ;
+    vg:mapsEntity "Artist" ;
+    vg:keyField "name" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ] .

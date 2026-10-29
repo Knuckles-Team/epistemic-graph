@@ -121,5 +121,19 @@ eg-modality = { path = "../eg-modality", optional = true }
 [dev-dependencies]
 # The commercial-vocabulary contract tests (EG-SUPPLY-VOCAB-R003.13-.16) parse
 # the registered core documents with the native RDF stack. Dev-only: a default
-# build links nothing extra (the eg-plan test-target precedent).
-eg-rdf = { path = "../eg-rdf", features = ["rdf"] }
+# build links nothing extra (the eg-plan test-target precedent). `owl` gates the
+# native reasoner acceptance for the supply-chain chain axioms
+# (EG-SUPPLY-VOCAB-R003.7) and `sparql` gates the impact-query parse
+# check (EG-SUPPLY-VOCAB-R008.1); both are pure-Rust feature gates (EG-132,
+# CONCEPT:KG-2.219).
+eg-rdf = { path = "../eg-rdf", features = ["rdf", "owl", "sparql"] }
+# The SHACL contract tests -- the connector-competency shape tests
+# (EG-CQ-CONN-R068.14, EG-CQ-CONN-R069.11, EG-CQ-CONN-R069.21), the
+# data-platform vocabulary tests (EG-DATAPLAT-VOCAB-R002.4+) and the
+# supply-chain shapes-fixture refusals (EG-SUPPLY-VOCAB-R001.4,
+# EG-SUPPLY-VOCAB-R002.7, EG-SUPPLY-VOCAB-R003.5, EG-SUPPLY-VOCAB-R003.17,
+# EG-SUPPLY-VOCAB-R004.2) -- validate fixture data against the
+# native SHACL engine. Dev-only: a dev-dep cycle (eg-shacl -> eg-rdf ->
+# eg-core -> dev eg-shacl), which Cargo permits and which affects only the
+# eg-core test build.
+eg-shacl = { path = "../eg-shacl" }

@@ -12,7 +12,7 @@ jobs:
   wheel:
     name: ARM64 recovery (one job)
     if: >-
-      github.repository == 'Knuckles-Team/epistemic-graph' &&
+      github.repository == 'Knuckles-Team/medulla' &&
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' && github.run_attempt == 1
     runs-on: ubuntu-24.04-arm
@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: Knuckles-Team/epistemic-graph
+          repository: Knuckles-Team/medulla
           ref: 29301642c205adc75d63cde2e69d7f53d85d707f
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -138,7 +138,7 @@ jobs:
               'launcher_sha': os.environ['RECOVERY_LAUNCHER_SHA'],
               'run_id': os.environ['RECOVERY_RUN_ID'],
               'run_attempt': os.environ['RECOVERY_RUN_ATTEMPT'],
-              'run_url': 'https://github.com/Knuckles-Team/epistemic-graph/actions/runs/' + os.environ['RECOVERY_RUN_ID'],
+              'run_url': 'https://github.com/Knuckles-Team/medulla/actions/runs/' + os.environ['RECOVERY_RUN_ID'],
               'wheel': wheel.name,
               'sha256': hashlib.file_digest(wheel.open('rb'), 'sha256').hexdigest(),
               'rust': '1.96.0',

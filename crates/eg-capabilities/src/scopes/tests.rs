@@ -116,6 +116,7 @@ fn every_approver_scope_has_exactly_its_built_in_group() {
         eg_types::identity::ELEVATION_APPROVERS_GROUP,
         eg_types::identity::LIVE_ORDER_APPROVERS_GROUP,
         eg_types::identity::SCHEMA_APPROVERS_GROUP,
+        eg_types::identity::SOURCE_AUTHORITY_APPROVERS_GROUP,
         "action-approvers",
     ];
     for (_, group) in APPROVER_GROUPS {

@@ -1,7 +1,7 @@
 # Native capacity and WorkItem admission authority
 
 This document describes the required current native protocol implemented by the
-epistemic-graph engine for the GOC-21 capacity lease and GOC-19 WorkItem submit
+Medulla engine for the GOC-21 capacity lease and GOC-19 WorkItem submit
 surfaces.  The engine's redb tables are authoritative; AU schedulers and local
 queues are projections and must reconcile by the returned lease fences or
 WorkItem command result.

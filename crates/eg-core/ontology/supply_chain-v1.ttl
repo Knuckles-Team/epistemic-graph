@@ -97,6 +97,13 @@
     rdfs:range :ComponentVersion ;
     owl:propertyChainAxiom (:deployedAs :usesImage :containsComponent) .
 
+:suppliesService a owl:ObjectProperty ;
+    rdfs:label "supplies service" ;
+    rdfs:comment "Links a service to the Supplier that supplies it: the runtime chain deployedAs, usesImage, containsComponent, supplyChainVersionOf, publishedBy. The service-to-image step reuses the existing terms (it is not redefined); the inferred edge runs service to supplier, the supplier end of the supplier-to-service relation (EG-CQ-XSRC-R004.1)." ;
+    rdfs:domain infra:Service ;
+    rdfs:range :Supplier ;
+    owl:propertyChainAxiom (:deployedAs :usesImage :containsComponent :supplyChainVersionOf :publishedBy) .
+
 :Vulnerability a owl:Class ;
     rdfs:label "Vulnerability" ;
     rdfs:comment "A known weakness in a software component, image or system that can be exploited, with a severity and a fix state (a CVE record, a scanner finding). The properties that describe it belong to EG-SUPPLY-VOCAB-R002.6." ;
@@ -132,3 +139,14 @@
     rdfs:comment "Links a container image to each Vulnerability its scanner found in it. Same IRI as the dockerhub ontology; kept, not replaced." ;
     rdfs:domain infra:ContainerImage ;
     rdfs:range :Vulnerability .
+
+:EcosystemPackage a owl:Class ;
+    rdfs:label "Ecosystem Package" ;
+    rdfs:comment "One package of the agent ecosystem (a connector, an agent, a skill bundle) with the dependency edges to the packages it needs; package dependency reuses the shared transitive :dependsOn rather than declaring a parallel property." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:affectsPackage a owl:ObjectProperty ;
+    rdfs:label "affects package" ;
+    rdfs:comment "Links a Vulnerability finding to each EcosystemPackage it affects: the package the finding was recorded in and, through the transitive :dependsOn chain, every package that depends on it." ;
+    rdfs:domain :Vulnerability ;
+    rdfs:range :EcosystemPackage .

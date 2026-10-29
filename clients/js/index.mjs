@@ -249,7 +249,7 @@ function assertMultisigThreshold(signerKeys, threshold) {
   }
 }
 
-export class EpistemicGraphThinClient {
+export class MedullaThinClient {
   /**
    * @param {object} opts
    * @param {string} [opts.socketPath] Configured Unix domain socket path.
@@ -708,4 +708,7 @@ export class EpistemicGraphThinClient {
   }
 }
 
-export default EpistemicGraphThinClient;
+export default MedullaThinClient;
+
+/** @deprecated The client is `MedullaThinClient`; this alias goes away in the next minor. */
+export { MedullaThinClient as EpistemicGraphThinClient };

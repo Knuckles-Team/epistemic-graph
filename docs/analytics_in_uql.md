@@ -1,6 +1,6 @@
 # Analytics on the unified query surface — SQL functions and UQL stages (CONCEPT:EG-KG.query.concept-8)
 
-epistemic-graph is an **analytical database with native analytical tools**. There are two
+Medulla is an **analytical database with native analytical tools**. There are two
 surfaces, and this page keeps them apart:
 
 * **SQL** (DataFusion, every SQL entry point): the linear-algebra / statistics kernel

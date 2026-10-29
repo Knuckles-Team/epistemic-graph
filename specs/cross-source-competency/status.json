@@ -155,9 +155,13 @@
     {
       "id": "EG-CQ-XSRC-R002.3",
       "title": "Add `:Vulnerability` and `:affectsComponent`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:385"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R002.4",
@@ -253,9 +257,14 @@
     {
       "id": "EG-CQ-XSRC-R004.1",
       "title": "Add `:usesComponent` (service to component version) and `:suppliesService`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:429",
+        "crates/eg-rdf/tests/supply_chain_reasoning.rs:54"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R004.2",
@@ -267,9 +276,15 @@
     {
       "id": "EG-CQ-XSRC-R004.3",
       "title": "Resolve a vendor in erpnext, leanix and dockerhub to one `:Supplier`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/entity_link_proposal.rs:173",
+        "crates/eg-types/src/entity_link_proposal.rs:186",
+        "crates/eg-types/src/entity_link_proposal.rs:203"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R004.4",
@@ -307,29 +322,41 @@
         "0179af31daf9"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:428"
+        "crates/eg-rdf/src/source_selection/tests.rs:71"
       ]
     },
     {
       "id": "EG-CQ-XSRC-R005.2",
       "title": "Query fixture: the supply-chain impact query over classes only",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:207"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R005.3",
       "title": "The plan is derived, not authored: planned sources equal the declared authorities",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:221"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R005.4",
       "title": "An unconnected authoritative source yields a typed abstention, not a silent fallback",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/virtual_graph_authority.rs:55"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R005.5",
@@ -355,9 +382,14 @@
     {
       "id": "EG-CQ-XSRC-R006.1",
       "title": "Add the typed `SupplyChainImpactReport` model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/supply_chain_report.rs:285",
+        "crates/eg-types/src/supply_chain_report.rs:323"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R006.2",
@@ -376,16 +408,24 @@
     {
       "id": "EG-CQ-XSRC-R006.4",
       "title": "Assemble the report from the federated rows",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/supply_chain_report.rs:348"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R006.5",
       "title": "Serve the report through Arbora",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/supply_chain_impact.rs:98"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R007",
@@ -403,9 +443,13 @@
     {
       "id": "EG-CQ-XSRC-R007.1",
       "title": "Acceptance on recorded connector responses",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_acceptance.rs:82"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R007.2",
@@ -454,9 +498,13 @@
     {
       "id": "EG-CQ-XSRC-R008.1.1",
       "title": "Query fixture and authority rows: vulnerable deployed image to exposed service",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:279"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R008.1.2",
@@ -499,9 +547,13 @@
     {
       "id": "EG-CQ-XSRC-R008.2.3",
       "title": "Authority rows and query fixture: capability to service to host over a limit",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:322"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R008.2.4",
@@ -532,7 +584,7 @@
         "8fd835eb199a"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:88"
+        "crates/eg-rdf/tests/commercial_declarations.rs:89"
       ]
     },
     {
@@ -545,9 +597,13 @@
     {
       "id": "EG-CQ-XSRC-R008.3.3",
       "title": "Authority rows and query fixture: open incident or change to service to contract",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8cf7ea3564f"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:355"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R008.3.4",

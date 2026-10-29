@@ -3704,12 +3704,146 @@ def _submit_work_items_result(value: Any) -> dict[str, Any]:
     return result
 
 
+def _session_usage_snapshot(value: Any, context_id: str) -> dict[str, Any]:
+    fields = {
+        "context_id",
+        "counts",
+        "expected_runs",
+        "recorded_runs",
+        "missing_runs",
+        "count_coverage",
+        "inventory_complete",
+    }
+    if (
+        not isinstance(value, dict)
+        or set(value) != fields
+        or value["context_id"] != context_id
+    ):
+        raise RuntimeError("Session usage does not match the typed contract")
+    if type(value["inventory_complete"]) is not bool:
+        raise RuntimeError("Session usage inventory coverage is invalid")
+    _session_run_coverage(value)
+    _session_counter_coverage(value)
+    return value
+
+
+def _session_run_coverage(value: dict[str, Any]) -> None:
+    for name in ("expected_runs", "recorded_runs", "missing_runs"):
+        if type(value[name]) is not int or not 0 <= value[name] <= 10_000:
+            raise RuntimeError("Session usage run coverage is invalid")
+    if value["recorded_runs"] + value["missing_runs"] != value["expected_runs"]:
+        raise RuntimeError("Session usage run coverage is inconsistent")
+
+
+def _session_counter_coverage(value: dict[str, Any]) -> None:
+    counts, coverage = value["counts"], value["count_coverage"]
+    if (
+        not isinstance(counts, dict)
+        or not isinstance(coverage, dict)
+        or set(counts) != set(coverage)
+    ):
+        raise RuntimeError("Session usage counter coverage is invalid")
+    for key, count in counts.items():
+        _session_counter_value(key, count, coverage[key], value["recorded_runs"])
+    if sum(coverage.values()) < value["recorded_runs"]:
+        raise RuntimeError("Session usage recorded run coverage is inconsistent")
+
+
+def _session_counter_value(key: str, count: Any, coverage: Any, recorded: int) -> None:
+    allowed = {
+        "requests",
+        "tool_calls",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+    }
+    if (
+        key not in allowed
+        or type(count) is not int
+        or not 0 <= count <= 9_007_199_254_740_991
+    ):
+        raise RuntimeError("Session usage count is invalid")
+    if type(coverage) is not int or not 1 <= coverage <= recorded:
+        raise RuntimeError("Session usage counter coverage is inconsistent")
+
+
 class WorkItemClient:
     """Engine-native durable WorkItem claim, lease, and result namespace."""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
+    async def get_checkpoint(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        run_id: str,
+        context_id: str,
+        current_claim: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Read the owner's private checkpoint and WorkItem from one snapshot.
+
+        A current claim additionally requires a live matching fence for resume.
+        Reading never executes work or advances a checkpoint.
+        """
+        result = await _gen.coordination.send_get_run_checkpoint(
+            self._client,
+            {
+                "request": {
+                    "tenant": tenant,
+                    "work_item_id": work_item_id,
+                    "run_id": run_id,
+                    "context_id": context_id,
+                    "current_claim": current_claim,
+                }
+            },
+        )
+        value = _gen.coordination.decode_get_run_checkpoint(result)
+        return None if value is None else value.model_dump(mode="json")
+
+    async def publish_checkpoint(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        run_id: str,
+        context_id: str,
+        worker_id: str,
+        lease_epoch: int,
+        fencing_token: int,
+        expected_revision: int | None,
+        snapshot: dict[str, Any],
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Atomically publish a fenced snapshot and advance its WorkItem head.
+
+        The engine enforces the expected revision. ``replayed`` identifies a
+        recovered receipt and must not be treated as a new execution grant.
+        """
+        result = await _gen.coordination.send_publish_run_checkpoint(
+            self._client,
+            {
+                "request": {
+                    "tenant": tenant,
+                    "work_item_id": work_item_id,
+                    "run_id": run_id,
+                    "context_id": context_id,
+                    "worker_id": worker_id,
+                    "lease_epoch": lease_epoch,
+                    "fencing_token": fencing_token,
+                    "expected_revision": expected_revision,
+                    "snapshot": snapshot,
+                    "idempotency_key": idempotency_key,
+                }
+            },
+            idempotency_key=idempotency_key,
+        )
+        return _gen.coordination.decode_publish_run_checkpoint(result).model_dump(
+            mode="json"
+        )
+
+    # -- EH-219 typed caller-view reads -------------------------------------
     async def _require_submit_method(self, method: str) -> None:
         supports = getattr(self._client, "supports", None)
         if supports is None or await supports(method) is not True:
@@ -4379,6 +4513,27 @@ class WorkItemClient:
             raise TypeError("receipt properties must be a mapping")
         return bytes(msgpack.packb(properties, use_bin_type=True))
 
+    async def session_usage(
+        self, *, tenant: str, context_id: str, graph: str | None = None
+    ) -> dict[str, Any]:
+        """Canonical caller-owned committed counts from one bounded MVCC snapshot.
+
+        Missing counters and incomplete inventory remain explicit coverage. This
+        client never computes totals, costs or generation speed. The optional
+        graph routes to the caller-authorized native WorkItem owner graph.
+        """
+        value = (
+            await _gen.coordination.send_get_session_usage(
+                self._client,
+                {
+                    "tenant": _string("GetSessionUsage.tenant", tenant),
+                    "context_id": _string("GetSessionUsage.context_id", context_id),
+                },
+                graph,
+            )
+        ).payload
+        return _session_usage_snapshot(value, context_id)
+
     async def get_outcome(
         self, *, tenant: str, work_item_id: str
     ) -> dict[str, Any] | None:
@@ -4491,6 +4646,39 @@ class ControlLeaseClient:
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
+
+    async def issue_host_start(
+        self,
+        *,
+        tenant: str,
+        lease_id: str,
+        binding: dict[str, Any],
+        expires_at_ms: int,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Persist access-owner assertions; native storage stamps issuer provenance.
+
+        Requires exact host:issue-start. This neither authorizes nor launches a host.
+        """
+        if not isinstance(binding, dict):
+            raise TypeError("IssueHostStartGrant.binding must be a mapping")
+        request = {
+            "tenant": _string("IssueHostStartGrant.tenant", tenant),
+            "lease_id": _string("IssueHostStartGrant.lease_id", lease_id),
+            "binding": binding,
+            "expires_at_ms": _integer(
+                "IssueHostStartGrant.expires_at_ms", expires_at_ms
+            ),
+            "idempotency_key": _string(
+                "IssueHostStartGrant.idempotency_key", idempotency_key
+            ),
+        }
+        value = (
+            await _gen.coordination.send_issue_host_start_grant(
+                self._client, {"request": request}, idempotency_key=idempotency_key
+            )
+        ).payload
+        return _control_lease_answer(value, {"issued", "collision"})
 
     async def issue(
         self,
@@ -4640,11 +4828,37 @@ _CONTROL_LEASE_VIEW_FIELDS = frozenset(
 
 
 def _control_lease_view(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != _CONTROL_LEASE_VIEW_FIELDS:
+    if not isinstance(value, dict) or set(value) not in (
+        _CONTROL_LEASE_VIEW_FIELDS,
+        _CONTROL_LEASE_VIEW_FIELDS | {"host_start_provenance"},
+    ):
         raise RuntimeError("control lease view does not match the typed contract")
     if value["status"] not in ("active", "consumed", "revoked", "expired"):
         raise RuntimeError("control lease view carries an unknown status")
+    if "host_start_provenance" in value:
+        _validate_host_start_provenance(value["kind"], value["host_start_provenance"])
     return value
+
+
+def _validate_host_start_provenance(kind: Any, provenance: Any) -> None:
+    if (
+        kind != "host.start"
+        or not isinstance(provenance, dict)
+        or set(provenance) != {"schema_version", "issuer_ref"}
+        or type(provenance["schema_version"]) is not int
+        or provenance["schema_version"] != 1
+        or not _valid_host_start_issuer_ref(provenance["issuer_ref"])
+    ):
+        raise RuntimeError("invalid native host-start provenance")
+
+
+def _valid_host_start_issuer_ref(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and len(value.encode("utf-8")) <= 512
+        and not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value)
+    )
 
 
 def _control_lease_answer(value: Any, outcomes: set[str]) -> dict[str, Any]:
@@ -8840,6 +9054,38 @@ class FinanceClient:
             )
         ).payload
 
+    async def position_size(
+        self,
+        accuracy: float,
+        win_loss_ratio: float,
+        fraction: float | None = None,
+        max_risk: float | None = None,
+    ) -> float:
+        """Fractional-Kelly stake clamped to [0, max_risk].
+
+        The default is half Kelly with a 0.02 cap.
+        """
+        return await _gen.compute.send_finance_position_size(
+            self._client,
+            {
+                "accuracy": accuracy,
+                "win_loss_ratio": win_loss_ratio,
+                "fraction": fraction,
+                "max_risk": max_risk,
+            },
+        )
+
+    async def distribution_shift(
+        self, reference: list[float], current: list[float], threshold: float
+    ) -> dict[str, Any]:
+        """Two-sample KS shift test: {statistic, p_value, shifted}."""
+        return (
+            await _gen.compute.send_finance_distribution_shift(
+                self._client,
+                {"reference": reference, "current": current, "threshold": threshold},
+            )
+        ).payload
+
     # ── Backtest validation
     # (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest)
     # ─────────────────────────
@@ -9250,8 +9496,9 @@ class FinanceClient:
         ``op`` is one of ``encode_points``, ``resolve`` (over records and/or
         stored points), ``rollup``, ``indicators``, ``signal_replay``,
         ``signal_advance``, ``signal_scan``, ``flip_confidence``,
-        ``backtest_run``, ``decimate`` (M4 chart thinning) or
-        ``analysis_snapshot`` (seal or re-verify an analysis record);
+        ``backtest_run``, ``decimate`` (M4 chart thinning),
+        ``liquidity_panel`` (versioned FRED net liquidity and heat components),
+        or ``analysis_snapshot`` (seal or re-verify an analysis record);
         ``params`` are that op's fields. Prices are integer
         ticks and indicator values integer milli-ticks. Pure compute and
         informational only: no result authorises an order.
@@ -11359,6 +11606,9 @@ class QueryClient:
     async def unified(
         self,
         plan: list[dict[str, Any]],
+        *,
+        foreign_execution: dict[str, Any] | None = None,
+        foreign_executions: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Run ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209) and return ranked
         rows.
@@ -11384,9 +11634,16 @@ class QueryClient:
         Returns a list of ``{"id": str, "score": float | None}`` rows, in the plan's
         final order (descending score after a ``Rank``).
         """
-        result = (
-            await _gen.query.send_unified_query(self._client, {"plan": {"ops": plan}})
-        ).payload
+        body: dict[str, Any] = {"plan": {"ops": plan}}
+        if foreign_execution is not None and foreign_executions:
+            raise ValueError(
+                "single and multiple foreign executions are mutually exclusive"
+            )
+        if foreign_execution is not None:
+            body["foreign_execution"] = foreign_execution
+        if foreign_executions:
+            body["foreign_executions"] = foreign_executions
+        result = (await _gen.query.send_unified_query(self._client, body)).payload
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
@@ -11394,6 +11651,9 @@ class QueryClient:
         self,
         text: str,
         params: dict[str, Any] | None = None,
+        *,
+        prepare: bool = False,
+        foreign_execution: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run a UQL statement (CONCEPT:AU-KG.query.top-nodes-by-degree; UQL-07/08/09).
 
@@ -11414,6 +11674,17 @@ class QueryClient:
         query's structure. The grammar is ``docs/uql.md``; errors carry a stable
         ``UQL_*`` code and a caret diagnostic.
 
+        ``foreign_execution`` is an optional server-issued execution reference from
+        the bounded ``ForeignReadOpen``/``Complete`` lifecycle. It is forwarded
+        unchanged so the server can bind the completed, approved source pages to
+        this exact text and typed parameter map; the client does not compute or
+        guess either digest.
+
+        Set ``prepare=True`` to ask the authenticated server to plan this exact
+        executable text without running it and return the server-owned pins in
+        the ``explain`` result. Use those pins with ``ForeignReadOpen`` before
+        repeating the same text with ``foreign_execution``.
+
         Returns one dict whose ``"kind"`` says what ran:
 
         * ``"rows"`` — ``{"kind", "columns", "rows", "warnings"}``; each row is
@@ -11425,11 +11696,22 @@ class QueryClient:
           rows and microseconds);
         * ``"explain"`` — ``{"kind", "canonical", "optimized", "stages",
           "incremental", "incremental_note", "warnings"}`` (nothing executes).
+          Authenticated servers may also include their optional
+          ``"plan_digest"`` and ``"query_digest"`` pins; callers must forward
+          those server-issued values to the existing ``ForeignReadOpen`` flow
+          rather than reconstructing either digest locally.
         """
-        body = {
+        body: dict[str, Any] = {
             "text": text,
             "params": {k: _uql_param(v) for k, v in (params or {}).items()},
         }
+        if prepare:
+            body["prepare"] = True
+        if foreign_execution is not None:
+            # The generated sender validates the server-issued execution shape.
+            # Keep the opaque reference byte-for-byte; digest calculation belongs
+            # to the authenticated engine query binder.
+            body["foreign_execution"] = foreign_execution
         result = (await _gen.query.send_uql(self._client, body)).payload
         return _uql_result(result)
 

@@ -1,0 +1,53 @@
+name: Auto-merge green PRs
+
+on:
+  # Preserve both triggers: GIT_TOKEN merges can emit downstream main-CI/pages events.
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, ready_for_review, synchronize]
+  check_run:
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number || github.event.sha || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  arm:
+    name: Arm green auto-merge
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'check_run' &&
+      github.event.check_run.name == 'CI required' &&
+      github.event.check_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+      MERGE_TOKEN: ${{ secrets.GIT_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_API_URL: ${{ github.api_url }}
+      GITHUB_EVENT_PATH: ${{ github.event_path }}
+      GITHUB_EVENT_NAME: ${{ github.event_name }}
+      GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+    steps:
+      - name: Fetch and run the trusted merge gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$GITHUB_WORKFLOW_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+            echo 'invalid trusted workflow SHA' >&2
+            exit 2
+          fi
+          trusted="$RUNNER_TEMP/medulla-auto-merge.py"
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/contents/scripts/auto_merge.py?ref=$GITHUB_WORKFLOW_SHA" \
+            --jq .content | base64 --decode > "$trusted"
+          test -s "$trusted"
+          python3 "$trusted"

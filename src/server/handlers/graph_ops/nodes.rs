@@ -301,4 +301,70 @@ mod tests {
     fn zero_cap_fails_safe() {
         assert!(oversize_dump_error(1, 0).is_some());
     }
+
+    #[cfg(feature = "security")]
+    #[test]
+    fn evicted_point_read_stays_graph_scoped_and_rechecks_row_visibility() {
+        #[derive(Debug)]
+        struct FixedReadThrough(Vec<u8>);
+
+        impl eg_core::read_through::ReadThrough for FixedReadThrough {
+            fn read_node_blob(&self, node_id: &str) -> Option<Vec<u8>> {
+                (node_id == "shared-node").then(|| self.0.clone())
+            }
+        }
+
+        fn blob(owner: &str, visibility: Option<&str>, marker: &str) -> Vec<u8> {
+            let mut properties = serde_json::Map::new();
+            if let Some(visibility) = visibility {
+                properties.insert("_owner".into(), serde_json::json!(owner));
+                properties.insert("_visibility".into(), serde_json::json!(visibility));
+            } else {
+                properties.insert("_owner_id".into(), serde_json::json!(owner));
+            }
+            properties.insert("marker".into(), serde_json::json!(marker));
+            rmp_serde::to_vec_named(&serde_json::Value::Object(properties)).unwrap()
+        }
+
+        fn cold_graph(properties: Vec<u8>) -> Arc<GraphCore> {
+            let core = Arc::new(GraphCore::new());
+            core.set_read_through(Arc::new(FixedReadThrough(properties)));
+            core
+        }
+
+        let isolation = crate::server::access::two_agent_isolation();
+        let context = crate::server::auth::VerifiedRequestContext::verified_for_test("alice");
+        let authority = GraphReadAuthority::from_verified(&context, &isolation).unwrap();
+        let filtered_projection = Arc::new(GraphCore::new());
+
+        // A cache miss for the same ID must resolve through each graph's own
+        // read-through authority, never another graph's durable row.
+        for (owner, marker) in [("store-a", "graph-a"), ("store-b", "graph-b")] {
+            let properties = blob(owner, None, marker);
+            let core = cold_graph(properties.clone());
+            let response = handle_get_node_properties(
+                7,
+                &filtered_projection,
+                &core,
+                &authority,
+                "shared-node",
+            );
+            assert_eq!(response.error, None);
+            assert!(
+                matches!(response.result, Some(ResultPayload::Raw(bytes)) if bytes == properties)
+            );
+        }
+
+        // The raw-core fallback must reapply the verified actor's row policy;
+        // a private row owned by another actor is indistinguishable from absence.
+        let hidden = blob("bob", Some("private"), "bob-private");
+        let core = cold_graph(hidden);
+        let response =
+            handle_get_node_properties(8, &filtered_projection, &core, &authority, "shared-node");
+        assert_eq!(response.error, None);
+        assert!(matches!(
+            response.result,
+            Some(ResultPayload::Json(serde_json::Value::Null))
+        ));
+    }
 }

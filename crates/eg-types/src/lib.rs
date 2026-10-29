@@ -16,6 +16,8 @@ pub mod agent_graph;
 pub mod agent_library;
 pub mod agent_ontology;
 pub mod agent_template;
+// EG-CQ-ORCH-R010.1 — pure data model for graph-derived architecture views.
+pub mod architecture_view;
 // EG-UNIFIED-DATA-PLANE-R012.1 — typed model for governed attached-source write-back.
 pub mod attached_source_governance;
 // EG-UNIFIED-DATA-PLANE-R014.1 — typed model distinguishing the MySQL and
@@ -42,12 +44,35 @@ pub mod asr_wire;
 pub mod capacity_lease;
 // EG-DURABLE-KERNEL-R076.1 — authoritative scheduler policy data and validation.
 pub mod scheduler_config;
+// EG-INGEST-WORKER-R001.1/.2/.3/.7/.8 — ingest job envelope, lanes, partition key, retry.
+pub mod ingest_job;
+// EG-INGEST-WORKER-R002.1/.2 — induced ontology proposals and admission scores.
+pub mod ontology_proposal;
+// EG-INGEST-WORKER-R003.1 — typed knowledge atoms with mandatory provenance.
+pub mod knowledge_atom;
+// EG-INGEST-WORKER-R701.1 — extracted facts, candidate claims and evidence spans.
+pub mod extracted_fact;
+// EG-INGEST-WORKER-R900.1/R902.1/R903.1/R904.1 — source governance records.
+pub mod source_governance;
+// EG-INGEST-WORKER-R003.7 — normalized documents and accepted/quarantined outcomes.
+pub mod source_document;
+// EG-INGEST-WORKER-R003.13 — source transcript threads and messages.
+pub mod source_transcript;
+// EG-TYPED-PACKS-R803.1 — typed sensitive-data detector and detection records.
+pub mod sensitive_detect;
+// EG-TYPED-PACKS-R804.1 — ontology revision difference and impact records.
+pub mod ontology_diff;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 // EG-SRC-AUTH-R007.1 — typed audit entries for source selection evidence.
 pub mod authority_audit;
+// EG-REPO-INGEST-R700 — code-health findings from a bounded reachability sweep.
 pub mod change_envelope;
+pub mod code_health;
+// EG-DURABLE-KERNEL-R087.1 — typed semantic changeset-review model. The
+// authenticated producer/consumer route is a later R087.2 concern.
+pub mod changeset_review;
 // EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and
 // change-stream capture are later children.
@@ -139,6 +164,30 @@ pub mod gramps_cutover_gate;
 // read. Pure data; real discovery, the copy pipeline, and EXPLAIN's
 // per-fragment reporting are later children.
 pub mod metadata_acceleration;
+// EG-UNIFIED-DATA-PLANE-R040.1/.2 — per-modality embedding promotion gate.
+pub mod embedding_promotion;
+// EG-UNIFIED-DATA-PLANE-R038.6.1 — read-only property-graph view over mappings.
+pub mod virtual_graph_view;
+// EG-UNIFIED-DATA-PLANE-R761.1 — column profile record.
+pub mod profile;
+// EG-UNIFIED-DATA-PLANE-R762.1 — quality rules and scores.
+pub mod quality;
+// EG-UNIFIED-DATA-PLANE-R702 and R763.1 — dataset and column lineage.
+pub mod lineage;
+// EG-UNIFIED-DATA-PLANE-R764.1/.2 — asset usage and catalog search hits.
+pub mod asset_usage;
+// EG-ENGINE-PARITY-R020.1 — relational engine capability report.
+pub mod engine_capabilities;
+// EG-UNIFIED-DATA-PLANE-R700 — governed action specs and runs.
+pub mod action_spec;
+// EG-UNIFIED-DATA-PLANE-R701 — standards, cohorts, drift and consolidation.
+pub mod standards_drift;
+// EG-UNIFIED-DATA-PLANE-R030.2/.3/.700 — blocking, Fellegi-Sunter scoring,
+// approval and identity evidence over entity link proposals.
+pub mod entity_resolution;
+// EG-UNIFIED-DATA-PLANE-R750.750-752 — run audit rows, tool calls and the
+// scoped conversation-history step store.
+pub mod run_history;
 // EG-UNIFIED-DATA-PLANE-R027.1 — typed Postgres compatibility-feature
 // inventory and fix-proof shape, refusing a fix recorded without a complete
 // captured-traffic/failing-test/passing-test proof. Pure data;
@@ -161,6 +210,11 @@ pub mod nl_query;
 // non-Match classification. Pure data; blocking, field-similarity scoring
 // and the real Fellegi-Sunter model are later children.
 pub mod entity_link_proposal;
+// EG-CQ-XSRC-R006.1/R006.4 — the typed supply-chain impact report (one
+// report: impact per service, the items behind each, the sources used and
+// why, and typed abstentions) and its pure, deterministic assembly from the
+// planned query's rows and premises.
+pub mod supply_chain_report;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
@@ -190,6 +244,8 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
+// EG-FEDERATED-QUERY-R722.3 — host-driven bounded foreign-read lifecycle DTOs.
+pub mod foreign_read;
 // EG-DURABLE-KERNEL-R032 — the native primary-key fast-path routing decision
 // (pgwire/MySQL/MSSQL point operations that bypass DataFusion planning).
 // Pure serde, no dep.
@@ -228,12 +284,20 @@ pub mod postgres_adapter;
 // `row_predicate`, since `eg-core` needs it on both sides of its backend `#[cfg]`
 // split.
 pub mod embedding;
+// EG-FEDERATED-QUERY-R083.1 — typed prior/retrieved candidates and the closed
+// arbitration verdict value; support classification and policy live above.
+pub mod retrieval_arbitration;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
 // EG-DURABLE-KERNEL-R038 — the declared durability class (ephemeral/async/sync)
 // a KV namespace or table carries. Pure serde, no dep.
 pub mod durability_class;
+// EG-DURABLE-KERNEL-R084.1 — typed optimistic-write conflict and the closed
+// set of scope-level merge strategies. Resolution and served wiring live above
+// this pure-data crate.
+pub mod write_conflict;
+pub use write_conflict::{MergeStrategy, WriteConflict};
 // EG-DURABLE-KERNEL-R037 — the workload classification (point/structure/sql)
 // every wire listener routes an operation by. Pure, no dep.
 pub mod workload_class;
@@ -241,6 +305,19 @@ pub mod workload_class;
 // EG-DURABLE-KERNEL-R074.1 — pure worker registry, registration validation,
 // and deterministic aggregate capabilities. No RPC or persistence ownership.
 pub mod worker_registry;
+
+// EG-DURABLE-KERNEL-R089.1 — per-step verification verdict. Pure, no dep.
+pub mod step_verdict;
+// EG-DURABLE-KERNEL-R088.1 — rule-output correction with two-principal approval.
+pub mod rule_correction;
+// EG-DURABLE-KERNEL-R851.1 — the A2A peer record. Pure serde.
+pub mod agent_peer;
+// EG-DURABLE-KERNEL-R852.1/.2/.4 — health anomalies and correlated incidents.
+pub mod health_incident;
+// EG-DURABLE-KERNEL-R700.1 — the retention-cleanup policy shape.
+pub mod retention_policy;
+// EG-DURABLE-KERNEL-R094.1 — hierarchical concept-ID grammar and path claims.
+pub mod concept_id;
 
 // EG-DURABLE-KERNEL-R041 — the SQL plan cache key (statement digest + schema
 // version) and its lookup decision. Pure, no dep beyond `contract::Digest256`.
@@ -343,6 +420,9 @@ pub mod ontology_inspection;
 // F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
 pub mod rdf_report;
 pub mod row_predicate;
+// EG-FEDERATED-QUERY-R082.1 — typed calibration, bounded limits and closed
+// stop-verdict vocabulary; decision precedence lives in eg-plan.
+pub mod retrieval_stop;
 pub mod runtime_limit;
 // EH-558 — sealed record classes: content-addressed rows generic writes may not change.
 pub mod sealed_record;
@@ -355,6 +435,12 @@ pub mod result_contract;
 // storage, queues, handlers, and surface projections live in crates above this
 // bottom-of-DAG owner and must consume these exact operation and identity DTOs.
 pub mod semantic_index;
+// EG-SDLC — release, deployment, defect, derived status and lifecycle trace records.
+pub mod lifecycle;
+// EG-SCM-R002 — the source changeset record and its structured trailers.
+pub mod source_changeset;
+// EG-SCM-R013 — graph-native symbol edits.
+pub mod source_symbol_edit;
 // RF-ADR-009 — raw connector records, exact manifest mapping reference, cursor
 // CAS and the terminal native ingestion receipt. Runtime authority lives in the
 // server; these are bounded pure wire types.
@@ -371,6 +457,7 @@ pub mod types;
 // `result_contract::compute`; gated per compute family like `wire`.
 pub mod compute_result;
 pub mod current_plan;
+pub mod run_checkpoint;
 // GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
 // idempotency replay + per-authority fencing), built on GOC-03's
 // `commit_descriptor::CommitDescriptor` currency. Unconditional, pure
@@ -382,6 +469,8 @@ pub mod work_item_command_log;
 // the caller's row view, its three-bound page scan, and its cursor family.
 pub mod run_completion;
 pub mod work_item_read;
+// EG-IDENTITY-R610 — tenant parent chains, secured reads and ownership claims.
+pub mod tenancy;
 // The opaque tenant-bound keyset cursor shared by every paged read
 // (`AgentComponent.Search`, `ListWorkItems`).
 pub mod tenant_cursor;
@@ -390,12 +479,17 @@ pub mod keyset_page;
 // graph-os EG-2 — native control leases: a tenant-bound, time-boxed grant with
 // a one-way active -> revoked|expired lifecycle (not a capacity admission).
 pub mod control_lease;
+pub mod host_start;
 // The engine-owned identity store: principals, credentials,
 // sessions, roles/groups/IdPs, the auth-mode singleton and scope classes.
 pub mod identity;
 // EH-400 — declared freshness: `eg:volatilityClass`, per-class invalidation events and
 // foreign-source watermarks (the `FreshnessFeed` wire shapes).
 pub mod freshness;
+// EG-TYPED-PACKS-R802.1/R805.1 — governance record models: stewardship and
+// data products. Pure data and field validation; served wiring lands in later children.
+pub mod data_product;
+pub mod stewardship;
 // EH-348 — the graph-driven work market: the canonical `:Gap` paired with its
 // one native WorkItem, the versioned derived `WorkOffer`, and the deterministic
 // legal-offer ranking stage the `Decide` layer runs.
@@ -464,6 +558,7 @@ pub mod immich_pilot_phase;
 // (`src/server/handlers/viz.rs`, facade feature `viz-static-export`) is the one
 // place that parses `VizRenderRequest::spec_json` into a real
 // `eg_viz_core::ViewSpec` and resolves it.
+pub mod run_usage;
 pub mod usage;
 #[cfg(feature = "viz")]
 pub mod viz;
@@ -471,6 +566,17 @@ pub mod wire;
 // RF-ADR-009 D18 — EG-owned versioned source change sets and append-only
 // write-back/reconciliation receipts. Connector transports remain in the SDK.
 pub mod write_back;
+// EG-FEDERATED-QUERY-R700 — AIF argument maps and their Dung projection.
+pub mod argument_map;
+// EG-FEDERATED-QUERY-R701 — live artifacts re-derived from a query source.
+pub mod live_artifact;
+// EG-FEDERATED-QUERY-R702 — search-task records and shortcut-risk reports.
+pub mod search_task;
+// EG-FEDERATED-QUERY-R081 — retrieval sufficiency, selection, feedback and
+// hierarchy contracts (incl. the R081.9.7.1 section hierarchy policy); the deciding functions live in `eg_plan::retrieval_verdict`.
+pub mod retrieval_verdict;
+// EG-FEDERATED-QUERY-R085.1 — approved, read-only source query records.
+pub mod source_query;
 
 // CONCEPT:EG-KG.query.compound-predicate-decode — the serializable compound-WHERE predicate AST lives at the
 // bottom of the DAG so `eg-core` can evaluate it; `eg-query` decodes SQL into it.

@@ -69,3 +69,320 @@ dp:materialisationReason a owl:DatatypeProperty ;
     rdfs:comment "The reason a materialised mapping is allowed; virtual mappings need none." ;
     rdfs:domain dp:StoreMapping ;
     rdfs:range xsd:string .
+
+dp:Database a owl:Class ;
+    rdfs:label "Database" ;
+    rdfs:comment "A relational database attached as a data store." ;
+    rdfs:subClassOf dp:DataStore .
+
+dp:Schema a owl:Class ;
+    rdfs:label "Schema" ;
+    rdfs:comment "A named schema within a relational database." .
+
+dp:Table a owl:Class ;
+    rdfs:label "Table" ;
+    rdfs:comment "A relational table." .
+
+dp:View a owl:Class ;
+    rdfs:label "View" ;
+    rdfs:comment "A relational view." .
+
+dp:Column a owl:Class ;
+    rdfs:label "Column" ;
+    rdfs:comment "A column of a relational table or view." .
+
+dp:ForeignKey a owl:Class ;
+    rdfs:label "Foreign key" ;
+    rdfs:comment "A referential constraint from columns to another table." .
+
+dp:inSchema a owl:ObjectProperty ;
+    rdfs:label "in schema" ;
+    rdfs:domain dp:Table ;
+    rdfs:range dp:Schema .
+
+dp:hasColumn a owl:ObjectProperty ;
+    rdfs:label "has column" ;
+    rdfs:domain dp:Table ;
+    rdfs:range dp:Column .
+
+dp:referencesTable a owl:ObjectProperty ;
+    rdfs:label "references table" ;
+    rdfs:domain dp:ForeignKey ;
+    rdfs:range dp:Table .
+
+dp:isPrimaryKey a owl:DatatypeProperty ;
+    rdfs:label "is primary key" ;
+    rdfs:domain dp:Column ;
+    rdfs:range xsd:boolean .
+
+dp:sqlDialect a owl:DatatypeProperty ;
+    rdfs:label "SQL dialect" ;
+    rdfs:domain dp:Database ;
+    rdfs:range xsd:string .
+
+dp:Collection a owl:Class ;
+    rdfs:label "Collection" ;
+    rdfs:comment "A document collection within a document store." ;
+    rdfs:subClassOf dp:DataStore .
+
+dp:DocumentField a owl:Class ;
+    rdfs:label "Document field" ;
+    rdfs:comment "A field path observed across the documents of a collection." .
+
+dp:fieldPath a owl:DatatypeProperty ;
+    rdfs:label "field path" ;
+    rdfs:domain dp:DocumentField ;
+    rdfs:range xsd:string .
+
+dp:fieldType a owl:DatatypeProperty ;
+    rdfs:label "field type" ;
+    rdfs:comment "One of the DocumentFieldType list, including Mixed." ;
+    rdfs:domain dp:DocumentField ;
+    rdfs:range xsd:string .
+
+dp:presenceRatio a owl:DatatypeProperty ;
+    rdfs:label "presence ratio" ;
+    rdfs:comment "The fraction of documents in which the field is present, in [0,1]." ;
+    rdfs:domain dp:DocumentField ;
+    rdfs:range xsd:decimal .
+
+dp:documentCount a owl:DatatypeProperty ;
+    rdfs:label "document count" ;
+    rdfs:domain dp:Collection ;
+    rdfs:range xsd:nonNegativeInteger .
+
+dp:Bucket a owl:Class ;
+    rdfs:label "Bucket" ;
+    rdfs:comment "An object-store bucket." ;
+    rdfs:subClassOf dp:DataStore .
+
+dp:StoredObject a owl:Class ;
+    rdfs:label "Stored object" ;
+    rdfs:comment "An object held in a bucket. Object content is never modelled." .
+
+dp:objectKey a owl:DatatypeProperty ;
+    rdfs:label "object key" ;
+    rdfs:domain dp:StoredObject ;
+    rdfs:range xsd:string .
+
+dp:byteSize a owl:DatatypeProperty ;
+    rdfs:label "byte size" ;
+    rdfs:domain dp:StoredObject ;
+    rdfs:range xsd:nonNegativeInteger .
+
+dp:lastModified a owl:DatatypeProperty ;
+    rdfs:label "last modified" ;
+    rdfs:domain dp:StoredObject ;
+    rdfs:range xsd:dateTime .
+
+dp:VectorCollection a owl:Class ;
+    rdfs:label "Vector collection" ;
+    rdfs:comment "A collection of embedding vectors." ;
+    rdfs:subClassOf dp:DataStore .
+
+dp:EmbeddingSpace a owl:Class ;
+    rdfs:label "Embedding space" ;
+    rdfs:comment "The model, dimensionality and distance metric shared by vectors." .
+
+dp:embeddingModel a owl:DatatypeProperty ;
+    rdfs:label "embedding model" ;
+    rdfs:domain dp:EmbeddingSpace ;
+    rdfs:range xsd:string .
+
+dp:dimensions a owl:DatatypeProperty ;
+    rdfs:label "dimensions" ;
+    rdfs:domain dp:EmbeddingSpace ;
+    rdfs:range xsd:positiveInteger .
+
+dp:distanceMetric a owl:DatatypeProperty ;
+    rdfs:label "distance metric" ;
+    rdfs:domain dp:EmbeddingSpace ;
+    rdfs:range xsd:string .
+
+dp:usesEmbeddingSpace a owl:ObjectProperty ;
+    rdfs:label "uses embedding space" ;
+    rdfs:domain dp:VectorCollection ;
+    rdfs:range dp:EmbeddingSpace .
+
+dp:vectorCount a owl:DatatypeProperty ;
+    rdfs:label "vector count" ;
+    rdfs:domain dp:VectorCollection ;
+    rdfs:range xsd:nonNegativeInteger .
+
+dp:Topic a owl:Class ;
+    rdfs:label "Topic" ;
+    rdfs:comment "A stream topic." ;
+    rdfs:subClassOf dp:DataStore .
+
+dp:Partition a owl:Class ;
+    rdfs:label "Partition" ;
+    rdfs:comment "One partition of a stream topic." .
+
+dp:ConsumerGroup a owl:Class ;
+    rdfs:label "Consumer group" ;
+    rdfs:comment "A group of consumers sharing topic subscriptions." .
+
+dp:PartitionLag a owl:Class ;
+    rdfs:label "Partition lag" ;
+    rdfs:comment "Observed consumer lag for one partition at a point in time." .
+
+dp:partitionOf a owl:ObjectProperty ;
+    rdfs:label "partition of" ;
+    rdfs:domain dp:Partition ;
+    rdfs:range dp:Topic .
+
+dp:subscribesTo a owl:ObjectProperty ;
+    rdfs:label "subscribes to" ;
+    rdfs:domain dp:ConsumerGroup ;
+    rdfs:range dp:Topic .
+
+dp:lag a owl:DatatypeProperty ;
+    rdfs:label "lag" ;
+    rdfs:domain dp:PartitionLag ;
+    rdfs:range xsd:integer .
+
+dp:groupState a owl:DatatypeProperty ;
+    rdfs:label "group state" ;
+    rdfs:domain dp:ConsumerGroup ;
+    rdfs:range xsd:string .
+
+dp:AnalyticsSite a owl:Class ;
+    rdfs:label "Analytics site" ;
+    rdfs:comment "A monitored site whose behaviour metrics are observed." ;
+    rdfs:subClassOf dp:DataStore .
+
+dp:BehaviorMetric a owl:Class ;
+    rdfs:label "Behavior metric" ;
+    rdfs:comment "A named behaviour metric observed for a window and dimension." .
+
+dp:metricName a owl:DatatypeProperty ;
+    rdfs:label "metric name" ;
+    rdfs:domain dp:BehaviorMetric ;
+    rdfs:range xsd:string .
+
+dp:metricValue a owl:DatatypeProperty ;
+    rdfs:label "metric value" ;
+    rdfs:domain dp:BehaviorMetric ;
+    rdfs:range xsd:decimal .
+
+dp:windowDays a owl:DatatypeProperty ;
+    rdfs:label "window days" ;
+    rdfs:domain dp:BehaviorMetric ;
+    rdfs:range xsd:positiveInteger .
+
+dp:dimensionName a owl:DatatypeProperty ;
+    rdfs:label "dimension name" ;
+    rdfs:domain dp:BehaviorMetric ;
+    rdfs:range xsd:string .
+
+dp:dimensionValue a owl:DatatypeProperty ;
+    rdfs:label "dimension value" ;
+    rdfs:domain dp:BehaviorMetric ;
+    rdfs:range xsd:string .
+
+dp:Dataset a owl:Class ;
+    rdfs:label "Dataset" ;
+    rdfs:comment "A data-science dataset; a subclass of the core dataset class." ;
+    rdfs:subClassOf <http://knuckles.team/kg#Dataset> .
+
+dp:Model a owl:Class ;
+    rdfs:label "Trained model" ;
+    rdfs:comment "A general trained model. Not equivalent to the narrower LLM or embedding Model class." .
+
+dp:TrainingRun a owl:Class ;
+    rdfs:label "Training run" ;
+    rdfs:comment "One training execution over datasets that produces a model." .
+
+dp:EvaluationResult a owl:Class ;
+    rdfs:label "Evaluation result" ;
+    rdfs:comment "Validation metrics of a model evaluated on a dataset." .
+
+dp:trainedOn a owl:ObjectProperty ;
+    rdfs:label "trained on" ;
+    rdfs:domain dp:TrainingRun ;
+    rdfs:range dp:Dataset .
+
+dp:producedModel a owl:ObjectProperty ;
+    rdfs:label "produced model" ;
+    rdfs:domain dp:TrainingRun ;
+    rdfs:range dp:Model .
+
+dp:evaluatedOn a owl:ObjectProperty ;
+    rdfs:label "evaluated on" ;
+    rdfs:domain dp:EvaluationResult ;
+    rdfs:range dp:Dataset .
+
+dp:baselineRun a owl:ObjectProperty ;
+    rdfs:label "baseline run" ;
+    rdfs:domain dp:TrainingRun ;
+    rdfs:range dp:TrainingRun .
+
+# ── Secret metadata terms (EG-DATAPLAT-VOCAB-R005.1). ───────────────────────
+# Metadata only: there is no value, ciphertext, token, HCL-rule-body or key
+# property in this namespace (EG-DATAPLAT-VOCAB-R005.3).
+
+dp:SecretEngine a owl:Class ;
+    rdfs:label "Secret engine" ;
+    rdfs:comment "An attached secret-engine mount (path and engine type); metadata only." .
+
+dp:SecretPath a owl:Class ;
+    rdfs:label "Secret path" ;
+    rdfs:comment "A secret key-value path name; metadata only, never the value." .
+
+dp:AccessPolicy a owl:Class ;
+    rdfs:label "Access policy" ;
+    rdfs:comment "A named access policy; the name is recorded, never the rule body." .
+
+dp:RotationState a owl:Class ;
+    rdfs:label "Rotation state" ;
+    rdfs:comment "The version/rotation metadata of a secret path; metadata only." .
+
+dp:PolicyPathGrant a owl:Class ;
+    rdfs:label "Policy-path grant" ;
+    rdfs:comment "The capabilities one access policy grants on one secret path." .
+
+dp:hasRotationState a owl:ObjectProperty ;
+    rdfs:label "has rotation state" ;
+    rdfs:comment "The rotation-state metadata of a secret path." ;
+    rdfs:domain dp:SecretPath ;
+    rdfs:range dp:RotationState .
+
+dp:lastRotatedAt a owl:DatatypeProperty ;
+    rdfs:label "last rotated at" ;
+    rdfs:comment "When a secret path was last rotated." ;
+    rdfs:domain dp:RotationState ;
+    rdfs:range xsd:dateTime .
+
+dp:currentVersion a owl:DatatypeProperty ;
+    rdfs:label "current version" ;
+    rdfs:comment "The current key-value version of a secret path." ;
+    rdfs:domain dp:RotationState ;
+    rdfs:range xsd:integer .
+
+dp:pathName a owl:DatatypeProperty ;
+    rdfs:label "path name" ;
+    rdfs:comment "The path name of a secret engine mount or secret path." ;
+    rdfs:range xsd:string .
+
+dp:grantPolicy a owl:ObjectProperty ;
+    rdfs:label "grant policy" ;
+    rdfs:comment "The access policy a policy-path grant names." ;
+    rdfs:domain dp:PolicyPathGrant ;
+    rdfs:range dp:AccessPolicy .
+
+dp:grantPath a owl:ObjectProperty ;
+    rdfs:label "grant path" ;
+    rdfs:comment "The secret path a policy-path grant names." ;
+    rdfs:domain dp:PolicyPathGrant ;
+    rdfs:range dp:SecretPath .
+
+dp:grantsCapability a owl:DatatypeProperty ;
+    rdfs:label "grants capability" ;
+    rdfs:comment "One capability a policy grants on a path; the closed list is enforced by the data-platform shapes companion." ;
+    rdfs:domain dp:PolicyPathGrant ;
+    rdfs:range xsd:string .
+
+dp:leaseExpiresAt a owl:DatatypeProperty ;
+    rdfs:label "lease expires at" ;
+    rdfs:comment "When the lease on a policy or grant observation expires." ;
+    rdfs:range xsd:dateTime .
