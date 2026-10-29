@@ -527,7 +527,16 @@ pub(crate) async fn ensure_internal_global_graph(
     idempotency_key: &str,
 ) -> Result<(), String> {
     if state.read().await.registry.exists(graph_name) {
-        return Ok(());
+        // A catalog-known graph may be COLD — evicted back to catalog-only
+        // after a restart (CONCEPT:EG-KG.sharding.lazy-graph-catalog):
+        // `exists` is catalog+resident, so the plain short-circuit used to
+        // treat the cold incarnation as ensured and leave it un-materialized.
+        // Every resident-only consumer downstream (the pack-projection commit
+        // reads `registry.get`; routed reads gate on the resident entry) then
+        // refused it with "not resident". Re-materialize the cold graph
+        // through the same lazy-open the routed graph operations get;
+        // genuinely unknown names are no-ops.
+        return ensure_known_graph_resident(state, graph_name).await;
     }
     let create_identity = eg_types::contract::Digest256::framed(
         b"eg/internal-graph-lifecycle/v1",
@@ -549,9 +558,12 @@ pub(crate) async fn ensure_internal_global_graph(
     if let Some(error) = response.error {
         // A concurrent creator may have won after the existence probe.  The
         // graph's durable lifecycle is sufficient; never interpret any other
-        // create failure as success.
+        // create failure as success. The winner's graph may itself be COLD
+        // (catalog-only), so ensure it is materialized before reporting the
+        // lifecycle as ensured — same re-materialization as the short-circuit
+        // above.
         if state.read().await.registry.exists(graph_name) {
-            return Ok(());
+            return ensure_known_graph_resident(state, graph_name).await;
         }
         return Err(error);
     }
@@ -561,6 +573,166 @@ pub(crate) async fn ensure_internal_global_graph(
         Err(format!(
             "internal graph lifecycle acknowledged without publishing '{graph_name}'"
         ))
+    }
+}
+
+/// Materialize a catalog-known graph that may be COLD and confirm it is now
+/// resident. A failed lazy open is reported here instead of surfacing later
+/// as a "not resident" refusal in a resident-only consumer.
+async fn ensure_known_graph_resident(
+    state: &Arc<RwLock<ServerState>>,
+    graph_name: &str,
+) -> Result<(), String> {
+    ensure_graph_resident(state, graph_name).await;
+    if state.read().await.registry.is_resident(graph_name) {
+        Ok(())
+    } else {
+        Err(format!(
+            "internal global graph '{graph_name}' is known to the catalog but could not be materialized"
+        ))
+    }
+}
+
+#[cfg(all(test, feature = "redb"))]
+mod internal_global_graph_residency_tests {
+    use std::sync::Arc;
+
+    use super::ensure_internal_global_graph;
+    use crate::protocol::{GraphType, Method};
+    use crate::server::auth::{build_current_test_request, dispatch_test_on_heap};
+    use crate::server::dispatch::test_support::verified;
+    use crate::server::state::ServerState;
+    use tokio::sync::RwLock;
+
+    const SECRET: &str = "internal-graph-residency-test";
+    const TEST_AGENT: &str = "unit-test-agent";
+    const GRAPH: &str = "tenant:residency";
+
+    async fn redb_state(dir_s: &str) -> Arc<RwLock<ServerState>> {
+        crate::server::persistence::cold_offload::test_redb_state(
+            SECRET,
+            dir_s,
+            ServerState::test_isolation(TEST_AGENT),
+            64,
+        )
+        .await
+    }
+
+    fn props(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec(&v).unwrap()
+    }
+
+    /// Regression (2026-10-28, live on the arbora-prerelease kept store): a
+    /// graph known to the catalog but COLD — evicted back to catalog-only
+    /// after an engine restart (CONCEPT:EG-KG.sharding.lazy-graph-catalog;
+    /// boot materializes only `__commons__`) — was treated by
+    /// `ensure_internal_global_graph` as already ensured: its `exists`
+    /// short-circuit is catalog+resident, so the cold incarnation stayed
+    /// un-materialized and the resident-only `registry.get` inside
+    /// `commit_pack_projection` refused every pack-projection commit with
+    /// "pack projection graph '…' is not resident" (async outbox
+    /// dead-lettered, sync reproject fallback refused). The internal
+    /// lifecycle ensure must re-materialize a cold known graph through the
+    /// same lazy open the routed graph operations get.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cold_catalog_graph_is_rematerialized_by_internal_lifecycle_ensure() {
+        // Hold the encryption env for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let dir =
+            std::env::temp_dir().join(format!("eg-internal-residency-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let state = redb_state(&dir_s).await;
+
+        // Register the graph, give it durable content, then evict it back to
+        // catalog-only — the post-restart state of every graph but the
+        // materialized ones.
+        let create = dispatch_test_on_heap(
+            &state,
+            build_current_test_request(
+                SECRET,
+                "tenant-shared",
+                1,
+                GRAPH,
+                TEST_AGENT,
+                Method::CreateGraph {
+                    graph_name: GRAPH.into(),
+                    graph_type: GraphType::Agent,
+                },
+            ),
+        )
+        .await;
+        assert!(create.error.is_none(), "create {GRAPH}: {:?}", create.error);
+        let add = dispatch_test_on_heap(
+            &state,
+            build_current_test_request(
+                SECRET,
+                "tenant-shared",
+                2,
+                GRAPH,
+                TEST_AGENT,
+                Method::AddNode {
+                    node_id: "seed".into(),
+                    properties_msgpack: props(serde_json::json!({"payload": "seed"})),
+                },
+            ),
+        )
+        .await;
+        assert!(add.error.is_none(), "add node: {:?}", add.error);
+        {
+            let mut s = state.write().await;
+            assert!(s.registry.evict_resident(GRAPH), "evict to catalog-only");
+        }
+        assert!(
+            state.read().await.registry.exists(GRAPH),
+            "precondition: the catalog still knows the graph"
+        );
+        assert!(
+            !state.read().await.registry.is_resident(GRAPH),
+            "precondition: the graph is COLD (catalog-only, no resident core)"
+        );
+
+        // The internal lifecycle ensure must materialize the cold graph
+        // instead of short-circuiting on catalog knowledge.
+        let verified = verified(TEST_AGENT, &[], &[]);
+        let ensured = ensure_internal_global_graph(
+            &state,
+            7,
+            &verified,
+            GRAPH,
+            "internal-residency-test-key",
+        )
+        .await;
+        assert!(ensured.is_ok(), "ensure refused: {:?}", ensured.err());
+        assert!(
+            state.read().await.registry.is_resident(GRAPH),
+            "the internal lifecycle ensure must re-materialize a cold catalog graph"
+        );
+
+        // The re-materialized core serves the durable content.
+        let read = dispatch_test_on_heap(
+            &state,
+            build_current_test_request(
+                SECRET,
+                "tenant-shared",
+                3,
+                GRAPH,
+                TEST_AGENT,
+                Method::GetNodeProperties {
+                    node_id: "seed".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            read.error.is_none(),
+            "read after re-materialize: {:?}",
+            read.error
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 mod sparql_update;
