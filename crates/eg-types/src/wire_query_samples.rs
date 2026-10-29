@@ -82,6 +82,7 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
         OpKind::ValidateShape => Op::ValidateShape {
             shape: "Person Shape".into(),
             shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".into(),
+            projection_base: String::new(),
             keep: ShapeKeep::Violating,
         },
         #[cfg(feature = "wasm-udf")]

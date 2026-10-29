@@ -50,7 +50,14 @@ impl ShapeSource for GraphShapes {
 fn run(input: RowSet, shape: &str, shapes: &str, keep: ShapeKeep) -> Result<RowSet, String> {
     let view = people();
     let semantic = SemanticStore::new();
-    validate_shape(&PlanCtx::new(&view, &semantic), input, shape, shapes, keep)
+    validate_shape(
+        &PlanCtx::new(&view, &semantic),
+        input,
+        shape,
+        shapes,
+        "",
+        keep,
+    )
 }
 
 #[test]
@@ -80,7 +87,15 @@ fn an_empty_using_falls_back_to_the_bound_graph_shapes() {
     let semantic = SemanticStore::new();
     let source = GraphShapes;
     let ctx = PlanCtx::new(&view, &semantic).with_shape_source(&source);
-    let out = validate_shape(&ctx, rows(), "<http://ex/Named>", "", ShapeKeep::Violating).unwrap();
+    let out = validate_shape(
+        &ctx,
+        rows(),
+        "<http://ex/Named>",
+        "",
+        "",
+        ShapeKeep::Violating,
+    )
+    .unwrap();
     assert_eq!(ids(&out), vec!["<http://ex/bob>"]);
 }
 
@@ -97,4 +112,109 @@ fn a_row_without_rdf_identity_is_refused_and_empty_input_stays_empty() {
     )
     .unwrap();
     assert!(empty.is_empty());
+}
+
+#[test]
+fn opt_in_projection_validates_property_graph_nodes_and_preserves_row_ids() {
+    let core = GraphCore::new();
+    for (id, name) in [("source:one", Some("oak")), ("source:two", None)] {
+        let mut fields = serde_json::json!({"type": "Taxon"});
+        if let Some(name) = name {
+            fields["scientificName"] = name.into();
+        }
+        core.add_node(id.to_string(), rmp_serde::to_vec_named(&fields).unwrap());
+    }
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let input = RowSet::from_ids(["source:one".to_string(), "source:two".to_string()]);
+    let source = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:Named a sh:NodeShape ; sh:property [ sh:path ex:scientificName ; sh:minCount 1 ] ."#;
+    let ctx = PlanCtx::new(&view, &semantic);
+    let valid = validate_shape(
+        &ctx,
+        input.clone(),
+        "<http://ex/Named>",
+        source,
+        "http://ex/",
+        ShapeKeep::Conforming,
+    )
+    .unwrap();
+    let invalid = validate_shape(
+        &ctx,
+        input,
+        "<http://ex/Named>",
+        source,
+        "http://ex/",
+        ShapeKeep::Violating,
+    )
+    .unwrap();
+    assert_eq!(ids(&valid), vec!["source:one"]);
+    assert_eq!(ids(&invalid), vec!["source:two"]);
+}
+
+#[test]
+fn projection_refuses_colliding_native_and_rdf_identities() {
+    let core = GraphCore::new();
+    let fields = rmp_serde::to_vec_named(&serde_json::json!({"type":"Taxon"})).unwrap();
+    core.add_node("source:one".to_string(), fields.clone());
+    core.add_node("<http://ex/source:one>".to_string(), fields);
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let error = validate_shape(
+        &ctx,
+        RowSet::from_ids(["source:one".to_string()]),
+        "<http://ex/Named>",
+        SHAPES,
+        "http://ex/",
+        ShapeKeep::Conforming,
+    )
+    .unwrap_err();
+    assert!(error.contains("colliding node identities"), "{error}");
+}
+
+#[test]
+fn projection_preserves_explicit_source_datatype_without_guessing_strings() {
+    let core = GraphCore::new();
+    for (id, fields) in [
+        (
+            "source:typed",
+            serde_json::json!({"type":"WeatherObservation", "observationTime":"2025-01-01T12:00:00Z", "source_datatypes":{"observationTime":"xsd:dateTime"}}),
+        ),
+        (
+            "source:untyped",
+            serde_json::json!({"type":"WeatherObservation", "observationTime":"2025-01-01T12:00:00Z"}),
+        ),
+    ] {
+        core.add_node(id.to_string(), rmp_serde::to_vec_named(&fields).unwrap());
+    }
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let input = RowSet::from_ids(["source:typed".to_string(), "source:untyped".to_string()]);
+    let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+        @prefix ex: <http://ex/> .
+        ex:Timed a sh:NodeShape ; sh:property [ sh:path ex:observationTime ; sh:datatype xsd:dateTime ; sh:minCount 1 ] ."#;
+    let valid = validate_shape(
+        &ctx,
+        input.clone(),
+        "<http://ex/Timed>",
+        shapes,
+        "http://ex/",
+        ShapeKeep::Conforming,
+    )
+    .unwrap();
+    let invalid = validate_shape(
+        &ctx,
+        input,
+        "<http://ex/Timed>",
+        shapes,
+        "http://ex/",
+        ShapeKeep::Violating,
+    )
+    .unwrap();
+    assert_eq!(ids(&valid), vec!["source:typed"]);
+    assert_eq!(ids(&invalid), vec!["source:untyped"]);
 }

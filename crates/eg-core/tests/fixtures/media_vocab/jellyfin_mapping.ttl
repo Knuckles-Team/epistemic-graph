@@ -1,0 +1,167 @@
+# Recorded virtual-graph mapping for the `jellyfin` connector (jellyfin-mcp;
+# EG-MEDIA-VOCAB-R006.1, EG-CQ-CONN-R027). The rows are the `Connector mapping
+# tables` entry for jellyfin in
+# specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
+# contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary
+# in virtual_graph-v1.ttl and shaped by virtual_graph-v1.shapes.ttl. `mv:` is a
+# documentation prefix for this section of the shared `http://knuckles.team/kg#`
+# namespace; every ontology IRI stays in `:`.
+#
+# get_items is fixed to its Fields parameter (ProviderIds, DateCreated) so the
+# provider ids and the added-at time come back for the cross-source join.
+# The metadata contract is the discovery of the recorded response
+# (jellyfin_response.json, same directory); vg:contentDigest is sha256 over its
+# bytes.
+
+@prefix :    <http://knuckles.team/kg#> .
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f:   <urn:eg-media-vocab:jellyfin/> .
+
+f:connection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:declaredCapability "read" ;
+    vg:endpointRef [ a vg:EndpointRef ; vg:url "https://mcp.example.invalid/jellyfin" ] .
+
+f:contract a vg:MetadataContract ;
+    vg:contractSource f:connection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:d5dce39d1d5ed505c5185b704dab61cee940c4418671272d6a4419bdc2b45758" ;
+    vg:discoveredEntity "Movie", "Episode", "Track", "ItemUserData", "Session", "MediaInfo", "LibraryCounts" ;
+    vg:discoveredField "id", "title", "tmdbId", "added", "playCount", "lastPlayedAt", "item", "user", "position", "container", "size", "name", "movies" ;
+    vg:discoveredOperation "jellyfin_library/get_items", "jellyfin_library/get_item_user_data", "jellyfin_library/get_resume_items", "jellyfin_system/get_sessions", "jellyfin_media/get_playback_info", "jellyfin_library/get_item_counts" .
+
+# jellyfin_library/get_items (Fields=ProviderIds,DateCreated): movies
+f:row-movie a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :Film ;
+    vg:mapsEntity "Movie" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :tmdbId ;
+        vg:field "tmdbId"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :addedAt ;
+        vg:field "added"
+    ] .
+
+# jellyfin_library/get_items (Fields=ProviderIds,DateCreated): episodes
+f:row-episode a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :TelevisionEpisode ;
+    vg:mapsEntity "Episode" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :addedAt ;
+        vg:field "added"
+    ] .
+
+# jellyfin_library/get_items (Fields=ProviderIds,DateCreated): music tracks
+f:row-track a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :MusicTrack ;
+    vg:mapsEntity "Track" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :addedAt ;
+        vg:field "added"
+    ] .
+
+# jellyfin_library/get_item_user_data, get_resume_items
+f:row-item-user-data a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :PlaybackSession ;
+    vg:mapsEntity "ItemUserData" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :playCount ;
+        vg:field "playCount"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :lastPlayedAt ;
+        vg:field "lastPlayedAt"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :itemOf ;
+        vg:field "item"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :playedBy ;
+        vg:field "user"
+    ] .
+
+# jellyfin_system/get_sessions (live playback)
+f:row-session a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :PlaybackSession ;
+    vg:mapsEntity "Session" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :playbackPositionSeconds ;
+        vg:field "position"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :itemOf ;
+        vg:field "item"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :playedBy ;
+        vg:field "user"
+    ] .
+
+# jellyfin_media/get_playback_info
+f:row-media-info a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :MediaFile ;
+    vg:mapsEntity "MediaInfo" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :container ;
+        vg:field "container"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :sizeBytes ;
+        vg:field "size"
+    ] .
+
+# jellyfin_library/get_item_counts
+f:row-library-counts a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :MediaLibrary ;
+    vg:mapsEntity "LibraryCounts" ;
+    vg:keyField "name" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :itemCount ;
+        vg:field "movies"
+    ] .

@@ -149,10 +149,18 @@ pub(super) fn reason(target_class: &str, ontology: &str) -> Printed {
 }
 
 #[cfg(feature = "owl-plan")]
-pub(super) fn validate_shape(shape: &str, shapes: &str, keep: ShapeKeep) -> Printed {
+pub(super) fn validate_shape(
+    shape: &str,
+    shapes: &str,
+    projection_base: &str,
+    keep: ShapeKeep,
+) -> Printed {
     let mut out = format!("VALIDATE SHAPE {}", iri_or_string(shape));
     if !shapes.is_empty() {
         out.push_str(&format!(" USING {}", uql_quote(shapes)));
+    }
+    if !projection_base.is_empty() {
+        out.push_str(&format!(" PROJECT {}", uql_quote(projection_base)));
     }
     if keep == ShapeKeep::Violating {
         out.push_str(" KEEP VIOLATING");

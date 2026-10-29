@@ -134,7 +134,7 @@ impl Projection {
     /// the key verbatim (RDF-loaded ids are already `<iri>`). Namespaced wraps a BARE
     /// local id as `<base + id_with_spaces_underscored>` (matching AU's `_uri`), but
     /// passes through a key that is already a term (`<iri>` / `_:bnode`).
-    fn node_iri(&self, key: &str) -> String {
+    pub fn node_iri(&self, key: &str) -> String {
         match &self.base_iri {
             None => key.to_string(),
             Some(base) => {
@@ -150,7 +150,7 @@ impl Projection {
     /// Project a property / edge-relation KEY to its predicate IRI (bare — predicates
     /// compare without angle brackets). Identity returns it verbatim; namespaced
     /// prefixes a BARE key but passes through one that is already an IRI.
-    fn pred_iri(&self, key: &str) -> String {
+    pub fn pred_iri(&self, key: &str) -> String {
         match &self.base_iri {
             None => key.to_string(),
             Some(base) => {
@@ -167,7 +167,7 @@ impl Projection {
     /// string. `None` in identity mode (no synthesis — `rdf:type` is edge-sourced).
     /// Namespaced: `<base + CamelCase(type)>` when `camel_type`, else the verbatim
     /// (space-underscored) local name.
-    fn type_object_iri(&self, ty: &str) -> Option<String> {
+    pub fn type_object_iri(&self, ty: &str) -> Option<String> {
         let base = self.base_iri.as_ref()?;
         let local = if self.camel_type {
             camel_case(ty)

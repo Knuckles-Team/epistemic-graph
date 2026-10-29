@@ -1,0 +1,27 @@
+{
+  "Movie": [
+    { "id": "1", "title": "The Wanted Feature", "tmdbId": "603", "monitored": true, "hasFile": false },
+    { "id": "2", "title": "The Owned Feature", "tmdbId": "604", "monitored": true, "hasFile": true },
+    { "id": "3", "title": "The Unmonitored Feature", "tmdbId": "605", "monitored": false, "hasFile": false }
+  ],
+  "Episode": [
+    { "id": "11", "title": "Show One S01E02", "tvdbId": "412000", "monitored": true, "hasFile": false }
+  ],
+  "WantedMissing": [
+    { "id": "7", "state": "wanted", "work": "urn:eg-media-vocab:arr:Movie:1" }
+  ],
+  "QueueItem": [
+    { "downloadId": "B44226130472E16A5D2B7E7F2C1A9D3E5F6A8C0B", "work": "urn:eg-media-vocab:arr:Movie:1" }
+  ],
+  "HistoryEntry": [
+    { "id": "101", "eventType": "grabbed", "indexer": "NZBgeek", "movie": "urn:eg-media-vocab:arr:Movie:1" },
+    { "id": "102", "eventType": "grabbed", "indexer": "Prowlarr-A", "movie": "urn:eg-media-vocab:arr:Episode:11" }
+  ],
+  "Indexer": [
+    { "name": "NZBgeek", "enabled": true },
+    { "name": "Prowlarr-A", "enabled": true }
+  ],
+  "Request": [
+    { "id": "21", "state": "requested", "work": "urn:eg-media-vocab:arr:Movie:2", "requestedBy": "dana" }
+  ]
+}

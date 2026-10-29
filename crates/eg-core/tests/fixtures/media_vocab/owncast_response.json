@@ -1,0 +1,18 @@
+{
+  "Status": [
+    { "id": "stream", "online": true, "lastConnectTime": "2026-01-14T20:00:00Z", "viewers": 30 }
+  ],
+  "ViewerSample": [
+    { "id": "v1", "count": 25, "sampledAt": "2026-01-14T22:30:00Z", "stream": "urn:eg-media-vocab:owncast:Status:stream" },
+    { "id": "v2", "count": 37, "sampledAt": "2026-01-14T23:30:00Z", "stream": "urn:eg-media-vocab:owncast:Status:stream" }
+  ],
+  "Hardware": [
+    { "id": "hw1", "cpu": 23.5, "ram": 61.2 }
+  ],
+  "ChatMessage": [
+    { "id": "c1", "content": "welcome to the rack", "created_at": "2026-01-14T23:59:00Z", "author": "dana" }
+  ],
+  "Follower": [
+    { "id": "f1", "username": "dana" }
+  ]
+}

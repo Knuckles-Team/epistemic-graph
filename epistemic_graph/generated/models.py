@@ -17758,6 +17758,7 @@ class OpValidateShapeBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     keep: ShapeKeep
+    projection_base: str | None = None
     shape: str
     shapes: str
 

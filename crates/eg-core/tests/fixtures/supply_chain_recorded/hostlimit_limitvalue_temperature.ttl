@@ -1,0 +1,11 @@
+# Recorded response (D4 row HostLimit.limitValue temperature): fan-manager
+# `FanControlPolicy.maxTemperature` -- the limit is the operator policy
+# ceiling (Decision D6). Projected by the approved mapping
+# (vm_host_limits.ttl).
+
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:limit-001 a infra:HostLimit ;
+    infra:limitKind "temperature" ;
+    infra:limitValue 85 .

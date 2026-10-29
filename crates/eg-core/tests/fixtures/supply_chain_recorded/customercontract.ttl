@@ -1,0 +1,13 @@
+# Recorded response (D4 row CustomerContract): salesforce `salesforce_soql`
+# reading the standard Contract sObject (no declared connector class today).
+# twenty and erpnext are not available (no contract object) -- typed
+# abstention; coversService is BLOCKED (R005.9), so no covered-service edge
+# is recorded.
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:contract-001 a kg:CustomerContract ;
+    kg:contractCustomer ex:cust-001 .
+
+ex:cust-001 a kg:Customer .

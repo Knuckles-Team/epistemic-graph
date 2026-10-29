@@ -218,6 +218,9 @@ pub use serialization::{
     export_triples, export_view_triples, is_rdf_term, to_nquads, to_ntriples, to_trig, to_turtle,
 };
 
+#[cfg(feature = "sparql")]
+pub use serialization::export_view_projected;
+
 /// Extract the lexical value of a node property cell.
 ///
 /// A typed RDF cell is the JSON object `{value, datatype, lang}` (the `AddTriples`

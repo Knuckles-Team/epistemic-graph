@@ -1,0 +1,23 @@
+# Recorded response (D4 row HostLimit capacity disk/memory/cpu): systems-
+# manager `HardwareNode`/`DiskVolume` fields `capacityBytes`, `freeBytes`,
+# `memoryTotal`, `cpuCount`. No source exposes a capacity limit, so the
+# limitValue side is the declared threshold of R004.3 (host_limit_
+# thresholds.ttl). Projected by the approved mapping (vm_host_limits.ttl).
+
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:disk-001 a infra:HostLimit ;
+    infra:limitKind "disk" ;
+    infra:readingValue 1700000000000 ;
+    infra:limitValue 2000000000000 .
+
+ex:memory-001 a infra:HostLimit ;
+    infra:limitKind "memory" ;
+    infra:readingValue 512000000000 ;
+    infra:limitValue 600000000000 .
+
+ex:cpu-001 a infra:HostLimit ;
+    infra:limitKind "cpu" ;
+    infra:readingValue 6 ;
+    infra:limitValue 8 .

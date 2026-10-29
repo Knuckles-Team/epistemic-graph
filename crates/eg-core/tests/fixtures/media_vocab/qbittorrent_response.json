@@ -1,0 +1,16 @@
+{
+  "Torrent": [
+    { "hash": "B44226130472E16A5D2B7E7F2C1A9D3E5F6A8C0B", "name": "The Wanted Feature", "state": "stalledDL", "ratio": 0.12, "last_activity": "2026-01-12T08:30:00Z", "added_on": "2026-01-05T10:00:00Z" },
+    { "hash": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0", "name": "The Old Seed", "state": "stalledUP", "ratio": 1.5, "last_activity": "2026-01-01T00:00:00Z", "added_on": "2025-11-20T00:00:00Z" },
+    { "hash": "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1", "name": "The Fresh Download", "state": "downloading", "ratio": 0.01, "last_activity": "2026-01-14T23:59:00Z", "added_on": "2026-01-14T12:00:00Z" }
+  ],
+  "TorrentProperties": [
+    { "hash": "B44226130472E16A5D2B7E7F2C1A9D3E5F6A8C0B", "url": "https://tracker.example/announce" }
+  ],
+  "TransferInfo": [
+    { "id": "global", "dl_speed": 1048576, "up_speed": 262144 }
+  ],
+  "SyncTorrent": [
+    { "hash": "B44226130472E16A5D2B7E7F2C1A9D3E5F6A8C0B", "state": "stalledDL", "last_activity": "2026-01-12T09:00:00Z" }
+  ]
+}

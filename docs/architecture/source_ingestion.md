@@ -55,6 +55,22 @@ provider `content_hash` is optional. When supplied it is bound into checkpoint
 CAS and receipts exactly as supplied; EG does not invent a second source-content
 digest for providers that do not expose one.
 
+A schema mapping may declare both a target property and an explicit datatype
+for a source field, for example `fields: {"event_time_utc": "observationTime"}`
+and `datatypes: {"event_time_utc": "xsd:dateTime"}`. Datatypes must name an
+existing non-datatype field target and a supported XSD type. Ingestion validates
+the source value and retains the target's approved datatype in reserved
+`source_datatypes` metadata while preserving the original scalar property. Dates
+must be ISO calendar dates; date-times must be RFC 3339 with a timezone. A failed
+validation rejects the batch before its checkpoint advances. Omitting
+`datatypes` preserves the legacy mapping encoding and behavior.
+
+For graph validation, UQL `VALIDATE SHAPE ... PROJECT '<namespace>'` explicitly
+projects native graph IDs, fields and relationships under the caller's chosen
+namespace. It uses persisted source datatype metadata rather than inferring types
+from text. The original graph IDs remain in the result, and projection identity
+collisions are refused.
+
 Raw admission intentionally precedes mapping and final ingest. A crash after
 admission leaves recoverable content-addressed material; it never advances the
 source cursor or produces a success receipt. The terminal

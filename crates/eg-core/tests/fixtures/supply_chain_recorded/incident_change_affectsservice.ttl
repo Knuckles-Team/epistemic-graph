@@ -1,0 +1,16 @@
+# Recorded response (D4 row Incident/Change/affectsService): servicenow
+# `get_change_request_ci` and `get_cmdb_instances` are rank 1; erpnext
+# `ErpNextIssue` (incident only) is rank 2. Projected by the approved
+# mappings (vm_servicenow.ttl).
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:chg-001 a kg:Change ;
+    kg:affectsService ex:srv-001 .
+
+ex:inc-001 a kg:Incident ;
+    kg:affectsService ex:srv-001 .
+
+ex:srv-001 a infra:Service .

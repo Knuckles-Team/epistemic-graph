@@ -3,6 +3,7 @@
 use eg_core::graph::{current_core_set_digest, GraphSchemaSources, SchemaSourceOrigin};
 use eg_rdf::mapping::parse_turtle;
 use eg_rdf::oxrdf::{NamedNode, NamedOrBlankNode, Term, Triple};
+use eg_shacl::validate_turtle;
 
 const SHAPES: &str = include_str!("../ontology/data_platform-v1.shapes.ttl");
 
@@ -712,6 +713,7 @@ fn store_mapping_fixture(fixture: &str, expected_operations: &[&str]) {
 // spec: EG-DATAPLAT-VOCAB-R006.1
 #[test]
 fn mapping_fixture_sql_validates() {
+    validate_fixture(include_str!("../ontology/fixtures/data_platform/sql.ttl"));
     store_mapping_fixture(
         include_str!("../ontology/fixtures/data_platform/sql.ttl"),
         &[
@@ -726,6 +728,9 @@ fn mapping_fixture_sql_validates() {
 // spec: EG-DATAPLAT-VOCAB-R006.8
 #[test]
 fn mapping_fixture_data_science_validates() {
+    validate_fixture(include_str!(
+        "../ontology/fixtures/data_platform/data-science.ttl"
+    ));
     store_mapping_fixture(
         include_str!("../ontology/fixtures/data_platform/data-science.ttl"),
         &[
@@ -733,6 +738,914 @@ fn mapping_fixture_data_science_validates() {
             "dataset_lineage",
             "rank_models",
             "evaluate_model",
+            "fit_model:fit",
         ],
     );
+}
+
+const DP_SHAPES: &str = SHAPES;
+const VG_SHAPES: &str = include_str!("../ontology/virtual_graph-v1.shapes.ttl");
+
+/// One minimal complete store-mapping document with the given `dp:viaOperation`:
+/// a metadata contract, one approved `dp:StoreMapping` onto `dp:SecretPath` and
+/// its one predicate-field pair.
+fn store_mapping_document(via_operation: &str) -> String {
+    format!(
+        r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://example.org/data-platform/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:b8cc56e85870f9307795bd43189dc66c516c662bd1df459a76537c4f1e7f9c44" ;
+    vg:discoveredEntity "logical_paths" ;
+    vg:discoveredField "path" .
+
+ex:mapping a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:SecretPath ;
+    vg:mapsEntity "logical_paths" ;
+    vg:keyField "path" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:pathName ;
+        vg:field "path"
+    ] ;
+    vg:approved true ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "{via_operation}" ;
+    dp:accelerationMode "virtual" .
+"#
+    )
+}
+
+/// The literal value of a term, if it is a literal.
+fn literal_value(term: &eg_rdf::oxrdf::Term) -> Option<&str> {
+    match term.as_ref() {
+        eg_rdf::oxrdf::TermRef::Literal(literal) => Some(literal.value()),
+        _ => None,
+    }
+}
+
+/// The IRI of a named term, without Turtle's angle brackets.
+fn iri_of(term: &eg_rdf::oxrdf::Term) -> Option<String> {
+    if term.is_named_node() {
+        let rendered = term.to_string();
+        return Some(rendered[1..rendered.len() - 1].to_string());
+    }
+    None
+}
+
+/// The IRI of a triple subject, without Turtle's angle brackets.
+fn subject_iri_of(subject: &eg_rdf::oxrdf::NamedOrBlankNode) -> String {
+    let rendered = subject.to_string();
+    rendered[1..rendered.len() - 1].to_string()
+}
+
+/// Validates a mapping fixture against the data-platform and virtual-graph
+/// shapes and returns its triples.
+fn validate_fixture(document: &str) -> Vec<Triple> {
+    let report = validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), document)
+        .expect("the mapping fixture parses before validation");
+    assert!(
+        report.conforms,
+        "the mapping fixture must conform to the data-platform and virtual-graph shapes: {:?}",
+        report.results
+    );
+    parse_turtle(document).expect("the mapping fixture parses")
+}
+
+/// Asserts that the named `dp:viaOperation` values each appear on some
+/// `dp:StoreMapping` node of the fixture.
+fn assert_via_operations(triples: &[Triple], operations: &[&str]) {
+    let via_operation = NamedNode::new(format!("{DP}viaOperation")).unwrap();
+    for operation in operations {
+        assert!(
+            triples.iter().any(|triple| {
+                triple.predicate == via_operation
+                    && triple.object
+                        == eg_rdf::oxrdf::Term::Literal(eg_rdf::oxrdf::Literal::new_simple_literal(
+                            *operation,
+                        ))
+            }),
+            "a mapping via {operation} must be present in the fixture"
+        );
+    }
+}
+// spec: EG-DATAPLAT-VOCAB-R002.4
+#[test]
+fn document_field_shape_rejects_ratio_2() {
+    // A presenceRatio of 2 is outside [0,1] and must be refused.
+    let bad_ratio = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:field a dp:DocumentField ;
+    dp:fieldPath "address.city" ;
+    dp:fieldType "string" ;
+    dp:presenceRatio 2.0 .
+"#;
+    let report = validate_turtle(DP_SHAPES, bad_ratio)
+        .expect("the ratio-2 document parses before validation");
+    assert!(
+        !report.conforms,
+        "a presenceRatio of 2 must be rejected: {:?}",
+        report.results
+    );
+
+    // A DocumentFieldType member (including mixed) with a ratio inside [0,1] conforms.
+    let good = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:field a dp:DocumentField ;
+    dp:fieldPath "address.city" ;
+    dp:fieldType "mixed" ;
+    dp:presenceRatio 0.5 .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, good).expect("the conforming document parses before validation");
+    assert!(
+        report.conforms,
+        "a DocumentFieldType member with a ratio in [0,1] must conform: {:?}",
+        report.results
+    );
+
+    // A fieldType outside the DocumentFieldType list is refused on its own.
+    let bad_type = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:field a dp:DocumentField ;
+    dp:fieldPath "address.city" ;
+    dp:fieldType "weird" ;
+    dp:presenceRatio 0.5 .
+"#;
+    let report = validate_turtle(DP_SHAPES, bad_type)
+        .expect("the bad-type document parses before validation");
+    assert!(
+        !report.conforms,
+        "fieldType must be a DocumentFieldType member: {:?}",
+        report.results
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R003.3
+#[test]
+fn vector_dimension_zero_rejected() {
+    // A zero-embedding-space (dimensions 0) is refused: dimensions is a
+    // positive integer.
+    let zero_dimensions = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:collection a dp:VectorCollection ;
+    dp:usesEmbeddingSpace ex:space .
+
+ex:space a dp:EmbeddingSpace ;
+    dp:embeddingModel "all-MiniLM-L6-v2" ;
+    dp:dimensions 0 .
+"#;
+    let report = validate_turtle(DP_SHAPES, zero_dimensions)
+        .expect("the zero-dimension document parses before validation");
+    assert!(
+        !report.conforms,
+        "a zero-dimensional embedding space must be rejected: {:?}",
+        report.results
+    );
+
+    // A collection without any embedding space is refused too.
+    let no_space = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:collection a dp:VectorCollection ;
+    dp:vectorCount 1000 .
+"#;
+    let report = validate_turtle(DP_SHAPES, no_space)
+        .expect("the missing-space document parses before validation");
+    assert!(
+        !report.conforms,
+        "a vector collection without an embedding space must be rejected: {:?}",
+        report.results
+    );
+
+    // A collection with exactly one positive-dimensional embedding space conforms.
+    let good = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:collection a dp:VectorCollection ;
+    dp:usesEmbeddingSpace ex:space .
+
+ex:space a dp:EmbeddingSpace ;
+    dp:embeddingModel "all-MiniLM-L6-v2" ;
+    dp:dimensions 1536 ;
+    dp:distanceMetric "cosine" .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, good).expect("the conforming document parses before validation");
+    assert!(
+        report.conforms,
+        "one positive-dimensional embedding space must conform: {:?}",
+        report.results
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R004.2
+#[test]
+fn negative_lag_rejected() {
+    // A negative lag is refused: lag is an integer >= 0.
+    let negative = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:lag a dp:PartitionLag ;
+    dp:lag -3 ;
+    dp:asOf "2026-10-28T00:00:00Z"^^xsd:dateTime .
+"#;
+    let report = validate_turtle(DP_SHAPES, negative)
+        .expect("the negative-lag document parses before validation");
+    assert!(
+        !report.conforms,
+        "a negative lag must be rejected: {:?}",
+        report.results
+    );
+
+    // A lag without its observation time is refused too.
+    let no_asof = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:lag a dp:PartitionLag ;
+    dp:lag 42 .
+"#;
+    let report = validate_turtle(DP_SHAPES, no_asof)
+        .expect("the missing-asOf document parses before validation");
+    assert!(
+        !report.conforms,
+        "a partition lag without asOf must be rejected: {:?}",
+        report.results
+    );
+
+    // A zero lag with an observation time conforms (boundary of [0, +inf)).
+    let good = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:lag a dp:PartitionLag ;
+    dp:lag 0 ;
+    dp:asOf "2026-10-28T00:00:00Z"^^xsd:dateTime .
+"#;
+    let report =
+        validate_turtle(DP_SHAPES, good).expect("the conforming document parses before validation");
+    assert!(
+        report.conforms,
+        "a zero lag with asOf must conform: {:?}",
+        report.results
+    );
+}
+// spec: EG-DATAPLAT-VOCAB-R005.4
+#[test]
+fn openbao_value_operation_mapping_refused() {
+    // Every secret-value operation is refused by the StoreMapping denylist.
+    for operation in [
+        "openbao_mcp_kv:kv2_get",
+        "openbao_mcp_kv:kv1_get",
+        "openbao_mcp_logical:read",
+        "openbao_mcp_logical:unwrap",
+    ] {
+        let document = store_mapping_document(operation);
+        let report = validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &document)
+            .expect("the refused mapping parses before validation");
+        assert!(
+            !report.conforms,
+            "a StoreMapping via {operation} must be refused: {:?}",
+            report.results
+        );
+    }
+
+    // A metadata-only openbao operation is not on the denylist: the same
+    // mapping with it conforms.
+    let good = store_mapping_document("openbao_mcp_logical:list");
+    let report = validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &good)
+        .expect("the metadata mapping parses before validation");
+    assert!(
+        report.conforms,
+        "a metadata-only viaOperation must conform: {:?}",
+        report.results
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R005.5
+#[test]
+fn grants_capability_closed_list() {
+    // One policy granting read on path A and deny on path B: the permissions
+    // stay scoped to their policy/path pair and conform.
+    let scoped_grants = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:engine a dp:SecretEngine .
+
+ex:policy a dp:AccessPolicy ;
+    dp:inStore ex:engine .
+
+ex:pathA a dp:SecretPath ;
+    dp:pathName "secret/data/production/db" ;
+    dp:inStore ex:engine .
+
+ex:pathB a dp:SecretPath ;
+    dp:pathName "secret/data/production/api" ;
+    dp:inStore ex:engine .
+
+ex:grantA a dp:PolicyPathGrant ;
+    dp:grantPolicy ex:policy ;
+    dp:grantPath ex:pathA ;
+    dp:grantsCapability "read" ;
+    dp:inStore ex:engine .
+
+ex:grantB a dp:PolicyPathGrant ;
+    dp:grantPolicy ex:policy ;
+    dp:grantPath ex:pathB ;
+    dp:grantsCapability "deny" ;
+    dp:inStore ex:engine .
+"#;
+    let report = validate_turtle(DP_SHAPES, scoped_grants)
+        .expect("the scoped-grant document parses before validation");
+    assert!(
+        report.conforms,
+        "one policy granting read on path A and deny on path B must conform: {:?}",
+        report.results
+    );
+
+    // A capability outside the closed list is refused.
+    let bad_capability = r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:engine a dp:SecretEngine .
+
+ex:policy a dp:AccessPolicy ;
+    dp:inStore ex:engine .
+
+ex:pathA a dp:SecretPath ;
+    dp:pathName "secret/data/production/db" ;
+    dp:inStore ex:engine .
+
+ex:grant a dp:PolicyPathGrant ;
+    dp:grantPolicy ex:policy ;
+    dp:grantPath ex:pathA ;
+    dp:grantsCapability "admin" ;
+    dp:inStore ex:engine .
+"#;
+    let report = validate_turtle(DP_SHAPES, bad_capability)
+        .expect("the bad-capability document parses before validation");
+    assert!(
+        !report.conforms,
+        "a grantsCapability outside the closed list must be rejected: {:?}",
+        report.results
+    );
+}
+// spec: EG-DATAPLAT-VOCAB-R006.2
+#[test]
+fn mapping_fixture_documentdb_validates() {
+    let triples = validate_fixture(include_str!(
+        "../ontology/fixtures/data_platform/documentdb.ttl"
+    ));
+    assert_via_operations(
+        &triples,
+        &[
+            "documentdb_collections:list_collections",
+            "documentdb_analysis:aggregate",
+        ],
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R006.3
+#[test]
+fn mapping_fixture_objectstore_validates() {
+    let triples = validate_fixture(include_str!(
+        "../ontology/fixtures/data_platform/objectstore.ttl"
+    ));
+    assert_via_operations(&triples, &["buckets:list", "objects:list", "objects:head"]);
+}
+
+// spec: EG-DATAPLAT-VOCAB-R006.4
+#[test]
+fn mapping_fixture_vector_validates() {
+    let triples = validate_fixture(include_str!(
+        "../ontology/fixtures/data_platform/vector.ttl"
+    ));
+    assert_via_operations(&triples, &["vector_collection_management:list_collections"]);
+}
+
+// spec: EG-DATAPLAT-VOCAB-R006.5
+#[test]
+fn mapping_fixture_kafka_validates() {
+    let triples = validate_fixture(include_str!("../ontology/fixtures/data_platform/kafka.ttl"));
+    assert_via_operations(
+        &triples,
+        &[
+            "kafka_topics:list",
+            "kafka_partitions:list",
+            "kafka_groups:lags",
+            "kafka_groups:lag_summary",
+        ],
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R006.6
+#[test]
+fn mapping_fixture_openbao_validates() {
+    let triples = validate_fixture(include_str!(
+        "../ontology/fixtures/data_platform/openbao.ttl"
+    ));
+    assert_via_operations(
+        &triples,
+        &["openbao_mcp_sys:get_mounts", "openbao_mcp_logical:list"],
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R006.7
+#[test]
+fn mapping_fixture_clarity_validates() {
+    let triples = validate_fixture(include_str!(
+        "../ontology/fixtures/data_platform/clarity.ttl"
+    ));
+    assert_via_operations(&triples, &["clarity_insights:get_data_export"]);
+}
+// spec: EG-DATAPLAT-VOCAB-R007.1
+#[test]
+fn materialised_without_reason_rejected() {
+    fn mapping_with_mode(mode: &str, reason: Option<&str>) -> String {
+        format!(
+            r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://example.org/data-platform/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:1076e71eb9f4543f53a06ccb20595f33afd5684c08ce0679f69ff9e0be1255d6" ;
+    vg:discoveredEntity "logical_paths" ;
+    vg:discoveredField "path" .
+
+ex:mapping a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:SecretPath ;
+    vg:mapsEntity "logical_paths" ;
+    vg:keyField "path" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:pathName ;
+        vg:field "path"
+    ] ;
+    vg:approved true ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "openbao_mcp_logical:list" ;
+    dp:accelerationMode "{mode}"{reason} .
+"#,
+            reason = reason
+                .map(|r| format!(" ; dp:materialisationReason \"{r}\""))
+                .unwrap_or_default()
+        )
+    }
+
+    // A materialised mapping without a reason is a violation.
+    let no_reason = mapping_with_mode("materialised", None);
+    let report = validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &no_reason)
+        .expect("the no-reason mapping parses before validation");
+    assert!(
+        !report.conforms,
+        "a materialised mapping without a materialisationReason must be rejected: {:?}",
+        report.results
+    );
+
+    // The same mapping with a reason conforms.
+    let with_reason = mapping_with_mode(
+        "materialised",
+        Some("Sustained lag needs history; recorded via the R038 AccelerationPolicy."),
+    );
+    let report = validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &with_reason)
+        .expect("the with-reason mapping parses before validation");
+    assert!(
+        report.conforms,
+        "a materialised mapping with a reason must conform: {:?}",
+        report.results
+    );
+
+    // A virtual mapping needs no reason.
+    let virtual_mode = mapping_with_mode("virtual", None);
+    let report = validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &virtual_mode)
+        .expect("the virtual mapping parses before validation");
+    assert!(
+        report.conforms,
+        "a virtual mapping must conform without a reason: {:?}",
+        report.results
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R007.2
+#[test]
+fn mcp_operation_requires_via_operation() {
+    fn mapping_with_kind(kind: &str, via_operation: Option<&str>) -> String {
+        format!(
+            r#"
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://example.org/data-platform/> .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://example.org/data-platform/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:d780efe5a265c68dcfc72ea0ef8d07f04cabcae6e04cb2ce14d067e27987aca4" ;
+    vg:discoveredEntity "logical_paths" ;
+    vg:discoveredField "path" .
+
+ex:mapping a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:SecretPath ;
+    vg:mapsEntity "logical_paths" ;
+    vg:keyField "path" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:pathName ;
+        vg:field "path"
+    ] ;
+    vg:approved true ;
+    dp:contractKind "{kind}"{operation} ;
+    dp:accelerationMode "virtual" .
+"#,
+            operation = via_operation
+                .map(|op| format!(" ; dp:viaOperation \"{op}\""))
+                .unwrap_or_default()
+        )
+    }
+
+    // An mcp-operation contract without its named operation is a violation.
+    let missing_operation = mapping_with_kind("mcp-operation", None);
+    let report = validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &missing_operation)
+        .expect("the missing-operation mapping parses before validation");
+    assert!(
+        !report.conforms,
+        "an mcp-operation mapping without a viaOperation must be rejected: {:?}",
+        report.results
+    );
+
+    // The same mapping with its named operation conforms.
+    let named_operation = mapping_with_kind("mcp-operation", Some("openbao_mcp_logical:list"));
+    let report = validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &named_operation)
+        .expect("the named-operation mapping parses before validation");
+    assert!(
+        report.conforms,
+        "an mcp-operation mapping with a viaOperation must conform: {:?}",
+        report.results
+    );
+
+    // Other contract kinds do not require a viaOperation.
+    let r2rml = mapping_with_kind("r2rml-sql", None);
+    let report = validate_turtle(&format!("{DP_SHAPES}{VG_SHAPES}"), &r2rml)
+        .expect("the r2rml mapping parses before validation");
+    assert!(
+        report.conforms,
+        "an r2rml-sql mapping without a viaOperation must conform: {:?}",
+        report.results
+    );
+}
+
+// spec: EG-DATAPLAT-VOCAB-R007.3
+#[test]
+fn no_second_discovery_path() {
+    let documents: &[&str] = &[
+        include_str!("../ontology/data_platform-v1.ttl"),
+        include_str!("../ontology/data_platform-v1.shapes.ttl"),
+        include_str!("../ontology/fixtures/data_platform/sql.ttl"),
+        include_str!("../ontology/fixtures/data_platform/documentdb.ttl"),
+        include_str!("../ontology/fixtures/data_platform/objectstore.ttl"),
+        include_str!("../ontology/fixtures/data_platform/vector.ttl"),
+        include_str!("../ontology/fixtures/data_platform/kafka.ttl"),
+        include_str!("../ontology/fixtures/data_platform/openbao.ttl"),
+        include_str!("../ontology/fixtures/data_platform/clarity.ttl"),
+        include_str!("../ontology/fixtures/data_platform/data-science.ttl"),
+    ];
+
+    // No dp: term or mapping fixture declares a discovery operation: a
+    // vg:discoveredOperation triple does not exist anywhere — relational and
+    // document entries come from the vg:MetadataContract only.
+    let discovered_operation = NamedNode::new(format!("{VG}discoveredOperation")).unwrap();
+    for document in documents {
+        let triples = parse_turtle(document).expect("the document parses");
+        assert!(
+            triples
+                .iter()
+                .all(|triple| triple.predicate != discovered_operation),
+            "no dp: document may declare a vg:discoveredOperation triple"
+        );
+    }
+
+    // Every mapping's mapsContract names a MetadataContract node declared in
+    // the same fixture — the contract is the only discovery entry point.
+    for document in documents.iter().skip(2) {
+        let triples = parse_turtle(document).expect("the fixture parses");
+        let rdf_type = NamedNode::new(format!("{RDF}type")).unwrap();
+        let metadata_contract = eg_rdf::oxrdf::Term::NamedNode(
+            NamedNode::new(format!("{VG}MetadataContract")).unwrap(),
+        );
+        let contract_iris: Vec<String> = triples
+            .iter()
+            .filter(|triple| triple.predicate == rdf_type && triple.object == metadata_contract)
+            .map(|triple| triple.subject.to_string())
+            .collect();
+        let maps_contract = NamedNode::new(format!("{VG}mapsContract")).unwrap();
+        for triple in triples.iter().filter(|t| t.predicate == maps_contract) {
+            assert!(
+                contract_iris.contains(&triple.object.to_string()),
+                "every vg:mapsContract must name a vg:MetadataContract node in the same fixture"
+            );
+        }
+    }
+}
+
+/// Asserts every alignment row resolves: the package term lives in the
+/// shared kg# namespace and the dp: object is declared in the
+/// data-platform vocabulary (a class for rdfs:subClassOf rows, a property
+/// for owl:equivalentProperty rows). Returns the row count.
+fn assert_alignment_resolves(document: &str) -> usize {
+    let triples = parse_turtle(document).expect("the alignment table parses");
+    let vocabulary = load_data_platform();
+
+    let sub_class_of = NamedNode::new(format!("{RDFS}subClassOf")).unwrap();
+    let equivalent_property = NamedNode::new(format!("{OWL}equivalentProperty")).unwrap();
+    let rdf_type = NamedNode::new(format!("{RDF}type")).unwrap();
+    let kg_namespace = "http://knuckles.team/kg#";
+
+    let mut rows = 0;
+    for triple in triples.iter().filter(|t| {
+        (t.predicate == sub_class_of || t.predicate == equivalent_property)
+            && iri_of(&t.object).is_some_and(|iri| iri.starts_with(DP))
+    }) {
+        rows += 1;
+        assert!(
+            subject_iri_of(&triple.subject).starts_with(kg_namespace),
+            "an alignment row names a package term in the shared kg# namespace: {}",
+            triple.subject
+        );
+        let object_iri = iri_of(&triple.object).expect("the filter kept a named dp: object");
+        let dp_local = object_iri[DP.len()..].to_string();
+        let expected_types: Vec<String> = {
+            let kinds: &[&str] = if triple.predicate == sub_class_of {
+                &["Class"]
+            } else {
+                &["ObjectProperty", "DatatypeProperty"]
+            };
+            kinds.iter().map(|kind| format!("{OWL}{kind}")).collect()
+        };
+        assert!(
+            vocabulary.iter().any(|t| {
+                subject_iri_of(&t.subject) == format!("{DP}{dp_local}")
+                    && t.predicate == rdf_type
+                    && expected_types
+                        .iter()
+                        .any(|iri| iri_of(&t.object).as_deref() == Some(iri.as_str()))
+            }),
+            "{dp_local} must be declared in the data-platform vocabulary"
+        );
+    }
+    rows
+}
+
+// spec: EG-DATAPLAT-VOCAB-R007.4
+#[test]
+fn virtual_default_for_all_eight() {
+    // `all_virtual` marks the fixtures whose mappings are every virtual
+    // (decision 4): sql, documentdb, objectstore, vector, openbao.
+    let fixtures: &[(&str, bool)] = &[
+        (
+            include_str!("../ontology/fixtures/data_platform/sql.ttl"),
+            true,
+        ),
+        (
+            include_str!("../ontology/fixtures/data_platform/documentdb.ttl"),
+            true,
+        ),
+        (
+            include_str!("../ontology/fixtures/data_platform/objectstore.ttl"),
+            true,
+        ),
+        (
+            include_str!("../ontology/fixtures/data_platform/vector.ttl"),
+            true,
+        ),
+        (
+            include_str!("../ontology/fixtures/data_platform/kafka.ttl"),
+            false,
+        ),
+        (
+            include_str!("../ontology/fixtures/data_platform/openbao.ttl"),
+            true,
+        ),
+        (
+            include_str!("../ontology/fixtures/data_platform/clarity.ttl"),
+            false,
+        ),
+        (
+            include_str!("../ontology/fixtures/data_platform/data-science.ttl"),
+            false,
+        ),
+    ];
+
+    let store_mapping = NamedNode::new(format!("{DP}StoreMapping")).unwrap();
+    let acceleration_mode = NamedNode::new(format!("{DP}accelerationMode")).unwrap();
+    let materialisation_reason = NamedNode::new(format!("{DP}materialisationReason")).unwrap();
+
+    for (document, all_virtual) in fixtures {
+        let triples = parse_turtle(document).expect("the fixture parses");
+        let rdf_type = NamedNode::new(format!("{RDF}type")).unwrap();
+        let mapping_iris: Vec<String> = triples
+            .iter()
+            .filter(|triple| {
+                triple.predicate == rdf_type
+                    && triple.object == eg_rdf::oxrdf::Term::NamedNode(store_mapping.clone())
+            })
+            .map(|triple| triple.subject.to_string())
+            .collect();
+        assert!(
+            !mapping_iris.is_empty(),
+            "every fixture carries at least one StoreMapping"
+        );
+
+        for mapping_iri in &mapping_iris {
+            let mode = triples
+                .iter()
+                .find(|triple| {
+                    triple.subject.to_string() == *mapping_iri
+                        && triple.predicate == acceleration_mode
+                })
+                .and_then(|triple| literal_value(&triple.object).map(|value| value.to_string()));
+            assert!(
+                matches!(mode.as_deref(), Some("virtual") | Some("materialised")),
+                "every mapping names an accelerationMode: {mapping_iri}"
+            );
+            let has_reason = triples.iter().any(|triple| {
+                triple.subject.to_string() == *mapping_iri
+                    && triple.predicate == materialisation_reason
+            });
+            let has_acceleration_policy = triples.iter().any(|triple| {
+                triple.subject.to_string() == *mapping_iri
+                    && triple.predicate.as_str().contains("ccelerationPolicy")
+            });
+
+            match mode.as_deref() {
+                Some("virtual") => assert!(
+                    !has_reason && !has_acceleration_policy,
+                    "a virtual mapping carries no materialisationReason and no AccelerationPolicy: {mapping_iri}"
+                ),
+                Some("materialised") => {
+                    let reason = triples
+                        .iter()
+                        .find(|triple| {
+                            triple.subject.to_string() == *mapping_iri
+                                && triple.predicate == materialisation_reason
+                        })
+                        .and_then(|triple| {
+                            literal_value(&triple.object).map(|value| value.to_string())
+                        })
+                        .unwrap_or_default();
+                    assert!(
+                        reason.contains("R038"),
+                        "a materialised mapping cites R038 in its reason: {mapping_iri} ({reason})"
+                    );
+                }
+                _ => panic!("mapping {mapping_iri} has no accelerationMode"),
+            }
+        }
+
+        if *all_virtual {
+            let any_materialised = mapping_iris.iter().any(|iri| {
+                triples.iter().any(|triple| {
+                    triple.subject.to_string() == *iri
+                        && triple.predicate == acceleration_mode
+                        && literal_value(&triple.object) == Some("materialised")
+                })
+            });
+            assert!(
+                !any_materialised,
+                "an all-virtual fixture must carry no materialised mapping"
+            );
+        }
+    }
+}
+
+// spec: EG-DATAPLAT-VOCAB-R008.1
+#[test]
+fn alignment_relational_resolves() {
+    let document = include_str!("../ontology/fixtures/data_platform/alignment_relational.ttl");
+    assert!(
+        assert_alignment_resolves(document) >= 4,
+        "the relational alignment carries at least 4 rows"
+    );
+
+    let triples = parse_turtle(document).expect("the alignment table parses");
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#DatabaseTable",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}Table")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#isPrimaryKey",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}isPrimaryKey")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#Collection",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}Collection")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#documentCount",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}documentCount")
+    ));
+}
+
+// spec: EG-DATAPLAT-VOCAB-R008.2
+#[test]
+fn alignment_object_vector_resolves() {
+    let document = include_str!("../ontology/fixtures/data_platform/alignment_object_vector.ttl");
+    assert!(
+        assert_alignment_resolves(document) >= 4,
+        "the object/vector alignment carries at least 4 rows"
+    );
+
+    let triples = parse_turtle(document).expect("the alignment table parses");
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#Object",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}StoredObject")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#byteSize",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}byteSize")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#VectorCollection",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}VectorCollection")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#dimensions",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}dimensions")
+    ));
+}
+
+// spec: EG-DATAPLAT-VOCAB-R008.3
+#[test]
+fn alignment_ops_ml_resolves() {
+    let document = include_str!("../ontology/fixtures/data_platform/alignment_ops_ml.ttl");
+    assert!(
+        assert_alignment_resolves(document) >= 4,
+        "the ops/ML alignment carries at least 4 rows"
+    );
+
+    let triples = parse_turtle(document).expect("the alignment table parses");
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#ConsumerGroup",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}ConsumerGroup")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#BehaviorInsight",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}BehaviorMetric")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#TrainingRun",
+        &format!("{RDFS}subClassOf"),
+        &format!("{DP}TrainingRun")
+    ));
+    assert!(has_iri(
+        &triples,
+        "http://knuckles.team/kg#trainedOn",
+        &format!("{OWL}equivalentProperty"),
+        &format!("{DP}trainedOn")
+    ));
 }

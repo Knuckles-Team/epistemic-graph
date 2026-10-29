@@ -1,0 +1,12 @@
+# Recorded response (D4 row supportsCapability): the leanix `supports`
+# relation is rank 1; archimate `relRealization`/`relServing` is rank 2.
+# Projected by the approved mapping (vm_leanix.ttl, Decision D1).
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:srv-001 a infra:Service ;
+    kg:supportsCapability ex:cap-001 .
+
+ex:cap-001 a kg:BusinessCapability .

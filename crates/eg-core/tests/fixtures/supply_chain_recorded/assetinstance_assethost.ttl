@@ -1,0 +1,12 @@
+# Recorded response (D4 row AssetInstance/assetHost): servicenow
+# `get_cmdb_instances` is rank 1; systems-manager `HardwareNode` is rank 2.
+# Projected by the approved mapping (vm_servicenow.ttl).
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:ci-001 a kg:AssetInstance ;
+    infra:assetHost ex:host-001 .
+
+ex:host-001 a infra:Host .

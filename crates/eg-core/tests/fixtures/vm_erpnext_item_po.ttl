@@ -1,0 +1,68 @@
+# Virtual-mapping fixture: erpnext Item and Purchase Order to
+# kg:SupplyChainItem and the suppliesItem derivation edges
+# (EG-SUPPLY-VOCAB-R005.2).
+#
+# Recorded over the erpnext `itemAccess` and `purchaseOrderAccess` access
+# contracts (mcp_tool erpnext_agent_resource). The Supplier-to-Item edge
+# kg:suppliesItem is derived, not read: PurchaseOrder -suppliedBy-> Supplier
+# and PurchaseOrder -contains-> Item. `list_documents` does not return PO
+# child lines, so the lines are a child fetch: the purchaseOrderAccess
+# contract declares the per-order `get_document` operation (Decision D2).
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-erpnext#> .
+
+# Same connection as vm_erpnext_supplier.ttl: both contracts were discovered
+# from one erpnext MCP endpoint. The endpoint reference bnode carries only
+# vg:url (vg:EndpointRefShape is sh:closed).
+ex:erpnextConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://erpnext.invalid/api/resource" ] .
+
+ex:itemAccess a vg:MetadataContract ;
+    vg:contractSource ex:erpnextConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:5643834c2b86393f055bf1f670a8f003c8a224259362a80c79047b8eee7fd9f6" ;
+    vg:discoveredEntity "Item" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "item_name" ;
+    vg:discoveredOperation "list_documents" .
+
+ex:purchaseOrderAccess a vg:MetadataContract ;
+    vg:contractSource ex:erpnextConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:2654ef7c440263b6eee8f59a3b897dd53cfadd324d6089eeeb86954920d876b5" ;
+    vg:discoveredEntity "Purchase Order" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "supplier" ;
+    vg:discoveredField "items" ;
+    vg:discoveredRelationship "items" ;
+    vg:discoveredOperation "list_documents" ;
+    # The child fetch: PO line items are read per order, not from the listing.
+    vg:discoveredOperation "get_document" .
+
+ex:itemMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:itemAccess ;
+    vg:mapsOntologyClass kg:SupplyChainItem ;
+    vg:mapsEntity "Item" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "item_name" ] ;
+    vg:approved true .
+
+ex:purchaseOrderMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:purchaseOrderAccess ;
+    vg:mapsOntologyClass kg:PurchaseOrder ;
+    vg:mapsEntity "Purchase Order" ;
+    vg:keyField "name" ;
+    # The two derivation edges suppliesItem is built from (Decision D5).
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:suppliedBy ;
+        vg:field "supplier" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:contains ;
+        vg:field "items" ] ;
+    vg:approved true .
