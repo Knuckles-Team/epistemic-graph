@@ -2430,8 +2430,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1441a36e7b30",
-        "81059c6ca5db",
-        "98d2310e8a64"
+        "75dd94362178",
+        "81059c6ca5db"
       ],
       "verified_by": [
         "crates/eg-rdf/src/pack/tests.rs:186",

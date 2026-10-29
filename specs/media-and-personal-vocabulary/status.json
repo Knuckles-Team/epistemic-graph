@@ -150,44 +150,68 @@
     {
       "id": "EG-MEDIA-VOCAB-R001.1",
       "title": "Add `mv:MediaWork` (⊑ `:CreativeWork`) with `mv:Film`, `mv:TelevisionSeries`, `mv:TelevisionSeason`, `mv:TelevisionEpisode`, `mv:MusicAlbum`, `mv:MusicTrack`, `mv:Audiobook`, `mv:PodcastShow`, `mv:PodcastEpisode`, `mv:Game` to media-v1.ttl",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:185"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R001.2",
       "title": "Add `mv:MediaLibrary`, `mv:LibraryItem` (links a work to a library, `mv:itemOf`, `mv:inLibrary`), `mv:MediaFile`, `mv:RomFile`, `mv:GamePlatform`, `mv:MusicArtist` (⊑ `:Organization`) to media-v1.ttl",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:221"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R001.3",
       "title": "Add `mv:PlaybackSession` (⊑ `:Session`) with `mv:playedBy`, `mv:lastPlayedAt`, `mv:playCount`, `mv:playbackPositionSeconds`, and `mv:BroadcastStream` (⊑ `:Event`) with `mv:ViewerSample`, `mv:viewerCount`, `mv:sampledAt`, `mv:lastConnectAt`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:285"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R001.4",
       "title": "Add `mv:DownloadRequest` (states requested, wanted, grabbed, importing, imported, failed), `mv:DownloadTransfer`, `mv:GrabEvent`, `mv:MediaIndexer` and properties `mv:requestsWork`, `mv:transferOf`, `mv:grabbedFromIndexer`, `mv:transferState`, `mv:shareRatio`, `mv:lastActivityAt`, `mv:addedAt`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:349"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R001.5",
       "title": "Add `mv:TranscriptSegment` (part of the existing `:Transcript` in personal-v1.ttl: reuse, do not redefine) with `mv:segmentStart`, `mv:segmentEnd`, `mv:noSpeechProb`, `mv:transcriptOf`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:400"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R001.6",
       "title": "Resolve the two name collisions: connector packages declare `:Episode` (TV) and `:Author` in the shared `:` namespace, while core-foundation-v1.ttl already defines `:Episode` (interaction unit) and software-v1.ttl `:Author` (git author). media-v1.ttl uses `mv:TelevisionEpisode`; cross-repo rows EG-MEDIA-VOCAB-R032 and EG-MEDIA-VOCAB-R033 move the connectors onto it",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:446"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R002",
@@ -206,16 +230,24 @@
     {
       "id": "EG-MEDIA-VOCAB-R002.1",
       "title": "Add `cv:Feed`, `cv:FeedSubscription`, `cv:Article` (⊑ `:Document`), `cv:ResearchPaper` (⊑ `:Document`, seeAlso `bibo:AcademicArticle`), `cv:SearchQuery`, `cv:SearchResult`, `cv:SearchEngine`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:524"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R002.2",
       "title": "Add `cv:SocialPost`, `cv:PublishingChannel`, `cv:EngagementMetric`, `cv:EmailCampaign`, `cv:MailingList`, `cv:Subscriber` (opaque identity), with `cv:sentCount`, `cv:viewCount`, `cv:clickCount`, `cv:postState`, `cv:subscriptionStatus`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:569"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R002.3",
@@ -227,16 +259,27 @@
     {
       "id": "EG-MEDIA-VOCAB-R002.4",
       "title": "Add content properties `cv:publishedAt`, `cv:isRead`, `cv:feedUrl`, `cv:resultUrl`, `cv:rank`, `cv:servedByEngine`, `cv:doi`, `cv:arxivId`, `cv:citationCount`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1037"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R003",
       "title": "Cross-source identity keys",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:594",
+        "crates/eg-core/tests/media_vocab_a.rs:697",
+        "crates/eg-core/tests/media_vocab_a.rs:784",
+        "crates/eg-rdf/tests/media_vocab_shapes.rs:130"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R003.1",
         "EG-MEDIA-VOCAB-R003.2",
@@ -246,30 +289,51 @@
     {
       "id": "EG-MEDIA-VOCAB-R003.1",
       "title": "Declare the eight key properties as datatype correlation properties in media-v1.ttl and content-v1.ttl, without global inverse-functionality. Work identity keys include the class and provider namespace (Film and TelevisionSeries IDs cannot collide). Article identity uses its class-scoped normalized canonical URL. SearchResult uses source, query and native result key; SocialPost and EmailCampaign retain source-native IDs. Shared target URLs support joins without identifying the result, post, campaign and document as one entity. Repeated reads of the same source-native key upsert the same entity",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:594"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R003.2",
       "title": "Specify normalisation (infoHash lower-case hex; canonicalUrl via scheme/host lower-case, tracking parameters and fragment stripped) as an `rdfs:comment` and a fixture table",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:697"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R003.3",
       "title": "Add the keyed-hash identity rule for email-derived joins (`cv:subscriberKey`), never storing the raw address",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:784",
+        "crates/eg-rdf/tests/media_vocab_shapes.rs:130"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R004",
       "title": "SHACL shapes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:823",
+        "crates/eg-core/tests/media_vocab_a.rs:840",
+        "crates/eg-core/tests/media_vocab_a.rs:852",
+        "crates/eg-core/tests/media_vocab_a.rs:871",
+        "crates/eg-rdf/tests/media_vocab_shapes.rs:107"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R004.1",
         "EG-MEDIA-VOCAB-R004.2",
@@ -280,37 +344,64 @@
     {
       "id": "EG-MEDIA-VOCAB-R004.1",
       "title": "Shape: `mv:Film`/`mv:TelevisionSeries` carry at least one of `mv:tmdbId`, `mv:tvdbId`, `mv:imdbId` when sourced from a connector",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:823",
+        "crates/eg-rdf/tests/media_vocab_shapes.rs:20"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R004.2",
       "title": "Shape: `mv:DownloadTransfer` has exactly one `mv:infoHash` matching `^[0-9a-f]{40}$` or `^[0-9a-f]{64}$`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:840",
+        "crates/eg-rdf/tests/media_vocab_shapes.rs:49"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R004.3",
       "title": "Shape: `mv:DownloadRequest` `mv:downloadRequestState` in the closed set (requested, wanted, grabbed, importing, imported, failed)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:852",
+        "crates/eg-rdf/tests/media_vocab_shapes.rs:76"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R004.4",
       "title": "Shape: `cv:Article`, `cv:SearchResult` carry exactly one normalised `cv:canonicalUrl`; shapes are aggregate-free per the virtual-graph shapes convention",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:871",
+        "crates/eg-rdf/tests/media_vocab_shapes.rs:107"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R005",
       "title": "arr virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1574",
+        "crates/eg-core/tests/media_vocab_a.rs:1647",
+        "crates/eg-core/tests/media_vocab_a.rs:1707",
+        "crates/eg-core/tests/media_vocab_a.rs:1779"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R005.1",
         "EG-MEDIA-VOCAB-R005.2",
@@ -321,37 +412,60 @@
     {
       "id": "EG-MEDIA-VOCAB-R005.1",
       "title": "Add the `arr` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1574"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R005.2",
       "title": "Add the `arr` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R005.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1647"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R005.3",
       "title": "Add the test that answers the `arr` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1707"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R005.4",
       "title": "Update `EG-CQ-CONN-R005` vocabulary column from MISSING to media-v1 / content-v1 once R005.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1779"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R006",
       "title": "jellyfin virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1791",
+        "crates/eg-core/tests/media_vocab_a.rs:1860",
+        "crates/eg-core/tests/media_vocab_a.rs:1947",
+        "crates/eg-core/tests/media_vocab_a.rs:1989"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R006.1",
         "EG-MEDIA-VOCAB-R006.2",
@@ -362,37 +476,60 @@
     {
       "id": "EG-MEDIA-VOCAB-R006.1",
       "title": "Add the `jellyfin` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1791"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R006.2",
       "title": "Add the `jellyfin` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R027.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1860"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R006.3",
       "title": "Add the test that answers the `jellyfin` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1947"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R006.4",
       "title": "Update `EG-CQ-CONN-R027` vocabulary column from MISSING to media-v1 / content-v1 once R006.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:1989"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R007",
       "title": "audiobookshelf virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2001",
+        "crates/eg-core/tests/media_vocab_a.rs:2068",
+        "crates/eg-core/tests/media_vocab_a.rs:2171",
+        "crates/eg-core/tests/media_vocab_a.rs:2234"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R007.1",
         "EG-MEDIA-VOCAB-R007.2",
@@ -403,37 +540,60 @@
     {
       "id": "EG-MEDIA-VOCAB-R007.1",
       "title": "Add the `audiobookshelf` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2001"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R007.2",
       "title": "Add the `audiobookshelf` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R007.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2068"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R007.3",
       "title": "Add the test that answers the `audiobookshelf` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2171"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R007.4",
       "title": "Update `EG-CQ-CONN-R007` vocabulary column from MISSING to media-v1 / content-v1 once R007.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2234"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R008",
       "title": "qbittorrent virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2246",
+        "crates/eg-core/tests/media_vocab_a.rs:2310",
+        "crates/eg-core/tests/media_vocab_a.rs:2381",
+        "crates/eg-core/tests/media_vocab_a.rs:2440"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R008.1",
         "EG-MEDIA-VOCAB-R008.2",
@@ -444,37 +604,60 @@
     {
       "id": "EG-MEDIA-VOCAB-R008.1",
       "title": "Add the `qbittorrent` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2246"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R008.2",
       "title": "Add the `qbittorrent` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R051.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2310"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R008.3",
       "title": "Add the test that answers the `qbittorrent` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2381"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R008.4",
       "title": "Update `EG-CQ-CONN-R051` vocabulary column from MISSING to media-v1 / content-v1 once R008.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2440"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R009",
       "title": "rom-manager virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2452",
+        "crates/eg-core/tests/media_vocab_a.rs:2514",
+        "crates/eg-core/tests/media_vocab_a.rs:2592",
+        "crates/eg-core/tests/media_vocab_a.rs:2672"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R009.1",
         "EG-MEDIA-VOCAB-R009.2",
@@ -485,37 +668,60 @@
     {
       "id": "EG-MEDIA-VOCAB-R009.1",
       "title": "Add the `rom-manager` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2452"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R009.2",
       "title": "Add the `rom-manager` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R053.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2514"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R009.3",
       "title": "Add the test that answers the `rom-manager` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2592"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R009.4",
       "title": "Update `EG-CQ-CONN-R053` vocabulary column from MISSING to media-v1 / content-v1 once R009.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2672"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R010",
       "title": "owncast virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2684",
+        "crates/eg-core/tests/media_vocab_a.rs:2749",
+        "crates/eg-core/tests/media_vocab_a.rs:2845",
+        "crates/eg-core/tests/media_vocab_a.rs:2911"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R010.1",
         "EG-MEDIA-VOCAB-R010.2",
@@ -526,37 +732,60 @@
     {
       "id": "EG-MEDIA-VOCAB-R010.1",
       "title": "Add the `owncast` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2684"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R010.2",
       "title": "Add the `owncast` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R045.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2749"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R010.3",
       "title": "Add the test that answers the `owncast` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2845"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R010.4",
       "title": "Update `EG-CQ-CONN-R045` vocabulary column from MISSING to media-v1 / content-v1 once R010.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2911"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R011",
       "title": "media-downloader virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2923",
+        "crates/eg-core/tests/media_vocab_a.rs:2985",
+        "crates/eg-core/tests/media_vocab_a.rs:3054",
+        "crates/eg-core/tests/media_vocab_a.rs:3119"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R011.1",
         "EG-MEDIA-VOCAB-R011.2",
@@ -567,37 +796,60 @@
     {
       "id": "EG-MEDIA-VOCAB-R011.1",
       "title": "Add the `media-downloader` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2923"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R011.2",
       "title": "Add the `media-downloader` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R038.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:2985"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R011.3",
       "title": "Add the test that answers the `media-downloader` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3054"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R011.4",
       "title": "Update `EG-CQ-CONN-R038` vocabulary column from MISSING to media-v1 / content-v1 once R011.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3119"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R012",
       "title": "audio-transcriber virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3131",
+        "crates/eg-core/tests/media_vocab_a.rs:3199",
+        "crates/eg-core/tests/media_vocab_a.rs:3283",
+        "crates/eg-core/tests/media_vocab_a.rs:3369"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R012.1",
         "EG-MEDIA-VOCAB-R012.2",
@@ -608,37 +860,60 @@
     {
       "id": "EG-MEDIA-VOCAB-R012.1",
       "title": "Add the `audio-transcriber` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3131"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R012.2",
       "title": "Add the `audio-transcriber` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R008.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3199"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R012.3",
       "title": "Add the test that answers the `audio-transcriber` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3283"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R012.4",
       "title": "Update `EG-CQ-CONN-R008` vocabulary column from MISSING to media-v1 / content-v1 once R012.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3369"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R013",
       "title": "freshrss virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3381",
+        "crates/eg-core/tests/media_vocab_a.rs:3465",
+        "crates/eg-core/tests/media_vocab_a.rs:3551",
+        "crates/eg-core/tests/media_vocab_a.rs:3639"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R013.1",
         "EG-MEDIA-VOCAB-R013.2",
@@ -649,30 +924,46 @@
     {
       "id": "EG-MEDIA-VOCAB-R013.1",
       "title": "Add the `freshrss` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3381"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R013.2",
       "title": "Add the `freshrss` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R022.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3465"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R013.3",
       "title": "Add the test that answers the `freshrss` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3551"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R013.4",
       "title": "Update `EG-CQ-CONN-R022` vocabulary column from MISSING to media-v1 / content-v1 once R013.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3639"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R014",

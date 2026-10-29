@@ -154,16 +154,32 @@
     {
       "id": "EG-SUPPLY-VOCAB-R001.4",
       "title": "SHACL shapes for supplier and item",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:268"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R002",
       "title": "Software supply chain terms (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09e3e6be7df9",
+        "43c32b7bd24c",
+        "75dd94362178",
+        "9421614f7ae7",
+        "a87da41458a1"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:156",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:197",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:273",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:303",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:351"
+      ],
       "rollup_of": [
         "EG-SUPPLY-VOCAB-R002.1",
         "EG-SUPPLY-VOCAB-R002.2",
@@ -247,9 +263,13 @@
     {
       "id": "EG-SUPPLY-VOCAB-R002.7",
       "title": "SHACL shapes for component version, vulnerability and `usesComponent`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:156"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003",
@@ -293,6 +313,7 @@
       "title": "Add `:CustomerContract`, `:contractCustomer`, `:coversService`, `:contractStatus` and `:contractEnd`",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "75dd94362178",
         "c6c185bfdb23"
       ],
       "verified_by": [
@@ -302,27 +323,37 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.3",
       "title": "Add `:affectsService`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:310"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.4",
       "title": "Add `:supportsCapability`",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "75dd94362178",
         "c6c185bfdb23"
       ],
       "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:386",
         "crates/eg-rdf/tests/commercial_declarations.rs:205"
       ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.5",
       "title": "SHACL shapes for contract and capability link",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:448"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.6",
@@ -339,27 +370,37 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.7",
       "title": "Declare party links on `kg:Organization` (no `:Party` class)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:550"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.8",
       "title": "Add `:PurchaseOrder`",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "75dd94362178",
         "c6c185bfdb23"
       ],
       "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:593",
         "crates/eg-rdf/tests/commercial_declarations.rs:231"
       ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.9",
       "title": "Add `:PurchaseInvoice`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:632"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.10",
@@ -375,9 +416,13 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.11",
       "title": "Reuse `:Person` for `:Contact` and declare the link",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:657"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R003.12",
@@ -435,6 +480,7 @@
       "title": "Restore the Opportunity date constraint",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "75dd94362178",
         "c6c185bfdb23"
       ],
       "verified_by": [
@@ -444,9 +490,16 @@
     {
       "id": "EG-SUPPLY-VOCAB-R004",
       "title": "Host limit terms (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "09e3e6be7df9",
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:704",
+        "crates/eg-core/tests/supply_chain_vocab.rs:793",
+        "crates/eg-rdf/tests/infrastructure_host_limits.rs:49"
+      ],
       "rollup_of": [
         "EG-SUPPLY-VOCAB-R004.1",
         "EG-SUPPLY-VOCAB-R004.2",
@@ -467,16 +520,24 @@
     {
       "id": "EG-SUPPLY-VOCAB-R004.2",
       "title": "SHACL shape for `HostLimit`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:704"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R004.3",
       "title": "Declared-threshold fixture for capacity limits",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:793"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R005",
@@ -499,16 +560,24 @@
     {
       "id": "EG-SUPPLY-VOCAB-R005.1",
       "title": "Mapping fixture: erpnext `Supplier` to `kg:Supplier`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:825"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R005.2",
       "title": "Mapping fixture: erpnext `Item` and `Purchase Order` to `kg:SupplyChainItem` and `kg:suppliesItem`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:901"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R005.3",
@@ -520,23 +589,35 @@
     {
       "id": "EG-SUPPLY-VOCAB-R005.4",
       "title": "Mapping fixture: leanix `Provider` to `kg:Supplier` (rank 2) and `supports` to `kg:supportsCapability`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:964"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R005.5",
       "title": "Mapping fixture: servicenow `Incident`, `Change` and CI relation to `kg:affectsService`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1033"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R005.6",
       "title": "Mapping fixture: salesforce `Account` to `kg:Customer` and `Contract` to `kg:CustomerContract`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1102"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R005.7",
@@ -548,9 +629,13 @@
     {
       "id": "EG-SUPPLY-VOCAB-R005.8",
       "title": "Mapping fixture: twenty `Company` to `kg:Customer` (rank 2)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1170"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R005.9",
@@ -592,23 +677,35 @@
     {
       "id": "EG-SUPPLY-VOCAB-R006.3",
       "title": "Mapping fixture: container-manager workload and image to `kg:deployedAs` and `kg:usesImage`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1223"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R006.4",
       "title": "Mapping fixture: uptime monitor to service health",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1311"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R006.5",
       "title": "Mapping fixture: dockerhub image, SBOM and Scout CVEs to `containsComponent` and `Vulnerability`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1374"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R006.6",
@@ -620,16 +717,26 @@
     {
       "id": "EG-SUPPLY-VOCAB-R006.7",
       "title": "Mapping fixture: fan-manager and systems-manager to `infra:HostLimit`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1468"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R007",
       "title": "Entity resolution blocking keys (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "c6c185bfdb23"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_blocking_keys.rs:12",
+        "crates/eg-core/tests/supply_chain_vocab.rs:1561"
+      ],
       "rollup_of": [
         "EG-SUPPLY-VOCAB-R007.1",
         "EG-SUPPLY-VOCAB-R007.2"
@@ -640,6 +747,7 @@
       "title": "Blocking-key fixture for supplier, service, host, image and customer",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "75dd94362178",
         "c6c185bfdb23"
       ],
       "verified_by": [
@@ -649,16 +757,26 @@
     {
       "id": "EG-SUPPLY-VOCAB-R007.2",
       "title": "Test: a digest key is exact; a name-only key is a proposal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1561"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R008",
       "title": "Impact traversal and acceptance (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1681",
+        "crates/eg-core/tests/supply_chain_vocab.rs:1809",
+        "crates/eg-core/tests/supply_chain_vocab.rs:1840"
+      ],
       "rollup_of": [
         "EG-SUPPLY-VOCAB-R008.1",
         "EG-SUPPLY-VOCAB-R008.2",
@@ -668,23 +786,35 @@
     {
       "id": "EG-SUPPLY-VOCAB-R008.1",
       "title": "Class-only impact query fixture",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1681"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R008.2",
       "title": "Recorded-response fixture: one row per source concept",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1809"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R008.3",
       "title": "Blocked-register test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:1840"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R009",
@@ -704,9 +834,13 @@
     {
       "id": "EG-SUPPLY-VOCAB-R009.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/ecosystem_dependency.rs:21"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R009.2",
