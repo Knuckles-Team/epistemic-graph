@@ -294,7 +294,7 @@
         "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:412"
+        "crates/eg-core/tests/data_platform_vocab.rs:414"
       ]
     },
     {
@@ -305,7 +305,7 @@
         "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:534"
+        "crates/eg-core/tests/data_platform_vocab.rs:536"
       ]
     },
     {
@@ -316,7 +316,7 @@
         "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:587"
+        "crates/eg-core/tests/data_platform_vocab.rs:589"
       ]
     },
     {
@@ -358,7 +358,7 @@
         "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:708"
+        "crates/eg-core/tests/data_platform_vocab.rs:710"
       ]
     },
     {
@@ -411,7 +411,7 @@
         "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-core/tests/data_platform_vocab.rs:722"
+        "crates/eg-core/tests/data_platform_vocab.rs:724"
       ]
     },
     {

@@ -7422,20 +7422,27 @@
     {
       "id": "EG-DECISION-ENGINE-R173.1",
       "title": "Model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "08e6ef4d5749"
+        "08e6ef4d5749",
+        "d1b6f9006ea0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/concentration/tests.rs:24"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R173.2",
       "title": "Behavior",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "08e6ef4d5749"
+        "08e6ef4d5749",
+        "d1b6f9006ea0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/concentration/tests.rs:105",
+        "crates/eg-types/src/decision/concentration/tests.rs:57"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R173.3",
@@ -7447,11 +7454,14 @@
     {
       "id": "EG-DECISION-ENGINE-R173.4",
       "title": "Refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "08e6ef4d5749"
+        "08e6ef4d5749",
+        "d1b6f9006ea0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/concentration/tests.rs:117"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R173.5",
@@ -9826,8 +9836,13 @@
       "id": "EG-DECISION-ENGINE-R134.111",
       "title": "Bounded explicit task graphs (rollup)",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "landed_in": [
+        "a6523b184c6d",
+        "d1b6f9006ea0"
+      ],
+      "verified_by": [
+        "tests/decide/test_task_plan_served.py:236"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R134.111.1",
         "EG-DECISION-ENGINE-R134.111.2",
@@ -9871,8 +9886,8 @@
       "landed_in": [],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:61",
-        "tests/decide/test_task_plan_served.py:236",
-        "tests/decide/test_task_plan_served.py:358"
+        "tests/decide/test_task_plan_served.py:237",
+        "tests/decide/test_task_plan_served.py:359"
       ]
     },
     {
@@ -9898,7 +9913,7 @@
       "verified_by": [
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:156",
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:62",
-        "tests/decide/test_task_plan_served.py:237"
+        "tests/decide/test_task_plan_served.py:238"
       ]
     },
     {
@@ -9968,10 +9983,13 @@
     {
       "id": "EG-DECISION-ENGINE-R134.111.12",
       "title": "Wiring and schema",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7fe7724bc0af"
+      ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:249"
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:249",
+        "tests/test_decision_stat_client.py:81"
       ]
     },
     {

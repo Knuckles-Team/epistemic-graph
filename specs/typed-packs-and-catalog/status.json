@@ -2600,9 +2600,14 @@
     {
       "id": "EG-TYPED-PACKS-R104.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3e95357c7bce",
+        "9f321aa39539"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/seed_graph.rs:90"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R104.2",

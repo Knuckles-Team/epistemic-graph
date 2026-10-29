@@ -4797,8 +4797,8 @@
       "verified_by": [
         "src/server/mutation_batch/digest.rs:379",
         "tests/adopt_workitem_authenticated_replay.rs:608",
-        "tests/decide/test_task_plan_served.py:238",
-        "tests/decide/test_task_plan_served.py:359"
+        "tests/decide/test_task_plan_served.py:239",
+        "tests/decide/test_task_plan_served.py:360"
       ]
     },
     {

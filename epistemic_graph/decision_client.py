@@ -304,7 +304,9 @@ def verify_task_plan_receipt(
     # round-trips this body into ``PublishCurrentPlan`` unchanged.
     served_plan = decoded.task_plan
     _require_task_plan(served_plan is not None, "missing plan")
-    if served_plan is None:  # Narrowing for the type checker; _require_task_plan raised.
+    # _require_task_plan already raised for an absent plan; this branch only
+    # narrows the type for the checker.
+    if served_plan is None:
         raise ValueError("task_plan receipt mismatch: missing plan")
     plan = served_plan.model_dump(mode="json", by_alias=True, exclude_none=True)
     return _verify_task_plan_claims(plan, asked)

@@ -1718,11 +1718,15 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.3",
       "title": "Wiring",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "40eb47bf49ca"
+        "40eb47bf49ca",
+        "d1b6f9006ea0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/finance_served_numeric_kernels.rs:226",
+        "tests/finance_served_numeric_kernels.rs:244"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.4",
@@ -1806,11 +1810,15 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.3",
       "title": "Wiring",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "40eb47bf49ca"
+        "40eb47bf49ca",
+        "d1b6f9006ea0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/finance_served_numeric_kernels.rs:127",
+        "tests/finance_served_numeric_kernels.rs:197"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.4",
@@ -1962,11 +1970,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.3",
       "title": "Wiring",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "bdb61b3c137d"
+        "bdb61b3c137d",
+        "d1b6f9006ea0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/finance_served_sizing.rs:59",
+        "tests/finance_served_sizing.rs:75",
+        "tests/finance_served_sizing.rs:87"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R900.4",
@@ -2037,11 +2050,15 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.3",
       "title": "Wiring",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "40eb47bf49ca"
+        "40eb47bf49ca",
+        "d1b6f9006ea0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/finance_served_numeric_kernels.rs:105",
+        "tests/finance_served_numeric_kernels.rs:60"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R901.4",
