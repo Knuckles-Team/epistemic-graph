@@ -2159,7 +2159,7 @@
         "c1c753f7f08e"
       ],
       "verified_by": [
-        "crates/eg-plan/src/leanrag.rs:1336",
+        "crates/eg-plan/src/leanrag.rs:1344",
         "crates/eg-plan/src/retrieval_verdict_tests.rs:364"
       ]
     },
