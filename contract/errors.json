@@ -644,6 +644,12 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "FACTOR_RECORD_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "decision",
       "code": "FEATURE_SCHEMA_INVALID",
       "http_status_hint": 400,
@@ -1118,9 +1124,9 @@
       "retryable": false
     },
     {
-      "class": "internal",
+      "class": "server",
       "code": "INVALID_CONFIGURATION",
-      "http_status_hint": 500,
+      "http_status_hint": 400,
       "retryable": false
     },
     {
@@ -1430,6 +1436,12 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "REPOSITORY_BATCH_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "connector",
       "code": "RESERVED_COMPONENT_ID",
       "http_status_hint": 400,
@@ -1509,6 +1521,12 @@
     },
     {
       "class": "server",
+      "code": "SEED_TURTLE_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "SELECTION_UNAVAILABLE",
       "http_status_hint": 400,
       "retryable": false
@@ -1538,28 +1556,28 @@
       "retryable": false
     },
     {
-      "class": "validation",
+      "class": "server",
       "code": "SOURCE_APPROVAL_MISMATCH",
       "http_status_hint": 400,
       "retryable": false
     },
     {
-      "class": "policy",
+      "class": "server",
       "code": "SOURCE_APPROVAL_NOT_ADMITTED",
-      "http_status_hint": 403,
+      "http_status_hint": 400,
       "retryable": false
     },
     {
-      "class": "validation",
+      "class": "server",
       "code": "SOURCE_APPROVAL_SCHEMA_MISMATCH",
       "http_status_hint": 400,
       "retryable": false
     },
     {
-      "class": "availability",
+      "class": "server",
       "code": "SOURCE_APPROVAL_STORE_UNAVAILABLE",
-      "http_status_hint": 503,
-      "retryable": true
+      "http_status_hint": 400,
+      "retryable": false
     },
     {
       "class": "server",
@@ -1580,19 +1598,19 @@
       "retryable": false
     },
     {
-      "class": "validation",
+      "class": "server",
       "code": "SOURCE_BINDING_INVALID",
       "http_status_hint": 400,
       "retryable": false
     },
     {
-      "class": "validation",
+      "class": "server",
       "code": "SOURCE_BINDING_MISMATCH",
       "http_status_hint": 400,
       "retryable": false
     },
     {
-      "class": "validation",
+      "class": "server",
       "code": "SOURCE_BINDING_NOT_REGISTERED",
       "http_status_hint": 400,
       "retryable": false

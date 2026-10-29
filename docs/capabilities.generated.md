@@ -121,6 +121,17 @@
 | `FinanceKyleLambda` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceSurveillanceRisk` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKellyFraction` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinancePositionSize` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceAmlScreen` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceCapitalRatios` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceExpectedLoss` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceSettlementChain` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceRegimeChain` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceExecutionSchedule` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceMarketMakingQuote` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinancePairsSignal` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceFactorRank` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceDistributionShift` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceBayesianKelly` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinancePosteriorCredibleInterval` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinancePurgedCpcv` | false | None | `compute:finance` | true | false | false | None |  |
@@ -203,7 +214,6 @@
 | `GetRunCheckpoint` | false | None | `work:read` | true | false | false | Snapshot | private owner-bound checkpoint and same-snapshot WorkItem view |
 | `GetCurrentPlan` | false | None | `work:read` | true | false | false | Snapshot | authoritative owner-bound current plan and live lease snapshot |
 | `GetRunWorkItem` | false | None | `work:read` | true | false | false | Snapshot | owner-bound immutable run admission and current caller-safe WorkItem snapshot |
-| `GetConversationHead` | false | None | `work:read` | true | false | false | Snapshot | owner-bound ordered conversation head snapshot |
 | `GetSessionUsage` | false | None | `usage:read` | true | false | false | Snapshot | bounded caller-context committed usage |
 | `GetWorkItem` | false | None | `work:read` | true | false | false | Snapshot | tenant-bound native WorkItem row view; lease owner/epoch/fencing token never projected |
 | `ListWorkItems` | false | None | `work:read` | true | false | false | Snapshot | bounded tenant-bound WorkItem page; limit/scan/byte bounds each resume through an opaque tenant-bound cursor |

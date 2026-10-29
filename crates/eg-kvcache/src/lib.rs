@@ -49,6 +49,7 @@
 pub mod cold;
 pub mod compress;
 pub mod hash;
+pub mod policy;
 pub mod shared;
 pub mod tiered;
 pub mod value;
@@ -69,6 +70,7 @@ pub mod graph_importance;
 
 pub use compress::{Codec, StoredBlock};
 pub use hash::content_hash;
+pub use policy::{AdmissionRefusal, CacheEntryMeta, GenerationRef, PolicyTier, TierPolicy};
 pub use shared::{
     BranchId, ForkStats, ReleaseOutcome, SharedKvBackend, SharedKvIndex, SharedStats, SnapshotId,
 };

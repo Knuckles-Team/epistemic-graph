@@ -89,7 +89,7 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
 fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
     let declared = declared_classes(&triples);
-    assert_eq!(declared.len(), 26);
+    assert_eq!(declared.len(), 28);
     let unmapped = unmapped_classes(&triples);
     assert!(unmapped.is_empty(), "unmapped classes {unmapped:?}");
     let imports: BTreeSet<&str> = triples
@@ -215,6 +215,7 @@ fn finance_shapes_are_their_own_document() {
             "StrategySpec",
             "StrategyRun",
             "LeverageTerms",
+            "FinanceAlgorithm",
         ],
     );
 }

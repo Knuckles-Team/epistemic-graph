@@ -8,7 +8,7 @@
 
 ## Thesis
 
-epistemic-graph already does **compute-near-data** for vectors
+Medulla already does **compute-near-data** for vectors
 (`semantic_search` and `batch_l2_normalize` run server-side in Rust, without a Python
 numeric runtime dependency).
 The Analytics Program generalizes that proven pattern into **one numeric kernel**
@@ -110,10 +110,10 @@ DIRECTLY (not the shim) and is what the developer-only parity gate runs — see 
 NumPy is installed for these reference checks only; the runtime package and wheel do
 not import or depend on it.
 
-## Packaging: one published package — `epistemic-graph[full]` (CONCEPT:AU-KG.compute.is-installed-kernel-discovery / AU-KG.compute.shim-goes-kernel-live)
+## Packaging: one published package — `medulla[full]` (CONCEPT:AU-KG.compute.is-installed-kernel-discovery / AU-KG.compute.shim-goes-kernel-live)
 
-The Surface-A kernel ships as package data folded into the single `epistemic-graph`
-wheel. The approved Agent Utilities runtime requires `epistemic-graph[full]`, which provides
+The Surface-A kernel ships as package data folded into the single `medulla`
+wheel. The approved Agent Utilities runtime requires `medulla[full]`, which provides
 the compiled kernel importable as **`epistemic_graph.numeric`**.
 `agent_utilities.numeric.xp` is therefore **kernel-LIVE** (`HAVE_KERNEL == True`)
 or fails to import; it has no missing-kernel fallback
@@ -220,7 +220,7 @@ Python 3.12 for the developer parity environment.
   to compute-near-data; cross-modal joins then PCA/cluster in-engine. See the
   operator inventory below.
 - **Agent Utilities:** contains no direct NumPy/SciPy runtime dependency or
-  import. The approved dependency is `epistemic-graph[full]`; its Python `full`
+  import. The approved dependency is `medulla[full]`; its Python `full`
   extra is a no-op compatibility alias. Unsupported shapes fail explicitly at the
   bounded native boundary; NumPy appears only in isolated developer parity tests.
 
@@ -314,7 +314,7 @@ where the data lives (compute-near-data, no FFI, no round-trip).
 
 ```mermaid
 flowchart LR
-    subgraph engine["epistemic-graph engine — one SQL surface"]
+    subgraph engine["Medulla engine — one SQL surface"]
       direction TB
       G["graph / relational<br/>nodes(id, x, emb)"]
       V["vector<br/>emb = per-node embedding"]

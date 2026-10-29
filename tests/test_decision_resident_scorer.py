@@ -98,8 +98,14 @@ def engine(tmp_path, run, *, bootstrap):
                     signer_id=TEST_AGENT_ID,
                     signer_key=TEST_SIGNER_KEY,
                 )
+        # DecisionFit/DecisionEval run synchronously in a debug engine under
+        # strace -f; the client's 60 s default RPC budget is a wall-clock race on
+        # a loaded host. Use the same explicit ceiling as engine start/stop.
         with SyncEpistemicGraphClient.connect(
-            socket_path=socket, auth_secret=SECRET, verified_context=request_context()
+            socket_path=socket,
+            auth_secret=SECRET,
+            verified_context=request_context(),
+            timeout=server_timeout(),
         ) as client:
             try:
                 yield client

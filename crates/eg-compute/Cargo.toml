@@ -20,7 +20,7 @@ test-support = []
 # Decide layer's conformal kernels, so finance links eg-numeric (always-built
 # conformal/risk modules; no `decision` feature needed), and turns trend flips
 # into CEP events for eg-stream's NFA (its runtime-free batch core; no tokio).
-finance = ["dep:nalgebra", "eg-types/finance", "dep:eg-numeric", "dep:eg-stream"]
+finance = ["dep:nalgebra", "eg-types/finance", "dep:eg-numeric", "eg-numeric/analytics", "dep:eg-stream"]
 datascience = ["dep:rand_chacha", "eg-types/datascience"]
 # Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): pure-Rust,
 # dependency-light frequent-itemset + association-rule mining. It turns on the

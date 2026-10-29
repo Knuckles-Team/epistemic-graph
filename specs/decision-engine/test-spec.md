@@ -141,7 +141,7 @@ The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
 
 EG-DECISION-ENGINE-R090.2 requires `tests/test_decision_resident_scorer.py::test_compiled_engine_scores_without_external_runtime`.
 EG-DECISION-ENGINE-R090.3 requires `crates/eg-numeric/benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
-R090.2 passed in the [Python suite job](https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38148086774/job/114499779006)
+R090.2 passed in the [Python suite job](https://github.com/Knuckles-Team/medulla/actions/runs/38148086774/job/114499779006)
 of hosted Release run 38148086774 at `e5190222b38d628b7d0f268ce4c46b184a170ee1`.
 That job passed all 3,702 tests, including the resident runtime tracing case.
 The Python job succeeded; the parent Release run failed overall. This is the

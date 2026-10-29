@@ -221,10 +221,12 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // foreign-read lifecycle methods.
     // 477 -> 481: `GetSessionUsage`, `IssueHostStartGrant`, `PublishRunCheckpoint`
     // and `GetRunCheckpoint`.
-    // 481 -> 482: owner-bound `GetConversationHead`.
+    // 481 -> 483: EG-FINANCE-PRIMITIVES-R900.3 `FinancePositionSize`, `FinanceDistributionShift`.
+    // 483 -> 492: EG-FINANCE-PRIMITIVES-R901.3/R613.3/R018.3 banking, execution and factor-rank methods.
+    // 492 -> 493: owner-bound `GetConversationHead` (native census must verify).
     assert_eq!(
         variants.len(),
-        482,
+        493,
         "the wire method census changed; update this exact count deliberately"
     );
 }

@@ -44,7 +44,9 @@ from ._shared import (
     ShellProficiency,
     StoppingBehaviour,
     ToolEffect,
+    ToolFactDeclarer,
     ToolsetTransport,
+    ToolSideEffects,
 )
 
 
@@ -299,5 +301,7 @@ __all__ = [
     "ShellProficiency",
     "StoppingBehaviour",
     "ToolEffect",
+    "ToolFactDeclarer",
+    "ToolSideEffects",
     "ToolsetTransport",
 ]

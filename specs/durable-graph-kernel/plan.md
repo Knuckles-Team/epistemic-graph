@@ -464,10 +464,6 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 - Required Medulla tests: exact source revision/digest/provenance readback after restart. Also test tenant/revocation redaction, stale conflict retention and capacity refusal before effects. Preserve Meristem R022.3 and Medulla R085.2/.5/.7. Hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
 - **Meristem hold:** Meristem has not defined trigger, note-kind mapping, relevance score/threshold or stale rule. Meristem must define conflict presentation/selection before automatic capture and transparent reuse acceptance.
 
-### `EG-DURABLE-KERNEL-R084.7` — EG:28
-
-- **Definition hold:** keep writes scoped to one graph via `ApplyMutation`, expected-version arbitration. And R039’s sole redb authority. R024.1 is read-only and R036 mirror replay cursors do not supply a distributed coordinator. Preserve R084.1-.6. Do not promise cross-backend order or add writes to read-only sources.
-- Before specifying a positive cross-backend test, owners must decide allowed writable backend kinds and registry owner. They must also choose coordinator owner, tenant- versus graph-order key, and atomic versus eventual semantics. They must define partial-failure/idempotency/retry/receipt behavior. Until then this child remains SPECIFIED and held. Hash `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->

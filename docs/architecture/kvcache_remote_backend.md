@@ -88,11 +88,11 @@ that need one cache authority route workers to that engine endpoint.
 
 ## The shipped Python driver (`epistemic_graph.kvcache`, CONCEPT:EG-KG.backend.shipped-pip-installable-python)
 
-The `epistemic-graph` wheel now ships the packaged Python driver that maps LMCache/vLLM
+The `medulla` wheel now ships the packaged Python driver that maps LMCache/vLLM
 onto the contract above. It lives in the pure-Python client package and imports with
 **stdlib only** (`urllib`) — `import epistemic_graph.kvcache` needs nothing beyond the
 base install. The optional `httpx` acceleration (pooled keep-alive) is pulled by
-`pip install epistemic-graph[lmcache]`.
+`pip install medulla[lmcache]`.
 
 Two entry points:
 

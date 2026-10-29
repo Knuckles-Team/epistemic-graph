@@ -1,0 +1,28 @@
+# sql dp:StoreMapping fixture (EG-DATAPLAT-VOCAB-R006.1).
+#
+# One approved StoreMapping row per sql_schema operation, virtual-first
+# (dp:accelerationMode virtual); the reason is recorded where materialised
+# (none here: rows stay in the source, only catalog metadata is held).
+
+@prefix dp:  <http://knuckles.team/kg/data-platform#> .
+@prefix ex:  <http://example.org/fixture/data-platform/sql/> .
+
+ex:tables-mapping a dp:StoreMapping ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "sql_schema:tables" ;
+    dp:accelerationMode "virtual" .
+
+ex:columns-mapping a dp:StoreMapping ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "sql_schema:columns" ;
+    dp:accelerationMode "virtual" .
+
+ex:foreign-keys-mapping a dp:StoreMapping ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "sql_schema:foreign_keys" ;
+    dp:accelerationMode "virtual" .
+
+ex:constraints-mapping a dp:StoreMapping ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "sql_schema:constraints" ;
+    dp:accelerationMode "virtual" .

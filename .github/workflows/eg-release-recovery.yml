@@ -10,8 +10,8 @@ jobs:
   wheel:
     timeout-minutes: 360
     name: Recover approved v2.27.0 Linux wheel
-    if: github.repository == 'Knuckles-Team/epistemic-graph' && github.event_name == 'workflow_dispatch' && github.ref ==
-      'refs/heads/main' && github.workflow_ref == 'Knuckles-Team/epistemic-graph/.github/workflows/eg-release-recovery-dispatch.yml@refs/heads/main'
+    if: github.repository == 'Knuckles-Team/medulla' && github.event_name == 'workflow_dispatch' && github.ref ==
+      'refs/heads/main' && github.workflow_ref == 'Knuckles-Team/medulla/.github/workflows/eg-release-recovery-dispatch.yml@refs/heads/main'
     runs-on:
       group: eg-release-recovery
       labels:
@@ -39,7 +39,7 @@ jobs:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
         persist-credentials: false
-        repository: Knuckles-Team/epistemic-graph
+        repository: Knuckles-Team/medulla
         ref: 29301642c205adc75d63cde2e69d7f53d85d707f
     - name: Verify approved source and baked dependencies
       shell: bash

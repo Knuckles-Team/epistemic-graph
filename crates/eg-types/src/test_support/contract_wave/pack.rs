@@ -65,6 +65,11 @@ pub fn annotations() -> PackAnnotations {
         }),
         sdk_contract_pin: Some("sdk-d18-1".to_string()),
         tool_mode: Some(PackToolMode::Condensed),
+        // Absent so the frozen contract-wave vectors keep their digests
+        // (EG-TYPED-PACKS-R045.3).
+        side_effects: None,
+        declared_by: None,
+        schema_tokens: None,
     }
 }
 

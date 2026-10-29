@@ -881,3 +881,32 @@
     rdfs:comment "A newer measurement replaces an older one by this edge, never by deletion." ;
     rdfs:domain :MeasuredModelFact ;
     rdfs:range :MeasuredModelFact .
+
+# EG-CQ-CONN-R079.2 through R079.5: the langfuse trace/prompt measurements the
+# connector maps its records onto (prompt versioning, token cost, prompt linkage
+# and evaluation scores).
+
+:promptVersion a owl:DatatypeProperty ;
+    rdfs:label "promptVersion" ;
+    rdfs:comment "The integer version of the :Prompt a trace ran against; versioned prompts keep traces comparable across edits." ;
+    rdfs:domain :Prompt ;
+    rdfs:range xsd:integer .
+
+:tokenCost a owl:DatatypeProperty ;
+    rdfs:label "tokenCost" ;
+    rdfs:comment "Token cost recorded for one :RunTrace (the usage total the trace's provider reported). An optional measurement; a recorded zero is valid." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range xsd:decimal .
+
+:tracePrompt a owl:ObjectProperty ;
+    rdfs:label "tracePrompt" ;
+    rdfs:comment "Links a :RunTrace to the :Prompt it ran (the prompt whose content the trace's model inputs came from)." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :Prompt .
+
+:evaluationScore a owl:DatatypeProperty ;
+    rdfs:label "evaluationScore" ;
+    rdfs:comment "An evaluation score attached to a :RunTrace or to the :Prompt a trace used (a quality measurement on the 0..1 scale by convention)." ;
+    rdfs:domain [ a owl:Class ;
+            owl:unionOf ( :RunTrace :Prompt ) ] ;
+    rdfs:range xsd:decimal .

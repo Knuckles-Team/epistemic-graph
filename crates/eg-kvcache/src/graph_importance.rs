@@ -141,6 +141,32 @@ mod tests {
         );
     }
 
+    /// Three equally sized blocks over a two-block budget: the hub is central, one
+    /// leaf is recently read, and the other leaf is neither. The block lowest in
+    /// recency plus importance is the one evicted from HOT.
+    // spec: EG-DURABLE-KERNEL-R083.3
+    #[test]
+    fn over_budget_insert_evicts_the_block_lowest_in_recency_and_importance() {
+        let g = star_graph(4);
+        let mut cache: TieredCache<String, Block> = TieredCache::new(80, 10_000, 10_000);
+        cache.apply_importance_scores(pagerank_importance(&g, 0.85, 20));
+        cache.put("hub".to_string(), page(40, 1));
+        cache.put("leaf0".to_string(), page(40, 2));
+        for _ in 0..5 {
+            assert!(cache.get(&"leaf0".to_string()).is_some());
+        }
+        cache.put("leaf1".to_string(), page(40, 3));
+
+        assert_eq!(cache.tier_of(&"hub".to_string()), Some(Tier::Hot));
+        assert_eq!(cache.tier_of(&"leaf0".to_string()), Some(Tier::Hot));
+        assert_eq!(
+            cache.tier_of(&"leaf1".to_string()),
+            Some(Tier::Warm),
+            "the coldest block leaves HOT"
+        );
+        assert!(cache.stats().hot_bytes <= 80);
+    }
+
     /// CONCEPT:EG-KG.memory.graph-guided-paging — `degree_centrality_importance` is a cheaper
     /// single-pass alternative that still ranks the hub above a leaf on the same graph.
     #[test]

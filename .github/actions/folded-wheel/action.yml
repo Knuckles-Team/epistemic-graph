@@ -90,6 +90,21 @@ runs:
         container: ${{ steps.build-environment.outputs.container }}
         maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
 
+    # Container builds create root-owned wheels AND root-owned output dirs. The fold
+    # step below rewrites the wheel on the host as the runner user, so it needs the
+    # directory to be writable first (release 2.27.9 died with EACCES on
+    # dist-primary/*.whl.tmp).
+    - name: Hand the container-built wheels to the runner user
+      if: ${{ always() && runner.os == 'Linux' }}
+      shell: bash
+      run: |
+        for dir in "dist-${{ inputs.pass }}" "numdist-${{ inputs.pass }}"; do
+          [ -d "$dir" ] || continue
+          sudo -n chown -R "$(id -u):$(id -g)" "$dir" 2>/dev/null \
+            || docker run --rm -v "$PWD:/w" "${{ steps.build-environment.outputs.container || 'quay.io/pypa/manylinux_2_28_x86_64' }}" chown -R "$(id -u):$(id -g)" "/w/$dir" \
+            || true
+        done
+
     - name: Fold numeric kernel into the medulla wheel
       shell: bash
       run: |

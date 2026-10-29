@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.no_engine
@@ -467,10 +468,15 @@ def test_empty_production_universe_is_not_applicable_without_native_scan(
 
 
 def test_census_adapter_stays_separate_from_the_changed_gate():
-    # The advisory hosted scanner job that ran the census was removed to bound
-    # pull-request CI (EG-CONTRACT-R053.7); the adapter remains runnable.
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert "scripts/check_dupehound_census.py" not in workflow
+    # The census runs only on the nightly schedule, as a non-blocking job that
+    # CI required does not wait for; the changed-function gate never runs it.
+    doc = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text("utf-8"))
+    job = doc["jobs"]["dupehound-census"]
+    assert job["if"] == "github.event_name == 'schedule'"
+    assert job["continue-on-error"] is True
+    assert "dupehound-census" not in doc["jobs"]["ci-required"]["needs"]
+    runs = [step.get("run", "") for step in job["steps"]]
+    assert any("scripts/check_dupehound_census.py" in run for run in runs)
     assert "--no-default-excludes" in (
         ROOT / "scripts/check_dupehound_census.py"
     ).read_text(encoding="utf-8")

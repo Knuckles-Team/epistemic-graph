@@ -14,7 +14,7 @@ services:
     cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
-    image: epistemic-graph:local
+    image: medulla:local
     build:
       context: ..
       dockerfile: docker/Dockerfile

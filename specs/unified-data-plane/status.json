@@ -321,8 +321,8 @@
         "9a7674d1bae5"
       ],
       "verified_by": [
-        "src/server/foreign_catalog.rs:661",
-        "src/server/foreign_catalog.rs:685"
+        "src/server/foreign_catalog.rs:705",
+        "src/server/foreign_catalog.rs:729"
       ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R002.1",
@@ -341,8 +341,8 @@
         "d603182af742"
       ],
       "verified_by": [
-        "src/server/foreign_catalog.rs:662",
-        "src/server/foreign_catalog.rs:686"
+        "src/server/foreign_catalog.rs:706",
+        "src/server/foreign_catalog.rs:730"
       ]
     },
     {
@@ -996,9 +996,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.2.1",
       "title": "`RelationalDriverConfig` builds from a validated engine/host/port/service name, and `connect` refuses an unsafe or invalid destination before issuing any request",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f3b6984f260a"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/relational_connection.rs:124",
+        "crates/eg-plan/src/relational_connection.rs:143",
+        "crates/eg-plan/src/relational_connection.rs:152",
+        "crates/eg-plan/src/relational_connection.rs:161",
+        "crates/eg-plan/src/relational_connection.rs:170"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.2.2",
@@ -1965,11 +1973,11 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/entity_link_proposal.rs:109",
-        "crates/eg-types/src/entity_link_proposal.rs:116",
-        "crates/eg-types/src/entity_link_proposal.rs:123",
-        "crates/eg-types/src/entity_link_proposal.rs:130",
-        "crates/eg-types/src/entity_link_proposal.rs:137"
+        "crates/eg-types/src/entity_link_proposal.rs:129",
+        "crates/eg-types/src/entity_link_proposal.rs:136",
+        "crates/eg-types/src/entity_link_proposal.rs:143",
+        "crates/eg-types/src/entity_link_proposal.rs:150",
+        "crates/eg-types/src/entity_link_proposal.rs:157"
       ]
     },
     {
@@ -2214,6 +2222,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3dd56fe53283",
+        "3e95357c7bce",
         "85f4ea82f45f",
         "9b6036853937"
       ],

@@ -16,7 +16,7 @@ A contributor must be able to change an engine method once and regenerate the sa
 
 The current repository includes a generated method catalog, error catalog, Python typed models, Go and JavaScript codec clients and a package contract receipt. Their presence establishes a partial source baseline only. No release acceptance is claimed here.
 
-[PR #3](https://github.com/Knuckles-Team/epistemic-graph/pull/3) merged a source repair at [a7f4dd74e7b2](https://github.com/Knuckles-Team/epistemic-graph/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This establishes source landing for that repair only. The EG-CONTRACT-R014 wheel and consumer proof, EG-CONTRACT-R022 duplication gate, EG-CONTRACT-R023 hooks, and exact-revision release acceptance remain open under this spec's test contract.
+[PR #3](https://github.com/Knuckles-Team/medulla/pull/3) merged a source repair at [a7f4dd74e7b2](https://github.com/Knuckles-Team/medulla/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This establishes source landing for that repair only. The EG-CONTRACT-R014 wheel and consumer proof, EG-CONTRACT-R022 duplication gate, EG-CONTRACT-R023 hooks, and exact-revision release acceptance remain open under this spec's test contract.
 
 ## Normative requirements
 

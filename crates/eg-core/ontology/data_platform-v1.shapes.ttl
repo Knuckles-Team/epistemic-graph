@@ -1,0 +1,68 @@
+# Data-platform shapes (EG-DATAPLAT-VOCAB-R005.2).
+#
+# SHACL Core only (same style as virtual_graph-v1.shapes.ttl): the five
+# secret-metadata classes are CLOSED, so any property that is not on the
+# allowed metadata list -- a value, data, token, password, rules or ciphertext --
+# is itself the violation. There is no SPARQL and no aggregate in this file.
+
+@prefix dp:  <http://knuckles.team/kg/data-platform#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+dp:SecretEngineShape a sh:NodeShape ;
+    sh:targetClass dp:SecretEngine ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:pathName ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:viaConnection ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A secret engine carries only mount metadata -- no value, data, token, password, rules or ciphertext." .
+
+dp:SecretPathShape a sh:NodeShape ;
+    sh:targetClass dp:SecretPath ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:pathName ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path dp:hasRotationState ; sh:node dp:RotationStateShape ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:viaConnection ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A secret path carries only its path name and rotation metadata -- no value, data, token, password, rules or ciphertext." .
+
+dp:AccessPolicyShape a sh:NodeShape ;
+    sh:targetClass dp:AccessPolicy ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:leaseExpiresAt ; sh:datatype xsd:dateTime ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:viaConnection ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "An access policy carries only its lease metadata -- never the policy rule body." .
+
+dp:RotationStateShape a sh:NodeShape ;
+    sh:targetClass dp:RotationState ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:currentVersion ; sh:datatype xsd:integer ] ;
+    sh:property [ sh:path dp:lastRotatedAt ; sh:datatype xsd:dateTime ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A rotation state carries only version metadata -- no value, data, token, password, rules or ciphertext." .
+
+dp:PolicyPathGrantShape a sh:NodeShape ;
+    sh:targetClass dp:PolicyPathGrant ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type rdfs:label ) ;
+    sh:property [ sh:path dp:grantPolicy ; sh:node dp:AccessPolicyShape ] ;
+    sh:property [ sh:path dp:grantPath ; sh:node dp:SecretPathShape ] ;
+    sh:property [
+        sh:path dp:grantsCapability ; sh:datatype xsd:string ;
+        sh:in ( "read" "list" "create" "update" "delete" "sudo" "deny" )
+    ] ;
+    sh:property [ sh:path dp:leaseExpiresAt ; sh:datatype xsd:dateTime ] ;
+    sh:property [ sh:path dp:inStore ] ;
+    sh:property [ sh:path dp:viaConnection ] ;
+    sh:property [ sh:path dp:asOf ] ;
+    sh:message "A policy-path grant carries only its policy, path and capabilities -- permissions are scoped to that policy/path pair." .

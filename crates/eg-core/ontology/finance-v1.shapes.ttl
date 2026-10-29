@@ -498,3 +498,18 @@
             sh:minCount 1 ;
             sh:path :recordKnownAt ] ;
     sh:targetClass :LeverageTerms .
+
+# EG-CQ-CONN-R084.5: the finance method vocabulary is selected through declared
+# applicability, so a method record without either applicability axis is incomplete.
+:FinanceAlgorithmShape a sh:NodeShape ;
+    sh:description "A finance algorithm names at least one analysis type it applies to and at least one instrument or position class it operates over." ;
+    sh:name "Finance Algorithm Shape" ;
+    sh:property [ sh:minCount 1 ;
+            sh:message "A finance algorithm must name at least one analysis type (appliesToAnalysis)." ;
+            sh:nodeKind sh:IRI ;
+            sh:path :appliesToAnalysis ],
+        [ sh:minCount 1 ;
+            sh:message "A finance algorithm must name at least one instrument or position class (appliesToInstrumentType)." ;
+            sh:nodeKind sh:IRI ;
+            sh:path :appliesToInstrumentType ] ;
+    sh:targetClass :FinanceAlgorithm .

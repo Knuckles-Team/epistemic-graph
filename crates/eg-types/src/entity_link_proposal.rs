@@ -10,7 +10,8 @@
 use serde::{Deserialize, Serialize};
 
 /// The attached application an entity reference names. Closed per
-/// R030's defined application set.
+/// R030's defined application set; R004.3 adds the supplier-resolution
+/// sources (ERPNext, LeanIX and DockerHub).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttachedApplication {
@@ -18,6 +19,9 @@ pub enum AttachedApplication {
     Immich,
     Twenty,
     Firefly,
+    Erpnext,
+    Leanix,
+    Dockerhub,
 }
 
 /// One entity reference: which application and its local entity id.
@@ -55,6 +59,22 @@ pub struct EntityLinkProposal {
 pub enum CannotAssert {
     NotApproved,
     NotAMatch,
+}
+
+/// The supplier-resolution blocking key (EG-CQ-XSRC-R004.3): the normalized
+/// name plus the normalized domain. Two supplier records block (are compared
+/// as candidates) only when their keys agree; the key itself never asserts a
+/// link — a proposed `owl:sameAs` stays inactive until approved.
+pub fn supplier_blocking_key(name: &str, domain: &str) -> String {
+    format!(
+        "{}\u{0}{1}",
+        normalize_blocking_part(name),
+        normalize_blocking_part(domain)
+    )
+}
+
+fn normalize_blocking_part(value: &str) -> String {
+    value.trim().to_lowercase()
 }
 
 impl std::fmt::Display for CannotAssert {
@@ -148,5 +168,60 @@ mod tests {
         let encoded = serde_json::to_string(&proposal).unwrap();
         let decoded: EntityLinkProposal = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, proposal);
+    }
+
+    // spec: EG-CQ-XSRC-R004.3
+    #[test]
+    fn supplier_blocking_key_blocks_on_normalized_name_and_domain() {
+        // True match: erpnext supplier record vs dockerhub image publisher —
+        // same company, different name casing, padding and domain case.
+        let erpnext = supplier_blocking_key("Acme Cloud, Inc.", "acme.example.com");
+        let dockerhub = supplier_blocking_key("  ACME CLOUD, INC.  ", "ACME.example.com");
+        assert_eq!(erpnext, dockerhub);
+        // False match: leanix provider fact sheet for a different company.
+        let leanix = supplier_blocking_key("Acme Logistics GmbH", "acme-logistics.example.de");
+        assert_ne!(erpnext, leanix);
+    }
+
+    // spec: EG-CQ-XSRC-R004.3
+    #[test]
+    fn true_supplier_match_is_not_asserted_before_approval() {
+        let mut proposal = EntityLinkProposal {
+            left: entity(AttachedApplication::Erpnext, "sup-42"),
+            right: entity(AttachedApplication::Dockerhub, "publisher/acme-cloud"),
+            match_class: MatchClass::Match,
+            match_score_milli: 940,
+            approved_by: None,
+        };
+        // No link is asserted while the proposal is unapproved...
+        assert_eq!(proposal.assert_same_as(), Err(CannotAssert::NotApproved));
+        // ...and the same pair asserts once a human approves it.
+        proposal.approved_by = Some("ops@local".to_string());
+        assert!(proposal.assert_same_as().is_ok());
+    }
+
+    // spec: EG-CQ-XSRC-R004.3
+    #[test]
+    fn false_and_ambiguous_supplier_pairs_never_assert() {
+        // False match: a leanix fact sheet and a dockerhub publisher for
+        // different companies — refused even with a recorded approval.
+        let false_match = EntityLinkProposal {
+            left: entity(AttachedApplication::Leanix, "provider-7"),
+            right: entity(AttachedApplication::Dockerhub, "publisher/acme-cloud"),
+            match_class: MatchClass::NonMatch,
+            match_score_milli: 120,
+            approved_by: Some("ops@local".to_string()),
+        };
+        assert_eq!(false_match.assert_same_as(), Err(CannotAssert::NotAMatch));
+        // Ambiguous: erpnext and leanix agree on the blocking key, but the
+        // classifier is not certain — an approval cannot override it.
+        let ambiguous = EntityLinkProposal {
+            left: entity(AttachedApplication::Erpnext, "sup-42"),
+            right: entity(AttachedApplication::Leanix, "provider-7"),
+            match_class: MatchClass::Ambiguous,
+            match_score_milli: 550,
+            approved_by: Some("ops@local".to_string()),
+        };
+        assert_eq!(ambiguous.assert_same_as(), Err(CannotAssert::NotAMatch));
     }
 }

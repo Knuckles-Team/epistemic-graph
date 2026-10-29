@@ -1,6 +1,6 @@
 # Ontology package composition
 
-Epistemic-graph is the sole active ontology and SHACL authority. Fleet
+Medulla is the sole active ontology and SHACL authority. Fleet
 components own source content, the connector SDK captures it, Arbora composes
 it, and EG commits it as a graph-scoped `GraphSchema` source.
 

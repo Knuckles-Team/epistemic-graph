@@ -115,3 +115,24 @@ Their cancellation does not establish a native test result.
 The new native refusal and replay tests have not run in this workspace.
 The renderer source fixes the recorded STE sentence. The generated document
 still preserves the prior native output until genuine regeneration succeeds.
+
+## C2 integration generation stage (blocked)
+
+This draft combines native history with main commit `685757589075720be3aaafdc37b4ba84d5f77626`.
+Its canonical contracts, generated clients and codec binaries temporarily retain
+that main commit's genuine output. They are stale for the combined source.
+Selecting that snapshot is not generation or qualification. Native parity must
+fail until the existing hosted exporters produce reviewed replacement artifacts.
+
+The combined method census expects 493 variants; the native test must prove it.
+The integration preserves explicit history negotiation, owner binding, replay
+refusal and destructive-operation holds. The read-only consumer caller remains
+fail-closed and uses same-run producer artifacts. Existing consumer compatibility
+exclusions remain enforced; new contract changes require a fresh exact review.
+
+Do not merge or release this generation-stage draft. Import genuine native
+contracts and codec outputs with exact source and recipe provenance first.
+Then require native parity, coherent installed dependencies and both actual
+process restart journeys. An unchanged public transcript dialect identifier matches the configured author
+name, triggering the documented local privacy finding.
+Hosted privacy checks remain required and are not suppressed.

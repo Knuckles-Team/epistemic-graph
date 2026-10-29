@@ -1,6 +1,6 @@
 # HelixDB comparison (measured, correctness-gated)
 
-> **Status: MEASURED, 2026-09-24. The Epistemic Graph numbers predate two
+> **Status: MEASURED, 2026-09-24. The Medulla numbers predate two
 > pending fixes (EH-533: per-request durable replay-nonce commit; EH-559:
 > cold-open materialization) and must be re-measured when they land.** See
 > [Re-running](#re-running). This page makes **no superiority claim** either way. It
@@ -11,7 +11,7 @@ EH-353 asked for a reproducible, correctness-gated comparison against pinned
 revisions. It covers the workloads both engines claim: point get, one hop, filtered
 hop, transactional batch, text prefilter, vector prefilter and mixed graph/vector. The
 design rationale is in the HelixDB comparative-assimilation notes (EH-351/352/353).
-Epistemic Graph owns the workload semantics and this evidence. Automating the run is
+Medulla owns the workload semantics and this evidence. Automating the run is
 pipelines' job.
 
 ## What is pinned
@@ -19,11 +19,11 @@ pipelines' job.
 | input | value |
 |---|---|
 | HelixDB | `81e1e741e8d3d61e6b09577e1d46137850fc9343`, `cargo build --release --locked -p server` (rustc 1.97.1), driven through the same commit's Python SDK (`sdks/python/src`) |
-| Epistemic Graph | engine tree `6ce3516ef` (release `epistemic-graph-server`, default features), driven through this repository's Python client |
+| Medulla | engine tree `6ce3516ef` (release `epistemic-graph-server`, default features), driven through this repository's Python client |
 | Corpus | seed 20260924: 20,000 `Doc` nodes (16 categories, year 2000–2025, 24-word Zipf text body, 32-dim unit embedding clustered by category), 99,985 `CITES` edges. Every doc cites up to 5 earlier docs, so the graph is a DAG. Corpus sha256 `0c4b9989…51c1` |
 | Query set | seeded separately (seed + 1). sha256 `f38f5d9c…2974` |
-| Spec | [`benches/helix_compare/spec.json`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/benches/helix_compare/spec.json) holds both digests, workload sizes, the plan (gate 100 ops, warm-up 200, cold 50, concurrency 1 and 8) and CPU pinning (server CPUs 0–3, client CPUs 4–7) |
-| Result | [`benches/helix_compare/results/2026-09-24-reference.json.gz`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/benches/helix_compare/results/2026-09-24-reference.json.gz) (the complete, losslessly compressed report) and its rendered `.md` |
+| Spec | [`benches/helix_compare/spec.json`](https://github.com/Knuckles-Team/medulla/blob/main/benches/helix_compare/spec.json) holds both digests, workload sizes, the plan (gate 100 ops, warm-up 200, cold 50, concurrency 1 and 8) and CPU pinning (server CPUs 0–3, client CPUs 4–7) |
+| Result | [`benches/helix_compare/results/2026-09-24-reference.json.gz`](https://github.com/Knuckles-Team/medulla/blob/main/benches/helix_compare/results/2026-09-24-reference.json.gz) (the complete, losslessly compressed report) and its rendered `.md` |
 
 The archived report decompresses with `gzip -dc benches/helix_compare/results/2026-09-24-reference.json.gz`. Its uncompressed SHA-256 is `bb0b585d3a73cb8aa89c69d97ba47ae51d4fded0704c22b73f4384dec9dbf913`. The values and JSON structure are byte-for-byte the original measured result.
 
@@ -38,12 +38,12 @@ if either digest drifts.
   RAID, both data directories under one tree).
   - Reference host: 2 × Xeon X5650 (24 threads), Linux 7.0.
   - Load average per phase, from the report's `timeline`:
-    - Epistemic Graph: 6.4 → 12.1;
+    - Medulla: 6.4 → 12.1;
     - HelixDB: 9.7 → 14.3.
   - The host is a shared k8s node. Both engines saw comparable load, and the run
     was accepted on that basis.
 - **Durable writes on both sides.**
-  - Epistemic Graph acknowledges after its Immediate-durability redb commit.
+  - Medulla acknowledges after its Immediate-durability redb commit.
   - Every HelixDB write sets `X-Helix-Await-Durable`.
   - Both servers run disk-backed and authenticated or production-shaped. Epistemic
     Graph runs in its documented service mode (HMAC `eg2.` envelopes, at-rest AEAD).
@@ -52,10 +52,10 @@ if either digest drifts.
   - HelixDB creates a node-equality index on `category`, a text index on `text`
     and a 32-dim cosine vector index on `embedding`, all active before any data is
     written.
-  - Epistemic Graph uses its maintained text index and semantic store.
+  - Medulla uses its maintained text index and semantic store.
 - **Queries per engine:**
 
-  | workload | Epistemic Graph | HelixDB |
+  | workload | Medulla | HelixDB |
   |---|---|---|
   | point get | `GetNodeProperties` | `n(id).value_map` |
   | one hop | `GetSuccessors` | `n(id).out("CITES")` |
@@ -85,7 +85,7 @@ if either digest drifts.
   - time until the first read succeeds, empty and after a restart;
   - every unsuccessful operation, with samples.
 
-  A transport-floor row (Epistemic Graph `Ping`, HelixDB `GET /healthz`, through the
+  A transport-floor row (Medulla `Ping`, HelixDB `GET /healthz`, through the
   same client) shows how much of each latency is client and transport.
 - **Warm vs process-cold.**
   - "Warm" is measured after a 200-op warm-up on the loaded server.
@@ -96,7 +96,7 @@ if either digest drifts.
 
 ### Correctness gate
 
-| workload | Epistemic Graph | HelixDB |
+| workload | Medulla | HelixDB |
 |---|---|---|
 | point get, one hop, filtered hop | pass | pass |
 | text prefilter | pass (100/100 at this corpus size; see finding 2) | pass |
@@ -127,7 +127,7 @@ if either digest drifts.
 
 ### Cold start, load and footprint
 
-| | Epistemic Graph | HelixDB |
+| | Medulla | HelixDB |
 |---|--:|--:|
 | load 20,000 docs + 99,985 edges | 24.9 s (803 docs/s) | 943.6 s (21.2 docs/s; 775 write-conflict retries) |
 | storage after load / amplification | 73.7 MB / 4.71× | 167.9 MB / 10.71× |
@@ -139,14 +139,14 @@ if either digest drifts.
 
 ## Findings
 
-1. **Every served Epistemic Graph request pays a durable write (EH-533).** The
+1. **Every served Medulla request pays a durable write (EH-533).** The
    transport floor is `Ping`: about 5.4 ms and 9.6 ms of server CPU, with
    throughput flat near 200 ops/s at concurrency 1 and 8. The server commits
    each request's replay nonce durably, through the same transaction kernel as a
    write, before dispatch (`src/server/request_replay.rs`). That one serialized
    commit per request sets the floor for every read row above. HelixDB's
    floor is 0.14 ms of CPU.
-2. **Filtered text and vector ranking in Epistemic Graph cost 350–450 ms and
+2. **Filtered text and vector ranking in Medulla cost 350–450 ms and
    500–700 ms of CPU per query (EH-532).** The `MATCH … WHERE category = …`
    stage scans and filters the whole label on every query before ranking. The text
    leg then takes an over-fetched BM25 pool and applies the filter after
@@ -154,7 +154,7 @@ if either digest drifts.
    (smoke run). At 20,000 it happened to pass. The mixed pipeline shows the vector
    counterpart: ranking over the 2-hop set returned fewer than `k` hits for 7 of
    100 queries.
-3. **A restarted Epistemic Graph is unreadable for 163 s at 20,000 documents
+3. **A restarted Medulla is unreadable for 163 s at 20,000 documents
    (EH-559).**
    - The graph is reopened lazily on first touch. Reads are refused with a
      retryable `PARTIAL_MATERIALIZATION` until the maintained indexes are rebuilt
@@ -170,21 +170,21 @@ if either digest drifts.
    - That produced 775 retries during load and 41 of 150 batches failing outright
      at concurrency 8.
    - HelixDB's bulk load ran at 21 docs/s.
-5. **Where Epistemic Graph is ahead in this run:**
+5. **Where Medulla is ahead in this run:**
    - load throughput: 38×;
    - transactional-batch latency: 9.5× at c=1, with no failed batches;
    - storage amplification: 4.7× vs 10.7×.
 6. **Where they are even:** point and hop reads at concurrency 1 are within
-   noise of each other (5–6 ms). Epistemic Graph pays its per-request nonce commit
+   noise of each other (5–6 ms). Medulla pays its per-request nonce commit
    on each of them (finding 1). HelixDB pulls ahead at concurrency 8, because
-   Epistemic Graph's per-request commit serializes the load.
+   Medulla's per-request commit serializes the load.
 
 ## Re-running
 
 Build both servers, then run on one quiet host:
 
 ```bash
-# Epistemic Graph (this tree)
+# Medulla (this tree)
 cargo build --release --locked --bin epistemic-graph-server
 python3 scripts/build_numeric_kernel.py      # the client's eg2. signing codec
 # HelixDB at the pinned commit
@@ -210,5 +210,5 @@ PYTHONPATH=$PWD:$PWD/scripts python3 scripts/bench_helix_compare.py \
   - EH-559 (cold-open materialization) lands;
   - EH-532 (filtered ranking pushdown) lands.
 
-  Replace the Epistemic Graph columns, the result JSON and this status note, and
+  Replace the Medulla columns, the result JSON and this status note, and
   keep the old report under `benches/helix_compare/results/` for comparison.

@@ -1,133 +1,227 @@
-# Connector-pack ingest vocabulary (EG-TYPED-PACKS-R101.1).
+# Connector-pack vocabulary (EG-TYPED-PACKS-R101.1, EG-TYPED-PACKS-R102.1).
 #
-# This core module describes the source declaration and the approved mappings
-# that an imported connector pack contributes. Connector surface terms are
-# added by R102; this file owns the ingest contract shared by those surfaces.
+# An EG core schema source (`core:connector-pack@1`) holding the ingest-contract
+# and connector-surface vocabulary every typed connector pack speaks. The
+# contract side specialises the virtual-graph attachment vocabulary
+# (`core:virtual-graph@1`); the surface side (connector, feature, tool, prompt,
+# skill) is projected beside the contract as native graph relationships. The
+# metadata-catalog module (`core:metadata_catalog@1`) reuses `cp:Connector` by
+# IRI and specialises it under the core `:Tool` and `dcat:DataService`.
 
-@prefix cp:   <http://knuckles.team/kg/connector-pack#> .
-@prefix vg:   <http://knuckles.team/kg/virtual-graph#> .
-@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix cp: <http://knuckles.team/kg/connector-pack#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 <http://knuckles.team/kg/connector-pack> a owl:Ontology ;
-    rdfs:label "Connector pack ingest vocabulary" ;
-    rdfs:comment "Typed source contracts, mappings, access policy and provenance requirements declared by connector packs." ;
-    owl:imports <http://knuckles.team/kg/virtual-graph> .
+    rdfs:label "Connector pack" ;
+    rdfs:comment "The ingest contract and connector surface of one typed connector pack: contract terms specialised from the virtual-graph vocabulary, and the connector, feature, tool, prompt and skill surface linked to the domain classes it serves." ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/virtual-graph>, <http://knuckles.team/kg/capability>, <http://knuckles.team/kg/orchestration> .
 
-# --- Contract and mapping classes --------------------------------------------
+# --- Ingest contract (EG-TYPED-PACKS-R101.1) --------------------------------
 
 cp:IngestContract a owl:Class ;
     rdfs:label "Ingest contract" ;
-    rdfs:comment "A connector's versioned declaration of source objects, access policy and provenance requirements." ;
+    rdfs:comment "One connector's ingest contract: the virtual-graph metadata contract specialised for pack admission. It names exactly one connector, one version and one digest (closed by the contract shapes)." ;
     rdfs:subClassOf vg:MetadataContract .
 
 cp:SourceObject a owl:Class ;
     rdfs:label "Source object" ;
-    rdfs:comment "One source object and its approved projection into the composed ontology." ;
+    rdfs:comment "One record object the contract ingests: the virtual-graph mapping specialised to one ontology class under one key rule." ;
     rdfs:subClassOf vg:VirtualMapping .
 
 cp:FieldMapping a owl:Class ;
     rdfs:label "Field mapping" ;
-    rdfs:comment "One source-field to ontology-predicate mapping in a source object." ;
+    rdfs:comment "One ontology-predicate-to-source-field binding of the contract: the virtual-graph predicate-field pair specialised for pack ingest." ;
     rdfs:subClassOf vg:PredicateFieldPair .
 
 cp:KeyRule a owl:Class ;
     rdfs:label "Key rule" ;
-    rdfs:comment "The rule identifying one source record in a source object." .
+    rdfs:comment "The rule that identifies one record of a source object (its key fields), used for dedupe and upsert on ingest." .
 
 cp:CursorPolicy a owl:Class ;
     rdfs:label "Cursor policy" ;
-    rdfs:comment "The cursor strategy used when reading a source object." .
+    rdfs:comment "How a connector resumes a long ingest: the cursor kind (opaque, timestamp, commit, offset or page_token) and its handling." .
 
 cp:AccessPolicy a owl:Class ;
     rdfs:label "Access policy" ;
-    rdfs:comment "The tenant, role and ACL constraints applied to an ingest contract." .
+    rdfs:comment "The tenant and role policy under which ingested records are readable: the default ACL, the ACL and tenant fields, and the read role." .
 
 cp:PrivacyClass a owl:Class ;
     rdfs:label "Privacy class" ;
-    rdfs:comment "The privacy classification required by a connector pack source." .
+    rdfs:comment "The declared privacy tier of ingested data: public, internal, personal or secret (closed by the contract shapes)." .
 
 cp:ProvenanceRequirement a owl:Class ;
     rdfs:label "Provenance requirement" ;
-    rdfs:comment "A provenance field or evidence requirement for records from a source." .
-
-# --- Contract and mapping properties -----------------------------------------
+    rdfs:comment "The provenance a contract requires from its records: at least one named required field (closed by the contract shapes)." .
 
 cp:contractOf a owl:ObjectProperty ;
     rdfs:label "contract of" ;
-    rdfs:comment "The source connection whose declaration produced this ingest contract." ;
+    rdfs:comment "The connector one ingest contract belongs to: exactly one (closed by the contract shapes)." ;
     rdfs:domain cp:IngestContract ;
-    rdfs:range vg:SourceConnection .
+    rdfs:range cp:Connector .
+
+cp:hasContract a owl:ObjectProperty ;
+    rdfs:label "has contract" ;
+    rdfs:comment "The ingest contract one connector serves: links the connector surface beside its contract." ;
+    rdfs:domain cp:Connector ;
+    rdfs:range cp:IngestContract ;
+    owl:inverseOf cp:contractOf .
 
 cp:contractVersion a owl:DatatypeProperty ;
     rdfs:label "contract version" ;
+    rdfs:comment "The pack contract version (record id) one ingest contract names." ;
     rdfs:domain cp:IngestContract ;
     rdfs:range xsd:string .
 
 cp:contractDigest a owl:DatatypeProperty ;
     rdfs:label "contract digest" ;
-    rdfs:comment "The content digest of the connector declaration that produced this contract." ;
+    rdfs:comment "The content digest one ingest contract is keyed by." ;
     rdfs:domain cp:IngestContract ;
     rdfs:range xsd:string .
 
 cp:hasSourceObject a owl:ObjectProperty ;
     rdfs:label "has source object" ;
+    rdfs:comment "One record object an ingest contract ingests." ;
     rdfs:domain cp:IngestContract ;
     rdfs:range cp:SourceObject .
 
 cp:hasKeyRule a owl:ObjectProperty ;
     rdfs:label "has key rule" ;
+    rdfs:comment "The one key rule that identifies the records of a source object." ;
     rdfs:domain cp:SourceObject ;
     rdfs:range cp:KeyRule .
 
 cp:hasCursorPolicy a owl:ObjectProperty ;
     rdfs:label "has cursor policy" ;
+    rdfs:comment "The cursor policy one ingest contract resumes with." ;
     rdfs:domain cp:IngestContract ;
     rdfs:range cp:CursorPolicy .
 
 cp:cursorKind a owl:DatatypeProperty ;
     rdfs:label "cursor kind" ;
+    rdfs:comment "The kind of one cursor policy: opaque, timestamp, commit, offset or page_token (closed by the contract shapes)." ;
     rdfs:domain cp:CursorPolicy ;
     rdfs:range xsd:string .
 
 cp:hasAccessPolicy a owl:ObjectProperty ;
     rdfs:label "has access policy" ;
+    rdfs:comment "The access policy one ingest contract reads under." ;
     rdfs:domain cp:IngestContract ;
     rdfs:range cp:AccessPolicy .
 
 cp:defaultAcl a owl:DatatypeProperty ;
     rdfs:label "default ACL" ;
+    rdfs:comment "The default access of ingested records under an access policy: quarantine, inherit or public (closed by the contract shapes)." ;
     rdfs:domain cp:AccessPolicy ;
     rdfs:range xsd:string .
 
 cp:aclField a owl:DatatypeProperty ;
     rdfs:label "ACL field" ;
+    rdfs:comment "The source field that carries a record's ACL override under an access policy." ;
     rdfs:domain cp:AccessPolicy ;
     rdfs:range xsd:string .
 
 cp:tenantField a owl:DatatypeProperty ;
     rdfs:label "tenant field" ;
+    rdfs:comment "The source field that names the tenant a record belongs to under an access policy." ;
     rdfs:domain cp:AccessPolicy ;
     rdfs:range xsd:string .
 
 cp:readRole a owl:DatatypeProperty ;
     rdfs:label "read role" ;
+    rdfs:comment "The role that may read records ingested under an access policy." ;
     rdfs:domain cp:AccessPolicy ;
     rdfs:range xsd:string .
 
-cp:privacyClass a owl:ObjectProperty ;
+cp:privacyClass a owl:DatatypeProperty ;
     rdfs:label "privacy class" ;
-    rdfs:domain cp:AccessPolicy ;
-    rdfs:range cp:PrivacyClass .
+    rdfs:comment "The privacy tier one ingest contract declares for its records: public, internal, personal or secret (closed by the contract shapes)." ;
+    rdfs:domain cp:IngestContract ;
+    rdfs:range xsd:string .
 
 cp:requiresProvenance a owl:ObjectProperty ;
     rdfs:label "requires provenance" ;
+    rdfs:comment "The provenance requirement one ingest contract enforces on its records." ;
     rdfs:domain cp:IngestContract ;
     rdfs:range cp:ProvenanceRequirement .
 
 cp:governedBy a owl:ObjectProperty ;
     rdfs:label "governed by" ;
-    rdfs:comment "Links an ingested node to the contract that governs its source declaration." ;
-    rdfs:domain rdfs:Resource ;
+    rdfs:comment "Links an ingested node to the ingest contract that governs it: the contract's classes, key rule, cursor and access policy all apply to the node." ;
     rdfs:range cp:IngestContract .
+
+# --- Connector surface (EG-TYPED-PACKS-R102.1) ------------------------------
+
+cp:Connector a owl:Class ;
+    rdfs:label "Connector" ;
+    rdfs:comment "A connected connector (an MCP server) that serves one pack: its features, tools, prompts, skills and ingest contract. Reused by IRI from the metadata-catalog module, which specialises it under the core :Tool and dcat:DataService." .
+
+cp:Feature a owl:Class ;
+    rdfs:label "Feature" ;
+    rdfs:comment "One capability area a connector offers: realised by at least one tool, prompt or skill (closed by the surface shapes)." .
+
+cp:Tool a owl:Class ;
+    rdfs:label "Connector tool" ;
+    rdfs:comment "One callable tool of the connector surface: it carries one component id and links to a domain class (closed by the surface shapes)." ;
+    rdfs:subClassOf :Tool .
+
+cp:Prompt a owl:Class ;
+    rdfs:label "Connector prompt" ;
+    rdfs:comment "One prompt of the connector surface, applying to the domain class it frames." ;
+    rdfs:subClassOf :Prompt .
+
+cp:Skill a owl:Class ;
+    rdfs:label "Connector skill" ;
+    rdfs:comment "One skill of the connector surface, applying to the domain class it acts on." ;
+    rdfs:subClassOf :Skill .
+
+cp:providesFeature a owl:ObjectProperty ;
+    rdfs:label "provides feature" ;
+    rdfs:comment "Links a connector to each feature it provides." ;
+    rdfs:domain cp:Connector ;
+    rdfs:range cp:Feature .
+
+cp:realizedBy a owl:ObjectProperty ;
+    rdfs:label "realised by" ;
+    rdfs:comment "Links a feature to the tool, prompt or skill that realises it: at least one member (closed by the surface shapes)." ;
+    rdfs:domain cp:Feature ;
+    rdfs:range [ a owl:Class ; owl:unionOf (cp:Tool cp:Prompt cp:Skill) ] .
+
+cp:operatesOn a owl:ObjectProperty ;
+    rdfs:label "operates on" ;
+    rdfs:comment "Links a tool to the domain class its calls read or write." ;
+    rdfs:domain cp:Tool ;
+    rdfs:range owl:Class .
+
+cp:produces a owl:ObjectProperty ;
+    rdfs:label "produces" ;
+    rdfs:comment "Links a tool to the domain class of the records it emits." ;
+    rdfs:domain cp:Tool ;
+    rdfs:range owl:Class .
+
+cp:executes a owl:ObjectProperty ;
+    rdfs:label "executes" ;
+    rdfs:comment "Links a tool to the domain method class it runs." ;
+    rdfs:domain cp:Tool ;
+    rdfs:range owl:Class .
+
+cp:appliesTo a owl:ObjectProperty ;
+    rdfs:label "applies to" ;
+    rdfs:comment "Links a skill or prompt to the domain class it applies to." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf (cp:Skill cp:Prompt) ] ;
+    rdfs:range owl:Class .
+
+cp:providesCapability a owl:ObjectProperty ;
+    rdfs:label "provides capability" ;
+    rdfs:comment "Links a surface tool to the core ServiceCapability it fulfils, beside its operatesOn domain link (closed by the surface shapes)." ;
+    rdfs:domain cp:Tool ;
+    rdfs:range :ServiceCapability .
+
+cp:componentId a owl:DatatypeProperty ;
+    rdfs:label "component id" ;
+    rdfs:comment "The stable identity the engine stamps on one surface node: a tool, prompt, skill or server member." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf (cp:Connector cp:Tool cp:Prompt cp:Skill) ] ;
+    rdfs:range xsd:string .

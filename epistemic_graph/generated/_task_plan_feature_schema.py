@@ -27,12 +27,32 @@ _BODY = """
       "missing": {
         "missing": "abstain"
       }
+    },
+    {
+      "name": "task_call",
+      "kind": {
+        "feature": "number",
+        "key": "task_call"
+      },
+      "missing": {
+        "missing": "abstain"
+      }
+    },
+    {
+      "name": "task_call_bindings",
+      "kind": {
+        "feature": "number",
+        "key": "task_call_bindings"
+      },
+      "missing": {
+        "missing": "abstain"
+      }
     }
   ]
 }
 """
 
-_DIGEST_HEX = "7a1a4e4b524072521a937e2f797f0a8eba33f3cca5fb5bd373b65f77b15184d1"
+_DIGEST_HEX = "9aa5491fecdb3ae13c7fc88194968f78fa9051cf1c44680348bef4661e649e04"
 
 TASK_PLAN_FEATURE_SCHEMA: Final[dict[str, Any]] = {
     "component_id": "task-plan-features",

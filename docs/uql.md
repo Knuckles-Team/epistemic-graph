@@ -1,6 +1,6 @@
 # UQL — the Unified Query Language
 
-UQL is epistemic-graph's human- and agent-writable query language. It is a **pure
+UQL is Medulla's human- and agent-writable query language. It is a **pure
 front-end** (CONCEPT:AU-KG.query.top-nodes-by-degree) over the engine's cross-modal plan
 algebra (CONCEPT:AU-KG.compute.vector): a UQL string parses to the *exact same* `wire::Plan`
 (an ordered `Vec<Op>`) that the structured `UnifiedQuery` API runs — it adds **no** new

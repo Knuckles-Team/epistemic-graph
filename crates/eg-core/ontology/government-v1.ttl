@@ -16,6 +16,30 @@
     rdfs:comment "A public service with eligibility rules. Aligned to NIEM." ;
     rdfs:subClassOf :Procedure .
 
+:assessedVendor a owl:ObjectProperty ;
+    rdfs:label "assessed vendor" ;
+    rdfs:comment "R073.10: the :Vendor whose privacy posture this :PrivacyAssessment assesses." ;
+    rdfs:domain :PrivacyAssessment ;
+    rdfs:range :Vendor .
+
+:assessmentCovers a owl:ObjectProperty ;
+    rdfs:label "assessment covers" ;
+    rdfs:comment "R073.8: a :ProcessingActivity covered by this :PrivacyAssessment." ;
+    rdfs:domain :PrivacyAssessment ;
+    rdfs:range :ProcessingActivity .
+
+:assessmentDueDate a owl:DatatypeProperty ;
+    rdfs:label "assessment due date" ;
+    rdfs:comment "R073.9: the date by which this :PrivacyAssessment must be refreshed; minCount 1 per the government-v1.shapes.ttl companion." ;
+    rdfs:domain :PrivacyAssessment ;
+    rdfs:range xsd:date .
+
+:assessmentStatus a owl:DatatypeProperty ;
+    rdfs:label "assessment status" ;
+    rdfs:comment "R073.11: the lifecycle state of this :PrivacyAssessment (draft, in_review, approved); overdue is derived from the as-of date and :assessmentDueDate." ;
+    rdfs:domain :PrivacyAssessment ;
+    rdfs:range xsd:string .
+
 :atoStatus a owl:DatatypeProperty ;
     rdfs:label "ATO status" ;
     rdfs:comment "pending, authorized, conditional, revoked." ;
@@ -55,6 +79,24 @@
     rdfs:domain :Procedure ;
     rdfs:range :SecurityControl .
 
+:inFramework a owl:ObjectProperty ;
+    rdfs:label "in framework" ;
+    rdfs:comment "R073.4: the core :Framework within which this :SecurityControl operates." ;
+    rdfs:domain :SecurityControl ;
+    rdfs:range :Framework .
+
+:mitigatesRisk a owl:ObjectProperty ;
+    rdfs:label "mitigates risk" ;
+    rdfs:comment "R073.3: the :RiskScenario this :SecurityControl mitigates." ;
+    rdfs:domain :SecurityControl ;
+    rdfs:range :RiskScenario .
+
+:riskAffectsService a owl:ObjectProperty ;
+    rdfs:label "risk affects service" ;
+    rdfs:comment "R073.5: the infrastructure :Service exposed by this :RiskScenario." ;
+    rdfs:domain :RiskScenario ;
+    rdfs:range :Service .
+
 <http://knuckles.team/kg/government> a owl:Ontology ;
     rdfs:label "Government & Public Sector Ontology" ;
     rdfs:comment "Government domain ontology aligned to NIST 800-53, FedRAMP, and NIEM." ;
@@ -78,4 +120,19 @@
 :SecurityControl a owl:Class ;
     rdfs:label "Security Control" ;
     rdfs:comment "A NIST 800-53 security control. BFO:GDC." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:PrivacyAssessment a owl:Class ;
+    rdfs:label "Privacy Assessment" ;
+    rdfs:comment "R073.6: a DPIA/PIA instance recording an organization's privacy posture." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ProcessingActivity a owl:Class ;
+    rdfs:label "Processing Activity" ;
+    rdfs:comment "R073.7: a records-of-processing entry for a personal-data processing activity." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:RiskScenario a owl:Class ;
+    rdfs:label "Risk Scenario" ;
+    rdfs:comment "R073.2: a risk scenario identified in a risk assessment." ;
     rdfs:subClassOf bfo:0000031 .

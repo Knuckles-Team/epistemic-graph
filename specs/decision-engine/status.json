@@ -1162,7 +1162,7 @@
         "52f333ca756e"
       ],
       "verified_by": [
-        "src/server/persistence/agent_component.rs:1146"
+        "src/server/persistence/agent_component.rs:1150"
       ]
     },
     {
@@ -1281,7 +1281,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2364"
+        "crates/eg-types/src/agent_component.rs:2409"
       ]
     },
     {
@@ -1527,7 +1527,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:390"
+        "crates/eg-types/src/decision/statistical.rs:411"
       ]
     },
     {
@@ -1560,7 +1560,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:397"
+        "crates/eg-types/src/decision/statistical.rs:418"
       ]
     },
     {
@@ -1943,7 +1943,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2056"
+        "crates/eg-types/src/agent_component.rs:2101"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R050.1",
@@ -1961,11 +1961,11 @@
         "e21a42b2f88c"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1618",
-        "crates/eg-types/src/agent_component.rs:1660",
+        "crates/eg-types/src/agent_component.rs:1663",
+        "crates/eg-types/src/agent_component.rs:1705",
         "crates/eg-types/src/agent_component/input_capabilities.rs:106",
         "crates/eg-types/src/agent_component/input_capabilities.rs:124",
-        "crates/eg-types/src/connector_pack/digest.rs:324"
+        "crates/eg-types/src/connector_pack/digest.rs:340"
       ]
     },
     {
@@ -2178,7 +2178,7 @@
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
-        "crates/eg-types/src/agent_component.rs:2393"
+        "crates/eg-types/src/agent_component.rs:2438"
       ]
     },
     {
@@ -2192,7 +2192,7 @@
         "fe3b87b09054"
       ],
       "verified_by": [
-        "crates/eg-types/src/test_support/decision.rs:128"
+        "crates/eg-types/src/test_support/decision.rs:132"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R061.1"
@@ -2208,7 +2208,7 @@
         "fe3b87b09054"
       ],
       "verified_by": [
-        "crates/eg-types/src/test_support/decision.rs:128"
+        "crates/eg-types/src/test_support/decision.rs:132"
       ]
     },
     {
@@ -2432,7 +2432,7 @@
         "a0743ba9b542"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:398",
+        "crates/eg-capabilities/src/error_routing.rs:405",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:29",
@@ -2504,7 +2504,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:398",
+        "crates/eg-capabilities/src/error_routing.rs:405",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:45"
@@ -2586,7 +2586,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2421"
+        "crates/eg-types/src/agent_component.rs:2466"
       ]
     },
     {
@@ -2920,7 +2920,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R090",
-      "title": "Resident native decision-scorer head in eg-decision",
+      "title": "Resident native decision-scorer head in eg-numeric",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "010477d72b7f",
@@ -2967,7 +2967,7 @@
         "26be257523bc"
       ],
       "verified_by": [
-        "tests/test_decision_resident_scorer.py:253"
+        "tests/test_decision_resident_scorer.py:259"
       ]
     },
     {
@@ -3961,7 +3961,7 @@
         "c7da75413a3c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:378",
+        "crates/eg-types/src/decision/statistical.rs:399",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:57",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:98"
       ]
@@ -4298,16 +4298,24 @@
     {
       "id": "EG-DECISION-ENGINE-R131.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/limit_guard/tests.rs:34"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R131.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/limit_guard/tests.rs:60"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R131.3",
@@ -4355,16 +4363,24 @@
     {
       "id": "EG-DECISION-ENGINE-R132.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/entry_trust/tests.rs:23"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R132.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/entry_trust/tests.rs:41"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R132.3",
@@ -4634,16 +4650,24 @@
     {
       "id": "EG-DECISION-ENGINE-R136.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/evolution_round/tests.rs:39"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R136.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/evolution_round/tests.rs:83"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R136.3",
@@ -4711,16 +4735,25 @@
     {
       "id": "EG-DECISION-ENGINE-R137.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/context_budget/tests.rs:7"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R137.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/context_budget/tests.rs:35",
+        "crates/eg-types/src/decision/context_budget/tests.rs:57"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R137.3",
@@ -4812,16 +4845,24 @@
     {
       "id": "EG-DECISION-ENGINE-R138.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/red_team/tests.rs:19"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R138.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/red_team/tests.rs:48"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R138.3",
@@ -5199,16 +5240,24 @@
     {
       "id": "EG-DECISION-ENGINE-R134.104",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/answer_ranking/tests.rs:33"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.105",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/answer_ranking/tests.rs:52"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.106",
@@ -5220,16 +5269,22 @@
     {
       "id": "EG-DECISION-ENGINE-R134.107",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/answer_ranking/tests.rs:102"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.108",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/answer_ranking/tests.rs:168"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.109",
@@ -7306,9 +7361,13 @@
     {
       "id": "EG-DECISION-ENGINE-R175.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/recommend/tests.rs:3"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R175.2",
@@ -7363,16 +7422,27 @@
     {
       "id": "EG-DECISION-ENGINE-R173.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749",
+        "d1b6f9006ea0"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/concentration/tests.rs:24"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R173.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749",
+        "d1b6f9006ea0"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/concentration/tests.rs:105",
+        "crates/eg-types/src/decision/concentration/tests.rs:57"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R173.3",
@@ -7384,9 +7454,14 @@
     {
       "id": "EG-DECISION-ENGINE-R173.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749",
+        "d1b6f9006ea0"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/concentration/tests.rs:117"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R173.5",
@@ -7594,9 +7669,13 @@
     {
       "id": "EG-DECISION-ENGINE-R176.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/load_set/tests.rs:4"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R176.2",
@@ -7651,9 +7730,13 @@
     {
       "id": "EG-DECISION-ENGINE-R177.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/usage_guidance/tests.rs:3"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R177.2",
@@ -9753,8 +9836,13 @@
       "id": "EG-DECISION-ENGINE-R134.111",
       "title": "Bounded explicit task graphs (rollup)",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "landed_in": [
+        "a6523b184c6d",
+        "d1b6f9006ea0"
+      ],
+      "verified_by": [
+        "tests/decide/test_task_plan_served.py:236"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R134.111.1",
         "EG-DECISION-ENGINE-R134.111.2",
@@ -9777,7 +9865,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:26",
+        "crates/eg-types/src/decision/task_plan/tests.rs:27",
         "tests/test_task_plan_client.py:10"
       ]
     },
@@ -9787,8 +9875,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:169",
-        "crates/eg-types/src/decision/task_plan/tests.rs:43"
+        "crates/eg-types/src/decision/task_plan/tests.rs:170",
+        "crates/eg-types/src/decision/task_plan/tests.rs:44"
       ]
     },
     {
@@ -9797,9 +9885,9 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:60",
-        "tests/decide/test_task_plan_served.py:228",
-        "tests/decide/test_task_plan_served.py:350"
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:61",
+        "tests/decide/test_task_plan_served.py:237",
+        "tests/decide/test_task_plan_served.py:359"
       ]
     },
     {
@@ -9810,11 +9898,11 @@
         "f9bfc0da8ae7"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:117",
-        "crates/eg-types/src/decision/task_plan/tests.rs:195",
-        "crates/eg-types/src/decision/task_plan/tests.rs:205",
-        "crates/eg-types/src/decision/task_plan/tests.rs:233",
-        "crates/eg-types/src/decision/task_plan/tests.rs:82"
+        "crates/eg-types/src/decision/task_plan/tests.rs:118",
+        "crates/eg-types/src/decision/task_plan/tests.rs:197",
+        "crates/eg-types/src/decision/task_plan/tests.rs:207",
+        "crates/eg-types/src/decision/task_plan/tests.rs:235",
+        "crates/eg-types/src/decision/task_plan/tests.rs:83"
       ]
     },
     {
@@ -9823,9 +9911,9 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:155",
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:61",
-        "tests/decide/test_task_plan_served.py:229"
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:156",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:62",
+        "tests/decide/test_task_plan_served.py:238"
       ]
     },
     {
@@ -9843,45 +9931,66 @@
         "67dffe78b02d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:250",
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:181",
+        "crates/eg-types/src/decision/task_plan/tests.rs:252",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:182",
         "tests/test_decision_stat_client.py:80"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.111.8",
       "title": "Tool step model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:295"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.111.9",
       "title": "Canonical form and static checks",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:339",
+        "crates/eg-types/src/decision/task_plan/tests.rs:374"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.111.10",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "08e6ef4d5749"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:454"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.111.11",
       "title": "Digest and evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:538",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:284"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.111.12",
       "title": "Wiring and schema",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7fe7724bc0af"
+      ],
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:249",
+        "tests/test_decision_stat_client.py:81"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.111.13",

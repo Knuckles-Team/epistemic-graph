@@ -251,7 +251,7 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
     if job_name == "gates-crates":
         timeout = (
             "${{ github.event_name == 'pull_request' && "
-            "needs.changes.outputs.full_native != 'true' && 10 || 60 }}"
+            "needs.changes.outputs.full_native != 'true' && 15 || 60 }}"
         )
     assert job["timeout-minutes"] == timeout
     installs = [

@@ -42,6 +42,7 @@ REQUIRED_BLOCKING_JOBS = [
     "gates-variants",
     "clippy-release-profiles",
     "candidate-server-wheel",
+    "consumer-history-qualification",
 ]
 FULL_NATIVE_JOBS = {
     "gates",
@@ -112,6 +113,7 @@ def test_all_native_scope_consumers_keep_the_changes_output_edge() -> None:
         "clippy-release-profiles",
         "engine-main-wheel",
         "candidate-server-wheel",
+        "consumer-history-qualification",
     }
     actual = {
         name
@@ -253,7 +255,7 @@ def _aggregate_env(
                 and job in FULL_NATIVE_JOBS | PATH_GATED_JOBS.keys()
             ):
                 result = "skipped"
-        if job == "candidate-server-wheel":
+        if job in {"candidate-server-wheel", "consumer-history-qualification"}:
             result = (
                 "success" if code and full and event == "pull_request" else "skipped"
             )
@@ -288,7 +290,11 @@ def test_aggregate_accepts_exact_expected_matrix(
 
 @pytest.mark.parametrize(
     "job",
-    sorted(FULL_NATIVE_JOBS | PATH_GATED_JOBS.keys() | {"candidate-server-wheel"}),
+    sorted(
+        FULL_NATIVE_JOBS
+        | PATH_GATED_JOBS.keys()
+        | {"candidate-server-wheel", "consumer-history-qualification"}
+    ),
 )
 @pytest.mark.parametrize("outcome", ["failure", "cancelled", "skipped", "", None])
 def test_full_native_aggregate_refuses_every_unproven_job(
@@ -391,7 +397,7 @@ def test_full_native_workspace_uses_full_sweep_not_pr_subset() -> None:
     job = _jobs()["gates-crates"]
     assert job["timeout-minutes"] == (
         "${{ github.event_name == 'pull_request' && "
-        "needs.changes.outputs.full_native != 'true' && 10 || 60 }}"
+        "needs.changes.outputs.full_native != 'true' && 15 || 60 }}"
     )
     steps = {step.get("name"): step for step in job["steps"]}
     full = steps[
@@ -412,3 +418,13 @@ def test_full_native_workspace_uses_full_sweep_not_pr_subset() -> None:
             "github.job == 'gates-crates' && github.event_name == 'pull_request' && "
             "needs.changes.outputs.full_native != 'true'"
         )
+
+
+def test_consumer_history_waits_for_both_same_run_wheels():
+    job = _jobs()["consumer-history-qualification"]
+    assert _needs(job) == {"changes", "gates-wheel", "candidate-server-wheel"}
+    assert job["permissions"] == {"contents": "read"}
+    assert "secrets" not in job
+    assert job["uses"].startswith(
+        "Knuckles-Team/arbora/.github/workflows/native-history-candidate.yml@"
+    )

@@ -210,6 +210,11 @@ pub mod nl_query;
 // non-Match classification. Pure data; blocking, field-similarity scoring
 // and the real Fellegi-Sunter model are later children.
 pub mod entity_link_proposal;
+// EG-CQ-XSRC-R006.1/R006.4 — the typed supply-chain impact report (one
+// report: impact per service, the items behind each, the sources used and
+// why, and typed abstentions) and its pure, deterministic assembly from the
+// planned query's rows and premises.
+pub mod supply_chain_report;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
@@ -300,6 +305,19 @@ pub mod workload_class;
 // EG-DURABLE-KERNEL-R074.1 — pure worker registry, registration validation,
 // and deterministic aggregate capabilities. No RPC or persistence ownership.
 pub mod worker_registry;
+
+// EG-DURABLE-KERNEL-R089.1 — per-step verification verdict. Pure, no dep.
+pub mod step_verdict;
+// EG-DURABLE-KERNEL-R088.1 — rule-output correction with two-principal approval.
+pub mod rule_correction;
+// EG-DURABLE-KERNEL-R851.1 — the A2A peer record. Pure serde.
+pub mod agent_peer;
+// EG-DURABLE-KERNEL-R852.1/.2/.4 — health anomalies and correlated incidents.
+pub mod health_incident;
+// EG-DURABLE-KERNEL-R700.1 — the retention-cleanup policy shape.
+pub mod retention_policy;
+// EG-DURABLE-KERNEL-R094.1 — hierarchical concept-ID grammar and path claims.
+pub mod concept_id;
 
 // EG-DURABLE-KERNEL-R041 — the SQL plan cache key (statement digest + schema
 // version) and its lookup decision. Pure, no dep beyond `contract::Digest256`.
@@ -469,6 +487,10 @@ pub mod identity;
 // EH-400 — declared freshness: `eg:volatilityClass`, per-class invalidation events and
 // foreign-source watermarks (the `FreshnessFeed` wire shapes).
 pub mod freshness;
+// EG-TYPED-PACKS-R802.1/R805.1 — governance record models: stewardship and
+// data products. Pure data and field validation; served wiring lands in later children.
+pub mod data_product;
+pub mod stewardship;
 // EH-348 — the graph-driven work market: the canonical `:Gap` paired with its
 // one native WorkItem, the versioned derived `WorkOffer`, and the deterministic
 // legal-offer ranking stage the `Decide` layer runs.

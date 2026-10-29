@@ -17,14 +17,15 @@ use super::super::views::IdentityReply;
 use super::super::{
     normalize_username, IdentityRefusal, ADMINISTRATORS_GROUP, ADMIN_ROLE, BOOTSTRAP_PRINCIPAL,
     ELEVATION_APPROVERS_GROUP, ELEVATION_APPROVER_ROLE, LIVE_ORDER_APPROVERS_GROUP,
-    LIVE_ORDER_APPROVER_ROLE, SCHEMA_APPROVERS_GROUP, SCHEMA_APPROVER_ROLE, USER_ROLE,
+    LIVE_ORDER_APPROVER_ROLE, SCHEMA_APPROVERS_GROUP, SCHEMA_APPROVER_ROLE,
+    SOURCE_AUTHORITY_APPROVERS_GROUP, SOURCE_AUTHORITY_APPROVER_ROLE, USER_ROLE,
 };
 use super::{ApplyContext, IdentityStore};
 use crate::acl::{GrantEffect, RbacAction, ResourceSelector};
 
 /// Built-in roles: `(role_id, scopes)`. Administrators additionally get an
 /// allow-all graph grant for every action.
-const BUILTIN_ROLES: [(&str, &[&str]); 5] = [
+const BUILTIN_ROLES: [(&str, &[&str]); 6] = [
     (
         ADMIN_ROLE,
         &[
@@ -42,14 +43,22 @@ const BUILTIN_ROLES: [(&str, &[&str]); 5] = [
         SCHEMA_APPROVER_ROLE,
         &["governance:approve-schema-repair", "governance:read"],
     ),
+    (
+        SOURCE_AUTHORITY_APPROVER_ROLE,
+        &["governance:approve-source-authority", "governance:read"],
+    ),
 ];
 
 /// Built-in groups: `(group_id, role_id)`.
-const BUILTIN_GROUPS: [(&str, &str); 4] = [
+const BUILTIN_GROUPS: [(&str, &str); 5] = [
     (ADMINISTRATORS_GROUP, ADMIN_ROLE),
     (ELEVATION_APPROVERS_GROUP, ELEVATION_APPROVER_ROLE),
     (LIVE_ORDER_APPROVERS_GROUP, LIVE_ORDER_APPROVER_ROLE),
     (SCHEMA_APPROVERS_GROUP, SCHEMA_APPROVER_ROLE),
+    (
+        SOURCE_AUTHORITY_APPROVERS_GROUP,
+        SOURCE_AUTHORITY_APPROVER_ROLE,
+    ),
 ];
 
 /// The direct roles `initialize` gives the bootstrap principal.

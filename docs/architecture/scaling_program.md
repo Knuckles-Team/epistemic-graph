@@ -9,7 +9,7 @@
 > is checked against source anchors. This page makes no `LIVE` or `1M-CERTIFIED`
 > claim unless it names that evidence explicitly.
 
-> The top-level map of how `epistemic-graph` scales from a Raspberry Pi to an HA
+> The top-level map of how Medulla scales from a Raspberry Pi to an HA
 > cluster while staying a durable source of truth **and** responsive under a 24/7
 > ingestion firehose. This page ties the three waves together and links out to the
 > deep references — it does **not** duplicate them.
@@ -57,7 +57,7 @@ flowchart LR
 The foundation: make one box a durable source of truth that saturates its cores for
 writes without serializing on a single lock or a single fsync. The canonical detailed
 description is the **"Durability model" section of
-[`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md)**; this is the spine.
+[`AGENTS.md`](https://github.com/Knuckles-Team/medulla/blob/main/AGENTS.md)**; this is the spine.
 
 ### Authoritative durability (the floor)
 
@@ -266,7 +266,7 @@ colder than redb spilled to `cold-tier-s3`/`blob-s3`). `UNIT-PROVEN` and
 ## Tiers — what scales where
 
 There is one main build plus the opt-in `cluster` layer (full map: **[tiers.md](tiers.md)**;
-feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md)). The scaling capabilities partition as:
+feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/medulla/blob/main/AGENTS.md)). The scaling capabilities partition as:
 
 | Capability | main build (`default`/`full`) | `+ cluster` |
 |------------|:-----------------------------:|:-----------:|
@@ -340,7 +340,7 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 
 ## Related references
 
-- [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md) — canonical "Durability model" section (the source of
+- [`AGENTS.md`](https://github.com/Knuckles-Team/medulla/blob/main/AGENTS.md) — canonical "Durability model" section (the source of
   truth for M1/M2 mechanics + the Environment Variables table).
 - [engine.md](engine.md) — the master-of-all engine deep reference (C4 views, all modalities).
 - [write_coalescer.md](write_coalescer.md) — `CONCEPT:EG-KG.sharding.per-graph-write-coalescer` in depth.

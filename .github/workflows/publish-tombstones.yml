@@ -1,0 +1,158 @@
+name: Publish PyPI tombstones
+
+# ─────────────────────────────────────────────────────────────────────────
+# Publishes the two RETIRED distribution names as tombstones:
+#
+#   epistemic-graph         -> depends on `medulla`
+#   epistemic-graph-server  -> depends on `medulla-stem`
+#
+# A tombstone carries no code. It exists so `pip install epistemic-graph` stops
+# resolving to the frozen 2.27.7 engine that still owns the name on PyPI, and
+# instead installs the current one. See docs/development/pypi-tombstones.md.
+#
+# OWNER ACTION, REQUIRED BEFORE THIS RUNS — the upload is REJECTED without it:
+# both PyPI projects (`epistemic-graph`, `epistemic-graph-server`) must have their
+# trusted publisher changed from
+#     owner Knuckles-Team / repository epistemic-graph
+# to
+#     owner Knuckles-Team / repository medulla / workflow publish-tombstones.yml
+# and the PyPI trusted-publisher *environment* field must be left EMPTY, because
+# this workflow declares no `environment:`. A stale entry fails the OIDC exchange
+# with `invalid-publisher`, not a build error.
+#
+# Why OIDC here and a token in release.yml: `release.yml` uploads through
+# `.github/actions/publish-distribution`, which calls `scripts/verify_release_tag.py`
+# and refuses to run unless the event is a canonical `v*` tag push. A tombstone is
+# published once, by hand, from `main` — never from a release tag — so the token
+# path cannot be used and the tag guard cannot be relaxed. Nothing here builds
+# native code, and nothing here publishes `medulla` or `medulla-stem`.
+# ─────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: >-
+          Type publish-tombstones to upload both tombstones to PyPI. Any other
+          value stops the run.
+        type: string
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Require the canonical repository and the confirmation input
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Verify repository and confirmation
+        env:
+          REPO: ${{ github.repository }}
+          CONFIRM: ${{ inputs.confirm }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${REPO}" != "Knuckles-Team/medulla" ]; then
+            echo "::error::tombstones publish only from Knuckles-Team/medulla (this is ${REPO})" >&2
+            exit 1
+          fi
+          if [ "${CONFIRM}" != "publish-tombstones" ]; then
+            echo "::error::confirm must be exactly 'publish-tombstones'" >&2
+            exit 1
+          fi
+          {
+            echo "### Tombstone publish confirmed"
+            echo
+            echo "Publishing \`epistemic-graph\` and \`epistemic-graph-server\` tombstones"
+            echo "from \`${GITHUB_SHA}\` by ${GITHUB_ACTOR}."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Build and publish both tombstones
+    needs: guard
+    if: github.repository == 'Knuckles-Team/medulla'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    # id-token is the PyPI trusted-publishing exchange; contents:read is the
+    # checkout. No token secret is read by this workflow.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: '.python-version'
+
+      - name: Build both tombstones (pure Python, no compiler)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade build
+          for tree in packaging/tombstones/epistemic-graph \
+                      packaging/tombstones/epistemic-graph-server; do
+            python -m build --outdir "${tree}/dist" "${tree}"
+          done
+
+      # The whole point is that these carry NO code. A wheel that ships a module
+      # would make a stale engine importable under the retired name again, so
+      # fail before the upload rather than after it.
+      - name: Require tombstone wheels to contain no modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import glob
+          import sys
+          import zipfile
+
+          wheels = sorted(glob.glob("packaging/tombstones/*/dist/*.whl"))
+          if len(wheels) != 2:
+              sys.exit(f"expected 2 tombstone wheels, found {len(wheels)}: {wheels}")
+          failed = False
+          for wheel in wheels:
+              names = zipfile.ZipFile(wheel).namelist()
+              leaked = [name for name in names if ".dist-info/" not in name]
+              print(f"{wheel}: {len(names)} entries, {len(leaked)} outside dist-info")
+              for name in leaked:
+                  print(f"  ::error file={wheel}::{name} is not metadata")
+              failed = failed or bool(leaked)
+          sys.exit(1 if failed else 0)
+          PY
+
+      - name: Publish the epistemic-graph tombstone to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: packaging/tombstones/epistemic-graph/dist
+          # Re-runs are idempotent, the same contract `twine --skip-existing`
+          # gives every other uploader in this repository.
+          skip-existing: true
+
+      - name: Publish the epistemic-graph-server tombstone to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: packaging/tombstones/epistemic-graph-server/dist
+          skip-existing: true
+
+      - name: Report what was published
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Tombstones published"
+            echo
+            echo "| project | version | depends on |"
+            echo "| --- | --- | --- |"
+            echo "| \`epistemic-graph\` | 2.28.0 | \`medulla>=2.27.9\` |"
+            echo "| \`epistemic-graph-server\` | 2.28.0 | \`medulla-stem>=2.27.9\` |"
+            echo
+            echo "Verify with \`pip install epistemic-graph\` in a clean environment: it"
+            echo "must resolve to \`medulla\`, not to the frozen 2.27.7 engine."
+          } >> "$GITHUB_STEP_SUMMARY"

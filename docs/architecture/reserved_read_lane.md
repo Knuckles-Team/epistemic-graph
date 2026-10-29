@@ -70,9 +70,9 @@ is exactly what the reserved lane fixes.
 ## HOW
 
 The transport admission lives in
-[`src/server/transport.rs::handle_connection`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/src/server/transport.rs).
+[`src/server/transport.rs::handle_connection`](https://github.com/Knuckles-Team/medulla/blob/main/src/server/transport.rs).
 Each request is classified by
-[`src/server/access.rs::requires_write`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/src/server/access.rs) and resolved
+[`src/server/access.rs::requires_write`](https://github.com/Knuckles-Team/medulla/blob/main/src/server/access.rs) and resolved
 through a **pure, unit-testable** `admit_request`:
 
 ```rust
@@ -161,7 +161,7 @@ on the write firehose.
 | `EPISTEMIC_GRAPH_READ_RESERVED` | auto-sized (see below) | Size of the reserved read-admission lane (in-flight read slots). A positive explicit value may lower the default but is clamped to the cgroup-aware global admission bound; invalid/absent values use the auto-size. |
 
 The auto-size is `Capacity::read_reserved()`
-([`src/autosize.rs`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/src/autosize.rs)):
+([`src/autosize.rs`](https://github.com/Knuckles-Team/medulla/blob/main/src/autosize.rs)):
 
 ```text
 read_reserved = (max_inflight / 8).clamp(8, 1024)
@@ -170,7 +170,7 @@ read_reserved = (max_inflight / 8).clamp(8, 1024)
 i.e. an eighth of the global admission cap, floored at 8 so a 1–2 core box still
 keeps multiple read lanes open, ceilinged at 1024. Reads hold a slot only for the
 brief off-lock snapshot, so even a small reservation keeps the read path alive.
-The value is read once at startup in [`src/main.rs`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/src/main.rs) and logged
+The value is read once at startup in [`src/main.rs`](https://github.com/Knuckles-Team/medulla/blob/main/src/main.rs) and logged
 (`Backpressure: max in-flight = … (per-graph cap = …, reserved read lane = …)`).
 
 ### Observability
@@ -194,7 +194,7 @@ pressure.
 ## Proof tests
 
 Three tests in `transport::tests`
-([`src/server/transport.rs`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/src/server/transport.rs)) prove the guarantee
+([`src/server/transport.rs`](https://github.com/Knuckles-Team/medulla/blob/main/src/server/transport.rs)) prove the guarantee
 deterministically against the pure `admit_request`:
 
 | Test | What it proves |

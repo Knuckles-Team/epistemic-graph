@@ -12,10 +12,11 @@
         <http://knuckles.team/kg/archimate>,
         <http://knuckles.team/kg/calendar>,
         <http://knuckles.team/kg/commercial>,
+        <http://knuckles.team/kg/connector-pack>,
+        <http://knuckles.team/kg/connector-seed>,
         <http://knuckles.team/kg/company>,
         <http://knuckles.team/kg/company_infra>,
         <http://knuckles.team/kg/concepts>,
-        <http://knuckles.team/kg/connector-pack>,
         <http://knuckles.team/kg/data-platform>,
         <http://knuckles.team/kg/dataplatform>,
         <http://knuckles.team/kg/documentation>,
@@ -47,4 +48,5 @@
         <http://knuckles.team/kg/swarm>,
         <http://knuckles.team/kg/system>,
         <http://knuckles.team/kg/trm>,
+        <http://knuckles.team/kg/virtual-graph>,
         <http://knuckles.team/kg/worldview> .

@@ -1,6 +1,6 @@
 # Analytics Program — "one kernel, two surfaces"
 
-> The program that turns epistemic-graph into an **analytical system embedded in the data**:
+> The program that turns Medulla into an **analytical system embedded in the data**:
 > a slim, BLAS/LAPACK-free Rust numeric kernel (`crates/eg-numeric`) that serves **both**
 > Python-side array math without a Python numeric runtime dependency **and**
 > in-database analytics over engine-resident data. This page is the map; the kernel
@@ -8,7 +8,7 @@
 
 ## Thesis
 
-epistemic-graph already does **compute-near-data** for vectors (`semantic_search` and
+Medulla already does **compute-near-data** for vectors (`semantic_search` and
 `batch_l2_normalize` run server-side in Rust, without a Python numeric runtime). The Analytics Program generalizes that
 proven pattern into **one numeric kernel exposed on two surfaces**:
 
@@ -31,10 +31,10 @@ in Python → Surface A. Never round-trip transient data into the DB just to com
 | SQL analytics | DataFusion `cosine_sim`, `l2_normalize`, `zscore`, `covariance`, `svd`, `pca`, and `kmeans` operators over resident data |
 | Native method | `BatchL2Normalize` through the engine client |
 | Cross-modal analytics | Graph ⋈ vector ⋈ time-series joins followed by PCA, clustering, or covariance in the shared query path (`CONCEPT:EG-KG.query.eg-3`) |
-| Agent Utilities dependency | `epistemic-graph[full]`; `[full]` is a compatibility alias with no numeric runtime dependency. The `xp` surface is kernel-live over the bounded built-in scalar/sequence contract; unsupported shapes fail explicitly |
+| Agent Utilities dependency | `medulla[full]`; `[full]` is a compatibility alias with no numeric runtime dependency. The `xp` surface is kernel-live over the bounded built-in scalar/sequence contract; unsupported shapes fail explicitly |
 
 > **Release policy.** Agent Utilities installs the approved
-> `epistemic-graph[full]` artifact. Importing its numeric compatibility
+> `medulla[full]` artifact. Importing its numeric compatibility
 > surface without the compiled kernel fails immediately; there is no package-level
 > fallback or partial engine profile.
 

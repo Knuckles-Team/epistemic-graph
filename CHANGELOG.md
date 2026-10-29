@@ -243,10 +243,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Shed the lowest class first** — each class has a headroom ceiling; under
     pressure `Ingest` is shed (`BUSY`) before `Hydration` before `Orch`, leaving
     the reserved headroom for `Interactive`. Admission ordering, not FIFO.
-  - **Per-principal token buckets, per class** — a lazily-refilled
-    `(principal, class)` bucket bounds a single noisy principal's sustained rate
-    *inside its class*; a principal flooding `Ingest` is shed `RateLimited` while
-    its own `Interactive` bucket and every other principal's buckets stay full.
+  - **Per-principal token buckets, per class.** A lazily-refilled
+    `(principal, class)` bucket bounds one noisy principal's sustained rate
+    *inside its class*. A principal flooding `Ingest` is shed `RateLimited`;
+    its `Interactive` bucket and every other principal's buckets stay full.
     Bucket maps stay bounded by the live-principal set (freed when a principal
     drains to zero in-flight).
   - **Per-class Prometheus metrics** (feature `metrics`):
@@ -307,6 +307,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   forwards `SpawnDelegation.oidc_token` onto the envelope in `on`-mode delegation.
 
 ### Changed
+- **Documentation points at the Medulla names.** Prose, links and deployment
+  examples in `README.md`, `docs/`, `specs/README.md` and `docker/` now use the
+  current repository, Pages, PyPI and container names: `Knuckles-Team/medulla`,
+  `knuckles-team.github.io/medulla/`, `medulla` / `medulla-stem` on PyPI, and
+  `medulla` / `medulla-stem` container images. Stable identifiers are untouched
+  by this change: the `epistemic_graph` import module, the
+  `epistemic-graph-server` executable, the `epistemic-graph` Cargo package,
+  `EpistemicGraph*` types, `EPISTEMIC_GRAPH_*` environment keys,
+  `epistemic_graph_*` metric names, and the `epistemic-graph` OIDC audience and
+  runtime socket paths. Earlier entries in this file keep their original
+  wording, because they record what shipped under those names.
 - **2.27 release-qualification disclosure (EH-308).** The differential
   `jscpd` gate is intentionally red for this release by the 2026-09-20
   operator ruling: against the publication base at `origin/main` it reports

@@ -1,6 +1,6 @@
 # Standalone deployment — just the engine, nothing else
 
-`epistemic-graph` is a **self-contained durable database**. The operator do **not** need
+Medulla is a **self-contained durable database**. The operator do **not** need
 `agent-utilities`, a KG hub, or any other service to run it — the shipped
 `epistemic-graph-server` binary *is* the whole product. This page is the copy-paste
 recipe to stand up a running database two ways:
@@ -41,10 +41,10 @@ binary; nothing compiles.
 
 ```bash
 # with pip
-pip install epistemic-graph
+pip install medulla
 
 # …or with uv (the fleet-standard fast installer)
-uv pip install --prerelease=allow epistemic-graph
+uv pip install --prerelease=allow medulla
 
 # confirm the binary is on PATH
 epistemic-graph-server --help
@@ -53,7 +53,7 @@ epistemic-graph-server --help
 The wheel's Rust binary is already built with Cargo `full`, and the bare Python
 package includes the OWL helpers, LMCache client acceleration, and numeric
 interoperability dependencies. Python extras do not change its compiled feature set:
-`epistemic-graph`, `[full]`, and `[all]` are equivalent production installs. Use
+`medulla`, `[full]`, and `[all]` are equivalent production installs. Use
 `[test]` only for its explicit validation suite. The `[lake-parity]` compatibility
 marker is empty because uv resolves all workspace extras together; install
 `tests/lake-parity-requirements.txt` in an isolated environment when validating
@@ -141,8 +141,8 @@ Any other layout must be converted offline with `migrate-shards` before startup.
 
 ## Docker Compose
 
-The repo ships a self-contained **[`docker/compose.standalone.yml`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/compose.standalone.yml)**
-that runs **only** epistemic-graph with a durable volume and TLS native RPC. No
+The repo ships a self-contained **[`docker/compose.standalone.yml`](https://github.com/Knuckles-Team/medulla/blob/main/docker/compose.standalone.yml)**
+that runs **only** Medulla with a durable volume and TLS native RPC. No
 other service is required unless an operator chooses to add an authenticated
 gateway for a loopback-only auxiliary protocol.
 
@@ -174,7 +174,7 @@ The durable store is the named volume `eg-standalone-data`; it survives
 To pull a prebuilt multi-arch image instead of building locally:
 
 ```bash
-export EG_IMAGE=<registry>/epistemic-graph:<tag>
+export EG_IMAGE=<registry>/medulla:<tag>
 export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"
 : "${EPISTEMIC_GRAPH_SIGNER_KEYS_JSON:?required}"
 : "${TLS_CERT_FILE:?required}"
@@ -190,7 +190,7 @@ Or the same thing as a bare `docker run` (no compose):
 ```bash
 : "${CONTAINER_DATA_DIR:?set to the image data directory}"
 docker volume create eg-data
-docker run -d --name epistemic-graph \
+docker run -d --name medulla \
   -e GRAPH_SERVICE_AUTH_SECRET \
   -e EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph \
   -e EPISTEMIC_GRAPH_TENANT=tenant:default \
@@ -204,7 +204,7 @@ docker run -d --name epistemic-graph \
   --mount type=bind,src="${TLS_CERT_FILE}",dst=/run/secrets/server.crt,readonly \
   --mount type=bind,src="${TLS_KEY_FILE}",dst=/run/secrets/server.key,readonly \
   -v eg-data:"${CONTAINER_DATA_DIR}" \
-  <registry>/epistemic-graph:<tag>
+  <registry>/medulla:<tag>
 ```
 
 ---

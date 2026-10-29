@@ -37,6 +37,13 @@ pub mod mapping;
 /// R073 mapping-type lane this builds toward.
 pub mod source_selection;
 
+/// EG-CQ-XSRC-R006.5 — Medulla's side of the served supply-chain impact
+/// method: plans the question's ontology classes through
+/// [`source_selection::select_sources`] and assembles the typed
+/// `SupplyChainImpactReport` (eg-types) from the planned rows and premises.
+/// The served intent tool itself is cross-repo (owner: Arbora).
+pub mod supply_chain_impact;
+
 /// Pure connector-pack RDF preprocessing shared with admission.
 #[cfg(feature = "rdf")]
 pub mod pack;

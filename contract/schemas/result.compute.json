@@ -102,6 +102,55 @@
         }
       ]
     },
+    "AmlAlertResult": {
+      "description": "One raised AML alert (EG-FINANCE-PRIMITIVES-R901.3).",
+      "properties": {
+        "amount_minor": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "kind": {
+          "description": "`structuring` or `threshold`.",
+          "type": "string"
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "rule_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "severity": {
+          "description": "`info`, `warning`, `critical` or `report-required`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "rule_version",
+        "kind",
+        "severity",
+        "amount_minor"
+      ],
+      "type": "object"
+    },
+    "AmlScreenResult": {
+      "description": "An AML screen: the alert, or none when the amount is below the structuring band.",
+      "properties": {
+        "alert": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AmlAlertResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "AnalysisSnapshot": {
       "additionalProperties": false,
       "description": "The immutable, content-addressed analysis snapshot.",
@@ -715,6 +764,46 @@
         "heikin_ashi"
       ],
       "type": "string"
+    },
+    "CapitalRatiosResult": {
+      "description": "Basel-style capital ratios and their minimum checks (EG-FINANCE-PRIMITIVES-R901.3).",
+      "properties": {
+        "cet1_meets_minimum": {
+          "type": "boolean"
+        },
+        "cet1_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "leverage_meets_minimum": {
+          "type": "boolean"
+        },
+        "leverage_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "tier1_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "total_capital_meets_minimum": {
+          "type": "boolean"
+        },
+        "total_capital_ratio": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "cet1_ratio",
+        "tier1_ratio",
+        "total_capital_ratio",
+        "leverage_ratio",
+        "cet1_meets_minimum",
+        "total_capital_meets_minimum",
+        "leverage_meets_minimum"
+      ],
+      "type": "object"
     },
     "CausalImpactMiningResult": {
       "description": "`MineCausalImpact`.",
@@ -1719,6 +1808,28 @@
         }
       ]
     },
+    "DistributionShift": {
+      "description": "Two-sample distribution-shift verdict (EG-FINANCE-PRIMITIVES-R900.3).",
+      "properties": {
+        "p_value": {
+          "format": "double",
+          "type": "number"
+        },
+        "shifted": {
+          "type": "boolean"
+        },
+        "statistic": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "statistic",
+        "p_value",
+        "shifted"
+      ],
+      "type": "object"
+    },
     "DocTerms": {
       "description": "A document's weighted terms.",
       "properties": {
@@ -1901,6 +2012,118 @@
         "rows",
         "n_rows",
         "written_back"
+      ],
+      "type": "object"
+    },
+    "ExecutionScheduleResult": {
+      "description": "An Almgren-Chriss execution schedule with its parameters, objective and solver status.",
+      "properties": {
+        "continuous": {
+          "type": "boolean"
+        },
+        "holdings": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "horizon": {
+          "format": "double",
+          "type": "number"
+        },
+        "objective": {
+          "format": "double",
+          "type": "number"
+        },
+        "permanent_impact": {
+          "format": "double",
+          "type": "number"
+        },
+        "risk_aversion": {
+          "format": "double",
+          "type": "number"
+        },
+        "slices": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "solver_status": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "temporary_impact": {
+          "format": "double",
+          "type": "number"
+        },
+        "total_shares": {
+          "format": "double",
+          "type": "number"
+        },
+        "trades": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "volatility": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "symbol",
+        "continuous",
+        "total_shares",
+        "horizon",
+        "slices",
+        "volatility",
+        "risk_aversion",
+        "temporary_impact",
+        "permanent_impact",
+        "holdings",
+        "trades",
+        "objective",
+        "solver_status"
+      ],
+      "type": "object"
+    },
+    "FactorRecordResult": {
+      "description": "One ranked factor with the provenance of its inputs (EG-FINANCE-PRIMITIVES-R018.3).",
+      "properties": {
+        "factor_id": {
+          "type": "string"
+        },
+        "information_coefficient": {
+          "format": "double",
+          "type": "number"
+        },
+        "information_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "input_provenance_keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rank": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "factor_id",
+        "information_coefficient",
+        "information_ratio",
+        "rank",
+        "input_provenance_keys"
       ],
       "type": "object"
     },
@@ -3700,6 +3923,38 @@
       ],
       "type": "object"
     },
+    "MarketMakingQuoteResult": {
+      "description": "A market-making quote around a reservation price.",
+      "properties": {
+        "ask": {
+          "format": "double",
+          "type": "number"
+        },
+        "bid": {
+          "format": "double",
+          "type": "number"
+        },
+        "reservation_price": {
+          "format": "double",
+          "type": "number"
+        },
+        "spread": {
+          "format": "double",
+          "type": "number"
+        },
+        "symbol": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "reservation_price",
+        "spread",
+        "bid",
+        "ask"
+      ],
+      "type": "object"
+    },
     "MergeProposal": {
       "description": "One proposed entity-resolution action returned by `ResolveCandidates`.\n\nThe compute implementation owns the algorithm and therefore cannot be a\ndependency of this bottom-of-DAG crate. This wire mirror keeps the result\ncontract typed while preserving the implementation's four serialized fields.",
       "properties": {
@@ -4035,6 +4290,42 @@
         "explained_variance",
         "explained_variance_ratio",
         "transformed"
+      ],
+      "type": "object"
+    },
+    "PairsSignalResult": {
+      "description": "A pairs-trading entry signal.",
+      "properties": {
+        "entry_z": {
+          "format": "double",
+          "type": "number"
+        },
+        "hedge_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "side": {
+          "description": "`short_spread`, `long_spread` or `flat`.",
+          "type": "string"
+        },
+        "x": {
+          "type": "string"
+        },
+        "y": {
+          "type": "string"
+        },
+        "z_score": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "y",
+        "x",
+        "hedge_ratio",
+        "z_score",
+        "entry_z",
+        "side"
       ],
       "type": "object"
     },
@@ -4694,6 +4985,72 @@
         "n_rows",
         "n_components",
         "written_back"
+      ],
+      "type": "object"
+    },
+    "RegimeChainResult": {
+      "description": "A fitted three-state regime chain and its forecast (EG-FINANCE-PRIMITIVES-R613.3).",
+      "properties": {
+        "current_state": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "forecast": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "hit_rate": {
+          "format": "double",
+          "type": "number"
+        },
+        "horizon": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "probabilities": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "solver_status": {
+          "type": "string"
+        },
+        "states": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "threshold": {
+          "format": "double",
+          "type": "number"
+        },
+        "transitions": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "states",
+        "probabilities",
+        "current_state",
+        "forecast",
+        "horizon",
+        "threshold",
+        "hit_rate",
+        "transitions",
+        "solver_status"
       ],
       "type": "object"
     },
@@ -5365,6 +5722,33 @@
       "required": [
         "ts",
         "values"
+      ],
+      "type": "object"
+    },
+    "SettlementLegResult": {
+      "description": "One leg of a correspondent settlement chain.",
+      "properties": {
+        "amount_minor": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "from": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "from",
+        "to",
+        "amount_minor"
       ],
       "type": "object"
     },
@@ -6834,6 +7218,18 @@
       },
       "selected_by": null
     },
+    "FinanceAmlScreen": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AmlScreenResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "FinanceAvellanedaStoikov": {
       "bodies": {
         "result": {
@@ -6892,6 +7288,18 @@
           "schema": {
             "format": "double",
             "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceCapitalRatios": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapitalRatiosResult"
           }
         }
       },
@@ -6994,6 +7402,18 @@
       },
       "selected_by": null
     },
+    "FinanceDistributionShift": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DistributionShift"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "FinanceDownsideDeviation": {
       "bodies": {
         "result": {
@@ -7061,6 +7481,31 @@
       },
       "selected_by": null
     },
+    "FinanceExecutionSchedule": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ExecutionScheduleResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceExpectedLoss": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "FinanceExpectedPnlRate": {
       "bodies": {
         "result": {
@@ -7069,6 +7514,21 @@
           "schema": {
             "format": "double",
             "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceFactorRank": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/FactorRecordResult"
+            },
+            "type": "array"
           }
         }
       },
@@ -7347,6 +7807,18 @@
       },
       "selected_by": null
     },
+    "FinanceMarketMakingQuote": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/MarketMakingQuoteResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "FinanceMarkovTransitionMatrix": {
       "bodies": {
         "result": {
@@ -7523,6 +7995,18 @@
       },
       "selected_by": null
     },
+    "FinancePairsSignal": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/PairsSignalResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "FinancePairsTrading": {
       "bodies": {
         "result": {
@@ -7534,6 +8018,19 @@
               "type": "number"
             },
             "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinancePositionSize": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
           }
         }
       },
@@ -7607,6 +8104,18 @@
       },
       "selected_by": null
     },
+    "FinanceRegimeChain": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/RegimeChainResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "FinanceRiskMetrics": {
       "bodies": {
         "result": {
@@ -7665,6 +8174,21 @@
             "items": {
               "format": "double",
               "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceSettlementChain": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/SettlementLegResult"
             },
             "type": "array"
           }

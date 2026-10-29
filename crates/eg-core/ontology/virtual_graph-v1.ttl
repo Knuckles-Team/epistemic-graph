@@ -108,6 +108,10 @@ vg:authorityRank a owl:DatatypeProperty ;
     rdfs:comment "The rank of one SourceAuthority for its class: an integer, lower wins. The planner serves the class from its lowest-ranked effective authority." ;
     rdfs:domain vg:SourceAuthority ;
     rdfs:range xsd:integer .
+vg:allowFallback a owl:DatatypeProperty ;
+    rdfs:comment "Whether a lower-ranked authority row may serve the class when this row's source is not connected. Default false: an unconnected rank-1 source is reported as a typed abstention, never replaced silently (EG-CQ-XSRC-R005.4)." ;
+    rdfs:domain vg:SourceAuthority ;
+    rdfs:range xsd:boolean .
 
 # --- Source authority detail (EG-SRC-AUTH-R001) --------------------------------
 

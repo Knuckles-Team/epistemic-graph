@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# STANDALONE epistemic-graph — one durable DB, NOTHING else.
+# STANDALONE Medulla — one durable DB, NOTHING else.
 #
-# This compose runs ONLY the epistemic-graph engine (the published main-build
+# This compose runs ONLY the Medulla engine (the published main-build
 # wheel baked into docker/Dockerfile). NO agent-utilities, NO KG hub, NO other
 # services. It is a complete single-node database you can point psql / DBeaver /
 # any Postgres driver at over the Postgres wire protocol.
@@ -26,7 +26,7 @@
 # and survives `docker compose down` (it is removed only by `down -v`).
 # ─────────────────────────────────────────────────────────────────────────────
 services:
-  epistemic-graph:
+  medulla:
     init: true
     user: "10001:10001"
     read_only: true
@@ -39,9 +39,9 @@ services:
     cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
-    image: ${EG_IMAGE:-epistemic-graph:local}
+    image: ${EG_IMAGE:-medulla:local}
     # Build the main image locally from the repo. Comment `build` out and set
-    # EG_IMAGE=<registry>/epistemic-graph@sha256:<digest> to pull a prebuilt image.
+    # EG_IMAGE=<registry>/medulla@sha256:<digest> to pull a prebuilt image.
     build:
       context: ..
       dockerfile: docker/Dockerfile

@@ -1,57 +1,97 @@
-//! Native parser contract for the connector-pack ingest vocabulary.
+//! Contract tests for the registered connector-pack core module: the
+//! ingest-contract vocabulary (EG-TYPED-PACKS-R101.1) and the connector
+//! surface vocabulary (EG-TYPED-PACKS-R102.1).
+
+use std::sync::Arc;
 
 use eg_core::graph::GraphSchemaSources;
 use eg_rdf::mapping::parse_turtle;
-use eg_rdf::oxrdf::{NamedNode, Triple};
+use eg_rdf::oxrdf::NamedNode;
 
 const CP: &str = "http://knuckles.team/kg/connector-pack#";
 const VG: &str = "http://knuckles.team/kg/virtual-graph#";
-const OWL: &str = "http://www.w3.org/2002/07/owl#";
-const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
-const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
+const KG: &str = "http://knuckles.team/kg#";
 const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
+const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const OWL: &str = "http://www.w3.org/2002/07/owl#";
+const OWL_IMPORTS: &str = "http://www.w3.org/2002/07/owl#imports";
+const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
+const SHACL: &str = "http://www.w3.org/ns/shacl#";
 
-fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> bool {
-    triples.contains(&Triple::new(
+fn has_iri(
+    triples: &[eg_rdf::oxrdf::Triple],
+    subject: &str,
+    predicate: &str,
+    object: &str,
+) -> bool {
+    triples.contains(&eg_rdf::oxrdf::Triple::new(
         NamedNode::new(subject).unwrap(),
         NamedNode::new(predicate).unwrap(),
         NamedNode::new(object).unwrap(),
     ))
 }
 
+fn connector_pack_source() -> (GraphSchemaSources, Arc<str>, Arc<str>) {
+    let sources = GraphSchemaSources::default();
+    sources
+        .validate()
+        .expect("the default core catalog validates");
+    let source = &sources.core["core:connector-pack@1"];
+    let ontology = source
+        .ontology_ttl
+        .clone()
+        .expect("the connector-pack module carries an ontology document");
+    let shapes = source
+        .shapes_ttl
+        .clone()
+        .expect("the connector-pack module carries its shapes companion");
+    (sources, ontology, shapes)
+}
+
 // spec: EG-TYPED-PACKS-R101.1
 #[test]
 fn contract_terms_resolve_with_domain_and_range() {
-    let triples = parse_turtle(include_str!("../ontology/connector_pack-v1.ttl"))
-        .expect("the connector-pack vocabulary parses");
-    let class = format!("{RDF}type");
-    let subclass = format!("{RDFS}subClassOf");
-
+    let (sources, ontology, _shapes) = connector_pack_source();
+    // The module loads through the core catalog under its one canonical id.
+    assert_eq!(
+        sources
+            .core
+            .keys()
+            .filter(|id| id.starts_with("core:connector-pack@"))
+            .count(),
+        1,
+        "connector-pack is registered exactly once"
+    );
+    let triples = parse_turtle(&ontology).expect("the connector-pack ontology parses");
     assert!(has_iri(
         &triples,
         "http://knuckles.team/kg/connector-pack",
-        &class,
+        RDF_TYPE,
         &format!("{OWL}Ontology")
     ));
+    // It imports the virtual-graph vocabulary the contract terms specialise.
     assert!(has_iri(
         &triples,
         "http://knuckles.team/kg/connector-pack",
-        &format!("{OWL}imports"),
+        OWL_IMPORTS,
         "http://knuckles.team/kg/virtual-graph"
     ));
-    for (child, parent) in [
-        ("IngestContract", format!("{VG}MetadataContract")),
-        ("SourceObject", format!("{VG}VirtualMapping")),
-        ("FieldMapping", format!("{VG}PredicateFieldPair")),
-    ] {
-        assert!(has_iri(
-            &triples,
-            &format!("{CP}{child}"),
-            &subclass,
-            &parent
-        ));
-    }
-    for class_name in [
+    // The regenerated aggregate catalog lists the module.
+    let catalog = sources
+        .core
+        .get("core:catalog@1")
+        .expect("the catalog core source is present");
+    let catalog_document = catalog
+        .ontology_ttl
+        .as_deref()
+        .expect("the catalog carries its aggregate document");
+    assert!(
+        catalog_document.contains("<http://knuckles.team/kg/connector-pack>"),
+        "the catalog lists the connector-pack import"
+    );
+    // The contract classes are declared, and the three that specialise
+    // virtual-graph classes do so by the exact IRI.
+    for class in [
         "IngestContract",
         "SourceObject",
         "FieldMapping",
@@ -61,71 +101,79 @@ fn contract_terms_resolve_with_domain_and_range() {
         "PrivacyClass",
         "ProvenanceRequirement",
     ] {
-        assert!(has_iri(
-            &triples,
-            &format!("{CP}{class_name}"),
-            &class,
-            &format!("{OWL}Class")
-        ));
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{CP}{class}"),
+                RDF_TYPE,
+                &format!("{OWL}Class")
+            ),
+            "{class}"
+        );
     }
-
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}IngestContract"),
+        &format!("{RDFS}subClassOf"),
+        &format!("{VG}MetadataContract")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}SourceObject"),
+        &format!("{RDFS}subClassOf"),
+        &format!("{VG}VirtualMapping")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}FieldMapping"),
+        &format!("{RDFS}subClassOf"),
+        &format!("{VG}PredicateFieldPair")
+    ));
+    // Every contract property resolves with its declared domain and range.
+    let domain = format!("{RDFS}domain");
+    let range = format!("{RDFS}range");
     let object_properties = [
-        (
-            "contractOf",
-            "IngestContract",
-            format!("{VG}SourceConnection"),
-        ),
-        (
-            "hasSourceObject",
-            "IngestContract",
-            format!("{CP}SourceObject"),
-        ),
-        ("hasKeyRule", "SourceObject", format!("{CP}KeyRule")),
-        (
-            "hasCursorPolicy",
-            "IngestContract",
-            format!("{CP}CursorPolicy"),
-        ),
-        (
-            "hasAccessPolicy",
-            "IngestContract",
-            format!("{CP}AccessPolicy"),
-        ),
-        ("privacyClass", "AccessPolicy", format!("{CP}PrivacyClass")),
+        ("contractOf", "IngestContract", "Connector"),
+        ("hasSourceObject", "IngestContract", "SourceObject"),
+        ("hasKeyRule", "SourceObject", "KeyRule"),
+        ("hasCursorPolicy", "IngestContract", "CursorPolicy"),
+        ("hasAccessPolicy", "IngestContract", "AccessPolicy"),
         (
             "requiresProvenance",
             "IngestContract",
-            format!("{CP}ProvenanceRequirement"),
+            "ProvenanceRequirement",
         ),
-        ("governedBy", "Resource", format!("{CP}IngestContract")),
     ];
-    for (property, domain, range) in object_properties {
-        let property_iri = format!("{CP}{property}");
-        assert!(has_iri(
-            &triples,
-            &property_iri,
-            &class,
-            &format!("{OWL}ObjectProperty")
-        ));
-        let domain_iri = if domain == "Resource" {
-            format!("{RDFS}{domain}")
-        } else {
-            format!("{CP}{domain}")
-        };
-        assert!(has_iri(
-            &triples,
-            &property_iri,
-            &format!("{RDFS}domain"),
-            &domain_iri
-        ));
-        assert!(has_iri(
-            &triples,
-            &property_iri,
-            &format!("{RDFS}range"),
-            &range
-        ));
+    for (property, property_domain, property_range) in object_properties {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{CP}{property}"),
+                RDF_TYPE,
+                &format!("{OWL}ObjectProperty")
+            ),
+            "{property}"
+        );
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{CP}{property}"),
+                &domain,
+                &format!("{CP}{property_domain}")
+            ),
+            "{property} domain"
+        );
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{CP}{property}"),
+                &range,
+                &format!("{CP}{property_range}")
+            ),
+            "{property} range"
+        );
     }
-    for property in [
+    let datatype_properties = [
         "contractVersion",
         "contractDigest",
         "cursorKind",
@@ -133,35 +181,173 @@ fn contract_terms_resolve_with_domain_and_range() {
         "aclField",
         "tenantField",
         "readRole",
-    ] {
-        let property_iri = format!("{CP}{property}");
-        assert!(has_iri(
-            &triples,
-            &property_iri,
-            &class,
-            &format!("{OWL}DatatypeProperty")
-        ));
-        assert!(has_iri(
-            &triples,
-            &property_iri,
-            &format!("{RDFS}range"),
-            &format!("{XSD}string")
-        ));
+        "privacyClass",
+    ];
+    for property in datatype_properties {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{CP}{property}"),
+                RDF_TYPE,
+                &format!("{OWL}DatatypeProperty")
+            ),
+            "{property}"
+        );
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{CP}{property}"),
+                &range,
+                &format!("{XSD}string")
+            ),
+            "{property} range"
+        );
     }
+    // cp:governedBy links an ingested node (any mapped class) to its contract.
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}governedBy"),
+        RDF_TYPE,
+        &format!("{OWL}ObjectProperty")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}governedBy"),
+        &range,
+        &format!("{CP}IngestContract")
+    ));
+}
 
-    let sources = GraphSchemaSources::default();
-    sources
-        .validate()
-        .expect("the registered core catalog validates");
-    let source = sources
-        .core
-        .get("core:connector-pack@1")
-        .expect("connector-pack is registered as a core source");
-    assert!(source.ontology_ttl.is_some());
-    let catalog = sources
-        .core
-        .get("core:catalog@1")
-        .and_then(|source| source.ontology_ttl.as_deref())
-        .expect("the aggregate catalog carries an ontology");
-    assert!(catalog.contains("<http://knuckles.team/kg/connector-pack>"));
+// spec: EG-TYPED-PACKS-R102.1
+#[test]
+fn surface_terms_resolve_with_domain_and_range() {
+    let (_sources, ontology, shapes) = connector_pack_source();
+    let triples = parse_turtle(&ontology).expect("the connector-pack ontology parses");
+    // The surface classes are declared; the tool, prompt and skill
+    // specialise the core classes by IRI.
+    for class in ["Connector", "Feature", "Tool", "Prompt", "Skill"] {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{CP}{class}"),
+                RDF_TYPE,
+                &format!("{OWL}Class")
+            ),
+            "{class}"
+        );
+    }
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}Tool"),
+        &format!("{RDFS}subClassOf"),
+        &format!("{KG}Tool")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}Prompt"),
+        &format!("{RDFS}subClassOf"),
+        &format!("{KG}Prompt")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}Skill"),
+        &format!("{RDFS}subClassOf"),
+        &format!("{KG}Skill")
+    ));
+    // The surface properties resolve with their declared domain and range.
+    let domain = format!("{RDFS}domain");
+    let range = format!("{RDFS}range");
+    let object_properties = [
+        ("providesFeature", "Connector"),
+        ("hasContract", "Connector"),
+        ("realizedBy", "Feature"),
+        ("operatesOn", "Tool"),
+        ("produces", "Tool"),
+        ("executes", "Tool"),
+        ("providesCapability", "Tool"),
+    ];
+    for (property, property_domain) in object_properties {
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{CP}{property}"),
+                RDF_TYPE,
+                &format!("{OWL}ObjectProperty")
+            ),
+            "{property}"
+        );
+        assert!(
+            has_iri(
+                &triples,
+                &format!("{CP}{property}"),
+                &domain,
+                &format!("{CP}{property_domain}")
+            ),
+            "{property} domain"
+        );
+    }
+    // The concrete declared ranges (realizedBy and appliesTo carry union
+    // ranges; cp:componentId carries a union domain).
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}providesFeature"),
+        &range,
+        &format!("{CP}Feature")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}hasContract"),
+        &range,
+        &format!("{CP}IngestContract")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}operatesOn"),
+        &range,
+        &format!("{OWL}Class")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}executes"),
+        &range,
+        &format!("{OWL}Class")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}appliesTo"),
+        &range,
+        &format!("{OWL}Class")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}providesCapability"),
+        &range,
+        &format!("{KG}ServiceCapability")
+    ));
+    // cp:componentId stamps one stable id on every surface node.
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}componentId"),
+        RDF_TYPE,
+        &format!("{OWL}DatatypeProperty")
+    ));
+    assert!(has_iri(
+        &triples,
+        &format!("{CP}componentId"),
+        &range,
+        &format!("{XSD}string")
+    ));
+    // The registered shapes companion carries the surface node shapes.
+    let shape_triples = parse_turtle(&shapes).expect("the connector-pack shapes parse");
+    for shape in ["ToolShape", "FeatureShape"] {
+        assert!(
+            has_iri(
+                &shape_triples,
+                &format!("{CP}{shape}"),
+                RDF_TYPE,
+                &format!("{SHACL}NodeShape")
+            ),
+            "{shape} is a registered node shape"
+        );
+    }
 }

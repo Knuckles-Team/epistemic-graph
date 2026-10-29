@@ -81,6 +81,9 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
             "UNKNOWN_PACK_ENTRY",
             "CORRUPT_CONNECTOR_",
             "COMPONENT_BODY_",
+            "SEED_",
+            "SOURCE_APPROVAL_",
+            "SOURCE_BINDING_",
         ],
     ),
     (
@@ -131,8 +134,6 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
     ("ForeignReadAbort", FOREIGN_SOURCE_BINDING_ERRORS),
     ("Uql", FOREIGN_SOURCE_BINDING_ERRORS),
     ("UnifiedQuery", FOREIGN_SOURCE_BINDING_ERRORS),
-    // jobs::resolve_job_store refuses invalid operator worker timing.
-    ("AnalyticsJob", &["INVALID_CONFIGURATION"]),
     ("GetRunWorkItem", &["RUN_ADMISSION_UNAVAILABLE"]),
     ("GetConversationHead", &["RUN_ADMISSION_UNAVAILABLE"]),
     (
@@ -173,6 +174,12 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
             "WEB_SELECTION_TOO_MANY_CANDIDATES",
         ],
     ),
+    // EG-REPO-INGEST-R007/R008: an over-budget batch is refused whole.
+    ("IndexRepository", &["REPOSITORY_BATCH_TOO_LARGE"]),
+    // `ensure_job_workers` refuses an invalid analytics worker timing.
+    ("AnalyticsJob", &["INVALID_CONFIGURATION"]),
+    // EG-FINANCE-PRIMITIVES-R018.3: mismatched factor record lengths.
+    ("FinanceFactorRank", &["FACTOR_RECORD_INVALID"]),
     ("GetNodes", &["RESULT_TOO_LARGE"]),
     ("GetEdges", &["RESULT_TOO_LARGE"]),
     (

@@ -449,3 +449,176 @@
     rdfs:comment "Whether the ROM was converted to its target format: converted or unconverted." ;
     rdfs:domain :RomFile ;
     rdfs:range xsd:string .
+
+# --- media vocab lane B ---
+# Content-channel vocabulary for the second half of the media and personal
+# vocabulary spec (EG-MEDIA-VOCAB-R014.1, R015.1, R017.1, R018.1, R019.1): the
+# classes and properties the scholarx, searxng, postiz, listmonk and mattermost
+# mapping tables name. Reuses :ScholarlyPaper, :SearchQuery, :SearchResult,
+# :SearchEngine and :SourceBackend from retrieval-v1, :BroadcastChannel from
+# this module, and :Document, :Event, :Collection, :Person and :Observation
+# from the core; :Tag from personal-v1.
+
+:ResearchCategory a owl:Class ;
+    rdfs:label "Research Category" ;
+    rdfs:comment "A subject category of scholarly papers as listed by the paper source (ScholarX category)." ;
+    rdfs:subClassOf :Tag .
+
+:PaperSource a owl:Class ;
+    rdfs:label "Paper Source" ;
+    rdfs:comment "A provider that serves scholarly papers (a ScholarX paper source, for example arXiv or CrossRef)." ;
+    rdfs:subClassOf :SourceBackend .
+
+:doi a owl:DatatypeProperty ;
+    rdfs:label "DOI" ;
+    rdfs:comment "The Digital Object Identifier of a scholarly paper." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range xsd:string .
+
+:arxivId a owl:DatatypeProperty ;
+    rdfs:label "arXiv identifier" ;
+    rdfs:comment "The arXiv identifier of a scholarly paper." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range xsd:string .
+
+:publishedAt a owl:DatatypeProperty ;
+    rdfs:label "published at" ;
+    rdfs:comment "Time a document, paper or post was published." ;
+    rdfs:domain :Document ;
+    rdfs:range xsd:dateTime .
+
+:citationCount a owl:DatatypeProperty ;
+    rdfs:label "citation count" ;
+    rdfs:comment "Number of citations a scholarly paper has." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range xsd:integer .
+
+:rank a owl:DatatypeProperty ;
+    rdfs:label "rank" ;
+    rdfs:comment "Position of a search result within its query's result list, from one." ;
+    rdfs:domain :SearchResult ;
+    rdfs:range xsd:integer .
+
+:servedByEngine a owl:ObjectProperty ;
+    rdfs:label "served by engine" ;
+    rdfs:comment "Links a search result to the engine that returned it (SearXNG result engine)." ;
+    rdfs:domain :SearchResult ;
+    rdfs:range :SearchEngine .
+
+:SocialPost a owl:Class ;
+    rdfs:label "Social Post" ;
+    rdfs:comment "A post on a social platform (Postiz post)." ;
+    rdfs:subClassOf :Document .
+
+:PublishingChannel a owl:Class ;
+    rdfs:label "Publishing Channel" ;
+    rdfs:comment "A platform channel on which posts are published (Postiz integration)." ;
+    rdfs:subClassOf :BroadcastChannel .
+
+:EngagementMetric a owl:Class ;
+    rdfs:label "Engagement Metric" ;
+    rdfs:comment "One engagement measurement of a published post, for example impressions or likes (Postiz analytics)." ;
+    rdfs:subClassOf :Observation .
+
+:postState a owl:DatatypeProperty ;
+    rdfs:label "post state" ;
+    rdfs:comment "The state of a social post: draft, scheduled, published or failed." ;
+    rdfs:domain :SocialPost ;
+    rdfs:range xsd:string .
+
+:socialScheduledAt a owl:DatatypeProperty ;
+    rdfs:label "social scheduled at" ;
+    rdfs:comment "Time a social post is scheduled to publish. Distinct from :scheduledFor, which links a calendar event to a person." ;
+    rdfs:domain :SocialPost ;
+    rdfs:range xsd:dateTime .
+
+:platform a owl:DatatypeProperty ;
+    rdfs:label "platform" ;
+    rdfs:comment "The social platform a publishing channel belongs to." ;
+    rdfs:domain :PublishingChannel ;
+    rdfs:range xsd:string .
+
+:EmailCampaign a owl:Class ;
+    rdfs:label "Email Campaign" ;
+    rdfs:comment "One email send to one or more mailing lists (Listmonk campaign)." ;
+    rdfs:subClassOf :Event .
+
+:MailingList a owl:Class ;
+    rdfs:label "Mailing List" ;
+    rdfs:comment "A list of subscribers that email campaigns send to (Listmonk list)." ;
+    rdfs:subClassOf :Collection .
+
+:Subscriber a owl:Class ;
+    rdfs:label "Subscriber" ;
+    rdfs:comment "A person on a mailing list; identity is carried by the keyed hash in :subscriberKey, never the raw address." ;
+    rdfs:subClassOf :Person .
+
+:sentCount a owl:DatatypeProperty ;
+    rdfs:label "sent count" ;
+    rdfs:comment "Number of emails an email campaign sent." ;
+    rdfs:domain :EmailCampaign ;
+    rdfs:range xsd:integer .
+
+:viewCount a owl:DatatypeProperty ;
+    rdfs:label "view count" ;
+    rdfs:comment "Number of recipients who opened an email campaign's emails." ;
+    rdfs:domain :EmailCampaign ;
+    rdfs:range xsd:integer .
+
+:clickCount a owl:DatatypeProperty ;
+    rdfs:label "click count" ;
+    rdfs:comment "Number of link clicks an email campaign recorded." ;
+    rdfs:domain :EmailCampaign ;
+    rdfs:range xsd:integer .
+
+:campaignStatus a owl:DatatypeProperty ;
+    rdfs:label "campaign status" ;
+    rdfs:comment "The status of an email campaign: draft, queued, sent or paused." ;
+    rdfs:domain :EmailCampaign ;
+    rdfs:range xsd:string .
+
+:subscriptionStatus a owl:DatatypeProperty ;
+    rdfs:label "subscription status" ;
+    rdfs:comment "The status of a subscriber: subscribed or unsubscribed." ;
+    rdfs:domain :Subscriber ;
+    rdfs:range xsd:string .
+
+:subscriberKey a owl:DatatypeProperty ;
+    rdfs:label "subscriber key" ;
+    rdfs:comment "Keyed hash of a subscriber's email address; the raw address is never stored (Listmonk subscriber identity)." ;
+    rdfs:domain :Subscriber ;
+    rdfs:range xsd:string .
+
+:MessageChannel a owl:Class ;
+    rdfs:label "Message Channel" ;
+    rdfs:comment "A channel of chat messages within a team (Mattermost channel)." ;
+    rdfs:subClassOf :Collection .
+
+:ChatMessage a owl:Class ;
+    rdfs:label "Chat Message" ;
+    rdfs:comment "One human chat message in a channel (Mattermost post)." ;
+    rdfs:subClassOf :Document .
+
+:memberCount a owl:DatatypeProperty ;
+    rdfs:label "member count" ;
+    rdfs:comment "Number of members in a message channel." ;
+    rdfs:domain :MessageChannel ;
+    rdfs:range xsd:integer .
+
+:lastPostAt a owl:DatatypeProperty ;
+    rdfs:label "last post at" ;
+    rdfs:comment "Time the last message was posted in a channel." ;
+    rdfs:domain :MessageChannel ;
+    rdfs:range xsd:dateTime .
+
+:postedAt a owl:DatatypeProperty ;
+    rdfs:label "posted at" ;
+    rdfs:comment "Time a chat message was posted." ;
+    rdfs:domain :ChatMessage ;
+    rdfs:range xsd:dateTime .
+
+:postedBy a owl:ObjectProperty ;
+    rdfs:label "posted by" ;
+    rdfs:comment "Links a chat message to the person who posted it." ;
+    rdfs:domain :ChatMessage ;
+    rdfs:range :Person .

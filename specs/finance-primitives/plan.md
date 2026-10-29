@@ -19,7 +19,7 @@ The existing native finance tests passed at that same immutable head. Bind the
 unchanged catalog placement, valid-record, and malformed-record tests to R004.2.1
 and R004.2.2. They exercise Account, Position, Activity, and Lot declarations and
 their SHACL records. The failure fixtures cover missing links and invalid vocabulary.
-Evidence: [facade job 114434983311](https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38127544759/job/114434983311).
+Evidence: [facade job 114434983311](https://github.com/Knuckles-Team/medulla/actions/runs/38127544759/job/114434983311).
 These individual passes do not make the failed overall facade job successful.
 
 ## Sequence
@@ -354,7 +354,7 @@ Any additional independent caller requires an explicit child before its migratio
 Each leaf retains its own positive and negative proof.
 The generic route and generated contract are prerequisites for served caller tests.
 R002.3 still requires method counts and client bindings to reconcile in the migration change.
-The held query lane owns missing textual admission; these definitions do not change that grammar.
+`EG-FEDERATED-QUERY-R022` owns textual admission; these definitions do not change that grammar.
 
 | Retained obligation | Explicit descendants |
 |---|---|

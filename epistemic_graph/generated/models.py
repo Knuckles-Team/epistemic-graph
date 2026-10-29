@@ -247,7 +247,9 @@ from ._shared import (
     TemplateFacts,
     Term,
     ToolEffect,
+    ToolFactDeclarer,
     ToolsetTransport,
+    ToolSideEffects,
     TopologyAdmission,
     TopologyCaps,
     TopologyFacts,
@@ -1208,6 +1210,22 @@ class AllocationRule(str, Enum):
     PROPORTIONAL = "proportional"
 
 
+class AmlAlertResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount_minor: int
+    kind: str
+    rule_id: str
+    rule_version: Annotated[int, Field(ge=0)]
+    severity: str
+
+
+class AmlScreenResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    alert: AmlAlertResult | None = None
+
+
 class AnalysisSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2060,6 +2078,18 @@ class CapacityThrottleResult(BaseModel):
     schema_version: NativeControlSchemaVersion
 
 
+class CapitalRatiosResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cet1_meets_minimum: bool
+    cet1_ratio: float
+    leverage_meets_minimum: bool
+    leverage_ratio: float
+    tier1_ratio: float
+    total_capital_meets_minimum: bool
+    total_capital_ratio: float
+
+
 class CasWorkItemMetadataLeaseFence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2573,6 +2603,25 @@ class ClaimWorkItemRequestSchemaVersion(str, Enum):
     V_1 = "1"
 
 
+class ClaimWorkItemResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    attempt: Annotated[int, Field(ge=0)] | None = None
+    changed_work_item_ids: list[str]
+    claimed: bool
+    fencing_token: Annotated[int, Field(ge=0)] | None = None
+    kind: str | None = None
+    lease_epoch: Annotated[int, Field(ge=0)] | None = None
+    lease_expires_at_ms: Annotated[int, Field(ge=0)] | None = None
+    lease_holder_ref: str | None = None
+    max_attempts: Annotated[int, Field(ge=0)] | None = None
+    payload_ref: str | None = None
+    reason: ClaimWorkItemResultReason
+    schema_version: ClaimWorkItemResultSchemaVersion
+    tenant_in_flight: Annotated[int, Field(ge=0)] | None = None
+    work_item_id: str | None = None
+
+
 class ClaimWorkItemResultReason(str, Enum):
     CLAIMED = "claimed"
     EMPTY = "empty"
@@ -2922,22 +2971,6 @@ class CompactNodesResult(BaseModel):
     removed_nodes: list[str]
 
 
-class CompletedTextAdmission(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    user_text_digest: str
-    version: Annotated[int, Field(ge=0)]
-
-
-class CompletedTextInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    assistant_text: str
-    content_digest: str
-    user_text: str
-    version: Annotated[int, Field(ge=0)]
-
-
 class ComponentContribution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -3113,22 +3146,11 @@ class ConvergenceGate(BaseModel):
     total: Annotated[int, Field(ge=0)]
 
 
-class ConversationHeadView(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    context_id: str
-    revision: Annotated[int, Field(ge=0)]
-    run_id: str
-    scope: MutationScopeIdentity
-    version: Annotated[int, Field(ge=0)]
-
-
 class ConversationTurnAdmission(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     context_id: str
     expected_revision: Annotated[int, Field(ge=0)]
-    history_profile: CompletedTextAdmission | None = None
     predecessor_run_id: str | None = None
     schema_version: NativeControlSchemaVersion
 
@@ -4559,6 +4581,14 @@ class DistResultScores(BaseModel):
     Scores: list[DistResultScoresBodyItem]
 
 
+class DistributionShift(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    p_value: float
+    shifted: bool
+    statistic: float
+
+
 class DocTerms(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5166,6 +5196,24 @@ class ExchangeCalendar(BaseModel):
     trading_weekdays: Annotated[int, Field(ge=0, le=255)]
 
 
+class ExecutionScheduleResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    continuous: bool
+    holdings: list[float]
+    horizon: float
+    objective: float
+    permanent_impact: float
+    risk_aversion: float
+    slices: Annotated[int, Field(ge=0)]
+    solver_status: str
+    symbol: str
+    temporary_impact: float
+    total_shares: float
+    trades: list[float]
+    volatility: float
+
+
 class ExistenceSignalWire(str, Enum):
     SUPPORTED = "Supported"
     CONTRADICTED = "Contradicted"
@@ -5238,6 +5286,16 @@ class ExternalLogin(BaseModel):
     session_token: Secret
     subject: str
     username_hint: str | None = None
+
+
+class FactorRecordResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    factor_id: str
+    information_coefficient: float
+    information_ratio: float
+    input_provenance_keys: list[str]
+    rank: Annotated[int, Field(ge=0)]
 
 
 class FeatureMatrixRefInline(BaseModel):
@@ -8068,14 +8126,6 @@ class InitializeRequest(BaseModel):
     mode: AuthMode
 
 
-class InlineCheckpointRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    content_digest: str
-    document_id: str
-    revision: Annotated[int, Field(ge=0)]
-
-
 class InputsBlob(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -9106,6 +9156,16 @@ class MappingRule(BaseModel):
     rule_id: str
     target: str
     value: str
+
+
+class MarketMakingQuoteResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ask: float
+    bid: float
+    reservation_price: float
+    spread: float
+    symbol: str
 
 
 class MaterialClass(str, Enum):
@@ -10961,6 +11021,83 @@ class MethodFinanceKellyFraction(BaseModel):
     params: MethodFinanceKellyFractionParams
 
 
+class MethodFinancePositionSize(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinancePositionSize"]
+    params: MethodFinancePositionSizeParams
+
+
+class MethodFinanceDistributionShift(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceDistributionShift"]
+    params: MethodFinanceDistributionShiftParams
+
+
+class MethodFinanceAmlScreen(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceAmlScreen"]
+    params: MethodFinanceAmlScreenParams
+
+
+class MethodFinanceCapitalRatios(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceCapitalRatios"]
+    params: MethodFinanceCapitalRatiosParams
+
+
+class MethodFinanceExpectedLoss(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceExpectedLoss"]
+    params: MethodFinanceExpectedLossParams
+
+
+class MethodFinanceSettlementChain(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceSettlementChain"]
+    params: MethodFinanceSettlementChainParams
+
+
+class MethodFinanceRegimeChain(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceRegimeChain"]
+    params: MethodFinanceRegimeChainParams
+
+
+class MethodFinanceExecutionSchedule(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceExecutionSchedule"]
+    params: MethodFinanceExecutionScheduleParams
+
+
+class MethodFinanceMarketMakingQuote(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceMarketMakingQuote"]
+    params: MethodFinanceMarketMakingQuoteParams
+
+
+class MethodFinancePairsSignal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinancePairsSignal"]
+    params: MethodFinancePairsSignalParams
+
+
+class MethodFinanceFactorRank(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceFactorRank"]
+    params: MethodFinanceFactorRankParams
+
+
 class MethodFinanceBayesianKelly(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12348,13 +12485,6 @@ class MethodGetRunWorkItem(BaseModel):
     params: MethodGetRunWorkItemParams
 
 
-class MethodGetConversationHead(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    method: Literal["GetConversationHead"]
-    params: MethodGetConversationHeadParams
-
-
 class MethodGetWorkItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12776,6 +12906,17 @@ Method = Annotated[
     | MethodFinanceKyleLambda
     | MethodFinanceSurveillanceRisk
     | MethodFinanceKellyFraction
+    | MethodFinancePositionSize
+    | MethodFinanceDistributionShift
+    | MethodFinanceAmlScreen
+    | MethodFinanceCapitalRatios
+    | MethodFinanceExpectedLoss
+    | MethodFinanceSettlementChain
+    | MethodFinanceRegimeChain
+    | MethodFinanceExecutionSchedule
+    | MethodFinanceMarketMakingQuote
+    | MethodFinancePairsSignal
+    | MethodFinanceFactorRank
     | MethodFinanceBayesianKelly
     | MethodFinancePosteriorCredibleInterval
     | MethodFinancePurgedCpcv
@@ -12975,7 +13116,6 @@ Method = Annotated[
     | MethodGetCurrentPlan
     | MethodGetSessionUsage
     | MethodGetRunWorkItem
-    | MethodGetConversationHead
     | MethodGetWorkItem
     | MethodListWorkItems
     | MethodGetWorkItemOutcome
@@ -13427,7 +13567,6 @@ class MethodClaimNextParams(BaseModel):
 class MethodClaimWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    completed_text_history: bool | None = None
     request: ClaimWorkItemRequest
 
 
@@ -13956,6 +14095,15 @@ class MethodFinanceAlphaCombinationEngineParams(BaseModel):
     returns_matrix: list[list[float]]
 
 
+class MethodFinanceAmlScreenParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount_minor: int
+    rule_id: str
+    threshold_minor: int
+    version: Annotated[int, Field(ge=0)]
+
+
 class MethodFinanceAvellanedaStoikovParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14001,6 +14149,16 @@ class MethodFinanceBrierScoreParams(BaseModel):
 
     forecasts: list[float]
     outcomes: list[float]
+
+
+class MethodFinanceCapitalRatiosParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    at1: int
+    cet1: int
+    risk_weighted_assets: int
+    tier2: int
+    total_exposure: int
 
 
 class MethodFinanceCombineAlphasParams(BaseModel):
@@ -14056,6 +14214,14 @@ class MethodFinanceDieboldMarianoParams(BaseModel):
     losses_b: list[float]
 
 
+class MethodFinanceDistributionShiftParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    current: list[float]
+    reference: list[float]
+    threshold: float
+
+
 class MethodFinanceDownsideDeviationParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14093,6 +14259,28 @@ class MethodFinanceEmpiricalKellyParams(BaseModel):
     seed: Annotated[int, Field(ge=0)]
 
 
+class MethodFinanceExecutionScheduleParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    continuous: bool
+    horizon: float
+    permanent_impact: float
+    risk_aversion: float
+    slices: Annotated[int, Field(ge=0)]
+    symbol: str
+    temporary_impact: float
+    total_shares: float
+    volatility: float
+
+
+class MethodFinanceExpectedLossParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ead_minor: int
+    lgd: float
+    pd: float
+
+
 class MethodFinanceExpectedPnlRateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14103,6 +14291,15 @@ class MethodFinanceExpectedPnlRateParams(BaseModel):
     p: float
     v_h: float
     v_l: float
+
+
+class MethodFinanceFactorRankParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    factor_ids: list[str]
+    forward_returns: list[float]
+    provenance_keys: list[list[str]]
+    signals: list[list[float]]
 
 
 class MethodFinanceForensicReportParams(BaseModel):
@@ -14230,6 +14427,18 @@ class MethodFinanceMarketImpactParams(BaseModel):
     order_quantity: float
 
 
+class MethodFinanceMarketMakingQuoteParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    inventory: float
+    mid: float
+    order_arrival_decay: float
+    risk_aversion: float
+    symbol: str
+    time_remaining: float
+    volatility: float
+
+
 class MethodFinanceMarketParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14332,12 +14541,32 @@ class MethodFinanceOuOptimalThresholdsParams(BaseModel):
     theta: float
 
 
+class MethodFinancePairsSignalParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entry_z: float
+    hedge_ratio: float
+    x: list[float]
+    x_name: str
+    y: list[float]
+    y_name: str
+
+
 class MethodFinancePairsTradingParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     lookback: Annotated[int, Field(ge=0)]
     prices_a: list[float]
     prices_b: list[float]
+
+
+class MethodFinancePositionSizeParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    accuracy: float
+    fraction: float | None = None
+    max_risk: float | None = None
+    win_loss_ratio: float
 
 
 class MethodFinancePosteriorCredibleIntervalParams(BaseModel):
@@ -14379,6 +14608,14 @@ class MethodFinanceRealizedVolTickParams(BaseModel):
 
     mid: list[float]
     window: Annotated[int, Field(ge=0)]
+
+
+class MethodFinanceRegimeChainParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    horizon: Annotated[int, Field(ge=0)]
+    returns: list[float]
+    threshold: float
 
 
 class MethodFinanceRiskMetricsParams(BaseModel):
@@ -14426,6 +14663,15 @@ class MethodFinanceSabrSmileParams(BaseModel):
     rho: float
     strikes: list[float]
     t: float
+
+
+class MethodFinanceSettlementChainParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount_minor: int
+    beneficiary: str
+    correspondents: list[str]
+    origin: str
 
 
 class MethodFinanceSignalDecayParams(BaseModel):
@@ -14647,13 +14893,6 @@ class MethodGetControlLeaseParams(BaseModel):
     tenant: str
 
 
-class MethodGetConversationHeadParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    context_id: str
-    tenant: str
-
-
 class MethodGetCurrentPlanParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14740,9 +14979,7 @@ class MethodGetRunCheckpointParams(BaseModel):
 class MethodGetRunWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    completed_text_history: bool | None = None
     run_id: str
-    selection: RunSelectionRequest | None = None
     tenant: str
 
 
@@ -16591,7 +16828,6 @@ class MutationBatch(BaseModel):
 
 class MutationCapability(str, Enum):
     UNVERSIONED_SYSTEM_MUTATION = "unversioned_system_mutation"
-    ENABLE_INLINE_HISTORY_PROFILE = "enable_inline_history_profile"
 
 
 class MutationEnvelopeMaintenance(BaseModel):
@@ -16744,26 +16980,6 @@ class NamedEvaluator(BaseModel):
     expires_at_ms: Annotated[int, Field(ge=0)]
     principal: str | None = None
     role: str | None = None
-
-
-class NativeClaimWorkItemResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    attempt: Annotated[int, Field(ge=0)] | None = None
-    changed_work_item_ids: list[str]
-    claimed: bool
-    fencing_token: Annotated[int, Field(ge=0)] | None = None
-    fresh_execution_grant: bool | None = None
-    kind: str | None = None
-    lease_epoch: Annotated[int, Field(ge=0)] | None = None
-    lease_expires_at_ms: Annotated[int, Field(ge=0)] | None = None
-    lease_holder_ref: str | None = None
-    max_attempts: Annotated[int, Field(ge=0)] | None = None
-    payload_ref: str | None = None
-    reason: ClaimWorkItemResultReason
-    schema_version: ClaimWorkItemResultSchemaVersion
-    tenant_in_flight: Annotated[int, Field(ge=0)] | None = None
-    work_item_id: str | None = None
 
 
 class NativeControlSchemaVersion(str, Enum):
@@ -17817,6 +18033,17 @@ class PackSourceRegistration(BaseModel):
     resource_uri: str
     source_id: str
     source_kind: PackSourceKind
+
+
+class PairsSignalResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entry_z: float
+    hedge_ratio: float
+    side: str
+    x: str
+    y: str
+    z_score: float
 
 
 class ParallelRelationRow(BaseModel):
@@ -19193,6 +19420,20 @@ class RefitSpec(BaseModel):
     optimiser: OptimiserSpec
 
 
+class RegimeChainResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    current_state: Annotated[int, Field(ge=0)]
+    forecast: list[float]
+    hit_rate: float
+    horizon: Annotated[int, Field(ge=0)]
+    probabilities: list[list[float]]
+    solver_status: str
+    states: list[str]
+    threshold: float
+    transitions: Annotated[int, Field(ge=0)]
+
+
 class RegimeResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -20099,25 +20340,9 @@ class RunCheckpointRead(BaseModel):
     work_item: WorkItemView
 
 
-class RunCheckpointSelection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    admission_revision: Annotated[int, Field(ge=0)]
-    checkpoints: list[InlineCheckpointRef]
-    completed_history: str | None = None
-    context_id: str
-    current_run_checkpoint: str | None = None
-    run_id: str
-    scope: MutationScopeIdentity
-    snapshot_version: Annotated[int, Field(ge=0)]
-    version: Annotated[int, Field(ge=0)]
-    work_item_id: str
-
-
 class RunCompletionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    completed_checkpoint: CompletedTextInput | None = None
     run_id: str
     schema_version: Annotated[int, Field(ge=0)]
     usage: RunUsage | None = None
@@ -20127,7 +20352,6 @@ class RunCompletionPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     batch_id: str
-    completed_checkpoint: InlineCheckpointRef | None = None
     completion: RunCompletionInput
     error_ref: str | None = None
     outcome: str
@@ -20166,15 +20390,6 @@ class RunEvent(BaseModel):
     work_item_id: str
 
 
-class RunSelectionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    fencing_token: Annotated[int, Field(ge=0)]
-    lease_epoch: Annotated[int, Field(ge=0)]
-    version: Annotated[int, Field(ge=0)]
-    worker_id: str
-
-
 class RunUsage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -20189,8 +20404,6 @@ class RunWorkItemView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     admission: SubmitWorkItemRequest
-    checkpoint_selection: RunCheckpointSelection | None = None
-    completed_checkpoint: str | None = None
     run_completion: CommittedRunCompletion | None = None
     work_item: WorkItemView
 
@@ -22392,6 +22605,15 @@ class SessionView(BaseModel):
     revoked: bool
 
 
+class SettlementLegResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount_minor: int
+    from_: str = Field(..., alias="from")
+    sequence: Annotated[int, Field(ge=0)]
+    to: str
+
+
 class ShapeKeep(str, Enum):
     CONFORMING = "conforming"
     VIOLATING = "violating"
@@ -23364,6 +23586,14 @@ class TaskPlan(BaseModel):
     total_tasks: Annotated[int, Field(ge=0, le=65535)]
 
 
+class TaskPlanCall(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    arguments: Any
+    server: str
+    tool: str
+
+
 class TaskPlanProposal(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -23376,6 +23606,7 @@ class TaskPlanProposal(BaseModel):
 class TaskPlanTask(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    call: TaskPlanCall | None = None
     depends_on: BoundedVec_string_64 = Field(default_factory=list)
     prompt: str
     task_id: str
@@ -25225,6 +25456,9 @@ FinanceCrossSectionalRankResult = list[list[float]]
 FinanceDrawdownSeriesResult = list[float]
 
 
+FinanceFactorRankResult = list[FactorRecordResult]
+
+
 FinanceKalmanVolatilityResult = list[float]
 
 
@@ -25259,6 +25493,9 @@ FinanceRealizedVolTickResult = list[float]
 
 
 FinanceSabrSmileResult = list[float]
+
+
+FinanceSettlementChainResult = list[SettlementLegResult]
 
 
 FinanceSignalDecayResult = list[float]
@@ -25338,9 +25575,6 @@ GetContentVersionResult = ContentVersion | None
 
 
 GetControlLeaseResult = ControlLeaseView | None
-
-
-GetConversationHeadResult = ConversationHeadView | None
 
 
 GetCurrentPlanResult = CurrentPlanSnapshot | None
@@ -25937,6 +26171,13 @@ QuestionKind = (
     | Literal["task_plan"]
     | Literal["harness_contrast"]
     | Literal["placement"]
+    | Literal["context_budget"]
+    | Literal["round_verdict"]
+    | Literal["stage_allocation"]
+    | Literal["probe_verdict"]
+    | Literal["item_recommendation"]
+    | Literal["load_set"]
+    | Literal["usage_guidance"]
     | Literal["branch_outcome"]
     | Literal["edit_concentration"]
 )
@@ -26356,6 +26597,8 @@ __all__ = [
     "AgentUsageLimits",
     "Algorithm",
     "AllocationRule",
+    "AmlAlertResult",
+    "AmlScreenResult",
     "AnalysisSnapshot",
     "AnalysisSnapshotDraft",
     "AnalyticsJobRecord",
@@ -26583,6 +26826,7 @@ __all__ = [
     "CapacityThrottlePolicy",
     "CapacityThrottleRequest",
     "CapacityThrottleResult",
+    "CapitalRatiosResult",
     "CaptureCompletion",
     "CaptureEligibility",
     "CaptureTraceFidelity",
@@ -26663,6 +26907,7 @@ __all__ = [
     "ClaimSource",
     "ClaimWorkItemRequest",
     "ClaimWorkItemRequestSchemaVersion",
+    "ClaimWorkItemResult",
     "ClaimWorkItemResultReason",
     "ClaimWorkItemResultSchemaVersion",
     "ClaimedAnalyticsJob",
@@ -26713,8 +26958,6 @@ __all__ = [
     "CommunityQualityFunction",
     "CommunityRow",
     "CompactNodesResult",
-    "CompletedTextAdmission",
-    "CompletedTextInput",
     "ComponentContribution",
     "ComponentDependency",
     "ComponentProvenance",
@@ -26788,7 +27031,6 @@ __all__ = [
     "ControlLeaseView",
     "ControlSetting",
     "ConvergenceGate",
-    "ConversationHeadView",
     "ConversationTurnAdmission",
     "CostBudget",
     "CostFacts",
@@ -26981,6 +27223,7 @@ __all__ = [
     "DistResultLabelsBodyItem",
     "DistResultScores",
     "DistResultScoresBodyItem",
+    "DistributionShift",
     "DocTerms",
     "DpoResult",
     "DsLogSoftmaxResult",
@@ -27080,6 +27323,7 @@ __all__ = [
     "EvidenceResourceWireSegment",
     "EvidenceTimeRange",
     "ExchangeCalendar",
+    "ExecutionScheduleResult",
     "ExistenceSignalWire",
     "ExplainBeliefRedactedResult",
     "ExplainBeliefResponse",
@@ -27094,6 +27338,7 @@ __all__ = [
     "ExtractedEdge",
     "ExtractedNode",
     "FactQuality",
+    "FactorRecordResult",
     "FeatureMatrixRef",
     "FeatureMatrixRefBlob",
     "FeatureMatrixRefInline",
@@ -27113,6 +27358,7 @@ __all__ = [
     "FinanceCombineAlphasResult",
     "FinanceCrossSectionalRankResult",
     "FinanceDrawdownSeriesResult",
+    "FinanceFactorRankResult",
     "FinanceKalmanVolatilityResult",
     "FinanceMarketOp",
     "FinanceMarketOpAnalysisSnapshot",
@@ -27137,6 +27383,7 @@ __all__ = [
     "FinancePurgedCpcvResult",
     "FinanceRealizedVolTickResult",
     "FinanceSabrSmileResult",
+    "FinanceSettlementChainResult",
     "FinanceSignalDecayResult",
     "FinanceSignalModelsOp",
     "FinanceSignalModelsOpBayesFuse",
@@ -27305,7 +27552,6 @@ __all__ = [
     "GetChannelMessagesResult",
     "GetContentVersionResult",
     "GetControlLeaseResult",
-    "GetConversationHeadResult",
     "GetCurrentPlanResult",
     "GetEdgePropertiesBatchResult",
     "GetEdgesPageResult",
@@ -27543,7 +27789,6 @@ __all__ = [
     "IndicatorValueTrail",
     "IndicatorValueWarming",
     "InitializeRequest",
-    "InlineCheckpointRef",
     "InputsBlob",
     "InsiderAnalysis",
     "InsiderEquilibrium",
@@ -27705,6 +27950,7 @@ __all__ = [
     "ManagedIndexTargetGraphEdges",
     "ManagedIndexTargetTableColumn",
     "MappingRule",
+    "MarketMakingQuoteResult",
     "MatchOntologyTermsResult",
     "MaterialClass",
     "MaterialOperation",
@@ -27998,6 +28244,8 @@ __all__ = [
     "MethodFinanceAdfTestParams",
     "MethodFinanceAlphaCombinationEngine",
     "MethodFinanceAlphaCombinationEngineParams",
+    "MethodFinanceAmlScreen",
+    "MethodFinanceAmlScreenParams",
     "MethodFinanceAvellanedaStoikov",
     "MethodFinanceAvellanedaStoikovParams",
     "MethodFinanceBayesianKelly",
@@ -28008,6 +28256,8 @@ __all__ = [
     "MethodFinanceBreakevenAlphaParams",
     "MethodFinanceBrierScore",
     "MethodFinanceBrierScoreParams",
+    "MethodFinanceCapitalRatios",
+    "MethodFinanceCapitalRatiosParams",
     "MethodFinanceCombineAlphas",
     "MethodFinanceCombineAlphasParams",
     "MethodFinanceConvergenceGate",
@@ -28022,6 +28272,8 @@ __all__ = [
     "MethodFinanceDetectRegimesParams",
     "MethodFinanceDieboldMariano",
     "MethodFinanceDieboldMarianoParams",
+    "MethodFinanceDistributionShift",
+    "MethodFinanceDistributionShiftParams",
     "MethodFinanceDownsideDeviation",
     "MethodFinanceDownsideDeviationParams",
     "MethodFinanceDrawdownSeries",
@@ -28032,8 +28284,14 @@ __all__ = [
     "MethodFinanceEfficientFrontierParams",
     "MethodFinanceEmpiricalKelly",
     "MethodFinanceEmpiricalKellyParams",
+    "MethodFinanceExecutionSchedule",
+    "MethodFinanceExecutionScheduleParams",
+    "MethodFinanceExpectedLoss",
+    "MethodFinanceExpectedLossParams",
     "MethodFinanceExpectedPnlRate",
     "MethodFinanceExpectedPnlRateParams",
+    "MethodFinanceFactorRank",
+    "MethodFinanceFactorRankParams",
     "MethodFinanceForensicReport",
     "MethodFinanceForensicReportParams",
     "MethodFinanceGlostenMilgromSpread",
@@ -28063,6 +28321,8 @@ __all__ = [
     "MethodFinanceMarket",
     "MethodFinanceMarketImpact",
     "MethodFinanceMarketImpactParams",
+    "MethodFinanceMarketMakingQuote",
+    "MethodFinanceMarketMakingQuoteParams",
     "MethodFinanceMarketParams",
     "MethodFinanceMarkovTransitionMatrix",
     "MethodFinanceMarkovTransitionMatrixParams",
@@ -28088,8 +28348,12 @@ __all__ = [
     "MethodFinanceOuCalibrateParams",
     "MethodFinanceOuOptimalThresholds",
     "MethodFinanceOuOptimalThresholdsParams",
+    "MethodFinancePairsSignal",
+    "MethodFinancePairsSignalParams",
     "MethodFinancePairsTrading",
     "MethodFinancePairsTradingParams",
+    "MethodFinancePositionSize",
+    "MethodFinancePositionSizeParams",
     "MethodFinancePosteriorCredibleInterval",
     "MethodFinancePosteriorCredibleIntervalParams",
     "MethodFinanceProbabilityBacktestOverfit",
@@ -28100,6 +28364,8 @@ __all__ = [
     "MethodFinanceQueueImbalanceParams",
     "MethodFinanceRealizedVolTick",
     "MethodFinanceRealizedVolTickParams",
+    "MethodFinanceRegimeChain",
+    "MethodFinanceRegimeChainParams",
     "MethodFinanceRiskMetrics",
     "MethodFinanceRiskMetricsParams",
     "MethodFinanceRiskParity",
@@ -28110,6 +28376,8 @@ __all__ = [
     "MethodFinanceSabrImpliedVolParams",
     "MethodFinanceSabrSmile",
     "MethodFinanceSabrSmileParams",
+    "MethodFinanceSettlementChain",
+    "MethodFinanceSettlementChainParams",
     "MethodFinanceSignalDecay",
     "MethodFinanceSignalDecayParams",
     "MethodFinanceSignalModels",
@@ -28174,8 +28442,6 @@ __all__ = [
     "MethodGetContextViewParams",
     "MethodGetControlLease",
     "MethodGetControlLeaseParams",
-    "MethodGetConversationHead",
-    "MethodGetConversationHeadParams",
     "MethodGetCurrentPlan",
     "MethodGetCurrentPlanParams",
     "MethodGetEdgeProperties",
@@ -28711,7 +28977,6 @@ __all__ = [
     "MutationStateDescriptor",
     "MutationSurface",
     "NamedEvaluator",
-    "NativeClaimWorkItemResult",
     "NativeControlSchemaVersion",
     "NativeOutboxScope",
     "NativeOutboxScopeSemanticBinding",
@@ -28911,6 +29176,7 @@ __all__ = [
     "PackWriteErrorCode",
     "PageRankResult",
     "PageRankResultValueItem",
+    "PairsSignalResult",
     "ParallelRelationRow",
     "ParseFilesResult",
     "ParseResult",
@@ -29147,6 +29413,7 @@ __all__ = [
     "ReducedRow",
     "ReductionMiningResult",
     "RefitSpec",
+    "RegimeChainResult",
     "RegimeResult",
     "RegisteredServerCursor",
     "RegisteredServerListPage",
@@ -29246,11 +29513,9 @@ __all__ = [
     "RuleReasonResponseSameAsItem",
     "RunCheckpointPublished",
     "RunCheckpointRead",
-    "RunCheckpointSelection",
     "RunCompletionInput",
     "RunCompletionPayload",
     "RunEvent",
-    "RunSelectionRequest",
     "RunUsage",
     "RunWorkItemView",
     "SabrFit",
@@ -29504,6 +29769,7 @@ __all__ = [
     "SessionTouch",
     "SessionUsage",
     "SessionView",
+    "SettlementLegResult",
     "Sha256Digest",
     "ShaclSeverity",
     "ShaclValidationReport",
@@ -29688,6 +29954,7 @@ __all__ = [
     "SurveillanceRisk",
     "SvmKernel",
     "TaskPlan",
+    "TaskPlanCall",
     "TaskPlanProposal",
     "TaskPlanTask",
     "TelemetryDeriveReceipt",
@@ -29730,7 +29997,9 @@ __all__ = [
     "TokenPurpose",
     "TokenRedeem",
     "ToolEffect",
+    "ToolFactDeclarer",
     "ToolMode",
+    "ToolSideEffects",
     "ToolsetTransport",
     "TopicTerms",
     "TopologicalSortResult",
