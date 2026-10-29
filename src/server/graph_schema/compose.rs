@@ -841,7 +841,9 @@ ex:parent a owl:AsymmetricProperty .
         // CQ-CONN chunk 5 and supply-vocab terms), net of terms main already defined; the pin
         // is the measured composed count.
         // +2: catalog imports for connector-seed and virtual-graph.
-        assert_eq!(composed.ontology.len(), 17_188);
+        // +474: #964 core modules (media +436, commercial +25, supply_chain +9 = +470) plus the
+        // media module-local :mediaFileSizeBytes (+5 declared, -1 shared-domain triple = +4).
+        assert_eq!(composed.ontology.len(), 17_662);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
