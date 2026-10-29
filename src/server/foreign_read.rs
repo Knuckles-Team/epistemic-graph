@@ -34,15 +34,7 @@ pub(crate) struct ForeignBindingContext<'a> {
     pub(crate) isolation: &'a IsolationLayer,
 }
 
-/// The canonical plan pin shared by ExplainPlan and the foreign-read query
-/// binder. Keeping this byte contract in one server module prevents a client
-/// from having to reproduce planner serialization and prevents the two server
-/// paths from silently drifting.
-pub(crate) fn canonical_plan_digest(plan: &eg_plan::Plan) -> Result<Digest256, String> {
-    let plan_bytes = rmp_serde::to_vec_named(plan)
-        .map_err(|error| format!("INTERNAL: plan digest serialization failed: {error}"))?;
-    Ok(Digest256::sha256(&plan_bytes))
-}
+pub(crate) use crate::server::handlers::query::canonical_plan_digest;
 
 const MAX_SESSIONS: usize = 1_024;
 // A process-wide cap protects the page cache when many otherwise-valid

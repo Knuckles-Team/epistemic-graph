@@ -849,6 +849,17 @@ pub(crate) fn parse_uql(req_id: u64, text: &str) -> Result<eg_plan::Plan, Respon
         .map_err(|e| Response::err(req_id, format!("{}: {}", e.code, e.render(text))))
 }
 
+/// The plan pin shared by explain and foreign-read binding, also available
+/// in query-only builds without the federation feature.
+#[cfg(feature = "query")]
+pub(crate) fn canonical_plan_digest(
+    plan: &eg_plan::Plan,
+) -> Result<eg_types::contract::Digest256, String> {
+    let plan_bytes = rmp_serde::to_vec_named(plan)
+        .map_err(|error| format!("INTERNAL: plan digest serialization failed: {error}"))?;
+    Ok(eg_types::contract::Digest256::sha256(&plan_bytes))
+}
+
 /// Digest convention for a host-driven UQL foreign read. Formatting and bound
 /// parameter values are part of the query identity; the parsed plan digest is
 /// checked separately by the served leg resolver.
@@ -867,8 +878,18 @@ pub(crate) fn foreign_uql_query_digest(
 
 #[cfg(all(test, feature = "query"))]
 mod foreign_query_digest_tests {
-    use super::foreign_uql_query_digest;
+    use super::{canonical_plan_digest, foreign_uql_query_digest};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn plan_pin_is_available_without_federation() {
+        let plan = eg_plan::uql::parse("MATCH (:Issue)").expect("valid plan");
+        let bytes = rmp_serde::to_vec_named(&plan).expect("serializable plan");
+        assert_eq!(
+            canonical_plan_digest(&plan).expect("canonical digest"),
+            eg_types::contract::Digest256::sha256(&bytes)
+        );
+    }
 
     #[test]
     fn uql_query_digest_binds_text_and_typed_parameters() {

@@ -217,7 +217,7 @@ pub(crate) async fn handle_nl_query_plan_only(
         Ok(value) => value,
         Err(response) => return Ok(response),
     };
-    let plan_digest = match crate::server::foreign_read::canonical_plan_digest(&plan) {
+    let plan_digest = match super::planning::canonical_plan_digest(&plan) {
         Ok(digest) => digest,
         Err(error) => return Ok(Response::err(req_id, error)),
     };
