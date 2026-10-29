@@ -3195,7 +3195,7 @@
         "crates/eg-plan/src/nl_regressions.rs:290",
         "crates/eg-plan/src/nl_regressions.rs:319",
         "src/server/handlers/query/nl.rs:380",
-        "src/server/nl.rs:450"
+        "src/server/nl.rs:462"
       ]
     },
     {

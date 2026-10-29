@@ -67,7 +67,7 @@ pub(crate) fn handle_nl_query_plan(
             Response::err(
                 req_id,
                 "ENGINE_UNAVAILABLE: NlQuery: no NL planner configured — set an OpenAI-compatible \
-                     endpoint in agent-utilities config.json (or \
+                     endpoint in the Arbora config.json (or \
                      EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
                      server::set_nl_planner"
                     .to_string(),
@@ -205,7 +205,7 @@ pub(crate) async fn handle_nl_query_plan_only(
             return Ok(Response::err(
                 req_id,
                 "ENGINE_UNAVAILABLE: NlQuery: no NL planner configured — set an OpenAI-compatible \
-                     endpoint in agent-utilities config.json (or \
+                     endpoint in the Arbora config.json (or \
                      EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
                      server::set_nl_planner"
                     .to_string(),

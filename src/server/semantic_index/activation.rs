@@ -23,10 +23,10 @@ use super::{
     semantic_server_secrets, tenant_semantic_owner_file, upgrade, SemanticRegistryKey,
 };
 
-const ROOT: &str = "/etc/agent-utilities/rf019";
-const CLAIMS: &str = "/etc/agent-utilities/rf019/claims";
-const MANIFEST: &str = "/etc/agent-utilities/rf019/activation-manifest.json";
-const AUTHORITY: &str = "/etc/agent-utilities/rf019/server-preflight-authority.json";
+const ROOT: &str = "/etc/medulla/rf019";
+const CLAIMS: &str = "/etc/medulla/rf019/claims";
+const MANIFEST: &str = "/etc/medulla/rf019/activation-manifest.json";
+const AUTHORITY: &str = "/etc/medulla/rf019/server-preflight-authority.json";
 const HELPER: &str = "/usr/local/bin/rf019-activation-preflight";
 const MAX_HELPER_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_HANDOFF_BYTES: usize = 128 * 1024;
@@ -222,7 +222,7 @@ fn validate_fixed_trust_paths() -> Result<(), String> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     for directory in [
         "/etc",
-        "/etc/agent-utilities",
+        "/etc/medulla",
         ROOT,
         "/usr",
         "/usr/local",
