@@ -841,7 +841,9 @@ ex:parent a owl:AsymmetricProperty .
         // CQ-CONN chunk 5 and supply-vocab terms), net of terms main already defined; the pin
         // is the measured composed count.
         // +2: catalog imports for connector-seed and virtual-graph.
-        assert_eq!(composed.ontology.len(), 17_188);
+        // +474: #964 core modules (media +436, commercial +25, supply_chain +9 = +470) plus the
+        // media module-local :mediaFileSizeBytes (+5 declared, -1 shared-domain triple = +4).
+        assert_eq!(composed.ontology.len(), 17_662);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -920,7 +922,8 @@ ex:parent a owl:AsymmetricProperty .
         // +819: the same C1 train lane vocabularies, as semantic axioms.
         // +533: the C2 train vocabularies (connector-pack surface, media lane B, secrets,
         // CQ-CONN chunk 5, finance method terms), as semantic axioms.
-        assert_eq!(semantic_axioms, 16_919);
+        // +474: the #964 core modules and :mediaFileSizeBytes, as semantic axioms (see the total pin).
+        assert_eq!(semantic_axioms, 17_393);
 
         let count_type = |object: &str| {
             composed
@@ -992,7 +995,8 @@ ex:parent a owl:AsymmetricProperty .
             // +22: the C1 train's lane vocabulary classes.
             // +22: the C2 train's connector-pack surface, media lane B, secret-metadata and
             // CQ-CONN chunk 5 classes.
-            698
+            // +26: the #964 class placements (media +24, commercial +1, supply-chain +1).
+            724
         );
     }
 
