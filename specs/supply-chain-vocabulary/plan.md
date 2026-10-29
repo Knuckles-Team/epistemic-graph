@@ -48,7 +48,7 @@ Prefixes: `kg:` = `http://knuckles.team/kg#`; `infra:` = `http://knuckles.team/k
 | `kg:realizedByAsset` | object property | `kg:SupplyChainItem` to `kg:AssetInstance` (`trm-v1.ttl`) | ERPNext Asset links item to a deployed asset |
 | `kg:assetHost` | object property | `kg:AssetInstance` to `infra:Host` | asserted only through approved `owl:sameAs` or a CMDB CI link |
 | `infra:serviceRunsOn` | object property | `infra:Service` to `infra:Host`. Subproperty of `infra:runsOn` | projected only for independently identified Service records. Never infer this edge from an arbitrary runsOn triple |
-| `kg:suppliesService` | object property | `kg:Supplier` to `infra:Service` | derived. Physical chain `suppliesItem, realizedByAsset, assetHost, ^infra:serviceRunsOn` (a service runs on a host). Software chain `^publishedBy, ^versionOf, ^usesComponent` (publisher to component to version to service) |
+| `kg:suppliesService` | object property | `kg:Supplier` to `infra:Service` | derived. Physical chain on sub-property `kg:suppliesServiceViaHost`: `suppliesItem, realizedByAsset, assetHost, ^infra:serviceRunsOn` (a service runs on a host). Software chain lives on the inverse `kg:serviceSupplier`: `deployedAs, usesImage, containsComponent, supplyChainVersionOf, publishedBy` (service to supplier) |
 
 `infra:runsOn` also links containers and pods to hardware. The physical chain must therefore use `infra:serviceRunsOn`. A container-only or pod-only runsOn fixture must not infer suppliesService or retype the runtime entity as a Service.
 

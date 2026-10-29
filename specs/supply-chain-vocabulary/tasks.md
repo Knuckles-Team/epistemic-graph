@@ -33,7 +33,7 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first;
   - [ ] Add `:PurchaseInvoice`. **EG-SUPPLY-VOCAB-R003.9**
   - [ ] Add `:Opportunity`. **EG-SUPPLY-VOCAB-R003.10**
   - [ ] Reuse `:Person` for `:Contact` and declare the link. **EG-SUPPLY-VOCAB-R003.11**
-  - [ ] Add `:lastActivityAt`. **EG-SUPPLY-VOCAB-R003.12**
+  - [ ] Add `:customerLastActivityAt`. **EG-SUPPLY-VOCAB-R003.12**
   - [ ] **EG-SUPPLY-VOCAB-R003.17**: Restore the Opportunity date constraint; run `commercial_vocabulary::commercial_opportunity_date_shape`.
 - [ ] Host limit terms (rollup). **EG-SUPPLY-VOCAB-R004**
   - [ ] Add `infra:HostLimit`, `:limitOf`, `:limitKind`, `:readingValue`, `:limitValue`, `:limitUnit`. **EG-SUPPLY-VOCAB-R004.1**
