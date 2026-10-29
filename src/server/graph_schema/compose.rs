@@ -840,7 +840,9 @@ ex:parent a owl:AsymmetricProperty .
         // +536: the C2 train (connector-pack surface, media lane B, data-platform secrets,
         // CQ-CONN chunk 5 and supply-vocab terms), net of terms main already defined; the pin
         // is the measured composed count.
-        assert_eq!(composed.ontology.len(), 17_186);
+        // +2: the repaired catalog imports connector_seed and virtual_graph once each
+        // (EG-TYPED-PACKS-R104.1); the duplicate connector-pack import is gone.
+        assert_eq!(composed.ontology.len(), 17_188);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
