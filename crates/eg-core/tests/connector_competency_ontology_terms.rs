@@ -44,7 +44,7 @@ fn as_node(term: &Term) -> Option<NamedOrBlankNode> {
     match term {
         Term::NamedNode(named) => Some(NamedOrBlankNode::NamedNode(named.clone())),
         Term::BlankNode(blank) => Some(NamedOrBlankNode::BlankNode(blank.clone())),
-        Term::Literal(_) | Term::Triple(_) => None,
+        _ => None,
     }
 }
 
