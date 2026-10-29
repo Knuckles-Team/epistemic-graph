@@ -47,7 +47,7 @@ Two new files, namespace `http://knuckles.team/kg#`, prefixes `mv:` (media) and 
 | Game | class | ⊑ MediaWork; `onPlatform` -> GamePlatform | covers ROM titles |
 | GamePlatform, MediaLibrary | class | | |
 | LibraryItem | class | `itemOf` -> MediaWork, `inLibrary` -> MediaLibrary, `addedAt` | one work in one library |
-| MediaFile, RomFile | class | RomFile ⊑ MediaFile; `container`, `sizeBytes`, `contentSha256`, `md5`, `sha1`, `crc32` | |
+| MediaFile, RomFile | class | RomFile ⊑ MediaFile; `container`, `mediaFileSizeBytes` (under shared `sizeBytes`), `contentSha256`, `md5`, `sha1`, `crc32` | |
 | PlaybackSession | class | ⊑ `:Session`; `playedBy` -> `:Person`, `itemOf`, `lastPlayedAt`, `playCount`, `playbackPositionSeconds` | live and historical |
 | DownloadRequest | class | `requestsWork` -> MediaWork; `downloadRequestState` closed set; `requestedBy` -> `:Person` | wanted/requested |
 | DownloadTransfer | class | `transferOf` -> DownloadRequest or MediaWork; `infoHash`, `transferState`, `shareRatio`, `lastActivityAt`, `addedAt` | torrent or job |
