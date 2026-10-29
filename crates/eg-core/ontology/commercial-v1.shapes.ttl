@@ -34,6 +34,14 @@ kg:SupportsCapabilityShape a sh:NodeShape ;
     ] ;
     sh:message "Only a service carries a capability link -- a link from a non-service is refused." .
 
+kg:LastActivityShape a sh:NodeShape ;
+    sh:targetSubjectsOf kg:lastActivityAt ;
+    sh:property [
+        sh:path kg:lastActivityAt ; sh:datatype xsd:dateTime ;
+        sh:message "lastActivityAt is a dateTime value."
+    ] ;
+    sh:message "A customer's last activity is a dateTime value." .
+
 kg:OpportunityDateShape a sh:NodeShape ;
     sh:targetClass kg:Opportunity ;
     sh:property [
