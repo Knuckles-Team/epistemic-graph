@@ -4171,6 +4171,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_ForeignReadExecutionRef_16": {
+      "items": {
+        "$ref": "#/$defs/ForeignReadExecutionRef"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "BoundedVec_GenerationEvalItem_1024": {
       "items": {
         "$ref": "#/$defs/GenerationEvalItem"
@@ -33210,6 +33217,10 @@
                   ],
                   "default": null,
                   "description": "Optional host-driven foreign-read execution bound to this exact plan."
+                },
+                "foreign_executions": {
+                  "$ref": "#/$defs/BoundedVec_ForeignReadExecutionRef_16",
+                  "description": "Alternative bounded set of completed sources for a multi-source plan.\nThe single and multi-source forms are mutually exclusive."
                 },
                 "plan": {
                   "$ref": "#/$defs/Plan"

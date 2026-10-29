@@ -564,6 +564,8 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
             Method::UnifiedQuery {
                 plan: committed_reason,
                 foreign_execution: None,
+
+                foreign_executions: Default::default(),
             },
         ),
     ))

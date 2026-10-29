@@ -16655,6 +16655,7 @@ class MethodUnifiedQueryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     foreign_execution: ForeignReadExecutionRef | None = None
+    foreign_executions: BoundedVec_ForeignReadExecutionRef_16 | None = None
     plan: Plan
 
 
@@ -24999,6 +25000,14 @@ BoundedVec_FeatureStandardisation_32 = Annotated[
 ]
 
 
+BoundedVec_ForeignReadExecutionRef_16 = Annotated[
+    list[ForeignReadExecutionRef],
+    Field(
+        max_length=16,
+    ),
+]
+
+
 BoundedVec_GenerationEvalItem_1024 = Annotated[
     list[GenerationEvalItem],
     Field(
@@ -26775,6 +26784,7 @@ __all__ = [
     "BoundedVec_Elimination_64",
     "BoundedVec_FeatureStandardisation_32",
     "BoundedVec_FleetCatalogRow_256",
+    "BoundedVec_ForeignReadExecutionRef_16",
     "BoundedVec_GenerationEvalItem_1024",
     "BoundedVec_GraphSchemaSourceView_32",
     "BoundedVec_GraphSchemaSourceView_64",

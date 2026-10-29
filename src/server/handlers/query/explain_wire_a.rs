@@ -45,7 +45,7 @@ pub(crate) fn explain_plan(
     // Keep this byte contract identical to the foreign-read query binder: a
     // host can obtain the authoritative digest from ExplainPlan without
     // implementing or guessing the Rust planner's serialization.
-    let plan_digest = crate::server::foreign_read::canonical_plan_digest(&plan)?;
+    let plan_digest = super::planning::canonical_plan_digest(&plan)?;
 
     /// Annotate every node of `dag` with its plan-time cost/cardinality estimate, walked
     /// in topological order so a node's `estimated_rows_in` is always derived from its

@@ -495,6 +495,8 @@ pub async fn unified_query(
             epistemic_graph::protocol::Method::UnifiedQuery {
                 plan,
                 foreign_execution: None,
+
+                foreign_executions: Default::default(),
             },
         ),
     )

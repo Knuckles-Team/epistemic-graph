@@ -97,6 +97,10 @@ $($variants)*
         /// Optional host-driven foreign-read execution bound to this exact plan.
         #[serde(default)]
         foreign_execution: Option<crate::foreign_read::ForeignReadExecutionRef>,
+        /// Alternative bounded set of completed sources for a multi-source plan.
+        /// The single and multi-source forms are mutually exclusive.
+        #[serde(default, skip_serializing_if = "crate::contract::BoundedVec::is_empty")]
+        foreign_executions: crate::contract::BoundedVec<crate::foreign_read::ForeignReadExecutionRef, 16>,
     },
 
 

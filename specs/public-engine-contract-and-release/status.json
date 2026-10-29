@@ -337,8 +337,8 @@
         "tests/test_release_python_suite_contract.py:104",
         "tests/test_release_python_suite_contract.py:121",
         "tests/test_release_python_suite_contract.py:132",
-        "tests/test_release_python_suite_contract.py:355",
-        "tests/test_release_python_suite_contract.py:374"
+        "tests/test_release_python_suite_contract.py:357",
+        "tests/test_release_python_suite_contract.py:376"
       ]
     },
     {
@@ -428,7 +428,7 @@
         "crates/eg-capabilities/src/contract/errors.rs:495",
         "crates/eg-capabilities/src/error_routing.rs:448",
         "crates/eg-types/src/governed_change/tests.rs:196",
-        "src/server/auth.rs:2053",
+        "src/server/auth.rs:2184",
         "src/server/transport/tests.rs:145"
       ],
       "rollup_of": [
@@ -446,7 +446,7 @@
         "ef81c8ba3a08"
       ],
       "verified_by": [
-        "src/server/auth.rs:2053",
+        "src/server/auth.rs:2184",
         "src/server/transport/tests.rs:145"
       ]
     },
@@ -644,7 +644,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:763"
+        "tests/test_release_python_suite_contract.py:765"
       ]
     },
     {
@@ -1129,7 +1129,7 @@
         "805fce6204d9"
       ],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:801"
+        "tests/test_release_full_wheel_contract.py:802"
       ]
     },
     {

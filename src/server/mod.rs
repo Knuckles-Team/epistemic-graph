@@ -1713,6 +1713,8 @@ mod tests {
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )
@@ -1834,6 +1836,8 @@ mod tests {
                 tolerance_ns: None,
             }]),
             foreign_execution: None,
+
+            foreign_executions: Default::default(),
         };
 
         // (1) A uniform 1s grid, linearly interpolated: rows at the GRID instants, carrying
@@ -1891,6 +1895,8 @@ mod tests {
                         tolerance_ns: (10 * NS) as u64,
                     }]),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )
@@ -1949,6 +1955,8 @@ mod tests {
                         tolerance_ns: None,
                     }]),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )
@@ -2011,6 +2019,8 @@ mod tests {
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )
@@ -2169,6 +2179,8 @@ mod tests {
                         label: "Paper".into(),
                     }]),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )
@@ -2406,6 +2418,8 @@ mod tests {
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )
@@ -2571,6 +2585,8 @@ mod tests {
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(named_plan),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )
@@ -2599,6 +2615,8 @@ mod tests {
                         Op::Limit { k: 10 },
                     ]),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )
@@ -2672,6 +2690,8 @@ mod tests {
                         },
                     ]),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )
@@ -2699,6 +2719,8 @@ mod tests {
                         name: "typo_docs".into(),
                     }]),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         )

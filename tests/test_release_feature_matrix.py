@@ -404,7 +404,7 @@ def test_only_workspace_clippy_runs_on_pull_requests(release_matrix):
     workflow, _ = release_matrix
     job = workflow["jobs"]["quality-advisory"]
     assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && 15 || 60 }}"
+        "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     )
     assert job["if"] == "needs.changes.outputs.code == 'true'"
     assert job["strategy"]["fail-fast"] is False

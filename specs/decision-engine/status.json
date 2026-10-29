@@ -3118,7 +3118,7 @@
         "be0f1acb05c6"
       ],
       "verified_by": [
-        "src/server/auth.rs:2151",
+        "src/server/auth.rs:2282",
         "src/server/blob/store/tests.rs:369"
       ]
     },
