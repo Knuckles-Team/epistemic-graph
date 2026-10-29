@@ -61,7 +61,7 @@ why, and what the remaining backlog is. Read it before changing a threshold.
 
 Implement it in the relevant Rust module, then expose it across **three layers** —
 a `Method` variant in `src/protocol.rs`, a dispatch arm in `src/server.rs`, and a
-client method in `epistemic_graph/client.py` — and add a round-trip test in
+client method in `medulla/client.py` — and add a round-trip test in
 `tests/`. Compute already resident in the graph should be a **batch** op (one
 round-trip over the wire), never a per-row loop: every call crosses a network
 boundary (serialize → socket → deserialize), not a function call. See

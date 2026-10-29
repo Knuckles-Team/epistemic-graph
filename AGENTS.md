@@ -42,7 +42,7 @@ The architecture index in `docs/architecture/` maps the major engine
 subsystems; `docs/capabilities.md` is the operation-level support matrix.
 
 - `src/`, `crates/`: Rust engine, server, and supporting crates.
-- `epistemic_graph/`: Python client and package integration.
+- `medulla/`: Python client and package integration.
 - `clients/`, `proto/`: client and wire-protocol definitions.
 - `docs/`, `architecture/`: user guides and technical references.
 - `scripts/`, `tests/`: development gates and regression coverage.

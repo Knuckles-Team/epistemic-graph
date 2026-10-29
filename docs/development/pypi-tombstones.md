@@ -17,9 +17,10 @@ pip install epistemic-graph         # resolves to medulla
 pip install epistemic-graph-server  # resolves to medulla-stem
 ```
 
-The import names did not move. `import epistemic_graph` and
-`from epistemic_graph_server import binary_path` still work, because the tombstone
-installs the package that provides them. Only the distribution name changed.
+The Python import name moved with the distribution: `import epistemic_graph` no
+longer resolves (hard cutover, no alias) — import `medulla` instead.
+`from epistemic_graph_server import binary_path` still works, because the
+`medulla-stem` package the tombstone installs provides it.
 
 ## When a tombstone is published
 

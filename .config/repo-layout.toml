@@ -34,7 +34,6 @@ specs = "tracked repository-owned specifications, templates, and acceptance evid
 src = "root epistemic-graph package: server binary (src/bin/main.rs) + PyO3 facade that maturin builds the wheel from"
 crates = "the 48-member cargo workspace; the library surface src/ composes (see Cargo.toml [workspace].members)"
 medulla = "the pure-Python client package (parser/cli/client/pool/asr_provider/quant/...) shipped alongside the compiled extension; maturin's python-source root"
-epistemic_graph = "the pre-rename compatibility shim ONLY (two files: __init__.py re-exports medulla with one DeprecationWarning, engine.py aliases medulla.engine); kept for one release so an un-migrated consumer's import still resolves, then deleted"
 architecture = "RF-ADR-005 owner manifest: component-registry.yml declares this repository's component and capability identities at the fixed path the registry gate discovers through workspace.yml. Every component is status=proposed and NOTHING here is accepted yet -- it is the ownership authority the refactor designs cite, not a description of enforced state."
 benches = "criterion benchmarks: cold/warm reopen, massive-scale, pyo3 in-process vs UDS transport, redb group-commit, provenance-anchor"
 clients = "hand-maintained out-of-tree client SDKs: clients/go (Go) and clients/js (JS/TS), each with its own README, tests, and lockfile"

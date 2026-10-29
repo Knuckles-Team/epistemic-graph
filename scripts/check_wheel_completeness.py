@@ -56,15 +56,6 @@ The invariants, each one a regression that actually shipped:
    ``.github/workflows/release.yml``) passes the flag at every call site; any
    other caller that omits it gets the pre-existing, lenient behavior
    unchanged.
-7. **The pre-rename import name ships, for the `medulla` distribution only** —
-   ``epistemic_graph/__init__.py`` and ``epistemic_graph/engine.py`` are the
-   one-release compatibility shim that keeps ``import epistemic_graph``
-   working after the package moved to ``medulla``. Maturin packages only the
-   package owning ``module-name`` unless ``[tool.maturin].python-packages``
-   lists both, and a wheel missing the shim breaks an un-migrated consumer on
-   upgrade instead of warning. The check is scoped to the ``medulla``
-   distribution: the separately built ``medulla-stem`` wheel installs a
-   ``medulla`` package too, but is not an upgrade path for the old name.
 
 Usage::
 
@@ -91,11 +82,6 @@ from pathlib import Path
 TARGET_PACKAGE = "medulla"
 KERNEL_SUFFIXES = (".so", ".pyd")
 REQUIRED_SUBPACKAGES = ("kvcache", "skills")
-# The pre-rename import name, kept for ONE release: `epistemic_graph`
-# re-exports `medulla` and aliases `medulla.engine`. The wheel must carry it,
-# or an un-migrated consumer breaks on upgrade instead of warning.
-COMPAT_SHIM_PACKAGE = "epistemic_graph"
-COMPAT_SHIM_MODULES = ("__init__", "engine")
 # PEP 503 normalized names that must be unconditional runtime requirements.
 REQUIRED_BASE_DEPENDENCIES = ("msgpack",)
 # NumPy is a developer-only parity reference, never a shipped runtime or extra.
@@ -248,31 +234,6 @@ def _check_python_surface(names: Sequence[str]) -> list[str]:
     return failures
 
 
-def _distribution_name(names: Sequence[str]) -> str | None:
-    """The PEP 503 normalized distribution this wheel installs, or ``None``.
-
-    Only the ``medulla`` distribution carries the pre-rename shim; the
-    separately built ``medulla-stem`` wheel (which also contains a ``medulla``
-    Python package, the server facade) must not be rejected for lacking it.
-    """
-    for name in names:
-        if name.endswith(".dist-info/METADATA"):
-            stem = name.split("/", 1)[0][: -len(".dist-info")]
-            return re.sub(r"[-_.]+", "-", stem.split("-", 1)[0]).lower()
-    return None
-
-
-def _check_compat_shim(names: Sequence[str]) -> list[str]:
-    """The pre-rename import name (`epistemic_graph`) ships for one release."""
-    return [
-        f"no {COMPAT_SHIM_PACKAGE}/{module}.py — the pre-rename compatibility "
-        "shim is not packaged, so an un-migrated consumer's import breaks on "
-        "upgrade"
-        for module in COMPAT_SHIM_MODULES
-        if f"{COMPAT_SHIM_PACKAGE}/{module}.py" not in names
-    ]
-
-
 def _check_base_dependencies(archive: zipfile.ZipFile) -> list[str]:
     base_requirements = _base_requirements(archive)
     return [
@@ -311,11 +272,6 @@ def check_wheel(path: Path, *, require_engine_kernel: bool = False) -> list[str]
         failures.extend(_check_engine_kernel(names, require_engine_kernel))
         failures.extend(_check_server_entries(archive))
         failures.extend(_check_python_surface(names))
-        # The shim ships in the `medulla` distribution only; a wheel for another
-        # distribution (the `medulla-stem` server facade) is not an upgrade
-        # path for `import epistemic_graph` and must stay unaffected.
-        if _distribution_name(names) in (None, TARGET_PACKAGE):
-            failures.extend(_check_compat_shim(names))
         failures.extend(_check_base_dependencies(archive))
         failures.extend(_check_forbidden_dependencies(archive))
         failures.extend(_record_failures(archive))

@@ -8,10 +8,10 @@ one.
 pip install medulla
 ```
 
-The Python package still imports as `epistemic_graph`; only the distribution name moved.
-Installing this package pulls `medulla` in, so an existing
-`pip install epistemic-graph` keeps working. It reports the switch instead of silently
-holding a frozen 2.27.7 engine.
+The Python package now imports as `medulla`; `import epistemic_graph` no longer
+resolves, so migrate imports when you upgrade. Installing this package pulls `medulla`
+in, so an existing `pip install epistemic-graph` still resolves. It reports the switch
+instead of silently holding a frozen 2.27.7 engine.
 
 The native server executable moved to `medulla-stem`:
 

@@ -1,7 +1,7 @@
 # Medulla
 
-The `medulla` distribution provides Medulla; import it as `epistemic_graph`.
-The repository is `medulla`. Package, CLI and API identifiers remain unchanged.
+The `medulla` distribution provides Medulla; import it as `medulla`.
+The pre-rename `epistemic_graph` import name is gone (hard cutover, no alias).
 
 <p align="center">
   <img src="docs/assets/brands/epistemic-graph-logo-v1.png" alt="Medulla logo" width="176">
@@ -132,7 +132,7 @@ ephemeral, and needs no server or TLS configuration.
 
 ```bash
 python -m pip install medulla
-python -m epistemic_graph.cli status  # no server is expected in embedded mode
+python -m medulla.cli status  # no server is expected in embedded mode
 python - <<'PY'
 import msgpack
 from medulla.engine import Engine
