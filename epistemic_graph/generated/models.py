@@ -12738,499 +12738,985 @@ class MethodSelectWebPages(BaseModel):
 
 
 Method = Annotated[
-    MethodAddNode
-    | MethodCreateNodeIfAbsent
-    | MethodRemoveNode
-    | MethodHasNode
-    | MethodGetNodes
-    | MethodGetNodesByLabel
-    | MethodGetNodeProperties
-    | MethodCompareAndSetNodeFields
-    | MethodClaimNext
-    | MethodDeclareExchange
-    | MethodDeleteExchange
-    | MethodBindQueue
-    | MethodUnbindQueue
-    | MethodPublish
-    | MethodDeclareQueue
-    | MethodPublishEx
-    | MethodBrokerConsume
-    | MethodBrokerAck
-    | MethodBrokerReject
-    | MethodClaimWorkItem
-    | MethodAcquireCapacity
-    | MethodRenewCapacity
-    | MethodReleaseCapacity
-    | MethodReclaimExpiredCapacity
-    | MethodReconcileCapacity
-    | MethodCapacityStatus
-    | MethodUpdateCapacityCell
-    | MethodThrottleCapacityCell
-    | MethodSubmitWorkItem
-    | MethodAgentLibrary
-    | MethodAgentGraph
-    | MethodAgentComponent
-    | MethodAgentTemplate
-    | MethodSemanticIndex
-    | MethodKgDelegate
-    | MethodSubmitWorkItems
-    | MethodMintWorkItemClaimCapability
-    | MethodVerifyWorkItemClaimCapability
-    | MethodRenewWorkItemLease
-    | MethodCommitWorkItemResult
-    | MethodCancelWorkItem
-    | MethodDeferWorkItem
-    | MethodCasWorkItemMetadata
-    | MethodReserveWorkItemResources
-    | MethodReleaseWorkItemResources
-    | MethodReclaimWorkItemResources
-    | MethodQueryWorkItemReservation
-    | MethodResourceReservationStatus
-    | MethodUpdateResourceHost
-    | MethodReserveDevelopmentLane
-    | MethodRenewDevelopmentLane
-    | MethodObserveDevelopmentLane
-    | MethodFinishDevelopmentLane
-    | MethodCleanupDevelopmentLane
-    | MethodQueryDevelopmentLane
-    | MethodDevelopmentLaneStatus
-    | MethodUpdateDevelopmentLaneQuota
-    | MethodSweepExpired
-    | MethodStreamDeclare
-    | MethodStreamPublish
-    | MethodStreamRead
-    | MethodStreamTrim
-    | MethodStreamCommitOffset
-    | MethodStreamCommittedOffset
-    | MethodPublishConfirmed
-    | MethodPublishIdempotent
-    | MethodBrokerAckTag
-    | MethodBrokerNackTag
-    | MethodBrokerRenewTag
-    | MethodCreateSummaryNode
-    | MethodConsolidate
-    | MethodReinforce
-    | MethodDecayNode
-    | MethodDecayMemories
-    | MethodEvictBelow
-    | MethodMaintain
-    | MethodSummaryChildren
-    | MethodSummariesAtLevel
-    | MethodAddSceneObject
-    | MethodSetPose
-    | MethodReparent
-    | MethodWorldTransform
-    | MethodSceneChildren
-    | MethodStartTrajectory
-    | MethodAppendStep
-    | MethodDiscountedReturn
-    | MethodBestTrajectory
-    | MethodGetNodePropertiesBatch
-    | MethodHasNodesBatch
-    | MethodNodeCount
-    | MethodNodeIds
-    | MethodAddEdge
-    | MethodRemoveEdge
-    | MethodInvalidateEdge
-    | MethodSupersedeEdge
-    | MethodHasEdge
-    | MethodGetEdges
-    | MethodGetEdgesPage
-    | MethodClearGraph
-    | MethodGetEdgeProperties
-    | MethodGetEdgePropertiesBatch
-    | MethodEdgeCount
-    | MethodInDegree
-    | MethodOutDegree
-    | MethodGetPredecessors
-    | MethodGetSuccessors
-    | MethodGetNeighbors
-    | MethodGetNeighborsBatch
-    | MethodUnionGetNodeProperties
-    | MethodUnionGetNodesByLabel
-    | MethodUnionGetNeighbors
-    | MethodTopologicalSort
-    | MethodFindCycle
-    | MethodGetShortestPath
-    | MethodGetBlastRadius
-    | MethodDegreeCentrality
-    | MethodDegreeCentralityAll
-    | MethodBetweennessCentrality
-    | MethodPageRank
-    | MethodPersonalizedPageRank
-    | MethodConnectedComponents
-    | MethodStronglyConnectedComponents
-    | MethodMinimumSpanningTree
-    | MethodCommunityDetection
-    | MethodCommunityDetectEphemeral
-    | MethodGraphColoring
-    | MethodComputeSimilarityEdges
-    | MethodResolveCandidates
-    | MethodClusterHierarchyRefresh
-    | MethodClusterHierarchyClusters
-    | MethodClusterHierarchyExpand
-    | MethodPruneByLifecycle
-    | MethodGetContextView
-    | MethodBatchUpdate
-    | MethodMultiGraphBatchUpdate
-    | MethodMetrics
-    | MethodEvictLRU
-    | MethodDecaySweep
-    | MethodTouchNodes
-    | MethodToMsgpack
-    | MethodFromMsgpack
-    | MethodGetLedger
-    | MethodClearLedger
-    | MethodApplyLedger
-    | MethodAuditVerify
-    | MethodAuditAppend
-    | MethodAuditReadEvent
-    | MethodAuditProveInclusion
-    | MethodGetSubgraph
-    | MethodFork
-    | MethodDiffAgainst
-    | MethodCompactNodesByType
-    | MethodRunDatalogReasoning
-    | MethodApplyChangeEnvelope
-    | MethodApplyChangeEnvelopes
-    | MethodApplyChangeEnvelopeDraft
-    | MethodApplyChangeEnvelopeDrafts
-    | MethodGetChangeEnvelope
-    | MethodGetContentVersion
-    | MethodGetChangeCursor
-    | MethodServedModality
-    | MethodCreateGraph
-    | MethodDeleteGraph
-    | MethodListGraphs
-    | MethodReshard
-    | MethodCatalogAssign
-    | MethodCatalogReassign
-    | MethodCatalogRemove
-    | MethodCatalogList
-    | MethodRebalancePlan
-    | MethodRebalanceExecute
-    | MethodRaftAddLearner
-    | MethodRaftChangeMembership
-    | MethodClusterMembers
-    | MethodRegisterServer
-    | MethodListRegisteredServers
-    | MethodFleetCatalog
-    | MethodPlacementRoute
-    | MethodPlacementAdmin
-    | MethodBackup
-    | MethodRestore
-    | MethodCreateChannel
-    | MethodJoinChannel
-    | MethodLeaveChannel
-    | MethodCloseChannel
-    | MethodSendMessage
-    | MethodGetChannelMessages
-    | MethodListChannels
-    | MethodGetChannelMembers
-    | MethodPing
-    | MethodHealth
-    | MethodShutdown
-    | MethodCancelRequest
-    | MethodResourceStatsPage
-    | MethodReconcile
-    | MethodApplyMutation
-    | MethodVf2SubgraphMatch
-    | MethodParseFile
-    | MethodParseFiles
-    | MethodIndexRepository
-    | MethodObserveScreen
-    | MethodAddEmbedding
-    | MethodSemanticSearch
-    | MethodDiscover
-    | MethodMatchOntologyTerms
-    | MethodBatchL2Normalize
-    | MethodFinanceOptimizePortfolio
-    | MethodFinanceRiskParity
-    | MethodFinanceBlackLitterman
-    | MethodFinanceEfficientFrontier
-    | MethodDsLinearRegression
-    | MethodDsKMeans
-    | MethodDsPca
-    | MethodDsComputeStats
-    | MethodDsTrainTestSplit
-    | MethodDsFitEstimator
-    | MethodDsPredictEstimator
-    | MethodDsSoftmax
-    | MethodDsLogSoftmax
-    | MethodDsCrossEntropy
-    | MethodDsDpoLoss
-    | MethodDsGrpoSurrogate
-    | MethodDsKlDivergence
-    | MethodDsAdamStep
-    | MethodDsSgdStep
-    | MethodFinanceVar
-    | MethodFinanceCvar
-    | MethodFinanceMaxDrawdown
-    | MethodFinanceDrawdownSeries
-    | MethodFinanceDownsideDeviation
-    | MethodFinanceRiskMetrics
-    | MethodFinanceMonteCarloVar
-    | MethodFinanceStressTest
-    | MethodFinanceDetectRegimes
-    | MethodFinanceSignalDecay
-    | MethodFinanceCombineAlphas
-    | MethodFinanceCrossSectionalRank
-    | MethodFinanceMomentum
-    | MethodFinanceMeanReversion
-    | MethodFinanceInformationCoefficient
-    | MethodFinanceTwap
-    | MethodFinanceVwap
-    | MethodFinanceMarketImpact
-    | MethodFinancePairsTrading
-    | MethodFinanceMatchOrders
-    | MethodFinanceAvellanedaStoikov
-    | MethodFinanceGltQuotes
-    | MethodFinanceLogitQuotes
-    | MethodFinanceGlostenMilgromSpread
-    | MethodFinanceExpectedPnlRate
-    | MethodFinanceBreakevenAlpha
-    | MethodFinanceOfiSeries
-    | MethodFinanceMicropriceSeries
-    | MethodFinanceVpinPm
-    | MethodFinanceHawkesMle
-    | MethodFinanceHardimanBouchaud
-    | MethodFinanceKyleLambda
-    | MethodFinanceSurveillanceRisk
-    | MethodFinanceKellyFraction
-    | MethodFinancePositionSize
-    | MethodFinanceDistributionShift
-    | MethodFinanceAmlScreen
-    | MethodFinanceCapitalRatios
-    | MethodFinanceExpectedLoss
-    | MethodFinanceSettlementChain
-    | MethodFinanceRegimeChain
-    | MethodFinanceExecutionSchedule
-    | MethodFinanceMarketMakingQuote
-    | MethodFinancePairsSignal
-    | MethodFinanceFactorRank
-    | MethodFinanceBayesianKelly
-    | MethodFinancePosteriorCredibleInterval
-    | MethodFinancePurgedCpcv
-    | MethodFinanceDeflatedSharpe
-    | MethodFinanceProbabilityBacktestOverfit
-    | MethodFinanceDieboldMariano
-    | MethodFinanceForensicReport
-    | MethodFinanceKalmanFilter1d
-    | MethodFinanceKalmanBeta
-    | MethodFinanceKalmanVolatility
-    | MethodFinanceAdfTest
-    | MethodFinanceOuCalibrate
-    | MethodFinanceOuOptimalThresholds
-    | MethodFinanceMarkovTransitionMatrix
-    | MethodFinanceOrderBookImbalance
-    | MethodFinanceQueueImbalance
-    | MethodFinanceRealizedVolTick
-    | MethodFinanceSpreadReversion
-    | MethodFinanceInformationRatio
-    | MethodFinanceEffectiveIndependentN
-    | MethodFinanceAlphaCombinationEngine
-    | MethodFinanceBrierScore
-    | MethodFinanceConvergenceGate
-    | MethodFinanceEmpiricalKelly
-    | MethodFinanceSabrImpliedVol
-    | MethodFinanceSabrSmile
-    | MethodFinanceSabrCalibrate
-    | MethodRegisterIdentity
-    | MethodGetIdentity
-    | MethodCheckAccess
-    | MethodRbacAdmin
-    | MethodRbacElevation
-    | MethodGovernedChange
-    | MethodIdentity
-    | MethodApplyMultisigMutation
-    | MethodAnalyticsJob
-    | MethodStatechart
-    | MethodQuantum
-    | MethodAsr
-    | MethodViz
-    | MethodSql
-    | MethodCypherQuery
-    | MethodGraphQl
-    | MethodKnowledgeStream
-    | MethodUnifiedQuery
-    | MethodUql
-    | MethodExplainPlan
-    | MethodExplainProvenance
-    | MethodExplainProvenanceByIds
-    | MethodExplainPolicy
-    | MethodExplainBelief
-    | MethodEpistemicStatus
-    | MethodWhatChanged
-    | MethodRecomputeMaterialization
-    | MethodMaterializationStatus
-    | MethodStaleMaterializations
-    | MethodResolveConflict
-    | MethodExplainEvidence
-    | MethodCausalEstimate
-    | MethodCausalCounterfactual
-    | MethodRankByProvenance
-    | MethodNlQuery
-    | MethodNlQueryExplain
-    | MethodNlQueryPlan
-    | MethodRegisterForeignSource
-    | MethodQueryForeignColumns
-    | MethodForeignReadOpen
-    | MethodForeignReadChunk
-    | MethodForeignReadComplete
-    | MethodForeignReadAbort
-    | MethodRegisterUdf
-    | MethodRunUdf
-    | MethodDistributedCompute
-    | MethodCreateMatView
-    | MethodGetMatView
-    | MethodRefreshMatView
-    | MethodPlanMatViewDefine
-    | MethodPlanMatViewGet
-    | MethodPlanMatViewRefresh
-    | MethodPlanMatViewDrop
-    | MethodBeginTxn
-    | MethodTxnAddNode
-    | MethodTxnRemoveNode
-    | MethodTxnAddEdge
-    | MethodTxnRemoveEdge
-    | MethodTxnCas
-    | MethodTxnAddEmbedding
-    | MethodTxnBlobRef
-    | MethodTxnAddMeasurement
-    | MethodTxnAxiom
-    | MethodTxnConstruct
-    | MethodTxnPlanWriteback
-    | MethodTxnMaterializeBelief
-    | MethodTxnUnifiedQuery
-    | MethodTxnUql
-    | MethodCommit
-    | MethodRollback
-    | MethodTsAppend
-    | MethodTsRange
-    | MethodTsAsofJoin
-    | MethodTsWindow
-    | MethodTsGapFill
-    | MethodTsEvict
-    | MethodTsDeleteSeries
-    | MethodTsListSeries
-    | MethodTsDefineSeries
-    | MethodBlobBegin
-    | MethodBlobChunkPut
-    | MethodBlobCommit
-    | MethodBlobFetchBegin
-    | MethodBlobChunkGet
-    | MethodBlobFetchEnd
-    | MethodBlobRef
-    | MethodBlobUnref
-    | MethodBlobGc
-    | MethodKvGet
-    | MethodKvPut
-    | MethodKvDelete
-    | MethodKvScan
-    | MethodKvCas
-    | MethodSqlSourceBatch
-    | MethodImportSqliteFile
-    | MethodExportSqliteFile
-    | MethodAddTriples
-    | MethodGetRdf
-    | MethodRemoveTriples
-    | MethodDropNamedGraph
-    | MethodSparql
-    | MethodSparqlVirtual
-    | MethodOwlReason
-    | MethodOwlReasonDistributed
-    | MethodOwlExplain
-    | MethodRunRules
-    | MethodShaclValidate
-    | MethodOntologyInspect
-    | MethodIcvConfigure
-    | MethodShexValidate
-    | MethodCdcRead
-    | MethodRegisterContinuousQuery
-    | MethodReadContinuousQuery
-    | MethodDropContinuousQuery
-    | MethodWatch
-    | MethodRegisterTrigger
-    | MethodDropTrigger
-    | MethodListTriggers
-    | MethodFiredTriggers
-    | MethodCepSubscribe
-    | MethodCepPoll
-    | MethodCepUnsubscribe
-    | MethodMineAssociate
-    | MethodMineCluster
-    | MethodMineAnomaly
-    | MethodMineClassifyFit
-    | MethodMineClassifyPredict
-    | MethodMineReduce
-    | MethodGraphLearnFit
-    | MethodGraphLearnPredict
-    | MethodMiningPipelineTrain
-    | MethodMiningPipelineEvaluate
-    | MethodMiningPipelineServe
-    | MethodMiningPipelinePredict
-    | MethodMiningPipelineCompare
-    | MethodMineSequence
-    | MethodMineForecast
-    | MethodMineText
-    | MethodMineSubgraph
-    | MethodMineEntityResolve
-    | MethodMineCausalImpact
-    | MethodMineProcess
-    | MethodMineRootCause
-    | MethodMineRiskPropagation
-    | MethodMineOntologyGap
-    | MethodMineRetrievalQuality
-    | MethodMineCommunity
-    | MethodAgentAssemble
-    | MethodCapabilityCoverage
-    | MethodGuardrailEntailment
-    | MethodDecisionCommit
-    | MethodDecide
-    | MethodDecisionFit
-    | MethodDecisionEval
-    | MethodDecisionLog
-    | MethodSolve
-    | MethodConnectorPack
-    | MethodSourceIngest
-    | MethodSourceIngestStatus
-    | MethodWriteBack
-    | MethodGraphSchema
-    | MethodGraphSchemaList
-    | MethodGraphSchemaClasses
-    | MethodMutationOutbox
-    | MethodEdgeIndex
-    | MethodEdgeSearch
-    | MethodPublishRunCheckpoint
-    | MethodGetRunCheckpoint
-    | MethodPublishCurrentPlan
-    | MethodGetCurrentPlan
-    | MethodGetSessionUsage
-    | MethodGetRunWorkItem
-    | MethodGetConversationHead
-    | MethodGetWorkItem
-    | MethodListWorkItems
-    | MethodGetWorkItemOutcome
-    | MethodIssueHostStartGrant
-    | MethodIssueControlLease
-    | MethodTransitionControlLease
-    | MethodGetControlLease
-    | MethodFreshnessFeed
-    | MethodPolicyEvolution
-    | MethodPolicyEvolutionStore
-    | MethodListControlLeases
-    | MethodGapUpsert
-    | MethodGapTransition
-    | MethodGapSettle
-    | MethodWorkOfferPut
-    | MethodGapGet
-    | MethodGapList
-    | MethodTelemetryDerive
-    | MethodFinanceMarket
-    | MethodFinanceSignalModels
-    | MethodRetireSealedRecord
-    | MethodEnrichDocument
-    | MethodSelectWebPages,
+    (
+        (
+            (
+                (
+                    (
+                        (
+                            (
+                                (
+                                    MethodAddNode
+                                    | (MethodCreateNodeIfAbsent | MethodRemoveNode)
+                                )
+                                | (
+                                    (MethodHasNode | MethodGetNodes)
+                                    | (MethodGetNodesByLabel | MethodGetNodeProperties)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodCompareAndSetNodeFields | MethodClaimNext)
+                                    | (MethodDeclareExchange | MethodDeleteExchange)
+                                )
+                                | (
+                                    (MethodBindQueue | MethodUnbindQueue)
+                                    | (MethodPublish | MethodDeclareQueue)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    MethodPublishEx
+                                    | (MethodBrokerConsume | MethodBrokerAck)
+                                )
+                                | (
+                                    (MethodBrokerReject | MethodClaimWorkItem)
+                                    | (MethodAcquireCapacity | MethodRenewCapacity)
+                                )
+                            )
+                            | (
+                                (
+                                    (
+                                        MethodReleaseCapacity
+                                        | MethodReclaimExpiredCapacity
+                                    )
+                                    | (MethodReconcileCapacity | MethodCapacityStatus)
+                                )
+                                | (
+                                    (
+                                        MethodUpdateCapacityCell
+                                        | MethodThrottleCapacityCell
+                                    )
+                                    | (MethodSubmitWorkItem | MethodAgentLibrary)
+                                )
+                            )
+                        )
+                    )
+                    | (
+                        (
+                            (
+                                (
+                                    MethodAgentGraph
+                                    | (MethodAgentComponent | MethodAgentTemplate)
+                                )
+                                | (
+                                    (MethodSemanticIndex | MethodKgDelegate)
+                                    | (
+                                        MethodSubmitWorkItems
+                                        | MethodMintWorkItemClaimCapability
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (
+                                        MethodVerifyWorkItemClaimCapability
+                                        | MethodRenewWorkItemLease
+                                    )
+                                    | (
+                                        MethodCommitWorkItemResult
+                                        | MethodCancelWorkItem
+                                    )
+                                )
+                                | (
+                                    (MethodDeferWorkItem | MethodCasWorkItemMetadata)
+                                    | (
+                                        MethodReserveWorkItemResources
+                                        | MethodReleaseWorkItemResources
+                                    )
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (
+                                        MethodReclaimWorkItemResources
+                                        | MethodQueryWorkItemReservation
+                                    )
+                                    | (
+                                        MethodResourceReservationStatus
+                                        | MethodUpdateResourceHost
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodReserveDevelopmentLane
+                                        | MethodRenewDevelopmentLane
+                                    )
+                                    | (
+                                        MethodObserveDevelopmentLane
+                                        | MethodFinishDevelopmentLane
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (
+                                        MethodCleanupDevelopmentLane
+                                        | MethodQueryDevelopmentLane
+                                    )
+                                    | (
+                                        MethodDevelopmentLaneStatus
+                                        | MethodUpdateDevelopmentLaneQuota
+                                    )
+                                )
+                                | (
+                                    (MethodSweepExpired | MethodStreamDeclare)
+                                    | (MethodStreamPublish | MethodStreamRead)
+                                )
+                            )
+                        )
+                    )
+                )
+                | (
+                    (
+                        (
+                            (
+                                (
+                                    MethodStreamTrim
+                                    | (
+                                        MethodStreamCommitOffset
+                                        | MethodStreamCommittedOffset
+                                    )
+                                )
+                                | (
+                                    (MethodPublishConfirmed | MethodPublishIdempotent)
+                                    | (MethodBrokerAckTag | MethodBrokerNackTag)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodBrokerRenewTag | MethodCreateSummaryNode)
+                                    | (MethodConsolidate | MethodReinforce)
+                                )
+                                | (
+                                    (MethodDecayNode | MethodDecayMemories)
+                                    | (MethodEvictBelow | MethodMaintain)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (MethodSummaryChildren | MethodSummariesAtLevel)
+                                    | (MethodAddSceneObject | MethodSetPose)
+                                )
+                                | (
+                                    (MethodReparent | MethodWorldTransform)
+                                    | (MethodSceneChildren | MethodStartTrajectory)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodAppendStep | MethodDiscountedReturn)
+                                    | (
+                                        MethodBestTrajectory
+                                        | MethodGetNodePropertiesBatch
+                                    )
+                                )
+                                | (
+                                    (MethodHasNodesBatch | MethodNodeCount)
+                                    | (MethodNodeIds | MethodAddEdge)
+                                )
+                            )
+                        )
+                    )
+                    | (
+                        (
+                            (
+                                (
+                                    MethodRemoveEdge
+                                    | (MethodInvalidateEdge | MethodSupersedeEdge)
+                                )
+                                | (
+                                    (MethodHasEdge | MethodGetEdges)
+                                    | (MethodGetEdgesPage | MethodClearGraph)
+                                )
+                            )
+                            | (
+                                (
+                                    (
+                                        MethodGetEdgeProperties
+                                        | MethodGetEdgePropertiesBatch
+                                    )
+                                    | (MethodEdgeCount | MethodInDegree)
+                                )
+                                | (
+                                    (MethodOutDegree | MethodGetPredecessors)
+                                    | (MethodGetSuccessors | MethodGetNeighbors)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (
+                                        MethodGetNeighborsBatch
+                                        | MethodUnionGetNodeProperties
+                                    )
+                                    | (
+                                        MethodUnionGetNodesByLabel
+                                        | MethodUnionGetNeighbors
+                                    )
+                                )
+                                | (
+                                    (MethodTopologicalSort | MethodFindCycle)
+                                    | (MethodGetShortestPath | MethodGetBlastRadius)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodDegreeCentrality | MethodDegreeCentralityAll)
+                                    | (MethodBetweennessCentrality | MethodPageRank)
+                                )
+                                | (
+                                    (
+                                        MethodPersonalizedPageRank
+                                        | MethodConnectedComponents
+                                    )
+                                    | (
+                                        MethodStronglyConnectedComponents
+                                        | MethodMinimumSpanningTree
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+            | (
+                (
+                    (
+                        (
+                            (
+                                (
+                                    MethodCommunityDetection
+                                    | (
+                                        MethodCommunityDetectEphemeral
+                                        | MethodGraphColoring
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodComputeSimilarityEdges
+                                        | MethodResolveCandidates
+                                    )
+                                    | (
+                                        MethodClusterHierarchyRefresh
+                                        | MethodClusterHierarchyClusters
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (
+                                        MethodClusterHierarchyExpand
+                                        | MethodPruneByLifecycle
+                                    )
+                                    | (MethodGetContextView | MethodBatchUpdate)
+                                )
+                                | (
+                                    (MethodMultiGraphBatchUpdate | MethodMetrics)
+                                    | (MethodEvictLRU | MethodDecaySweep)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    MethodTouchNodes
+                                    | (MethodToMsgpack | MethodFromMsgpack)
+                                )
+                                | (
+                                    (MethodGetLedger | MethodClearLedger)
+                                    | (MethodApplyLedger | MethodAuditVerify)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodAuditAppend | MethodAuditReadEvent)
+                                    | (MethodAuditProveInclusion | MethodGetSubgraph)
+                                )
+                                | (
+                                    (MethodFork | MethodDiffAgainst)
+                                    | (
+                                        MethodCompactNodesByType
+                                        | MethodRunDatalogReasoning
+                                    )
+                                )
+                            )
+                        )
+                    )
+                    | (
+                        (
+                            (
+                                (
+                                    MethodApplyChangeEnvelope
+                                    | (
+                                        MethodApplyChangeEnvelopes
+                                        | MethodApplyChangeEnvelopeDraft
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodApplyChangeEnvelopeDrafts
+                                        | MethodGetChangeEnvelope
+                                    )
+                                    | (MethodGetContentVersion | MethodGetChangeCursor)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodServedModality | MethodCreateGraph)
+                                    | (MethodDeleteGraph | MethodListGraphs)
+                                )
+                                | (
+                                    (MethodReshard | MethodCatalogAssign)
+                                    | (MethodCatalogReassign | MethodCatalogRemove)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (MethodCatalogList | MethodRebalancePlan)
+                                    | (MethodRebalanceExecute | MethodRaftAddLearner)
+                                )
+                                | (
+                                    (MethodRaftChangeMembership | MethodClusterMembers)
+                                    | (
+                                        MethodRegisterServer
+                                        | MethodListRegisteredServers
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodFleetCatalog | MethodPlacementRoute)
+                                    | (MethodPlacementAdmin | MethodBackup)
+                                )
+                                | (
+                                    (MethodRestore | MethodCreateChannel)
+                                    | (MethodJoinChannel | MethodLeaveChannel)
+                                )
+                            )
+                        )
+                    )
+                )
+                | (
+                    (
+                        (
+                            (
+                                (
+                                    MethodCloseChannel
+                                    | (MethodSendMessage | MethodGetChannelMessages)
+                                )
+                                | (
+                                    (MethodListChannels | MethodGetChannelMembers)
+                                    | (MethodPing | MethodHealth)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodShutdown | MethodCancelRequest)
+                                    | (MethodResourceStatsPage | MethodReconcile)
+                                )
+                                | (
+                                    (MethodApplyMutation | MethodVf2SubgraphMatch)
+                                    | (MethodParseFile | MethodParseFiles)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (MethodIndexRepository | MethodObserveScreen)
+                                    | (MethodAddEmbedding | MethodSemanticSearch)
+                                )
+                                | (
+                                    (MethodDiscover | MethodMatchOntologyTerms)
+                                    | (
+                                        MethodBatchL2Normalize
+                                        | MethodFinanceOptimizePortfolio
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (
+                                        MethodFinanceRiskParity
+                                        | MethodFinanceBlackLitterman
+                                    )
+                                    | (
+                                        MethodFinanceEfficientFrontier
+                                        | MethodDsLinearRegression
+                                    )
+                                )
+                                | (
+                                    (MethodDsKMeans | MethodDsPca)
+                                    | (MethodDsComputeStats | MethodDsTrainTestSplit)
+                                )
+                            )
+                        )
+                    )
+                    | (
+                        (
+                            (
+                                (
+                                    MethodDsFitEstimator
+                                    | (MethodDsPredictEstimator | MethodDsSoftmax)
+                                )
+                                | (
+                                    (MethodDsLogSoftmax | MethodDsCrossEntropy)
+                                    | (MethodDsDpoLoss | MethodDsGrpoSurrogate)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodDsKlDivergence | MethodDsAdamStep)
+                                    | (MethodDsSgdStep | MethodFinanceVar)
+                                )
+                                | (
+                                    (MethodFinanceCvar | MethodFinanceMaxDrawdown)
+                                    | (
+                                        MethodFinanceDrawdownSeries
+                                        | MethodFinanceDownsideDeviation
+                                    )
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (
+                                        MethodFinanceRiskMetrics
+                                        | MethodFinanceMonteCarloVar
+                                    )
+                                    | (
+                                        MethodFinanceStressTest
+                                        | MethodFinanceDetectRegimes
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodFinanceSignalDecay
+                                        | MethodFinanceCombineAlphas
+                                    )
+                                    | (
+                                        MethodFinanceCrossSectionalRank
+                                        | MethodFinanceMomentum
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (
+                                        MethodFinanceMeanReversion
+                                        | MethodFinanceInformationCoefficient
+                                    )
+                                    | (MethodFinanceTwap | MethodFinanceVwap)
+                                )
+                                | (
+                                    (
+                                        MethodFinanceMarketImpact
+                                        | MethodFinancePairsTrading
+                                    )
+                                    | (
+                                        MethodFinanceMatchOrders
+                                        | MethodFinanceAvellanedaStoikov
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        | (
+            (
+                (
+                    (
+                        (
+                            (
+                                (
+                                    MethodFinanceGltQuotes
+                                    | (
+                                        MethodFinanceLogitQuotes
+                                        | MethodFinanceGlostenMilgromSpread
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodFinanceExpectedPnlRate
+                                        | MethodFinanceBreakevenAlpha
+                                    )
+                                    | (
+                                        MethodFinanceOfiSeries
+                                        | MethodFinanceMicropriceSeries
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodFinanceVpinPm | MethodFinanceHawkesMle)
+                                    | (
+                                        MethodFinanceHardimanBouchaud
+                                        | MethodFinanceKyleLambda
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodFinanceSurveillanceRisk
+                                        | MethodFinanceKellyFraction
+                                    )
+                                    | (
+                                        MethodFinancePositionSize
+                                        | MethodFinanceDistributionShift
+                                    )
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    MethodFinanceAmlScreen
+                                    | (
+                                        MethodFinanceCapitalRatios
+                                        | MethodFinanceExpectedLoss
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodFinanceSettlementChain
+                                        | MethodFinanceRegimeChain
+                                    )
+                                    | (
+                                        MethodFinanceExecutionSchedule
+                                        | MethodFinanceMarketMakingQuote
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodFinancePairsSignal | MethodFinanceFactorRank)
+                                    | (
+                                        MethodFinanceBayesianKelly
+                                        | MethodFinancePosteriorCredibleInterval
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodFinancePurgedCpcv
+                                        | MethodFinanceDeflatedSharpe
+                                    )
+                                    | (
+                                        MethodFinanceProbabilityBacktestOverfit
+                                        | MethodFinanceDieboldMariano
+                                    )
+                                )
+                            )
+                        )
+                    )
+                    | (
+                        (
+                            (
+                                (
+                                    MethodFinanceForensicReport
+                                    | (
+                                        MethodFinanceKalmanFilter1d
+                                        | MethodFinanceKalmanBeta
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodFinanceKalmanVolatility
+                                        | MethodFinanceAdfTest
+                                    )
+                                    | (
+                                        MethodFinanceOuCalibrate
+                                        | MethodFinanceOuOptimalThresholds
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (
+                                        MethodFinanceMarkovTransitionMatrix
+                                        | MethodFinanceOrderBookImbalance
+                                    )
+                                    | (
+                                        MethodFinanceQueueImbalance
+                                        | MethodFinanceRealizedVolTick
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodFinanceSpreadReversion
+                                        | MethodFinanceInformationRatio
+                                    )
+                                    | (
+                                        MethodFinanceEffectiveIndependentN
+                                        | MethodFinanceAlphaCombinationEngine
+                                    )
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (
+                                        MethodFinanceBrierScore
+                                        | MethodFinanceConvergenceGate
+                                    )
+                                    | (
+                                        MethodFinanceEmpiricalKelly
+                                        | MethodFinanceSabrImpliedVol
+                                    )
+                                )
+                                | (
+                                    (
+                                        MethodFinanceSabrSmile
+                                        | MethodFinanceSabrCalibrate
+                                    )
+                                    | (MethodRegisterIdentity | MethodGetIdentity)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodCheckAccess | MethodRbacAdmin)
+                                    | (MethodRbacElevation | MethodGovernedChange)
+                                )
+                                | (
+                                    (MethodIdentity | MethodApplyMultisigMutation)
+                                    | (MethodAnalyticsJob | MethodStatechart)
+                                )
+                            )
+                        )
+                    )
+                )
+                | (
+                    (
+                        (
+                            (
+                                (MethodQuantum | (MethodAsr | MethodViz))
+                                | (
+                                    (MethodSql | MethodCypherQuery)
+                                    | (MethodGraphQl | MethodKnowledgeStream)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodUnifiedQuery | MethodUql)
+                                    | (MethodExplainPlan | MethodExplainProvenance)
+                                )
+                                | (
+                                    (MethodExplainProvenanceByIds | MethodExplainPolicy)
+                                    | (MethodExplainBelief | MethodEpistemicStatus)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (MethodWhatChanged | MethodRecomputeMaterialization)
+                                    | (
+                                        MethodMaterializationStatus
+                                        | MethodStaleMaterializations
+                                    )
+                                )
+                                | (
+                                    (MethodResolveConflict | MethodExplainEvidence)
+                                    | (
+                                        MethodCausalEstimate
+                                        | MethodCausalCounterfactual
+                                    )
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodRankByProvenance | MethodNlQuery)
+                                    | (MethodNlQueryExplain | MethodNlQueryPlan)
+                                )
+                                | (
+                                    (
+                                        MethodRegisterForeignSource
+                                        | MethodQueryForeignColumns
+                                    )
+                                    | (MethodForeignReadOpen | MethodForeignReadChunk)
+                                )
+                            )
+                        )
+                    )
+                    | (
+                        (
+                            (
+                                (
+                                    MethodForeignReadComplete
+                                    | (MethodForeignReadAbort | MethodRegisterUdf)
+                                )
+                                | (
+                                    (MethodRunUdf | MethodDistributedCompute)
+                                    | (MethodCreateMatView | MethodGetMatView)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodRefreshMatView | MethodPlanMatViewDefine)
+                                    | (MethodPlanMatViewGet | MethodPlanMatViewRefresh)
+                                )
+                                | (
+                                    (MethodPlanMatViewDrop | MethodBeginTxn)
+                                    | (MethodTxnAddNode | MethodTxnRemoveNode)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (MethodTxnAddEdge | MethodTxnRemoveEdge)
+                                    | (MethodTxnCas | MethodTxnAddEmbedding)
+                                )
+                                | (
+                                    (MethodTxnBlobRef | MethodTxnAddMeasurement)
+                                    | (MethodTxnAxiom | MethodTxnConstruct)
+                                )
+                            )
+                            | (
+                                (
+                                    (
+                                        MethodTxnPlanWriteback
+                                        | MethodTxnMaterializeBelief
+                                    )
+                                    | (MethodTxnUnifiedQuery | MethodTxnUql)
+                                )
+                                | (
+                                    (MethodCommit | MethodRollback)
+                                    | (MethodTsAppend | MethodTsRange)
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+            | (
+                (
+                    (
+                        (
+                            (
+                                (MethodTsAsofJoin | (MethodTsWindow | MethodTsGapFill))
+                                | (
+                                    (MethodTsEvict | MethodTsDeleteSeries)
+                                    | (MethodTsListSeries | MethodTsDefineSeries)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodBlobBegin | MethodBlobChunkPut)
+                                    | (MethodBlobCommit | MethodBlobFetchBegin)
+                                )
+                                | (
+                                    (MethodBlobChunkGet | MethodBlobFetchEnd)
+                                    | (MethodBlobRef | MethodBlobUnref)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (MethodBlobGc | MethodKvGet)
+                                    | (MethodKvPut | MethodKvDelete)
+                                )
+                                | (
+                                    (MethodKvScan | MethodKvCas)
+                                    | (MethodSqlSourceBatch | MethodImportSqliteFile)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodExportSqliteFile | MethodAddTriples)
+                                    | (MethodGetRdf | MethodRemoveTriples)
+                                )
+                                | (
+                                    (MethodDropNamedGraph | MethodSparql)
+                                    | (MethodSparqlVirtual | MethodOwlReason)
+                                )
+                            )
+                        )
+                    )
+                    | (
+                        (
+                            (
+                                (
+                                    MethodOwlReasonDistributed
+                                    | (MethodOwlExplain | MethodRunRules)
+                                )
+                                | (
+                                    (MethodShaclValidate | MethodOntologyInspect)
+                                    | (MethodIcvConfigure | MethodShexValidate)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodCdcRead | MethodRegisterContinuousQuery)
+                                    | (
+                                        MethodReadContinuousQuery
+                                        | MethodDropContinuousQuery
+                                    )
+                                )
+                                | (
+                                    (MethodWatch | MethodRegisterTrigger)
+                                    | (MethodDropTrigger | MethodListTriggers)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (MethodFiredTriggers | MethodCepSubscribe)
+                                    | (MethodCepPoll | MethodCepUnsubscribe)
+                                )
+                                | (
+                                    (MethodMineAssociate | MethodMineCluster)
+                                    | (MethodMineAnomaly | MethodMineClassifyFit)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodMineClassifyPredict | MethodMineReduce)
+                                    | (MethodGraphLearnFit | MethodGraphLearnPredict)
+                                )
+                                | (
+                                    (
+                                        MethodMiningPipelineTrain
+                                        | MethodMiningPipelineEvaluate
+                                    )
+                                    | (
+                                        MethodMiningPipelineServe
+                                        | MethodMiningPipelinePredict
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+                | (
+                    (
+                        (
+                            (
+                                (
+                                    MethodMiningPipelineCompare
+                                    | (MethodMineSequence | MethodMineForecast)
+                                )
+                                | (
+                                    (MethodMineText | MethodMineSubgraph)
+                                    | (MethodMineEntityResolve | MethodMineCausalImpact)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodMineProcess | MethodMineRootCause)
+                                    | (
+                                        MethodMineRiskPropagation
+                                        | MethodMineOntologyGap
+                                    )
+                                )
+                                | (
+                                    (MethodMineRetrievalQuality | MethodMineCommunity)
+                                    | (MethodAgentAssemble | MethodCapabilityCoverage)
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (MethodGuardrailEntailment | MethodDecisionCommit)
+                                    | (MethodDecide | MethodDecisionFit)
+                                )
+                                | (
+                                    (MethodDecisionEval | MethodDecisionLog)
+                                    | (MethodSolve | MethodConnectorPack)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodSourceIngest | MethodSourceIngestStatus)
+                                    | (MethodWriteBack | MethodGraphSchema)
+                                )
+                                | (
+                                    (MethodGraphSchemaList | MethodGraphSchemaClasses)
+                                    | (MethodMutationOutbox | MethodEdgeIndex)
+                                )
+                            )
+                        )
+                    )
+                    | (
+                        (
+                            (
+                                (
+                                    MethodEdgeSearch
+                                    | (
+                                        MethodPublishRunCheckpoint
+                                        | MethodGetRunCheckpoint
+                                    )
+                                )
+                                | (
+                                    (MethodPublishCurrentPlan | MethodGetCurrentPlan)
+                                    | (MethodGetSessionUsage | MethodGetRunWorkItem)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodGetConversationHead | MethodGetWorkItem)
+                                    | (MethodListWorkItems | MethodGetWorkItemOutcome)
+                                )
+                                | (
+                                    (
+                                        MethodIssueHostStartGrant
+                                        | MethodIssueControlLease
+                                    )
+                                    | (
+                                        MethodTransitionControlLease
+                                        | MethodGetControlLease
+                                    )
+                                )
+                            )
+                        )
+                        | (
+                            (
+                                (
+                                    (MethodFreshnessFeed | MethodPolicyEvolution)
+                                    | (
+                                        MethodPolicyEvolutionStore
+                                        | MethodListControlLeases
+                                    )
+                                )
+                                | (
+                                    (MethodGapUpsert | MethodGapTransition)
+                                    | (MethodGapSettle | MethodWorkOfferPut)
+                                )
+                            )
+                            | (
+                                (
+                                    (MethodGapGet | MethodGapList)
+                                    | (MethodTelemetryDerive | MethodFinanceMarket)
+                                )
+                                | (
+                                    (
+                                        MethodFinanceSignalModels
+                                        | MethodRetireSealedRecord
+                                    )
+                                    | (MethodEnrichDocument | MethodSelectWebPages)
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    ),
     Field(discriminator="method"),
 ]
 
@@ -21388,47 +21874,127 @@ class SemanticIndexErrorPartialMutationOutcome(BaseModel):
 
 
 SemanticIndexError = Annotated[
-    SemanticIndexErrorUnsupportedSelector
-    | SemanticIndexErrorInvalidField
-    | SemanticIndexErrorDigestMismatch
-    | SemanticIndexErrorGenerationMismatch
-    | SemanticIndexErrorBindingStateMismatch
-    | SemanticIndexErrorInvalidBindingStateTransition
-    | SemanticIndexErrorPolicyUnresolved
-    | SemanticIndexErrorSourceRevisionStale
-    | SemanticIndexErrorPredecessorIncomplete
-    | SemanticIndexErrorPredecessorReceiptMismatch
-    | SemanticIndexErrorStageScopeMismatch
-    | SemanticIndexErrorGenerationCheckpointMismatch
-    | SemanticIndexErrorGenerationIncomplete
-    | SemanticIndexErrorDuplicateSourceEntity
-    | SemanticIndexErrorGenerationEntitySetMismatch
-    | SemanticIndexErrorSourceManifestMismatch
-    | SemanticIndexErrorGraphProjectionManifestMismatch
-    | SemanticIndexErrorAuthorizationReceiptMismatch
-    | SemanticIndexErrorLineageMismatch
-    | SemanticIndexErrorUnsupportedAnnMetricPair
-    | SemanticIndexErrorSearchProbeModelMismatch
-    | SemanticIndexErrorMaintainedIndexUnavailable
-    | SemanticIndexErrorApprovalRequired
-    | SemanticIndexErrorApprovalOperationMismatch
-    | SemanticIndexErrorApprovalDigestMismatch
-    | SemanticIndexErrorApprovalExpired
-    | SemanticIndexErrorAuthorizationContextMismatch
-    | SemanticIndexErrorCallerSetBindingState
-    | SemanticIndexErrorUnmanagedBindingResource
-    | SemanticIndexErrorVectorBindingMismatch
-    | SemanticIndexErrorActivePointerMismatch
-    | SemanticIndexErrorIndexManifestMismatch
-    | SemanticIndexErrorProgressReceiptMismatch
-    | SemanticIndexErrorDeadLetterIdentityMismatch
-    | SemanticIndexErrorStageArtifactMismatch
-    | SemanticIndexErrorCanonicalRecordTooLarge
-    | SemanticIndexErrorMalformedCanonicalRecord
-    | SemanticIndexErrorNonCanonicalRecord
-    | SemanticIndexErrorOperationResultMismatch
-    | SemanticIndexErrorMutationReceiptRequired
-    | SemanticIndexErrorPartialMutationOutcome,
+    (
+        (
+            (
+                (
+                    (
+                        SemanticIndexErrorUnsupportedSelector
+                        | SemanticIndexErrorInvalidField
+                    )
+                    | (
+                        SemanticIndexErrorDigestMismatch
+                        | (
+                            SemanticIndexErrorGenerationMismatch
+                            | SemanticIndexErrorBindingStateMismatch
+                        )
+                    )
+                )
+                | (
+                    (
+                        SemanticIndexErrorInvalidBindingStateTransition
+                        | SemanticIndexErrorPolicyUnresolved
+                    )
+                    | (
+                        SemanticIndexErrorSourceRevisionStale
+                        | (
+                            SemanticIndexErrorPredecessorIncomplete
+                            | SemanticIndexErrorPredecessorReceiptMismatch
+                        )
+                    )
+                )
+            )
+            | (
+                (
+                    (
+                        SemanticIndexErrorStageScopeMismatch
+                        | SemanticIndexErrorGenerationCheckpointMismatch
+                    )
+                    | (
+                        SemanticIndexErrorGenerationIncomplete
+                        | (
+                            SemanticIndexErrorDuplicateSourceEntity
+                            | SemanticIndexErrorGenerationEntitySetMismatch
+                        )
+                    )
+                )
+                | (
+                    (
+                        SemanticIndexErrorSourceManifestMismatch
+                        | SemanticIndexErrorGraphProjectionManifestMismatch
+                    )
+                    | (
+                        SemanticIndexErrorAuthorizationReceiptMismatch
+                        | (
+                            SemanticIndexErrorLineageMismatch
+                            | SemanticIndexErrorUnsupportedAnnMetricPair
+                        )
+                    )
+                )
+            )
+        )
+        | (
+            (
+                (
+                    (
+                        SemanticIndexErrorSearchProbeModelMismatch
+                        | SemanticIndexErrorMaintainedIndexUnavailable
+                    )
+                    | (
+                        SemanticIndexErrorApprovalRequired
+                        | (
+                            SemanticIndexErrorApprovalOperationMismatch
+                            | SemanticIndexErrorApprovalDigestMismatch
+                        )
+                    )
+                )
+                | (
+                    (
+                        SemanticIndexErrorApprovalExpired
+                        | SemanticIndexErrorAuthorizationContextMismatch
+                    )
+                    | (
+                        SemanticIndexErrorCallerSetBindingState
+                        | (
+                            SemanticIndexErrorUnmanagedBindingResource
+                            | SemanticIndexErrorVectorBindingMismatch
+                        )
+                    )
+                )
+            )
+            | (
+                (
+                    (
+                        SemanticIndexErrorActivePointerMismatch
+                        | SemanticIndexErrorIndexManifestMismatch
+                    )
+                    | (
+                        SemanticIndexErrorProgressReceiptMismatch
+                        | (
+                            SemanticIndexErrorDeadLetterIdentityMismatch
+                            | SemanticIndexErrorStageArtifactMismatch
+                        )
+                    )
+                )
+                | (
+                    (
+                        SemanticIndexErrorCanonicalRecordTooLarge
+                        | (
+                            SemanticIndexErrorMalformedCanonicalRecord
+                            | SemanticIndexErrorNonCanonicalRecord
+                        )
+                    )
+                    | (
+                        SemanticIndexErrorOperationResultMismatch
+                        | (
+                            SemanticIndexErrorMutationReceiptRequired
+                            | SemanticIndexErrorPartialMutationOutcome
+                        )
+                    )
+                )
+            )
+        )
+    ),
     Field(discriminator="code"),
 ]
 
