@@ -1,14 +1,16 @@
 name: Pages
 
-# Every main push refreshes documentation and the spec-delivery dashboard.
+# Pages deploys on version tags (v*): a tag push refreshes documentation and the
+# spec-delivery dashboard. The github-pages environment admits v* tags.
 # Keep this outside Release: its workflow-level concurrency queues all jobs,
 # including otherwise independent reusable-workflow calls, behind engine CI.
 on:
   push:
-    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
 
 # Serialize only Pages deployments; finish the active deploy and retain the
-# latest pending main revision without waiting for a release/build runner.
+# latest pending revision.
 concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: false
@@ -19,9 +21,9 @@ permissions:
 jobs:
   pages:
     name: Deploy GitHub Pages
-    # Only main deploys: the github-pages environment rejects tag refs, which
-    # failed every release run before a runner was even assigned.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Deploy on version tags or manual dispatch; the github-pages environment
+    # admits v* tags.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
     with:
       content_source: docs
