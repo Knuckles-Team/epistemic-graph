@@ -105,7 +105,9 @@
       "verified_by": [
         "tests/test_generated_models.py:105",
         "tests/test_generated_models.py:122",
-        "tests/test_generated_models.py:69"
+        "tests/test_generated_models.py:69",
+        "tests/test_generated_union_variants.py:59",
+        "tests/test_generated_union_variants.py:74"
       ],
       "rollup_of": [
         "EG-CONTRACT-R001.1",

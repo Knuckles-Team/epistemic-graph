@@ -630,10 +630,39 @@ fn push_tagged_union(
     names
 }
 
+fn balanced_union_expression(variants: &[String]) -> String {
+    if variants.len() == 1 {
+        return variants[0].clone();
+    }
+    let midpoint = variants.len() / 2;
+    format!(
+        "({} | {})",
+        balanced_union_expression(&variants[..midpoint]),
+        balanced_union_expression(&variants[midpoint..])
+    )
+}
+
+fn push_balanced_union(out: &mut String, variants: &[String], indent: usize, prefix: &str) {
+    let expression = balanced_union_expression(variants);
+    if variants.len() == 1 || indent + prefix.len() + expression.len() <= 88 {
+        let _ = writeln!(out, "{:indent$}{prefix}{expression}", "");
+        return;
+    }
+    let midpoint = variants.len() / 2;
+    let _ = writeln!(out, "{:indent$}{prefix}(", "");
+    push_balanced_union(out, &variants[..midpoint], indent + 4, "");
+    push_balanced_union(out, &variants[midpoint..], indent + 4, "| ");
+    let _ = writeln!(out, "{:indent$})", "");
+}
+
 pub(super) fn push_union_alias(out: &mut String, name: &str, tag: &str, variants: &[String]) {
     let joined = variants.join(" | ");
     let _ = writeln!(out, "\n\n{name} = Annotated[");
-    if joined.len() + 5 <= 88 {
+    if variants.len() > 32 {
+        push_balanced_union(out, variants, 4, "");
+        out.pop();
+        out.push_str(",\n");
+    } else if joined.len() + 5 <= 88 {
         let _ = writeln!(out, "    {joined},");
     } else {
         for (index, variant) in variants.iter().enumerate() {

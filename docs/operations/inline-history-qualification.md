@@ -136,3 +136,29 @@ Then require native parity, coherent installed dependencies and both actual
 process restart journeys. An unchanged public transcript dialect identifier matches the configured author
 name, triggering the documented local privacy finding.
 Hosted privacy checks remain required and are not suppressed.
+
+### Genuine C2 output imported (qualification pending)
+
+Hosted run `40816721225` generated replacement contracts and codecs from clean
+source `1c4f3d1d32aeae86a5cb660115737594980817d6`, tree
+`d6e771f3d24ec06dbb127e6f3a42460358eb3f9e`.
+Contract artifact `12872827980` contains 74 generated files and records 493 methods.
+Codec artifact `12872997263` records SHA-256
+`09b34532de0654dc3fc9fb0da3433df7ce22042c96a15876b7ea8bc2b402427b`.
+Owner-format artifact `12872099991` provides the native-rendered layout document.
+All archive, payload and recipe hashes match their provenance and exact source.
+These genuine outputs replace the temporary snapshot described above.
+
+Fresh parity and native tests must still pass on the imported revision.
+The generated method count is not a passing census-test receipt.
+Installed consumer qualification and the compatibility review remain outstanding.
+
+### Balanced-union generation stage
+
+The genuine 493-method output exposed recursive scanner depth in its Python alias.
+The generator now balances large union expressions without changing member order,
+discriminators, schemas or validation. Small unions retain their existing rendering.
+The imported outputs above still precede this renderer change and need regeneration.
+The old generated alias still fails the new depth regression and local Vulture.
+This blocked draft must receive fresh hosted output before parity can pass.
+No scanner settings, compatibility refusals or release gates are relaxed.

@@ -285,3 +285,51 @@ fn octet_arrays_keep_json_and_binary_representations() {
     assert!(body.contains("Digest = Annotated[_EgOctets, Field(min_length=32, max_length=32)]"));
     assert!(body.contains("Other = list[int]"));
 }
+
+#[test]
+fn small_union_keeps_order_and_discriminator() {
+    let mut out = String::new();
+    super::super::dto::push_union_alias(
+        &mut out,
+        "Example",
+        "kind",
+        &["First".to_owned(), "Second".to_owned()],
+    );
+    assert_eq!(
+        out,
+        "\n\nExample = Annotated[\n    First | Second,\n    Field(discriminator=\"kind\"),\n]\n"
+    );
+}
+
+#[test]
+fn large_union_balances_parentheses_and_keeps_order() {
+    for count in [33, 493] {
+        let variants: Vec<String> = (0..count).map(|i| format!("Variant{i:03}")).collect();
+        let mut out = String::new();
+        super::super::dto::push_union_alias(&mut out, "Method", "method", &variants);
+        let names: Vec<&str> = out
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|word| word.starts_with("Variant"))
+            .collect();
+        assert_eq!(
+            names,
+            variants.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        assert!(out.contains("Field(discriminator=\"method\")"));
+        let (mut depth, mut maximum) = (0usize, 0usize);
+        for character in out.chars() {
+            if character == '(' {
+                depth += 1;
+                maximum = maximum.max(depth);
+            }
+            if character == ')' {
+                depth -= 1;
+            }
+        }
+        assert_eq!(depth, 0);
+        assert!(
+            maximum <= 10,
+            "unbalanced alias for {count} variants: {maximum}"
+        );
+    }
+}

@@ -840,7 +840,9 @@ ex:parent a owl:AsymmetricProperty .
         // +536: the C2 train (connector-pack surface, media lane B, data-platform secrets,
         // CQ-CONN chunk 5 and supply-vocab terms), net of terms main already defined; the pin
         // is the measured composed count.
-        assert_eq!(composed.ontology.len(), 17_186);
+        // +2: catalog completeness correction 3e95357c7 adds connector-seed
+        // and virtual-graph imports. Removing a duplicate import changes no set entry.
+        assert_eq!(composed.ontology.len(), 17_188);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -891,7 +893,8 @@ ex:parent a owl:AsymmetricProperty .
         // +1: the swarm-topology module imports the orchestration module.
         // +3: the C2 train's government-shapes and foundation-shapes imports and the
         // connector-pack shapes companion.
-        assert_eq!(imports, 117);
+        // +2: the same catalog completeness correction (3e95357c7).
+        assert_eq!(imports, 119);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed

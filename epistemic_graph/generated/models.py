@@ -2603,25 +2603,6 @@ class ClaimWorkItemRequestSchemaVersion(str, Enum):
     V_1 = "1"
 
 
-class ClaimWorkItemResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    attempt: Annotated[int, Field(ge=0)] | None = None
-    changed_work_item_ids: list[str]
-    claimed: bool
-    fencing_token: Annotated[int, Field(ge=0)] | None = None
-    kind: str | None = None
-    lease_epoch: Annotated[int, Field(ge=0)] | None = None
-    lease_expires_at_ms: Annotated[int, Field(ge=0)] | None = None
-    lease_holder_ref: str | None = None
-    max_attempts: Annotated[int, Field(ge=0)] | None = None
-    payload_ref: str | None = None
-    reason: ClaimWorkItemResultReason
-    schema_version: ClaimWorkItemResultSchemaVersion
-    tenant_in_flight: Annotated[int, Field(ge=0)] | None = None
-    work_item_id: str | None = None
-
-
 class ClaimWorkItemResultReason(str, Enum):
     CLAIMED = "claimed"
     EMPTY = "empty"
@@ -2971,6 +2952,22 @@ class CompactNodesResult(BaseModel):
     removed_nodes: list[str]
 
 
+class CompletedTextAdmission(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    user_text_digest: str
+    version: Annotated[int, Field(ge=0)]
+
+
+class CompletedTextInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    assistant_text: str
+    content_digest: str
+    user_text: str
+    version: Annotated[int, Field(ge=0)]
+
+
 class ComponentContribution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -3146,11 +3143,22 @@ class ConvergenceGate(BaseModel):
     total: Annotated[int, Field(ge=0)]
 
 
+class ConversationHeadView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    revision: Annotated[int, Field(ge=0)]
+    run_id: str
+    scope: MutationScopeIdentity
+    version: Annotated[int, Field(ge=0)]
+
+
 class ConversationTurnAdmission(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     context_id: str
     expected_revision: Annotated[int, Field(ge=0)]
+    history_profile: CompletedTextAdmission | None = None
     predecessor_run_id: str | None = None
     schema_version: NativeControlSchemaVersion
 
@@ -8126,6 +8134,14 @@ class InitializeRequest(BaseModel):
     mode: AuthMode
 
 
+class InlineCheckpointRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content_digest: str
+    document_id: str
+    revision: Annotated[int, Field(ge=0)]
+
+
 class InputsBlob(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12485,6 +12501,13 @@ class MethodGetRunWorkItem(BaseModel):
     params: MethodGetRunWorkItemParams
 
 
+class MethodGetConversationHead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetConversationHead"]
+    params: MethodGetConversationHeadParams
+
+
 class MethodGetWorkItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13116,6 +13139,7 @@ Method = Annotated[
     | MethodGetCurrentPlan
     | MethodGetSessionUsage
     | MethodGetRunWorkItem
+    | MethodGetConversationHead
     | MethodGetWorkItem
     | MethodListWorkItems
     | MethodGetWorkItemOutcome
@@ -13567,6 +13591,7 @@ class MethodClaimNextParams(BaseModel):
 class MethodClaimWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    completed_text_history: bool | None = None
     request: ClaimWorkItemRequest
 
 
@@ -14893,6 +14918,13 @@ class MethodGetControlLeaseParams(BaseModel):
     tenant: str
 
 
+class MethodGetConversationHeadParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    context_id: str
+    tenant: str
+
+
 class MethodGetCurrentPlanParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14979,7 +15011,9 @@ class MethodGetRunCheckpointParams(BaseModel):
 class MethodGetRunWorkItemParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    completed_text_history: bool | None = None
     run_id: str
+    selection: RunSelectionRequest | None = None
     tenant: str
 
 
@@ -16828,6 +16862,7 @@ class MutationBatch(BaseModel):
 
 class MutationCapability(str, Enum):
     UNVERSIONED_SYSTEM_MUTATION = "unversioned_system_mutation"
+    ENABLE_INLINE_HISTORY_PROFILE = "enable_inline_history_profile"
 
 
 class MutationEnvelopeMaintenance(BaseModel):
@@ -16980,6 +17015,26 @@ class NamedEvaluator(BaseModel):
     expires_at_ms: Annotated[int, Field(ge=0)]
     principal: str | None = None
     role: str | None = None
+
+
+class NativeClaimWorkItemResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    attempt: Annotated[int, Field(ge=0)] | None = None
+    changed_work_item_ids: list[str]
+    claimed: bool
+    fencing_token: Annotated[int, Field(ge=0)] | None = None
+    fresh_execution_grant: bool | None = None
+    kind: str | None = None
+    lease_epoch: Annotated[int, Field(ge=0)] | None = None
+    lease_expires_at_ms: Annotated[int, Field(ge=0)] | None = None
+    lease_holder_ref: str | None = None
+    max_attempts: Annotated[int, Field(ge=0)] | None = None
+    payload_ref: str | None = None
+    reason: ClaimWorkItemResultReason
+    schema_version: ClaimWorkItemResultSchemaVersion
+    tenant_in_flight: Annotated[int, Field(ge=0)] | None = None
+    work_item_id: str | None = None
 
 
 class NativeControlSchemaVersion(str, Enum):
@@ -20340,9 +20395,25 @@ class RunCheckpointRead(BaseModel):
     work_item: WorkItemView
 
 
+class RunCheckpointSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    admission_revision: Annotated[int, Field(ge=0)]
+    checkpoints: list[InlineCheckpointRef]
+    completed_history: str | None = None
+    context_id: str
+    current_run_checkpoint: str | None = None
+    run_id: str
+    scope: MutationScopeIdentity
+    snapshot_version: Annotated[int, Field(ge=0)]
+    version: Annotated[int, Field(ge=0)]
+    work_item_id: str
+
+
 class RunCompletionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    completed_checkpoint: CompletedTextInput | None = None
     run_id: str
     schema_version: Annotated[int, Field(ge=0)]
     usage: RunUsage | None = None
@@ -20352,6 +20423,7 @@ class RunCompletionPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     batch_id: str
+    completed_checkpoint: InlineCheckpointRef | None = None
     completion: RunCompletionInput
     error_ref: str | None = None
     outcome: str
@@ -20390,6 +20462,15 @@ class RunEvent(BaseModel):
     work_item_id: str
 
 
+class RunSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fencing_token: Annotated[int, Field(ge=0)]
+    lease_epoch: Annotated[int, Field(ge=0)]
+    version: Annotated[int, Field(ge=0)]
+    worker_id: str
+
+
 class RunUsage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -20404,6 +20485,8 @@ class RunWorkItemView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     admission: SubmitWorkItemRequest
+    checkpoint_selection: RunCheckpointSelection | None = None
+    completed_checkpoint: str | None = None
     run_completion: CommittedRunCompletion | None = None
     work_item: WorkItemView
 
@@ -25577,6 +25660,9 @@ GetContentVersionResult = ContentVersion | None
 GetControlLeaseResult = ControlLeaseView | None
 
 
+GetConversationHeadResult = ConversationHeadView | None
+
+
 GetCurrentPlanResult = CurrentPlanSnapshot | None
 
 
@@ -26907,7 +26993,6 @@ __all__ = [
     "ClaimSource",
     "ClaimWorkItemRequest",
     "ClaimWorkItemRequestSchemaVersion",
-    "ClaimWorkItemResult",
     "ClaimWorkItemResultReason",
     "ClaimWorkItemResultSchemaVersion",
     "ClaimedAnalyticsJob",
@@ -26958,6 +27043,8 @@ __all__ = [
     "CommunityQualityFunction",
     "CommunityRow",
     "CompactNodesResult",
+    "CompletedTextAdmission",
+    "CompletedTextInput",
     "ComponentContribution",
     "ComponentDependency",
     "ComponentProvenance",
@@ -27031,6 +27118,7 @@ __all__ = [
     "ControlLeaseView",
     "ControlSetting",
     "ConvergenceGate",
+    "ConversationHeadView",
     "ConversationTurnAdmission",
     "CostBudget",
     "CostFacts",
@@ -27552,6 +27640,7 @@ __all__ = [
     "GetChannelMessagesResult",
     "GetContentVersionResult",
     "GetControlLeaseResult",
+    "GetConversationHeadResult",
     "GetCurrentPlanResult",
     "GetEdgePropertiesBatchResult",
     "GetEdgesPageResult",
@@ -27789,6 +27878,7 @@ __all__ = [
     "IndicatorValueTrail",
     "IndicatorValueWarming",
     "InitializeRequest",
+    "InlineCheckpointRef",
     "InputsBlob",
     "InsiderAnalysis",
     "InsiderEquilibrium",
@@ -28442,6 +28532,8 @@ __all__ = [
     "MethodGetContextViewParams",
     "MethodGetControlLease",
     "MethodGetControlLeaseParams",
+    "MethodGetConversationHead",
+    "MethodGetConversationHeadParams",
     "MethodGetCurrentPlan",
     "MethodGetCurrentPlanParams",
     "MethodGetEdgeProperties",
@@ -28977,6 +29069,7 @@ __all__ = [
     "MutationStateDescriptor",
     "MutationSurface",
     "NamedEvaluator",
+    "NativeClaimWorkItemResult",
     "NativeControlSchemaVersion",
     "NativeOutboxScope",
     "NativeOutboxScopeSemanticBinding",
@@ -29513,9 +29606,11 @@ __all__ = [
     "RuleReasonResponseSameAsItem",
     "RunCheckpointPublished",
     "RunCheckpointRead",
+    "RunCheckpointSelection",
     "RunCompletionInput",
     "RunCompletionPayload",
     "RunEvent",
+    "RunSelectionRequest",
     "RunUsage",
     "RunWorkItemView",
     "SabrFit",

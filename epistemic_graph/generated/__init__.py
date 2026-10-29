@@ -318,6 +318,7 @@ SEND_BY_METHOD = {
     "GetContentVersion": query.send_get_content_version,
     "GetContextView": query.send_get_context_view,
     "GetControlLease": coordination.send_get_control_lease,
+    "GetConversationHead": coordination.send_get_conversation_head,
     "GetCurrentPlan": coordination.send_get_current_plan,
     "GetEdgeProperties": graph.send_get_edge_properties,
     "GetEdgePropertiesBatch": graph.send_get_edge_properties_batch,

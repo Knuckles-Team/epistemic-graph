@@ -137,9 +137,8 @@ validate their consistency.
 
 Diagnostic and unserved-helper prefixes are not additional wire codes.
 The census follows a conservative function/method-reference graph from
-Response-returning functions
-and Response::err boundaries, includes macro literals, and excludes typed
-StatisticalErrorCode diagnostic arguments. Inline cfg(test) modules are excluded
+Response-returning functions and Response::err boundaries. It includes macro
+literals and excludes typed StatisticalErrorCode diagnostic arguments. Inline cfg(test) modules are excluded
 structurally. Regressions retain production before and after test modules,
 feature-gated production, called helpers and formatted refusal strings, while
 excluding an uncalled helper and typed diagnostic text.
@@ -632,3 +631,13 @@ Resource benchmarks, complete served image admission, installed session usage an
 Main `28ceffdbcff7042f266aa7b8be999d89635a4e7d` adds `NlQueryExplain`, the canonical task-plan feature-schema export and connector ontology parents. This necessary union retains those sources and the four existing feature slices. Its exact method inventory is 476, not the historical 475 above.
 
 The initial union's 2,405 passing native tests and reviewed generated artifacts remain evidence for their recorded source only. All 74 canonical outputs, both codec copies and the artifact ledger now retain exact current-main bytes as explicitly stale placeholders. No receipt or codec hash is combined by hand. Fresh current-union generation and native, client and parity gates must qualify this composition. The installed, served and resource residuals above remain open.
+
+## Bounded Python union rendering (2026-10-29)
+
+EG-CONTRACT-R001: aliases larger than 32 variants use balanced PEP 604 trees
+instead of left-deep expressions. Ordered variants, discriminators, validators
+and schemas remain unchanged. Native renderer regressions cover the threshold
+and 493-member inventory; Python regressions consume the actual generated alias
+in the declared Python test environment. No scanner exclusions, recursion-limit
+changes or dependency additions are permitted. Fresh genuine generation and
+hosted native, Python and scanner gates remain required.

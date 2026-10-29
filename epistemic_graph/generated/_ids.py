@@ -200,6 +200,7 @@ METHOD_IDS = frozenset(
         "GetRunCheckpoint",
         "GetCurrentPlan",
         "GetRunWorkItem",
+        "GetConversationHead",
         "GetSessionUsage",
         "GetWorkItem",
         "ListWorkItems",
