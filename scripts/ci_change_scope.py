@@ -96,6 +96,12 @@ PATH_GATES: dict[str, tuple[str, ...]] = {
         "scripts/fetch_whisper_test_fixture.sh",
         *_TOOLCHAIN_PATHS,
     ),
+    "ontology": (
+        "crates/eg-core/ontology/",
+        "src/server/graph_schema/",
+        "src/server/graph_schema.rs",
+        *_TOOLCHAIN_PATHS,
+    ),
     "tts": (
         "crates/eg-tts-piper/",
         "crates/eg-audio/",

@@ -266,16 +266,16 @@ fn library_file_and_artist_terms_present() {
         "inLibrary ranges to MediaLibrary"
     );
     // `sizeBytes` is a shared term owned by the data-platform module; the media
-    // module reuses it and only extends its domain to `:MediaFile`.
+    // module adds the module-local sub-property `:mediaFileSizeBytes` for `:MediaFile`.
     assert_typed(&load(DATAPLATFORM), "sizeBytes", "DatatypeProperty");
     assert!(
         has_iri(
             &triples,
-            &format!("{KG}sizeBytes"),
+            &format!("{KG}mediaFileSizeBytes"),
             &format!("{RDFS}domain"),
             &format!("{KG}MediaFile")
         ),
-        "the media module extends sizeBytes to :MediaFile"
+        "the media module constrains its own sizeBytes sub-property to :MediaFile"
     );
     for property in ["container", "contentSha256", "md5", "sha1", "crc32"] {
         assert_typed(&triples, property, "DatatypeProperty");
