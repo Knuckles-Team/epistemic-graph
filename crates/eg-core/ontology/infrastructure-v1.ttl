@@ -756,3 +756,37 @@ BFO:GenericallyDependentContinuant — an information entity.""" ;
     rdfs:comment "When a Home-Assistant :Entity last went unavailable (the start of its current unavailable window)." ;
     rdfs:domain :Entity ;
     rdfs:range xsd:dateTime .
+
+:AutomationJobTemplate a owl:Class ;
+    rdfs:label "Automation Job Template" ;
+    rdfs:comment "An Ansible Tower job template: the reusable definition an :AutomationJob instantiates when it runs (Ansible Tower 'job template')." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:AutomationJob a owl:Class ;
+    rdfs:label "Automation Job" ;
+    rdfs:comment "One Ansible Tower job run: a :Process instance of an :AutomationJobTemplate against an inventory host. BFO:Process — unfolds over time." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:jobStatus a owl:DatatypeProperty ;
+    rdfs:label "job status" ;
+    rdfs:comment "The status string of an Ansible Tower :AutomationJob run (successful, failed, running, canceled)." ;
+    rdfs:domain :AutomationJob ;
+    rdfs:range xsd:string .
+
+:ranAgainstHost a owl:ObjectProperty ;
+    rdfs:label "ran against host" ;
+    rdfs:comment "Links an Ansible Tower :AutomationJob run to the inventory :Host it ran against." ;
+    rdfs:domain :AutomationJob ;
+    rdfs:range :Host .
+
+:jobFromTemplate a owl:ObjectProperty ;
+    rdfs:label "job from template" ;
+    rdfs:comment "Links an :AutomationJob run to the :AutomationJobTemplate it instantiated." ;
+    rdfs:domain :AutomationJob ;
+    rdfs:range :AutomationJobTemplate .
+
+:startedAt a owl:DatatypeProperty ;
+    rdfs:label "started at" ;
+    rdfs:comment "When an :AutomationJob run started (its launch timestamp, used to order a template's runs)." ;
+    rdfs:domain :AutomationJob ;
+    rdfs:range xsd:dateTime .
