@@ -29203,6 +29203,14 @@
           "RemoveRole": {
             "dynamic": null,
             "encoding": "String"
+          },
+          "ShareGrant": {
+            "dynamic": null,
+            "encoding": "String"
+          },
+          "ShareRevoke": {
+            "dynamic": null,
+            "encoding": "String"
           }
         },
         "kind": "declared",

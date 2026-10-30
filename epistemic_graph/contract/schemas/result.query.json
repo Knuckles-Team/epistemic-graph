@@ -46488,6 +46488,56 @@
           "const": "List",
           "description": "Read-only: list the current roles + grants.",
           "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Share one node at `scope` with `grantees` (EG-IDENTITY-R023.13.1).",
+          "properties": {
+            "ShareGrant": {
+              "properties": {
+                "grantees": {
+                  "$ref": "#/$defs/ShareGrantees"
+                },
+                "node_id": {
+                  "type": "string"
+                },
+                "scope": {
+                  "$ref": "#/$defs/ShareScope"
+                }
+              },
+              "required": [
+                "node_id",
+                "scope",
+                "grantees"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ShareGrant"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Revoke a node's share: it returns to `private` (EG-IDENTITY-R023.13.1).",
+          "properties": {
+            "ShareRevoke": {
+              "properties": {
+                "node_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "node_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ShareRevoke"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -52495,6 +52545,22 @@
           "type": "string"
         }
       ]
+    },
+    "ShareGrantees": {
+      "description": "Interned principal ids a share names; at most [`MAX_SHARE_GRANTEES`].\nThe bound holds on construction and on deserialisation.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "ShareScope": {
+      "description": "Closed share scopes for a node (EG-IDENTITY-R023.13.1). An unknown scope\nis refused at deserialisation.",
+      "enum": [
+        "private",
+        "org",
+        "commons"
+      ],
+      "type": "string"
     },
     "SharedCap": {
       "additionalProperties": false,

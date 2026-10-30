@@ -2412,6 +2412,20 @@
           "schema": {
             "type": "string"
           }
+        },
+        "ShareGrant": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        },
+        "ShareRevoke": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
         }
       },
       "selected_by": "op"
