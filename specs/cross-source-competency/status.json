@@ -95,9 +95,13 @@
     {
       "id": "EG-CQ-XSRC-R001.2",
       "title": "SHACL shape: a `vg:SourceAuthority` names exactly one connected source, one class and one rank",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-shacl/tests/source_authority_shapes.rs:184"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R001.3",
@@ -166,23 +170,35 @@
     {
       "id": "EG-CQ-XSRC-R002.4",
       "title": "SHACL shape for supplier and component",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:2054"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R002.5",
       "title": "Source-authority mapping: suppliers and purchase items",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:452"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R002.6",
       "title": "Source-authority mapping: software components and vulnerabilities",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:463"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R002.7",
@@ -208,23 +224,35 @@
     {
       "id": "EG-CQ-XSRC-R003.1",
       "title": "Source-authority mapping: `:Service` health",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:477"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R003.2",
       "title": "Source-authority mapping: deployed workloads and images",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:487"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R003.3",
       "title": "Source-authority mapping: business capabilities",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:501"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R003.4",
@@ -270,9 +298,13 @@
     {
       "id": "EG-CQ-XSRC-R004.2",
       "title": "SHACL shape: `:usesComponent` domain and range",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:2077"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R004.3",
@@ -334,7 +366,7 @@
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:207"
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:226"
       ]
     },
     {
@@ -345,7 +377,7 @@
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:221"
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:240"
       ]
     },
     {
@@ -402,9 +434,13 @@
     {
       "id": "EG-CQ-XSRC-R006.3",
       "title": "Report abstention variants",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/supply_chain_impact.rs:154"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R006.4",
@@ -504,7 +540,7 @@
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:279"
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:298"
       ]
     },
     {
@@ -553,7 +589,7 @@
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:322"
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:341"
       ]
     },
     {
@@ -591,9 +627,13 @@
     {
       "id": "EG-CQ-XSRC-R008.3.2",
       "title": "SHACL shape: a contract names a customer and at least one service",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1b8fc286ec6b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/supply_chain_vocab.rs:2096"
+      ]
     },
     {
       "id": "EG-CQ-XSRC-R008.3.3",
@@ -603,7 +643,7 @@
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:355"
+        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:374"
       ]
     },
     {
