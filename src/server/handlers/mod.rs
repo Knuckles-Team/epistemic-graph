@@ -63,6 +63,9 @@ pub(crate) mod mutation_outbox;
 // RF-ADR-009 D18 — EG-owned governed source change sets and receipts.
 #[cfg(feature = "redb")]
 pub(crate) mod write_back;
+// EG-SCM — served source changesets on the branch chain.
+#[cfg(feature = "redb")]
+pub(crate) mod source_changeset;
 // The general bounded 0-1 integer programme.
 pub(crate) mod solve;
 // Read-only query surface: SQL (CONCEPT:EG-KG.query.read-only-sql-query, DataFusion behind `query`),

@@ -12,6 +12,7 @@ pub(super) async fn dispatch_decision_plane_methods(
 ) -> ControlFlow<Response, Method> {
     let method = dispatch_decision_methods(ctx, method).await?;
     let method = dispatch_write_back_method(ctx, method).await?;
+    let method = dispatch_source_changeset_method(ctx, method).await?;
     dispatch_catalog_admin_methods(ctx, method).await
 }
 
@@ -43,6 +44,38 @@ async fn dispatch_write_back_method(
         ControlFlow::Break(Response::err(
             ctx.req.id,
             "write-back requires the `redb` feature",
+        ))
+    }
+}
+
+async fn dispatch_source_changeset_method(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let Method::SourceChangeset { op } = method else {
+        return ControlFlow::Continue(method);
+    };
+    #[cfg(feature = "redb")]
+    {
+        ControlFlow::Break(
+            dispatch_boxed(async {
+                handlers::source_changeset::handle_source_changeset(
+                    ctx.state,
+                    ctx.req.id,
+                    ctx.verified_context,
+                    *op,
+                )
+                .await
+            })
+            .await,
+        )
+    }
+    #[cfg(not(feature = "redb"))]
+    {
+        let _ = (ctx.state, ctx.verified_context, op);
+        ControlFlow::Break(Response::err(
+            ctx.req.id,
+            "source changesets require the `redb` feature",
         ))
     }
 }

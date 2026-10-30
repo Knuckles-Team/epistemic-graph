@@ -502,6 +502,14 @@ fn connector_family_policy(method: &Method) -> Option<MethodPolicy> {
     if let Method::WriteBack { op } = method {
         return Some(write_back_policy(op));
     }
+    if let Method::SourceChangeset { op } = method {
+        return Some(native_owner_policy(
+            op.is_mutation(),
+            DurabilityDomain::ControlRedb,
+            op.authz_action(),
+            TxnParticipation::Atomic,
+        ));
+    }
     None
 }
 

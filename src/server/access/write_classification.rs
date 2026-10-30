@@ -107,6 +107,7 @@ fn requires_write_decision_surface(method: &Method) -> Option<bool> {
 fn requires_write_back_surface(method: &Method) -> Option<bool> {
     match method {
         Method::WriteBack { op } => Some(op.is_mutation()),
+        Method::SourceChangeset { op } => Some(op.is_mutation()),
         _ => None,
     }
 }

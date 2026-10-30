@@ -2969,6 +2969,105 @@
       ],
       "type": "object"
     },
+    "ChangedPath": {
+      "additionalProperties": false,
+      "description": "One path that changed against the first parent.",
+      "properties": {
+        "mode": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "new_blob": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_blob": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/$defs/PathOp"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "op",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "Changeset": {
+      "additionalProperties": false,
+      "description": "A changeset: the paths that changed against the first parent.",
+      "properties": {
+        "author_principal": {
+          "type": "string"
+        },
+        "changed_paths": {
+          "items": {
+            "$ref": "#/$defs/ChangedPath"
+          },
+          "type": "array"
+        },
+        "created_at": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "parents": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "trailers": {
+          "$ref": "#/$defs/Trailers"
+        }
+      },
+      "required": [
+        "id",
+        "repo",
+        "parents",
+        "author_principal",
+        "message",
+        "changed_paths",
+        "created_at",
+        "trailers"
+      ],
+      "type": "object"
+    },
+    "ChangesetState": {
+      "description": "Where a changeset is in its life.",
+      "oneOf": [
+        {
+          "const": "proposed",
+          "description": "Submitted, not on the branch chain yet.",
+          "type": "string"
+        },
+        {
+          "const": "landed",
+          "description": "On the branch chain at `landed_sequence`.",
+          "type": "string"
+        }
+      ]
+    },
     "ClaimProvenance": {
       "additionalProperties": false,
       "description": "How a free-text task was mapped onto native task IRIs, and by what.\n\nA mapping is a CLAIM, never a proof: it is recorded with its producer so a\nrecord that leans on one is classified by its weakest premise.",
@@ -4375,6 +4474,55 @@
       ],
       "type": "string"
     },
+    "GateOutcome": {
+      "description": "A gate outcome.",
+      "enum": [
+        "pass",
+        "fail"
+      ],
+      "type": "string"
+    },
+    "GateVerdict": {
+      "additionalProperties": false,
+      "description": "One sealed gate verdict against one changeset.",
+      "properties": {
+        "duration_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "evidence_digest": {
+          "type": "string"
+        },
+        "gate_id": {
+          "type": "string"
+        },
+        "input_digest": {
+          "type": "string"
+        },
+        "recorded_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recorded_by": {
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/GateOutcome"
+        }
+      },
+      "required": [
+        "gate_id",
+        "input_digest",
+        "verdict",
+        "evidence_digest",
+        "duration_ms",
+        "recorded_by",
+        "recorded_at_ms"
+      ],
+      "type": "object"
+    },
     "GuardrailEntailmentResult": {
       "additionalProperties": false,
       "description": "Advisory rules and the native ontology under which their paths were derived.\nEnforcement stays with the owning policy gate.",
@@ -5600,6 +5748,16 @@
       ],
       "type": "string"
     },
+    "PathOp": {
+      "description": "What a changeset did to one path.",
+      "enum": [
+        "add",
+        "modify",
+        "delete",
+        "rename"
+      ],
+      "type": "string"
+    },
     "PremiseClass": {
       "description": "How strong one premise is.",
       "oneOf": [
@@ -6718,6 +6876,37 @@
       ],
       "type": "object"
     },
+    "SourceBranchHead": {
+      "additionalProperties": false,
+      "description": "The head of one branch chain.",
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "head": {
+          "description": "Id of the newest landed changeset.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repo": {
+          "type": "string"
+        },
+        "sequence": {
+          "description": "Number of landed changesets; 0 for an empty branch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "repo",
+        "branch",
+        "sequence"
+      ],
+      "type": "object"
+    },
     "SourceChangeSet": {
       "additionalProperties": false,
       "properties": {
@@ -6815,6 +7004,75 @@
         "idempotency_key",
         "expires_at_ms",
         "reconciliation_procedure"
+      ],
+      "type": "object"
+    },
+    "SourceChangesetRecord": {
+      "additionalProperties": false,
+      "description": "The durable record of one changeset on one branch.",
+      "properties": {
+        "agent_id": {
+          "description": "The verified agent identity that submitted the changeset.",
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "changeset": {
+          "$ref": "#/$defs/Changeset"
+        },
+        "landed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "landed_sequence": {
+          "description": "Position on the branch chain, 1-based, once landed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "revert_of": {
+          "description": "The landed changeset this one reverts.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_trace_id": {
+          "description": "The RunTrace that produced the changeset. Required for an agent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/ChangesetState"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "verdicts": {
+          "description": "Sealed verdicts, keyed by gate id in id order.",
+          "items": {
+            "$ref": "#/$defs/GateVerdict"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "branch",
+        "changeset",
+        "agent_id",
+        "state",
+        "verdicts"
       ],
       "type": "object"
     },
@@ -7666,6 +7924,42 @@
         "final_output"
       ],
       "type": "string"
+    },
+    "Trailers": {
+      "additionalProperties": false,
+      "description": "The structured form of the `Spec:`, `Fixes:` and `Spec-Withdraw:` trailers.",
+      "properties": {
+        "fixes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "spec_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "withdraw": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "withdraw_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "spec_ids",
+        "fixes",
+        "withdraw"
+      ],
+      "type": "object"
     },
     "UnitRationalWire": {
       "additionalProperties": false,
@@ -8910,6 +9204,60 @@
         }
       },
       "selected_by": null
+    },
+    "SourceChangeset": {
+      "bodies": {
+        "get": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SourceChangesetRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "head": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceBranchHead"
+          }
+        },
+        "land": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceChangesetRecord"
+          }
+        },
+        "record_verdict": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceChangesetRecord"
+          }
+        },
+        "revert": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceChangesetRecord"
+          }
+        },
+        "submit": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceChangesetRecord"
+          }
+        }
+      },
+      "selected_by": "op"
     },
     "SqlSourceBatch": {
       "bodies": {

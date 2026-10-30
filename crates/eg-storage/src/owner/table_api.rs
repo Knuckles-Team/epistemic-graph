@@ -109,6 +109,9 @@ declared_owner_tables!(
     WriteBackIdempotencyRows: AgentLibraryOwner => ((String, String), Vec<u8>, "write_back_idempotency"),
     WriteBackReceiptRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "write_back_receipts"),
     WriteBackReceiptHeadRows: AgentLibraryOwner => ((String, String), u64, "write_back_receipt_heads"),
+    SourceChangesetRows: AgentLibraryOwner => ((String, String), Vec<u8>, "source_changesets"),
+    SourceChainRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "source_chain"),
+    SourceChainHeadRows: AgentLibraryOwner => ((String, String), u64, "source_chain_heads"),
 );
 
 /// Closed dispatch over the declared owner tables. The `unreachable!` arm is a
@@ -190,7 +193,10 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "write_back_change_sets"
         | "write_back_idempotency"
         | "write_back_receipts"
-        | "write_back_receipt_heads" => OwnerTableAccess::DomainService,
+        | "write_back_receipt_heads"
+        | "source_changesets"
+        | "source_chain"
+        | "source_chain_heads" => OwnerTableAccess::DomainService,
         name if name.starts_with("__sql_") => OwnerTableAccess::DomainService,
         // Every graph-shard table is reached through the shard's own admitted
         // owner write, never as a shared service: one shard file is one

@@ -649,6 +649,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // which carries its own domain.
         | Method::TelemetryDerive { .. }
         | Method::WriteBack { .. }
+        | Method::SourceChangeset { .. }
         | Method::DecisionFit { .. }
         | Method::DecisionEval { .. }
         | Method::DecisionLog { .. }

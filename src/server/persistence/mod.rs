@@ -53,6 +53,8 @@ pub mod guardrail_rule;
 pub mod fleet_components;
 #[cfg(feature = "redb")]
 pub mod write_back;
+#[cfg(feature = "redb")]
+pub mod source_changeset;
 
 #[cfg(feature = "redb")]
 pub mod redb_backend;

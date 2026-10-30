@@ -45,6 +45,9 @@ from .decision import (
 from .decision_commit import (
     DecisionCommitResult,
 )
+from .source_changeset import (
+    SourceChangesetOp,
+)
 from .write_back import (
     WriteBackOp,
 )
@@ -1034,6 +1037,61 @@ async def send_write_back(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("WriteBack", payload)
+
+
+class SourceChangesetRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        SourceChangeset
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/SourceChangeset
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: SourceChangesetOp
+
+
+async def send_source_changeset(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        SourceChangeset
+    Authorization:
+        source:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/SourceChangeset
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    SourceChangesetRequest.model_validate(params or {})
+    payload = await client._send(
+        "SourceChangeset",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("SourceChangeset", payload)
 
 
 async def send_ts_append(

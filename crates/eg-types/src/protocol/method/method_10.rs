@@ -124,6 +124,11 @@ $($variants)*
     WriteBack {
         op: Box<crate::write_back::WriteBackOp>,
     },
+    /// EG-SCM source changesets: submit, seal a gate verdict, land, revert
+    /// and read one repository branch chain.
+    SourceChangeset {
+        op: Box<crate::source_changeset::SourceChangesetOp>,
+    },
 
     // ── Graph schema sources and the mutation outbox (X9, X10) ─────────────
     /// Attach, replace or detach one keyed schema source on the request graph.

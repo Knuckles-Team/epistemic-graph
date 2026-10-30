@@ -413,6 +413,7 @@ See [governed modality serving](architecture/modality_serving.md).
 | Shared multi-instance KV backend (content-addressed, dedup, ref-count; lookup/publish by token-hash) | ✅ | `SharedKvBackend` (CONCEPT:EG-KG.enrichment.content-address-separation) |
 | HTTP endpoint (GET/PUT/EXISTS a block by token-hash + stats) + vLLM/LMCache remote-backend connector contract | ✅ | `kvcache-server`, in the main build (CONCEPT:EG-KG.backend.is-configured-so-co) |
 | Governed connector write-back change sets and append-only attempt/reconciliation receipts | ✅ | `Method::WriteBack`; [architecture contract](architecture/write_back.md) |
+| Source changesets on an append-only branch chain: submit, sealed gate verdicts, lock-free landing of disjoint paths with a typed conflict, revert | ✅ | `Method::SourceChangeset` (EG-SCM) |
 
 ## OBDA / virtual graphs (`federation` + `eg-rdf`)
 

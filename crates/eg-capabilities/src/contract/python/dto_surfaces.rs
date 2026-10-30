@@ -116,6 +116,14 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
         constants: &[],
     },
     DtoSurface {
+        method: "SourceChangeset",
+        module: "source_changeset",
+        roots: &["SourceChangesetOp", "SourceChangesetRecord", "SourceBranchHead"],
+        result_model: None,
+        required: true,
+        constants: &[],
+    },
+    DtoSurface {
         method: "ConnectorPack",
         module: "connector_pack",
         roots: &[

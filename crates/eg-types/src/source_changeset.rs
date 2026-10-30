@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// What a changeset did to one path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PathOp {
     Add,
@@ -18,6 +19,7 @@ pub enum PathOp {
 
 /// One path that changed against the first parent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ChangedPath {
     pub path: String,
@@ -29,6 +31,7 @@ pub struct ChangedPath {
 
 /// The structured form of the `Spec:`, `Fixes:` and `Spec-Withdraw:` trailers.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Trailers {
     pub spec_ids: Vec<String>,
@@ -101,6 +104,7 @@ impl Trailers {
 
 /// A changeset: the paths that changed against the first parent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Changeset {
     pub id: String,
@@ -112,6 +116,9 @@ pub struct Changeset {
     pub created_at: u64,
     pub trailers: Trailers,
 }
+
+mod chain;
+pub use chain::*;
 
 #[cfg(test)]
 mod tests {

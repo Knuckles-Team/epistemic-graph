@@ -27,6 +27,7 @@ use crate::storage_wire::{
     BackupReceipt, KvCasOutcome, KvEntry, KvScanPage, KvWriteReceipt, RestoreReceipt,
     SqliteExportReport, SqliteImportReport,
 };
+use crate::source_changeset::{SourceBranchHead, SourceChangesetRecord};
 use crate::write_back::{
     ReconciliationReceipt, SourceChangeSet, WriteBackReceipt, WriteBackReceiptPage,
 };
@@ -120,6 +121,12 @@ method_results! {
     WriteBackRecordAttempt(WriteBack / "record_attempt") => Raw<WriteBackReceipt>;
     WriteBackRecordReconciliation(WriteBack / "record_reconciliation") => Raw<ReconciliationReceipt>;
     WriteBackReceipts(WriteBack / "receipts") => Raw<WriteBackReceiptPage>;
+    SourceChangesetSubmit(SourceChangeset / "submit") => Raw<SourceChangesetRecord>;
+    SourceChangesetRecordVerdict(SourceChangeset / "record_verdict") => Raw<SourceChangesetRecord>;
+    SourceChangesetLand(SourceChangeset / "land") => Raw<SourceChangesetRecord>;
+    SourceChangesetRevert(SourceChangeset / "revert") => Raw<SourceChangesetRecord>;
+    SourceChangesetGet(SourceChangeset / "get") => Raw<Option<SourceChangesetRecord>>;
+    SourceChangesetHead(SourceChangeset / "head") => Raw<SourceBranchHead>;
     ImportSqliteFile(ImportSqliteFile) => Json<SqliteImportReport>;
     ExportSqliteFile(ExportSqliteFile) => Json<SqliteExportReport>;
 }

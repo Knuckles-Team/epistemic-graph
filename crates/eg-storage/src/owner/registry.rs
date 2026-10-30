@@ -296,6 +296,15 @@ pub const WRITE_BACK_RECEIPTS: TableDefinition<'static, (&str, &str, u64), &[u8]
 /// Next append position for one change set's receipt stream.
 pub const WRITE_BACK_RECEIPT_HEADS: TableDefinition<'static, (&str, &str), u64> =
     TableDefinition::new("write_back_receipt_heads");
+/// EG-SCM source changeset records per tenant and changeset id.
+pub const SOURCE_CHANGESETS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("source_changesets");
+/// EG-SCM append-only branch chains: landed changeset id per position.
+pub const SOURCE_CHAIN: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+    TableDefinition::new("source_chain");
+/// EG-SCM branch chain heads: the last landed position per branch.
+pub const SOURCE_CHAIN_HEADS: TableDefinition<'static, (&str, &str), u64> =
+    TableDefinition::new("source_chain_heads");
 
 macro_rules! visit_owner_tables {
     ($layout:expr, $visit:ident) => {{
@@ -416,6 +425,9 @@ macro_rules! visit_owner_tables {
                 $visit!(WRITE_BACK_IDEMPOTENCY);
                 $visit!(WRITE_BACK_RECEIPTS);
                 $visit!(WRITE_BACK_RECEIPT_HEADS);
+                $visit!(SOURCE_CHANGESETS);
+                $visit!(SOURCE_CHAIN);
+                $visit!(SOURCE_CHAIN_HEADS);
             }
         }
     }};
@@ -753,6 +765,9 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "write_back_idempotency",
             "write_back_receipts",
             "write_back_receipt_heads",
+            "source_changesets",
+            "source_chain",
+            "source_chain_heads",
         ],
     }
 }

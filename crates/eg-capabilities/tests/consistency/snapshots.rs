@@ -136,6 +136,7 @@ pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "EdgeIndex",
     "MutationOutbox",
     "WriteBack",
+    "SourceChangeset",
     // EH-280: only a scoped (branch-aware) batch commits its projection.
     "IndexRepository",
     // Publish/Retire write; Current/History/Status remain authenticated reads.
@@ -527,6 +528,7 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "CleanupDevelopmentLane",
     "UpdateDevelopmentLaneQuota",
     "WriteBack",
+    "SourceChangeset",
     #[cfg(feature = "modality-serving")]
     "ServedModality",
     // Served KV mutations (EG-DURABLE-KERNEL-R102).

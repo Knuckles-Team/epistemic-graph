@@ -642,6 +642,7 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
     "AgentTemplate",
     "ConnectorPack",
     "WriteBack",
+    "SourceChangeset",
     "DecisionCommit",
     "DecisionEval",
     "DecisionFit",
@@ -687,6 +688,7 @@ fn native_local_only_decision_method_name(m: &Method) -> Option<&'static str> {
 fn write_back_method_name(m: &Method) -> Option<&'static str> {
     match m {
         Method::WriteBack { .. } => Some("WriteBack"),
+        Method::SourceChangeset { .. } => Some("SourceChangeset"),
         _ => None,
     }
 }

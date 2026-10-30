@@ -226,9 +226,13 @@ fn connector_owner_key_type(name: &str) -> Option<&'static str> {
         | "decision_records"
         | "write_back_change_sets"
         | "write_back_idempotency"
-        | "write_back_receipt_heads" => Some("(&str,&str)"),
+        | "write_back_receipt_heads"
+        | "source_changesets"
+        | "source_chain_heads" => Some("(&str,&str)"),
         "connector_pack_members" | "mcp_catalog_scopes" => Some("(&str,&str,&str)"),
-        "connector_pack_imports" | "write_back_receipts" => Some("(&str,&str,u64)"),
+        "connector_pack_imports" | "write_back_receipts" | "source_chain" => {
+            Some("(&str,&str,u64)")
+        }
         "connector_pack_body_holders" => Some("(&str,&str,&str,u64)"),
         _ => None,
     }
@@ -287,7 +291,8 @@ fn value_type_id(name: &str) -> &'static str {
         | "agent_graph_heads"
         | "agent_component_heads"
         | "agent_template_heads"
-        | "write_back_receipt_heads" => "u64",
+        | "write_back_receipt_heads"
+        | "source_chain_heads" => "u64",
         "analytics_job_active_totals_by_tenant" => "(u64,u64)",
         "mutation_outbox_topic_index"
         | "analytics_job_ready_by_priority"
@@ -367,7 +372,9 @@ fn value_type_id(name: &str) -> &'static str {
         | "decision_records"
         | "write_back_change_sets"
         | "write_back_idempotency"
-        | "write_back_receipts" => "&[u8]",
+        | "write_back_receipts"
+        | "source_changesets"
+        | "source_chain" => "&[u8]",
         name => graph_shard::value_type(name)
             .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
     }
@@ -434,7 +441,9 @@ fn ledger_and_job_codec(name: &str) -> Option<&'static str> {
         | "decision_artifacts"
         | "write_back_change_sets"
         | "write_back_idempotency"
-        | "write_back_receipts" => "msgpack-v1",
+        | "write_back_receipts"
+        | "source_changesets"
+        | "source_chain" => "msgpack-v1",
         "decision_records" => "json-utf8-v1",
         "rbac" => "json-utf8-v1",
         "kv" | "cas_chunks" => "raw-bytes-v1",
@@ -463,7 +472,8 @@ fn ledger_and_job_codec(name: &str) -> Option<&'static str> {
         | "agent_graph_heads"
         | "agent_component_heads"
         | "agent_template_heads"
-        | "write_back_receipt_heads" => "redb-scalar-v1",
+        | "write_back_receipt_heads"
+        | "source_chain_heads" => "redb-scalar-v1",
         _ => return None,
     })
 }
@@ -659,12 +669,15 @@ fn connector_capabilities(name: &str) -> Option<u16> {
         | "decision_records"
         | "write_back_change_sets"
         | "write_back_idempotency"
-        | "write_back_receipts" => CAP_READ | CAP_INSERT,
+        | "write_back_receipts"
+        | "source_chain" => CAP_READ | CAP_INSERT,
         "connector_pack_heads"
         | "connector_pack_members"
         | "mcp_catalog_configs"
         | "mcp_catalog_scopes"
         | "write_back_receipt_heads"
+        | "source_changesets"
+        | "source_chain_heads"
         | "decision_artifacts" => CAP_READ | CAP_INSERT | CAP_UPDATE,
         "connector_pack_bindings" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
         _ => return None,

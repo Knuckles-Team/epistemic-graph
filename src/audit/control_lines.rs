@@ -199,6 +199,11 @@ fn source_control_audit_line(method: &Method) -> Option<String> {
             op.tenant_id(),
             write_back_operation(op)
         )),
+        Method::SourceChangeset { op } => Some(format!(
+            "SOURCE_CHANGESET|{}|{}",
+            op.tenant_id(),
+            op.name()
+        )),
         _ => None,
     }
 }

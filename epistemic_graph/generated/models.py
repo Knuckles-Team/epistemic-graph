@@ -602,6 +602,25 @@ from .solve import (
     SolveRequest,
     SolveResult,
 )
+from .source_changeset import (
+    ChangedPath,
+    Changeset,
+    ChangesetState,
+    ChangesetSubmission,
+    GateOutcome,
+    GateVerdict,
+    PathOp,
+    SourceBranchHead,
+    SourceChangesetOp,
+    SourceChangesetOpGet,
+    SourceChangesetOpHead,
+    SourceChangesetOpLand,
+    SourceChangesetOpRecordVerdict,
+    SourceChangesetOpRevert,
+    SourceChangesetOpSubmit,
+    SourceChangesetRecord,
+    Trailers,
+)
 from .source_ingestion import (
     BoundedVec_RawAdmissionReceipt_1024,
     BoundedVec_RawRelationshipAdmissionReceipt_4096,
@@ -12470,6 +12489,13 @@ class MethodWriteBack(BaseModel):
     params: MethodWriteBackParams
 
 
+class MethodSourceChangeset(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["SourceChangeset"]
+    params: MethodSourceChangesetParams
+
+
 class MethodGraphSchema(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13172,6 +13198,7 @@ Method = Annotated[
     | MethodSourceIngest
     | MethodSourceIngestStatus
     | MethodWriteBack
+    | MethodSourceChangeset
     | MethodGraphSchema
     | MethodGraphSchemaList
     | MethodGraphSchemaClasses
@@ -16281,6 +16308,12 @@ class MethodSolveParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: SolveRequest
+
+
+class MethodSourceChangesetParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: SourceChangesetOp
 
 
 class MethodSourceIngestParams(BaseModel):
@@ -26969,6 +27002,10 @@ __all__ = [
     "ChangeEnvelopeRecord",
     "ChangeMutationDraft",
     "ChangedBeliefWire",
+    "ChangedPath",
+    "Changeset",
+    "ChangesetState",
+    "ChangesetSubmission",
     "ChannelCreated",
     "ChannelDeparture",
     "ChannelDepartureStatus",
@@ -27623,6 +27660,8 @@ __all__ = [
     "GapUpserted",
     "GapView",
     "GapWorkSpec",
+    "GateOutcome",
+    "GateVerdict",
     "GenerationEvalItem",
     "GenerationEvalRequest",
     "GenerationReceipt",
@@ -28887,6 +28926,8 @@ __all__ = [
     "MethodShutdown",
     "MethodSolve",
     "MethodSolveParams",
+    "MethodSourceChangeset",
+    "MethodSourceChangesetParams",
     "MethodSourceIngest",
     "MethodSourceIngestParams",
     "MethodSourceIngestStatus",
@@ -29271,6 +29312,7 @@ __all__ = [
     "PasswordResetIssue",
     "PasswordSet",
     "PathEdge",
+    "PathOp",
     "PathRank",
     "PatternEdge",
     "PenaltyPolicy",
@@ -29904,7 +29946,16 @@ __all__ = [
     "SolverConfig",
     "SolverConfigSpec",
     "SolverIdentity",
+    "SourceBranchHead",
     "SourceChangeSet",
+    "SourceChangesetOp",
+    "SourceChangesetOpGet",
+    "SourceChangesetOpHead",
+    "SourceChangesetOpLand",
+    "SourceChangesetOpRecordVerdict",
+    "SourceChangesetOpRevert",
+    "SourceChangesetOpSubmit",
+    "SourceChangesetRecord",
     "SourceCheckpoint",
     "SourceEntityRef",
     "SourceIngestStatus",
@@ -30105,6 +30156,7 @@ __all__ = [
     "TradingCalendar",
     "TradingCalendarExchange",
     "TradingCalendarUtc24x7",
+    "Trailers",
     "TrainTestSplitResult",
     "TrainingMethod",
     "TrainingMethodDpo",

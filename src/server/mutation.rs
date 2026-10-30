@@ -1933,6 +1933,7 @@ mod tests {
         // has process-local ordering only (see `plan::LOCAL_ONLY_METHODS`).
         ("ConnectorPack", "native MutationBatch in agent_library.redb: pack head, members, component revisions, body holders, import record, receipt and outbox in one WTX; local-only authority"),
         ("WriteBack", "native MutationBatch in agent_library.redb: immutable source change set plus append-only attempt and reconciliation receipts; local-only authority"),
+        ("SourceChangeset", "native MutationBatch in agent_library.redb: one changeset record, or one branch chain append with its head and record, per control-owner WTX; local-only authority"),
         ("DecisionCommit", "native MutationBatch in agent_library.redb: one DecisionRecord component revision, receipt and outbox in one WTX after re-derivation and catalog compare-and-set; local-only authority"),
         ("DecisionFit", "native MutationBatch in agent_library.redb: the terminal decision job row and its draft head body in one control-owner WTX; local-only authority"),
         ("DecisionEval", "native MutationBatch in agent_library.redb: the terminal evaluation job row and its receipt in one control-owner WTX; local-only authority"),

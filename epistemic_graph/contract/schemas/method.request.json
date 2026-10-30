@@ -6138,6 +6138,88 @@
       ],
       "type": "object"
     },
+    "ChangedPath": {
+      "additionalProperties": false,
+      "description": "One path that changed against the first parent.",
+      "properties": {
+        "mode": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "new_blob": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_blob": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/$defs/PathOp"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "op",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "ChangesetSubmission": {
+      "additionalProperties": false,
+      "description": "The changeset a caller submits. The engine sets the author, the time,\nthe id and the trailers.",
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "changed_paths": {
+          "items": {
+            "$ref": "#/$defs/ChangedPath"
+          },
+          "type": "array"
+        },
+        "message": {
+          "type": "string"
+        },
+        "parents": {
+          "default": [],
+          "description": "The branch head the changeset was written against; empty for the first\nchangeset of a branch.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "run_trace_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "repo",
+        "branch",
+        "message",
+        "changed_paths"
+      ],
+      "type": "object"
+    },
     "ChannelType": {
       "description": "Channel type for dynamic communication.",
       "oneOf": [
@@ -14505,6 +14587,14 @@
         "max_attempts"
       ],
       "type": "object"
+    },
+    "GateOutcome": {
+      "description": "A gate outcome.",
+      "enum": [
+        "pass",
+        "fail"
+      ],
+      "type": "string"
     },
     "GenerationEvalItem": {
       "additionalProperties": false,
@@ -37369,6 +37459,33 @@
         },
         {
           "additionalProperties": false,
+          "description": "EG-SCM source changesets: submit, seal a gate verdict, land, revert\nand read one repository branch chain.",
+          "properties": {
+            "method": {
+              "const": "SourceChangeset",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/SourceChangesetOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Attach, replace or detach one keyed schema source on the request graph.",
           "properties": {
             "method": {
@@ -41873,6 +41990,16 @@
         "max_hops"
       ],
       "type": "object"
+    },
+    "PathOp": {
+      "description": "What a changeset did to one path.",
+      "enum": [
+        "add",
+        "modify",
+        "delete",
+        "rename"
+      ],
+      "type": "string"
     },
     "PathRank": {
       "description": "How a path template orders what it reached.",
@@ -51131,6 +51258,169 @@
         "reconciliation_procedure"
       ],
       "type": "object"
+    },
+    "SourceChangesetOp": {
+      "description": "The served source changeset operations.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Record a proposed changeset (arbora `source.commit`).",
+          "properties": {
+            "op": {
+              "const": "submit",
+              "type": "string"
+            },
+            "submission": {
+              "$ref": "#/$defs/ChangesetSubmission"
+            }
+          },
+          "required": [
+            "op",
+            "submission"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Seal one gate verdict against a proposed changeset.",
+          "properties": {
+            "changeset_id": {
+              "type": "string"
+            },
+            "duration_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "evidence_digest": {
+              "type": "string"
+            },
+            "gate_id": {
+              "type": "string"
+            },
+            "input_digest": {
+              "type": "string"
+            },
+            "op": {
+              "const": "record_verdict",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            },
+            "verdict": {
+              "$ref": "#/$defs/GateOutcome"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "changeset_id",
+            "gate_id",
+            "input_digest",
+            "verdict",
+            "evidence_digest",
+            "duration_ms"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Land a proposed changeset on its branch (arbora `source.land`).",
+          "properties": {
+            "changeset_id": {
+              "type": "string"
+            },
+            "op": {
+              "const": "land",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "changeset_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Land the inverse of a landed changeset (arbora `source.revert`).",
+          "properties": {
+            "changeset_id": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "op": {
+              "const": "revert",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "changeset_id",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read one changeset record.",
+          "properties": {
+            "changeset_id": {
+              "type": "string"
+            },
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "changeset_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read one branch head.",
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
+            "op": {
+              "const": "head",
+              "type": "string"
+            },
+            "repo": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "repo",
+            "branch"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "SourceCheckpoint": {
       "additionalProperties": false,
@@ -72173,6 +72463,33 @@
           },
           "required": [
             "request"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "SourceChangeset": {
+      "additionalProperties": false,
+      "description": "EG-SCM source changesets: submit, seal a gate verdict, land, revert\nand read one repository branch chain.",
+      "properties": {
+        "method": {
+          "const": "SourceChangeset",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/SourceChangesetOp"
+            }
+          },
+          "required": [
+            "op"
           ],
           "type": "object"
         }
