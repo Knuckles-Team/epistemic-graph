@@ -34,7 +34,7 @@ For each test, record exact commit SHA, features, command, fixture digest, pass/
 <!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
 ## Reviewed residual acceptance targets — owner batch 2026-10-12
 
-The requirements rows contain full acceptance conditions and owner dependencys.
+The requirements rows contain full acceptance conditions and owner dependencies.
 No case below has run; no test receipt or closure is inferred.
 
 | Requirement | Source SHA-256 | Planned served acceptance | Boundary and key refusal cases |

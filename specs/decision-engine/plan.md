@@ -1283,7 +1283,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 - Planned proving integration test. tests/decide/test_memory_change_admission_served.py::test_memory_mutation_requires_current_decision_eval_receipt.
 - Enter DecisionEval, cross the authoritative write/CAS gate, and independently read back the active revision. Failed or stale receipts must preserve the baseline.
-- Explicit owner dependencys: reviewed fidelity/benchmark formulas and the mutation/CAS map are prerequisites. No positive apply is claimed.
+- Explicit owner dependencies: reviewed fidelity/benchmark formulas and the mutation/CAS map are prerequisites. No positive apply is claimed.
 
 ### `EG-DECISION-ENGINE-R142.100` / GRAPHOS:8
 
@@ -1302,14 +1302,14 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 - Production call sites: src/server/dispatch/router/decision_plane.rs:119 -> src/server/handlers/decide/jobs.rs:30.
 - The Medulla attestation must bind the Meristem evaluation receipt and exact skill/model/dataset/criteria revisions; Arbora consumption is at ARBORA-FLEET-R034.7-.12.
-- Explicit owner dependencys: Meristem has not defined its per-criterion evaluation receipt. Arbora has not defined its attestation-consumer operation. R034 identity checks do not close this dependency.
+- Explicit owner dependencies: Meristem has not defined its per-criterion evaluation receipt. Arbora has not defined its attestation-consumer operation. R034 identity checks do not close this dependency.
 - Planned proving test. tests/decide/test_local_skill_certification_served.py::test_decision_eval_attestation_binds_au_receipt.
 
 ### `EG-DECISION-ENGINE-R142.102` — Hot-path proof row
 
 - Planned proving integration test. tests/decide/test_local_skill_certification_served.py::test_current_attestation_is_checked_before_graphos_workflow_run.
 - Enter the real evaluation/normal-invocation path. Refuse missing or stale attestations before effects. Accept only the exact current attestation.
-- Explicit owner dependencys: Meristem must serve the receipt; Arbora must serve the R034 invocation check. No end-to-end evidence is claimed.
+- Explicit owner dependencies: Meristem must serve the receipt; Arbora must serve the R034 invocation check. No end-to-end evidence is claimed.
 
 ## Instruction-set disclosure policy (R143)
 

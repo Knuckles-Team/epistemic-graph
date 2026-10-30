@@ -756,7 +756,7 @@ For each skill revision, bind an atomic/workflow classification, local model id/
 
 ### `EG-DECISION-ENGINE-R142.101` — DecisionEval attestation wiring
 
-The Medulla producer attaches at src/server/dispatch/router/decision_plane.rs:119 and src/server/handlers/decide/jobs.rs:30. It binds Meristem's evaluation receipt and exact skill/model/dataset/criteria revisions into an immutable attestation. Meristem's receipt schema and Arbora R034.7-.12 consumption remain explicit owner dependencys.
+The Medulla producer attaches at src/server/dispatch/router/decision_plane.rs:119 and src/server/handlers/decide/jobs.rs:30. It binds Meristem's evaluation receipt and exact skill/model/dataset/criteria revisions into an immutable attestation. Meristem's receipt schema and Arbora R034.7-.12 consumption remain explicit owner dependencies.
 
 ### `EG-DECISION-ENGINE-R142.102` — Certification hot-path proof
 
