@@ -144,3 +144,78 @@ fn assess_limits_writeback_and_records_a_cleared_node() {
     assert_eq!(written[0].1["of"], "api");
     assert_eq!(written[0].1["probability"], 0.0);
 }
+
+/// app -> mid -> lib -> core (DEPENDS_ON), side -> core, leaf MENTIONS core.
+fn package_chain() -> Arc<GraphCore> {
+    let core = Arc::new(GraphCore::new());
+    for id in ["core", "lib", "mid", "app", "side", "leaf"] {
+        core.add_node(id.into(), rmp_serde::to_vec_named(&serde_json::json!({})).unwrap());
+    }
+    for (from, to, rel) in [
+        ("lib", "core", "DEPENDS_ON"),
+        ("mid", "lib", "DEPENDS_ON"),
+        ("app", "mid", "DEPENDS_ON"),
+        ("side", "core", "DEPENDS_ON"),
+        ("leaf", "core", "MENTIONS"),
+    ] {
+        core.add_edge(
+            from.into(),
+            to.into(),
+            rmp_serde::to_vec_named(&serde_json::json!({"relationship": rel})).unwrap(),
+        )
+        .unwrap();
+    }
+    core
+}
+
+fn package_method(package: &str, severity: &str) -> Method {
+    let mut m = method(
+        RiskModel::NoisyOr(ImpactOptions {
+            package: package.into(),
+            finding_id: "vuln-1".into(),
+            severity: severity.into(),
+            ..ImpactOptions::default()
+        }),
+        false,
+    );
+    if let Method::MineRiskPropagation { nodes, seed, edges, .. } = &mut m {
+        nodes.clear();
+        seed.clear();
+        edges.clear();
+    }
+    m
+}
+
+// spec: EG-SUPPLY-VOCAB-R009.3
+#[test]
+fn served_impact_lists_dependents() {
+    let core = package_chain();
+    let v = json(&core, package_method("core", "high"));
+    let rows = v["impact"]["package_impacts"].as_array().unwrap();
+    let names: Vec<&str> = rows.iter().map(|r| r["package"].as_str().unwrap()).collect();
+    assert_eq!(names.len(), 4, "{names:?}");
+    for want in ["lib", "mid", "app", "side"] {
+        assert!(names.contains(&want), "{want} missing from {names:?}");
+    }
+    assert!(!names.contains(&"leaf"), "a non-dependency edge carries no risk");
+}
+
+// spec: EG-SUPPLY-VOCAB-R009.6
+#[test]
+fn served_impact_over_dependency_chain() {
+    let core = package_chain();
+    let v = json(&core, package_method("core", "critical"));
+    let rows = v["impact"]["package_impacts"].as_array().unwrap();
+    let app = rows.iter().find(|r| r["package"] == "app").expect("app reached");
+    assert_eq!(app["severity"], "critical");
+    let path: Vec<&str> = app["path"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect();
+    assert_eq!(path, ["core", "lib", "mid", "app"]);
+}
+
+#[test]
+fn served_impact_refuses_unknown_package() {
+    let core = package_chain();
+    let resp = dispatch_for_test(7, Arc::clone(&core), package_method("absent", "high"))
+        .expect("a mining method");
+    assert!(resp.result.is_none() && resp.error.is_some());
+}

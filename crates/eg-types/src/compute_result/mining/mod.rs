@@ -9,7 +9,7 @@ mod patterns;
 mod vector;
 
 pub use impact::{
-    ImpactOptions, ImpactPathRow, ImpactReport, ImpactSemantics, RiskModel,
+    ImpactOptions, ImpactPathRow, PackageImpactRow, ImpactReport, ImpactSemantics, RiskModel,
     RiskPropagationMiningResult, RiskScoreRow, SeedAttributionRow,
 };
 pub use insight::{

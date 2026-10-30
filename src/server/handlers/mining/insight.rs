@@ -214,7 +214,8 @@ pub(in crate::server::handlers) fn handle_risk_propagation(
         model,
         writeback,
     } = request;
-    if nodes.is_empty() {
+    let names_package = impact_model(&model).is_some_and(|(_, o)| !o.package.is_empty());
+    if nodes.is_empty() && !names_package {
         return Response::err(
             req_id,
             "mining: risk_propagation requires non-empty `nodes`",

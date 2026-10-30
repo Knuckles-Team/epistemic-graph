@@ -11,7 +11,7 @@ use eg_compute::graph_algos::impact::{
     ImpactPath, Seed, Semantics,
 };
 use eg_types::compute_result::mining::{
-    ImpactOptions, ImpactPathRow, ImpactReport, ImpactSemantics, RiskPropagationMiningResult,
+    ImpactOptions, ImpactPathRow, ImpactReport, PackageImpactRow, ImpactSemantics, RiskPropagationMiningResult,
     RiskScoreRow, SeedAttributionRow,
 };
 use eg_types::decision::digest::digest_text;
@@ -146,6 +146,7 @@ fn empty_report(semantics: ImpactSemantics, expected_spread: f64) -> ImpactRepor
         paths: Vec::new(),
         attribution: Vec::new(),
         attribution_note: None,
+        package_impacts: Vec::new(),
     }
 }
 
@@ -267,6 +268,9 @@ pub(crate) fn handle_impact(
     inputs: &ImpactInputs<'_>,
     writeback: WritebackOptions,
 ) -> Response {
+    if !inputs.options.package.is_empty() {
+        return handle_package_impact(req_id, core, inputs.options);
+    }
     let run = run_impact(inputs);
     let written = if writeback.enabled {
         materialize_assessments(core, inputs, &run)
@@ -287,6 +291,53 @@ pub(crate) fn handle_impact(
             impact: Some(run.report),
         }),
     )
+}
+
+/// Serve a package finding: every transitive dependent over the stored
+/// `DEPENDS_ON` edges with its severity and dependency path
+/// (EG-SUPPLY-VOCAB-R009.3). An unknown package is a typed refusal.
+fn handle_package_impact(req_id: u64, core: &GraphCore, options: &ImpactOptions) -> Response {
+    use eg_core::ecosystem::{propagate_package_risk, PackageFinding, PackageRefusal, Severity};
+    let Some(severity) = Severity::parse(&options.severity) else {
+        return Response::err(
+            req_id,
+            format!(
+                "mining: risk_propagation severity `{}` is not low|medium|high|critical",
+                options.severity
+            ),
+        );
+    };
+    let finding = PackageFinding {
+        id: options.finding_id.clone(),
+        severity,
+    };
+    match propagate_package_risk(core, &options.package, &finding) {
+        Err(PackageRefusal::UnknownPackage(package)) => {
+            Response::err(req_id, format!("mining: unknown package `{package}`"))
+        }
+        Ok(impacts) => {
+            let mut report = empty_report(ImpactSemantics::Exact, impacts.len() as f64);
+            report.hops = options.hops;
+            report.package_impacts = impacts
+                .into_iter()
+                .map(|i| PackageImpactRow {
+                    package: i.package,
+                    severity: i.severity.as_str().to_string(),
+                    path: i.path,
+                })
+                .collect();
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::MineRiskPropagation>(RiskPropagationMiningResult {
+                    scores: Vec::new(),
+                    iterations: 0,
+                    converged: true,
+                    written_back: 0,
+                    impact: Some(report),
+                }),
+            )
+        }
+    }
 }
 
 /// The assessment node id of `node` under `options.scope`.

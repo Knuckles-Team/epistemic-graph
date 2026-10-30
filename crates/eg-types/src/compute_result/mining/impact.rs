@@ -49,6 +49,14 @@ pub struct ImpactOptions {
     /// With writeback: the as-of time (unix ms) recorded on each assessment.
     /// Part of the request, so a WAL replay writes the same facts.
     pub as_of_ms: u64,
+    /// Ecosystem package whose finding is propagated to every transitive
+    /// dependent over the stored `DEPENDS_ON` edges (EG-SUPPLY-VOCAB-R009.3).
+    /// Empty = the request's `nodes`/`edges` model runs instead.
+    pub package: String,
+    /// The finding id recorded with a package propagation.
+    pub finding_id: String,
+    /// Severity of the finding: `low`, `medium`, `high` (default) or `critical`.
+    pub severity: String,
 }
 
 impl Default for ImpactOptions {
@@ -62,6 +70,9 @@ impl Default for ImpactOptions {
             assess: Vec::new(),
             scope: String::new(),
             as_of_ms: 0,
+            package: String::new(),
+            finding_id: String::new(),
+            severity: "high".into(),
         }
     }
 }
@@ -136,6 +147,20 @@ pub struct ImpactReport {
     /// Why attribution was asked for but not produced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attribution_note: Option<String>,
+    /// Package propagation: every transitive dependent with its worst
+    /// severity and the dependency path that explains it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub package_impacts: Vec<PackageImpactRow>,
+}
+
+/// One dependent package reached by a package finding.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PackageImpactRow {
+    pub package: String,
+    pub severity: String,
+    /// `[changed, ..., dependent]`, both ends included.
+    pub path: Vec<String>,
 }
 
 /// `MineRiskPropagation`.

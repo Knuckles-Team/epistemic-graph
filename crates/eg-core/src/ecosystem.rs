@@ -24,6 +24,29 @@ pub enum Severity {
     Critical,
 }
 
+impl Severity {
+    /// The wire name of the severity.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Severity::Low => "low",
+            Severity::Medium => "medium",
+            Severity::High => "high",
+            Severity::Critical => "critical",
+        }
+    }
+
+    /// Parse a wire name; `None` for anything else.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "low" => Some(Severity::Low),
+            "medium" => Some(Severity::Medium),
+            "high" => Some(Severity::High),
+            "critical" => Some(Severity::Critical),
+            _ => None,
+        }
+    }
+}
+
 /// A finding recorded against one package.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageFinding {
