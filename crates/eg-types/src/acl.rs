@@ -264,11 +264,102 @@ pub enum RbacAdminOp {
     RemoveGrant(Grant),
     /// Read-only: list the current roles + grants.
     List,
+    /// Share one node at `scope` with `grantees` (EG-IDENTITY-R023.13.1).
+    ShareGrant {
+        node_id: String,
+        scope: ShareScope,
+        grantees: ShareGrantees,
+    },
+    /// Revoke a node's share: it returns to `private` (EG-IDENTITY-R023.13.1).
+    ShareRevoke {
+        node_id: String,
+    },
+}
+
+/// Closed share scopes for a node (EG-IDENTITY-R023.13.1). An unknown scope
+/// is refused at deserialisation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ShareScope {
+    Private,
+    Org,
+    Commons,
+}
+
+/// Most grantees one `ShareGrant` may carry.
+pub const MAX_SHARE_GRANTEES: usize = 64;
+
+/// Interned principal ids a share names; at most [`MAX_SHARE_GRANTEES`].
+/// The bound holds on construction and on deserialisation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "contract-schema", schemars(with = "Vec<String>"))]
+pub struct ShareGrantees(Vec<String>);
+
+impl ShareGrantees {
+    /// Build a grantee list, refusing more than [`MAX_SHARE_GRANTEES`].
+    pub fn new(ids: Vec<String>) -> Result<Self, String> {
+        if ids.len() > MAX_SHARE_GRANTEES {
+            return Err(format!(
+                "share grantees: {} entries exceed the maximum of {MAX_SHARE_GRANTEES}",
+                ids.len()
+            ));
+        }
+        Ok(Self(ids))
+    }
+
+    /// The principal ids, in order.
+    pub fn as_slice(&self) -> &[String] {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for ShareGrantees {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Self::new(Vec::<String>::deserialize(d)?).map_err(serde::de::Error::custom)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // spec: EG-IDENTITY-R023.13.1
+    #[test]
+    fn share_ops_round_trip() {
+        let grant = RbacAdminOp::ShareGrant {
+            node_id: "n1".into(),
+            scope: ShareScope::Org,
+            grantees: ShareGrantees::new(vec!["p1".into(), "p2".into()]).unwrap(),
+        };
+        let revoke = RbacAdminOp::ShareRevoke {
+            node_id: "n1".into(),
+        };
+        for op in [grant, revoke] {
+            let json = serde_json::to_string(&op).unwrap();
+            assert_eq!(serde_json::from_str::<RbacAdminOp>(&json).unwrap(), op);
+        }
+        for scope in ["private", "org", "commons"] {
+            let json =
+                format!(r#"{{"ShareGrant":{{"node_id":"n","scope":"{scope}","grantees":[]}}}}"#);
+            assert!(serde_json::from_str::<RbacAdminOp>(&json).is_ok());
+        }
+        let bad = r#"{"ShareGrant":{"node_id":"n","scope":"world","grantees":[]}}"#;
+        assert!(serde_json::from_str::<RbacAdminOp>(bad).is_err());
+        let ids = |n: usize| serde_json::to_string(&vec!["p"; n]).unwrap();
+        let at = format!(
+            r#"{{"ShareGrant":{{"node_id":"n","scope":"org","grantees":{}}}}}"#,
+            ids(64)
+        );
+        assert!(serde_json::from_str::<RbacAdminOp>(&at).is_ok());
+        let over = format!(
+            r#"{{"ShareGrant":{{"node_id":"n","scope":"org","grantees":{}}}}}"#,
+            ids(65)
+        );
+        assert!(serde_json::from_str::<RbacAdminOp>(&over).is_err());
+    }
 
     #[test]
     fn selector_specificity_ordering() {

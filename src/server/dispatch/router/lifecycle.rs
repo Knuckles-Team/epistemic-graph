@@ -660,6 +660,10 @@ fn rbac_admin_response(
                 Err(message) => Response::err(req_id, message),
             }
         }
+        RbacAdminOp::ShareGrant { .. } | RbacAdminOp::ShareRevoke { .. } => Response::err(
+            req_id,
+            "node sharing is not served by rbac policy admin".to_string(),
+        ),
     }
 }
 

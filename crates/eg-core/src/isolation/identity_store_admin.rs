@@ -227,6 +227,11 @@ impl IsolationLayer {
                 (grant.role.clone(), owned_grant(grant))
             }
             RbacAdminOp::List => return Ok(false),
+            // Node sharing is not an RBAC policy write; the share transition
+            // (EG-IDENTITY-R023.13.2/.3) owns it. Refuse until then.
+            RbacAdminOp::ShareGrant { .. } | RbacAdminOp::ShareRevoke { .. } => {
+                return Err("node sharing is not served by rbac policy admin".to_string());
+            }
         };
         if touches_store {
             return Err(STORE_NAMESPACE.to_string());
@@ -249,7 +254,9 @@ impl IsolationLayer {
                     }
                     Ok(())
                 }
-                RbacAdminOp::List => Ok(()),
+                RbacAdminOp::List
+                | RbacAdminOp::ShareGrant { .. }
+                | RbacAdminOp::ShareRevoke { .. } => Ok(()),
             },
         )?;
         Ok(changed)

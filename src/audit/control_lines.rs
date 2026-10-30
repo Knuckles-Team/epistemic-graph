@@ -122,6 +122,10 @@ fn rbac_admin_audit_line(op: &crate::acl::RbacAdminOp) -> Option<String> {
         RbacAdminOp::RemoveRole(name) => Some(format!("RBAC_ADMIN|remove_role|{name}")),
         RbacAdminOp::AddGrant(grant) => Some(format!("RBAC_ADMIN|add_grant|{}", grant.role)),
         RbacAdminOp::RemoveGrant(grant) => Some(format!("RBAC_ADMIN|remove_grant|{}", grant.role)),
+        RbacAdminOp::ShareGrant { node_id, .. } => {
+            Some(format!("RBAC_ADMIN|share_grant|{node_id}"))
+        }
+        RbacAdminOp::ShareRevoke { node_id } => Some(format!("RBAC_ADMIN|share_revoke|{node_id}")),
         RbacAdminOp::List => None,
     }
 }
