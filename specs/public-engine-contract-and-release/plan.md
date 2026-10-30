@@ -280,7 +280,7 @@ The source-backend composition difference belongs to that existing packaging acc
 | Artifact identity and provenance | `eg-modality` exports `OpaqueRef`, `ArtifactBundle`, `EvidenceLocus`, and `Provenance`. `eg-alignment` relates evidence locations. | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/requirements.md), especially R039.1; native media coverage remains separate. |
 | Epistemic provenance | `eg-epistemic` operates on graph claims and provenance; `eg-plan` exposes `KnowledgeSet` and knowledge batches. | [EG-FEDERATED-QUERY](../federated-query-and-reasoning/spec.md) reasoning and retrieval requirements |
 | Physical ownership and mutation | `eg-storage` owns physical access; `eg-transaction::MutationKernel` owns admission, ordering, replay, and commit capabilities. | [EG-DURABLE-KERNEL](../durable-graph-kernel/requirements.md), including R019, R021, and R034 |
-| Served mutation | `src/server/mutation.rs:136` exports `commit_mutation`; conditional and coalesced routes retain their own entry paths. | [EG-DURABLE-KERNEL](../durable-graph-kernel/spec.md); EG-C-02 error projection |
+| Served mutation | `src/server/mutation/commit_entry.rs` defines `commit_mutation` (called from `src/server/mutation.rs`); conditional and coalesced routes retain their own entry paths. | [EG-DURABLE-KERNEL](../durable-graph-kernel/spec.md); EG-C-02 error projection |
 | Planned query | `src/server/handlers/query/planning.rs:436`, `run_unified_with`, binds execution through the existing planner. | [FQR-03/04/06](../federated-query-and-reasoning/spec.md), R038–R055 |
 | Direct native access | [engine.md](../../docs/architecture/engine.md) shows dispatch reaching graph state both directly and through planning. | [EG-DURABLE-KERNEL-R032/R037](../durable-graph-kernel/requirements.md) |
 
@@ -390,11 +390,10 @@ Keep the ten-minute PR timeout policy. Do not install the project or build nativ
 
 ### 2026-10-13: limit PR543 acceptance evidence to what its tests prove
 
-R027 remains without acceptance evidence. The classifier-exemption test does not prove extraction without a classifier special case.
+R027 was amended on 2026-10-30: exhaustive dispatchers are accepted by rule. Its acceptance is `tests/test_check_complexity_staged.py::test_real_exhaustive_dispatcher_is_accepted_and_catch_all_fails`, which measures a real over-cap dispatcher and a catch-all fixture.
 R038 remains without acceptance evidence. Receipt counts and format identities do not prove regeneration or refusal of a changed digest.
 R039 remains without acceptance evidence. A declared base-ref flag does not prove scanning the complete combined tree against origin/main.
-Keep those tests under their original bindings only. Do not add R027, R038 or R039 markers to them.
-Future R027 acceptance must measure the affected extracted dispatch functions and retain functional coverage.
+Keep those tests under their original bindings only. Do not add R038 or R039 markers to them.
 Future R038 acceptance must run the blocking generator check and reject a changed receipt digest.
 Future R039 acceptance must run the actual duplication gate against origin/main across the combined changes.
 No runtime, scanner result or new acceptance receipt is claimed for these three rows.

@@ -500,3 +500,40 @@ def test_exempt_function_losing_exhaustiveness_still_fails(tmp_path):
     assert after_row.cyclomatic > mod.DEFAULT_MAX_CYCLOMATIC
     assert len(findings) == 1
     assert findings[0][0] == "WORSE"
+
+
+# spec: EG-CONTRACT-R027
+@pytest.mark.spec("EG-CONTRACT-R027")
+def test_real_exhaustive_dispatcher_is_accepted_and_catch_all_fails(tmp_path):
+    """R027: a real, over-cap exhaustive dispatcher from the tree, judged as a
+    NEW function, yields zero findings by rule; the same function with a
+    catch-all arm leaves the class and fails."""
+    mod = _module()
+    source = (ROOT / "crates/eg-types/src/agent_component.rs").read_text(encoding="utf-8")
+    start = source.index("    pub fn as_str(self) -> &'static str {")
+    end = source.index("\n    }\n", start) + len("\n    }\n")
+    body = source[start:end]
+    enum_variants = [
+        line.strip().split(" => ")[0].removeprefix("Self::")
+        for line in body.splitlines()
+        if " => " in line
+    ]
+    assert len(enum_variants) > mod.DEFAULT_MAX_CYCLOMATIC
+    enum_src = "#[derive(Clone, Copy)]\npub enum AgentComponentKind {\n" + "".join(
+        f"    {v},\n" for v in enum_variants
+    ) + "}\n\nimpl AgentComponentKind {\n" + body + "}\n"
+    after = _measure(mod, tmp_path, "real.rs", enum_src)
+    (row,) = after["as_str"]
+    assert row.exempt is True
+    assert row.cyclomatic > mod.DEFAULT_MAX_CYCLOMATIC
+    assert mod.judge({}, after, mod.DEFAULT_MAX_CYCLOMATIC, mod.DEFAULT_MAX_COGNITIVE) == []
+
+    last = body.rstrip().splitlines()[-3]
+    caught = body.replace(last, last + "\n            #[allow(unreachable_patterns)]\n            _ => \"other\",", 1)
+    assert caught != body
+    broken_src = enum_src.replace(body, caught)
+    broken = _measure(mod, tmp_path, "broken.rs", broken_src)
+    (broken_row,) = broken["as_str"]
+    assert broken_row.exempt is False
+    findings = mod.judge({}, broken, mod.DEFAULT_MAX_CYCLOMATIC, mod.DEFAULT_MAX_COGNITIVE)
+    assert len(findings) == 1 and findings[0][0] == "NEW"
