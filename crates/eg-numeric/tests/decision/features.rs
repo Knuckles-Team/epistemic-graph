@@ -171,7 +171,9 @@ fn scoring_width_is_bounded_by_cardinality_not_text_length() {
     use eg_numeric::decision::rapid_r083::MAX_OPTION_CAPABILITIES;
     let long_label = format!("eg:capability/retrieval/{}", "segment-".repeat(40));
     let long_summary = "web search ".repeat(2_000);
-    let classes: Vec<&str> = (0..MAX_OPTION_CAPABILITIES).map(|_| long_label.as_str()).collect();
+    let classes: Vec<&str> = (0..MAX_OPTION_CAPABILITIES)
+        .map(|_| long_label.as_str())
+        .collect();
     let candidates: Vec<CandidateView> = (0..50)
         .map(|i| candidate(&format!("c{i}"), &classes, &long_summary, Some(i)))
         .collect();
@@ -181,7 +183,10 @@ fn scoring_width_is_bounded_by_cardinality_not_text_length() {
         .sum();
     assert!(text_chars > 1_000_000, "far beyond any text-token budget");
     let p = params();
-    let inputs = FeatureInputs { params: &p, now_ms: 0 };
+    let inputs = FeatureInputs {
+        params: &p,
+        now_ms: 0,
+    };
     let schema = schema(MissingValue::Abstain);
     let MatrixOutcome::Complete(matrix) =
         feature_matrix(&schema, &candidates, &inputs).expect("scores")
@@ -192,7 +197,8 @@ fn scoring_width_is_bounded_by_cardinality_not_text_length() {
     assert_eq!(matrix.values.len(), candidates.len() * 3);
 
     let mut over = candidates[0].clone();
-    over.classification.push("eg:capability/one-too-many".to_string());
+    over.classification
+        .push("eg:capability/one-too-many".to_string());
     let refusal = feature_matrix(&schema, &[over], &inputs).expect_err("over the bound");
     assert!(format!("{refusal:?}").contains("option encoding bound"));
 }
