@@ -1282,7 +1282,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2409"
+        "crates/eg-types/src/agent_component.rs:2410"
       ]
     },
     {
@@ -1944,7 +1944,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2101"
+        "crates/eg-types/src/agent_component.rs:2102"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R050.1",
@@ -1962,8 +1962,8 @@
         "e21a42b2f88c"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1663",
-        "crates/eg-types/src/agent_component.rs:1705",
+        "crates/eg-types/src/agent_component.rs:1664",
+        "crates/eg-types/src/agent_component.rs:1706",
         "crates/eg-types/src/agent_component/input_capabilities.rs:106",
         "crates/eg-types/src/agent_component/input_capabilities.rs:124",
         "crates/eg-types/src/connector_pack/digest.rs:340"
@@ -2196,7 +2196,7 @@
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
-        "crates/eg-types/src/agent_component.rs:2438"
+        "crates/eg-types/src/agent_component.rs:2439"
       ]
     },
     {
@@ -2604,7 +2604,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2466"
+        "crates/eg-types/src/agent_component.rs:2467"
       ]
     },
     {
@@ -8001,9 +8001,15 @@
     {
       "id": "EG-DECISION-ENGINE-R614.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5ad449c36e7f",
+        "be7403075c23"
+      ],
+      "verified_by": [
+        "crates/eg-enrich/src/semantic.rs:146",
+        "crates/eg-enrich/src/semantic.rs:190"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R614.2",
@@ -8058,9 +8064,16 @@
     {
       "id": "EG-DECISION-ENGINE-R615.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5ad449c36e7f",
+        "6d3c4c2fb046",
+        "be7403075c23"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/decision/writeback.rs:262",
+        "crates/eg-numeric/src/decision/writeback.rs:296"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R615.2",
@@ -8115,9 +8128,15 @@
     {
       "id": "EG-DECISION-ENGINE-R617.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4ef100345f8c",
+        "be7403075c23"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/memory.rs:307",
+        "crates/eg-types/src/memory.rs:352"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R617.2",
@@ -8385,9 +8404,16 @@
     {
       "id": "EG-DECISION-ENGINE-R650.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4ef100345f8c",
+        "6d3c4c2fb046",
+        "be7403075c23"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/agent_component/capability_descriptor.rs:258",
+        "crates/eg-types/src/agent_component/capability_descriptor.rs:320"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R650.2",

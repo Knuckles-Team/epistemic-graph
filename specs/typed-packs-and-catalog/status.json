@@ -742,7 +742,7 @@
         "daa948722eca"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1355"
+        "crates/eg-types/src/agent_component.rs:1356"
       ]
     },
     {
@@ -992,7 +992,7 @@
         "f41725ac0f6f"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1394"
+        "crates/eg-types/src/agent_component.rs:1395"
       ]
     },
     {
@@ -1285,9 +1285,9 @@
       ],
       "verified_by": [
         "crates/eg-rdf/src/rules/capability/tests.rs:239",
-        "crates/eg-types/src/agent_component.rs:1525",
-        "crates/eg-types/src/agent_component.rs:1576",
-        "crates/eg-types/src/agent_component.rs:1615"
+        "crates/eg-types/src/agent_component.rs:1526",
+        "crates/eg-types/src/agent_component.rs:1577",
+        "crates/eg-types/src/agent_component.rs:1616"
       ]
     },
     {
@@ -1299,9 +1299,9 @@
       ],
       "verified_by": [
         "crates/eg-rdf/src/rules/capability/tests.rs:240",
-        "crates/eg-types/src/agent_component.rs:1526",
-        "crates/eg-types/src/agent_component.rs:1577",
-        "crates/eg-types/src/agent_component.rs:1616"
+        "crates/eg-types/src/agent_component.rs:1527",
+        "crates/eg-types/src/agent_component.rs:1578",
+        "crates/eg-types/src/agent_component.rs:1617"
       ]
     },
     {

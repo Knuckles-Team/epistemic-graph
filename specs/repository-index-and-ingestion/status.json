@@ -489,7 +489,7 @@
       ],
       "verified_by": [
         "crates/eg-enrich/src/code.rs:396",
-        "crates/eg-enrich/src/lib.rs:113"
+        "crates/eg-enrich/src/lib.rs:116"
       ]
     },
     {
