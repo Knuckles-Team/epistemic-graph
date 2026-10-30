@@ -45,9 +45,3 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **DPV-041 · EG-DATAPLAT-VOCAB-R008.1:** Add an alignment table (package term -> `dp:` term, `rdfs:subClassOf` / `owl:equivalentProperty`) for sql and documentdb.
 - [ ] **DPV-042 · EG-DATAPLAT-VOCAB-R008.2:** Add the alignment table for objectstore and vector.
 - [ ] **DPV-043 · EG-DATAPLAT-VOCAB-R008.3:** Add the alignment table for kafka, openbao, clarity, data-science.
-- [ ] **DPV-044 · EG-DATAPLAT-VOCAB-R009:** Connector operations this vocabulary needs (cross-repo rollup).
-- [ ] **DPV-045 · EG-DATAPLAT-VOCAB-R009.1:** Cross-repo, owner `objectstore-mcp`.
-- [ ] **DPV-046 · EG-DATAPLAT-VOCAB-R009.2:** Cross-repo, owner `vector-mcp`.
-- [ ] **DPV-047 · EG-DATAPLAT-VOCAB-R009.3:** Cross-repo, owner `openbao-mcp`.
-- [ ] **DPV-048 · EG-DATAPLAT-VOCAB-R009.4:** Cross-repo, owner `clarity-api`.
-- [ ] **DPV-049 · EG-DATAPLAT-VOCAB-R009.5:** Cross-repo, owner `data-science-mcp`.

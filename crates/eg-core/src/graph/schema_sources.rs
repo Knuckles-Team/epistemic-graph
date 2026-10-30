@@ -1423,7 +1423,7 @@ mod tests {
             ),
             (
                 "archimate",
-                "e6d754a3194e3a8d97504c366f82b31f8f3b04f0abb68c80e0e14dffdf6454ad",
+                "9295524cd22d38e15c8efb1b0ef4ee15590068e112a84f5cad903c5c73663e98",
             ),
             (
                 "capability",
@@ -1467,7 +1467,7 @@ mod tests {
             ),
             (
                 "documentation",
-                "24e5e1224a9c46b6dd61b3acda6b2102e75a577bbcec8b116d2908cf23bd1c14",
+                "d902c03b433aa907695f22b32515686b141f459b81b85cc3136ca95b858d5ca6",
             ),
             (
                 "energy_geopolitics",
@@ -1503,7 +1503,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "1409accdee5cba8bea00c75fd37128947c59f16803d7123e8080f9494a7af892",
+                "b9a9741a05482e67d6eab6c61e298c8dc55031f5ad1fb82f82f2a937e2e56db7",
             ),
             (
                 "medical",
@@ -1527,7 +1527,7 @@ mod tests {
             ),
             (
                 "process_intelligence",
-                "3972c8d2ccb65009401a9b0f05d4e072cedfdebb4a11c534df6cdb924fb2697b",
+                "5bcd57f2f092c49158cc3b61d51566b0ce60674efe7ba0642b38c98a0ace6d0d",
             ),
             (
                 "sdd",
