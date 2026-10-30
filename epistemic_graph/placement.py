@@ -22,7 +22,6 @@ evictions and stale rejects.
 from __future__ import annotations
 
 import time
-from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
@@ -133,7 +132,11 @@ ClientT = TypeVar("ClientT")
 
 class TenantPool(Generic[ClientT]):
     """A bounded LRU of per-tenant clients. The least recently used client is
-    closed and evicted when a new tenant would exceed ``capacity``."""
+    closed and evicted when a new tenant would exceed ``capacity``.
+
+    Hits, recency and eviction are decided by the engine's own ``TenantPool``
+    (eg-types, through the bundled native module) so one implementation
+    exists; this wrapper only builds and closes the async clients."""
 
     def __init__(
         self,
@@ -142,35 +145,33 @@ class TenantPool(Generic[ClientT]):
         capacity: int = 64,
         close: Callable[[ClientT], Awaitable[None]] | None = None,
     ) -> None:
-        if capacity < 1:
-            raise ValueError("capacity must be at least 1")
+        from .client import _native_numeric
+
         self._factory = factory
         self._close = close
-        self._capacity = capacity
-        self._clients: OrderedDict[str, ClientT] = OrderedDict()
-        self.evictions = 0
+        self._pool = _native_numeric("the tenant client pool").TenantPool(capacity)
 
     def __len__(self) -> int:
-        return len(self._clients)
+        return len(self._pool)
+
+    @property
+    def evictions(self) -> int:
+        return int(self._pool.evictions)
 
     async def acquire(self, tenant: str) -> ClientT:
-        if not isinstance(tenant, str) or not tenant:
+        if not isinstance(tenant, str):
             raise ValueError("tenant must be a non-empty string")
-        client = self._clients.get(tenant)
+        client: ClientT | None = self._pool.get(tenant)
         if client is not None:
-            self._clients.move_to_end(tenant)
             return client
         client = await self._factory(tenant)
-        self._clients[tenant] = client
-        while len(self._clients) > self._capacity:
-            _, evicted = self._clients.popitem(last=False)
-            self.evictions += 1
-            if self._close is not None:
-                await self._close(evicted)
+        evicted = self._pool.insert(tenant, client)
+        if evicted is not None and self._close is not None:
+            await self._close(evicted[1])
         return client
 
     def tenants(self) -> list[str]:
-        return list(self._clients)
+        return list(self._pool.tenants())
 
 
 @dataclass

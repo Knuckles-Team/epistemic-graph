@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import types
 from typing import Any
 
@@ -322,3 +323,21 @@ async def test_connection_pool_uses_the_shared_transport_function(
     await pool._create_client()
     assert calls == ["unix:///run/eg.sock"]
     assert captured["socket_path"] == "/run/eg.sock"
+
+
+@pytest.mark.spec("EG-PLACEMENT-R611.1")
+@pytest.mark.asyncio
+async def test_tenant_pool_is_the_native_eg_types_pool() -> None:
+    """The client pool delegates to the eg-types TenantPool: one implementation."""
+    numeric = importlib.import_module("epistemic_graph.numeric")
+
+    async def factory(tenant: str) -> str:
+        return f"client-{tenant}"
+
+    pool: TenantPool[str] = TenantPool(factory, capacity=1)
+    assert isinstance(pool._pool, numeric.TenantPool)
+    await pool.acquire("a")
+    await pool.acquire("b")
+    assert pool._pool.tenants() == ["b"] and pool._pool.evictions == 1
+    with pytest.raises(ValueError, match="tenant"):
+        await pool.acquire("bad\x00")

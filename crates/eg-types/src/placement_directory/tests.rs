@@ -69,6 +69,7 @@ fn route() -> PlacementRoute {
     }
 }
 
+// spec: EG-PLACEMENT-R611.1
 #[test]
 fn cluster_snapshot_round_trips_and_rejects_invalid_identifiers() {
     let valid = ClusterSnapshot::new(snapshot()).expect("valid snapshot");
@@ -100,6 +101,7 @@ fn cluster_snapshot_round_trips_and_rejects_invalid_identifiers() {
     assert!(ClusterSnapshot::new(bad).is_err());
 }
 
+// spec: EG-PLACEMENT-R611.1
 #[test]
 fn cluster_member_round_trips_and_rejects_invalid_identifiers() {
     let valid = member(1, "leader");
@@ -120,6 +122,7 @@ fn cluster_member_round_trips_and_rejects_invalid_identifiers() {
     }
 }
 
+// spec: EG-PLACEMENT-R611.1
 #[test]
 fn placement_route_round_trips_and_rejects_invalid_identifiers() {
     let valid = route();
@@ -160,6 +163,7 @@ fn placement_route_round_trips_and_rejects_invalid_identifiers() {
     assert!(bad.validate().is_err());
 }
 
+// spec: EG-PLACEMENT-R611.1
 #[test]
 fn breaker_policy_round_trips_and_breaker_opens_then_half_opens() {
     let policy = BreakerPolicy::new(2, 1_000).unwrap();
@@ -198,6 +202,7 @@ fn breaker_policy_round_trips_and_breaker_opens_then_half_opens() {
     assert_eq!(breaker.state_at(t2), BreakerState::Closed);
 }
 
+// spec: EG-PLACEMENT-R611.1
 #[test]
 fn tenant_pool_is_a_bounded_lru_and_rejects_invalid_tenants() {
     assert!(TenantPool::<u32>::new(0).is_err());
