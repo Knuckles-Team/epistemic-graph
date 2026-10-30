@@ -2,7 +2,8 @@
 //! vocabulary `specs/connector-competency/plan.md` marked MISSING.
 //!
 //! The terms these questions need were added to the owning ontology modules
-//! (`media-v1`, `dataplatform-v1`, `retrieval-v1`, `personal-v1`). Every test
+//! (`media-v1`, `content-v1`, `dataplatform-v1`, `retrieval-v1`,
+//! `personal-v1`). Every test
 //! loads those registered modules with a disposable fixture (no live
 //! credentials, no network), runs the question through the native SPARQL
 //! surface, and asserts a non-empty answer whose rows carry provenance (source,
@@ -26,6 +27,7 @@ use eg_rdf::mapping::{load_triples, parse_turtle, IriStore};
 use eg_rdf::sparql::{execute, Dataset, Projection, QueryOutcome};
 
 const MEDIA: &str = include_str!("../../eg-core/ontology/media-v1.ttl");
+const CONTENT: &str = include_str!("../../eg-core/ontology/content-v1.ttl");
 const DATAPLATFORM: &str = include_str!("../../eg-core/ontology/dataplatform-v1.ttl");
 const RETRIEVAL: &str = include_str!("../../eg-core/ontology/retrieval-v1.ttl");
 const PERSONAL: &str = include_str!("../../eg-core/ontology/personal-v1.ttl");
@@ -500,6 +502,56 @@ ORDER BY DESC(?peak)"#,
         .unwrap();
     assert_prov(top, "source", "owncast", "record", "oc:stream:2");
     assert_asof(top, "asof");
+}
+
+// spec: EG-CQ-CONN-R045.2
+#[test]
+fn owncast_announced_broadcasts_audience_versus_reach_answers() {
+    // "Which Owncast broadcasts were announced through a Postiz post, and what
+    // was the audience versus the post reach?" — federated fixture over the
+    // owncast, postiz and mattermost connectors linked through the broadcast /
+    // audience concepts (Vocabulary: media-v1 LiveStream, peakViewerCount,
+    // Viewer, watches, SocialPost, EngagementMetric; content-v1 canonicalUrl,
+    // metricOf). The post announces the broadcast through the shared target
+    // URL (the content-v1 canonicalUrl join); the stream URL and the post's
+    // Postiz-analytics reach are fields the virtual mappings attach to the
+    // fetched records; the mattermost audience presence is a Viewer record
+    // watching the stream.
+    let fixture = format!(
+        r#"
+f:stream-1 a :LiveStream ; :title "Morning broadcast" ; :peakViewerCount 85 ; :streamDurationSeconds 5400 ; {p1} ;
+    dc:streamUrl "https://owncast.example/live/stream-1" .
+f:stream-2 a :LiveStream ; :title "Evening broadcast" ; :peakViewerCount 12 ; :streamDurationSeconds 900 ; {p2} .
+f:audience-1 a :Viewer ; :watches f:stream-1 ; {m1} .
+f:post-1 a :SocialPost ; :postState "published" ;
+    :canonicalUrl "https://owncast.example/live/stream-1" ; {z1} .
+f:metric-1 a :EngagementMetric ; :metricOf f:post-1 ; dc:impressions "1200" ; {z2} .
+"#,
+        p1 = prov("owncast", "oc:stream:1"),
+        p2 = prov("owncast", "oc:stream:2"),
+        m1 = prov("mattermost", "mm:audience:stream-1"),
+        z1 = prov("postiz", "pz:post:1"),
+        z2 = prov("postiz", "pz:metric:1"),
+    );
+    let view = graph(&[MEDIA, CONTENT], &fixture);
+    let rows = select(
+        &view,
+        r#"SELECT ?stream ?audience ?reach ?source ?record ?asof WHERE {
+  ?stream a :LiveStream ; :peakViewerCount ?audience ; dc:streamUrl ?url ;
+          dc:source ?source ; dc:identifier ?record ; dc:date ?asof .
+  FILTER(?source = "owncast")
+  ?post a :SocialPost ; :postState "published" ; :canonicalUrl ?url ;
+        dc:source "postiz" .
+  ?metric a :EngagementMetric ; :metricOf ?post ; dc:impressions ?reach .
+  FILTER EXISTS { ?viewer a :Viewer ; :watches ?stream ; dc:source "mattermost" }
+}"#,
+    );
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(local(&rows[0]["stream"]), "stream-1");
+    assert_eq!(rows[0]["audience"], "85");
+    assert_eq!(rows[0]["reach"], "1200");
+    assert_prov(&rows[0], "source", "owncast", "record", "oc:stream:1");
+    assert_asof(&rows[0], "asof");
 }
 
 // spec: EG-CQ-CONN-R051.1

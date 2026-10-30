@@ -91,6 +91,7 @@ fn unconnected_sources(connected: &[(String, String)], required: &[&str]) -> Vec
 }
 
 const INFRA: &str = "http://knuckles.team/kg/infrastructure#";
+const KG: &str = "http://knuckles.team/kg#";
 
 /// Execute a SELECT and return `(columns, rows)` with every cell as its lexical form.
 fn select(view: &GraphView, query: &str) -> (Vec<String>, Vec<Vec<String>>) {
@@ -1069,6 +1070,410 @@ SELECT ?user ?group ?app ?source ?record ?asof WHERE {
     assert_eq!(row[i_source], "okta");
     assert_eq!(row[i_record], "okta:rec:alice");
     assert_eq!(row[i_asof], "2026-01-03T00:00:00Z");
+}
+
+const ONETRUST_SINGLE_FIXTURE: &str = r#"
+@prefix : <http://knuckles.team/kg#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f: <urn:eg-cq-conn:onetrust:fixture/> .
+
+f:activity-email a :ProcessingActivity ; rdfs:label "Email archiving" .
+f:activity-crm a :ProcessingActivity ; rdfs:label "CRM contact enrichment" .
+f:activity-hr a :ProcessingActivity ; rdfs:label "Payroll records" .
+
+# Due 2025-11-30 — overdue at the frozen as-of, covers two activities.
+f:assess-1 a :PrivacyAssessment ;
+    :assessmentStatus "in_review" ;
+    :assessmentDueDate "2025-11-30"^^xsd:date ;
+    :assessmentCovers f:activity-email, f:activity-crm ;
+    dc:source "onetrust" ;
+    dc:identifier "ot:rec:assess-1" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime .
+
+# Due 2026-03-01 — not yet overdue, no row.
+f:assess-2 a :PrivacyAssessment ;
+    :assessmentStatus "approved" ;
+    :assessmentDueDate "2026-03-01"^^xsd:date ;
+    :assessmentCovers f:activity-hr ;
+    dc:source "onetrust" ;
+    dc:identifier "ot:rec:assess-2" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime .
+"#;
+
+/// The R043.1 single-source question: overdue privacy assessments and the
+/// processing activities they cover, with the onetrust record's provenance.
+fn onetrust_overdue_assessments_answer(view: &GraphView) -> (Vec<String>, Vec<Vec<String>>) {
+    select(
+        view,
+        r#"
+PREFIX : <http://knuckles.team/kg#>
+PREFIX dc: <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?assessment ?assessmentStatus ?due ?activity ?activityLabel ?source ?record ?asof WHERE {
+  ?assessment a :PrivacyAssessment ;
+              :assessmentStatus ?assessmentStatus ;
+              :assessmentDueDate ?due ;
+              :assessmentCovers ?activity ;
+              dc:source ?source ;
+              dc:identifier ?record ;
+              dc:date ?asof .
+  ?activity rdfs:label ?activityLabel .
+  # Overdue at the frozen as-of 2026-01-15: the ordering comparator parses
+  # operands as f64, so the window uses the YEAR()/MONTH()/DAY() accessors.
+  FILTER(YEAR(?due) < 2026 || (YEAR(?due) = 2026 && (MONTH(?due) < 1 || (MONTH(?due) = 1 && DAY(?due) < 15))))
+}"#,
+    )
+}
+
+// spec: EG-CQ-CONN-R043.1
+#[test]
+fn onetrust_overdue_assessments_covering_activities_answer() {
+    // "Which privacy assessments are overdue and which processing activities
+    // do they cover?" — answered from the onetrust connector alone
+    // (Vocabulary: government-v1.ttl: PrivacyAssessment, ProcessingActivity,
+    // assessmentCovers, assessmentDueDate, assessmentStatus). Overdue is
+    // derived from the frozen as-of and the due date, per the assessmentStatus
+    // comment. Frozen as-of: 2026-01-15T00:00:00Z.
+    let view = graph(&[include_str!("../../eg-core/ontology/government-v1.ttl")], ONETRUST_SINGLE_FIXTURE);
+    let (vars, rows) = onetrust_overdue_assessments_answer(&view);
+    let idx = |col: &str| vars.iter().position(|v| v == col).unwrap();
+    let i_assess = idx("assessment");
+    let i_status = idx("assessmentStatus");
+    let i_due = idx("due");
+    let i_activity = idx("activity");
+    let i_label = idx("activityLabel");
+    let i_source = idx("source");
+    let i_record = idx("record");
+    let i_asof = idx("asof");
+    assert_eq!(
+        rows.len(),
+        2,
+        "the overdue assessment covers exactly two activities: {rows:?}"
+    );
+    let pairs: Vec<(&str, &str, &str)> = rows
+        .iter()
+        .map(|row| (
+            local(&row[i_assess]),
+            local(&row[i_activity]),
+            &row[i_label],
+        ))
+        .collect();
+    let mut sorted = pairs;
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        [
+            ("assess-1", "activity-crm", "CRM contact enrichment"),
+            ("assess-1", "activity-email", "Email archiving"),
+        ],
+        "only the overdue assessment answers: {rows:?}"
+    );
+    for row in &rows {
+        assert_eq!(row[i_status], "in_review", "{rows:?}");
+        assert_eq!(row[i_due], "2025-11-30", "{rows:?}");
+        // Provenance: source, record id, as-of all carry on the answer row.
+        assert_eq!(row[i_source], "onetrust");
+        assert_eq!(row[i_record], "ot:rec:assess-1");
+        assert_eq!(row[i_asof], "2026-01-15T00:00:00Z");
+    }
+}
+
+const ONETRUST_CROSS_FIXTURE: &str = r#"
+@prefix : <http://knuckles.team/kg#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f: <urn:eg-cq-conn:onetrust-cross:fixture/> .
+
+# The shared vendor concept: the OneTrust assessed vendor and the ERPNext
+# supplier are the same organization (a supply_chain Supplier specializes the
+# trm :Vendor the assessment points at).
+f:vendor-acme a :Supplier ; rdfs:label "Acme" .
+f:vendor-globex a :Supplier ; rdfs:label "Globex" .
+
+# Acme's assessment is overdue (due 2025-12-01) — its open PO joins.
+f:assess-acme a :PrivacyAssessment ;
+    :assessmentStatus "in_review" ;
+    :assessmentDueDate "2025-12-01"^^xsd:date ;
+    :assessedVendor f:vendor-acme ;
+    dc:source "onetrust" ;
+    dc:identifier "ot:rec:assess-acme" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime .
+
+# Globex's assessment is current (due 2026-02-01) — no row despite the open PO.
+f:assess-globex a :PrivacyAssessment ;
+    :assessmentStatus "approved" ;
+    :assessmentDueDate "2026-02-01"^^xsd:date ;
+    :assessedVendor f:vendor-globex ;
+    dc:source "onetrust" ;
+    dc:identifier "ot:rec:assess-globex" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime .
+
+# The erpnext virtual mapping attaches the order state and its supplier as
+# dc: fields to the fetched purchase order records.
+f:po-acme-1 a :PurchaseOrder ;
+    dc:source "erpnext" ;
+    dc:identifier "erp:rec:po-acme-1" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime ;
+    dc:status "Open" ;
+    dc:supplier f:vendor-acme .
+f:po-globex-1 a :PurchaseOrder ;
+    dc:source "erpnext" ;
+    dc:identifier "erp:rec:po-globex-1" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime ;
+    dc:status "Open" ;
+    dc:supplier f:vendor-globex .
+# Acme's closed PO — not open, no row.
+f:po-acme-2 a :PurchaseOrder ;
+    dc:source "erpnext" ;
+    dc:identifier "erp:rec:po-acme-2" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime ;
+    dc:status "Closed" ;
+    dc:supplier f:vendor-acme .
+"#;
+
+/// The R043.2 cross-source question: vendors whose OneTrust assessment is
+/// overdue and which hold an open ERPNext purchase order.
+fn onetrust_overdue_vendor_open_po_answer(view: &GraphView) -> (Vec<String>, Vec<Vec<String>>) {
+    select(
+        view,
+        r#"
+PREFIX : <http://knuckles.team/kg#>
+PREFIX dc: <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?vendor ?vendorLabel ?po ?source ?record ?asof WHERE {
+  ?po a :PurchaseOrder ;
+      dc:source "erpnext" ;
+      dc:status "Open" ;
+      dc:supplier ?vendor ;
+      dc:identifier ?record ;
+      dc:date ?asof .
+  ?vendor rdfs:label ?vendorLabel .
+  ?assess a :PrivacyAssessment ;
+          :assessmentDueDate ?due ;
+          :assessedVendor ?vendor ;
+          dc:source "onetrust" .
+  FILTER(YEAR(?due) < 2026 || (YEAR(?due) = 2026 && (MONTH(?due) < 1 || (MONTH(?due) = 1 && DAY(?due) < 15))))
+}"#,
+    )
+}
+
+// spec: EG-CQ-CONN-R043.2
+#[test]
+fn onetrust_overdue_vendor_with_open_erpnext_po_answers() {
+    // "Which vendors with an overdue OneTrust assessment have open ERPNext
+    // purchase orders?" — federated fixture over the onetrust and erpnext
+    // connectors linked through the shared vendor concept (Vocabulary:
+    // government-v1.ttl assessedVendor -> :Vendor; the erpnext PurchaseOrder
+    // from commercial-v1.ttl; the supplier entity is a supply_chain Supplier,
+    // which specializes Vendor). The erpnext mapping attaches the order state
+    // and supplier as dc: fields. Frozen as-of: 2026-01-15T00:00:00Z.
+    let view = graph(
+        &[
+            include_str!("../../eg-core/ontology/government-v1.ttl"),
+            include_str!("../../eg-core/ontology/commercial-v1.ttl"),
+            include_str!("../../eg-core/ontology/supply_chain-v1.ttl"),
+        ],
+        ONETRUST_CROSS_FIXTURE,
+    );
+    let (vars, rows) = onetrust_overdue_vendor_open_po_answer(&view);
+    let idx = |col: &str| vars.iter().position(|v| v == col).unwrap();
+    let i_vendor = idx("vendor");
+    let i_label = idx("vendorLabel");
+    let i_po = idx("po");
+    let i_source = idx("source");
+    let i_record = idx("record");
+    let i_asof = idx("asof");
+    assert_eq!(
+        rows.len(),
+        1,
+        "exactly one vendor answers: {rows:?}"
+    );
+    let row = &rows[0];
+    assert_eq!(local(&row[i_vendor]), "vendor-acme", "{rows:?}");
+    assert_eq!(row[i_label], "Acme", "{rows:?}");
+    assert_eq!(local(&row[i_po]), "po-acme-1", "{rows:?}");
+    // Provenance: the erpnext purchase-order record carries the row.
+    assert_eq!(row[i_source], "erpnext", "{rows:?}");
+    assert_eq!(row[i_record], "erp:rec:po-acme-1", "{rows:?}");
+    assert_eq!(row[i_asof], "2026-01-15T00:00:00Z", "{rows:?}");
+}
+
+// spec: EG-CQ-CONN-R043.3
+#[test]
+fn onetrust_acceptance_through_declared_contracts() {
+    // Both questions run against records served through the connectors'
+    // declared access contracts (approved `vg:VirtualMapping` per class), each
+    // answer row's source resolves to a mapping onto the answering class, and a
+    // question whose linked source is not connected names it.
+    let schema = [
+        include_str!("../../eg-core/ontology/government-v1.ttl"),
+        include_str!("../../eg-core/ontology/commercial-v1.ttl"),
+        include_str!("../../eg-core/ontology/supply_chain-v1.ttl"),
+        include_str!("../../eg-core/ontology/virtual_graph-v1.ttl"),
+    ];
+    let class = |name: &str| format!("{KG}{name}");
+    let connections = connection_fixture(&[
+        ("onetrust", &[&class("PrivacyAssessment")]),
+        ("erpnext", &[&class("PurchaseOrder")]),
+    ]);
+    let view = graph_with(
+        &schema,
+        &[
+            ONETRUST_SINGLE_FIXTURE,
+            ONETRUST_CROSS_FIXTURE,
+            &connections,
+        ],
+    );
+    let connected = connected_pairs(&view);
+
+    // The two fixtures share the government vocabulary only: each question
+    // answers over its own records, so the combined graph keeps both answers.
+    let (vars, rows) = onetrust_overdue_assessments_answer(&view);
+    assert_eq!(
+        rows.len(),
+        2,
+        "single-source question answers over the combined graph: {rows:?}"
+    );
+    let source = vars.iter().position(|v| v == "source").unwrap();
+    for row in &rows {
+        assert_served_by_contract(&connected, &row[source], &class("PrivacyAssessment"));
+    }
+    assert!(unconnected_sources(&connected, &["onetrust"]).is_empty());
+
+    let (vars, rows) = onetrust_overdue_vendor_open_po_answer(&view);
+    assert_eq!(
+        rows.len(),
+        1,
+        "cross-source question answers over the combined graph: {rows:?}"
+    );
+    let col = |name: &str| vars.iter().position(|v| v == name).unwrap();
+    assert_eq!(local(&rows[0][col("vendor")]), "vendor-acme", "{rows:?}");
+    for row in &rows {
+        assert_served_by_contract(&connected, &row[col("source")], &class("PurchaseOrder"));
+    }
+
+    // erpnext not connected: the cross-source question abstains, naming it.
+    let without_erpnext =
+        connection_fixture(&[("onetrust", &[&class("PrivacyAssessment")])]);
+    let view = graph_with(
+        &schema,
+        &[
+            ONETRUST_SINGLE_FIXTURE,
+            ONETRUST_CROSS_FIXTURE,
+            &without_erpnext,
+        ],
+    );
+    assert_eq!(
+        unconnected_sources(
+            &connected_pairs(&view),
+            &["onetrust", "erpnext"]
+        ),
+        vec!["erpnext".to_string()]
+    );
+}
+
+const PAPERLESS_INVOICE_FIXTURE: &str = r#"
+@prefix : <http://knuckles.team/kg#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f: <urn:eg-cq-conn:paperless:fixture/> .
+
+f:corr-acme a :Correspondent ; rdfs:label "Acme" .
+
+# Invoice with a correspondent but no due date — row.
+f:doc-1 a :Document ;
+    :documentType "invoice" ;
+    :memberOf f:corr-acme ;
+    dc:source "paperless-ngx" ;
+    dc:identifier "px:rec:doc-1" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime .
+
+# Invoice with a due date but no correspondent — row.
+f:doc-2 a :Document ;
+    :documentType "invoice" ;
+    :dueDate "2026-02-01"^^xsd:date ;
+    dc:source "paperless-ngx" ;
+    dc:identifier "px:rec:doc-2" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime .
+
+# Invoice with both — no row.
+f:doc-3 a :Document ;
+    :documentType "invoice" ;
+    :memberOf f:corr-acme ;
+    :dueDate "2026-03-01"^^xsd:date ;
+    dc:source "paperless-ngx" ;
+    dc:identifier "px:rec:doc-3" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime .
+
+# A receipt missing both — not an invoice, no row.
+f:doc-4 a :Document ;
+    :documentType "receipt" ;
+    dc:source "paperless-ngx" ;
+    dc:identifier "px:rec:doc-4" ;
+    dc:date "2026-01-15T00:00:00Z"^^xsd:dateTime .
+"#;
+
+/// The R046.1 single-source question: invoice documents missing their
+/// correspondent or their due date, with the paperless-ngx record's provenance.
+fn paperless_invoices_missing_fields_answer(view: &GraphView) -> (Vec<String>, Vec<Vec<String>>) {
+    select(
+        view,
+        r#"
+PREFIX : <http://knuckles.team/kg#>
+PREFIX dc: <http://purl.org/dc/terms/>
+SELECT ?doc ?source ?record ?asof WHERE {
+  ?doc a :Document ;
+       :documentType "invoice" ;
+       dc:source ?source ;
+       dc:identifier ?record ;
+       dc:date ?asof .
+  OPTIONAL { ?doc :memberOf ?corr . ?corr a :Correspondent }
+  OPTIONAL { ?doc :dueDate ?dd }
+  FILTER(!BOUND(?corr) || !BOUND(?dd))
+}"#,
+    )
+}
+
+// spec: EG-CQ-CONN-R046.1
+#[test]
+fn paperless_invoices_missing_correspondent_or_duedate_answers() {
+    // "Which documents tagged as invoice have no correspondent or no due
+    // date?" — answered from the paperless-ngx connector alone (Vocabulary:
+    // personal-v1.ttl: documentType, dueDate, Correspondent; :Document and
+    // :memberOf from the imported core module, the correspondent link).
+    // Frozen as-of: 2026-01-15T00:00:00Z.
+    let view = graph(
+        &[
+            include_str!("../../eg-core/ontology/personal-v1.ttl"),
+            include_str!("../../eg-core/ontology/core-foundation-v1.ttl"),
+        ],
+        PAPERLESS_INVOICE_FIXTURE,
+    );
+    let (vars, rows) = paperless_invoices_missing_fields_answer(&view);
+    let idx = |col: &str| vars.iter().position(|v| v == col).unwrap();
+    let i_doc = idx("doc");
+    let i_source = idx("source");
+    let i_record = idx("record");
+    let i_asof = idx("asof");
+    assert_eq!(
+        rows.len(),
+        2,
+        "exactly two invoices answer: {rows:?}"
+    );
+    let docs: Vec<&str> = rows.iter().map(|row| local(&row[i_doc])).collect();
+    let mut sorted = docs;
+    sorted.sort();
+    assert_eq!(sorted, ["doc-1", "doc-2"], "{rows:?}");
+    for (row, record) in rows.iter().zip(["px:rec:doc-1", "px:rec:doc-2"]) {
+        // Provenance: source, record id, as-of all carry on the answer row.
+        assert_eq!(row[i_source], "paperless-ngx", "{rows:?}");
+        assert_eq!(row[i_record], record, "{rows:?}");
+        assert_eq!(row[i_asof], "2026-01-15T00:00:00Z", "{rows:?}");
+    }
 }
 
 // spec: EG-CQ-CONN-R039.2
