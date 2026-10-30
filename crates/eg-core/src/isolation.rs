@@ -485,7 +485,9 @@ pub use governed_admin::GovernedError;
 mod layer_store;
 mod policy_admin;
 mod scope_bound;
+mod share;
 pub use scope_bound::{scope_within_bound, ScopeBound, ScopeBoundError};
+pub use share::{share_transition, NodeShare, ShareActor, ShareOutcome, ShareRefusal};
 #[cfg(test)]
 mod tests {
     use super::*;
