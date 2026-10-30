@@ -631,8 +631,8 @@
       "title": "Exhaustive dispatch matches are accepted by rule, not decomposed",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "b43f33569dd4",
-        "e962b9937133"
+        "100ef24be912",
+        "b43f33569dd4"
       ],
       "verified_by": [
         "tests/test_check_complexity_staged.py:505",
@@ -967,8 +967,8 @@
       "title": "Current architecture documentation (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "7ccde542bbaa",
-        "e962b9937133"
+        "100ef24be912",
+        "7ccde542bbaa"
       ],
       "verified_by": [
         "tests/docs/test_architecture_map.py:120",
@@ -1022,7 +1022,7 @@
       "title": "Runtime evidence and refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e962b9937133"
+        "100ef24be912"
       ],
       "verified_by": [
         "tests/test_contract_architecture_evidence.py:38",
