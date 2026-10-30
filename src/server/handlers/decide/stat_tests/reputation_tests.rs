@@ -116,3 +116,87 @@ async fn source_reliability_is_learned_from_the_visible_log() {
     );
     assert_ne!(prior, Some(learned));
 }
+
+/// The three source-reliability readers, as `who` sees the log, all anchored on the
+/// UQL prior: (UQL belief + interval, AuthorityPolicy, RetrievalCandidate via the
+/// served RankByProvenance wire).
+#[cfg(feature = "epistemic-causal")]
+fn three_readers(h: &Harness, who: &str, prior: f64) -> ((f64, Option<f64>), f64, f64) {
+    let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
+    let authority = crate::server::access::CarrierAuthority::from_verified(&verified).unwrap();
+    let views = super::super::stat_view::DecisionViews::of(h.store.clone(), &authority);
+    let (uql, lo, _) = reliability(h, who);
+    let base = eg_epistemic::AuthorityPolicy {
+        source_reliability: prior,
+        ..eg_epistemic::AuthorityPolicy::default()
+    };
+    let (policy, _) = eg_plan::exec::learned_authority_policy(base, &views, "plan-hyde").unwrap();
+    let wire = crate::protocol::RetrievalCandidateWire {
+        id: "doc".into(),
+        similarity: 1.0,
+        source_reliability: prior,
+        freshness: 1.0,
+        calibration: None,
+        source_id: Some("plan-hyde".into()),
+    };
+    let weights = crate::protocol::RankWeightsWire {
+        similarity: 0.0,
+        evidence_quality: 1.0,
+    };
+    let ranked = crate::server::handlers::query::rank_by_provenance_wire(
+        &[wire.clone()],
+        weights,
+        Some(&views),
+    )
+    .unwrap();
+    let unlearned =
+        crate::server::handlers::query::rank_by_provenance_wire(&[wire], weights, None).unwrap();
+    let candidate = eg_plan::exec::learned_retrieval_candidate(
+        eg_epistemic::RetrievalCandidate {
+            id: "doc".into(),
+            similarity: 1.0,
+            source_reliability: prior,
+            freshness: 1.0,
+            calibration: None,
+        },
+        &views,
+        "plan-hyde",
+        eg_epistemic::AuthorityPolicy::default().prior_strength,
+    )
+    .unwrap()
+    .0;
+    // The served ranking moved exactly when the candidate reader learned.
+    let moved = ranked.ranked[0].score != unlearned.ranked[0].score;
+    assert_eq!(moved, candidate.source_reliability != prior, "{who}");
+    ((uql.unwrap(), lo), policy.source_reliability, candidate.source_reliability)
+}
+
+// spec: EG-DECISION-ENGINE-R118.1.2
+#[cfg(feature = "epistemic-causal")]
+#[tokio::test]
+async fn authority_policy_retrieval_candidate_and_uql_agree_on_source_reliability() {
+    let h = Harness::new().await;
+    labelled(&h, 3, 3).await;
+    let (prior, _, _) = reliability(&h, "stranger");
+    let prior = prior.unwrap();
+    let ((uql, lo), policy, candidate) = three_readers(&h, "decider", prior);
+    assert_eq!(lo, None, "sparse pool: UQL abstains");
+    assert_eq!(
+        (uql, policy, candidate),
+        (prior, prior, prior),
+        "sparse pool: every reader abstains to the same prior"
+    );
+
+    let h = Harness::new().await;
+    labelled(&h, 12, 9).await;
+    let (prior, _, _) = reliability(&h, "stranger");
+    let prior = prior.unwrap();
+    let ((uql, lo), policy, candidate) = three_readers(&h, "decider", prior);
+    assert!(lo.is_some(), "estimated pool: UQL learns");
+    assert_ne!(uql, prior);
+    assert_eq!(
+        (policy, candidate),
+        (uql, uql),
+        "every reader reads the same materialized reputation"
+    );
+}

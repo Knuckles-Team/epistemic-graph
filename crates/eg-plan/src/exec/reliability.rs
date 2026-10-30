@@ -26,7 +26,7 @@ pub(super) fn reliability_of(ctx: &PlanCtx, source_id: &str) -> Result<Reliabili
     let policy = belief_policy(ctx);
     let prior = eg_epistemic::propagate_confidence(&graph, source_id, &policy).confidence;
     let learned = match ctx.decisions {
-        Some(log) => log.learned_reliability(source_id, prior, policy.prior_strength)?,
+        Some(log) => learned_source_reliability(log, source_id, prior, policy.prior_strength)?,
         None => None,
     };
     Ok(match learned {
@@ -59,4 +59,67 @@ pub(super) fn source_reliability_op(
     source_id: &str,
 ) -> Result<RowSet, String> {
     Ok(reweighted(&input, &reliability_of(ctx, source_id)?))
+}
+
+/// The ONE reading of a source's learned reliability (EG-DECISION-ENGINE-R118.1.2):
+/// the decision log's materialized `reputation` row for `source_id`, anchored on
+/// `prior_mean` with `prior_strength` pseudo-counts. `None` is the abstention --
+/// no visible independent outcome, or a pool below the support floor -- and every
+/// reader (UQL `SOURCE RELIABILITY`, [`learned_authority_policy`],
+/// [`learned_retrieval_candidate`]) then keeps its prior unchanged.
+pub fn learned_source_reliability(
+    decisions: &dyn super::DecisionSource,
+    source_id: &str,
+    prior_mean: f64,
+    prior_strength: f64,
+) -> Result<Option<super::LearnedReliability>, String> {
+    decisions.learned_reliability(source_id, prior_mean, prior_strength)
+}
+
+/// `policy` with its `source_reliability` read from the decision log for
+/// `source_id` (EG-DECISION-ENGINE-R118.1.2); unchanged when the log abstains.
+pub fn learned_authority_policy(
+    policy: eg_epistemic::AuthorityPolicy,
+    decisions: &dyn super::DecisionSource,
+    source_id: &str,
+) -> Result<(eg_epistemic::AuthorityPolicy, Option<super::LearnedReliability>), String> {
+    let learned = learned_source_reliability(
+        decisions,
+        source_id,
+        policy.source_reliability,
+        policy.prior_strength,
+    )?;
+    let policy = match &learned {
+        Some(learned) => eg_epistemic::AuthorityPolicy {
+            source_reliability: learned.mean,
+            ..policy
+        },
+        None => policy,
+    };
+    Ok((policy, learned))
+}
+
+/// `candidate` with its `source_reliability` read from the decision log for
+/// `source_id` (EG-DECISION-ENGINE-R118.1.2), its own value as the prior;
+/// unchanged when the log abstains.
+pub fn learned_retrieval_candidate(
+    candidate: eg_epistemic::RetrievalCandidate,
+    decisions: &dyn super::DecisionSource,
+    source_id: &str,
+    prior_strength: f64,
+) -> Result<(eg_epistemic::RetrievalCandidate, Option<super::LearnedReliability>), String> {
+    let learned = learned_source_reliability(
+        decisions,
+        source_id,
+        candidate.source_reliability,
+        prior_strength,
+    )?;
+    let candidate = match &learned {
+        Some(learned) => eg_epistemic::RetrievalCandidate {
+            source_reliability: learned.mean,
+            ..candidate
+        },
+        None => candidate,
+    };
+    Ok((candidate, learned))
 }

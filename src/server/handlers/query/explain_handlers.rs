@@ -641,13 +641,46 @@ pub(crate) async fn handle_rank_by_provenance(
     weights: crate::protocol::RankWeightsWire,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
+    let decisions = rank_decision_log(ctx, &candidates).await;
     let resp = match compute_off_lock(req_id, move || {
-        rank_by_provenance_wire(&candidates, weights)
+        rank_by_provenance_wire(&candidates, weights, decisions.as_deref())
     })
     .await
     {
-        Ok(result) => result_response::<query_results::RankByProvenance>(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::RankByProvenance>(req_id, &result),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal(
+                "INVALID_ARGUMENT",
+                "RankByProvenance error: ",
+                &msg,
+            ),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)
+}
+
+/// The caller's visible decision log when a candidate names its source
+/// (EG-DECISION-ENGINE-R118.1.2), from the verified carrier only. Without a carrier
+/// or a log every candidate keeps its request-carried reliability -- the same
+/// abstention UQL `SOURCE RELIABILITY` makes.
+#[cfg(feature = "epistemic-causal")]
+async fn rank_decision_log(
+    ctx: &QueryHandlerCtx<'_>,
+    candidates: &[crate::protocol::RetrievalCandidateWire],
+) -> Option<std::sync::Arc<dyn eg_plan::exec::DecisionSource>> {
+    if candidates.iter().all(|c| c.source_id.is_none()) {
+        return None;
+    }
+    #[cfg(feature = "decide")]
+    {
+        let carrier = ctx.read_authority.and_then(GraphReadAuthority::carrier)?;
+        crate::server::handlers::decide::decision_source(ctx.state, carrier).await
+    }
+    #[cfg(not(feature = "decide"))]
+    {
+        let _ = ctx;
+        None
+    }
 }

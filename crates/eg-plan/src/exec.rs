@@ -37,6 +37,10 @@ mod reliability;
 #[cfg(feature = "owl")]
 pub(crate) mod reason;
 pub use decisions::{DecisionSource, LearnedReliability};
+#[cfg(feature = "epistemic")]
+pub use reliability::{
+    learned_authority_policy, learned_retrieval_candidate, learned_source_reliability,
+};
 pub(crate) mod dispatch;
 mod expand;
 mod pred_sql;

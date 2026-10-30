@@ -2582,6 +2582,7 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
                 level: 0.95,
                 evidence_count: 5,
             }),
+            source_id: None,
         },
         RetrievalCandidateWire {
             id: "more-similar".into(),
@@ -2589,6 +2590,7 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
             source_reliability: 0.3,
             freshness: 0.3,
             calibration: None,
+            source_id: None,
         },
     ];
 

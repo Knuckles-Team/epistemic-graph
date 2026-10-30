@@ -491,21 +491,55 @@ pub(crate) fn causal_counterfactual_wire(
 pub(crate) fn rank_by_provenance_wire(
     candidates: &[crate::protocol::RetrievalCandidateWire],
     weights: crate::protocol::RankWeightsWire,
-) -> crate::protocol::RankByProvenanceResult {
+    decisions: Option<&dyn eg_plan::exec::DecisionSource>,
+) -> Result<crate::protocol::RankByProvenanceResult, String> {
     let candidates: Vec<eg_epistemic::RetrievalCandidate> = candidates
         .iter()
-        .map(|c| eg_epistemic::RetrievalCandidate {
-            id: c.id.clone(),
-            similarity: c.similarity,
-            source_reliability: c.source_reliability,
-            freshness: c.freshness,
-            calibration: c.calibration.map(|cal| eg_epistemic::Calibration {
-                interval: cal.interval,
-                level: cal.level,
-                evidence_count: cal.evidence_count,
-            }),
-        })
-        .collect();
+        .map(|c| learned_candidate(c, decisions))
+        .collect::<Result<_, String>>()?;
+    Ok(rank_candidates(candidates, weights))
+}
+
+/// One wire candidate, its reliability read from the caller's decision log when it
+/// names a source (EG-DECISION-ENGINE-R118.1.2).
+#[cfg(feature = "epistemic-causal")]
+fn learned_candidate(
+    c: &crate::protocol::RetrievalCandidateWire,
+    decisions: Option<&dyn eg_plan::exec::DecisionSource>,
+) -> Result<eg_epistemic::RetrievalCandidate, String> {
+    let candidate = candidate_of(c);
+    match (c.source_id.as_deref(), decisions) {
+        (Some(source), Some(log)) => eg_plan::exec::learned_retrieval_candidate(
+            candidate,
+            log,
+            source,
+            eg_epistemic::AuthorityPolicy::default().prior_strength,
+        )
+        .map(|(candidate, _)| candidate),
+        _ => Ok(candidate),
+    }
+}
+
+#[cfg(feature = "epistemic-causal")]
+fn candidate_of(c: &crate::protocol::RetrievalCandidateWire) -> eg_epistemic::RetrievalCandidate {
+    eg_epistemic::RetrievalCandidate {
+        id: c.id.clone(),
+        similarity: c.similarity,
+        source_reliability: c.source_reliability,
+        freshness: c.freshness,
+        calibration: c.calibration.map(|cal| eg_epistemic::Calibration {
+            interval: cal.interval,
+            level: cal.level,
+            evidence_count: cal.evidence_count,
+        }),
+    }
+}
+
+#[cfg(feature = "epistemic-causal")]
+fn rank_candidates(
+    candidates: Vec<eg_epistemic::RetrievalCandidate>,
+    weights: crate::protocol::RankWeightsWire,
+) -> crate::protocol::RankByProvenanceResult {
     let weights = eg_epistemic::RankWeights {
         similarity: weights.similarity,
         evidence_quality: weights.evidence_quality,

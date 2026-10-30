@@ -231,6 +231,13 @@ pub struct RetrievalCandidateWire {
     /// fabricated middling score).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calibration: Option<CalibrationWire>,
+    /// The source this candidate's evidence comes from (EG-DECISION-ENGINE-R118.1.2).
+    /// When set, the served ranking reads that source's learned reliability from the
+    /// caller's decision log -- the same `reputation` value UQL `SOURCE RELIABILITY`
+    /// reads -- with `source_reliability` as its prior; a pool below the support floor
+    /// abstains and the request's `source_reliability` stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
 }
 
 /// Wire mirror of `eg_epistemic::RankWeights` (EPI-P3-3) — weights combining
