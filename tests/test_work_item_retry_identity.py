@@ -296,7 +296,10 @@ async def test_run_owned_submission_keeps_closed_request_validation() -> None:
 async def test_submit_accepts_optional_conversation_field(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The generated request and the engine accept ``conversation``; the client must not reject it."""
+    """The generated request and the engine accept ``conversation``.
+
+    The client must not reject it.
+    """
     client = EpistemicGraphClient(
         unused_reader(),
         unused_writer(),
