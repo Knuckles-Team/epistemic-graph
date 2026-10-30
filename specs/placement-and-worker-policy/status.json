@@ -538,22 +538,31 @@
     {
       "id": "EG-PLACEMENT-R611.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e3532798aacc"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/placement_directory/tests.rs:104",
+        "crates/eg-types/src/placement_directory/tests.rs:125",
+        "crates/eg-types/src/placement_directory/tests.rs:166",
+        "crates/eg-types/src/placement_directory/tests.rs:205",
+        "crates/eg-types/src/placement_directory/tests.rs:72"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R611.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "554ad01373b8"
+        "554ad01373b8",
+        "d6f54570fb18"
       ],
       "verified_by": [
-        "tests/test_placement_r611.py:120",
-        "tests/test_placement_r611.py:144",
-        "tests/test_placement_r611.py:86",
-        "tests/test_placement_r611.py:98"
+        "tests/test_placement_r611.py:121",
+        "tests/test_placement_r611.py:145",
+        "tests/test_placement_r611.py:87",
+        "tests/test_placement_r611.py:99"
       ]
     },
     {
@@ -561,11 +570,12 @@
       "title": "Wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "554ad01373b8"
+        "554ad01373b8",
+        "d6f54570fb18"
       ],
       "verified_by": [
-        "tests/test_placement_r611.py:242",
-        "tests/test_placement_r611.py:296"
+        "tests/test_placement_r611.py:243",
+        "tests/test_placement_r611.py:297"
       ]
     },
     {
@@ -573,10 +583,11 @@
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "554ad01373b8"
+        "554ad01373b8",
+        "d6f54570fb18"
       ],
       "verified_by": [
-        "tests/test_placement_r611.py:158"
+        "tests/test_placement_r611.py:159"
       ]
     },
     {
@@ -584,10 +595,11 @@
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "554ad01373b8"
+        "554ad01373b8",
+        "d6f54570fb18"
       ],
       "verified_by": [
-        "tests/test_placement_r611.py:202"
+        "tests/test_placement_r611.py:203"
       ]
     },
     {
