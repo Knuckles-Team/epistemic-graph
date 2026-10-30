@@ -2450,7 +2450,7 @@
         "a0743ba9b542"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:443",
+        "crates/eg-capabilities/src/error_routing.rs:439",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:29",
@@ -2522,7 +2522,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:443",
+        "crates/eg-capabilities/src/error_routing.rs:439",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:45"
@@ -2778,7 +2778,6 @@
       "landed_in": [
         "1e9ea1ef3790",
         "7a89c881dad4",
-        "e8aaa8ae5ccd",
         "e9da9f0a77e1"
       ],
       "verified_by": [
@@ -2797,7 +2796,7 @@
         "e8aaa8ae5ccd"
       ],
       "verified_by": [
-        "crates/eg-numeric/src/decision/rapid_r083.rs:82"
+        "crates/eg-numeric/src/decision/rapid_r083.rs:64"
       ]
     },
     {
@@ -3857,10 +3856,10 @@
         "334c101eb64f"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:338",
-        "crates/eg-types/src/decision/guardrail.rs:376",
-        "crates/eg-types/src/decision/guardrail.rs:401",
-        "crates/eg-types/src/decision/guardrail.rs:408",
+        "crates/eg-types/src/decision/guardrail.rs:311",
+        "crates/eg-types/src/decision/guardrail.rs:349",
+        "crates/eg-types/src/decision/guardrail.rs:374",
+        "crates/eg-types/src/decision/guardrail.rs:381",
         "src/server/handlers/decide/guardrail_tests.rs:139"
       ],
       "rollup_of": [
@@ -3878,9 +3877,9 @@
         "30405ee73d13"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:376",
-        "crates/eg-types/src/decision/guardrail.rs:401",
-        "crates/eg-types/src/decision/guardrail.rs:408"
+        "crates/eg-types/src/decision/guardrail.rs:349",
+        "crates/eg-types/src/decision/guardrail.rs:374",
+        "crates/eg-types/src/decision/guardrail.rs:381"
       ]
     },
     {
@@ -3895,7 +3894,7 @@
         "45beac8d810b"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:338",
+        "crates/eg-types/src/decision/guardrail.rs:311",
         "src/server/handlers/decide/guardrail_tests.rs:139",
         "src/server/handlers/decide/guardrail_tests.rs:161",
         "src/server/handlers/decide/guardrail_tests.rs:78",
@@ -3929,7 +3928,7 @@
         "e7580aeb141f"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:338",
+        "crates/eg-types/src/decision/guardrail.rs:311",
         "src/server/handlers/decide/guardrail_tests.rs:139",
         "src/server/handlers/decide/guardrail_tests.rs:161",
         "src/server/handlers/decide/guardrail_tests.rs:78"
@@ -4210,31 +4209,23 @@
         "dcd3f241e93c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:299",
-        "crates/eg-types/src/decision/guardrail.rs:323"
+        "crates/eg-types/src/decision/guardrail.rs:272",
+        "crates/eg-types/src/decision/guardrail.rs:296"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R129.3",
       "title": "Pure invariant check",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "799ccdbb1980"
-      ],
-      "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/guardrail_invariant.rs:47"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R129.4",
       "title": "Consensus gives no override",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "799ccdbb1980"
-      ],
-      "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/guardrail_invariant.rs:48"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R129.5",
