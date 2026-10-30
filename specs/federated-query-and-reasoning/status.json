@@ -2191,9 +2191,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.8.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "de5b734080bf"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/retrieval_verdict.rs:1311"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.8.2",
@@ -2254,7 +2258,7 @@
         "1e270b926ac7"
       ],
       "verified_by": [
-        "crates/eg-types/src/retrieval_verdict.rs:1357"
+        "crates/eg-types/src/retrieval_verdict.rs:1399"
       ]
     },
     {
@@ -2320,9 +2324,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R082.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "de5b734080bf"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/retrieval_stop.rs:258"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R082.2",
@@ -2378,9 +2386,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R083.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "de5b734080bf"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/retrieval_arbitration.rs:60"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R083.2",
@@ -2557,9 +2569,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.9.7.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "de5b734080bf"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/retrieval_verdict.rs:1500"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.9.7.2",
@@ -3382,9 +3398,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R089.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "de5b734080bf"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/wire.rs:134"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R089.2",
