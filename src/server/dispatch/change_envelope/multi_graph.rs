@@ -322,7 +322,9 @@ mod fanout_cap_tests {
         assert!(over.contains("batch count exceeds"), "{over}");
         let at_cap = decode_multi_graph_batches(&encoded(256));
         assert!(
-            !at_cap.err().is_some_and(|e| e.contains("batch count exceeds")),
+            !at_cap
+                .err()
+                .is_some_and(|e| e.contains("batch count exceeds")),
             "256 sub-batches must pass the count check"
         );
     }
