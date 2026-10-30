@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-DATAPLAT-VOCAB",
   "owner_repo": "medulla",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "VERIFIED",
   "requirement_ids": [
     "EG-DATAPLAT-VOCAB-R001",
     "EG-DATAPLAT-VOCAB-R001.1",
@@ -46,13 +46,7 @@
     "EG-DATAPLAT-VOCAB-R008",
     "EG-DATAPLAT-VOCAB-R008.1",
     "EG-DATAPLAT-VOCAB-R008.2",
-    "EG-DATAPLAT-VOCAB-R008.3",
-    "EG-DATAPLAT-VOCAB-R009",
-    "EG-DATAPLAT-VOCAB-R009.1",
-    "EG-DATAPLAT-VOCAB-R009.2",
-    "EG-DATAPLAT-VOCAB-R009.3",
-    "EG-DATAPLAT-VOCAB-R009.4",
-    "EG-DATAPLAT-VOCAB-R009.5"
+    "EG-DATAPLAT-VOCAB-R008.3"
   ],
   "requirements": [
     {
@@ -623,55 +617,6 @@
       "verified_by": [
         "crates/eg-core/tests/data_platform_vocab.rs:1617"
       ]
-    },
-    {
-      "id": "EG-DATAPLAT-VOCAB-R009",
-      "title": "Connector operations this vocabulary needs (cross-repo rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "EG-DATAPLAT-VOCAB-R009.1",
-        "EG-DATAPLAT-VOCAB-R009.2",
-        "EG-DATAPLAT-VOCAB-R009.3",
-        "EG-DATAPLAT-VOCAB-R009.4",
-        "EG-DATAPLAT-VOCAB-R009.5"
-      ]
-    },
-    {
-      "id": "EG-DATAPLAT-VOCAB-R009.1",
-      "title": "Cross-repo, owner `objectstore-mcp`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DATAPLAT-VOCAB-R009.2",
-      "title": "Cross-repo, owner `vector-mcp`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DATAPLAT-VOCAB-R009.3",
-      "title": "Cross-repo, owner `openbao-mcp`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DATAPLAT-VOCAB-R009.4",
-      "title": "Cross-repo, owner `clarity-api`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DATAPLAT-VOCAB-R009.5",
-      "title": "Cross-repo, owner `data-science-mcp`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
     }
   ]
 }
