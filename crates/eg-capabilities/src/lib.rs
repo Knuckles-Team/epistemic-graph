@@ -679,6 +679,33 @@ fn validate_policy(method_name: &str, result: MethodPolicy) -> MethodPolicy {
     result
 }
 
+/// Ids of every capability row declared `Stability::Internal`: the one
+/// source of which methods the engine dispatches only to itself.
+fn engine_internal_ids() -> &'static std::collections::BTreeSet<&'static str> {
+    static IDS: std::sync::OnceLock<std::collections::BTreeSet<&'static str>> =
+        std::sync::OnceLock::new();
+    IDS.get_or_init(|| {
+        method_descriptors()
+            .filter(|d| d.stability == Stability::Internal)
+            .map(|d| d.id.as_str())
+            .collect()
+    })
+}
+
+/// The public-boundary refusal for an engine-internal method, derived from its
+/// capability row (`Stability::Internal`). A caller may never name one.
+pub fn engine_internal_refusal(m: &Method) -> Option<String> {
+    let name: &'static str = m.into();
+    engine_internal_ids()
+        .contains(name)
+        .then(|| format!("{}: {name}", eg_types::protocol::ENGINE_INTERNAL_CODE))
+}
+
+/// Every method id declared `Stability::Internal`, in id order.
+pub fn engine_internal_method_ids() -> impl Iterator<Item = &'static str> {
+    engine_internal_ids().iter().copied()
+}
+
 pub fn policy(m: &Method) -> MethodPolicy {
     let method_name: &'static str = m.into();
     validate_policy(method_name, policy_for_method(m))

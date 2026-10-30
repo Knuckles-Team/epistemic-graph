@@ -2742,6 +2742,8 @@ mod tests {
     // EG-FEDERATED-QUERY-R058.2.2.1 NlQueryExplain proofs through the full served chain.
     #[cfg(all(feature = "query", feature = "nl-query"))]
     mod nl_explain;
+    // Census: every `Stability::Internal` capability row is refused at the boundary.
+    mod internal_methods;
     // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
     #[cfg(feature = "wasm-udf")]
     mod udf_tenancy;
