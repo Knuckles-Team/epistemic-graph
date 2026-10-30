@@ -17,6 +17,7 @@ RUNNER = (
 # Every job that can run on a pull request. Main-only jobs fail the workflow
 # run release.yml requires, not the branch-protection aggregate.
 REQUIRED_BLOCKING_JOBS = [
+    "ci",
     "light-gates",
     "changes",
     "security",
@@ -69,7 +70,11 @@ def _needs(job: dict) -> set[str]:
 
 def test_light_gates_is_the_single_central_light_gate_call() -> None:
     jobs = _jobs()
-    assert jobs["light-gates"] == {"uses": CENTRAL, "with": {"runner": RUNNER}}
+    assert jobs["light-gates"] == {
+        "if": "github.event_name != 'pull_request'",
+        "uses": CENTRAL,
+        "with": {"runner": RUNNER},
+    }
     # Native jobs read scope from the local job, never from the reusable
     # call, so they do not wait behind the central pre-commit leg.
     assert "uses" not in jobs["changes"]

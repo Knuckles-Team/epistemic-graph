@@ -623,12 +623,6 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
                 "--all-features --no-fail-fast"
             ),
         ),
-        ("Test (every other workspace crate -- pull request fast subset)"): (
-            (
-                "python3 scripts/cargo_test_rescue.py cargo test --locked "
-                '"${args[@]}" --all-features --no-fail-fast'
-            ),
-        ),
     },
     "gates-pyo3": {
         ("Test (pyo3 crates, every feature except python)"): (
@@ -675,9 +669,6 @@ CACHE_STEP_CONDITIONS = {
     (
         "Test (every other workspace crate, all features; push to main / release tag)"
     ): "github.job == 'gates-crates' && github.event_name != 'pull_request'",
-    "Test (every other workspace crate -- pull request fast subset)": (
-        "github.job == 'gates-crates' && github.event_name == 'pull_request'"
-    ),
 }
 
 
