@@ -4216,26 +4216,16 @@
     {
       "id": "EG-DECISION-ENGINE-R129.3",
       "title": "Pure invariant check",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "55cdad4bbdd0",
-        "91fa17e8e238"
-      ],
-      "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:398"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R129.4",
       "title": "Consensus gives no override",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "55cdad4bbdd0",
-        "91fa17e8e238"
-      ],
-      "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:432"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R129.5",
@@ -4269,26 +4259,16 @@
     {
       "id": "EG-DECISION-ENGINE-R130.1",
       "title": "Model",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "55cdad4bbdd0",
-        "91fa17e8e238"
-      ],
-      "verified_by": [
-        "crates/eg-epistemic/src/ranking.rs:384"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R130.2",
       "title": "Behavior",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "55cdad4bbdd0",
-        "91fa17e8e238"
-      ],
-      "verified_by": [
-        "crates/eg-epistemic/src/ranking.rs:410"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R130.3",
@@ -4300,14 +4280,9 @@
     {
       "id": "EG-DECISION-ENGINE-R130.4",
       "title": "Refusal",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "55cdad4bbdd0",
-        "91fa17e8e238"
-      ],
-      "verified_by": [
-        "crates/eg-epistemic/src/ranking.rs:439"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R130.5",
