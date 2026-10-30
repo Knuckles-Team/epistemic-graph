@@ -86,7 +86,7 @@ Proposed contract. Define TaskPlanSkillNodeV1 with task_plan_id/revision/digest,
 
 Planned acceptance. Case R134.9-ranked-plan. served Decide(TaskPlan) returns multiple skill nodes with stable parent links, cited context matches, pinned outcome refs. Score/rank and plan digest. Equal scores use the declared tie-break. Refuse missing/stale context or outcome evidence and malformed/cyclic parent links. Meristem application of this rank is not asserted.
 
-Exact attachment and hold: Attach the proposed result at plan_over_skills -> AgentLibraryStore -> served TaskPlan. AU-HARNESS-R022.3 local ranking and AU-CONTEXT-R001 feedback authority remain existing adjacent obligations. The Meristem consumer that applies Medulla rank and the feedback-to-R140.102 receipt contract are not yet specified. Keep SPECIFIED pending those owner definitions and served evidence.
+Exact attachment and open dependency: Attach the proposed result at plan_over_skills -> AgentLibraryStore -> served TaskPlan. AU-HARNESS-R022.3 local ranking and AU-CONTEXT-R001 feedback authority remain existing adjacent obligations. The Meristem consumer that applies Medulla rank and the feedback-to-R140.102 receipt contract are not yet specified. Keep SPECIFIED pending those owner definitions and served evidence.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -106,7 +106,7 @@ Proposed contract. Define PairedContextEvaluationV1. Bind the held-out query-set
 
 Planned acceptance. Case R137.14-paired-context. a complete held-out set within the declared tolerance permits the replacement verdict. A beyond-tolerance result, missing query. Stale context/evaluator digest, undefined metric/aggregation/tolerance, or incomplete verdict set refuses and leaves the active raw-context revision unchanged.
 
-Exact attachment and hold: Meristem ContextManager.before_model_request -> run_agent is the existing replacement point. The Meristem held-out evaluator and receipt schema plus the consumer that atomically applies Medulla acceptance are absent. R013.5/.10/.12/.13 remain adjacent coverage, not evidence of this gate.
+Exact attachment and open dependency: Meristem ContextManager.before_model_request -> run_agent is the existing replacement point. The Meristem held-out evaluator and receipt schema plus the consumer that atomically applies Medulla acceptance are absent. R013.5/.10/.12/.13 remain adjacent coverage, not evidence of this gate.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -126,7 +126,7 @@ Proposed contract. Define ChildSummaryV1 with plan/decision id and digest, paren
 
 Planned acceptance. Case R134.10-bounded-child-summary. valid summary-only children whose checked token total fits the parent remaining budget are linked to decision, child and summary digests. Refuse raw/oversized output, missing/duplicate/unknown children, tokenizer or budget revision mismatch. And any total above the bound before parent synthesis.
 
-Exact attachment and hold: Meristem _fork_fanout -> FanoutResult and parallel workspace synthesis are the observed attachment points. Medulla owns TaskPlan authority. Meristem summary producer, parent remaining-context budget field and consumer validation/readback receipt are missing. AU-CONTROL-R043.2/.5 and AU-HARNESS-R020.4 and AU-HARNESS-R024.1 remain adjacent.
+Exact attachment and open dependency: Meristem _fork_fanout -> FanoutResult and parallel workspace synthesis are the observed attachment points. Medulla owns TaskPlan authority. Meristem summary producer, parent remaining-context budget field and consumer validation/readback receipt are missing. AU-CONTROL-R043.2/.5 and AU-HARNESS-R020.4 and AU-HARNESS-R024.1 remain adjacent.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -146,7 +146,7 @@ Proposed contract. Define RecursiveCallV1 request/result records with parent run
 
 Planned acceptance. Case R137.15-signature-boundary. an admitted typed call records matching signature/model/tool/input/output digests. Refuse unknown or changed signatures. Unadmitted tools, malformed input/output, missing parent span, or revision mismatch before accepting the call result.
 
-Exact attachment and hold: Meristem run_full_rlm -> RLMEnvironment.run_parallel_sub_calls is the observed execution point. Medulla resource limits and span instrumentation are adjacent only. No Meristem recursive signature producer/validator receipt or exact Medulla-to-AU call contract is named.
+Exact attachment and open dependency: Meristem run_full_rlm -> RLMEnvironment.run_parallel_sub_calls is the observed execution point. Medulla resource limits and span instrumentation are adjacent only. No Meristem recursive signature producer/validator receipt or exact Medulla-to-AU call contract is named.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -166,7 +166,7 @@ Proposed contract. Define HorizonPartitionV1 over one committed TaskPlan revisio
 
 Planned acceptance. Case R134.11-horizon-credit. a plan within the limit remains one horizon. A longer valid plan is split at dependency-safe boundaries and its checkpoint balances reconcile exactly. Refuse an unsplittable dependency component. Absent/invalid budget rule, over-credit horizon, missing checkpoint, or stale plan revision before the next start.
 
-Exact attachment and hold: Medulla decompose_task/TaskPlan feeds Meristem bounded map primitives. But no named partition/credit receipt interface exists. Meristem durable checkpoint/debit semantics and the consumer that blocks start on a missing receipt remain unspecified. Do not substitute Finance forecast horizons or solver budgets.
+Exact attachment and open dependency: Medulla decompose_task/TaskPlan feeds Meristem bounded map primitives. But no named partition/credit receipt interface exists. Meristem durable checkpoint/debit semantics and the consumer that blocks start on a missing receipt remain unspecified. Do not substitute Finance forecast horizons or solver budgets.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -186,7 +186,7 @@ Proposed contract. Define BackboneSkillEvaluationV1 rows keyed by candidate id, 
 
 Planned acceptance. Case R059.1-backbone-evidence. complete independent evaluations for the same canonical skill identity produce a result that lists every backbone and policy revision. Refuse missing/duplicate backbone rows, candidate identity mismatch, reused non-independent evidence, incomplete dataset coverage or absent metric/transferability aggregation policy.
 
-Exact attachment and hold: Meristem supplies experience/skill candidates; Medulla R059 is the existing independent-outcome admission path. No shared canonical skill merge key, robust aggregation/threshold decision, or Meristem multi-backbone evaluation producer is specified. These decisions are explicit holds.
+Exact attachment and open dependency: Meristem supplies experience/skill candidates; Medulla R059 is the existing independent-outcome admission path. No shared canonical skill merge key, robust aggregation/threshold decision, or Meristem multi-backbone evaluation producer is specified. These decisions are explicit holds.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -206,7 +206,7 @@ Proposed contract. Define TrajectoryDecisionV1 with one task/plan digest, policy
 
 Planned acceptance. Case R134.12-paired-trajectories. selected width/depth and all trajectory/baseline ids bind to the same plan and input snapshot. Each arm has an outcome and the paired R018 verdict is readable. Refuse missing/mismatched arm, baseline, policy revision or result, and refuse any claim of improvement without the declared paired verdict.
 
-Exact attachment and hold: Existing points are Decide(TaskPlan), AU-CONTROL-R042/R043, AU-HARNESS-R020.4, and paired arms in AU-HARNESS-R018.1/.2/.5. Meristem trajectory generation, summary aggregation and Medulla selection-policy consumer receipt are absent.
+Exact attachment and open dependency: Existing points are Decide(TaskPlan), AU-CONTROL-R042/R043, AU-HARNESS-R020.4, and paired arms in AU-HARNESS-R018.1/.2/.5. Meristem trajectory generation, summary aggregation and Medulla selection-policy consumer receipt are absent.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -226,7 +226,7 @@ Proposed contract. Define AnalystFindingV1 with task/plan digest, expected analy
 
 Planned acceptance. Case R134.13-cited-synthesis. cited compatible findings produce a result that accounts for every expected analyst. Refuse missing/duplicate analyst. Unsupported finding, unresolved conflict, invalid citation, plan mismatch or absent decision role with explicit abstention and no recommendation.
 
-Exact attachment and hold: Medulla R134.5 served Decide(TaskPlan) is the planning point; Meristem R020.5 _dispatch_parallel_batch constructs worker slots. The exact Meristem finding producer/collector and aggregation consumer contract is missing. Existing fan-out clauses do not prove it.
+Exact attachment and open dependency: Medulla R134.5 served Decide(TaskPlan) is the planning point; Meristem R020.5 _dispatch_parallel_batch constructs worker slots. The exact Meristem finding producer/collector and aggregation consumer contract is missing. Existing fan-out clauses do not prove it.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -246,7 +246,7 @@ Proposed contract. Define RetrievalProviderBindingV1 in the committed retrieval 
 
 Planned acceptance. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers.
 
-Exact attachment and hold: Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. Medulla must commit the provider binding. The Graft SDK/Arbora consumer contract that executes and receipts that exact binding is not defined.
+Exact attachment and open dependency: Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. Medulla must commit the provider binding. The Graft SDK/Arbora consumer contract that executes and receipts that exact binding is not defined.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -266,7 +266,7 @@ Proposed contract. Define BranchOutcomeV1 with branch id, parent task/plan diges
 
 Planned acceptance. Case R134.14-branch-readback. a complete branch set produces an ordered fusion receipt and independent readback for every outcome. A later branch cites the exact pinned prior outcome. Refuse missing/duplicate branch, changed parent/input/snapshot, omitted failure gap, absent fusion policy, or stale readback.
 
-Exact attachment and hold: Existing points are Decide R134.5, Meristem R020.5 worker execution and Meristem R022.4 outcome distillation. The Meristem branch-experience producer, committed-plan consumer and durable per-outcome receipt schema remain missing. Do not substitute R140.102 breadth adaptation.
+Exact attachment and open dependency: Existing points are Decide R134.5, Meristem R020.5 worker execution and Meristem R022.4 outcome distillation. The Meristem branch-experience producer, committed-plan consumer and durable per-outcome receipt schema remain missing. Do not substitute R140.102 breadth adaptation.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -286,7 +286,7 @@ Proposed contract. Define CandidatePoolV1 with tenant/agent id, task/context fea
 
 Planned acceptance. Case R020.1-agent-isolated-pools. a same-agent matching trajectory selects from the exploitation pool and excludes exploration. A declared no-match case may select from exploration. Refuse missing match policy/evidence and cross-tenant or cross-agent history. Bind result to the candidate snapshot.
 
-Exact attachment and hold: Medulla owns candidate selection and AU-HARNESS-R022.1/.3 provide adjacent experience inputs. No Meristem per-agent pool producer or context-match evidence contract exists. Exact match dimensions/threshold must be supplied by that owner policy before implementation.
+Exact attachment and open dependency: Medulla owns candidate selection and AU-HARNESS-R022.1/.3 provide adjacent experience inputs. No Meristem per-agent pool producer or context-match evidence contract exists. Exact match dimensions/threshold must be supplied by that owner policy before implementation.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -306,7 +306,7 @@ Proposed contract. Define RecursiveTraceNodeV1 with run id/revision, step id/rev
 
 Planned acceptance. Case R133.7-trace-critique. ingest and independently read back a nested trace, then critique it at the same authorized snapshot with complete ancestry. Refuse incomplete ancestry, cycle, stale cursor/snapshot, missing digest or unauthorized projection without returning protected fields.
 
-Exact attachment and hold: Terminal CommitWorkItemResult adapts traces, AddNode validates records and graph queries read them. The recursive node producer and named authorized critique-query operation/consumer are absent. Existing fencing/projection rules remain binding.
+Exact attachment and open dependency: Terminal CommitWorkItemResult adapts traces, AddNode validates records and graph queries read them. The recursive node producer and named authorized critique-query operation/consumer are absent. Existing fencing/projection rules remain binding.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -326,7 +326,7 @@ Proposed contract. Define FeedbackEventV1 with stable event id, decision id/revi
 
 Planned acceptance. Case R100.1-feedback-join. an authorized complete event is read back as exactly one fit example bound to the expected R100 dataset digest. Replaying the same event is idempotent. Refuse duplicate identity with changed content. Missing decision/option/outcome join, invalid mapping policy, stale source revision or evidence mismatch before fitting.
 
-Exact attachment and hold: R100 persists examples, R101 applies a promoted adapter post-RLS/pre-ANN and R040 gates publish. The Meristem signal producer and outcome-to-label mapping policy are not specified. Do not treat an independent outcome record as the producer contract.
+Exact attachment and open dependency: R100 persists examples, R101 applies a promoted adapter post-RLS/pre-ANN and R040 gates publish. The Meristem signal producer and outcome-to-label mapping policy are not specified. Do not treat an independent outcome record as the producer contract.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -346,7 +346,7 @@ Proposed contract. Define ReplayEventV1 with event id, strictly ordered sequence
 
 Planned acceptance. Case R088.2-ordered-replay. replay a fixed event sequence and resume from its receipt/cursor to the same event order and sealed digest. Refuse gaps, out-of-order events, conflicting duplicate ids, changed snapshots or policy-dependent on-policy claims without R119 routing.
 
-Exact attachment and hold: DecisionEval provides AS OF and fold replay. The real-world event simulator and Meristem adaptive-harness producer/consumer are undefined. This row specifies Medulla replay envelope and refusal only, not an external event source.
+Exact attachment and open dependency: DecisionEval provides AS OF and fold replay. The real-world event simulator and Meristem adaptive-harness producer/consumer are undefined. This row specifies Medulla replay envelope and refusal only, not an external event source.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -366,7 +366,7 @@ Proposed contract. Extend ContextBudgetSignalsV1 with task-complexity feature se
 
 Planned acceptance. Case R137.16-complexity-and-remaining-budget. vary complexity while holding model cost and remaining tokens fixed, then vary remaining tokens while holding complexity fixed. Verify the declared policy and certified package bind both decisions. Refuse missing/invalid policy, tokenizer or snapshot mismatch, negative/overflowing remainder, or package cost above remaining tokens.
 
-Exact attachment and hold: Planned Decide(ContextBudget) -> existing solver -> independent certificate verifier -> sealed ContextPackageSelection -> AU-CONTEXT-R004. R137.11/.12 name the consumer. The dispatch and receipt binding remain pending as recorded in R137.9.
+Exact attachment and open dependency: Planned Decide(ContextBudget) -> existing solver -> independent certificate verifier -> sealed ContextPackageSelection -> AU-CONTEXT-R004. R137.11/.12 name the consumer. The dispatch and receipt binding remain pending as recorded in R137.9.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -386,7 +386,7 @@ Proposed contract. Define AvailableContextSourceV1 with authorized source id/rev
 
 Planned acceptance. Case R029.2-complete-source-partition. the same served compile journey includes relevant selected sources and omitted examples for irrelevance, over-budget and authority displacement. Every authorized source is accounted for once. Refuse incomplete enumeration, duplicate source, unknown reason, stale budget/authority snapshot or unauthorized disclosure.
 
-Exact attachment and hold: Served Decide(ContextBudget) -> certified package -> AU-CONTEXT-R004 context compile; R072 ontology selection and EG-SRC-AUTH-R010.6 provide distinct source inputs. The Meristem consumer receipt for the exhaustive partition is not named. Preserve the parent retrieval/authorization obligations.
+Exact attachment and open dependency: Served Decide(ContextBudget) -> certified package -> AU-CONTEXT-R004 context compile; R072 ontology selection and EG-SRC-AUTH-R010.6 provide distinct source inputs. The Meristem consumer receipt for the exhaustive partition is not named. Preserve the parent retrieval/authorization obligations.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -406,7 +406,7 @@ Proposed contract. For each TaskPlan DAG step require positive duration_ms, nonn
 
 Planned acceptance. Case R134.15-weighted-critical-chain. a branched DAG returns the independently calculated longest weighted path and total, source-duration/weight provenance, and deterministic tie result. Refuse a cycle. Missing/invalid duration or weight, absent scale policy, stale source evidence, or checked multiplication/sum overflow before emitting TaskPlan.
 
-Exact attachment and hold: Attach the proposed fields to served Decide(TaskPlan) -> plan_over_skills -> typed TaskPlan. The execution consumer schema for critical-chain fields is not defined. The decision producer and consumer remain SPECIFIED pending that schema.
+Exact attachment and open dependency: Attach the proposed fields to served Decide(TaskPlan) -> plan_over_skills -> typed TaskPlan. The execution consumer schema for critical-chain fields is not defined. The decision producer and consumer remain SPECIFIED pending that schema.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -426,7 +426,7 @@ Proposed contract. Define WorkflowCompileRequestV1 with source kind NL or graph,
 
 Planned acceptance. Case R135.8-workflow-compile. Matching canonical typed-graph digests, compiler id/revision and sorted agent-config refs let NL and graph inputs reuse one stored program and semantic key. Each source receives a separate receipt with its own kind, revision, digest and mapping. An unchanged semantic input with a new source revision reuses the program and emits new provenance. Changing the graph, compiler or any config ref changes the key. Refuse missing steps, stale source/config/compiler revisions, or partial publication.
 
-Exact attachment and hold: Proposed attach points are served Decide(TaskPlan), ProgramLookup and AgentLibraryStore/handle_decision_commit. SourceIngest remains the workflow ingestion authority. The compiler interface and stored configuration/receipt schema between these surfaces are unspecified.
+Exact attachment and open dependency: Proposed attach points are served Decide(TaskPlan), ProgramLookup and AgentLibraryStore/handle_decision_commit. SourceIngest remains the workflow ingestion authority. The compiler interface and stored configuration/receipt schema between these surfaces are unspecified.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
@@ -675,7 +675,7 @@ For each task, emit a versioned complexity decision with task digest, scored fea
 **Preserved parent:** `EG-DECISION-ENGINE-R140` remains unchanged.
 
 
-**Operational wiring / exact hold:** The existing production route is `Method::Decide` with `QuestionKind::TaskPlan` in `handle_decide` (R134.5). Its response contains the complexity decision and plan only. Meristem execution must consume that decision digest and return the same K in its run receipt. AU-CONTROL-R043 is adjacent fan-out, not this receipt; Meristem consumer definition is a pending prerequisite.
+**Operational wiring / exact open dependency:** The existing production route is `Method::Decide` with `QuestionKind::TaskPlan` in `handle_decide` (R134.5). Its response contains the complexity decision and plan only. Meristem execution must consume that decision digest and return the same K in its run receipt. AU-CONTROL-R043 is adjacent fan-out, not this receipt; Meristem consumer definition is a pending prerequisite.
 ### `EG-DECISION-ENGINE-R140.101` — AU:51
 
 Represent each source trajectory with run/candidate ids, source revision and trace digest. The experience projection records the redaction-policy revision and removed reasoning-token spans, retains task/result/evidence spans. And records a deterministic shuffle seed plus ordered projected ids. Deliberation output is a new candidate whose parent list names every consumed experience id and digest. Append it as one extra refinement trajectory without replacing source records. Missing provenance, invalid redaction policy or an output not linked to the consumed inputs refuses reinsertion.
@@ -697,7 +697,7 @@ Before each candidate branch starts, retrieve authorized prior attempts for the 
 **Preserved parent:** `EG-DECISION-ENGINE-R140` remains unchanged.
 
 
-**Operational wiring / exact hold:** Use the R134.5 TaskPlan/Decide route for the branch-start `BreadthDecisionV1`. History comes from Meristem `record_outcome -> SkillGraphPipeline` (R022.4); Meristem `_dispatch_parallel_batch -> parallel_batch_processor` (R020.5) must consume the committed decision id/digest and return outcome refs bound to it. Neither Meristem row currently binds this decision. The branch-start/result receipt is a pending owner dependency.
+**Operational wiring / exact open dependency:** Use the R134.5 TaskPlan/Decide route for the branch-start `BreadthDecisionV1`. History comes from Meristem `record_outcome -> SkillGraphPipeline` (R022.4); Meristem `_dispatch_parallel_batch -> parallel_batch_processor` (R020.5) must consume the committed decision id/digest and return outcome refs bound to it. Neither Meristem row currently binds this decision. The branch-start/result receipt is a pending owner dependency.
 ### `EG-DECISION-ENGINE-R140.103` — AU:87
 
 When no verifier is available, bind an ordered candidate set and candidate digests to pairwise comparison records. Each pair record carries both ids, judge/model revision, verdict and evidence digest. Do not aggregate into a global ranking until an owner-approved, versioned policy defines cycle, incomplete-pair and tie behavior. Bradley–Terry is not selected by the source. Until the owner-approved aggregation policy defines complete-pair behavior, cycle and tie resolution, bounded keep-count/revision limits. And Meristem receipts, refuse to emit a global ranking, retained partition, or revision request. No positive ranking behavior is specified by this source record. An available verifier routes through its existing verifier contract instead of this fallback.
@@ -726,7 +726,7 @@ A rewrite proposal binds tenant, memory id, active source revision/digest, candi
 **Preserved parent:** `EG-DECISION-ENGINE-R141` remains unchanged.
 
 
-**Operational wiring / exact hold:** Attach evaluation to the existing `Method::DecisionEval` job (`DecisionEvalOp::MemoryRewriteSubmit`). Its receipt decides admit/discard from the pinned fidelity, signal-per-token and degradation policy. It does not itself claim an active-memory write. The source does not identify the authoritative memory store, complete mutation entrypoint set or atomic CAS that must require the receipt. Those are explicit prerequisites before any end-to-end rewrite admission claim.
+**Operational wiring / exact open dependency:** Attach evaluation to the existing `Method::DecisionEval` job (`DecisionEvalOp::MemoryRewriteSubmit`). Its receipt decides admit/discard from the pinned fidelity, signal-per-token and degradation policy. It does not itself claim an active-memory write. The source does not identify the authoritative memory store, complete mutation entrypoint set or atomic CAS that must require the receipt. Those are explicit prerequisites before any end-to-end rewrite admission claim.
 ### `EG-DECISION-ENGINE-R141.101` — AU:125
 
 Before any memory mutation is enable, bind the baseline. And candidate memory snapshot digests to a versioned reference dataset containing query ids, expected evidence ids and reference answers. Report recall@k and answer accuracy with numerator, positive denominator, metric specification revision and dataset digest. The referenced metric specifications must define exact scoring, query aggregation and rounding. The source does not supply those formulas, so missing/unreviewed semantics refuse before positive admission. Compare both only under a reviewed policy. Admission requires both thresholds to pass on the same dataset and snapshot pair. Missing dataset rows, metric inputs, denominator or policy revision refuse before enable. This gate covers add/edit/remove/rewrite/consolidation changes; R060 fitted-head promotion remains a separate model-promotion gate.
@@ -756,7 +756,7 @@ For each skill revision, bind an atomic/workflow classification, local model id/
 
 ### `EG-DECISION-ENGINE-R142.101` — DecisionEval attestation wiring
 
-The Medulla producer attaches at src/server/dispatch/router/decision_plane.rs:119 and src/server/handlers/decide/jobs.rs:30. It binds Meristem's evaluation receipt and exact skill/model/dataset/criteria revisions into an immutable attestation. Meristem's receipt schema and Arbora R034.7-.12 consumption remain explicit owner holds.
+The Medulla producer attaches at src/server/dispatch/router/decision_plane.rs:119 and src/server/handlers/decide/jobs.rs:30. It binds Meristem's evaluation receipt and exact skill/model/dataset/criteria revisions into an immutable attestation. Meristem's receipt schema and Arbora R034.7-.12 consumption remain explicit owner dependencys.
 
 ### `EG-DECISION-ENGINE-R142.102` — Certification hot-path proof
 
@@ -766,7 +766,7 @@ The planned proof enters the actual local-model evaluation path. And observes Ar
 
 <!-- spec-definition-patch:owner-dispatch-20261012-spec -->
 
-**Operational wiring / exact hold:** The Medulla producer attaches to `Method::DecisionEval` and consumes a Meristem `orchestrate` certification-evaluation receipt. It emits a digest-bound attestation only for a full per-criterion pass. Certification evaluation must be distinguishable from normal skill execution. So an uncertified atomic can be evaluated without opening the normal invocation path. Arbora remains the normal invocation gate at `ARBORA-FLEET-R034.7-.12` before `orchestrate`/`agents.run`; Meristem execution and Arbora validation remain separate owners. Neither the Meristem receipt schema nor Arbora consumption of this Medulla attestation is currently evidenced, so both are explicit prerequisites.
+**Operational wiring / exact open dependency:** The Medulla producer attaches to `Method::DecisionEval` and consumes a Meristem `orchestrate` certification-evaluation receipt. It emits a digest-bound attestation only for a full per-criterion pass. Certification evaluation must be distinguishable from normal skill execution. So an uncertified atomic can be evaluated without opening the normal invocation path. Arbora remains the normal invocation gate at `ARBORA-FLEET-R034.7-.12` before `orchestrate`/`agents.run`; Meristem execution and Arbora validation remain separate owners. Neither the Meristem receipt schema nor Arbora consumption of this Medulla attestation is currently evidenced, so both are explicit prerequisites.
 ## Cross-owner retrieval evaluation and context
 
 The existing `DecisionEval` job is the production evaluation attach point. Its new `RetrievalRankingV1` variant pins corpus, label set, query set, k, evaluator and two algorithm configurations. It seals exact hits-at-k numerator/denominator values and refuses comparisons over unequal inputs or incomplete labels. `Method::UnifiedQuery` remains the retrieval result source, and R100's independent-outcome/hard-negative persistence remains unchanged.

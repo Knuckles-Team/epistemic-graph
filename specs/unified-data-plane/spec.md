@@ -72,7 +72,7 @@ Expose graph-backed relational projections through an approved, version-pinned s
 
 **Boundary and preserved scope:** External application -> approved relational projection read; writes -> separately authorized graph `MutationBatch`. Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, EG-FEDERATED-QUERY-R080.1, EG-FEDERATED-QUERY-R080.2, EG-FEDERATED-QUERY-R080.3, EG-FEDERATED-QUERY-R080.4, EG-FEDERATED-QUERY-R080.5, EG-FEDERATED-QUERY-R080.6. The schema/catalog and `schema_context` owners remain R003/R005/R029.
 
-**Explicit hold:** The source record names no external application, relational table/column contract, or driver statement corpus. Keep application-level schema compatibility open until the R026 P0/P5 owner furnishes and approves the concrete schema mapping and captured statements. Do not imply a universal relational schema.
+**Open dependency:** The source record names no external application, relational table/column contract, or driver statement corpus. Keep application-level schema compatibility open until the R026 P0/P5 owner furnishes and approves the concrete schema mapping and captured statements. Do not imply a universal relational schema.
 
 **Source record SHA-256:** `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`. This is a SPECIFIED contract; no implementation or served result is claimed.
 <!-- /spec-definition-patch -->

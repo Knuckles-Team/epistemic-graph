@@ -66,7 +66,7 @@ Each child is a separate documentation review unit of at most five minutes.
 <!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
 ## Reviewed residual definition tasks — 2026-10-12
 
-The linked requirement rows retain the full contract, hashes, acceptance, and owner holds.
+The linked requirement rows retain the full contract, hashes, acceptance, and owner dependencys.
 
 - [ ] `EG-CONTRACT-R001.1`: Extend the Medulla generator and manifest. Wire exports into Meristem `HarnessRequest` and `run_agent`. Keep Meristem lifecycle ownership.
 - [ ] `EG-CONTRACT-R001.2`: Use R094 export/import and governed filesystem effects. Pin the canonical number encoder. Do not add a Medulla filesystem writer.
