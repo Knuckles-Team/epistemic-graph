@@ -211,7 +211,10 @@ jobs:
     if: &eg-main-only needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     # Pin the libc baseline while ubuntu-latest rolls to newer distributions.
     # Native artifacts must remain executable on supported older Linux hosts.
-    runs-on: &eg-native-validation-runner ubuntu-24.04
+    # Heavy full-workspace cargo job: runs on the small labelled pool when the
+    # repo/org variable EG_HEAVY_RUNNER is set (2 runners = org-wide cap of 2,
+    # excess jobs queue FIFO and still run); falls back to ubuntu-24.04 unset.
+    runs-on: &eg-heavy-runner ${{ vars.EG_HEAVY_RUNNER || 'ubuntu-24.04' }}
     # Build and cleanup must choose the same backend if the daemon restarts.
     # Backend settings alone do not wrap any other Cargo command.
     env: &eg-validation-compiler-cache-backend
@@ -324,7 +327,7 @@ jobs:
     name: Canonical engine contract parity
     needs: changes
     if: &eg-code-change needs.changes.outputs.code == 'true'
-    runs-on: *eg-native-validation-runner
+    runs-on: &eg-native-validation-runner ubuntu-24.04
     env: *eg-validation-compiler-cache-backend
     steps:
       # The exporter needs only Python's standard library, not client test deps.
@@ -1219,7 +1222,7 @@ jobs:
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
     if: *eg-code-change
-    runs-on: *eg-native-validation-runner
+    runs-on: *eg-heavy-runner
     strategy:
       fail-fast: false
       matrix:
@@ -1252,7 +1255,7 @@ jobs:
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
     if: *eg-main-only
-    runs-on: *eg-native-validation-runner
+    runs-on: *eg-heavy-runner
     strategy:
       fail-fast: false
       matrix:
