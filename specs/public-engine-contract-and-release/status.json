@@ -462,7 +462,7 @@
       ],
       "verified_by": [
         "tests/test_ontology_package.py:14",
-        "tests/test_wheel_contract_surface.py:475"
+        "tests/test_wheel_contract_surface.py:471"
       ],
       "rollup_of": [
         "EG-CONTRACT-R015.1"
@@ -790,7 +790,7 @@
         "a7ae55a60495"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:704"
+        "crates/eg-capabilities/src/contract.rs:701"
       ]
     },
     {
@@ -1035,7 +1035,7 @@
       ],
       "verified_by": [
         "tests/test_build_backend.py:138",
-        "tests/test_check_wheel_completeness.py:215",
+        "tests/test_check_wheel_completeness.py:213",
         "tests/test_ci_change_scope.py:772",
         "tests/test_ci_change_scope.py:816",
         "tests/test_ci_change_scope.py:945"
@@ -1076,7 +1076,7 @@
       ],
       "verified_by": [
         "tests/test_build_backend.py:138",
-        "tests/test_check_wheel_completeness.py:215"
+        "tests/test_check_wheel_completeness.py:213"
       ]
     },
     {
@@ -1145,9 +1145,9 @@
       ],
       "verified_by": [
         "tests/test_wheel_extensions_only.py:23",
-        "tests/test_wheel_extensions_only.py:41",
-        "tests/test_wheel_extensions_only.py:63",
-        "tests/test_wheel_extensions_only.py:90"
+        "tests/test_wheel_extensions_only.py:44",
+        "tests/test_wheel_extensions_only.py:66",
+        "tests/test_wheel_extensions_only.py:93"
       ]
     },
     {
