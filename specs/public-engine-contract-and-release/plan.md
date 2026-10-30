@@ -358,7 +358,7 @@ the architecture requirement's generated status.
 <!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
 ## Reviewed implementation plan — 2026-10-12
 
-Normative contracts, source hashes, owner references, holds, and acceptance remain in `requirements.md`.
+Normative contracts, source hashes, owner references, open dependencies, and acceptance remain in `requirements.md`.
 Each task preserves its existing parent and owner boundary.
 
 | Requirement | Implementation work | Open dependency | Source SHA-256 |

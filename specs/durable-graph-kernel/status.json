@@ -3697,10 +3697,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R099.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2e1d91e99882"
+      ],
       "verified_by": [
-        "crates/eg-types/src/mutation_batch/fanout.rs:40"
+        "crates/eg-types/src/mutation_batch/fanout.rs:40",
+        "src/server/dispatch/change_envelope/multi_graph.rs:317"
       ]
     },
     {

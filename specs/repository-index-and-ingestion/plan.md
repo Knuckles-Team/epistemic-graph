@@ -130,7 +130,7 @@ and served boundary evidence specified in requirements.md and test-spec.md.
 <!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
 ## Reviewed implementation plan — 2026-10-12
 
-Normative contracts, source hashes, owner references, holds, and acceptance remain in `requirements.md`.
+Normative contracts, source hashes, owner references, open dependencies, and acceptance remain in `requirements.md`.
 Each work item below extends its named parent and preserves existing obligations.
 
 | Requirement | Plan | Open dependency |

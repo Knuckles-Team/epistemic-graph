@@ -1112,6 +1112,7 @@ mod tests {
     /// silently, from a manifest that said nothing about its own scope. This proves the
     /// non-shard durable stores survive the round trip, and that the manifest declares
     /// both what it captured and what it deliberately did not.
+    #[cfg(feature = "kv")]
     #[tokio::test(flavor = "multi_thread")]
     async fn backup_restore_carries_non_shard_durable_stores() {
         #[cfg(feature = "security")]

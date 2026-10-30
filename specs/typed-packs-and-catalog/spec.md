@@ -81,7 +81,7 @@ Original pack types, digest vectors, clients, body holders, grace reconciliation
 
 The existing rendered-package path must gate catalog exposure on a `RecordedRunValidationV1`. Bind it to tenant, skill, candidate revision, exact rendered content digest, graph revision, and validation-policy reference `{policy_iri, policy_revision}`. Each sorted unique `run_refs` entry carries `{run_ref, package_content_digest, graph_revision, policy_revision, outcome, evidence_digest}`. `run_set_digest` hashes its canonical encoding. Require `run_set_complete=true`. Each run attests the same package and policy revisions. Missing, failed, partial, stale, mismatched, or cross-tenant evidence refuses publication before `skill_row` returns a publishable package. Meristem `record_outcome`/`SkillGraphPipeline` remains the run/candidate producer. Medulla `render_skill_package` and `skill_row` bind and enforce the receipt.
 
-**Hold:** the reviewed Meristem rows do not define the validation operation, receipt producer fields, run-set selection, or pass criterion. Meristem must publish those semantics before a passing cross-owner journey can be accepted. Until then absence of a receipt refuses; this does not close the positive producer path. Preserve `AU-HARNESS-R022.2/.5/.6`, `AU-HARNESS-R004.1`, and `EG-TYPED-PACKS-R100.1/.5/.6`. Source hash: `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
+**Open dependency:** the reviewed Meristem rows do not define the validation operation, receipt producer fields, run-set selection, or pass criterion. Meristem must publish those semantics before a passing cross-owner journey can be accepted. Until then absence of a receipt refuses; this does not close the positive producer path. Preserve `AU-HARNESS-R022.2/.5/.6`, `AU-HARNESS-R004.1`, and `EG-TYPED-PACKS-R100.1/.5/.6`. Source hash: `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
 
 ### `EG-TYPED-PACKS-R097.2.7` — EG:35
 
@@ -93,7 +93,7 @@ Preserve `EG-TYPED-PACKS-R051`, `EG-UNIFIED-DATA-PLANE-R005/R037`, `EG-TYPED-PAC
 
 Add `ExportWorkflowRdfV1(workflow_iri, requested_workflow_version, stored_version_ref) -> WorkflowRdfDocumentV1` and `ImportWorkflowRdfV1(document) -> WorkflowImportReceiptV1{workflow_iri, committed_workflow_revision, graph_revision, dataset_digest, importer_id}` to the existing skill-package owner. The versioned `WorkflowRdfDocumentV1` contains workflow/skill IDs and workflow/stored-version/graph/ontology revisions. It also contains canonical N-Quads, dataset digest and serializer identity. `dataset_digest` is SHA-256 of the canonical UTF-8 N-Quads bytes selected by the document-pinned serializer. Export preserves every workflow triple, named graph, typed/language-tagged literal, ontology IRI and unknown workflow predicate. Import validates the canonical-byte dataset digest and restores an isomorphic graph through the existing graph write boundary. Keep the original strict-newer check at export.
 
-**Hold:** source review does not identify the stored workflow version record to compare or its ordering grammar. It also does not identify the existing R100 consumer import operation. Do not shift comparison to import. Do not claim a complete round-trip until the owner decisions and exact attach points are identified. Preserve `EG-TYPED-PACKS-R051/R090/R100.1-.6`. Source hash: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
+**Open dependency:** source review does not identify the stored workflow version record to compare or its ordering grammar. It also does not identify the existing R100 consumer import operation. Do not shift comparison to import. Do not claim a complete round-trip until the owner decisions and exact attach points are identified. Preserve `EG-TYPED-PACKS-R051/R090/R100.1-.6`. Source hash: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
@@ -155,7 +155,7 @@ Extend the typed fleet catalog with workflow registration identity, version/cont
 
 Producer/consumer: Medulla typed registry and SourceIngest R002 own durable registration; Meristem owns lazy client initialization/execution; preserve ARBORA-HOST-R022 workflow-store semantics.
 
-**Open owner prerequisite:** AU-CONTROL-R037.5 only fills a requirement gap; it does not define lazy initialization timing, the first-use operation, or the execution receipt. No exact Meristem companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
+**Open owner prerequisite:** AU-CONTROL-R037.5 only fills a requirement gap; it does not define lazy initialization timing, the first-use operation, or the execution receipt. No exact Meristem companion requirement ID is identified. Keep that consumer as an explicit open dependency until its owner publishes the operation and receipt; no invocation evidence is claimed.
 Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`. Verification remains planned until independently served by each named owner.
 
 ### Extension of R071
