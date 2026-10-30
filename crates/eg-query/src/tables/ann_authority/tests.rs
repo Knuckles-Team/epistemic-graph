@@ -265,6 +265,7 @@ fn a_query_never_builds_a_generation() {
     assert_eq!(status[0].generation, None, "the query path built nothing");
 }
 
+// spec: EG-FEDERATED-QUERY-R059
 #[test]
 fn the_worker_activates_and_the_probe_serves_the_maintained_generation() {
     let index = hnsw_l2();
@@ -392,6 +393,7 @@ fn a_throttled_worker_defers_a_recent_rebuild() {
     ));
 }
 
+// spec: EG-FEDERATED-QUERY-R059
 #[test]
 fn activation_never_moves_an_index_backwards_in_source_time() {
     let source = |epoch: u64| AnnSourceRows {
@@ -607,6 +609,7 @@ fn a_query_of_another_width_never_probes_the_generation() {
     assert!(answer.rows.is_empty(), "no stored vector has width 4");
 }
 
+// spec: EG-FEDERATED-QUERY-R059
 #[test]
 fn a_failed_build_is_visible_and_a_dropped_registration_is_forgotten() {
     let index = hnsw_l2();
@@ -655,6 +658,7 @@ fn dropping_a_table_removes_its_ann_registration() {
     assert!(store.ann_authority().slot_keys().is_empty());
 }
 
+// spec: EG-FEDERATED-QUERY-R059
 #[test]
 fn a_restart_serves_the_persisted_generation_without_a_rebuild() {
     let index = hnsw_l2();

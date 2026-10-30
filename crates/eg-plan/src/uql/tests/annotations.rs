@@ -46,6 +46,7 @@ fn with_knowledge_carries_each_rows_record() {
     assert!(profiled.iter().all(|r| r.knowledge.is_some()));
 }
 
+// spec: EG-FEDERATED-QUERY-R068
 #[test]
 fn an_unprovable_admission_makes_the_proof_partial() {
     let (view, semantic) = docs();
@@ -88,6 +89,7 @@ ex:t1 a ex:Topic .
         (core.analysis_snapshot(), SemanticStore::new())
     }
 
+    // spec: EG-FEDERATED-QUERY-R068
     #[test]
     fn a_sparql_source_proves_each_row_with_its_witness() {
         let (view, semantic) = papers();
@@ -107,6 +109,7 @@ ex:t1 a ex:Topic .
         assert_eq!(witness.witnesses[0].subject, rows[0].id);
     }
 
+    // spec: EG-FEDERATED-QUERY-R068
     #[test]
     fn a_reason_stage_proves_inferred_membership() {
         let (view, semantic) = papers();

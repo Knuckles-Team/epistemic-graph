@@ -30,6 +30,7 @@ fn run(src: &str, params: &Params, ctx: &PlanCtx) -> Result<UqlResult, String> {
     run_statement(&stmt, ctx)
 }
 
+// spec: EG-FEDERATED-QUERY-R067
 #[test]
 fn two_scoring_stages_keep_both_channels() {
     let (view, semantic) = fixture();
@@ -113,6 +114,7 @@ fn profile_counts_rows_per_stage_and_params_bind() {
     assert!(stages.iter().all(|s| s.micros.is_some()));
 }
 
+// spec: EG-FEDERATED-QUERY-R044
 #[cfg(feature = "federation")]
 #[test]
 fn explain_has_redacted_remote_and_local_sections_without_running_source() {
@@ -139,6 +141,7 @@ fn explain_has_redacted_remote_and_local_sections_without_running_source() {
     assert!(stages.iter().all(|s| s.rows.is_none()));
 }
 
+// spec: EG-FEDERATED-QUERY-R044
 #[cfg(feature = "federation")]
 #[test]
 fn budget_hint_requires_bound_session_and_never_bypasses_server_cap() {
@@ -169,6 +172,7 @@ fn budget_hint_requires_bound_session_and_never_bypasses_server_cap() {
     assert_eq!(session.budget().max_rows, 3);
 }
 
+// spec: EG-FEDERATED-QUERY-R044
 #[cfg(feature = "federation")]
 #[test]
 fn profile_remote_fragment_has_redacted_golden_output_and_provenance() {
@@ -267,6 +271,7 @@ fn profile_refuses_when_final_rows_exceed_budget() {
 const PROGRAM: &str = "LET docs = MATCH (:Doc); LET cited = FROM docs |> TRAVERSE CITES; \
                        JOIN docs, cited |> RERANK MENTIONS |> RETURN mentions";
 
+// spec: EG-FEDERATED-QUERY-R027
 #[test]
 fn a_program_explains_node_by_node() {
     let (view, semantic) = fixture();
@@ -299,6 +304,7 @@ fn a_program_explains_node_by_node() {
     assert!(!incremental && incremental_note.contains("LET"));
 }
 
+// spec: EG-FEDERATED-QUERY-R027
 #[test]
 fn a_program_profiles_and_returns_channels() {
     let (view, semantic) = fixture();

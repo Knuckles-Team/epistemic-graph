@@ -245,6 +245,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R063
     #[test]
     fn resolution_sweep_is_deterministic() {
         let g = bridged_four_cliques();
@@ -257,6 +258,7 @@ mod tests {
         assert_eq!(a, b);
     }
 
+    // spec: EG-FEDERATED-QUERY-R063
     #[test]
     fn distinct_resolutions_keep_known_persistent_communities() {
         let g = bridged_four_cliques();
@@ -290,6 +292,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R063
     #[test]
     fn names_the_highest_degree_member_of_each_community() {
         // "b" is connected to every other member (degree 3); the rest have
@@ -305,6 +308,7 @@ mod tests {
         assert_eq!(named[0].name, "b");
     }
 
+    // spec: EG-FEDERATED-QUERY-R063
     #[test]
     fn highest_degree_names_are_stable_across_repeated_runs() {
         let g = bridged_four_cliques();

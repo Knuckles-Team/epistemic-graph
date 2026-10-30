@@ -672,6 +672,7 @@ fn epistemic_clauses_not_in_build() {
 }
 
 // Regression for EG-FEDERATED-QUERY-R024; native acceptance remains pending.
+// spec: EG-FEDERATED-QUERY-R024
 #[test]
 fn outbound_traversal_spellings_compile_to_the_same_canonical_plan() {
     let arrow = parse("MATCH (:N) |> TRAVERSE -[:R]->{1,2}").unwrap();
@@ -687,6 +688,7 @@ fn outbound_traversal_spellings_compile_to_the_same_canonical_plan() {
 }
 
 // Regression coverage for EG-FEDERATED-QUERY-R024; managed native acceptance remains pending.
+// spec: EG-FEDERATED-QUERY-R024
 #[test]
 fn wildcard_and_edge_predicate_traversals_compile_to_expand() {
     let wildcard = parse("MATCH (:N) |> TRAVERSE -[*]->{1,2}").unwrap();

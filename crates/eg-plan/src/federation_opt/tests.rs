@@ -184,6 +184,7 @@ fn source_plan(spec: ForeignSourceSpec, limit: Option<usize>) -> Plan {
     Plan::new(ops)
 }
 
+// spec: EG-FEDERATED-QUERY-R041
 #[test]
 fn protocol_matrix_bounds_pushdown() {
     let capability = ForeignSourceCapability::new(
@@ -224,6 +225,7 @@ fn protocol_matrix_bounds_pushdown() {
 
 // ── (E)+(B): HTTP through the executor ──────────────────────────────────────────
 
+// spec: EG-FEDERATED-QUERY-R041
 #[test]
 fn a_foreign_join_ships_local_ids_instead_of_fetching_the_source() {
     let fx = crate::fixture::build();
@@ -270,6 +272,7 @@ fn a_foreign_join_ships_local_ids_instead_of_fetching_the_source() {
     assert_eq!(trace[0].keys_pushed, local.len());
 }
 
+// spec: EG-FEDERATED-QUERY-R071
 #[test]
 fn a_paged_source_is_read_to_its_end_not_truncated_to_page_one() {
     let api = MockApi::spawn(catalog(250), 40);
@@ -311,6 +314,8 @@ fn a_following_limit_is_pushed_into_the_source() {
     assert_eq!(session.trace()[0].limit_pushed, Some(5));
 }
 
+// spec: EG-FEDERATED-QUERY-R041
+// spec: EG-FEDERATED-QUERY-R071
 #[test]
 fn a_key_only_source_refuses_a_scan_without_keys() {
     let api = MockApi::spawn(catalog(10), 10);
@@ -326,6 +331,7 @@ fn a_key_only_source_refuses_a_scan_without_keys() {
     assert_eq!(api.requests(), 0, "(S) refused before any request");
 }
 
+// spec: EG-FEDERATED-QUERY-R041
 #[test]
 fn the_request_budget_refuses_instead_of_returning_partial_rows() {
     let api = MockApi::spawn(catalog(250), 40);
@@ -344,6 +350,7 @@ fn the_request_budget_refuses_instead_of_returning_partial_rows() {
     assert_eq!(api.requests(), 2);
 }
 
+// spec: EG-FEDERATED-QUERY-R071
 #[test]
 fn placeholders_outside_the_query_string_never_template_the_destination() {
     let fx = crate::fixture::build();
@@ -420,6 +427,7 @@ fn local(n: usize) -> RowSet {
     RowSet::from_ids((0..n).map(|i| format!("x{i}")))
 }
 
+// spec: EG-FEDERATED-QUERY-R041
 #[test]
 fn an_oversized_batch_is_split_until_the_source_accepts_it() {
     let source = Scripted::new("split-test", catalog(5000), 10);
@@ -440,6 +448,7 @@ fn an_oversized_batch_is_split_until_the_source_accepts_it() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R041
 #[test]
 fn failing_key_lookups_fall_back_to_the_naive_fetch() {
     let source = Scripted::new("fallback-test", catalog(50), 0);
@@ -536,6 +545,7 @@ impl RemoteFetch for Concurrent {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R047
 #[test]
 fn parallel_batches_share_a_source_cap_across_queries() {
     let source = Concurrent::new();

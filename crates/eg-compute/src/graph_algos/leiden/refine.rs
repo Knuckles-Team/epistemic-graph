@@ -115,6 +115,7 @@ mod tests {
     /// connected through a NON-triangle path once the shared parent forces
     /// them together — refinement must split back into the genuinely
     /// connected pieces regardless of what `p` claims.
+    // spec: EG-FEDERATED-QUERY-R063
     #[test]
     fn refine_splits_a_parent_group_with_a_disconnected_induced_subgraph() {
         // adj: two disjoint edges (0-1) and (2-3), no path between the pairs.

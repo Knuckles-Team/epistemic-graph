@@ -481,6 +481,7 @@ mod http_json_security_tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R043
     #[cfg(feature = "federation-sql")]
     #[test]
     fn sql_dsn_hosts_are_vetted_like_http_destinations() {
@@ -503,6 +504,7 @@ mod http_json_security_tests {
         );
     }
 
+    // spec: EG-FEDERATED-QUERY-R043
     #[cfg(feature = "federation-sql")]
     #[test]
     fn an_allowlisted_internal_sql_host_is_accepted() {
