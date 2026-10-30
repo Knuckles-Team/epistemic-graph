@@ -1659,11 +1659,11 @@ jobs:
   consumer-history-qualification:
     needs: [changes, gates-wheel, candidate-server-wheel]
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request' && needs.changes.outputs.full_native == 'true'
-    uses: Knuckles-Team/arbora/.github/workflows/native-history-candidate.yml@b29b0aad469bc91c6e6341b608f9782810ac7cca
+    uses: Knuckles-Team/arbora/.github/workflows/native-history-candidate.yml@92f280b38567bd7c0a3e30818f75cc94481c949f
     permissions:
       contents: read
     with:
-      arbora-ref: b29b0aad469bc91c6e6341b608f9782810ac7cca
+      arbora-ref: 92f280b38567bd7c0a3e30818f75cc94481c949f
       scion-ref: 7bb07ce29b0a9be42940f18a4dfabe65962afc86
       producer-ref: ${{ github.sha }}
 
