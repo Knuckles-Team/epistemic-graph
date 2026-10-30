@@ -395,7 +395,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R129.3
     #[test]
     fn first_contradicted_invariant_is_named() {
         let r = rule("eg:rule/skip-review", "eg:task/Deploy");
@@ -429,7 +428,6 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R129.4
     #[test]
     fn full_consensus_does_not_override() {
         let r = rule("eg:rule/skip-review", "eg:task/Deploy");
