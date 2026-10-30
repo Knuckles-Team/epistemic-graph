@@ -219,4 +219,59 @@ mod tests {
         assert_eq!(MediaMemoryRefusal::OversizeBlob.code(), "media_memory_oversize_blob");
         assert_eq!(s.derive("t", "x", "d", "t"), Err(MediaMemoryRefusal::UnknownBlob));
     }
+
+    /// Fixed fixtures (varied payloads, shared prefix) for the determinism test.
+    fn fixtures() -> Vec<(Vec<u8>, String)> {
+        (0u8..24)
+            .map(|i| {
+                let mut b = vec![0x89, b'P', b'N', b'G'];
+                b.extend((0..(i as usize * 7 + 3)).map(|k| (k as u8).wrapping_mul(i + 1)));
+                (b, format!("note {} red", i % 5))
+            })
+            .collect()
+    }
+
+    fn run(order: &[usize]) -> (Vec<MediaRecall>, Vec<MediaRecall>) {
+        let fx = fixtures();
+        let mut s = MediaMemoryStore::new();
+        for &i in order {
+            let (bytes, text) = &fx[i];
+            let m = s.remember("t", bytes, "image/png", "msg", "mem").unwrap();
+            s.derive("t", &m.blob_id, &format!("d{i:02}"), text).unwrap();
+        }
+        let all = s.recall_by_text("t", "note");
+        let some = s.recall_by_text("t", "NOTE 3");
+        (all, some)
+    }
+
+    // spec: EG-MEDIA-VOCAB-R650.2
+    #[test]
+    fn recall_is_deterministic_across_runs_orders_and_threads() {
+        let n = fixtures().len();
+        let forward: Vec<usize> = (0..n).collect();
+        let baseline = run(&forward);
+        assert_eq!(baseline.0.len(), n);
+        let mut order = forward.clone();
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        for round in 0..16 {
+            for i in (1..order.len()).rev() {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                order.swap(i, (seed % (i as u64 + 1)) as usize);
+            }
+            assert_eq!(run(&order), baseline, "round {round}");
+        }
+        for threads in [1usize, 2, 4, 8] {
+            let handles: Vec<_> = (0..threads)
+                .map(|_| {
+                    let f = forward.clone();
+                    std::thread::spawn(move || run(&f))
+                })
+                .collect();
+            for h in handles {
+                assert_eq!(h.join().unwrap(), baseline, "threads {threads}");
+            }
+        }
+    }
 }
