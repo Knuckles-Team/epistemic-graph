@@ -29,7 +29,10 @@ def _rows() -> list[tuple[str, str, str]]:
 
 def _defines(path: Path, symbol: str) -> bool:
     pattern = rf"\bfn {re.escape(symbol)}\b|\bdef {re.escape(symbol)}\b"
-    return path.is_file() and re.search(pattern, path.read_text(encoding="utf-8")) is not None
+    return (
+        path.is_file()
+        and re.search(pattern, path.read_text(encoding="utf-8")) is not None
+    )
 
 
 # spec: EG-CONTRACT-R052.4
@@ -41,10 +44,18 @@ def test_entry_point_evidence_resolves_and_refuses_non_execution_proof() -> None
         path, symbol = anchor.split("::")
         assert _defines(ROOT / path, symbol), f"{name}: {anchor} does not resolve"
         if evidence.startswith("missing:"):
-            assert len(evidence) > len("missing:") + 10, f"{name}: missing evidence needs a reason"
+            assert len(evidence) > len("missing:") + 10, (
+                f"{name}: missing evidence needs a reason"
+            )
             continue
         test_path, test_name = evidence.strip("`").split("::")
-        assert not test_path.endswith(REFUSED_EVIDENCE), f"{name}: {test_path} is not execution proof"
+        assert not test_path.endswith(REFUSED_EVIDENCE), (
+            f"{name}: {test_path} is not execution proof"
+        )
         assert "test" in test_path, f"{name}: evidence is not a test file"
-        assert _defines(ROOT / test_path, test_name), f"{name}: {evidence} does not resolve"
-        assert symbol in (ROOT / test_path).read_text(encoding="utf-8"), f"{name}: test does not enter {symbol}"
+        assert _defines(ROOT / test_path, test_name), (
+            f"{name}: {evidence} does not resolve"
+        )
+        assert symbol in (ROOT / test_path).read_text(encoding="utf-8"), (
+            f"{name}: test does not enter {symbol}"
+        )
