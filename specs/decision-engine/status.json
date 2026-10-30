@@ -8419,8 +8419,8 @@
         "be7403075c23"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component/capability_descriptor.rs:258",
-        "crates/eg-types/src/agent_component/capability_descriptor.rs:320"
+        "crates/eg-types/src/agent_component/capability_descriptor.rs:257",
+        "crates/eg-types/src/agent_component/capability_descriptor.rs:319"
       ]
     },
     {
