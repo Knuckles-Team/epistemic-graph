@@ -176,3 +176,49 @@ fn tenant_private_components_are_not_projected_to_commons() {
     card.attributes.insert("visibility".into(), "tenant".into());
     assert!(project_component(&event(card)).is_empty());
 }
+
+fn critique_loop(lifecycle: &str) -> eg_types::agent_graph::AgentGraphEntry {
+    let agent = |id: &str| {
+        serde_json::json!({"node_id": id, "kind": {"agent": {"agent_id": id, "definition_digest": "sha256:a"}}})
+    };
+    let slot = |id: &str, role: &str| {
+        serde_json::json!({"node_id": id, "role": role, "min_width": 1, "max_width": 1, "max_rounds": 1})
+    };
+    serde_json::from_value(serde_json::json!({
+        "schema_version": eg_types::agent_graph::AGENT_GRAPH_ENTRY_SCHEMA_VERSION,
+        "graph_id": "critique", "version": "1",
+        "shape": {
+            "entry_node": "writer",
+            "nodes": [agent("writer"), agent("checker")],
+            "edges": [
+                {"from": "writer", "to": "checker"},
+                {"from": "checker", "to": "writer"}
+            ],
+            "max_iterations": 4
+        },
+        "tenant_id": "t1", "actor_scope": "a", "purpose_id": "p", "policy_digest": "sha256:p",
+        "topology": {
+            "class_iri": "swarm:CritiqueLoop", "depth": 1,
+            "slots": [slot("writer", "child"), slot("checker", "verifier")],
+            "stop": {"verifier_pass": {"max_rounds": 3}}
+        },
+        "composed_work_ceiling": 4, "entry_revision": 1, "lifecycle": lifecycle,
+        "shape_digest": "sha256:s", "definition_digest": "sha256:d",
+        "created_at_ms": 1, "updated_at_ms": 1
+    }))
+    .expect("a critique loop entry")
+}
+
+#[test]
+fn template_projection_emits_feeds_edges() {
+    use eg_core::library_projection::{project_graph_template, slot_id, template_id};
+    let ops = project_graph_template(&critique_loop("published"));
+    let (writer, checker) = (slot_id("critique", "writer"), slot_id("critique", "checker"));
+    assert!(has_edge(&ops, &template_id("critique"), &writer, "hasSlot"));
+    assert!(has_edge(&ops, &checker, "agentKind:verifier", "requiresAgentKind"));
+    assert!(has_edge(&ops, &writer, &checker, "feeds"));
+    assert!(has_edge(&ops, &checker, &writer, "loopsBackTo"));
+    assert!(!has_edge(&ops, &checker, &writer, "feeds"), "the loop-back is not a forward edge");
+    let retired = project_graph_template(&critique_loop("retired"));
+    assert!(retired.iter().all(|op| matches!(op, ProjectionOp::RemoveNode { .. })));
+}
