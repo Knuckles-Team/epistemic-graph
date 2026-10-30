@@ -224,6 +224,7 @@ mod tests {
         let kind_name = match kind {
             ReceiptNodeKind::RunTrace => "run_trace",
             ReceiptNodeKind::ToolCall => "tool_call",
+            ReceiptNodeKind::ModelRequest => "model_request",
             ReceiptNodeKind::OutcomeEvaluation => "outcome_evaluation",
         };
         let properties = serde_json::json!({

@@ -133,6 +133,9 @@ pub enum ReceiptNodeKind {
     RunTrace,
     ToolCall,
     OutcomeEvaluation,
+    /// A model request step (EG-ORCH-VOCAB-R013.1); its node id rides in the
+    /// same ordered step-ref list as tool calls.
+    ModelRequest,
 }
 
 /// Closed kind of one recorded run step (EG-ORCH-VOCAB-R013.1).
@@ -621,6 +624,7 @@ fn receipt_kind_name(kind: ReceiptNodeKind) -> &'static str {
     match kind {
         ReceiptNodeKind::RunTrace => "run_trace",
         ReceiptNodeKind::ToolCall => "tool_call",
+        ReceiptNodeKind::ModelRequest => "model_request",
         ReceiptNodeKind::OutcomeEvaluation => "outcome_evaluation",
     }
 }
@@ -637,7 +641,9 @@ fn receipt_node_matches_bundle(bundle: &CommitOutcomeBundle, node: &ReceiptNode)
 fn receipt_node_kind_matches_bundle(bundle: &CommitOutcomeBundle, node: &ReceiptNode) -> bool {
     match node.kind {
         ReceiptNodeKind::RunTrace => node.node_id == bundle.trace_ref,
-        ReceiptNodeKind::ToolCall => bundle.tool_call_refs.contains(&node.node_id),
+        ReceiptNodeKind::ToolCall | ReceiptNodeKind::ModelRequest => {
+            bundle.tool_call_refs.contains(&node.node_id)
+        }
         ReceiptNodeKind::OutcomeEvaluation => node.node_id == bundle.outcome_ref,
     }
 }
@@ -884,6 +890,27 @@ impl RunEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // spec: EG-ORCH-VOCAB-R013.1
+    #[test]
+    fn step_record_round_trips() {
+        let step = StepRecord {
+            step_index: 3,
+            kind: StepKind::ModelRequest,
+            model_request_digest: Some("c".repeat(64)),
+            tool_args_digest: None,
+            result_digest: "d".repeat(64),
+            recorded_by: Some("agent:fixture".into()),
+        };
+        let json = serde_json::to_string(&step).unwrap();
+        assert!(json.contains("\"model_request\""));
+        let back: StepRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, step);
+        let unknown = json.replace("model_request\"", "embedding\"");
+        assert!(serde_json::from_str::<StepRecord>(&unknown).is_err());
+        let receipt: ReceiptNodeKind = serde_json::from_str("\"model_request\"").unwrap();
+        assert_eq!(receipt, ReceiptNodeKind::ModelRequest);
+    }
 
     // spec: EG-ORCH-VOCAB-R013.2
     #[test]
