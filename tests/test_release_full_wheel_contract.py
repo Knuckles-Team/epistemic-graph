@@ -487,10 +487,10 @@ def test_release_concurrency_never_cancels_a_publication() -> None:
 
 
 def test_ci_concurrency_supersedes_older_runs_per_pr_and_per_ref() -> None:
-    """spec EG-CONTRACT-R053.7: main pushes and PR pushes cancel the older run."""
+    """spec EG-CONTRACT-R053.7: a newer PR push cancels the older run; main runs finish."""
     doc = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     concurrency = doc["concurrency"]
-    assert concurrency["cancel-in-progress"] is True
+    assert "pull_request" in concurrency["cancel-in-progress"]
     group = concurrency["group"]
     assert "github.workflow" in group
     assert "github.event.pull_request.number" in group

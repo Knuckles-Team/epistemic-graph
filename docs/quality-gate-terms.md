@@ -26,13 +26,13 @@ obeys it, and the test is mechanical:
   nobody can see is a baseline by another name.
 * `.kissconfig` must never exist. Bare `kiss check` writes one, self-calibrated
   from what the repo currently passes, and silently disables four global rules.
-  The `kiss-census` gate (shared scanner workflow) fails if the file is present.
+  The kiss census gate (shared scanner workflow) fails if the file is present.
 
 ## CCCC — the cyclomatic cap measures the wrong thing for Rust dispatch
 
 Caps are `scanner_contract.CCCC_MAX_CYCLOMATIC = 10` and
 `CCCC_MAX_COGNITIVE = 15`, enforced on the diff by the shared `complexity` gate
-gate and reported over the whole tree by the shared advisory workflow.
+and reported over the whole tree by the shared advisory workflow.
 
 Cyclomatic complexity charges **every `match` arm** as an independent decision
 point. For a flat, exhaustive `match` that is arithmetically correct and
