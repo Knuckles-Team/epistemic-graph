@@ -204,7 +204,7 @@ pub(crate) mod viz;
 #[cfg(feature = "modality-serving")]
 pub(crate) mod modality;
 // EG-MEDIA-VOCAB-R650.3: served MediaRemember / MediaRecall.
-#[cfg(feature = "modality-serving")]
+#[cfg(all(feature = "modality-serving", feature = "blob", feature = "kv"))]
 pub(crate) mod media_memory;
 // RF-019's S1-S6 tiered semantic ingestion queue. Always declared: the module
 // carries its own `#![cfg(all(ann-redb, query))]`, the durable semantic owner

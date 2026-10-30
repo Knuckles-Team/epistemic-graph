@@ -36,19 +36,93 @@ impl MediaMemoryRefusal {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-struct Entry {
-    mime: String,
-    size: u64,
-    derivations: BTreeMap<String, String>,
-    citing_memory: String,
-    source_message: String,
+/// One remembered blob's durable record: the node plus its derived nodes. The
+/// served path persists it as the tenant-namespaced index row for its digest;
+/// the blob bytes live in the blob CAS under that digest.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaEntry {
+    pub mime: String,
+    pub size: u64,
+    pub derivations: BTreeMap<String, String>,
+    pub citing_memory: String,
+    pub source_message: String,
 }
 
-/// Tenant-scoped media memory. One writer per tenant shard owns `&mut self`.
+impl MediaEntry {
+    /// The node view of this entry.
+    pub fn memory(&self, blob_id: &str) -> MediaMemory {
+        MediaMemory {
+            blob_id: blob_id.to_string(),
+            mime: self.mime.clone(),
+            transcript_ref: self.derivations.keys().next().cloned(),
+            source_message: self.source_message.clone(),
+        }
+    }
+
+    /// The recall (evidence) view of this entry.
+    pub fn recall(&self, blob_id: &str) -> MediaRecall {
+        MediaRecall {
+            blob_id: blob_id.to_string(),
+            mime: self.mime.clone(),
+            size: self.size,
+            derivation_ids: self.derivations.keys().cloned().collect(),
+            citing_memory: self.citing_memory.clone(),
+        }
+    }
+
+    /// Whether any derivation contains `needle` (case-insensitive).
+    pub fn matches_text(&self, needle: &str) -> bool {
+        let needle = needle.to_lowercase();
+        self.derivations
+            .values()
+            .any(|t| t.to_lowercase().contains(&needle))
+    }
+}
+
+/// Admit a blob: refuse an oversized blob or a declared/sniffed type mismatch,
+/// else answer its content digest. Pure; decided before any state changes.
+pub fn admit(bytes: &[u8], declared_mime: &str) -> Result<String, MediaMemoryRefusal> {
+    if bytes.len() > MEDIA_MEMORY_MAX_BYTES {
+        return Err(MediaMemoryRefusal::OversizeBlob);
+    }
+    if sniff_mime(bytes) != Some(declared_mime) {
+        return Err(MediaMemoryRefusal::TypeMismatch);
+    }
+    Ok(digest_hex(bytes))
+}
+
+/// Fold one admitted remember into the existing entry for its digest: the
+/// first write fixes the node (type, size, citing memory, source message);
+/// every write adds its derivations as separate derived nodes.
+pub fn fold_remember(
+    existing: Option<MediaEntry>,
+    bytes: &[u8],
+    declared_mime: &str,
+    source_message: &str,
+    citing_memory: &str,
+    derivations: &[MediaDerivation],
+) -> MediaEntry {
+    let mut entry = existing.unwrap_or_else(|| MediaEntry {
+        mime: declared_mime.to_string(),
+        size: bytes.len() as u64,
+        citing_memory: citing_memory.to_string(),
+        source_message: source_message.to_string(),
+        ..MediaEntry::default()
+    });
+    for d in derivations {
+        entry
+            .derivations
+            .insert(d.derivation_id.clone(), d.text.clone());
+    }
+    entry
+}
+
+/// Tenant-scoped in-process media memory over the same [`admit`] /
+/// [`fold_remember`] rules the served durable path uses.
 #[derive(Debug, Default)]
 pub struct MediaMemoryStore {
-    tenants: BTreeMap<String, BTreeMap<String, Entry>>,
+    tenants: BTreeMap<String, BTreeMap<String, MediaEntry>>,
 }
 
 /// Sniff a MIME type from leading magic bytes.
@@ -86,36 +160,10 @@ impl MediaMemoryStore {
         source_message: &str,
         citing_memory: &str,
     ) -> Result<MediaMemory, MediaMemoryRefusal> {
-        if bytes.len() > MEDIA_MEMORY_MAX_BYTES {
-            return Err(MediaMemoryRefusal::OversizeBlob);
-        }
-        if sniff_mime(bytes) != Some(declared_mime) {
-            return Err(MediaMemoryRefusal::TypeMismatch);
-        }
-        let blob_id = digest_hex(bytes);
-        let entry = self
-            .tenants
-            .entry(tenant.to_string())
-            .or_default()
-            .entry(blob_id.clone())
-            .or_insert_with(|| Entry {
-                mime: declared_mime.to_string(),
-                size: bytes.len() as u64,
-                citing_memory: citing_memory.to_string(),
-                source_message: source_message.to_string(),
-                ..Entry::default()
-            });
-        Ok(MediaMemory {
-            blob_id,
-            mime: entry.mime.clone(),
-            transcript_ref: entry.derivations.keys().next().cloned(),
-            source_message: entry.source_message.clone(),
-        })
+        self.remember_with(tenant, bytes, declared_mime, source_message, citing_memory, &[])
     }
 
-    /// The served write (`Method::MediaRemember`): validate, write the blob once
-    /// by digest and attach every derivation. A refusal is decided before any
-    /// state changes, so a refused request leaves the store untouched.
+    /// Remember with derivations, all-or-nothing.
     pub fn remember_with(
         &mut self,
         tenant: &str,
@@ -125,16 +173,18 @@ impl MediaMemoryStore {
         citing_memory: &str,
         derivations: &[MediaDerivation],
     ) -> Result<MediaMemory, MediaMemoryRefusal> {
-        let mut memory =
-            self.remember(tenant, bytes, declared_mime, source_message, citing_memory)?;
-        for d in derivations {
-            self.derive(tenant, &memory.blob_id, &d.derivation_id, &d.text)?;
-        }
-        memory.transcript_ref = self
-            .tenants
-            .get(tenant)
-            .and_then(|t| t.get(&memory.blob_id))
-            .and_then(|e| e.derivations.keys().next().cloned());
+        let blob_id = admit(bytes, declared_mime)?;
+        let blobs = self.tenants.entry(tenant.to_string()).or_default();
+        let entry = fold_remember(
+            blobs.remove(&blob_id),
+            bytes,
+            declared_mime,
+            source_message,
+            citing_memory,
+            derivations,
+        );
+        let memory = entry.memory(&blob_id);
+        blobs.insert(blob_id, entry);
         Ok(memory)
     }
 
@@ -157,35 +207,19 @@ impl MediaMemoryStore {
         Ok(())
     }
 
-    fn recall_of(blob_id: &str, e: &Entry) -> MediaRecall {
-        MediaRecall {
-            blob_id: blob_id.to_string(),
-            mime: e.mime.clone(),
-            size: e.size,
-            derivation_ids: e.derivations.keys().cloned().collect(),
-            citing_memory: e.citing_memory.clone(),
-        }
-    }
-
     /// Recall by digest.
     pub fn recall_by_digest(&self, tenant: &str, blob_id: &str) -> Option<MediaRecall> {
-        let e = self.tenants.get(tenant)?.get(blob_id)?;
-        Some(Self::recall_of(blob_id, e))
+        Some(self.tenants.get(tenant)?.get(blob_id)?.recall(blob_id))
     }
 
     /// Recall by derivation text (case-insensitive substring), ordered by digest.
     pub fn recall_by_text(&self, tenant: &str, needle: &str) -> Vec<MediaRecall> {
-        let needle = needle.to_lowercase();
         self.tenants
             .get(tenant)
             .into_iter()
             .flatten()
-            .filter(|(_, e)| {
-                e.derivations
-                    .values()
-                    .any(|t| t.to_lowercase().contains(&needle))
-            })
-            .map(|(id, e)| Self::recall_of(id, e))
+            .filter(|(_, e)| e.matches_text(needle))
+            .map(|(id, e)| e.recall(id))
             .collect()
     }
 }

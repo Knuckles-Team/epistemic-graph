@@ -444,7 +444,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
         feature = "quantum-agent-api",
         feature = "asr-whisper",
         feature = "viz-static-export",
-        feature = "modality-serving"
+        all(feature = "modality-serving", feature = "blob", feature = "kv")
     )))]
     {
         let _ = ctx;
@@ -456,7 +456,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
         feature = "quantum-agent-api",
         feature = "asr-whisper",
         feature = "viz-static-export",
-        feature = "modality-serving"
+        all(feature = "modality-serving", feature = "blob", feature = "kv")
     ))]
     {
         #[allow(unused_variables)]
@@ -524,7 +524,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
             // ── Multimodal memory (EG-MEDIA-VOCAB-R650.3, feature `modality-serving`) ──
             // NOT graph-scoped: the tenant-scoped store lives in engine state, so it
             // self-routes here BEFORE the per-graph chain, like `AnalyticsJob` above.
-            #[cfg(feature = "modality-serving")]
+            #[cfg(all(feature = "modality-serving", feature = "blob", feature = "kv"))]
             method @ (Method::MediaRemember { .. } | Method::MediaRecall { .. }) => {
                 dispatch_media_memory_method(ctx, method).await
             }
@@ -533,12 +533,14 @@ pub(super) async fn dispatch_compute_and_media_methods(
     }
 }
 
-#[cfg(feature = "modality-serving")]
+#[cfg(all(feature = "modality-serving", feature = "blob", feature = "kv"))]
 async fn dispatch_media_memory_method(ctx: DispatchCtx<'_>, method: Method) -> Response {
     let req_id = ctx.req.id;
-    match handlers::media_memory::try_handle(ctx.state, req_id, ctx.verified_context, method)
-        .await
-    {
+    let authority = match CarrierAuthority::from_verified(ctx.verified_context) {
+        Ok(authority) => authority,
+        Err(denied) => return Response::err(req_id, denied),
+    };
+    match handlers::media_memory::try_handle(ctx.state, req_id, &authority, method).await {
         Ok(resp) => resp,
         Err(_) => Response::err(req_id, "router dispatch helper routing mismatch"),
     }

@@ -36,6 +36,20 @@ fn recall_text(text: &str) -> Method {
     }
 }
 
+/// The served state with the durable blob CAS and KV store installed, the way
+/// `server_startup` composes them from a persist dir.
+fn durable_state() -> Arc<RwLock<ServerState>> {
+    let state = test_state();
+    let dir = crate::server::unique_temp_dir("media-memory");
+    let dir = dir.to_str().expect("utf-8 temp dir").to_string();
+    {
+        let mut s = state.try_write().expect("fresh state");
+        s.kv = Some(Arc::new(crate::server::kv::KvStore::open(Some(&dir)).unwrap()));
+        s.blob = Some(crate::server::handlers::blob::cursors_for_test(&dir));
+    }
+    state
+}
+
 async fn send(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) -> Response {
     dispatch_on_heap(state, request(id, "__commons__", None, method)).await
 }
@@ -52,13 +66,12 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-/// The served methods reach the one engine-state store: a remember through
-/// dispatch is visible in `ServerState::media_memory` (the eg-modality store),
-/// and the served recall answers exactly what that store answers.
+/// The served methods reach the durable substrates: the bytes are in the blob
+/// CAS under their digest, and the index row reads back through a recall.
 // spec: EG-MEDIA-VOCAB-R650.3
 #[tokio::test]
-async fn served_media_methods_reach_the_engine_state_store() {
-    let state = test_state();
+async fn served_media_methods_write_the_blob_cas_and_the_durable_index() {
+    let state = durable_state();
     let resp = send(&state, 1, remember(PNG, "image/png", &[("tr-1", "a red chart")])).await;
     assert_ok(&resp);
     let memory: MediaMemory = body(&resp);
@@ -70,21 +83,54 @@ async fn served_media_methods_reach_the_engine_state_store() {
     let again = send(&state, 2, remember(PNG, "image/png", &[])).await;
     assert_eq!(body::<MediaMemory>(&again).blob_id, memory.blob_id);
 
-    let tenant = crate::server::authority_context::signed_test_claims("system").tenant;
-    let store = state.read().await.media_memory.clone();
-    let direct = store
-        .lock()
-        .recall_by_digest(&tenant, &memory.blob_id)
-        .expect("the served write landed in the engine-state store");
+    let blob = state.read().await.blob.clone().expect("blob CAS");
+    assert_eq!(
+        blob.store.get_chunk(&memory.blob_id).unwrap().as_deref(),
+        Some(PNG),
+        "the media bytes are stored in the blob CAS under their digest"
+    );
     let served: Vec<MediaRecall> = body(&send(&state, 3, recall_text("RED")).await);
-    assert_eq!(served, vec![direct]);
+    assert_eq!(served.len(), 1);
+    assert_eq!(served[0].blob_id, memory.blob_id);
+}
+
+/// Tenant A can never recall tenant B's media, by digest or by text.
+// spec: EG-MEDIA-VOCAB-R650.3
+#[tokio::test]
+async fn one_tenant_cannot_recall_another_tenants_media() {
+    let state = durable_state();
+    let as_tenant = |tenant: &str| {
+        let context =
+            crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant("agent", tenant);
+        crate::server::access::CarrierAuthority::from_verified(&context).expect("carrier")
+    };
+    let (a, b) = (as_tenant("tenant-a"), as_tenant("tenant-b"));
+    let call = |authority: &crate::server::access::CarrierAuthority, id: u64, method: Method| {
+        let state = state.clone();
+        let authority = authority.clone();
+        async move {
+            crate::server::handlers::media_memory::try_handle(&state, id, &authority, method)
+                .await
+                .expect("media method")
+        }
+    };
+    let stored = call(&b, 30, remember(PNG, "image/png", &[("tr-b", "secret plan")])).await;
+    assert_ok(&stored);
+    let blob_id = body::<MediaMemory>(&stored).blob_id;
+
+    let by_digest: Vec<MediaRecall> = body(&call(&a, 31, recall_digest(&blob_id)).await);
+    assert!(by_digest.is_empty(), "tenant A must not recall B's blob by digest");
+    let by_text: Vec<MediaRecall> = body(&call(&a, 32, recall_text("secret")).await);
+    assert!(by_text.is_empty(), "tenant A must not recall B's blob by text");
+    let own: Vec<MediaRecall> = body(&call(&b, 33, recall_text("secret")).await);
+    assert_eq!(own.len(), 1, "tenant B still recalls its own media");
 }
 
 /// Each refusal carries its stable wire code and leaves the store unchanged.
 // spec: EG-MEDIA-VOCAB-R650.4
 #[tokio::test]
 async fn oversize_and_mismatched_blobs_are_refused_without_state_change() {
-    let state = test_state();
+    let state = durable_state();
     let mismatch = send(&state, 10, remember(PNG, "image/jpeg", &[("d", "t")])).await;
     assert_eq!(mismatch.error.as_deref(), Some("MEDIA_MEMORY_TYPE_MISMATCH"));
 
@@ -99,6 +145,11 @@ async fn oversize_and_mismatched_blobs_are_refused_without_state_change() {
     }
     let rows: Vec<MediaRecall> = body(&send(&state, 14, recall_text("t")).await);
     assert!(rows.is_empty(), "a refused write must not attach derivations");
+    let blob = state.read().await.blob.clone().expect("blob CAS");
+    assert!(
+        blob.store.get_chunk(&sha256_hex(PNG)).unwrap().is_none(),
+        "a refused write must not store bytes in the blob CAS"
+    );
 }
 
 /// The evidence (digest, size, type, derivation ids, citing memory) reads back
@@ -106,7 +157,7 @@ async fn oversize_and_mismatched_blobs_are_refused_without_state_change() {
 // spec: EG-MEDIA-VOCAB-R650.5
 #[tokio::test]
 async fn evidence_reads_back_through_a_separate_recall() {
-    let state = test_state();
+    let state = durable_state();
     let wav: Vec<u8> = b"RIFF\x24\x00\x00\x00WAVEfmt ".to_vec();
     let resp = send(
         &state,

@@ -66,9 +66,10 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
         | Method::BlobGc => DurabilityDomain::BlobStore,
         // Wire-unconditional, same reason as `blob` just above: `eg-capabilities`
         // forces `eg-types/kv` on unconditionally too (EH-319).
-        Method::KvPut { .. } | Method::KvDelete { .. } | Method::KvCas { .. } => {
-            DurabilityDomain::KvStore
-        }
+        Method::KvPut { .. }
+        | Method::KvDelete { .. }
+        | Method::KvCas { .. }
+        | Method::MediaRemember { .. } => DurabilityDomain::KvStore,
         // `TsAppend`/`TsEvict`/`TsDeleteSeries` are wire-unconditional (only the
         // SERVER-SIDE handling is gated behind `tsdb`; a slim build still carries
         // the variant and routes it to the "not built" catch-all downstream) --
@@ -506,7 +507,6 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::NlQuery { .. }
         | Method::NlQueryExplain { .. }
         | Method::NlQueryPlan { .. }
-        | Method::MediaRemember { .. }
         | Method::MediaRecall { .. }
         | Method::FinanceMeanReversion { .. }
         | Method::FinanceHardimanBouchaud { .. }

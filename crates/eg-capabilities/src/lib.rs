@@ -346,8 +346,6 @@ pub fn protocol_policy_inventory() -> Vec<ProtocolPolicyInventoryEntry> {
 /// static row.
 const VOLATILE_CONTROL_METHODS: &[&str] = &[
     "Shutdown",
-    // EG-MEDIA-VOCAB-R650.3: the process-held media memory index (engine state).
-    "MediaRemember",
     "TxnAddNode",
     "TxnRemoveNode",
     "TxnAddEdge",

@@ -543,7 +543,6 @@ const METHOD_NAME_RESOLVERS: &[fn(&Method) -> Option<&'static str>] = &[
     native_local_only_method_name,
     native_local_only_decision_method_name,
     write_back_method_name,
-    media_memory_method_name,
 ];
 
 /// Extract a `Method` variant's name as a `&'static str`, covering exactly
@@ -650,9 +649,6 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
     "MutationOutbox",
     "EdgeIndex",
     "SqlSourceBatch",
-    // EG-MEDIA-VOCAB-R650.3: the media memory index is held in this process's
-    // engine state, so a replica cannot apply it identically.
-    "MediaRemember",
 ];
 
 /// The local-only names that are NOT gateway-routed.
@@ -691,14 +687,6 @@ fn native_local_only_decision_method_name(m: &Method) -> Option<&'static str> {
 fn write_back_method_name(m: &Method) -> Option<&'static str> {
     match m {
         Method::WriteBack { .. } => Some("WriteBack"),
-        _ => None,
-    }
-}
-
-/// The process-held media memory write (EG-MEDIA-VOCAB-R650.3) is local-only.
-fn media_memory_method_name(m: &Method) -> Option<&'static str> {
-    match m {
-        Method::MediaRemember { .. } => Some("MediaRemember"),
         _ => None,
     }
 }

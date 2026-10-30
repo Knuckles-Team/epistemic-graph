@@ -2743,7 +2743,7 @@ mod tests {
     #[cfg(all(feature = "query", feature = "nl-query"))]
     mod nl_explain;
     // EG-MEDIA-VOCAB-R650.3-R650.5 media memory proofs through the full served chain.
-    #[cfg(feature = "modality-serving")]
+    #[cfg(all(feature = "modality-serving", feature = "blob", feature = "kv"))]
     mod media_memory;
     // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
     #[cfg(feature = "wasm-udf")]
