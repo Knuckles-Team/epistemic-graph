@@ -123,8 +123,34 @@ async fn dispatch_decision_methods(
             .await
         }
         Method::DecisionLog { op } => {
+            // A commit whose record sealed a guarded action also writes its
+            // limit-breach facts (EG-DECISION-ENGINE-R131.5).
+            let guarded = match &*op {
+                eg_types::decision::statistical::log::DecisionLogOp::Commit { record, .. }
+                    if record.inputs.guarded_action.is_some() =>
+                {
+                    Some(record.clone())
+                }
+                _ => None,
+            };
             dispatch_boxed(async {
-                handlers::decide::handle_decision_log(state, req.id, verified_context, *op).await
+                let committed =
+                    handlers::decide::handle_decision_log(state, req.id, verified_context, *op)
+                        .await;
+                match guarded {
+                    Some(record) => {
+                        super::super::limit_breach::emit_after_commit(
+                            state,
+                            req.id,
+                            req.agent_id.as_deref(),
+                            verified_context,
+                            &record,
+                            committed,
+                        )
+                            .await
+                    }
+                    None => committed,
+                }
             })
             .await
         }

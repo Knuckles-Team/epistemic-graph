@@ -61,6 +61,7 @@ fn limit_types_round_trip() {
 #[test]
 fn check_returns_all_breaches() {
     let action = GuardedAction {
+        graph: "__commons__".to_string(),
         signal_iri: "urn:signal:order-1".into(),
         observations: vec![
             observe(LimitMetric::SectorConcentration, "sector:tech", 3_000),
@@ -99,6 +100,7 @@ fn check_returns_all_breaches() {
     assert_eq!(breaches[1].rule_id, "max-drawdown");
     assert_eq!((breaches[1].observed, breaches[1].bound), (100, 50));
     let quiet = GuardedAction {
+        graph: "__commons__".to_string(),
         signal_iri: "urn:signal:order-2".into(),
         observations: vec![observe(LimitMetric::PositionSize, "account:a", 10_000)],
         requested_bounds: vec![],

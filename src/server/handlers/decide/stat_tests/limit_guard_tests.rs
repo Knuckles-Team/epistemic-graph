@@ -33,6 +33,7 @@ fn limited_policy() -> eg_types::decision::DecisionPolicy {
 
 fn action(position: i64, requested: Vec<RequestedBound>) -> GuardedAction {
     GuardedAction {
+        graph: "__commons__".to_string(),
         signal_iri: "urn:signal:order-1".to_string(),
         observations: vec![
             LimitObservation {
@@ -127,33 +128,91 @@ async fn action_within_limits_is_not_refused() {
     }
 }
 
-#[tokio::test]
-async fn committed_breach_replays_and_stores_one_observation_per_signal() {
-    use super::super::stat_limit_guard::breaches_of_signal;
-    use super::log_tests::log_op;
-    use eg_types::decision::statistical::log::DecisionLogCommitted;
+async fn dispatch(h: &Harness, method: crate::protocol::Method) -> crate::protocol::Response {
+    let request = crate::protocol::Request {
+        id: 21,
+        graph: "__commons__".into(),
+        auth_token: String::new(),
+        agent_id: Some("decider".into()),
+        method,
+    };
+    Box::pin(crate::server::dispatch::dispatch_verified_request(
+        &h.state,
+        request,
+        verified(),
+    ))
+    .await
+}
 
+fn neighbors(response: crate::protocol::Response) -> Vec<String> {
+    assert!(response.error.is_none(), "{response:?}");
+    let Some(ResultPayload::Raw(bytes)) = response.result else {
+        panic!("expected a raw neighbor list")
+    };
+    rmp_serde::from_slice(&bytes).unwrap()
+}
+
+// spec: EG-DECISION-ENGINE-R131.5
+#[tokio::test]
+async fn breach_observation_links_signal() {
+    use crate::protocol::Method;
+    use eg_types::decision::statistical::log::{DecisionLogCommitted, DecisionLogOp};
+
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let h = Harness::new().await;
     let (schema_pin, _digest) = publish_route_schema(&h);
+    let signal = rmp_serde::to_vec_named(&serde_json::json!({"node_type": "Signal"})).unwrap();
+    let added = dispatch(
+        &h,
+        Method::AddNode {
+            node_id: "urn:signal:order-1".into(),
+            properties_msgpack: signal,
+        },
+    )
+    .await;
+    assert!(added.error.is_none(), "{added:?}");
+
     let breaching = guarded_request(&h, &schema_pin, Some(action(12_000, Vec::new())));
-    let batch = decide(&h, breaching).await.unwrap();
-    let record = batch.records.as_slice()[0].clone();
+    let record = decide(&h, breaching).await.unwrap().records.as_slice()[0].clone();
     assert_eq!(
         record.inputs.guarded_action.as_ref().unwrap().signal_iri,
         "urn:signal:order-1",
         "the sealed record carries the action it was checked on"
     );
 
-    let commit = DecisionLogOp::Commit {
-        record: Box::new(record.clone()),
-        evaluator: None,
+    let commit = Method::DecisionLog {
+        op: Box::new(DecisionLogOp::Commit {
+            record: Box::new(record.clone()),
+            evaluator: None,
+        }),
     };
-    let committed: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
+    let committed: DecisionLogCommitted = decode(dispatch(&h, commit).await).unwrap();
     assert!(!committed.replayed);
 
-    let stored = breaches_of_signal(&h.store, TENANT, "urn:signal:order-1").unwrap();
-    assert_eq!(stored.len(), 1);
-    assert_eq!(stored[0].rule_id, "max-position");
-    assert_eq!((stored[0].observed, stored[0].bound), (12_000, 10_000));
-    assert_eq!(stored[0].record_id, record.record_id);
+    let observation = crate::server::dispatch::limit_breach_observation_id(
+        &record.record_id,
+        "max-position",
+    );
+    let linked = neighbors(
+        dispatch(
+            &h,
+            Method::GetNeighbors {
+                node_id: observation.clone(),
+            },
+        )
+        .await,
+    );
+    assert_eq!(linked, vec!["urn:signal:order-1".to_string()]);
+
+    let properties = dispatch(
+        &h,
+        Method::GetNodeProperties {
+            node_id: observation,
+        },
+    )
+    .await;
+    let properties: serde_json::Value = decode(properties).unwrap();
+    assert_eq!(properties["rule_id"], "max-position");
+    assert_eq!(properties["observed"], 12_000);
+    assert_eq!(properties["bound"], 10_000);
 }

@@ -449,6 +449,9 @@ mod governed;
 mod graph_pipeline;
 #[cfg(feature = "security")]
 mod identity_store;
+mod limit_breach;
+#[cfg(all(test, feature = "decide"))]
+pub(crate) use limit_breach::observation_id as limit_breach_observation_id;
 mod policy_evolution;
 #[cfg(all(feature = "ast", feature = "redb", feature = "blob", feature = "raft"))]
 pub(crate) use graph_pipeline::plan_held_underfunded_park;

@@ -71,6 +71,8 @@ pub struct RequestedBound {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct GuardedAction {
+    /// The graph holding the signal node; a breach is recorded there.
+    pub graph: String,
     pub signal_iri: String,
     pub observations: Vec<LimitObservation>,
     #[serde(default)]
