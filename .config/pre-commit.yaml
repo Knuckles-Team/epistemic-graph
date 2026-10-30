@@ -85,19 +85,15 @@ repos:
   hooks:
   - id: public-surface
     stages: [pre-commit, manual]
-  - id: spec-status
-    stages: [pre-commit]
-  - id: spec-decomposition
-    stages: [pre-commit]
-  - id: spec-standard
-    stages: [pre-commit]
+  - id: spec
+    stages: [pre-push, manual]
+  - id: secrets
+    stages: [pre-commit, pre-push]
   - id: ste-staged
     # Prose lint is advisory: it reports but never fails CI (fleet CI standard).
     entry: bash -c 'pipelines-hook ste-staged || echo "ste-staged advisory findings above (non-blocking)"'
     exclude: ^vendor/
     stages: [pre-commit]
-  - id: spec-trailers
-    stages: [pre-push]
 - repo: https://github.com/jendrikseipp/vulture
   rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:
@@ -161,48 +157,6 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  - id: complexity-staged
-    name: Complexity (cccc) - no NEW function over cyclomatic 10 / cognitive 15, none regressed
-    entry: python3 scripts/check_complexity_staged.py
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [manual]
-  # BUG-CX-136 scanner profile.  These hooks resolve already-installed tools
-  # only; provisioning belongs to scripts/install_scanners.sh (`bootstrap.sh
-  # --scanners`), never to a developer hook.  The wrappers own staged/index semantics and fail closed
-  # on a missing, drifted, or malformed tool/report.
-  - id: dupehound-changed-functions
-    name: Dupehound — changed functions only (no new structural clones)
-    entry: python3 scripts/check_dupehound.py
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [manual]
-  - id: kiss-changed-rust
-    name: KISS — changed Rust source (one path per invocation)
-    entry: bash scripts/check_kiss_staged.sh
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [manual]
-  - id: jscpd-differential
-    name: jscpd — differential clone gate (new pairs only)
-    # The base is origin/main (scripts/gate_base_ref.sh, EG-CONTRACT-R039), as
-    # in the release workflow; without one, enforce compares HEAD with HEAD and never sees a
-    # committed pair. It reads the committed tree (HEAD), not the worktree.
-    entry: bash -c 'base="$(bash scripts/gate_base_ref.sh)" && exec python3 scripts/check_duplication.py enforce --base-ref "$base"'
-    language: system
-    pass_filenames: false
-    require_serial: true
-    stages: [manual]
-  - id: jscpd-census
-    name: jscpd — tracked-tree census (advisory; no baseline)
-    entry: python3 scripts/check_duplication.py census
-    language: system
-    pass_filenames: false
-    require_serial: true
-    stages: [manual]
 # ─────────────────────────────────────────────────────────────────────────
 # Manual Rust CI parity. Hosted CI runs the exhaustive matrix on every
 # publication; run this tier explicitly when needed with scripts/ci_parity.sh.
@@ -215,43 +169,6 @@ repos:
   # scanner/config failures remain hard environment errors.
   # The explicit git ls-files universe keeps ignored/untracked build output out
   # while ensuring a census does not accidentally scan only a convenient dir.
-  - id: cccc-census
-    name: CCCC — tracked source census, exact coverage and zero actionable backlog (no baseline)
-    entry: |-
-      bash -c '
-      set -euo pipefail
-      expected="$(PYTHONPATH=scripts python3 -c "from scanner_contract import load_contract; print(load_contract().cccc_version)")" || { echo "cccc census: invalid scanner contract" >&2; exit 2; }
-      cccc_bin="${CCCC_BIN:-cccc}"
-      command -v "$cccc_bin" >/dev/null 2>&1 || { echo "cccc census: CCCC is not installed; install the pinned tool before running hooks" >&2; exit 2; }
-      got="$("$cccc_bin" --version 2>/dev/null)" || { echo "cccc census: cccc --version failed" >&2; exit 2; }
-      [ "$got" = "cccc $expected" ] || { echo "cccc census: expected cccc $expected, got $got" >&2; exit 2; }
-      report="$(mktemp "${TMPDIR:-/tmp}/eg-cccc-census.XXXXXX.json")"
-      manifest="$(mktemp "${TMPDIR:-/tmp}/eg-cccc-sources.XXXXXX.nul")"
-      trap "rm -f \"$report\" \"$manifest\"" EXIT
-      if ! python3 scripts/list_scanner_sources.py cccc > "$manifest"; then
-        echo "cccc census: source manifest generation failed" >&2
-        exit 2
-      fi
-      mapfile -d "" files < "$manifest" || { echo "cccc census: malformed source manifest" >&2; exit 2; }
-      [ "${#files[@]}" -gt 0 ] || { echo "cccc census: no tracked CCCC-supported source files" >&2; exit 2; }
-      languages="$(PYTHONPATH=scripts python3 -c "from scanner_contract import cccc_languages_arg; print(cccc_languages_arg())")" || { echo "cccc census: invalid language registry" >&2; exit 2; }
-      "$cccc_bin" --no-config --min 0 --lang "$languages" "${files[@]}" > "$report"
-      python3 scripts/validate_cccc_census.py "$report" --source-manifest "$manifest"
-      python3 scripts/report_complexity_terms.py "$report" --require-zero
-      '
-    language: system
-    pass_filenames: false
-    always_run: true
-    require_serial: true
-    stages: [manual]
-  - id: kiss-census
-    name: KISS — tracked Rust census (advisory; no baseline)
-    entry: python3 scripts/check_kiss_census.py
-    language: system
-    pass_filenames: false
-    always_run: true
-    require_serial: true
-    stages: [manual]
   - id: import-linter-architecture
     name: Python architecture — import-linter
     entry: |-
@@ -804,14 +721,6 @@ repos:
     # conftest needs cargo on PATH which `uv run` strips. Runs manually or in
     # hosted CI where the engine is provisioned.
     stages: [manual]
-- repo: local
-  hooks:
-  - id: security-sanitizer
-    name: Security and Garbage Sanitizer
-    entry: python scripts/security_sanitizer.py
-    language: python
-    pass_filenames: false
-    always_run: true
 - repo: local
   hooks:
   - id: guardrail-tracked-privacy

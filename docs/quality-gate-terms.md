@@ -26,13 +26,13 @@ obeys it, and the test is mechanical:
   nobody can see is a baseline by another name.
 * `.kissconfig` must never exist. Bare `kiss check` writes one, self-calibrated
   from what the repo currently passes, and silently disables four global rules.
-  The `kiss-census` hook fails if the file is present.
+  The `kiss-census` gate (shared scanner workflow) fails if the file is present.
 
 ## CCCC — the cyclomatic cap measures the wrong thing for Rust dispatch
 
 Caps are `scanner_contract.CCCC_MAX_CYCLOMATIC = 10` and
-`CCCC_MAX_COGNITIVE = 15`, enforced on the diff by the `complexity-staged`
-pre-commit hook and reported over the whole tree by `cccc-census`.
+`CCCC_MAX_COGNITIVE = 15`, enforced on the diff by the shared `complexity` gate
+gate and reported over the whole tree by the shared advisory workflow.
 
 Cyclomatic complexity charges **every `match` arm** as an independent decision
 point. For a flat, exhaustive `match` that is arithmetically correct and
@@ -120,7 +120,7 @@ rule makes that population visible for the first time. That is the intent.
 
 `scripts/report_complexity_terms.py` prints exactly this table. Its default
 invocation remains an advisory report, so existing inspection commands keep
-working. The `cccc-census` hook and the release scanner run it with
+working. The shared cccc census and the release scanner run it with
 `--require-zero`: the complete accepted and backlog breakdown remains visible,
 and the command exits 1 when `REAL BACKLOG` is nonzero. This is a live
 whole-tree gate with no threshold, baseline, or suppression list, and it writes
@@ -257,16 +257,14 @@ Never run bare `kiss check` — it writes the self-calibrating `.kissconfig`.
 Always pass `--config .config/kiss.toml` and **one path per invocation**
 (KISS 0.4.10 reports a false clean for a multi-path `check`). The two callers
 that get this right are `scripts/check_kiss_staged.sh` (the pre-commit hook) and
-the `kiss-census` hook; go through one of them.
+the kiss census; go through one of them.
 
 ```bash
-pre-commit run --config .config/pre-commit.yaml complexity-staged --all-files   # cccc, on the diff
 pre-commit run --config .config/pre-commit.yaml kiss-changed-rust --all-files   # KISS, on the diff
-pre-commit run --config .config/pre-commit.yaml cccc-census --hook-stage manual --all-files # whole tree + the acceptance split
 pre-commit run --config .config/pre-commit.yaml kiss-census --hook-stage manual --all-files
 ```
 
-The `kiss-census` hook reports the de-duplicated union of one `kiss check .`
+The kiss census reports the de-duplicated union of one `kiss check .`
 over the repository root and one run per package root (`src`, `crates/<name>`),
 each a single-path invocation, in about 80 seconds. A per-file census treated
 every file as its own codebase, so the cross-file duplication, orphan-module,

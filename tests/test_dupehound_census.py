@@ -468,15 +468,9 @@ def test_empty_production_universe_is_not_applicable_without_native_scan(
 
 
 def test_census_adapter_stays_separate_from_the_changed_gate():
-    # The census runs only on the nightly schedule, as a non-blocking job that
-    # CI required does not wait for; the changed-function gate never runs it.
+    # The census is not a ci.yml job; the shared advisory workflow owns it.
     doc = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text("utf-8"))
-    job = doc["jobs"]["dupehound-census"]
-    assert job["if"] == "github.event_name == 'schedule'"
-    assert job["continue-on-error"] is True
-    assert "dupehound-census" not in doc["jobs"]["ci-required"]["needs"]
-    runs = [step.get("run", "") for step in job["steps"]]
-    assert any("scripts/check_dupehound_census.py" in run for run in runs)
+    assert "dupehound-census" not in doc["jobs"]
     assert "--no-default-excludes" in (
         ROOT / "scripts/check_dupehound_census.py"
     ).read_text(encoding="utf-8")

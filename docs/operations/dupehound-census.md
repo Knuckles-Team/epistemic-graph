@@ -2,7 +2,7 @@
 
 The release scanner job runs the changed-source gate in
 `scripts/check_dupehound.py` and the separate full-tree census in
-`scripts/check_dupehound_census.py`. The census is advisory telemetry for
+`scripts/check_dupehound_census.py`. The census is advisory, run by the shared weekly advisory workflow (not ci.yml), telemetry for
 function clones; it does not create a baseline and it does not replace the
 changed-source gate.
 
