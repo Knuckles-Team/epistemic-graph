@@ -23,6 +23,7 @@
 
 pub mod answer_ranking;
 pub mod branch_outcomes;
+pub mod comparative_analysis;
 pub mod concentration;
 pub mod context_budget;
 pub mod coverage;

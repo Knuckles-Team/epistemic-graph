@@ -145,6 +145,10 @@ pub enum QuestionKind {
     /// A stored program looked up by task signature
     /// (EG-DECISION-ENGINE-R135.1). See `decision::program_store`.
     ProgramLookup,
+    /// A revision-pinned comparative-analysis plan; discovery makes zero model
+    /// calls and only budgeted synthesis/extraction may invoke the model
+    /// service (EG-DECISION-ENGINE-R139.1). See `decision::comparative_analysis`.
+    ComparativeAnalysisPlan,
 }
 
 /// What is at stake. Exploration is permitted only for
