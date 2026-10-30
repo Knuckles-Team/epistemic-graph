@@ -87,8 +87,6 @@ def test_exclusions_match_root_and_nested_junk_without_erasing_dot_names(contrac
 
 
 def test_directory_exclusions_are_root_anchored_unless_recursive(contract):
-    assert contract.is_excluded("contract/methods.json")
-    assert contract.is_excluded("epistemic_graph/contract/receipt.json")
     assert not contract.is_excluded("crates/eg-types/src/contract/crypto.rs")
     assert not contract.is_excluded("nested/contract/generated.rs")
 

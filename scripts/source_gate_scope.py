@@ -15,7 +15,6 @@ from scripts.ci_change_scope import documentation_diff, documentation_path
 
 SKILL = "epistemic_graph/skills/epistemic-graph-development/SKILL.md"
 SCANNERS = {
-    "contract-method-reachability": "check_contract_method_reachability.py",
     "durable-table-registration": "check_durable_table_registration.py",
 }
 

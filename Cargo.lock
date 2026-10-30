@@ -2755,14 +2755,7 @@ name = "eg-capabilities"
 version = "0.1.0"
 dependencies = [
  "eg-types",
- "hex",
- "hmac 0.12.1",
- "proc-macro2",
- "quote",
- "schemars 1.2.3",
  "serde_json",
- "sha2 0.10.9",
- "syn 2.0.119",
  "tempfile",
 ]
 

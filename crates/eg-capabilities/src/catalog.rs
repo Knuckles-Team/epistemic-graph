@@ -1,51 +1,57 @@
-//! The engine contract, as a compile-time table.
+//! The engine method catalog, computed from the descriptor rows in code.
 //!
-//! `OperationReplayIdentity` binds a method's `SchemaId` and the digest of that
-//! method's request schema, and the whole identity is bound to the contract
-//! catalog's own digest. Both facts exist today only as JSON on disk under
-//! `contract/`, and the admission path may not do file I/O to read them: an
-//! identity minted from a file read would be a second source of truth for the
-//! contract, and a batch whose identity depends on a file that a deployment can
-//! edit is not an identity at all.
-//!
-//! So `gen_contract` emits them here, and this module is the only reader. The
-//! generated files are committed and included unconditionally, because a default
-//! build (which has neither `schemars` nor the generator) still admits mutations
-//! and therefore still needs the table.
-//!
-//! # Staleness
-//!
-//! `gen_contract --check` byte-diffs both generated files against what the
-//! descriptor rows and the `Method` schema would produce right now, exactly as
-//! it does for `contract/methods.json`. A stale table is therefore a red gate,
-//! not a silent divergence -- and `catalog_is_current` pins the table against the
-//! committed receipt so the two can never drift apart in the same commit.
+//! `OperationReplayIdentity` binds a method's `SchemaId` and a digest of that
+//! method's contract row, and the whole identity is bound to the catalog's own
+//! digest. Both are pure functions of [`crate::method_descriptors`]: the Rust
+//! descriptor rows are the one source of truth, there is no generated file and
+//! nothing on disk to drift. A change to any descriptor moves its row digest and
+//! the catalog digest, and therefore every replay identity minted under it.
 
-// `METHOD_CATALOG`: `(MethodId, SchemaId, request-schema digest)` for every
-// contract row, sorted by method id so a binary search is valid and the file is
-// stable. Its own doc comment is generated with it.
-include!("../generated/method_catalog.rs");
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
-// `CONTRACT_CATALOG_DIGEST`: the one digest a consumer pins,
-// `contract/receipt.json`'s `contract_digest`. Deliberately NOT inside
-// `METHOD_CATALOG`'s file: the receipt digests every generated artifact, so a
-// digest that lives inside a digested artifact would have no fixpoint. It is
-// written the way the receipt itself is -- last, and outside
-// `artifact_digests`.
-include!("../generated/catalog_digest.rs");
+use eg_types::contract::Digest256;
 
-/// The `SchemaId` and request-schema digest of one method.
+struct Catalog {
+    rows: BTreeMap<&'static str, (&'static str, [u8; 32])>,
+    digest: String,
+}
+
+fn catalog() -> &'static Catalog {
+    static CATALOG: OnceLock<Catalog> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let mut rows = BTreeMap::new();
+        for descriptor in crate::method_descriptors() {
+            let id = descriptor.id.as_str();
+            let schema_id: &'static str =
+                Box::leak(format!("medulla:method/{id}").into_boxed_str());
+            let row = Digest256::sha256(format!("{descriptor:?}").as_bytes());
+            rows.insert(id, (schema_id, *row.as_bytes()));
+        }
+        let mut all = Vec::new();
+        for (id, (schema_id, digest)) in &rows {
+            all.extend_from_slice(id.as_bytes());
+            all.push(0);
+            all.extend_from_slice(schema_id.as_bytes());
+            all.push(0);
+            all.extend_from_slice(digest);
+        }
+        let digest = Digest256::sha256(&all).to_hex();
+        Catalog { rows, digest }
+    })
+}
+
+/// The one digest a consumer pins: every method row, in method-id order.
+pub fn contract_catalog_digest() -> &'static str {
+    catalog().digest.as_str()
+}
+
+/// The `SchemaId` and row digest of one method.
 ///
 /// `None` means the id names no contract row at all, which the caller must fail
 /// closed on: an identity cannot claim a method the contract does not declare.
 pub fn method_schema(method_id: &str) -> Option<(&'static str, [u8; 32])> {
-    METHOD_CATALOG
-        .binary_search_by(|(id, _, _)| (*id).cmp(method_id))
-        .ok()
-        .map(|index| {
-            let (_, schema_id, digest) = METHOD_CATALOG[index];
-            (schema_id, digest)
-        })
+    catalog().rows.get(method_id).copied()
 }
 
 #[cfg(test)]
@@ -53,20 +59,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_catalog_is_sorted_unique_and_complete() {
-        assert_eq!(METHOD_CATALOG.len(), crate::method_descriptors().count());
-        for pair in METHOD_CATALOG.windows(2) {
-            assert!(pair[0].0 < pair[1].0, "{} !< {}", pair[0].0, pair[1].0);
-        }
+    fn every_descriptor_has_a_catalog_row() {
         for descriptor in crate::method_descriptors() {
             let (schema_id, _) = method_schema(descriptor.id.as_str())
                 .unwrap_or_else(|| panic!("{} has no catalog row", descriptor.id.as_str()));
             assert_eq!(
                 schema_id,
-                format!(
-                    "contract/schemas/method.request.json#/methods/{}",
-                    descriptor.id.as_str()
-                )
+                format!("medulla:method/{}", descriptor.id.as_str())
             );
         }
     }
@@ -76,26 +75,11 @@ mod tests {
         assert!(method_schema("NoSuchMethod").is_none());
     }
 
-    /// The catalog digest is the receipt's, byte for byte. A table generated
-    /// under a different contract than the receipt records is exactly the
-    /// staleness this constant exists to make impossible.
     // spec: EG-TYPED-PACKS-R068
     #[test]
-    fn the_catalog_digest_is_the_committed_receipt_digest() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(|path| path.parent())
-            .expect("crates/eg-capabilities is two levels below the repo root")
-            .to_path_buf();
-        let receipt = std::fs::read_to_string(root.join("contract/receipt.json"))
-            .expect("the committed receipt is readable");
-        let recorded = receipt
-            .split_once("\"contract_digest\": \"")
-            .expect("the receipt declares a contract digest")
-            .1
-            .split_once('"')
-            .expect("the contract digest is a JSON string")
-            .0;
-        assert_eq!(recorded, CONTRACT_CATALOG_DIGEST);
+    fn the_catalog_digest_is_a_stable_sha256() {
+        assert_eq!(contract_catalog_digest().len(), 64);
+        assert_eq!(contract_catalog_digest(), contract_catalog_digest());
+        assert!(Digest256::parse(contract_catalog_digest()).is_ok());
     }
 }

@@ -369,7 +369,7 @@ pub(crate) fn validate_execution_bindings(
                 .to_string(),
         );
     }
-    if request.catalog_digest != eg_capabilities::CONTRACT_CATALOG_DIGEST {
+    if request.catalog_digest != eg_capabilities::contract_catalog_digest() {
         return Err(
             "kg-delegate catalog digest does not match the generated contract catalog".to_string(),
         );

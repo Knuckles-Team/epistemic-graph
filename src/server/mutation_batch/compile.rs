@@ -628,8 +628,8 @@ fn finish_batch(
 /// * the CANONICAL PAYLOAD digest covers the operation content and structurally
 ///   excludes the OCC expectation, the route and the clock, which is what makes
 ///   a legitimate retry a replay instead of an `IDEMPOTENCY_CONFLICT`;
-/// * the METHOD identity comes from the contract catalog `gen_contract` compiles
-///   in, so it cannot be a file read at admission time;
+/// * the METHOD identity comes from the method catalog computed from the compiled-in
+///   descriptor rows, so it cannot be a file read at admission time;
 /// * the POLICY epoch is the deployment constant `POLICY_EPOCH`, and the policy
 ///   digest is computed from the method's own declared policy, so "the policy
 ///   changed" is a real conflict rather than a nominal one.
@@ -692,7 +692,7 @@ fn method_schema_digest(
 
 /// The contract catalog digest every identity minted by this engine binds.
 fn contract_catalog_digest() -> Result<eg_types::contract::Digest256, String> {
-    eg_types::contract::Digest256::parse(eg_capabilities::CONTRACT_CATALOG_DIGEST)
+    eg_types::contract::Digest256::parse(eg_capabilities::contract_catalog_digest())
         .map_err(|_| "the compiled-in contract catalog digest is not a sha256 value".to_string())
 }
 

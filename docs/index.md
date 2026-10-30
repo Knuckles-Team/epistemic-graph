@@ -43,7 +43,7 @@
 The main build provides the connected data, semantic reasoning, analytical,
 temporal, and multimodal surfaces shown above. Compatibility is published per
 operation: the [capability matrix](capabilities.md) explains supported behavior,
-while the [generated method ledger](capabilities.generated.md) records exact
+while the generated method ledger (`crates/eg-capabilities/src/domains/`) records exact
 authority, durability, audit, CDC, and transaction properties.
 
 !!! info "Capability truth is part of the product"

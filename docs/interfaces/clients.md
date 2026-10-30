@@ -230,18 +230,12 @@ flowchart LR
 
 ## Parity gate
 
-RF-RULING-003 made the contract itself the gate. `crates/eg-capabilities` declares one
-`MethodDescriptor` per `Method` variant, and
-`cargo run -p eg-capabilities --features contract --bin gen_contract -- --check`
-regenerates `contract/methods.json`, `contract/schemas/*.json`, `contract/receipt.json`,
-`docs/capabilities.generated.md` and `epistemic_graph/generated/*.py` in memory, then
-byte-diffs the committed tree. "Does the Python client send this method" is now the
-descriptor's `consumer_profiles` field, and a method with no consumer is
-`stability: internal` on its own row — so the old
-`tests/protocol_unbound_baseline.txt` ratchet is deleted rather than re-baselined.
+`crates/eg-capabilities` declares one `MethodDescriptor` per `Method` variant; the
+method catalog and its digest are computed from those rows at run time, and the Python
+wire models in `epistemic_graph/generated/*.py` are maintained by hand against the Rust
+serde types. Nothing is generated or committed from the registry.
 `crates/eg-capabilities/tests/contract_registry.rs` proves the registry and the `Method`
-enum are a bijection with no baseline, and `tests/test_generated_client_contract.py`
-(pure stdlib) proves the generated Python surface is exactly the published profile.
+enum are a bijection with no baseline.
 The JS/Go thin clients are still hand-maintained; their `ConsumerProfile` values exist in
 the descriptor but no generator emits them yet.
 

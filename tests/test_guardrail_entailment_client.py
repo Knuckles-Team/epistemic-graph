@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -72,17 +70,3 @@ def test_generated_guardrail_decoder_refuses_malformed_or_cross_method_results()
         storage.decode_guardrail_entailment(
             OpaqueResult("CapabilityCoverage", _payload())
         )
-
-
-def test_generated_guardrail_catalog_is_read_only_and_declares_store_errors() -> None:
-    root = Path(__file__).resolve().parents[1]
-    methods = json.loads((root / "contract/methods.json").read_text())["methods"]
-    method = next(row for row in methods if row["id"] == "GuardrailEntailment")
-    assert method["policy"]["mutates"] is False
-    assert method["policy"]["authz_action"] == "agent:assemble-read"
-    assert {
-        "INVALID_ARGUMENT",
-        "ACCESS_DENIED",
-        "GUARDRAIL_SCOPE_TOO_LARGE",
-        "MALFORMED_GUARDRAIL_RULE",
-    } <= set(method["error_set"])

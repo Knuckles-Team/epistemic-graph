@@ -22,9 +22,8 @@
 //! [`policy`] resolves runtime requests through that registry. Inventory parity checks reject
 //! a missing or duplicate `Method` declaration.
 //!
-//! This crate defines the domain policy registry, the generated
-//! Markdown ledger (rendered by [`gen_ledger`], written by the `gen_contract`
-//! generator), and consistency tests against the remaining
+//! This crate defines the domain policy registry, an in-memory Markdown ledger
+//! (rendered by [`gen_ledger`]; never committed), and consistency tests against the remaining
 //! classifiers. Served mutation planning consumes this policy directly; the snapshot
 //! cross-checks remain as drift alarms for classifiers that have not yet been deleted.
 //!
@@ -35,14 +34,12 @@
 //! `epistemic-graph` package's default build; see the root `Cargo.toml`'s `members` comment.
 
 pub mod catalog;
-#[cfg(feature = "contract-schema")]
-pub mod contract;
 mod descriptor;
 mod domains;
 pub mod error_routing;
 pub mod scopes;
 
-pub use catalog::{method_schema, CONTRACT_CATALOG_DIGEST, METHOD_CATALOG};
+pub use catalog::{contract_catalog_digest, method_schema};
 
 pub use descriptor::{
     error_set_for, format_identities_for, replay_class_for, ConsumerProfile, MethodDescriptor,
@@ -690,8 +687,8 @@ pub fn gen_ledger() -> String {
     out.push_str("# Epistemic Graph -- Generated Capability Ledger\n\n");
     out.push_str(
         "> **This file is GENERATED and is the AUTHORITATIVE machine-checked capability \n\
-         > truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities \n\
-         > --features contract --bin gen_contract`. It is derived directly from the eleven current domain `ROWS` \n\
+         > truth (CONCEPT:EG-P0-1)** -- rendered in memory by `eg_capabilities::gen_ledger`. \n\
+         > It is derived directly from the eleven current domain `ROWS` \n\
          > declarations under `crates/eg-capabilities/src/domains/`. Inventory gates keep \n\
          > them exact for every `Method` variant. `docs/capabilities.md` describes surface-level feature \n\
          > parity; this generated table is authoritative for per-method policy.\n>\n\

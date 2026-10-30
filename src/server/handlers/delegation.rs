@@ -213,7 +213,7 @@ mod tests {
                 &entry.tool_surface_digest(),
             )
             .unwrap(),
-            catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
+            catalog_digest: eg_capabilities::contract_catalog_digest().to_string(),
             policy_digest: entry.policy_digest.clone(),
             model_digest: Some(
                 unprefixed_digest("model_profile_digest", entry.model_profile_digest()).unwrap(),
@@ -531,7 +531,7 @@ mod tests {
             // A graph's capability binding is its SHAPE digest -- what will run
             // -- not the record digest the reference pins.
             capability_digest: unprefixed_digest("shape_digest", &graph.shape_digest).unwrap(),
-            catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
+            catalog_digest: eg_capabilities::contract_catalog_digest().to_string(),
             policy_digest: graph.policy_digest.clone(),
             // A graph has one model per agent node, so it pins none.
             model_digest: None,

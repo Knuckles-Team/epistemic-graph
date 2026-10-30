@@ -388,7 +388,7 @@ pub(super) async fn pending_intent(
         source_envelope: envelope_id.into(),
         source_commit_ref: envelope_id.into(),
         policy_digest: policy.digest.to_ascii_lowercase(),
-        catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.into(),
+        catalog_digest: eg_capabilities::contract_catalog_digest().into(),
         model_digest: policy.model_digest.to_ascii_lowercase(),
         budget_units: policy.budget_units,
         units,

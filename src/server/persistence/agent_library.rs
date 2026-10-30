@@ -335,7 +335,7 @@ pub(super) fn resolve_nonce_first(
             eg_types::authority::AUTHORITY_PROTOCOL_V1,
         )?,
         catalog_digest: eg_types::contract::Digest256::parse(
-            eg_capabilities::CONTRACT_CATALOG_DIGEST,
+            eg_capabilities::contract_catalog_digest(),
         )?,
         audience: eg_types::contract::AudienceId::new(eg_types::mutation_batch::ENGINE_AUDIENCE)?,
         actor: eg_types::contract::ActorId::new(context.caller_principal.clone())?,
@@ -390,7 +390,7 @@ pub(super) fn agent_library_operation_identity(
     };
 
     let scope = eg_types::mutation_batch::authority_scope_for(owner.identity())?;
-    let catalog_digest = Digest256::parse(eg_capabilities::CONTRACT_CATALOG_DIGEST)?;
+    let catalog_digest = Digest256::parse(eg_capabilities::contract_catalog_digest())?;
     let method = MethodId::new("ApplyMutation")?;
     let (method_schema_id, method_schema_digest) = eg_capabilities::method_schema("ApplyMutation")
         .map(|(schema, digest)| (SchemaId::new(schema), Digest256::from_bytes(digest)))

@@ -1,7 +1,6 @@
 //! Native DTO, Method and pure-query checks. Served dispatcher tests live in
 //! the facade and remain a separate acceptance gate.
 
-#![cfg(feature = "contract")]
 
 use eg_types::decision::guardrail::{
     guardrail_entailment_query, EntailmentStep, GuardrailEntailmentRequest, GuardrailRule,

@@ -1,6 +1,5 @@
 //! Model-level proof for the rendered skill package contract.
 
-#![cfg(feature = "contract")]
 
 use eg_types::fleet_catalog::RenderedSkillPackage;
 

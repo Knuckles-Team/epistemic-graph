@@ -51,86 +51,15 @@ name = "eg_capabilities"
 path = "../eg-types"
 features = ["metrics", "wire-contract"]
 
-# Only ever pulled in by the `contract-schema` feature: the generator needs JSON
-# Schema derivation, a JSON serializer, and a digest. A default build of this crate
-# (the one the root `epistemic-graph` package links behind `server`) links none of them.
-[dependencies.schemars]
-version = "1.2.3"
-optional = true
-
-[dependencies.serde_json]
-version = "1.0.154"
-optional = true
-
-[dependencies.sha2]
-version = "0.10.9"
-optional = true
-
-[dependencies.hex]
-version = "0.4.3"
-optional = true
-
-# HMAC-SHA256 for the golden `eg2.` envelope MACs in
-# `contract/fixtures/method_body_vectors.json` -- the same crate and version the
-# server's `envelope_v2_mac` uses, so a vector's MAC is the engine's own.
-[dependencies.hmac]
-version = "0.12.1"
-optional = true
-
-# The format-identity pass parses Rust items instead of scanning lines, so a site is
-# identified by file + enclosing item path and a value by its tokens -- never by a
-# line number that `cargo fmt` or a blank line would move.
-[dependencies.syn]
-version = "2.0.119"
-optional = true
-default-features = false
-features = ["full", "parsing", "printing", "visit"]
-
-[dependencies.quote]
-version = "1.0.47"
-optional = true
-default-features = false
-
-[dependencies.proc-macro2]
-version = "1.0.107"
-optional = true
-default-features = false
-
 [dev-dependencies]
 tempfile = "3"
-
-# The generator can never run under a partial feature profile: the registry it
-# serializes must be the complete supported wire inventory.
-[[bin]]
-name = "gen_contract"
-required-features = ["contract", "canonical-ledger", "contract-schema"]
+serde_json = "1.0.154"
 
 [features]
 default = []
 # Marks a build that compiles the Decide surface (EG-DECISION-ENGINE-R078), so the
 # frozen feature profile can name it. Enabled by the root crate's `decide` feature.
 decide = []
-# RF-RULING-003 — the exact profile `gen_contract` regenerates and `--check` verifies.
-#
-# It pulls `eg-types/test-support` because the generated digest vectors are
-# computed from the SAME sample values the wire tests use. A second, generator-
-# local copy of those samples is how a golden vector starts describing a value
-# nothing else ever sends. Default builds (the one the root package links behind
-# `server`) enable neither this feature nor that module.
-contract = ["canonical-ledger", "contract-schema", "eg-types/test-support"]
-# JSON Schema derivation for the wire request/result bodies. Default OFF on both this
-# crate and `eg-types`, exactly like the ~90 other pure-serde Method-gating features.
-contract-schema = [
-    "dep:schemars",
-    "dep:serde_json",
-    "dep:sha2",
-    "dep:hex",
-    "dep:hmac",
-    "dep:syn",
-    "dep:quote",
-    "dep:proc-macro2",
-    "eg-types/contract-schema",
-]
 # The checked-in ledger is the complete supported wire inventory, not a
 # projection of whichever optional surfaces happened to be enabled for one build.
 # Use this named profile for regeneration and its exact drift test; ordinary

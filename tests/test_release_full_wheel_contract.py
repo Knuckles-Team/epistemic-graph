@@ -386,7 +386,6 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
         # the short budget on cold hosted PR runners.
         if workflow.name in {"ci.yml", "release.yml"} and name in {
             "gates",
-            "gates-contract",
             "gates-wheel",
             "gates-facade",
             "gates-whisper",
