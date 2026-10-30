@@ -404,6 +404,7 @@ def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matr
     assert '--target "$SOURCE_SHA"' in publish["run"]
     assert publish["env"]["SOURCE_SHA"] == "${{ github.sha }}"
     assert "dist/SHA256SUMS" in publish["run"]
+    assert "dist/medulla-*.whl" in publish["run"]
 
 
 def test_only_workspace_clippy_runs_on_pull_requests(release_matrix):

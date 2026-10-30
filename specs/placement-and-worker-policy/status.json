@@ -32,7 +32,6 @@
     "EG-PLACEMENT-R002.10",
     "EG-PLACEMENT-R002.11",
     "EG-PLACEMENT-R002.12",
-    "EG-PLACEMENT-R002.13",
     "EG-PLACEMENT-R002.14",
     "EG-PLACEMENT-R002.15",
     "EG-PLACEMENT-R003",
@@ -241,7 +240,6 @@
         "EG-PLACEMENT-R002.10",
         "EG-PLACEMENT-R002.11",
         "EG-PLACEMENT-R002.12",
-        "EG-PLACEMENT-R002.13",
         "EG-PLACEMENT-R002.14",
         "EG-PLACEMENT-R002.15",
         "EG-PLACEMENT-R002.600"
@@ -342,13 +340,6 @@
     {
       "id": "EG-PLACEMENT-R002.12",
       "title": "Reword `EG-INGEST-WORKER-R001.15`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-PLACEMENT-R002.13",
-      "title": "Cross-repo (connector Graft SDK repository): no policy constants in the worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -545,30 +536,50 @@
     {
       "id": "EG-PLACEMENT-R611.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d6f54570fb18"
+      ],
+      "verified_by": [
+        "tests/test_placement_r611.py:120",
+        "tests/test_placement_r611.py:144",
+        "tests/test_placement_r611.py:86",
+        "tests/test_placement_r611.py:98"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R611.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d6f54570fb18"
+      ],
+      "verified_by": [
+        "tests/test_placement_r611.py:242",
+        "tests/test_placement_r611.py:296"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R611.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d6f54570fb18"
+      ],
+      "verified_by": [
+        "tests/test_placement_r611.py:158"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R611.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d6f54570fb18"
+      ],
+      "verified_by": [
+        "tests/test_placement_r611.py:202"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R611.6",

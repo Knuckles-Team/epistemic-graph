@@ -127,24 +127,14 @@ reviewed_on = "2026-09-25"
 reason = """Both use read_snapshot and the development-lane store, but one returns the full DevelopmentLaneQueryResult and the other returns the bounded DevelopmentLaneStatusResult. Each delegates to its matching store reader and serves a distinct client request. Re-reviewed after the read_snapshot conversion."""
 
 [[pair]]
-left_file = "crates/eg-shacl/src/sparql/pattern.rs"
-left_name = "merge"
-left_digest = "sha256:cc1fba389be8b652e3bb381625a8f0a9db8e4469521f1ebabaab1a2ec22aba0a"
-right_file = "crates/eg-rdf/src/sparql.rs"
-right_name = "merge"
-right_digest = "sha256:8c31fcea53b7f233065e8aa5e840057924e37d0ccc94333cbb82470b9c17c8b5"
-reviewed_on = "2026-09-10"
-reason = """The same join-compatibility algorithm over DIFFERENT solution types: eg-shacl binds oxrdf::Term (full RDF terms with datatype and language), eg-rdf binds its own two-variant Binding enum tied to the GraphView scan engine, which cannot carry that fidelity. Sharing would force the lossier type on eg-shacl, and eg-shacl deliberately does not enable eg-rdf's sparql feature so a shacl-only build stays within the Pi tier."""
-
-[[pair]]
 left_file = "crates/eg-types/src/agent_component.rs"
 left_name = "as_str"
-left_digest = "sha256:be6d52fc34c0da1bb7a7a98cbb50ed610d5bcdf5725ec4a78d695b650c3a8893"
+left_digest = "sha256:6452b41e2555ea596c8e88d437202faa278c30235892348f0a61b7c8de4fc665"
 right_file = "crates/eg-program/src/contracts.rs"
 right_name = "as_str"
 right_digest = "sha256:ea62a72f6cc0604d3bf4c487bf89652cae9aae0a4751f2d6c47dc95d5abd4cea"
-reviewed_on = "2026-09-17"
-reason = """Two exhaustive match-to-&str renderings over unrelated enums: the agent component KIND vocabulary (model_profile, system_prompt, tool, toolset, mcp_server, mcp_prompt, mcp_resource, skill, ontology, schema, output_validator, predicate, and since the 2.27.x contract wave shapes, a2a_agent_card, decision_record, decision_policy, decision_head, feature_schema, rubric, nl_template) versus a DSPy adapter kind (chat, json, xml, two_step, document, citations). Not one variant is shared and the two live in different crates serving different layers. Sharing the shape would require a common enum over two vocabularies that have nothing in common, which is an invented abstraction. Same family as the already-registered eg-modality served-error pair against this identical right-hand side -- every Rust enum with a string rendering has this body."""
+reviewed_on = "2026-10-30"
+reason = """Two exhaustive match-to-&str renderings over unrelated enums: the agent component KIND vocabulary (model_profile, system_prompt, tool, toolset, mcp_server, mcp_prompt, mcp_resource, skill, ontology, schema, output_validator, predicate, and since the 2.27.x contract wave shapes, a2a_agent_card, decision_record, decision_policy, decision_head, feature_schema, rubric, nl_template) versus a DSPy adapter kind (chat, json, xml, two_step, document, citations). Not one variant is shared and the two live in different crates serving different layers. Sharing the shape would require a common enum over two vocabularies that have nothing in common, which is an invented abstraction. Same family as the already-registered eg-modality served-error pair against this identical right-hand side -- every Rust enum with a string rendering has this body. Re-reviewed 2026-10-30: the left enum gained variants (new arms only); both sides remain exhaustive accessors over unrelated vocabularies, still not a clone."""
 
 [[pair]]
 left_file = "crates/eg-program/src/commit/validation.rs"
@@ -177,36 +167,35 @@ reviewed_on = "2026-09-16"
 reason = """Same coincidental shape as the sibling entry above, against the same right-hand side: this is the OTHER half of the delegation-outcome identity check (result_ref, capability_digest, catalog_digest, policy_digest, model_digest, event_sequence, completeness, missing_refs) -- provenance/result fields, not the resource-reservation fencing fields on the right. No field in common, different subsystem, same idiom every exact-match comparator uses."""
 
 # ── 2.27.x contract wave (reviewed 2026-09-17) ────────────────────────────────
-
 [[pair]]
 left_file = "crates/eg-types/src/agent_component.rs"
 left_name = "as_str"
-left_digest = "sha256:be6d52fc34c0da1bb7a7a98cbb50ed610d5bcdf5725ec4a78d695b650c3a8893"
+left_digest = "sha256:6452b41e2555ea596c8e88d437202faa278c30235892348f0a61b7c8de4fc665"
 right_file = "crates/eg-plan/src/result_stream.rs"
 right_name = "as_str"
 right_digest = "sha256:1c032ec0c0a8de05330f80ed651215a4dfc7561631515272cd31d5c12c4396e9"
-reviewed_on = "2026-09-17"
-reason = """EH-264 review (file:line): crates/eg-types/src/agent_component.rs:168 vs crates/eg-plan/src/result_stream.rs:44. Two exhaustive match-to-&str renderings over unrelated enums, the same family as the already-registered eg-modality (2026-09-10) and eg-program (2026-09-16) pairs above. Left: the agent component KIND vocabulary (model_profile ... nl_template, 20 variants), which names what an agent is built out of. Right: the cross-modal result-stream MODALITY tag (graph, sql, rdf, vector, time_series, job, cross_modal, 7 variants), which names which executor produced a batch. Not one token is shared, and the two sit in different crates on opposite sides of the DAG -- eg-plan does not depend on eg-types::agent_component's vocabulary in either direction. Not framed as "different trust domains" (BUILD-CONTRACT.md's stated bar): this is a "no shared concept" argument instead, the same one this file has now accepted three times for this exact shape (see the eg-modality/eg-program and agent_component/eg-program entries above, both `reviewed_on` before this rule was written down). Verified by reading both bodies at the cited lines: consolidating would require inventing a common enum over two vocabularies with nothing in common, which BUILD-CONTRACT.md's own gate-native design section names as the wrong move ("an invented abstraction over two unrelated vocabularies"). Kept as reviewed-distinct; flagged to the coordinator because the argument is precedented in this file but not itself a trust-domain argument -- ratify or direct a merge."""
+reviewed_on = "2026-10-30"
+reason = """EH-264 review (file:line): crates/eg-types/src/agent_component.rs:168 vs crates/eg-plan/src/result_stream.rs:44. Two exhaustive match-to-&str renderings over unrelated enums, the same family as the already-registered eg-modality (2026-09-10) and eg-program (2026-09-16) pairs above. Left: the agent component KIND vocabulary (model_profile ... nl_template, 20 variants), which names what an agent is built out of. Right: the cross-modal result-stream MODALITY tag (graph, sql, rdf, vector, time_series, job, cross_modal, 7 variants), which names which executor produced a batch. Not one token is shared, and the two sit in different crates on opposite sides of the DAG -- eg-plan does not depend on eg-types::agent_component's vocabulary in either direction. Not framed as "different trust domains" (BUILD-CONTRACT.md's stated bar): this is a "no shared concept" argument instead, the same one this file has now accepted three times for this exact shape (see the eg-modality/eg-program and agent_component/eg-program entries above, both `reviewed_on` before this rule was written down). Verified by reading both bodies at the cited lines: consolidating would require inventing a common enum over two vocabularies with nothing in common, which BUILD-CONTRACT.md's own gate-native design section names as the wrong move ("an invented abstraction over two unrelated vocabularies"). Kept as reviewed-distinct; flagged to the coordinator because the argument is precedented in this file but not itself a trust-domain argument -- ratify or direct a merge. Re-reviewed 2026-10-30: the left enum gained variants (new arms only); both sides remain exhaustive accessors over unrelated vocabularies, still not a clone."""
 
 [[pair]]
 left_file = "crates/eg-types/src/connector_pack/digest.rs"
 left_name = "entry_kind_token"
-left_digest = "sha256:16b4712a19f242d1f19565b73958359e81ae0149bef8de586ca8fcd0fb6ea3bc"
+left_digest = "sha256:80c074097cfcb8737462d1772b7b48d919d43261c25ac41d9d52ef0012a00baa"
 right_file = "crates/eg-plan/src/result_stream.rs"
 right_name = "as_str"
 right_digest = "sha256:1c032ec0c0a8de05330f80ed651215a4dfc7561631515272cd31d5c12c4396e9"
-reviewed_on = "2026-09-24"
-reason = """EH-264 review refreshed for RF-021 (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-plan/src/result_stream.rs:44. The left vocabulary now also includes resource and resource_template, preserving the same exhaustive PACK entry-kind renderer shape. Its output remains a DIGEST INPUT framed into entry_digest; the right side remains pure display for an unrelated result-stream modality tag. Sharing the helper would still couple content-addressed connector-pack identity to a non-identity display vocabulary in another crate. Re-read both bodies after the RF-021 variants landed; the semantic distinction still holds, so the pair is re-pinned as reviewed-distinct. Train-3 re-review (2026-09-24): eg-pack db863f1e2 added the `SkillFile => "skill_file"` arm; the function is still the exhaustive wire-stable digest-input renderer described above, so the distinction holds and the left side is re-pinned."""
+reviewed_on = "2026-10-30"
+reason = """EH-264 review refreshed for RF-021 (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-plan/src/result_stream.rs:44. The left vocabulary now also includes resource and resource_template, preserving the same exhaustive PACK entry-kind renderer shape. Its output remains a DIGEST INPUT framed into entry_digest; the right side remains pure display for an unrelated result-stream modality tag. Sharing the helper would still couple content-addressed connector-pack identity to a non-identity display vocabulary in another crate. Re-read both bodies after the RF-021 variants landed; the semantic distinction still holds, so the pair is re-pinned as reviewed-distinct. Train-3 re-review (2026-09-24): eg-pack db863f1e2 added the `SkillFile => "skill_file"` arm; the function is still the exhaustive wire-stable digest-input renderer described above, so the distinction holds and the left side is re-pinned. Re-reviewed 2026-10-30: the left enum gained variants (new arms only); both sides remain exhaustive accessors over unrelated vocabularies, still not a clone."""
 
 [[pair]]
 left_file = "crates/eg-types/src/connector_pack/digest.rs"
 left_name = "entry_kind_token"
-left_digest = "sha256:16b4712a19f242d1f19565b73958359e81ae0149bef8de586ca8fcd0fb6ea3bc"
+left_digest = "sha256:80c074097cfcb8737462d1772b7b48d919d43261c25ac41d9d52ef0012a00baa"
 right_file = "crates/eg-modality/src/tck.rs"
 right_name = "label"
 right_digest = "sha256:1128fcc65d645369f2a11250874fb76497fd8dba137a592c7909570bc1ababca"
-reviewed_on = "2026-09-24"
-reason = """RF-021 review (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-modality/src/tck.rs:138. Both are exhaustive enum-to-string renderers, but the connector-pack tokens are wire-stable DIGEST INPUTS that bind signed catalog content identities, while TckPoint::label is human-readable report prose. The enums, tokens, crates, consumers and compatibility consequences are disjoint. Consolidating would couple a cryptographic format identity to mutable presentation text, so the pair is reviewed-distinct. Train-3 re-review (2026-09-24): eg-pack db863f1e2 added the `SkillFile => "skill_file"` arm; the function is still the exhaustive wire-stable digest-input renderer described above, so the distinction holds and the left side is re-pinned."""
+reviewed_on = "2026-10-30"
+reason = """RF-021 review (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-modality/src/tck.rs:138. Both are exhaustive enum-to-string renderers, but the connector-pack tokens are wire-stable DIGEST INPUTS that bind signed catalog content identities, while TckPoint::label is human-readable report prose. The enums, tokens, crates, consumers and compatibility consequences are disjoint. Consolidating would couple a cryptographic format identity to mutable presentation text, so the pair is reviewed-distinct. Train-3 re-review (2026-09-24): eg-pack db863f1e2 added the `SkillFile => "skill_file"` arm; the function is still the exhaustive wire-stable digest-input renderer described above, so the distinction holds and the left side is re-pinned. Re-reviewed 2026-10-30: the left enum gained variants (new arms only); both sides remain exhaustive accessors over unrelated vocabularies, still not a clone."""
 
 [[pair]]
 left_file = "src/server/handlers/graph_ops/gateway_graph_routes.rs"
@@ -257,6 +246,7 @@ Re-read 2026-09-22 (train 2): the only change is decide-assembly's EH-052
 deletion of the unread `provides` field from agent_component's struct literal
 (one line fewer); both bodies otherwise identical to the 2026-09-19 review, and
 the argument above is unchanged, so the left digest is re-pinned."""
+
 [[pair]]
 left_file = "crates/eg-compute/src/assemble/topology/model.rs"
 left_name = "class_name"
@@ -390,22 +380,22 @@ reason = """This parser accepts freshness classes immutable, slow, fast, and liv
 [[pair]]
 left_file = "crates/eg-types/src/graph_schema.rs"
 left_name = "action_token"
-left_digest = "sha256:00360f727a5b1d3d1d6bc8e9acfe2eee55ddbcbbb87fdaf8866021cc4b5b8a35"
+left_digest = "sha256:60e7f75431dcc941ec7f1dc66ab93f48c36a2b3fdc59e7cb849ce68ab8d289e4"
 right_file = "crates/eg-types/src/fleet_catalog.rs"
 right_name = "name"
 right_digest = "sha256:20919aa82451efe5143c44200727b7a9b2ef8a0c1eb54aa99110965177386e88"
-reviewed_on = "2026-09-25"
-reason = """GraphSchema action tokens name attach, detach, and repair operations. FleetCatalog action names identify discovery and override operations. Both are exhaustive enum label maps but authorize different method families and must evolve with their own enums."""
+reviewed_on = "2026-10-30"
+reason = """GraphSchema action tokens name attach, detach, and repair operations. FleetCatalog action names identify discovery and override operations. Both are exhaustive enum label maps but authorize different method families and must evolve with their own enums. Re-reviewed 2026-10-30: the left enum gained variants (new arms only); both sides remain exhaustive accessors over unrelated vocabularies, still not a clone."""
 
 [[pair]]
 left_file = "crates/eg-types/src/graph_schema.rs"
 left_name = "expected_composed_digest"
-left_digest = "sha256:0ebf44133ad3b76c6ced7612867d8d699421e0e0c4c627e768bd3ab5e128d51e"
+left_digest = "sha256:5d02f8556bccec1a518ed789d1563d62e9c0979bfbcc6bc6f28a7ad3eb1990c6"
 right_file = "crates/eg-query/src/tables/schema.rs"
 right_name = "name"
 right_digest = "sha256:d04feac804f6219636ee176a871bfbb59b2349a594239d886dc6a6f9c59b85da"
-reviewed_on = "2026-09-25"
-reason = """GraphSchema extracts an optimistic concurrency digest from five mutation variants. TableConstraint extracts optional human-readable constraint names. The payload meaning, lifetime, and owner enums differ despite identical Option<&str> projection shape."""
+reviewed_on = "2026-10-30"
+reason = """GraphSchema extracts an optimistic concurrency digest from five mutation variants. TableConstraint extracts optional human-readable constraint names. The payload meaning, lifetime, and owner enums differ despite identical Option<&str> projection shape. Re-reviewed 2026-10-30: the left enum gained variants (new arms only); both sides remain exhaustive accessors over unrelated vocabularies, still not a clone."""
 
 [[pair]]
 left_file = "crates/eg-types/src/graph_schema.rs"
