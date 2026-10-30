@@ -323,3 +323,9 @@ Aligned to ArchiMate 3.2 layers.""" ;
     rdfs:label "Harness Hook" ;
     rdfs:comment "One of the eight lifecycle hook points a processor attaches to (task_start, step_start, before_model, after_model, before_tool, after_tool, step_end, task_end). Distinct from the dev-CLI :Hook (CONCEPT:KG-2.109)." ;
     rdfs:subClassOf :ApplicationLayer .
+
+:contextWindowTokens a owl:DatatypeProperty ;
+    rdfs:label "context window tokens" ;
+    rdfs:comment "The model profile's context window size in tokens; at least 1." ;
+    rdfs:domain :ModelProfile ;
+    rdfs:range xsd:integer .

@@ -699,8 +699,9 @@ mod tests {
         }
     }
 
+    // spec: EG-TYPED-PACKS-R048.1
     #[test]
-    fn zero_context_window_is_rejected() {
+    fn context_window_zero_is_refused() {
         let error = validate_window(0, 1).expect_err("a zero context window is invalid");
         assert_eq!(
             error,

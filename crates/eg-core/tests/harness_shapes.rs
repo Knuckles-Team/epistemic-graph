@@ -140,3 +140,16 @@ fn model_fact_shapes_reject_non_positive_context_window() {
     );
     assert!(!result.conforms, "contextWindowTokens=0 must fail closed");
 }
+
+// spec: EG-TYPED-PACKS-R048.1
+#[test]
+fn ontology_declares_context_window_tokens_as_a_model_profile_integer() {
+    let ontology = include_str!("../ontology/harness-v1.ttl");
+    let block = ontology
+        .split(":contextWindowTokens a owl:DatatypeProperty")
+        .nth(1)
+        .expect("the harness ontology must declare :contextWindowTokens");
+    let block = block.split("\n\n").next().unwrap();
+    assert!(block.contains("rdfs:domain :ModelProfile"));
+    assert!(block.contains("rdfs:range xsd:integer"));
+}
