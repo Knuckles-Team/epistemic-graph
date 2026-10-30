@@ -1306,8 +1306,50 @@ mod tests {
         }
     }
 
-    // R081.8.1's termination fields come from the R082 stop model; this test
-    // covers the feedback half only.
+    // R081.8.1: termination rides on the R082 stop model (the one stop
+    // authority); this test round-trips feedback together with that model.
+    // spec: EG-FEDERATED-QUERY-R081.8.1
+    #[test]
+    fn feedback_carries_limits_and_termination_from_the_r082_stop_model() {
+        use crate::retrieval_stop::{StopContext, StopReason, StopVerdict};
+        let f = feedback();
+        // Every tier survives the round trip.
+        let json = serde_json::to_string(&f).unwrap();
+        let back: RetrievalFeedback = serde_json::from_str(&json).unwrap();
+        let tiers: Vec<_> = back.terms.iter().map(|t| t.tier).collect();
+        for tier in [FeedbackTier::Reinforce, FeedbackTier::Missing, FeedbackTier::Suppress] {
+            assert!(tiers.contains(&tier), "missing tier {tier:?}");
+        }
+        assert_eq!(back.limits, f.limits);
+        // Termination is the R082 StopContext/StopVerdict, sized from these limits.
+        let ctx = StopContext {
+            round: f.round,
+            round_limit: f.limits.max_rounds,
+            token_limit: f.limits.max_tokens,
+            tokens_used: 10,
+            inference_limit: f.limits.max_inference_calls,
+            inference_calls_used: 1,
+            cost_limit: 100,
+            cost_used: 1,
+            completed_round_progress: true,
+            policy_revision: "stop-policy-v1".into(),
+        };
+        ctx.validate().unwrap();
+        let verdict = StopVerdict {
+            stop: true,
+            reason: StopReason::RoundLimit,
+            round: f.round,
+            margin: None,
+            threshold: None,
+            calibration_refusal: None,
+            exhausted_dimension: None,
+        };
+        verdict.validate().unwrap();
+        let v: StopVerdict = serde_json::from_str(&serde_json::to_string(&verdict).unwrap()).unwrap();
+        assert_eq!(v, verdict);
+    }
+
+    // The feedback half: refusals for forged, unbounded and inconsistent input.
     #[test]
     fn feedback_round_trips_tiers_and_refuses_unbounded_or_forged() {
         let f = feedback();
@@ -1455,6 +1497,7 @@ mod section_hierarchy_tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R081.9.7.1
     #[test]
     fn document_section_policy_validates_nested_tree_and_round_trips() {
         let mut document = policy(HierarchyRetrievalKind::DocumentSection);

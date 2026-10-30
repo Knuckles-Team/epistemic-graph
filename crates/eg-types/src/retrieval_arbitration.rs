@@ -57,6 +57,7 @@ pub struct ArbitrationVerdict {
 mod tests {
     use super::{ArbitrationChoice, ArbitrationVerdict, Candidate, EvidenceClass};
 
+    // spec: EG-FEDERATED-QUERY-R083.1
     #[test]
     fn verdict_carries_both_candidates() {
         let verdict = ArbitrationVerdict {

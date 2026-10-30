@@ -131,6 +131,7 @@ pub use wire_streaming::*;
 mod tests {
     use super::{RetrievalFailureMode, RetrievalVerdict};
 
+    // spec: EG-FEDERATED-QUERY-R089.1
     #[test]
     fn verdict_round_trips() {
         let verdict = RetrievalVerdict {

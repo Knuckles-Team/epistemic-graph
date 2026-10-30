@@ -255,6 +255,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R082.1
     #[test]
     fn table_and_verdict_round_trip() {
         let table = calibration_table();
