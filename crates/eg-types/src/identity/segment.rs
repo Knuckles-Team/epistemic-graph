@@ -147,8 +147,7 @@ pub fn visible_units<'a>(
 mod tests {
     use super::*;
 
-    // Native qualification is intentionally supplied by the managed lane; the
-    // exact proving test remains unbound until that run passes.
+    // spec: EG-IDENTITY-R023.1
     #[test]
     fn unit_round_trips() {
         let unit = KnowledgeUnit {

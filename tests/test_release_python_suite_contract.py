@@ -286,8 +286,10 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     assert job["env"] == CACHE_BACKEND
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
     budget = (
-        30
-        if job_name in {"gates-crates", "gates-storage", "gates-ontology"}
+        15
+        if job_name == "gates-crates"
+        else 30
+        if job_name in {"gates-storage", "gates-ontology"}
         else 45
         if job_name
         in {

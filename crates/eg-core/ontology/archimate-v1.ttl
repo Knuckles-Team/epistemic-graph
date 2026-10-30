@@ -106,3 +106,33 @@ it affects (crosswalk anchor).""" ;
     rdfs:comment "Links a ServiceNow :Incident to the :Person it is assigned to." ;
     rdfs:domain :Incident ;
     rdfs:range :Person .
+
+:ApplicationComponent a owl:Class ;
+    rdfs:label "Application Component" ;
+    rdfs:comment """Canonical anchor for an application-layer component, regardless of
+the tool that catalogues it (ArchiMate application components, LeanIX
+application fact sheets). ArchiMate: Application Layer -> Application
+Component. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:ArchimateRelationship a owl:Class ;
+    rdfs:label "ArchiMate Relationship" ;
+    rdfs:comment """A reified ArchiMate relationship between two elements, named by
+:relationshipType and bound by :relSource / :relTarget (Serving,
+Realization, Assignment, ...).""" .
+
+:relationshipType a owl:DatatypeProperty ;
+    rdfs:label "relationship type" ;
+    rdfs:comment "The ArchiMate relationship kind a reified :ArchimateRelationship carries (Serving, Realization, Assignment, ...)." ;
+    rdfs:domain :ArchimateRelationship ;
+    rdfs:range xsd:string .
+
+:relSource a owl:ObjectProperty ;
+    rdfs:label "relationship source" ;
+    rdfs:comment "The element a reified :ArchimateRelationship starts from." ;
+    rdfs:domain :ArchimateRelationship .
+
+:relTarget a owl:ObjectProperty ;
+    rdfs:label "relationship target" ;
+    rdfs:comment "The element a reified :ArchimateRelationship points to." ;
+    rdfs:domain :ArchimateRelationship .
