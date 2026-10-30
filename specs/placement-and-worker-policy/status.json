@@ -545,30 +545,50 @@
     {
       "id": "EG-PLACEMENT-R611.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "554ad01373b8"
+      ],
+      "verified_by": [
+        "tests/test_placement_r611.py:120",
+        "tests/test_placement_r611.py:144",
+        "tests/test_placement_r611.py:86",
+        "tests/test_placement_r611.py:98"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R611.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "554ad01373b8"
+      ],
+      "verified_by": [
+        "tests/test_placement_r611.py:242",
+        "tests/test_placement_r611.py:296"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R611.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "554ad01373b8"
+      ],
+      "verified_by": [
+        "tests/test_placement_r611.py:158"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R611.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "554ad01373b8"
+      ],
+      "verified_by": [
+        "tests/test_placement_r611.py:202"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R611.6",
