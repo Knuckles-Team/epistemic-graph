@@ -463,9 +463,7 @@ def test_local_scope_absent_repository_runs_full(tmp_path, monkeypatch) -> None:
     assert not gate.can_skip("staged", [gate.SKILL])
 
 
-@pytest.mark.parametrize(
-    "name", ["contract-method-reachability", "durable-table-registration"]
-)
+@pytest.mark.parametrize("name", ["durable-table-registration"])
 def test_original_scanner_failures_propagate(name, monkeypatch) -> None:
     from scripts import source_gate_scope as gate
 
@@ -484,7 +482,7 @@ def test_original_scanner_failures_propagate(name, monkeypatch) -> None:
 def test_source_hook_modes_keep_manual_and_full_coverage() -> None:
     config = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())
     hooks = {hook["id"]: hook for repo in config["repos"] for hook in repo["hooks"]}
-    for name in ("contract-method-reachability", "durable-table-registration"):
+    for name in ("durable-table-registration",):
         for suffix, stage, mode in (
             ("", "pre-commit", "staged"),
             ("-push", "pre-push", "push"),

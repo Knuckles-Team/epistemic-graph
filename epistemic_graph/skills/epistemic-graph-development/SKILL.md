@@ -152,11 +152,9 @@ served acceptance.
 ## Change a wire capability
 
 Find the capability's descriptor in `crates/eg-capabilities/src/domains/` and
-trace it through the server dispatch. After changing that authority, use
-`crates/eg-capabilities/src/bin/gen_contract.rs` to regenerate its projections
-and run the generator's check mode. The generated method catalogs, schemas,
-receipts, client types, and API documentation must agree with that source.
-Do not repair a mismatch by editing generated output directly.
+trace it through the server dispatch. The method catalog and its digest are
+computed from the descriptor rows at run time; update the Python wire model in
+`epistemic_graph/generated/` by hand to match the Rust serde types.
 
 The generator invocation and its configured features are maintained in
 `.config/pre-commit.yaml` under `engine-contract-check`. For the Go and

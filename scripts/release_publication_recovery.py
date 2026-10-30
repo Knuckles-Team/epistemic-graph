@@ -138,18 +138,6 @@ def unpack(archive: Path, destination: Path, expected: dict) -> Path:
             while block := source.read(1024 * 1024):
                 output.write(block)
     require(digest(target) == expected["sha256"], "wheel digest mismatch")
-    with zipfile.ZipFile(target) as wheel:
-        receipts = [
-            i
-            for i in wheel.infolist()
-            if i.filename == "epistemic_graph/contract/receipt.json"
-        ]
-        require(len(receipts) == 1, "missing/duplicate contract receipt")
-        require(
-            hashlib.sha256(wheel.read(receipts[0])).hexdigest()
-            == expected["receipt_sha256"],
-            "contract receipt changed",
-        )
     return target
 
 

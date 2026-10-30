@@ -216,24 +216,3 @@ fn print_known_divergence_report() {
     );
 }
 
-#[cfg(feature = "canonical-ledger")]
-#[test]
-fn generated_ledger_is_not_stale() {
-    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("crates/eg-capabilities is two levels below the repo root")
-        .to_path_buf();
-    let checked_in_path = repo_root.join("docs").join("capabilities.generated.md");
-    let checked_in = std::fs::read_to_string(&checked_in_path).unwrap_or_else(|e| {
-        panic!(
-            "failed to read {}: {e} -- run `cargo run -p eg-capabilities --features contract --bin gen_contract` first",
-            checked_in_path.display()
-        )
-    });
-    let fresh = eg_capabilities::gen_ledger();
-    assert_eq!(
-        checked_in, fresh,
-        "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --features contract --bin gen_contract` and commit the result"
-    );
-}

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
@@ -127,15 +126,24 @@ def _vector_entries() -> list[PackEntry]:
     return [_entry(kind, f"entry-{position}") for position, kind in enumerate(kinds)]
 
 
+# Golden digests the Rust connector-pack codec computes for the same inputs
+# (crates/eg-types connector_pack tests); Python must agree byte for byte.
+_GOLDEN = {
+    "pack_digest/one_entry_per_kind": (
+        "bf379d4af75cc24a6b8c1edb46abc5747390d9e5758ea3ea98e79ad5ed46a286"
+    ),
+    "annotations_digest/full": (
+        "2184e78879af1f369b47adac45d9b847eb9c0f9f3f1f87fe53df73140eb0fe82"
+    ),
+}
+
+
 def _expected_vector(name: str) -> str:
-    document = json.loads(
-        (ROOT / "contract/fixtures/connector_pack_digest_vectors.json").read_text()
-    )
-    return next(row["sha256"] for row in document["vectors"] if row["name"] == name)
+    return _GOLDEN[name]
 
 
 @pytest.mark.spec("EG-TYPED-PACKS-R001")
-def test_pack_digest_matches_the_rust_generated_golden_vector() -> None:
+def test_pack_digest_matches_the_rust_golden_vector() -> None:
     assert pack_digest(
         "connector-a",
         _catalog(),

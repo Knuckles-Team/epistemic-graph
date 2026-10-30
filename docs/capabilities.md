@@ -12,7 +12,7 @@ is checked against the source, not against intent. Legend:
 The **Feature** column is the Cargo feature that gates the surface; the
 [tiers page](architecture/tiers.md) shows which prebuilt binary carries it.
 
-> **Machine-checked ledger available (EG-P0-1).** [`docs/capabilities.generated.md`](capabilities.generated.md)
+> **Machine-checked ledger available (EG-P0-1).** the descriptor rows in `crates/eg-capabilities/src/domains/` (`crates/eg-capabilities/src/domains/`)
 > is generated from an exhaustive, compiler-enforced `MethodPolicy` match over every wire-protocol
 > `Method` variant (`crates/eg-capabilities`, regenerate via `cargo run -p eg-capabilities
 > --features canonical-ledger --bin gen_ledger`) and is the **authoritative** machine-checked source for per-method

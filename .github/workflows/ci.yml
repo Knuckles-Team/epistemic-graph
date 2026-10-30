@@ -200,8 +200,7 @@ jobs:
 
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   # Main pushes, the nightly schedule and dispatch only. On a pull request the
-  # lower crates run in the affected-crate subset of `gates-crates`, contract
-  # parity in `gates-contract` and the generated client in `python-suite`.
+  # lower crates run in the affected-crate subset of `gates-crates`.
   gates:
     # Full engine compilation/test execution exceeds the short PR budget.
     # Run 38392685303 exhausted even 45m; retain this cap pending build profiling.
@@ -281,7 +280,7 @@ jobs:
       # is the only meaningful exact generated-artifact comparison. This step is
       - name: Test (canonical capability policy and generated ledger)
         env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-capabilities --features contract --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-capabilities --features canonical-ledger --no-fail-fast
       # The facade's sqlite `.db` round-trip test diffs against a real sqlite3 CLI and
       # FAILS without one. Provision the pinned, sha256-verified CLI rather than
       # relying on whatever sqlite3 the runner image happens to ship.
@@ -304,12 +303,6 @@ jobs:
         run: uv pip install --python "$(command -v python3)" pytest==9.1.1 iniconfig==2.3.1 packaging==26.3 pluggy==1.7.0 pygments==2.21.0
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
-      - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
-        id: engine-contract-parity
-        if: ${{ !cancelled() }}
-        run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
-      - name: Generated Python client contract
-        run: python3 tests/test_generated_client_contract.py
 
       - name: Report lower-crate compiler cache reuse
         if: always()
@@ -317,42 +310,6 @@ jobs:
           echo 'Cache statistics cover the current daemon only; a restart resets its counters.'
           sccache --show-stats
 
-  # Canonical repair must not wait behind unrelated lower-crate test suites.
-  # The original required gate still rechecks parity; only this job exports.
-  gates-contract:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
-    name: Canonical engine contract parity
-    needs: changes
-    if: &eg-code-change needs.changes.outputs.code == 'true'
-    runs-on: *eg-native-validation-runner
-    env: *eg-validation-compiler-cache-backend
-    steps:
-      # The exporter needs only Python's standard library, not client test deps.
-      - *eg-gates-checkout
-      - *eg-gates-toolchain
-      - *eg-gates-cache
-      - *eg-validation-compiler-cache
-      - *eg-gates-python
-      - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
-        id: engine-contract-preflight
-        if: ${{ !cancelled() }}
-        env: *eg-validation-compiler-cache-env
-        run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
-      - name: Export fresh canonical contracts after parity failure
-        id: engine-contract-export
-        if: ${{ failure() && steps.engine-contract-preflight.outcome == 'failure' }}
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/export_canonical_contract.py --export-dir target/canonical-engine-contract
-      - name: Upload fresh canonical contract repair evidence
-        if: ${{ !cancelled() && steps.engine-contract-export.outputs.fresh_export == 'true' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: canonical-engine-contract-${{ github.sha }}
-          path: target/canonical-engine-contract/
-          if-no-files-found: error
-
-  # Independent fuzz acceptance avoids serial lower-crate compilation.
-  # Main pushes, the nightly schedule and dispatch only.
   gates-plan-fuzz:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (plan fuzz and chaos)
@@ -738,7 +695,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 60 }}
     name: gates (workspace crates)
     needs: changes
-    if: *eg-code-change
+    if: &eg-code-change needs.changes.outputs.code == 'true'
     runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps: &eg-native-crate-steps
@@ -1493,7 +1450,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [light-gates, changes, gates, gates-contract, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, quality-advisory, clippy-release-profiles, security]
+    needs: [light-gates, changes, gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, quality-advisory, clippy-release-profiles, security]
     if: >-
       github.repository == 'Knuckles-Team/medulla'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -1570,7 +1527,6 @@ jobs:
       - light-gates
       - changes
       - security
-      - gates-contract
       - gates-wheel
       - gates-whisper
       - gates-ontology
@@ -1598,7 +1554,6 @@ jobs:
           LIGHT_GATES_RESULT: ${{ needs.light-gates.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
-          GATES_CONTRACT_RESULT: ${{ needs.gates-contract.result }}
           GATES_WHEEL_RESULT: ${{ needs.gates-wheel.result }}
           GATES_WHISPER_RESULT: ${{ needs.gates-whisper.result }}
           GATES_ONTOLOGY_RESULT: ${{ needs.gates-ontology.result }}
@@ -1635,7 +1590,6 @@ jobs:
             "light-gates=$LIGHT_GATES_RESULT"
             "changes=$CHANGES_RESULT"
             "security=$SECURITY_RESULT"
-            "gates-contract=$GATES_CONTRACT_RESULT"
             "gates-wheel=$GATES_WHEEL_RESULT"
             "gates-whisper=$GATES_WHISPER_RESULT"
             "gates-ontology=$GATES_ONTOLOGY_RESULT"

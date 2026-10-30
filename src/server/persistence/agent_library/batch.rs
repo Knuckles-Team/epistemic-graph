@@ -167,7 +167,7 @@ fn compile_batch_envelope(
         compiled,
     )?;
     compiled_envelope.catalog_digest =
-        eg_types::contract::Digest256::parse(eg_capabilities::CONTRACT_CATALOG_DIGEST)?;
+        eg_types::contract::Digest256::parse(eg_capabilities::contract_catalog_digest())?;
     compiled_envelope.policy_digest = parse_prefixed_digest(&context.policy_digest)?;
     compiled_envelope.policy_revision = context.policy_revision.clone();
     compiled_envelope.policy_decision_id = context.policy_decision_id.clone();

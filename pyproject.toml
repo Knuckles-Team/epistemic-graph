@@ -196,23 +196,8 @@ jscpd_formats = { rust = ["rs"], python = ["py", "pyi"], javascript = ["js", "cj
 jscpd_filenames = { docker = ["Dockerfile", "Containerfile"], makefile = ["Makefile", "GNUmakefile"] }
 # Exclusions are junk, vendored code, and GENERATED OUTPUT. A generated file is
 # not duplication debt: it has no author to refactor and no second copy to
-# delete -- its repetition is a property of the generator's template, and the
-# fix for a real duplication in it is a fix in the source of truth. `contract/`
-# is the engine contract `gen_contract` writes from the
-# `crates/eg-capabilities/src/domains/*` descriptor rows (RF-RULING-003), and
-# `contract/methods.json` alone accounted for 1,056 of the scanner's clone
-# pairs -- 408 structurally identical registry records -- which is the
-# generator working, not debt. The descriptor rows themselves stay in the
-# scanner's universe, so a genuine duplication in the SOURCE is still caught.
+# delete -- its repetition is a property of the generator's template.
 jscpd_exclusions = [
-    "contract/**",
-    "epistemic_graph/contract/**",
-    # D7/D8 API reference: `scripts/gen_api_docs.py` renders these FROM
-    # `contract/` (per-method request/result tables, one OpenAPI document), so
-    # they repeat exactly as the contract does -- generated output under the
-    # rule above.
-    "docs/api/**",
-    "docs/openapi.json",
     "**/.git/**",
     "**/.venv/**",
     "**/venv/**",
@@ -255,8 +240,6 @@ strip = true
 # Never carry interpreter caches from a reused checkout into a wheel or sdist.
 # These are source-level Maturin globs, so the checkout itself remains untouched.
 exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
-# The generator projects the canonical catalogs and schemas into the package;
-# the receipt binds their exact bytes. Scope classification is not yet declared.
 include = [
     # Maturin omits workspace members outside the root dependency graph.
     { path = "crates/**/*", format = "sdist" },
@@ -273,10 +256,6 @@ include = [
     # PKG-INFO declares `License-File: LICENSE` (Metadata 2.4) and PyPI rejects an
     # sdist whose declared license file is absent (HTTP 400, the 2.27.1/2.27.2 sdists).
     { path = "LICENSE", format = "sdist" },
-    "epistemic_graph/contract/receipt.json",
-    "epistemic_graph/contract/errors.json",
-    "epistemic_graph/contract/methods.json",
-    "epistemic_graph/contract/schemas/**/*.json",
 ]
 # The engine binding's feature set (`security` = engine-level row-level security). The
 # server's `full` feature set belongs to the separate medulla-stem package.

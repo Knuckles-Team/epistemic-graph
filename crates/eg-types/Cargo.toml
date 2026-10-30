@@ -13,7 +13,7 @@ name = "eg_types"
 # JSON Schema derivation for the wire request/result bodies (RF-RULING-003). Default
 # OFF and additive: it adds ONLY `#[cfg_attr(..., derive(JsonSchema))]` attributes to
 # types that already derive Serialize/Deserialize, changes no wire shape, and is
-# selected only by `eg-capabilities`'s `gen_contract` generator. Adding an optional
+# selected by nothing in the engine build since the contract generator was removed. Adding an optional
 # schema crate behind a feature flag does not invert the crate DAG this crate sits at
 # the bottom of -- that rule is about depending on `eg-capabilities`/`eg-core`.
 contract-schema = ["dep:schemars"]

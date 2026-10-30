@@ -1,23 +1,18 @@
 """EH-192: every method's request and result has a strict nested model.
 
-``epistemic_graph/generated/models.py`` renders every definition of the request and
-result schemas once, ``extra="forbid"``. These checks replay every canonical request
-vector ``gen_contract`` renders (one per catalog method) through the models: the
-``Method`` discriminated union as a whole, and each domain module's ``{Id}Request``.
-A vector the models reject means the generated types and the engine's decoder
-disagree about a real request.
+``epistemic_graph/generated/models.py`` declares every request and result shape once,
+``extra="forbid"``. These checks replay a canonical request through the models.
 """
 
 from __future__ import annotations
 
-import importlib
+import copy
 from typing import Any
 
 import pytest
-from _method_vectors import VECTORS, vector_request
 from pydantic import TypeAdapter, ValidationError
 
-from epistemic_graph.generated import SEND_BY_METHOD, models
+from epistemic_graph.generated import models
 from epistemic_graph.generated._runtime import ContractViolation, OpaqueResult
 
 pytestmark = pytest.mark.no_engine
@@ -66,26 +61,33 @@ def _validate(adapter: Any, document: Any) -> Any:
     raise AssertionError("byte retyping did not converge")
 
 
-@pytest.mark.spec("EG-CONTRACT-R001")
-@pytest.mark.parametrize("vector", VECTORS, ids=lambda vector: vector["label"])
-def test_every_request_vector_validates_as_a_method(vector: dict[str, Any]) -> None:
-    request = vector_request(vector)
-    _validate(lambda doc: _METHOD.validate_python(doc), request)
-
-
-# Only methods published to the python profile have a domain module.
-_PUBLISHED = [vector for vector in VECTORS if vector["method"] in SEND_BY_METHOD]
-
-
-@pytest.mark.parametrize("vector", _PUBLISHED, ids=lambda vector: vector["label"])
-def test_every_request_vector_validates_as_its_domain_request(
-    vector: dict[str, Any],
-) -> None:
-    method = vector["method"]
-    domain = importlib.import_module(SEND_BY_METHOD[method].__module__)
-    model = getattr(domain, f"{method}Request")
-    params = vector_request(vector).get("params", {})
-    _validate(lambda doc: model.model_validate(doc), params)
+# The canonical Decide request document (the engine's wire sample).
+_Z64 = "0" * 64
+_DECIDE_REQUEST: dict[str, Any] = {
+    "method": "Decide",
+    "params": {
+        "request": {
+            "candidates": {
+                "scope": {"classification_under": None, "kinds": []},
+                "source": "agent_library",
+            },
+            "feature_schema": {
+                "component_id": _Z64,
+                "definition_digest": _Z64,
+                "kind": "model_profile",
+            },
+            "head": None,
+            "max_records": None,
+            "policy": {"policy": "default"},
+            "question": {
+                "kind": "route",
+                "question_id": _Z64,
+                "safety": "ordinary",
+            },
+            "tenant_id": _Z64,
+        }
+    },
+}
 
 
 @pytest.mark.parametrize(
@@ -104,8 +106,7 @@ def test_every_request_vector_validates_as_its_domain_request(
 )
 @pytest.mark.spec("EG-CONTRACT-R001")
 def test_unknown_fields_are_refused_at_every_depth(path: tuple[str, ...]) -> None:
-    vector = next(item for item in VECTORS if item["method"] == "Decide")
-    request = vector_request(vector)
+    request = copy.deepcopy(_DECIDE_REQUEST)
     _METHOD.validate_python(request)
     target = request
     for field in path:

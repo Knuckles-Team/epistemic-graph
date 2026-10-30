@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from typing import Any
 
 import pytest
-from _method_vectors import VECTORS, vector_request
 from pydantic import ValidationError
 
 from epistemic_graph.generated import models
@@ -14,9 +14,66 @@ from epistemic_graph.generated import models
 pytestmark = pytest.mark.no_engine
 
 
+# The canonical ReserveDevelopmentLane request body (the engine's wire sample).
+_Z64 = "0" * 64
+_LANE_REQUEST: dict[str, Any] = {
+    "attempt": 1,
+    "fencing_token": 1,
+    "idempotency_key": _Z64,
+    "intent": {
+        "base_ref": _Z64,
+        "base_sha": _Z64,
+        "branch": _Z64,
+        "fairness_group": _Z64,
+        "host_ref": _Z64,
+        "host_target_alias": _Z64,
+        "host_target_kind": "local",
+        "input_fingerprint": "v1:" + _Z64,
+        "lane_id": _Z64,
+        "owner_id": _Z64,
+        "predicted_disk_bytes": 1,
+        "quota_policy_name": _Z64,
+        "quota_policy_version": _Z64,
+        "repository_id": _Z64,
+        "request_id": _Z64,
+        "resource_reservation_id": _Z64,
+        "schema_version": "1",
+        "session_id": _Z64,
+        "tenant_ref": _Z64,
+        "ttl_ms": 1,
+        "workspace_ref": _Z64,
+        "worktree_locator": _Z64,
+    },
+    "lease_epoch": 1,
+    "now_ms": 1,
+    "owner_id": _Z64,
+    "schema_version": "1",
+    "tenant_ref": _Z64,
+    "work_item_fence": _Z64,
+    "work_item_id": _Z64,
+}
+
+
+_CLAIM_REQUEST: dict[str, Any] = {
+    "fairness_group": _Z64,
+    "lease_ms": 1,
+    "max_tenant_in_flight": 1,
+    "now_ms": 1,
+    "queue_ref": _Z64,
+    "resource_class": _Z64,
+    "schema_version": "1",
+    "tenant_ref": _Z64,
+    "work_item_id": _Z64,
+    "worker_ref": _Z64,
+}
+
+
 def _request(method: str) -> dict[str, Any]:
-    vector = next(item for item in VECTORS if item["method"] == method)
-    return vector_request(vector)["params"]["request"]
+    by_method = {
+        "ReserveDevelopmentLane": _LANE_REQUEST,
+        "ClaimWorkItem": _CLAIM_REQUEST,
+    }
+    return copy.deepcopy(by_method[method])
 
 
 def _lane() -> dict[str, Any]:

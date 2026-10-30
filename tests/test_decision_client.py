@@ -1,76 +1,27 @@
-"""The typed decision client builds what the contract schema accepts (EH-065)."""
+"""The typed decision client builds what the wire models accept (EH-065)."""
 
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
 from epistemic_graph import decision_client as dc
+from epistemic_graph.generated import models
 
 pytestmark = pytest.mark.no_engine
 
-ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = json.loads((ROOT / "contract/schemas/method.request.json").read_text())
-DEFS = SCHEMA["$defs"]
 PIN = {"component_id": "s", "kind": "feature_schema", "definition_digest": "sha256:x"}
 
 
-def _resolve(node: dict[str, Any]) -> dict[str, Any]:
-    while "$ref" in node:
-        node = DEFS[node["$ref"].rsplit("/", 1)[-1]]
-    return node
-
-
-def _type_ok(node: dict[str, Any], value: Any) -> bool:
-    kinds = node.get("type")
-    if kinds is None:
-        return True
-    kinds = kinds if isinstance(kinds, list) else [kinds]
-    checks = {
-        "object": lambda v: isinstance(v, dict),
-        "array": lambda v: isinstance(v, list),
-        "string": lambda v: isinstance(v, str),
-        "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
-        "boolean": lambda v: isinstance(v, bool),
-        "null": lambda v: v is None,
-        "number": lambda v: isinstance(v, int | float) and not isinstance(v, bool),
-    }
-    return any(checks[k](value) for k in kinds)
-
-
-def _object_ok(node: dict[str, Any], value: Any) -> bool:
-    props = node.get("properties", {})
-    if any(key not in value for key in node.get("required", [])):
+def valid(model: Any, value: Any) -> bool:
+    """Whether ``value`` validates as the wire model (extra fields forbidden)."""
+    try:
+        TypeAdapter(model).validate_python(value)
+    except ValidationError:
         return False
-    if node.get("additionalProperties") is False and set(value) - set(props):
-        return False
-    return all(valid(props[k], v) for k, v in value.items() if k in props)
-
-
-def _array_ok(node: dict[str, Any], value: list[Any]) -> bool:
-    if "items" not in node:
-        return True
-    return all(valid(node["items"], item) for item in value)
-
-
-def valid(node: dict[str, Any], value: Any) -> bool:
-    """A small JSON-Schema subset: $ref, oneOf/anyOf, const, type, objects, arrays."""
-    node = _resolve(node)
-    branches = node.get("oneOf") or node.get("anyOf")
-    if branches is not None:
-        return any(valid(branch, value) for branch in branches)
-    if "const" in node and value != node["const"]:
-        return False
-    if not _type_ok(node, value):
-        return False
-    if isinstance(value, dict):
-        return _object_ok(node, value)
-    if isinstance(value, list):
-        return _array_ok(node, value)
     return True
 
 
@@ -91,20 +42,20 @@ def test_a_declared_decide_request_matches_the_contract() -> None:
         PIN,
         params=[dc.param("query", "text", "who owns billing")],
     )
-    assert valid(DEFS["DecideRequest"], request)
+    assert valid(models.DecideRequest, request)
     assert [o["option_id"] for o in request["candidates"]["options"]] == [
         "plan-deep",
         "plan-hyde",
     ]
     broken = dict(request, candidates={"source": "declared", "options": [{"id": "x"}]})
-    assert not valid(DEFS["DecideRequest"], broken), "the checker catches a bad shape"
+    assert not valid(models.DecideRequest, broken), "the checker catches a bad shape"
 
 
 def test_a_named_evaluator_is_a_principal_or_a_policy_role() -> None:
     by_role = dc.named_evaluator(1, role="decide-evaluator")
     by_principal = dc.named_evaluator(1, principal="principal:sha256:" + "0" * 64)
     for named in (by_role, by_principal):
-        assert valid(DEFS["NamedEvaluator"], named), named
+        assert valid(models.NamedEvaluator, named), named
 
 
 def test_every_log_op_matches_the_contract() -> None:
@@ -124,7 +75,7 @@ def test_every_log_op_matches_the_contract() -> None:
         ),
     ]
     for op in ops:
-        assert valid(DEFS["DecisionLogOp"], op), op
+        assert valid(models.DecisionLogOp, op), op
 
 
 def test_duplicate_declared_ids_are_refused_before_the_wire() -> None:

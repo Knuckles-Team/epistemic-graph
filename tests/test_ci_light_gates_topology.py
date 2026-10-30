@@ -20,7 +20,6 @@ REQUIRED_BLOCKING_JOBS = [
     "light-gates",
     "changes",
     "security",
-    "gates-contract",
     "gates-wheel",
     "gates-whisper",
     "gates-ontology",
@@ -86,7 +85,6 @@ def test_all_native_scope_consumers_keep_the_changes_output_edge() -> None:
     expected = {
         "security",
         "gates",
-        "gates-contract",
         "gates-plan-fuzz",
         "gates-wheel",
         "gates-facade",

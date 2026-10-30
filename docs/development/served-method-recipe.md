@@ -51,7 +51,7 @@ only through `eg-compute`:
 
 ## 3. Register, classify, route, handle
 
-Every new method name needs all of these, or `gen_contract` or the router refuses it:
+Every new method name needs all of these, or the descriptor registry or the router refuses it:
 
 | Where | What |
 |-------|------|
@@ -79,16 +79,13 @@ Check that it compiles before the slow steps (about 3 minutes when warm):
 cargo check --locked --lib --no-default-features --features "server,finance"
 ```
 
-## 4. Regenerate the contract, models and Python client
+## 4. Add the Python wire model and sender
 
-```
-cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract
-```
-
-This writes about 74 artifacts: `contract/` (methods, schemas, fixtures, receipt),
-`epistemic_graph/contract/`, `epistemic_graph/generated/*.py`,
-`crates/eg-capabilities/generated/{method_catalog,catalog_digest}.rs` and
-`docs/capabilities.generated.md`. `gen_contract -- --check` is the CI parity gate.
+There is no contract generator. Add the method's request/result models to
+`epistemic_graph/generated/models.py` and its sender to the domain module in
+`epistemic_graph/generated/`, by hand, mirroring the Rust serde types in
+`crates/eg-types` (the source of truth). The method catalog and its digest are computed
+from the descriptor rows at run time (`crates/eg-capabilities/src/catalog.rs`).
 
 Optional hand-written convenience, as `NlQueryExplain` did: a wrapper in
 `epistemic_graph/client.py` (finance wrappers are near `kelly_fraction`) that calls the
@@ -128,9 +125,9 @@ cargo test --locked --features "server,security,finance" --test finance_served_<
 
 - In the row's `specs/<spec>/requirements.md`, name the served method and the test file in
   the `.3` row. Leave `status.json` alone: the spec status tooling generates it.
-- Stage explicit paths only: `contract/`, `epistemic_graph/`, `crates/`, `src/server`,
+- Stage explicit paths only: `epistemic_graph/`, `crates/`, `src/server`,
   `tests/<file>`, `clients/*/eg_method_codec.wasm`, `.config/generated-artifacts.toml`,
-  `docs/capabilities.generated.md`, the spec file. Commit with a `Spec: <ROW-ID>` trailer.
+  the spec file. Commit with a `Spec: <ROW-ID>` trailer.
   Delete `target-isolated/` at the end of the lane.
 
 ## Rows this recipe does not fit
