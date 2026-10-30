@@ -12555,6 +12555,13 @@
         "content_digest": {
           "type": "string"
         },
+        "evaluation_run": {
+          "description": "The `:EvaluationRun` this evidence records, when it is run evidence\n(EG-ORCH-VOCAB-R011.8).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "evidence_id": {
           "type": "string"
         },
@@ -46702,12 +46709,21 @@
     },
     "ReceiptNodeKind": {
       "description": "Receipt node kinds that may ride alongside a terminal WorkItem result.\nEvery node uses the existing graph node payload shape; this type only binds\nits identity and bounded property bytes to the terminal commit.",
-      "enum": [
-        "run_trace",
-        "tool_call",
-        "outcome_evaluation"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "run_trace",
+            "tool_call",
+            "outcome_evaluation"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "model_request",
+          "description": "A model request step (EG-ORCH-VOCAB-R013.1); its node id rides in the\nsame ordered step-ref list as tool calls.",
+          "type": "string"
+        }
+      ]
     },
     "RecomputeMaterializationResult": {
       "description": "Materialized result of a fenced `Method::RecomputeMaterialization` writeback.\nAll identifiers are domain-separated opaque projection references.",

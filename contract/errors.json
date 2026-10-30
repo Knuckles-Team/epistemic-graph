@@ -1202,6 +1202,12 @@
       "retryable": false
     },
     {
+      "class": "validation",
+      "code": "MeasuredFactWithoutEvidence",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "auth",
       "code": "NODE_MISMATCH",
       "http_status_hint": 403,

@@ -5115,6 +5115,7 @@ class EvidenceRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     content_digest: str
+    evaluation_run: str | None = None
     evidence_id: str
     locus_msgpack: _EgOctets
     modality: str
@@ -19378,12 +19379,6 @@ class ReceiptNode(BaseModel):
     work_item_id: str
 
 
-class ReceiptNodeKind(str, Enum):
-    RUN_TRACE = "run_trace"
-    TOOL_CALL = "tool_call"
-    OUTCOME_EVALUATION = "outcome_evaluation"
-
-
 class RecomputeMaterializationResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -26268,6 +26263,9 @@ RbacAdminOp = (
     | RbacAdminOpRemoveGrant
     | Literal["List"]
 )
+
+
+ReceiptNodeKind = str | Literal["model_request"]
 
 
 RegistrationPolicy = str | Literal["admin_only"]
