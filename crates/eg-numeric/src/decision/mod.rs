@@ -14,6 +14,9 @@
 //! `head_eval` and `fit`, and `promotion` under `evaluate`. `legal_option_filter`
 //! is a standalone leaf: the typed caller-candidate-filter contract ahead of
 //! the real SHACL/SPARQL-backed derivation (EG-DECISION-ENGINE-R085.2).
+//! `writeback` is a leaf: the typed write-back proposal, queue, inventory
+//! and ticket records (EG-DECISION-ENGINE-R615.1) the approval behaviour
+//! (R615.2) builds on.
 //!
 //! Nothing here reads a clock, a hash map's iteration order, or a thread pool:
 //! reductions are serial over sorted keys, ties break by option order (the
@@ -46,5 +49,6 @@ mod targets;
 pub mod track_record;
 pub mod trajectory;
 pub mod web_fetch_selection;
+pub mod writeback;
 
 pub use refusal::{Refusal, RefusalResult};
