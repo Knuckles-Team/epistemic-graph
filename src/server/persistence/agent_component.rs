@@ -38,7 +38,7 @@ use super::agent_revision::{
 mod pins;
 mod write;
 
-const AGENT_COMPONENT_OUTBOX_TOPIC: &str = "eg.agent-component.revision.v1";
+pub(crate) const AGENT_COMPONENT_OUTBOX_TOPIC: &str = "eg.agent-component.revision.v1";
 const AGENT_COMPONENT_RESULT_SCHEMA_ID: &str = "agent-component-result.v1";
 const MAX_AGENT_COMPONENT_REVISIONS: usize = 16_384;
 const MAX_AGENT_COMPONENT_HISTORY_BYTES: usize = 256 * 1024 * 1024;

@@ -161,7 +161,7 @@ pub(crate) mod worker {
     /// the whole drain. A read lock adopts an already-ensured handle; the open
     /// itself runs unlocked, and only the publish takes a short write. The
     /// shared open slot also serializes it with request-side initialization.
-    async fn open_agent_library(
+    pub(crate) async fn open_agent_library(
         state: &Arc<RwLock<ServerState>>,
     ) -> Result<Arc<AgentLibraryStore>, String> {
         if let Some(store) = state.read().await.agent_library.clone() {
