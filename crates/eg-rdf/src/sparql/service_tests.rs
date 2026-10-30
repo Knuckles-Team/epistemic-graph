@@ -164,6 +164,7 @@ fn a_negated_local_exists_filter_is_never_sent_to_the_endpoint() {
     assert!(!sent[0].contains("EXISTS"), "{}", sent[0]);
 }
 
+// spec: EG-FEDERATED-QUERY-R050
 #[test]
 fn a_filter_over_the_service_rows_is_sent_and_reapplied_locally() {
     let local = view_of_turtle(FLAGGED_LOCALLY);
@@ -375,6 +376,7 @@ fn silent_hushes_only_the_failure_of_the_original_query() {
     assert_eq!(down.queries().len(), 2, "narrowed, then original");
 }
 
+// spec: EG-FEDERATED-QUERY-R050
 #[test]
 fn a_pushed_limit_reaches_the_endpoint() {
     let local = view_of_turtle(FLAGGED_LOCALLY);
@@ -411,6 +413,7 @@ fn budget() -> ServiceBudget {
     ServiceBudget::default()
 }
 
+// spec: EG-FEDERATED-QUERY-R050
 #[test]
 fn a_bind_join_ships_the_distinct_local_keys_and_matches_the_full_fetch() {
     let local = view_of_turtle(&subjects(3, "name"));

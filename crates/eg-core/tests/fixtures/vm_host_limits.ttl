@@ -1,0 +1,93 @@
+# Virtual-mapping fixture: fan-manager and systems-manager to
+# infra:HostLimit (EG-SUPPLY-VOCAB-R006.7).
+#
+# A HostLimit row is a normalized (reading, limit) pair, so one row is
+# assembled from two sides: the fan-manager reading and the policy ceiling
+# for temperature, the systems-manager capacity reading and the declared
+# threshold of R004.3 for disk/memory/cpu. `TemperatureReading.celsius`
+# projects onto infra:readingValue, `FanControlPolicy.maxTemperature` onto
+# infra:limitValue (Decision D6: the limit is the operator policy ceiling).
+# The capacity `freeBytes` reading pairs with the declared capacity
+# thresholds of host_limit_thresholds.ttl -- no source exposes a capacity
+# limit, so the limit side is ontology-side data.
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/vm-host-limits#> .
+
+ex:fanManagerConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://fan-manager.invalid/api" ] .
+
+ex:systemsManagerConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://systems-manager.invalid/api" ] .
+
+ex:fanReadingsAccess a vg:MetadataContract ;
+    vg:contractSource ex:fanManagerConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:5643834c2b86393f055bf1f670a8f003c8a224259362a80c79047b8eee7fd9f6" ;
+    vg:discoveredEntity "TemperatureReading" ;
+    vg:discoveredField "celsius" ;
+    vg:discoveredField "hostname" .
+
+ex:fanPoliciesAccess a vg:MetadataContract ;
+    vg:contractSource ex:fanManagerConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:2654ef7c440263b6eee8f59a3b897dd53cfadd324d6089eeeb86954920d876b5" ;
+    vg:discoveredEntity "FanControlPolicy" ;
+    vg:discoveredField "maxTemperature" ;
+    vg:discoveredField "hostname" .
+
+ex:systemsNodesAccess a vg:MetadataContract ;
+    vg:contractSource ex:systemsManagerConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:5ff06bc7fa4f43c75e8514eba610a9e04d342882e2b4945ee883bd6a2a6ce614" ;
+    vg:discoveredEntity "HardwareNode" ;
+    vg:discoveredField "hostname" ;
+    vg:discoveredField "capacityBytes" ;
+    vg:discoveredField "freeBytes" ;
+    vg:discoveredField "memoryTotal" ;
+    vg:discoveredField "cpuCount" .
+
+# The reading side: the observed temperature and the observed free capacity.
+ex:temperatureReadingMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:fanReadingsAccess ;
+    vg:mapsOntologyClass infra:HostLimit ;
+    vg:mapsEntity "TemperatureReading" ;
+    vg:keyField "hostname" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate infra:limitOf ;
+        vg:field "hostname" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate infra:readingValue ;
+        vg:field "celsius" ] ;
+    vg:approved true .
+
+ex:capacityReadingMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:systemsNodesAccess ;
+    vg:mapsOntologyClass infra:HostLimit ;
+    vg:mapsEntity "HardwareNode" ;
+    vg:keyField "hostname" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate infra:limitOf ;
+        vg:field "hostname" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate infra:readingValue ;
+        vg:field "freeBytes" ] ;
+    vg:approved true .
+
+# The limit side: the policy ceiling for temperature. The capacity limit is
+# the declared threshold of R004.3 (no source exposes one).
+ex:fanPolicyMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:fanPoliciesAccess ;
+    vg:mapsOntologyClass infra:HostLimit ;
+    vg:mapsEntity "FanControlPolicy" ;
+    vg:keyField "hostname" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate infra:limitOf ;
+        vg:field "hostname" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate infra:limitValue ;
+        vg:field "maxTemperature" ] ;
+    vg:approved true .

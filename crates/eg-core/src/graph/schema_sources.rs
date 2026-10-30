@@ -1037,8 +1037,10 @@ fn core_specs() -> &'static [CoreSpec] {
         },
         // EG-DATAPLAT-VOCAB-R001.4: shared data-platform terms are one immutable
         // core source and import the virtual-graph attachment vocabulary.
-        // EG-DATAPLAT-VOCAB-R005.2: the closed secret-metadata shapes companion
-        // is wired into the same CoreSpec shapes field (R003.14 precedent).
+        // The SHACL shapes companion (EG-DATAPLAT-VOCAB-R002.4+, including the
+        // closed secret-metadata shapes of EG-DATAPLAT-VOCAB-R005.2) is wired
+        // into the SAME source's shapes field, as the commercial module does
+        // (EG-SUPPLY-VOCAB-R003.14) — one registered artifact per module.
         CoreSpec {
             module: "data-platform",
             version: 1,
@@ -1437,7 +1439,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "a5d2d681d7e80c27b2d6e8cb40409a2161099a7702d3457be41b3f000b37be88",
+                "2609d11179adc65fa951b045c656e1d0444bc5f9c6e9c7c2108e7096cc858ec6",
             ),
             (
                 "company",
@@ -1501,7 +1503,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "8fac3d843e19599d54c7a7bf2bb8e814444626b816b3dea59abaa42cc60023bf",
+                "1409accdee5cba8bea00c75fd37128947c59f16803d7123e8080f9494a7af892",
             ),
             (
                 "medical",
@@ -1549,7 +1551,7 @@ mod tests {
             ),
             (
                 "media",
-                "4a6003d67a6213d04d71b111b0023139a90d23c34623cc12caad9d9ff71eb812",
+                "a4c41ee1403bdf8727412c669515c7cc3aff8a914b1fe2498ce63f900245e7de",
             ),
             (
                 "retrieval",
@@ -1635,11 +1637,11 @@ mod tests {
             // shapes companion) joins the catalog; the pin follows the ontology.
             (
                 "commercial",
-                "d181cc7082e1e46c927c1a420967cdda73987e6d6c3e1c2c70b07a674dcf0685",
+                "a1227d29e42a22461f44b06fae393cd3b808aedfa7ba4ed5dca89c6c67d35bda",
             ),
             (
                 "supply_chain",
-                "a7a8a983b0a24032447e3cbe4187d640cb69e4ca7456f1b42afe1a919327250b",
+                "1845b8cfbe9ded296a785de466e422f186072868bccfaa528ac4b89b79e627e0",
             ),
             // EG-TYPED-PACKS-R101.1/R102.1: the connector-pack module (ontology
             // plus its surface shapes companion) joins the catalog; the pin

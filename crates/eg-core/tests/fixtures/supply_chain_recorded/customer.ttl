@@ -1,0 +1,11 @@
+# Recorded response (D4 row Customer): salesforce `salesforce_soql`
+# (Account) is rank 1; twenty GraphQL `crm` (Company) and erpnext `Customer`
+# are rank 2. Projected by the approved mappings (vm_salesforce.ttl,
+# vm_twenty.ttl).
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:cust-001 a kg:Customer ;
+    rdfs:label "Acme Corp" .

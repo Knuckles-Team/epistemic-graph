@@ -489,9 +489,9 @@ pub enum Op {
     /// FILTER (semantic, SHACL — EH-196) — validate every row's node, as an explicit
     /// SHACL focus node, against the ONE named `shape` of the `shapes` graph over the
     /// request graph's RDF projection, and keep the rows `keep` names. The UQL
-    /// `VALIDATE SHAPE <shape> USING "<turtle>" [KEEP CONFORMING|VIOLATING]` stage lowers
+    /// `VALIDATE SHAPE <shape> USING "<turtle>" [PROJECT "<namespace>"] [KEEP CONFORMING|VIOLATING]` stage lowers
     /// here. A shape that is not declared in the shapes graph, or a row whose id is not
-    /// an RDF term, is an error — never a vacuous pass. Gated by `owl-plan`, like the other
+    /// an RDF term without an explicit projection, is an error — never a vacuous pass. Gated by `owl-plan`, like the other
     /// semantic plan ops.
     #[cfg(feature = "owl-plan")]
     ValidateShape {
@@ -500,6 +500,9 @@ pub enum Op {
         /// The shapes graph as a Turtle document; empty ⇒ the queried graph's
         /// composed GraphSchema shapes (bound by the served query path).
         shapes: String,
+        /// Optional caller-authorized namespace for projecting property-graph keys.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        projection_base: String,
         /// Which rows survive.
         keep: ShapeKeep,
     },

@@ -426,9 +426,9 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:495",
-        "crates/eg-capabilities/src/error_routing.rs:393",
+        "crates/eg-capabilities/src/error_routing.rs:448",
         "crates/eg-types/src/governed_change/tests.rs:196",
-        "src/server/auth.rs:2053",
+        "src/server/auth.rs:2184",
         "src/server/transport/tests.rs:145"
       ],
       "rollup_of": [
@@ -446,7 +446,7 @@
         "ef81c8ba3a08"
       ],
       "verified_by": [
-        "src/server/auth.rs:2053",
+        "src/server/auth.rs:2184",
         "src/server/transport/tests.rs:145"
       ]
     },
@@ -462,7 +462,7 @@
       ],
       "verified_by": [
         "tests/test_ontology_package.py:14",
-        "tests/test_wheel_contract_surface.py:471"
+        "tests/test_wheel_contract_surface.py:475"
       ],
       "rollup_of": [
         "EG-CONTRACT-R015.1"
@@ -644,7 +644,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:765"
+        "tests/test_release_python_suite_contract.py:773"
       ]
     },
     {
@@ -680,7 +680,7 @@
         "cd7bf0364ebd"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:275"
+        "tests/test_ci_change_scope.py:285"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -695,7 +695,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:276"
+        "tests/test_ci_change_scope.py:286"
       ]
     },
     {
@@ -749,8 +749,8 @@
         "66e652687765"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:607",
-        "tests/test_ci_change_scope.py:961",
+        "tests/test_ci_change_scope.py:617",
+        "tests/test_ci_change_scope.py:969",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -790,7 +790,7 @@
         "a7ae55a60495"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:701"
+        "crates/eg-capabilities/src/contract.rs:704"
       ]
     },
     {
@@ -894,11 +894,14 @@
     {
       "id": "EG-CONTRACT-R047",
       "title": "Main publishes a rolling engine wheel for consumer CI",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "326bfadafe28",
         "9084e9343bf4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:387"
+      ]
     },
     {
       "id": "EG-CONTRACT-R048",
@@ -1032,10 +1035,10 @@
       ],
       "verified_by": [
         "tests/test_build_backend.py:138",
-        "tests/test_check_wheel_completeness.py:217",
-        "tests/test_ci_change_scope.py:763",
-        "tests/test_ci_change_scope.py:808",
-        "tests/test_ci_change_scope.py:937"
+        "tests/test_check_wheel_completeness.py:215",
+        "tests/test_ci_change_scope.py:772",
+        "tests/test_ci_change_scope.py:816",
+        "tests/test_ci_change_scope.py:945"
       ],
       "rollup_of": [
         "EG-CONTRACT-R053.1",
@@ -1073,7 +1076,7 @@
       ],
       "verified_by": [
         "tests/test_build_backend.py:138",
-        "tests/test_check_wheel_completeness.py:217"
+        "tests/test_check_wheel_completeness.py:215"
       ]
     },
     {
@@ -1142,9 +1145,9 @@
       ],
       "verified_by": [
         "tests/test_wheel_extensions_only.py:23",
-        "tests/test_wheel_extensions_only.py:46",
-        "tests/test_wheel_extensions_only.py:68",
-        "tests/test_wheel_extensions_only.py:95"
+        "tests/test_wheel_extensions_only.py:41",
+        "tests/test_wheel_extensions_only.py:63",
+        "tests/test_wheel_extensions_only.py:90"
       ]
     },
     {
@@ -1226,9 +1229,9 @@
         "be072c1cf996"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:763",
-        "tests/test_ci_change_scope.py:808",
-        "tests/test_ci_change_scope.py:937"
+        "tests/test_ci_change_scope.py:772",
+        "tests/test_ci_change_scope.py:816",
+        "tests/test_ci_change_scope.py:945"
       ]
     }
   ]

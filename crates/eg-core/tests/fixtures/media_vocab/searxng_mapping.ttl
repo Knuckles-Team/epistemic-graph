@@ -1,0 +1,61 @@
+# Recorded virtual-graph mapping for the `searxng` connector
+# (searxng-mcp; EG-MEDIA-VOCAB-R015.2, EG-CQ-CONN-R056). The rows are the
+# `Connector mapping tables` entry for searxng in
+# specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
+# contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary
+# in virtual_graph-v1.ttl. Every ontology IRI stays in `:`; terms are reused
+# from media-v1, content-v1, retrieval-v1 and personal-v1, never redeclared.
+# The metadata contract is the discovery of the recorded response
+# (searxng_response.json, same directory); vg:contentDigest is sha256 over its bytes.
+
+@prefix :    <http://knuckles.team/kg#> .
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f:   <urn:eg-media-vocab:searxng/> .
+
+f:connection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:declaredCapability "read" ;
+    vg:endpointRef [ a vg:EndpointRef ; vg:url "https://mcp.example.invalid/searxng" ] .
+
+f:contract a vg:MetadataContract ;
+    vg:contractSource f:connection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:fa0a545442e3564a8f908df189ce1b989720ca6cbf0a579757da8b6b6cd3af3e" ;
+    vg:discoveredEntity "SearchResult", "Engine" ;
+    vg:discoveredField "engine", "id", "name", "rank", "url" ;
+    vg:discoveredOperation "web_search", "searxng_settings/get" .
+
+# web_search: the result rows
+f:row-result a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :SearchResult ;
+    vg:mapsEntity "SearchResult" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :resourceUrl ;
+        vg:field "url"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :rank ;
+        vg:field "rank"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :servedByEngine ;
+        vg:field "engine"
+    ] .
+
+# searxng_settings: the enabled engine set
+f:row-engine a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :SearchEngine ;
+    vg:mapsEntity "Engine" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ] .

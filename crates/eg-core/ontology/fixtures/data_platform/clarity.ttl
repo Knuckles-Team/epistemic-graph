@@ -1,0 +1,76 @@
+# clarity store-mapping fixture (EG-DATAPLAT-VOCAB-R006.7).
+#
+# One attached Microsoft Clarity analytics project. The Data Export window is
+# limited to 1-3 days (mcp_insights.py), so the export mapping is virtual up
+# to 3 days. A longer window ("last week") needs a daily snapshot of the
+# aggregate metrics, so the long-window mapping is materialised via the R038
+# AccelerationPolicy — no session replays (decision 4). Rage- and
+# dead-click naming by URL is still BLOCKED on clarity-api (R009.4).
+
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://knuckles.team/kg/fixtures/data-platform/clarity/> .
+
+ex:store a dp:AnalyticsSite ;
+    dp:storeFamily "analytics" .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://knuckles.team/kg/fixtures/data-platform/clarity/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:a472f963354813d0babbdabd5fbe3ca2ae504103e1feeb846d72bbb4b49eb3de" ;
+    vg:discoveredEntity "metrics" ;
+    vg:discoveredField "metric_name" ;
+    vg:discoveredField "metric_value" ;
+    vg:discoveredField "window_days" ;
+    vg:discoveredField "dimension_name" ;
+    vg:discoveredField "dimension_value" .
+
+# Export window <= 3 days: read straight from the Data Export endpoint.
+ex:mapping_export_virtual a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:BehaviorMetric ;
+    vg:mapsEntity "metrics" ;
+    vg:keyField "metric_name" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:metricValue ;
+        vg:field "metric_value"
+    ] ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:windowDays ;
+        vg:field "window_days"
+    ] ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:dimensionName ;
+        vg:field "dimension_name"
+    ] ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:dimensionValue ;
+        vg:field "dimension_value"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "clarity_insights:get_data_export" ;
+    dp:accelerationMode "virtual" .
+
+# Export window beyond the 3-day cap.
+ex:mapping_export_materialised a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:BehaviorMetric ;
+    vg:mapsEntity "metrics" ;
+    vg:keyField "metric_name" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:metricValue ;
+        vg:field "metric_value"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "clarity_insights:get_data_export" ;
+    dp:accelerationMode "materialised" ;
+    dp:materialisationReason "The export window is capped at 3 days, so a longer window needs a daily snapshot of the aggregate metrics; materialised via the R038 AccelerationPolicy (no session replays) (EG-DATAPLAT-VOCAB-R006.7)." .

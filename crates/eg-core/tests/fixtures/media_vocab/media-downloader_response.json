@@ -1,0 +1,10 @@
+{
+  "DownloadJob": [
+    { "id": "j1", "url": "https://media.example/files/episode-01.mkv", "state": "importing", "output": "urn:eg-media-vocab:media-downloader:WatchFile:wf1" },
+    { "id": "j2", "url": "https://media.example/files/album-flac.zip", "state": "imported", "output": "urn:eg-media-vocab:media-downloader:WatchFile:wf2" }
+  ],
+  "WatchFile": [
+    { "id": "wf1", "fileName": "episode-01.mkv" },
+    { "id": "wf2", "fileName": "album-flac.zip" }
+  ]
+}

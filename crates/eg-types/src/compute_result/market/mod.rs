@@ -13,6 +13,7 @@ pub mod bars;
 pub mod chart;
 pub mod corporate_action;
 pub mod evidence;
+pub mod liquidity;
 pub mod op;
 pub mod scan;
 pub mod signal;
@@ -28,6 +29,10 @@ pub use evidence::{
     BacktestRun, BacktestRunDraft, BacktestValidation, CostModel, DataRevisionRef, FillRule,
     FlipAbstainReason, FlipConfidence, FlipConfidenceRequest, FlipFeatures, FlipOutcomeSample,
     TradeFill, UniverseMember, ValidationInputs,
+};
+pub use liquidity::{
+    LiquidityDirection, LiquidityHeatCell, LiquidityObservation, LiquidityPanel,
+    LiquidityPanelRequest, LiquiditySeries,
 };
 pub use op::FinanceMarketOp;
 pub use scan::{ScanCounts, ScanFilter, ScanPage, ScanRequest, ScanRow};

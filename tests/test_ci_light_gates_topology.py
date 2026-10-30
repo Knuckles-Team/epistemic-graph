@@ -23,6 +23,7 @@ REQUIRED_BLOCKING_JOBS = [
     "gates-contract",
     "gates-wheel",
     "gates-whisper",
+    "gates-ontology",
     "gates-crates",
     "gates-storage",
     "gates-pyo3",
@@ -44,6 +45,7 @@ PATH_GATED_JOBS = {
     "gates-wheel": "packaging",
     "gates-pyo3": "packaging",
     "gates-whisper": "whisper",
+    "gates-ontology": "ontology",
     "tts-piper-inference": "tts",
     "language-clients": "clients",
 }
@@ -89,6 +91,7 @@ def test_all_native_scope_consumers_keep_the_changes_output_edge() -> None:
         "gates-wheel",
         "gates-facade",
         "gates-whisper",
+        "gates-ontology",
         "gates-variants",
         "gates-crates",
         "gates-storage",

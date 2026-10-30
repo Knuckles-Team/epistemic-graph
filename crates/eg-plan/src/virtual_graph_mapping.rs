@@ -65,6 +65,46 @@ impl VirtualGraphMapping {
     }
 }
 
+/// EG-DATAPLAT-VOCAB-R005.4 — the connector operations that read a secret's
+/// *value* are never mapped. This is the engine-side mirror of the denylist in
+/// `dp:StoreMappingShape` (data_platform-v1.shapes.ttl): the shape refuses the
+/// same rows at graph-validation time, this check at mapping-approval time.
+pub const REFUSED_VALUE_OPERATIONS: &[&str] = &[
+    "openbao_mcp_kv:kv2_get",
+    "openbao_mcp_kv:kv1_get",
+    "openbao_mcp_logical:read",
+    "openbao_mcp_logical:unwrap",
+];
+
+/// A mapping routes its reads through an operation that reads a secret value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefusedValueOperation {
+    pub operation: String,
+}
+
+impl fmt::Display for RefusedValueOperation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "mapping viaOperation {:?} reads a secret value and is never mapped",
+            self.operation
+        )
+    }
+}
+
+impl std::error::Error for RefusedValueOperation {}
+
+/// Refuses a mapping's `viaOperation` when it is one of the secret-value
+/// operations in [`REFUSED_VALUE_OPERATIONS`].
+pub fn validate_via_operation(via_operation: &str) -> Result<(), RefusedValueOperation> {
+    if REFUSED_VALUE_OPERATIONS.contains(&via_operation) {
+        return Err(RefusedValueOperation {
+            operation: via_operation.to_string(),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +140,30 @@ mod tests {
         let err = m.queryable_name().unwrap_err();
         assert_eq!(err.state, MappingApprovalState::ModelSuggested);
         assert!(err.to_string().contains("model-suggested"));
+    }
+
+    // spec: EG-DATAPLAT-VOCAB-R005.4
+    #[test]
+    fn value_operations_are_refused() {
+        for operation in REFUSED_VALUE_OPERATIONS {
+            let err = validate_via_operation(operation).unwrap_err();
+            assert_eq!(err.operation, *operation);
+            assert!(err.to_string().contains("secret value"));
+        }
+    }
+
+    // spec: EG-DATAPLAT-VOCAB-R005.4
+    #[test]
+    fn metadata_operations_pass() {
+        for operation in [
+            "openbao_mcp_sys:get_mounts",
+            "openbao_mcp_logical:list",
+            "sql_schema:tables",
+        ] {
+            assert!(
+                validate_via_operation(operation).is_ok(),
+                "{operation} is metadata-only and must pass"
+            );
+        }
     }
 }

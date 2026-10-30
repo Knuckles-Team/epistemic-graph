@@ -94,7 +94,7 @@ preflight() {
     fail=1
   fi
   # (c) client-node config.json shadowing check (best-effort)
-  local cfg="${AGENT_UTILITIES_CONFIG_DIR:-$HOME/.config/agent-utilities}/config.json"
+  local cfg="${ARBORA_CONFIG_DIR:-$HOME/.config/arbora}/config.json"
   if [[ -f "$cfg" ]] && python3 -c "import json,sys; d=json.load(open('$cfg')); sys.exit(0 if (d.get('GRAPH_SERVICE_SOCKET') and not d.get('GRAPH_SERVICE_TCP_ADDR') and str(d.get('EPISTEMIC_GRAPH_AUTOSTART'))=='1') else 1)" 2>/dev/null; then
     echo "!! preflight: node config.json ($cfg) declares a LOCAL engine socket + AUTOSTART=1 on what looks like a client node." >&2
     echo "   fix: set GRAPH_SERVICE_TCP_ADDR/ENGINE_ENDPOINT (remote), EPISTEMIC_GRAPH_AUTOSTART=0, drop GRAPH_SERVICE_SOCKET." >&2

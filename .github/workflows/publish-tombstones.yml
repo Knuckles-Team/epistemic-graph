@@ -10,22 +10,18 @@ name: Publish PyPI tombstones
 # resolving to the frozen 2.27.7 engine that still owns the name on PyPI, and
 # instead installs the current one. See docs/development/pypi-tombstones.md.
 #
-# OWNER ACTION, REQUIRED BEFORE THIS RUNS — the upload is REJECTED without it:
-# both PyPI projects (`epistemic-graph`, `epistemic-graph-server`) must have their
-# trusted publisher changed from
-#     owner Knuckles-Team / repository epistemic-graph
-# to
-#     owner Knuckles-Team / repository medulla / workflow publish-tombstones.yml
-# and the PyPI trusted-publisher *environment* field must be left EMPTY, because
-# this workflow declares no `environment:`. A stale entry fails the OIDC exchange
-# with `invalid-publisher`, not a build error.
+# Credential: the org-level `PYPI_API_TOKEN` secret, the same account-scoped token
+# every ecosystem release uses (including `release.yml`). No PyPI trusted-publisher
+# setting needs to change and no OIDC exchange happens here.
 #
-# Why OIDC here and a token in release.yml: `release.yml` uploads through
-# `.github/actions/publish-distribution`, which calls `scripts/verify_release_tag.py`
-# and refuses to run unless the event is a canonical `v*` tag push. A tombstone is
-# published once, by hand, from `main` — never from a release tag — so the token
-# path cannot be used and the tag guard cannot be relaxed. Nothing here builds
-# native code, and nothing here publishes `medulla` or `medulla-stem`.
+# Why this does not go through release.yml's publish action: `release.yml` uploads
+# through `.github/actions/publish-distribution`, which calls
+# `scripts/verify_release_tag.py` and refuses to run unless the event is a canonical
+# `v*` tag push. A tombstone is published once, by hand, from `main` — never from a
+# release tag — so that action cannot be used and its tag guard cannot be relaxed.
+# This workflow therefore uploads with `twine` directly, using the same token.
+# Nothing here builds native code, and nothing here publishes `medulla` or
+# `medulla-stem`.
 # ─────────────────────────────────────────────────────────────────────────
 
 on:
@@ -78,11 +74,9 @@ jobs:
     if: github.repository == 'Knuckles-Team/medulla'
     runs-on: ubuntu-latest
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    # id-token is the PyPI trusted-publishing exchange; contents:read is the
-    # checkout. No token secret is read by this workflow.
+    # contents:read is the checkout. The upload uses the PYPI_API_TOKEN secret.
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -127,19 +121,19 @@ jobs:
           sys.exit(1 if failed else 0)
           PY
 
-      - name: Publish the epistemic-graph tombstone to PyPI
-        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
-        with:
-          packages-dir: packaging/tombstones/epistemic-graph/dist
-          # Re-runs are idempotent, the same contract `twine --skip-existing`
-          # gives every other uploader in this repository.
-          skip-existing: true
-
-      - name: Publish the epistemic-graph-server tombstone to PyPI
-        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
-        with:
-          packages-dir: packaging/tombstones/epistemic-graph-server/dist
-          skip-existing: true
+      # `--skip-existing` makes re-runs idempotent, the same contract every other
+      # uploader in this repository has. Only these two fixed trees are uploaded.
+      - name: Publish both tombstones to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade twine
+          python -m twine upload --skip-existing \
+            packaging/tombstones/epistemic-graph/dist/* \
+            packaging/tombstones/epistemic-graph-server/dist/*
 
       - name: Report what was published
         shell: bash

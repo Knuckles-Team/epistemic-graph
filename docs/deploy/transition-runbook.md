@@ -63,7 +63,7 @@ is 200 and a *direct* TCP client to the engine works fine.
 **co-located-UDS defaults** in place — arbora still bind-mounts `/run/epistemic-graph` and the
 node-local `config.json` still sets `GRAPH_SERVICE_SOCKET=/run/epistemic-graph/epistemic-graph.sock`.
 On the client node that socket path is served (when present) by a **local autostarted "tiny-daemon"
-engine** (`--idle-shutdown-secs 60`, separate near-empty store `~/.local/share/agent-utilities/graph_snapshots`).
+engine** (`--idle-shutdown-secs 60`, separate near-empty store `~/.local/share/arbora/graph_snapshots`).
 So a client can resolve/​autostart that **ephemeral empty local engine instead of the real ENGINE-NODE KG**,
 and when the tiny-daemon is in its idle-shutdown window the operator gets Connection refused. `graph_kvcache`
 hides it (it degrades transport errors to an all-zeros miss).
@@ -88,13 +88,13 @@ EPISTEMIC_GRAPH_AUTOSTART=0              # belt-and-suspenders: the tiny-daemon 
 And on the client services (`services/arbora/compose*.yml`, messaging, host-daemon):
 - **Drop the `/run/epistemic-graph:/run/epistemic-graph` bind mount** — a client node has no local
   engine socket to share; mounting it only creates the stale-socket surface.
-- **Remove `GRAPH_SERVICE_SOCKET`** from the node-local `~/.config/agent-utilities/config.json` on
+- **Remove `GRAPH_SERVICE_SOCKET`** from the node-local `~/.config/arbora/config.json` on
   client nodes (or leave it — `ENGINE_ENDPOINT` overrides it, but removing it is cleaner).
 
 ### The REAL root cause — node-local `config.json` on a client node
 
 The `split-storage` flavor injects `GRAPH_SERVICE_TCP_ADDR` into the swarm **service env**, but the
-**node-local `~/.config/agent-utilities/config.json`** (read by BOTH the swarm containers via the
+**node-local `~/.config/arbora/config.json`** (read by BOTH the swarm containers via the
 ro-mount AND any locally-spawned arbora, e.g. a Claude session's `mcpServers.arbora`) was left
 in the co-located-UDS default:
 

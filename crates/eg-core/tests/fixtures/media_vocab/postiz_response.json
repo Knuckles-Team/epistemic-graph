@@ -1,0 +1,44 @@
+{
+ "Post": [
+  {
+   "id": "post-1",
+   "state": "failed",
+   "scheduledAt": "2026-01-10T09:00:00Z",
+   "publishedAt": null,
+   "channel": "ch-x"
+  },
+  {
+   "id": "post-2",
+   "state": "published",
+   "scheduledAt": "2026-01-11T09:00:00Z",
+   "publishedAt": "2026-01-11T09:00:05Z",
+   "channel": "ch-y"
+  },
+  {
+   "id": "post-3",
+   "state": "failed",
+   "scheduledAt": "2026-01-12T09:00:00Z",
+   "publishedAt": null,
+   "channel": "ch-y"
+  },
+  {
+   "id": "post-4",
+   "state": "scheduled",
+   "scheduledAt": "2026-01-20T09:00:00Z",
+   "publishedAt": null,
+   "channel": "ch-x"
+  }
+ ],
+ "Channel": [
+  {
+   "id": "ch-x",
+   "platform": "x",
+   "name": "brand on x"
+  },
+  {
+   "id": "ch-y",
+   "platform": "linkedin",
+   "name": "brand on linkedin"
+  }
+ ]
+}

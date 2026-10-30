@@ -1,0 +1,95 @@
+# Recorded virtual-graph mapping for the `rom-manager` connector
+# (rom-manager; EG-MEDIA-VOCAB-R009.1, EG-CQ-CONN-R053). The rows are the
+# `Connector mapping tables` entry for rom-manager in
+# specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
+# contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary
+# in virtual_graph-v1.ttl and shaped by virtual_graph-v1.shapes.ttl. `mv:` is a
+# documentation prefix for this section of the shared `http://knuckles.team/kg#`
+# namespace; every ontology IRI stays in `:`.
+#
+# RomM is queried by hash (get_rom_by_hash) and lists hashes, so the ROM's key
+# is its hash. rom_conversion/convert_rom is a write (effect only) and is not
+# read-mapped (plan.md). The metadata contract is the discovery of the recorded
+# response (rom-manager_response.json, same directory); vg:contentDigest is
+# sha256 over its bytes.
+
+@prefix :    <http://knuckles.team/kg#> .
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f:   <urn:eg-media-vocab:rom-manager/> .
+
+f:connection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:declaredCapability "read" ;
+    vg:endpointRef [ a vg:EndpointRef ; vg:url "https://mcp.example.invalid/rom-manager" ] .
+
+f:contract a vg:MetadataContract ;
+    vg:contractSource f:connection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:337f811ed233e1f90a5d7dec97497522d51d2102a4188e5217ad19919170f4d3" ;
+    vg:discoveredEntity "Rom", "Platform", "Game" ;
+    vg:discoveredField "hash", "fileName", "md5", "sha1", "crc32", "game", "id", "name", "code", "title", "platform" ;
+    vg:discoveredOperation "romm_roms/list", "romm_roms/get_rom", "romm_roms/get_rom_by_hash", "romm_platforms/list", "romm_platforms/get_platform", "rom_game_codes/list" .
+
+# romm_roms/list, get_rom, get_rom_by_hash: the ROM is a ROM file
+f:row-rom a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :RomFile ;
+    vg:mapsEntity "Rom" ;
+    vg:keyField "hash" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :md5 ;
+        vg:field "md5"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :sha1 ;
+        vg:field "sha1"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :crc32 ;
+        vg:field "crc32"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :fileName ;
+        vg:field "fileName"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :gameOf ;
+        vg:field "game"
+    ] .
+
+# romm_platforms/list, get_platform
+f:row-platform a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :GamePlatform ;
+    vg:mapsEntity "Platform" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ] .
+
+# rom_game_codes/*: the game work, keyed by its code
+f:row-game a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :Game ;
+    vg:mapsEntity "Game" ;
+    vg:keyField "code" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "title"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :gameCode ;
+        vg:field "code"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :onPlatform ;
+        vg:field "platform"
+    ] .

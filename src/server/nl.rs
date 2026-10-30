@@ -5,11 +5,11 @@
 //! runs through the existing deterministic UQL pipeline. This module owns
 //! WHICH planner the facade uses:
 //!
-//!  * **Injected** — when `agent-utilities` (or any embedder) drives the engine it does
+//!  * **Injected** — when Arbora (or any embedder) drives the engine it does
 //!    NL→query on its own side and can OPT OUT of the engine's built-in planner, or it
 //!    can inject its own via [`set_nl_planner`]. An injected planner always wins.
 //!  * **Standalone (config)** — a bare engine reads an OpenAI-compatible LLM
-//!    endpoint/model/api-key-env from `agent-utilities`' `config.json` and builds a
+//!    endpoint/model/api-key-env from Arbora's `config.json` and builds a
 //!    [`eg_plan::UreqNlPlanner`]. If no endpoint is configured the planner stays `None`
 //!    and `Method::NlQuery` returns a clear "not configured" error (never a panic).
 //!
@@ -61,7 +61,7 @@ struct OAuth2Settings {
     auth_style: TokenAuthStyle,
 }
 
-/// LLM settings resolved from `agent-utilities`' `config.json` (+ env overrides).
+/// LLM settings resolved from Arbora's `config.json` (+ env overrides).
 struct NlSettings {
     endpoint: String,
     model: String,
@@ -145,7 +145,7 @@ fn apply_request_settings(
     Ok(planner)
 }
 
-/// Resolve NL settings from env overrides + `agent-utilities`' `config.json`; when no
+/// Resolve NL settings from env overrides + Arbora's `config.json`; when no
 /// config file exists at any candidate path, scaffold a minimal one (so an operator has
 /// a file to fill in) and return empty settings.
 fn load_or_scaffold_settings() -> NlSettings {
@@ -246,20 +246,24 @@ impl NlSettings {
 }
 
 /// The candidate `config.json` paths, in priority order:
-///   1. `$XDG_CONFIG_HOME/agent-utilities/config.json`
-///   2. `~/.config/agent-utilities/config.json`
-///   3. `~/.local/share/agent-utilities/config.json`
+///   1. `$ARBORA_CONFIG_DIR/config.json`
+///   2. `$XDG_CONFIG_HOME/arbora/config.json`
+///   3. `~/.config/arbora/config.json`
 fn config_candidates() -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
+    if let Ok(dir) = std::env::var("ARBORA_CONFIG_DIR") {
+        if !dir.is_empty() {
+            out.push(std::path::Path::new(&dir).join("config.json"));
+        }
+    }
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
         if !xdg.is_empty() {
-            out.push(std::path::Path::new(&xdg).join("agent-utilities/config.json"));
+            out.push(std::path::Path::new(&xdg).join("arbora/config.json"));
         }
     }
     if let Ok(home) = std::env::var("HOME") {
         if !home.is_empty() {
-            out.push(std::path::Path::new(&home).join(".config/agent-utilities/config.json"));
-            out.push(std::path::Path::new(&home).join(".local/share/agent-utilities/config.json"));
+            out.push(std::path::Path::new(&home).join(".config/arbora/config.json"));
         }
     }
     out
@@ -270,7 +274,7 @@ fn find_config_file() -> Option<std::path::PathBuf> {
     config_candidates().into_iter().find(|p| p.is_file())
 }
 
-/// Parse the LLM settings out of an `agent-utilities` `config.json`. Tolerant of layout:
+/// Parse the LLM settings out of an Arbora `config.json`. Tolerant of layout:
 /// looks under a top-level `nl_query` or `llm` object (then the bare top level) for the
 /// `endpoint`/`model`/`api_key_env` string keys plus the optional `headers` map,
 /// `tls_ca_path`, and `oauth2` client-credentials block. Certificate
@@ -337,14 +341,14 @@ fn parse_config(path: &std::path::Path) -> Option<NlSettings> {
     })
 }
 
-/// Best-effort scaffold of a minimal `config.json` at `~/.config/agent-utilities/` so an
+/// Best-effort scaffold of a minimal `config.json` at `~/.config/arbora/` so an
 /// operator has a file to fill in. Never overwrites an existing file; failure is silent
 /// (the NL surface simply stays unconfigured).
 fn scaffold_minimal_config() {
     let Some(home) = std::env::var("HOME").ok().filter(|s| !s.is_empty()) else {
         return;
     };
-    let dir = std::path::Path::new(&home).join(".config/agent-utilities");
+    let dir = std::path::Path::new(&home).join(".config/arbora");
     let path = dir.join("config.json");
     if path.exists() {
         return;
@@ -385,6 +389,14 @@ mod tests {
         let path = std::env::temp_dir().join(name);
         std::fs::write(&path, body).unwrap();
         path
+    }
+
+    #[test]
+    fn config_candidates_never_name_the_legacy_agent_utilities_path() {
+        for candidate in config_candidates() {
+            let text = candidate.to_string_lossy();
+            assert!(!text.contains("agent-utilities"), "legacy path: {text}");
+        }
     }
 
     #[test]

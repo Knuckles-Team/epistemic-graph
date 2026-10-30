@@ -2,6 +2,7 @@
 
 use crate::uql::{parse, UqlCode, ALL_CODES};
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn an_unknown_stage_names_every_alternative() {
     let e = parse("MATCH (:Doc) |> FROBNICATE").unwrap_err();
@@ -11,6 +12,7 @@ fn an_unknown_stage_names_every_alternative() {
     assert_eq!(&"MATCH (:Doc) |> FROBNICATE"[e.at..e.end], "FROBNICATE");
 }
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn the_caret_lands_on_the_right_line_and_column() {
     let src = "MATCH (:Café)\n  |> LIMIT )";
@@ -24,6 +26,7 @@ fn the_caret_lands_on_the_right_line_and_column() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn the_caret_spans_the_whole_token() {
     let src = "MATCH () |> FROBNICATE";
@@ -31,6 +34,7 @@ fn the_caret_spans_the_whole_token() {
     assert!(rendered.contains("^^^^^^^^^^"), "{rendered}");
 }
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn lexical_errors_carry_codes() {
     assert_eq!(
@@ -52,6 +56,7 @@ fn lexical_errors_carry_codes() {
 }
 
 // Regression for EG-FEDERATED-QUERY-R064; native acceptance remains pending.
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn lexical_errors_report_the_offending_span_and_caret() {
     let src = "MATCH () |> LIMIT %";

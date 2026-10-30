@@ -1,0 +1,15 @@
+# Recorded response (D4 row suppliesItem): erpnext
+# `erpnext_agent_resource list_documents` (Purchase Order) plus `get_document`
+# per order for the lines (the listing does not return child lines). The
+# kg:suppliesItem edge is derived from these two recorded edges (Decision D5):
+# the order's `supplier` field and its `items` lines.
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix ex:    <http://knuckles.team/test/recorded#> .
+
+ex:po-001 a kg:PurchaseOrder ;
+    kg:suppliedBy ex:sup-001 ;
+    kg:contains ex:item-001 .
+
+ex:sup-001 a kg:Supplier .
+ex:item-001 a kg:SupplyChainItem .

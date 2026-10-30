@@ -708,6 +708,13 @@ BFO:GenericallyDependentContinuant — an information entity.""" ;
     rdfs:subPropertyOf :runsOn ;
     rdfs:domain :Container .
 
+:serviceRunsOn a owl:ObjectProperty ;
+    rdfs:label "runs on (service)" ;
+    rdfs:comment "Links an independently typed :Service record to the :Host it runs on. A source maps it only from a Service record, never from a container or pod path, so the supply-chain physical chain cannot retype an endpoint as a Service." ;
+    rdfs:subPropertyOf :runsOn ;
+    rdfs:domain :Service ;
+    rdfs:range :Host .
+
 :Namespace a owl:Class ;
     rdfs:label "Namespace" ;
     rdfs:comment "A named scope that partitions names and resources inside a platform, registry or catalog (a cluster namespace, a registry namespace, a table namespace)." ;

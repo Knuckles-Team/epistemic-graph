@@ -1,0 +1,75 @@
+# objectstore store-mapping fixture (EG-DATAPLAT-VOCAB-R006.3).
+#
+# One attached object store (S3/MinIO-style). Buckets list and objects
+# list/head are named MCP operations; object bytes are never mapped (objects
+# get is deliberately absent — content is not a graph property). All mappings
+# are virtual: metadata is read at query time, nothing is copied (decision 4).
+
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://knuckles.team/kg/fixtures/data-platform/objectstore/> .
+
+ex:store a dp:DataStore ;
+    dp:storeFamily "object" .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://knuckles.team/kg/fixtures/data-platform/objectstore/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:f6c709a5cb4315357322a41b2c61d097f1204b0abc5edb2730d894d3228b7886" ;
+    vg:discoveredEntity "buckets" ;
+    vg:discoveredEntity "objects" ;
+    vg:discoveredField "bucket_name" ;
+    vg:discoveredField "object_key" ;
+    vg:discoveredField "byte_size" ;
+    vg:discoveredField "last_modified" .
+
+# A bucket has no name field of its own in the dp: vocabulary; its identity
+# rides on the container link, so the binding projects the name field onto
+# dp:inStore.
+ex:mapping_buckets a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:Bucket ;
+    vg:mapsEntity "buckets" ;
+    vg:keyField "bucket_name" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:inStore ;
+        vg:field "bucket_name"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "buckets:list" ;
+    dp:accelerationMode "virtual" .
+
+ex:mapping_objects_list a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:StoredObject ;
+    vg:mapsEntity "objects" ;
+    vg:keyField "object_key" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:byteSize ;
+        vg:field "byte_size"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "objects:list" ;
+    dp:accelerationMode "virtual" .
+
+ex:mapping_objects_head a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:StoredObject ;
+    vg:mapsEntity "objects" ;
+    vg:keyField "object_key" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:lastModified ;
+        vg:field "last_modified"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "objects:head" ;
+    dp:accelerationMode "virtual" .

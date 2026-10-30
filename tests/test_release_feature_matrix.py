@@ -384,6 +384,7 @@ def test_slim_server_clippy_profile_lints_with_warnings_denied(release_matrix):
     assert not job.get("continue-on-error", False)
 
 
+@pytest.mark.spec("EG-CONTRACT-R047")
 def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matrix):
     workflow, _ = release_matrix
     job = workflow["jobs"]["engine-main-wheel"]
@@ -398,13 +399,18 @@ def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matr
     )
     assert "gh release create engine-main" in publish["run"]
     assert "--prerelease" in publish["run"]
+    # The prerelease is replaced (not appended to) and targets the source commit.
+    assert "gh release delete engine-main" in publish["run"]
+    assert '--target "$SOURCE_SHA"' in publish["run"]
+    assert publish["env"]["SOURCE_SHA"] == "${{ github.sha }}"
+    assert "dist/SHA256SUMS" in publish["run"]
 
 
 def test_only_workspace_clippy_runs_on_pull_requests(release_matrix):
     workflow, _ = release_matrix
     job = workflow["jobs"]["quality-advisory"]
     assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && 15 || 60 }}"
+        "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     )
     assert job["if"] == "needs.changes.outputs.code == 'true'"
     assert job["strategy"]["fail-fast"] is False

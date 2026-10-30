@@ -840,7 +840,13 @@ ex:parent a owl:AsymmetricProperty .
         // +536: the C2 train (connector-pack surface, media lane B, data-platform secrets,
         // CQ-CONN chunk 5 and supply-vocab terms), net of terms main already defined; the pin
         // is the measured composed count.
-        assert_eq!(composed.ontology.len(), 17_186);
+        // +2: catalog imports for connector-seed and virtual-graph.
+        // +474: #964 core modules (media +436, commercial +25, supply_chain +9 = +470) plus the
+        // media module-local :mediaFileSizeBytes (+5 declared, -1 shared-domain triple = +4).
+        // +29: the supply-chain fold (#972): commercial :customerLastActivityAt +5,
+        // infrastructure :serviceRunsOn +6, supply_chain suppliesService one-direction with
+        // :serviceSupplier and :suppliesServiceViaHost +18 (rdflib per-file deltas).
+        assert_eq!(composed.ontology.len(), 17_691);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -891,7 +897,8 @@ ex:parent a owl:AsymmetricProperty .
         // +1: the swarm-topology module imports the orchestration module.
         // +3: the C2 train's government-shapes and foundation-shapes imports and the
         // connector-pack shapes companion.
-        assert_eq!(imports, 117);
+        // +2: the connector-seed and virtual-graph catalog imports.
+        assert_eq!(imports, 119);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
@@ -918,7 +925,9 @@ ex:parent a owl:AsymmetricProperty .
         // +819: the same C1 train lane vocabularies, as semantic axioms.
         // +533: the C2 train vocabularies (connector-pack surface, media lane B, secrets,
         // CQ-CONN chunk 5, finance method terms), as semantic axioms.
-        assert_eq!(semantic_axioms, 16_919);
+        // +474: the #964 core modules and :mediaFileSizeBytes, as semantic axioms (see the total pin).
+        // +29: the #972 supply-chain fold, all semantic axioms (headers and imports unchanged).
+        assert_eq!(semantic_axioms, 17_422);
 
         let count_type = |object: &str| {
             composed
@@ -949,13 +958,16 @@ ex:parent a owl:AsymmetricProperty .
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
             // +1: cat:lineageTo, the inverse of :derivedFrom (EG-TYPED-PACKS-R106.1).
             // +1: cp:hasContract, the inverse of cp:contractOf (EG-TYPED-PACKS-R102.1).
-            37
+            // +2 (#972): :serviceSupplier inverseOf :suppliesService, and the
+            // inverse-of-serviceRunsOn step in the suppliesServiceViaHost chain.
+            39
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#propertyChainAxiom"),
             // +1: the registered supply-chain usesComponent property chain.
             // +1: the CQ-CONN chunk 5 property chain.
-            7
+            // +1 (#972): the suppliesServiceViaHost physical-path chain.
+            8
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#minCardinality"),
@@ -990,7 +1002,8 @@ ex:parent a owl:AsymmetricProperty .
             // +22: the C1 train's lane vocabulary classes.
             // +22: the C2 train's connector-pack surface, media lane B, secret-metadata and
             // CQ-CONN chunk 5 classes.
-            698
+            // +26: the #964 class placements (media +24, commercial +1, supply-chain +1).
+            724
         );
     }
 

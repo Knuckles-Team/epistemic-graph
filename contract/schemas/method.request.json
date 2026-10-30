@@ -4141,6 +4141,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_ForeignReadExecutionRef_16": {
+      "items": {
+        "$ref": "#/$defs/ForeignReadExecutionRef"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "BoundedVec_GenerationEvalItem_1024": {
       "items": {
         "$ref": "#/$defs/GenerationEvalItem"
@@ -12249,6 +12256,24 @@
         },
         {
           "additionalProperties": false,
+          "description": "Versioned point-in-time net-liquidity composite and heat strip.",
+          "properties": {
+            "op": {
+              "const": "liquidity_panel",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/LiquidityPanelRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Validate an analysis and seal it as a content-addressed snapshot with\nits notices; re-sealing a stored draft verifies the record.",
           "properties": {
             "draft": {
@@ -19538,6 +19563,85 @@
         "single",
         "complete",
         "average"
+      ],
+      "type": "string"
+    },
+    "LiquidityObservation": {
+      "additionalProperties": false,
+      "description": "One sourced observation. `value_milliunits` uses thousandths of the\nseries' published unit: millions USD for WALCL/WDTGAL, billions for RRP.",
+      "properties": {
+        "observation_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "observed_ms": {
+          "description": "When this observation was actually captured, not an inferred release time.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "series": {
+          "$ref": "#/$defs/LiquiditySeries"
+        },
+        "source_ref": {
+          "type": "string"
+        },
+        "value_milliunits": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "vintage_ms": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "series",
+        "observation_ms",
+        "vintage_ms",
+        "observed_ms",
+        "value_milliunits",
+        "source_ref"
+      ],
+      "type": "object"
+    },
+    "LiquidityPanelRequest": {
+      "additionalProperties": false,
+      "description": "An explicitly bounded point-in-time request; timestamps are UTC milliseconds.",
+      "properties": {
+        "as_of_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "max_age_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/LiquidityObservation"
+          },
+          "type": "array"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "as_of_ms",
+        "max_age_ms",
+        "observations"
+      ],
+      "type": "object"
+    },
+    "LiquiditySeries": {
+      "description": "The three series in the Bellwether net-liquidity definition.",
+      "enum": [
+        "walcl",
+        "wdtgal",
+        "rrpontsyd"
       ],
       "type": "string"
     },
@@ -31362,6 +31466,10 @@
                   "default": null,
                   "description": "Optional host-driven foreign-read execution bound to this exact plan."
                 },
+                "foreign_executions": {
+                  "$ref": "#/$defs/BoundedVec_ForeignReadExecutionRef_16",
+                  "description": "Alternative bounded set of completed sources for a multi-source plan.\nThe single and multi-source forms are mutually exclusive."
+                },
                 "plan": {
                   "$ref": "#/$defs/Plan"
                 }
@@ -39953,13 +40061,17 @@
         },
         {
           "additionalProperties": false,
-          "description": "FILTER (semantic, SHACL — EH-196) — validate every row's node, as an explicit\nSHACL focus node, against the ONE named `shape` of the `shapes` graph over the\nrequest graph's RDF projection, and keep the rows `keep` names. The UQL\n`VALIDATE SHAPE <shape> USING \"<turtle>\" [KEEP CONFORMING|VIOLATING]` stage lowers\nhere. A shape that is not declared in the shapes graph, or a row whose id is not\nan RDF term, is an error — never a vacuous pass. Gated by `owl-plan`, like the other\nsemantic plan ops.",
+          "description": "FILTER (semantic, SHACL — EH-196) — validate every row's node, as an explicit\nSHACL focus node, against the ONE named `shape` of the `shapes` graph over the\nrequest graph's RDF projection, and keep the rows `keep` names. The UQL\n`VALIDATE SHAPE <shape> USING \"<turtle>\" [PROJECT \"<namespace>\"] [KEEP CONFORMING|VIOLATING]` stage lowers\nhere. A shape that is not declared in the shapes graph, or a row whose id is not\nan RDF term without an explicit projection, is an error — never a vacuous pass. Gated by `owl-plan`, like the other\nsemantic plan ops.",
           "properties": {
             "ValidateShape": {
               "properties": {
                 "keep": {
                   "$ref": "#/$defs/ShapeKeep",
                   "description": "Which rows survive."
+                },
+                "projection_base": {
+                  "description": "Optional caller-authorized namespace for projecting property-graph keys.",
+                  "type": "string"
                 },
                 "shape": {
                   "description": "The shape IRI (canonical `<iri>` or bare).",
@@ -73950,6 +74062,10 @@
               ],
               "default": null,
               "description": "Optional host-driven foreign-read execution bound to this exact plan."
+            },
+            "foreign_executions": {
+              "$ref": "#/$defs/BoundedVec_ForeignReadExecutionRef_16",
+              "description": "Alternative bounded set of completed sources for a multi-source plan.\nThe single and multi-source forms are mutually exclusive."
             },
             "plan": {
               "$ref": "#/$defs/Plan"

@@ -126,9 +126,20 @@ def test_incomplete_diff_runs_code(data: bytes) -> None:
         (["crates/eg-tts-piper/src/lib.rs"], {"tts"}),
         (["pyproject.toml"], {"packaging"}),
         (["crates/eg-pyengine/src/lib.rs"], {"packaging"}),
-        (["Cargo.lock"], {"clients", "whisper", "tts", "packaging"}),
-        ([".github/workflows/ci.yml"], {"clients", "whisper", "tts", "packaging"}),
-        (["scripts/ci_change_scope.py"], {"clients", "whisper", "tts", "packaging"}),
+        (["crates/eg-core/ontology/core.ttl"], {"ontology"}),
+        (["src/server/graph_schema/compose.rs"], {"ontology"}),
+        (
+            ["Cargo.lock"],
+            {"clients", "whisper", "tts", "packaging", "ontology"},
+        ),
+        (
+            [".github/workflows/ci.yml"],
+            {"clients", "whisper", "tts", "packaging", "ontology"},
+        ),
+        (
+            ["scripts/ci_change_scope.py"],
+            {"clients", "whisper", "tts", "packaging", "ontology"},
+        ),
     ],
 )
 def test_path_gates_select_only_the_changed_surfaces(
@@ -247,9 +258,8 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
     assert job["runs-on"] == "ubuntu-24.04"
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
-    pr_minutes = 15 if job_name == "gates-crates" else 10
     assert job["timeout-minutes"] == (
-        f"${{{{ github.event_name == 'pull_request' && {pr_minutes} || 60 }}}}"
+        "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     )
     installs = [
         step

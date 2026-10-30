@@ -124,6 +124,8 @@ async fn served_tensor_elementwise_writeback_repeatable_across_requests() {
                 Method::UnifiedQuery {
                     plan: plan(),
                     foreign_execution: None,
+
+                    foreign_executions: Default::default(),
                 },
             ),
         ))

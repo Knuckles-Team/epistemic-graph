@@ -389,3 +389,22 @@ These scenarios have no new execution receipts. Existing parent receipts remain 
 - **Source:** `037f3edf5fe38f55ac24d6e0cc7bd85f1efc60cadf7c97b66b44978613a7acb6`; no runtime evidence is claimed.
 
 <!-- /spec-definition-patch -->
+
+## Net liquidity panel source prerequisite
+
+The SDK finance-source R005.1 depends on a graph-owned liquidity panel. The
+Bellwether source catalog names the components WALCL, WDTGAL and RRPONTSYD.
+The first two FRED series use millions of USD; the third uses billions of USD.
+The first version computes WALCL minus WDTGAL minus one thousand times RRPONTSYD,
+with the result converted to exact USD. It exposes a three-component heat strip of
+signed contributions and their change from the preceding observation.
+
+Inputs carry series identity, observation date, vintage date, observation time
+and exact source value. A request names an as-of time, version and maximum age.
+For each component, use the newest eligible observation and vintage. Refuse
+missing, stale, conflicting, future or overflowing inputs. Keep input source
+references in the result. Never claim intraday publication precision from a
+FRED vintage date alone. Use a caller-provided observation time for the
+availability fence. This is a compute result, not a live market or trading
+recommendation. Add native vectors and a served-client integration test before
+a release or verification claim.

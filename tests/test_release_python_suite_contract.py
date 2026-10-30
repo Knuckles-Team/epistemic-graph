@@ -286,7 +286,9 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     assert job["env"] == CACHE_BACKEND
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
     budget = (
-        45
+        30
+        if job_name in {"gates-crates", "gates-storage", "gates-ontology"}
+        else 45
         if job_name
         in {
             "gates",
@@ -296,9 +298,7 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
             "python-server",
             "gates-pyo3",
         }
-        else 15
-        if job_name == "gates-crates"
-        else 10
+        else {"gates-crates": 30}.get(job_name, 10)
     )
     expected = {"gates-facade": 60}.get(
         job_name,
@@ -600,6 +600,14 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
                 "eg-storage --all-features --no-fail-fast -- --test-threads=1"
+            ),
+        ),
+    },
+    "gates-ontology": {
+        ("Test (ontology composition)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
+                "--features full --lib --no-fail-fast server::graph_schema::compose"
             ),
         ),
     },

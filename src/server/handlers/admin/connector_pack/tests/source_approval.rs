@@ -30,6 +30,19 @@ fn ontology(connector: &str, body: String) -> Content {
     }
 }
 
+fn source_contract(connector: &str, body: String) -> Content {
+    Content {
+        kind: PackEntryKind::Resource,
+        uri: format!("contract://{connector}"),
+        name: "source-contract".to_string(),
+        media_type: "text/turtle",
+        body: body.into_bytes(),
+        input_schema: None,
+        annotations: PackAnnotations::default(),
+        references: Vec::new(),
+    }
+}
+
 const CONTRACT: &str = r#"@prefix ac: <https://knuckles-team.github.io/agent-connector-sdk/access#> .
 <urn:supplier-contract> a ac:AccessContract ; ac:classIri <urn:Supplier> ;
  ac:sourceId "suppliers" ; ac:accessKind "mcp_tool" ; ac:operation "list_suppliers" ;
@@ -241,7 +254,16 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
         connector,
         &[
             tool(connector, "a", "A."),
-            ontology(connector, CONTRACT.to_string()),
+            source_contract(
+                connector,
+                format!(
+                    r#"@prefix ac: <https://knuckles-team.github.io/agent-connector-sdk/access#> .
+<data://{connector}/suppliers#access> a ac:AccessContract ;
+ ac:classIri "urn:Supplier" ; ac:sourceId "{connector}/suppliers" ;
+ ac:entity "suppliers" ; ac:keyField "id" ; ac:accessKind "mcp_tool" ;
+ ac:operation "list_suppliers" ; ac:pagination "none" ."#
+                ),
+            ),
         ],
     );
     let first = imported(&served, &initial, None).await;
@@ -296,8 +318,14 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
         chunk_bytes: 512,
         deadline_ms: 10_000,
     };
-    let plan_digest = Digest256::sha256(b"r722-four-phase-plan");
-    let query_digest = Digest256::sha256(b"r722-four-phase-query");
+    let plan = eg_plan::Plan::new(vec![eg_plan::Op::ForeignScan {
+        source: Box::new(eg_types::wire::ForeignSourceSpec::Named {
+            name: source_name.clone(),
+        }),
+        join: false,
+    }]);
+    let plan_digest = Digest256::sha256(&rmp_serde::to_vec_named(&plan).unwrap());
+    let query_digest = plan_digest;
     let opened: ForeignReadOpenResult = ok(
         "authenticated foreign read open",
         served
@@ -362,6 +390,36 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
             .await,
     );
     assert_eq!(completed.total_rows, 1);
+
+    let response = served
+        .call(
+            "r722-four-phase:query",
+            crate::protocol::Method::UnifiedQuery {
+                plan: plan.clone(),
+                foreign_execution: Some(opened.execution),
+
+                foreign_executions: Default::default(),
+            },
+        )
+        .await;
+    let raw = match &response.result {
+        Some(crate::protocol::ResultPayload::Raw(bytes)) => bytes,
+        other => panic!("expected foreign rows, got {other:?}"),
+    };
+    let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(raw).unwrap();
+    assert_eq!(rows, vec![("supplier-1".to_string(), Some(0.5))]);
+    let replay = served
+        .call(
+            "r722-four-phase:query-replay",
+            crate::protocol::Method::UnifiedQuery {
+                plan,
+                foreign_execution: Some(opened.execution),
+
+                foreign_executions: Default::default(),
+            },
+        )
+        .await;
+    assert!(refused("replay", replay).contains("FOREIGN_READ_REPLAY"));
 
     let abort_query_digest = Digest256::sha256(b"r722-four-phase-abort-query");
     let abort_opened: ForeignReadOpenResult = ok(
@@ -671,4 +729,206 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
         Err(error) => error,
     };
     assert!(tenant_refusal.contains("ACCESS_DENIED"), "{tenant_refusal}");
+}
+
+/// One admitted query consumes two individually approved source executions.
+#[tokio::test]
+async fn two_approved_sources_join_once_and_duplicate_refuses_atomically() {
+    use eg_types::contract::BoundedVec;
+    let connector = "r722-two-sources";
+    let served = Served::new();
+    let _env = served.with_graph_persistence().await;
+    bind(&served, connector, ADMIN).await;
+    let contract = format!(
+        r#"@prefix ac: <https://knuckles-team.github.io/agent-connector-sdk/access#> .
+<data://{connector}/first#access> a ac:AccessContract ; ac:classIri "urn:Item" ; ac:sourceId "{connector}/first" ; ac:entity "first" ; ac:keyField "id" ; ac:accessKind "mcp_tool" ; ac:operation "list_first" ; ac:pagination "none" .
+<data://{connector}/second#access> a ac:AccessContract ; ac:classIri "urn:Item" ; ac:sourceId "{connector}/second" ; ac:entity "second" ; ac:keyField "id" ; ac:accessKind "mcp_tool" ; ac:operation "list_second" ; ac:pagination "none" ."#
+    );
+    let pack = build_pack(
+        connector,
+        &[
+            tool(connector, "list_first", "First source."),
+            tool(connector, "list_second", "Second source."),
+            source_contract(connector, contract),
+        ],
+    );
+    let imported_pack = imported(&served, &pack, None).await;
+    let connector_id = eg_types::contract::ResourceId::new(connector).unwrap();
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    let member = store
+        .connector_pack_members(TENANT, &connector_id)
+        .unwrap()
+        .into_iter()
+        .find(|member| member.uri == format!("contract://{connector}"))
+        .unwrap();
+    let registrations = member.source_registrations.clone();
+    let contract_digest = member.body_sha256;
+    drop(store);
+    assert_eq!(registrations.len(), 2);
+    let names: Vec<String> = registrations
+        .iter()
+        .map(|item| item.source_id.clone())
+        .collect();
+    let plan = eg_plan::Plan::new(
+        names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| eg_plan::Op::ForeignScan {
+                source: Box::new(eg_types::wire::ForeignSourceSpec::Named { name: name.clone() }),
+                join: index != 0,
+            })
+            .collect(),
+    );
+    let digest = Digest256::sha256(&rmp_serde::to_vec_named(&plan).unwrap());
+    let mut executions = Vec::new();
+    for registration in &registrations {
+        let approved: eg_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
+            "approve source",
+            approve_source(
+                &served,
+                connector,
+                &registration.contract_iri,
+                &registration.resource_uri,
+                head_of(&imported_pack),
+                contract_digest,
+            )
+            .await,
+        );
+        let _: String = ok(
+            "register source",
+            served
+                .call(
+                    &format!("r722-two-sources:register:{}", registration.source_id),
+                    crate::protocol::Method::RegisterForeignSource {
+                        name: registration.source_id.clone(),
+                        source: eg_types::wire::ForeignSourceSpec::Mcp {
+                            server: connector.to_string(),
+                            tool: registration.operation.clone(),
+                            capabilities: Default::default(),
+                        },
+                    },
+                )
+                .await,
+        );
+        let opened: ForeignReadOpenResult = ok(
+            "open",
+            served
+                .call(
+                    &format!("r722-two-sources:open:{}", registration.source_id),
+                    crate::protocol::Method::ForeignReadOpen {
+                        request: ForeignReadOpenRequest {
+                            schema_version: FOREIGN_READ_SCHEMA_VERSION,
+                            source_name: registration.source_id.clone(),
+                            approval: approved,
+                            plan_digest: digest,
+                            query_digest: digest,
+                            limits: ForeignReadLimits {
+                                max_rows: 10,
+                                max_bytes: 1024,
+                                chunk_rows: 2,
+                                chunk_bytes: 512,
+                                deadline_ms: 10_000,
+                            },
+                        },
+                    },
+                )
+                .await,
+        );
+        let _: ForeignReadChunkResult = ok(
+            "chunk",
+            served
+                .call(
+                    &format!("r722-two-sources:chunk:{}", registration.source_id),
+                    crate::protocol::Method::ForeignReadChunk {
+                        request: ForeignReadChunkRequest {
+                            execution: opened.execution,
+                            sequence: 0,
+                            source_identity: opened.source_identity,
+                            rows: vec![ForeignReadRow {
+                                id: "shared-1".into(),
+                                score: Some(0.5),
+                                columns: BTreeMap::new(),
+                                provenance: Vec::new(),
+                            }],
+                        },
+                    },
+                )
+                .await,
+        );
+        let _: ForeignReadCompleteResult = ok(
+            "complete",
+            served
+                .call(
+                    &format!("r722-two-sources:complete:{}", registration.source_id),
+                    crate::protocol::Method::ForeignReadComplete {
+                        request: ForeignReadCompleteRequest {
+                            execution: opened.execution,
+                            sequence: 1,
+                        },
+                    },
+                )
+                .await,
+        );
+        executions.push(opened.execution);
+    }
+    let duplicate = served
+        .call(
+            "r722-two-sources:duplicate",
+            crate::protocol::Method::UnifiedQuery {
+                plan: plan.clone(),
+                foreign_execution: None,
+                foreign_executions: BoundedVec::new(vec![executions[0], executions[0]]).unwrap(),
+            },
+        )
+        .await;
+    let duplicate_error = refused("duplicate", duplicate);
+    assert!(
+        duplicate_error.contains("INVALID_ARGUMENT"),
+        "{duplicate_error}"
+    );
+    let mut wrong_query = executions.clone();
+    wrong_query[1].query_digest = Digest256::sha256(b"different-query");
+    let mismatch = served
+        .call(
+            "r722-two-sources:mismatch",
+            crate::protocol::Method::UnifiedQuery {
+                plan: plan.clone(),
+                foreign_execution: None,
+                foreign_executions: BoundedVec::new(wrong_query).unwrap(),
+            },
+        )
+        .await;
+    let mismatch_error = refused("mismatch", mismatch);
+    assert!(
+        mismatch_error.contains("FOREIGN_READ_QUERY_MISMATCH"),
+        "{mismatch_error}"
+    );
+    let result = served
+        .call(
+            "r722-two-sources:query",
+            crate::protocol::Method::UnifiedQuery {
+                plan: plan.clone(),
+                foreign_execution: None,
+                foreign_executions: BoundedVec::new(executions.clone()).unwrap(),
+            },
+        )
+        .await;
+    let raw = match &result.result {
+        Some(crate::protocol::ResultPayload::Raw(bytes)) => bytes,
+        other => panic!("expected joined rows, got {other:?}"),
+    };
+    let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(raw).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "shared-1");
+    let replay = served
+        .call(
+            "r722-two-sources:replay",
+            crate::protocol::Method::UnifiedQuery {
+                plan,
+                foreign_execution: None,
+                foreign_executions: BoundedVec::new(executions).unwrap(),
+            },
+        )
+        .await;
+    assert!(refused("replay", replay).contains("FOREIGN_READ_REPLAY"));
 }

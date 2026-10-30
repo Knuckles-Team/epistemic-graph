@@ -451,7 +451,13 @@
     "EG-FEDERATED-QUERY-R722.3",
     "EG-FEDERATED-QUERY-R722.4",
     "EG-FEDERATED-QUERY-R722.5",
-    "EG-FEDERATED-QUERY-R722.6"
+    "EG-FEDERATED-QUERY-R722.6",
+    "EG-FEDERATED-QUERY-R040.5.1",
+    "EG-FEDERATED-QUERY-R040.5.2",
+    "EG-FEDERATED-QUERY-R040.5.3",
+    "EG-FEDERATED-QUERY-R040.5.4",
+    "EG-FEDERATED-QUERY-R040.5.5",
+    "EG-FEDERATED-QUERY-R040.5.6"
   ],
   "requirements": [
     {
@@ -480,8 +486,8 @@
         "2b3e2738b5ff"
       ],
       "verified_by": [
-        "crates/eg-types/src/wire_query_core.rs:1128",
-        "crates/eg-types/src/wire_query_core.rs:1160"
+        "crates/eg-types/src/wire_query_core.rs:1131",
+        "crates/eg-types/src/wire_query_core.rs:1163"
       ]
     },
     {
@@ -518,6 +524,7 @@
       "landed_in": [
         "0265d3a41baf",
         "1ac87735b5a3",
+        "75dd94362178",
         "80c865971ea8",
         "a1bb9fb9503e"
       ],
@@ -592,7 +599,7 @@
         "crates/eg-query/src/edge_index/tests.rs:305",
         "crates/eg-query/src/edge_index/tests.rs:365",
         "crates/eg-query/src/edge_index/tests.rs:402",
-        "crates/eg-query/src/edge_index/tests/durability.rs:48",
+        "crates/eg-query/src/edge_index/tests/durability.rs:49",
         "crates/eg-query/src/edge_index/tests/durability.rs:9"
       ]
     },
@@ -622,7 +629,7 @@
         "f17f47ab300f"
       ],
       "verified_by": [
-        "src/server/graph_schema/compose.rs:1002"
+        "src/server/graph_schema/compose.rs:1015"
       ]
     },
     {
@@ -643,13 +650,17 @@
     {
       "id": "EG-FEDERATED-QUERY-R013",
       "title": "Foreign-source resolution is scoped to the owning principal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "196ded575c8b",
-        "a3e0c9984c67"
+        "a3e0c9984c67",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/tests/foreign_tenancy.rs:138",
+        "src/server/tests/foreign_tenancy.rs:436"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R014",
@@ -775,7 +786,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2695",
-        "src/server/mod.rs:2119"
+        "src/server/mod.rs:2129"
       ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R022.1"
@@ -792,7 +803,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2695",
-        "src/server/mod.rs:2119"
+        "src/server/mod.rs:2129"
       ]
     },
     {
@@ -810,12 +821,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R024",
       "title": "Traversal syntax compiles to one canonical Expand encoding",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
+        "a6514eeee660",
         "e93f988eae07"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/legacy.rs:675",
+        "crates/eg-plan/src/uql/tests/legacy.rs:691"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R025",
@@ -848,12 +863,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R027",
       "title": "EXPLAIN, PROFILE and RETURN support multi-stage UQL programs",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "681de5cb1968"
+        "681de5cb1968",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/serve.rs:274",
+        "crates/eg-plan/src/uql/tests/serve.rs:307"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R028",
@@ -999,12 +1018,19 @@
     {
       "id": "EG-FEDERATED-QUERY-R038",
       "title": "Federation optimizer: cost-aware pushdown, freshness-aware cache (rollup)",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "212c65869e32",
-        "62c450561948"
+        "62c450561948",
+        "a6514eeee660"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/federation_opt/capability.rs:527",
+        "crates/eg-plan/src/federation_opt/capability.rs:543",
+        "crates/eg-plan/src/federation_opt/capability.rs:562",
+        "crates/eg-plan/src/federation_opt/capability.rs:582",
+        "crates/eg-plan/src/federation_opt/capability.rs:594"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R038.1"
       ]
@@ -1012,11 +1038,18 @@
     {
       "id": "EG-FEDERATED-QUERY-R038.1",
       "title": "Typed foreign-source capability + cost model proves which pushdown kinds are sound",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "212c65869e32"
+        "212c65869e32",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_opt/capability.rs:527",
+        "crates/eg-plan/src/federation_opt/capability.rs:543",
+        "crates/eg-plan/src/federation_opt/capability.rs:562",
+        "crates/eg-plan/src/federation_opt/capability.rs:582",
+        "crates/eg-plan/src/federation_opt/capability.rs:594"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R039",
@@ -1055,43 +1088,66 @@
     {
       "id": "EG-FEDERATED-QUERY-R041",
       "title": "Federation optimizer core drives pushdown decisions for every query",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
+        "a6514eeee660",
         "d656b605ef0a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_opt/tests.rs:187",
+        "crates/eg-plan/src/federation_opt/tests.rs:228",
+        "crates/eg-plan/src/federation_opt/tests.rs:317",
+        "crates/eg-plan/src/federation_opt/tests.rs:334",
+        "crates/eg-plan/src/federation_opt/tests.rs:430"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R042",
       "title": "OBDA pushes per-predicate scans and semi-join reduction to SQL sources",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
+        "a6514eeee660",
         "d656b605ef0a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/obda/pushdown/tests.rs:141",
+        "crates/eg-rdf/src/obda/pushdown/tests.rs:159",
+        "crates/eg-rdf/src/obda/pushdown/tests.rs:169"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R043",
       "title": "SQL foreign-source connections share the one outbound SSRF guard",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
+        "a6514eeee660",
         "d656b605ef0a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_ssrf.rs:484",
+        "crates/eg-plan/src/federation_ssrf.rs:507",
+        "src/server/handlers/rdf/obda.rs:665"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R044",
       "title": "UQL EXPLAIN and PROFILE surface federation trace and budget hints",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "33c1fd51757d",
         "62c450561948",
+        "a6514eeee660",
         "c98e58397fcc"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/program.rs:31",
+        "crates/eg-plan/src/uql/tests/serve.rs:117",
+        "crates/eg-plan/src/uql/tests/serve.rs:144",
+        "crates/eg-plan/src/uql/tests/serve.rs:175"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R045",
@@ -1120,12 +1176,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R047",
       "title": "Federation enforces per-source parallelism caps and rate limits",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "321aa24de7c0",
-        "62c450561948"
+        "62c450561948",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_opt/limiter.rs:164",
+        "crates/eg-plan/src/federation_opt/tests.rs:548"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R048",
@@ -1178,12 +1238,18 @@
     {
       "id": "EG-FEDERATED-QUERY-R050",
       "title": "SPARQL SERVICE uses bind joins and pushes FILTER/LIMIT",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3d00361f3191",
-        "62c450561948"
+        "62c450561948",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/sparql/service_tests.rs:167",
+        "crates/eg-rdf/src/sparql/service_tests.rs:379",
+        "crates/eg-rdf/src/sparql/service_tests.rs:416",
+        "src/server/sparql_service/qualification.rs:131"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R051",
@@ -1242,12 +1308,18 @@
     {
       "id": "EG-FEDERATED-QUERY-R055",
       "title": "SPARQL evaluation binds every value of a multi-valued property",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
+        "a6514eeee660",
         "d656b605ef0a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/sparql/multivalue_tests.rs:38",
+        "crates/eg-rdf/src/sparql/multivalue_tests.rs:51",
+        "crates/eg-rdf/src/sparql/multivalue_tests.rs:60",
+        "crates/eg-rdf/src/sparql/multivalue_tests.rs:67"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R056",
@@ -1428,12 +1500,19 @@
     {
       "id": "EG-FEDERATED-QUERY-R059",
       "title": "Semantic index lifecycle is fenced, durable and restart-safe",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
-        "8fa63622a11f"
+        "8fa63622a11f",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-query/src/edge_index/tests/durability.rs:10",
+        "crates/eg-query/src/edge_index/tests/durability.rs:50",
+        "crates/eg-query/src/tables/ann_authority/tests.rs:268",
+        "crates/eg-query/src/tables/ann_authority/tests.rs:396",
+        "crates/eg-query/src/tables/ann_authority/tests.rs:612"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R060",
@@ -1464,32 +1543,49 @@
     {
       "id": "EG-FEDERATED-QUERY-R062",
       "title": "Streaming memory test measures only its own allocations",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
-        "645f55e5f0db"
+        "645f55e5f0db",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/tests/result_stream_memory.rs:107"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R063",
       "title": "Leiden provides stable community naming and a connectivity check",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
+        "a6514eeee660",
         "b5fe3c140c21"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/algorithms/tests.rs:134",
+        "crates/eg-compute/src/graph_algos/leiden/refine.rs:118",
+        "crates/eg-compute/src/graph_algos/leiden/stability.rs:248",
+        "crates/eg-compute/src/graph_algos/leiden/stability.rs:261",
+        "crates/eg-compute/src/graph_algos/leiden/stability.rs:295"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R064",
       "title": "UQL lexer supports its full token set and structured diagnostics",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
-        "8451d7eecf02"
+        "8451d7eecf02",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/diagnostics.rs:15",
+        "crates/eg-plan/src/uql/tests/diagnostics.rs:29",
+        "crates/eg-plan/src/uql/tests/diagnostics.rs:37",
+        "crates/eg-plan/src/uql/tests/diagnostics.rs:5",
+        "crates/eg-plan/src/uql/tests/diagnostics.rs:59"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R065",
@@ -1517,32 +1613,45 @@
     {
       "id": "EG-FEDERATED-QUERY-R067",
       "title": "UQL RETURN exposes multiple named score channels per row",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
-        "8451d7eecf02"
+        "8451d7eecf02",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/serve.rs:33"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R068",
       "title": "UQL supports WITH PROOF for proof-carrying results",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
-        "857e20c63775"
+        "857e20c63775",
+        "a6514eeee660"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/annotations.rs:112",
+        "crates/eg-plan/src/uql/tests/annotations.rs:49",
+        "crates/eg-plan/src/uql/tests/annotations.rs:92"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R069",
       "title": "SQL pushdown batches key lookups and shares rendering with OBDA",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
+        "a6514eeee660",
         "d656b605ef0a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_opt/sql.rs:257",
+        "crates/eg-plan/src/federation_opt/sql.rs:282",
+        "crates/eg-plan/src/federation_opt/sql.rs:300"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R070",
@@ -1563,12 +1672,19 @@
     {
       "id": "EG-FEDERATED-QUERY-R071",
       "title": "HTTP foreign sources support templated pagination and key placeholders",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
+        "a6514eeee660",
         "d656b605ef0a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_opt/http.rs:246",
+        "crates/eg-plan/src/federation_opt/http.rs:255",
+        "crates/eg-plan/src/federation_opt/tests.rs:275",
+        "crates/eg-plan/src/federation_opt/tests.rs:318",
+        "crates/eg-plan/src/federation_opt/tests.rs:353"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R072",
@@ -2370,9 +2486,9 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/wire_query_core.rs:1058",
-        "crates/eg-types/src/wire_query_core.rs:1070",
-        "crates/eg-types/src/wire_query_core.rs:1097"
+        "crates/eg-types/src/wire_query_core.rs:1061",
+        "crates/eg-types/src/wire_query_core.rs:1073",
+        "crates/eg-types/src/wire_query_core.rs:1100"
       ]
     },
     {
@@ -2862,8 +2978,20 @@
       "id": "EG-FEDERATED-QUERY-R040.5",
       "title": "Source-backed definition disposition",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "landed_in": [
+        "8a6791f60d56"
+      ],
+      "verified_by": [
+        "crates/eg-core/src/compute/semantic_embedding_batch.rs:488"
+      ],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R040.5.1",
+        "EG-FEDERATED-QUERY-R040.5.2",
+        "EG-FEDERATED-QUERY-R040.5.3",
+        "EG-FEDERATED-QUERY-R040.5.4",
+        "EG-FEDERATED-QUERY-R040.5.5",
+        "EG-FEDERATED-QUERY-R040.5.6"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R040.6",
@@ -3176,7 +3304,7 @@
         "crates/eg-plan/src/nl_regressions.rs:290",
         "crates/eg-plan/src/nl_regressions.rs:319",
         "src/server/handlers/query/nl.rs:380",
-        "src/server/nl.rs:450"
+        "src/server/nl.rs:462"
       ]
     },
     {
@@ -4714,6 +4842,56 @@
     {
       "id": "EG-FEDERATED-QUERY-R722.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.5.1",
+      "title": "Bounded low-storage ANN manifest and byte accounting",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.5.2",
+      "title": "Compact graph artifact",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-ann/src/hnsw/artifact.rs:835",
+        "crates/eg-ann/src/hnsw/artifact.rs:858"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.5.3",
+      "title": "Revision-bound regeneration and selective rescore",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-ann/src/hnsw/artifact.rs:1020",
+        "crates/eg-ann/src/hnsw/artifact.rs:905",
+        "crates/eg-ann/src/hnsw/artifact.rs:951",
+        "crates/eg-ann/src/hnsw/artifact.rs:982"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.5.4",
+      "title": "Bounded embedding-provider batching and cache",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.5.5",
+      "title": "Optional hub-preserving pruning",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.5.6",
+      "title": "Authenticated integrated path and measured proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

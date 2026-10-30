@@ -711,18 +711,26 @@ impl ServedPlanLegs {
         read_authority: Option<&GraphReadAuthority>,
         plan: &eg_plan::Plan,
         foreign_execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
+        foreign_executions: &[eg_types::foreign_read::ForeignReadExecutionRef],
     ) -> Result<Self, String> {
         #[cfg(not(feature = "tsdb"))]
         let _ = graph_name;
         #[cfg(not(any(feature = "federation", feature = "decide")))]
         let _ = state;
         #[cfg(not(any(feature = "tsdb", feature = "federation", feature = "decide")))]
-        let _ = (read_authority, plan, foreign_execution);
+        let _ = (read_authority, plan, foreign_execution, foreign_executions);
         Ok(Self {
             #[cfg(feature = "tsdb")]
             tsdb_scope: served_tsdb_scope(plan, graph_name, read_authority)?,
             #[cfg(feature = "federation")]
-            foreign: served_foreign_leg(state, plan, read_authority, foreign_execution).await?,
+            foreign: served_foreign_leg(
+                state,
+                plan,
+                read_authority,
+                foreign_execution,
+                foreign_executions,
+            )
+            .await?,
             #[cfg(feature = "decide")]
             decisions: served_decision_leg(state, plan, read_authority).await?,
             #[cfg(feature = "result-cache")]
@@ -841,6 +849,17 @@ pub(crate) fn parse_uql(req_id: u64, text: &str) -> Result<eg_plan::Plan, Respon
         .map_err(|e| Response::err(req_id, format!("{}: {}", e.code, e.render(text))))
 }
 
+/// The plan pin shared by explain and foreign-read binding, also available
+/// in query-only builds without the federation feature.
+#[cfg(feature = "query")]
+pub(crate) fn canonical_plan_digest(
+    plan: &eg_plan::Plan,
+) -> Result<eg_types::contract::Digest256, String> {
+    let plan_bytes = rmp_serde::to_vec_named(plan)
+        .map_err(|error| format!("INTERNAL: plan digest serialization failed: {error}"))?;
+    Ok(eg_types::contract::Digest256::sha256(&plan_bytes))
+}
+
 /// Digest convention for a host-driven UQL foreign read. Formatting and bound
 /// parameter values are part of the query identity; the parsed plan digest is
 /// checked separately by the served leg resolver.
@@ -859,8 +878,18 @@ pub(crate) fn foreign_uql_query_digest(
 
 #[cfg(all(test, feature = "query"))]
 mod foreign_query_digest_tests {
-    use super::foreign_uql_query_digest;
+    use super::{canonical_plan_digest, foreign_uql_query_digest};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn plan_pin_is_available_without_federation() {
+        let plan = eg_plan::uql::parse("MATCH (:Issue)").expect("valid plan");
+        let bytes = rmp_serde::to_vec_named(&plan).expect("serializable plan");
+        assert_eq!(
+            canonical_plan_digest(&plan).expect("canonical digest"),
+            eg_types::contract::Digest256::sha256(&bytes)
+        );
+    }
 
     #[test]
     fn uql_query_digest_binds_text_and_typed_parameters() {
@@ -906,15 +935,40 @@ impl QueryHandlerCtx<'_> {
         plan: &eg_plan::Plan,
         foreign_execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
     ) -> Result<ServedPlanLegs, Response> {
+        self.served_legs_with_foreign_executions(plan, foreign_execution, &[])
+            .await
+    }
+
+    pub(crate) async fn served_legs_with_foreign_executions(
+        &self,
+        plan: &eg_plan::Plan,
+        foreign_execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
+        foreign_executions: &[eg_types::foreign_read::ForeignReadExecutionRef],
+    ) -> Result<ServedPlanLegs, Response> {
         ServedPlanLegs::resolve(
             self.state,
             self.graph_name,
             self.read_authority,
             plan,
             foreign_execution,
+            foreign_executions,
         )
         .await
-        .map(|legs| legs.with_watermarks(self.core, plan))
+        .map(|legs| {
+            if foreign_execution.is_some() || !foreign_executions.is_empty() {
+                // Page-backed executions are request-scoped; catalog watermarks
+                // cannot prove their transient row buffers are cache-equivalent.
+                #[allow(unused_mut)]
+                let mut legs = legs;
+                #[cfg(feature = "result-cache")]
+                {
+                    legs.watermarks = ForeignWatermarks::Unfresh;
+                }
+                legs
+            } else {
+                legs.with_watermarks(self.core, plan)
+            }
+        })
         .map_err(|denied| Response::err(self.req_id, denied))
     }
 }

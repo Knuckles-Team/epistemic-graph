@@ -3388,7 +3388,7 @@
         "a0357cb95dc8"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:457",
+        "crates/eg-capabilities/src/error_routing.rs:512",
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:353",
         "crates/eg-storage/src/owner/lineage_tests.rs:224",
         "crates/eg-storage/src/owner/lineage_tests.rs:245",
@@ -3528,7 +3528,7 @@
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:161",
         "crates/eg-types/src/change_envelope/material.rs:181",
-        "src/server/mod.rs:2186"
+        "src/server/mod.rs:2198"
       ]
     },
     {
@@ -3541,7 +3541,7 @@
       ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:198",
-        "src/server/mod.rs:2186"
+        "src/server/mod.rs:2198"
       ]
     },
     {

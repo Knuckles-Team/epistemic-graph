@@ -1,0 +1,12 @@
+{
+  "Transcript": [
+    { "id": "t1", "recording": "rec-7", "text": "the quarterly figgers look soft but the backlog is fine" }
+  ],
+  "Segment": [
+    { "id": "t1s1", "start": 1.2, "end": 3.8, "noSpeechProb": 0.72, "text": "the quarterly figgers", "transcript": "urn:eg-media-vocab:audio-transcriber:Transcript:t1" },
+    { "id": "t1s2", "start": 3.8, "end": 6.4, "noSpeechProb": 0.05, "text": "but the backlog is fine", "transcript": "urn:eg-media-vocab:audio-transcriber:Transcript:t1" }
+  ],
+  "IngestedTranscript": [
+    { "id": "ing1", "recording": "rec-8", "text": "standup notes", "blob": "blob-1" }
+  ]
+}

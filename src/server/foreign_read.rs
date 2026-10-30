@@ -27,15 +27,14 @@ use super::foreign_catalog::{ForeignSourceCatalog, OwnedForeignRegistry};
 use super::persistence::agent_library::AgentLibraryStore;
 use crate::isolation::IsolationLayer;
 
-/// The canonical plan pin shared by ExplainPlan and the foreign-read query
-/// binder. Keeping this byte contract in one server module prevents a client
-/// from having to reproduce planner serialization and prevents the two server
-/// paths from silently drifting.
-pub(crate) fn canonical_plan_digest(plan: &eg_plan::Plan) -> Result<Digest256, String> {
-    let plan_bytes = rmp_serde::to_vec_named(plan)
-        .map_err(|error| format!("INTERNAL: plan digest serialization failed: {error}"))?;
-    Ok(Digest256::sha256(&plan_bytes))
+/// Owner-controlled dependencies used to revalidate and bind completed reads.
+pub(crate) struct ForeignBindingContext<'a> {
+    pub(crate) catalog: &'a ForeignSourceCatalog,
+    pub(crate) store: &'a AgentLibraryStore,
+    pub(crate) isolation: &'a IsolationLayer,
 }
+
+pub(crate) use crate::server::handlers::query::canonical_plan_digest;
 
 const MAX_SESSIONS: usize = 1_024;
 // A process-wide cap protects the page cache when many otherwise-valid
@@ -403,6 +402,80 @@ impl ForeignReadSessions {
             &source_name,
             page_source,
         )
+    }
+
+    /// Atomically bind bounded, distinct completed executions to one plan.
+    /// Every session and durable approval is revalidated before any is consumed.
+    pub(crate) fn bind_many_for_query(
+        &self,
+        caller: &CarrierAuthority,
+        executions: &[ForeignReadExecutionRef],
+        plan: &eg_plan::Plan,
+        plan_digest: Digest256,
+        binding: ForeignBindingContext<'_>,
+    ) -> Result<OwnedForeignRegistry, String> {
+        if executions.is_empty() || executions.len() > 16 {
+            return Err("INVALID_ARGUMENT: foreign execution count is out of bounds".into());
+        }
+        let mut ordered = executions.to_vec();
+        ordered.sort_by_key(|execution| execution.execution_id);
+        if ordered
+            .windows(2)
+            .any(|pair| pair[0].execution_id == pair[1].execution_id)
+        {
+            return Err("INVALID_ARGUMENT: repeated foreign execution".into());
+        }
+        let handles = ordered
+            .iter()
+            .map(|execution| self.record_for(caller, *execution))
+            .collect::<Result<Vec<_>, _>>()?;
+        // A stable lock order prevents two concurrent group binds from deadlocking.
+        let mut records = handles
+            .iter()
+            .map(|handle| lock(handle))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut sources = Vec::with_capacity(records.len());
+        let plan_names: std::collections::HashSet<&str> = plan
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                eg_plan::Op::Foreign { name } => Some(name.as_str()),
+                eg_plan::Op::ForeignScan { source, .. } => match source.as_ref() {
+                    eg_types::wire::ForeignSourceSpec::Named { name } => Some(name.as_str()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        for (record, handle) in records.iter().zip(&handles) {
+            self.check_expiry(record)?;
+            if record.plan_digest != plan_digest {
+                return Err("FOREIGN_READ_PLAN_MISMATCH: query plan digest differs".into());
+            }
+            if record.state != SessionState::Complete {
+                return Err("FOREIGN_READ_NOT_COMPLETE: source pages are not complete".into());
+            }
+            if record.consumed {
+                return Err("FOREIGN_READ_REPLAY: execution was already consumed".into());
+            }
+            if !plan_names.contains(record.source_name.as_str()) {
+                return Err("FOREIGN_READ_UNUSED: execution source is absent from plan".into());
+            }
+            let driver: eg_plan::federation::SharedForeignSource = Arc::new(PageBackedSource {
+                record: Arc::downgrade(handle),
+            });
+            sources.push((record.approval.clone(), record.source_name.clone(), driver));
+        }
+        let registry = binding.catalog.bind_registered_many(
+            caller,
+            binding.store,
+            binding.isolation,
+            &sources,
+        )?;
+        for record in &mut records {
+            record.consumed = true;
+        }
+        Ok(registry)
     }
 
     fn record_for(

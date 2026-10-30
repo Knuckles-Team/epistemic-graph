@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::bars::{BarRecord, FinalityFilter, SeriesPoint, Timeframe, TradingCalendar};
 use super::chart::DecimateRequest;
 use super::evidence::{BacktestRunDraft, FlipConfidenceRequest};
+use super::liquidity::LiquidityPanelRequest;
 use super::scan::ScanRequest;
 use super::signal::{IndicatorSpec, SignalReplayRequest, SignalState};
 use super::snapshot::AnalysisSnapshotDraft;
@@ -57,6 +58,8 @@ pub enum FinanceMarketOp {
     BacktestRun { draft: BacktestRunDraft },
     /// Bars and aligned indicator series thinned by M4 to a pixel width.
     Decimate { request: DecimateRequest },
+    /// Versioned point-in-time net-liquidity composite and heat strip.
+    LiquidityPanel { request: LiquidityPanelRequest },
     /// Validate an analysis and seal it as a content-addressed snapshot with
     /// its notices; re-sealing a stored draft verifies the record.
     AnalysisSnapshot { draft: AnalysisSnapshotDraft },

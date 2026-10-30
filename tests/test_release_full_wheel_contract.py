@@ -411,20 +411,20 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
 
 
 def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
+    thirty_min = "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     pr_scoped = {
-        ("ci.yml", "quality-advisory"): (
-            "${{ github.event_name == 'pull_request' && 15 || 60 }}"
-        ),
-        ("ci.yml", "gates-crates"): (
-            "${{ github.event_name == 'pull_request' && 15 || 60 }}"
-        ),
+        ("ci.yml", "quality-advisory"): thirty_min,
+        ("ci.yml", "gates-crates"): thirty_min,
+        ("ci.yml", "gates-storage"): thirty_min,
+        ("ci.yml", "gates-ontology"): thirty_min,
     }.get(
-        (workflow.name, name),
-        "${{ github.event_name == 'pull_request' && 10 || 60 }}",
+        (workflow.name, name), "${{ github.event_name == 'pull_request' && 10 || 60 }}"
     )
     if (workflow.name, name) in {
         ("ci.yml", "quality-advisory"),
         ("ci.yml", "gates-crates"),
+        ("ci.yml", "gates-storage"),
+        ("ci.yml", "gates-ontology"),
     }:
         assert job.get("timeout-minutes") == pr_scoped
     else:
@@ -457,7 +457,7 @@ def test_workspace_clippy_budget_cannot_expand_other_jobs(
     workflow: str, name: str
 ) -> None:
     """EG-CONTRACT-R031: the matrix budget is not a general runner exception."""
-    budget = "${{ github.event_name == 'pull_request' && 15 || 60 }}"
+    budget = "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     with pytest.raises(AssertionError):
         _assert_runner_budget(Path(workflow), name, {"timeout-minutes": budget})
 
