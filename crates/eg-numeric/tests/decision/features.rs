@@ -165,7 +165,6 @@ fn a_missing_or_mistyped_parameter_is_a_typed_refusal() {
 /// scores through the real `feature_matrix`: row width is the schema's
 /// feature count, never the text length, and only the declared capability
 /// cardinality bound can refuse.
-// spec: EG-DECISION-ENGINE-R083.2
 #[test]
 fn scoring_width_is_bounded_by_cardinality_not_text_length() {
     use eg_numeric::decision::rapid_r083::MAX_OPTION_CAPABILITIES;
