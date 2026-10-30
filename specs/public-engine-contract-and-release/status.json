@@ -337,8 +337,8 @@
         "tests/test_release_python_suite_contract.py:104",
         "tests/test_release_python_suite_contract.py:121",
         "tests/test_release_python_suite_contract.py:132",
-        "tests/test_release_python_suite_contract.py:357",
-        "tests/test_release_python_suite_contract.py:376"
+        "tests/test_release_python_suite_contract.py:359",
+        "tests/test_release_python_suite_contract.py:378"
       ]
     },
     {
@@ -644,7 +644,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:773"
+        "tests/test_release_python_suite_contract.py:775"
       ]
     },
     {
@@ -1135,7 +1135,7 @@
         "805fce6204d9"
       ],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:804"
+        "tests/test_release_full_wheel_contract.py:805"
       ]
     },
     {
