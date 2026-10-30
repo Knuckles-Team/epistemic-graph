@@ -121,6 +121,11 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    // EG-MEDIA-VOCAB-R650.4: the two stable media memory refusals.
+    (
+        "MediaRemember",
+        &["MEDIA_MEMORY_OVERSIZE_BLOB", "MEDIA_MEMORY_TYPE_MISMATCH"],
+    ),
     ("AnalyticsJob", &["INVALID_CONFIGURATION"]),
     ("GetRunWorkItem", &["RUN_ADMISSION_UNAVAILABLE"]),
     (

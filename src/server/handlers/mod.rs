@@ -203,6 +203,9 @@ pub(crate) mod viz;
 // snapshot through the graph mutation gateway.
 #[cfg(feature = "modality-serving")]
 pub(crate) mod modality;
+// EG-MEDIA-VOCAB-R650.3: served MediaRemember / MediaRecall.
+#[cfg(feature = "modality-serving")]
+pub(crate) mod media_memory;
 // RF-019's S1-S6 tiered semantic ingestion queue. Always declared: the module
 // carries its own `#![cfg(all(ann-redb, query))]`, the durable semantic owner
 // plus the authorized SQL source read port it needs, and the router refuses

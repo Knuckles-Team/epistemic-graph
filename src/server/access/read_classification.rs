@@ -125,6 +125,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "ListTriggers",
     "MatchOntologyTerms",
     "MaterializationStatus",
+    "MediaRecall",
     "MineClassifyFit",
     // t1-grounding-0802 follow-up audit: `handlers::pipeline::try_handle` (module doc,
     // `src/server/handlers/pipeline.rs`) receives the SAME `core.clone()` the mining/

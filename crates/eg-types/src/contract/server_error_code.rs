@@ -49,6 +49,8 @@ closed_error_codes! {
         EnrichmentUnavailable => "ENRICHMENT_UNAVAILABLE",
         GuardrailScopeTooLarge => "GUARDRAIL_SCOPE_TOO_LARGE",
         MalformedGuardrailRule => "MALFORMED_GUARDRAIL_RULE",
+        MediaMemoryOversizeBlob => "MEDIA_MEMORY_OVERSIZE_BLOB",
+        MediaMemoryTypeMismatch => "MEDIA_MEMORY_TYPE_MISMATCH",
         ConnectorPackProjectionClusterUnavailable => "CONNECTOR_PACK_PROJECTION_CLUSTER_UNAVAILABLE",
         ConnectorPackProjectionFailed => "CONNECTOR_PACK_PROJECTION_FAILED",
         ConnectorPackProjectionSweepFailed => "CONNECTOR_PACK_PROJECTION_SWEEP_FAILED",

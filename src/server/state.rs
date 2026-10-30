@@ -205,6 +205,11 @@ pub struct ServerState {
     /// `Option<..> = None`-almost-everywhere shape on this same struct.
     #[cfg(feature = "viz-static-export")]
     pub viz_engine: Option<Arc<crate::server::viz_engine::VizEngineState>>,
+    /// Tenant-scoped multimodal memory (EG-MEDIA-VOCAB-R650.3), the one store
+    /// `Method::MediaRemember` / `Method::MediaRecall` reach. Held in engine
+    /// state for the life of the process (local-only, not crash-durable).
+    #[cfg(feature = "modality-serving")]
+    pub media_memory: Arc<Mutex<eg_modality::media_memory::MediaMemoryStore>>,
     /// Global backpressure: caps concurrent in-flight requests across all
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
@@ -494,6 +499,8 @@ impl ServerState {
             cold_tracker: Arc::default(),
             #[cfg(feature = "viz-static-export")]
             viz_engine: None,
+            #[cfg(feature = "modality-serving")]
+            media_memory: Arc::default(),
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::default(),

@@ -94,6 +94,10 @@ method_results! {
     // One bounded page of `(key, value, version)` rows and the next-page cursor.
     KvScan(KvScan) => Raw<KvScanPage>;
     KvCas(KvCas) => Raw<KvCasOutcome>;
+    // EG-MEDIA-VOCAB-R650.3: the stored blob node (digest, type, first derivation, source message).
+    MediaRemember(MediaRemember) => Raw<crate::media_memory::MediaMemory>;
+    // EG-MEDIA-VOCAB-R650.3: the recalled blobs in digest order, each with its evidence.
+    MediaRecall(MediaRecall) => Raw<Vec<crate::media_memory::MediaRecall>>;
     #[cfg(feature = "query")]
     SqlSourceBatch(SqlSourceBatch) => Raw<SqlSourceBatchResult>;
     AgentComponentContent(AgentComponent / "content") => Raw<AgentComponentContentResult>;

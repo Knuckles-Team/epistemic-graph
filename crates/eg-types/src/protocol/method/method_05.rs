@@ -432,6 +432,31 @@ $($variants)*
         graph: String,
     },
 
+    /// Remember a media blob (EG-MEDIA-VOCAB-R650.3): store it once by its
+    /// sha256 digest for the verified tenant and attach each derivation
+    /// (transcript, caption) as a separate derived node. A blob over the size
+    /// ceiling or whose declared type differs from its sniffed type is refused
+    /// with a stable code and changes nothing (R650.4).
+    MediaRemember {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
+        #[serde(with = "serde_bytes")]
+        bytes: Vec<u8>,
+        mime: String,
+        source_message: String,
+        citing_memory: String,
+        #[serde(default)]
+        derivations: Vec<crate::media_memory::MediaDerivation>,
+    },
+    /// Recall remembered media for the verified tenant (EG-MEDIA-VOCAB-R650.3):
+    /// by digest (`blob_id`) or by derivation text (`text`). Exactly one key is
+    /// required.
+    MediaRecall {
+        #[serde(default)]
+        blob_id: Option<String>,
+        #[serde(default)]
+        text: Option<String>,
+    },
+
 
     // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────
     // Register a named EXTERNAL source so a UnifiedQuery `Op::ForeignScan` can read it

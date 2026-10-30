@@ -506,6 +506,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::NlQuery { .. }
         | Method::NlQueryExplain { .. }
         | Method::NlQueryPlan { .. }
+        | Method::MediaRemember { .. }
+        | Method::MediaRecall { .. }
         | Method::FinanceMeanReversion { .. }
         | Method::FinanceHardimanBouchaud { .. }
         | Method::DsDpoLoss { .. }

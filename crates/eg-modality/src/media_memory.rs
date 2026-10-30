@@ -13,26 +13,9 @@ use std::collections::BTreeMap;
 /// Largest blob this memory accepts.
 pub const MEDIA_MEMORY_MAX_BYTES: usize = 32 * 1024 * 1024;
 
-/// A stored media blob node (tenant-scoped).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MediaMemory {
-    pub blob_id: String,
-    pub mime: String,
-    pub transcript_ref: Option<String>,
-    pub source_message: String,
-}
-
-/// A recall result: the blob plus its derivations and the citing memory entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MediaRecall {
-    pub blob_id: String,
-    pub mime: String,
-    pub size: u64,
-    pub derivation_ids: Vec<String>,
-    pub citing_memory: String,
-}
+/// The wire types live in `eg_types::media_memory` so the protocol and the
+/// generated contract name them; this module is their behaviour's home.
+pub use eg_types::media_memory::{MediaDerivation, MediaMemory, MediaRecall};
 
 /// Stable refusal codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,9 +29,9 @@ pub enum MediaMemoryRefusal {
 impl MediaMemoryRefusal {
     pub fn code(self) -> &'static str {
         match self {
-            Self::OversizeBlob => "media_memory_oversize_blob",
-            Self::TypeMismatch => "media_memory_type_mismatch",
-            Self::UnknownBlob => "media_memory_unknown_blob",
+            Self::OversizeBlob => "MEDIA_MEMORY_OVERSIZE_BLOB",
+            Self::TypeMismatch => "MEDIA_MEMORY_TYPE_MISMATCH",
+            Self::UnknownBlob => "MEDIA_MEMORY_UNKNOWN_BLOB",
         }
     }
 }
@@ -128,6 +111,31 @@ impl MediaMemoryStore {
             transcript_ref: entry.derivations.keys().next().cloned(),
             source_message: entry.source_message.clone(),
         })
+    }
+
+    /// The served write (`Method::MediaRemember`): validate, write the blob once
+    /// by digest and attach every derivation. A refusal is decided before any
+    /// state changes, so a refused request leaves the store untouched.
+    pub fn remember_with(
+        &mut self,
+        tenant: &str,
+        bytes: &[u8],
+        declared_mime: &str,
+        source_message: &str,
+        citing_memory: &str,
+        derivations: &[MediaDerivation],
+    ) -> Result<MediaMemory, MediaMemoryRefusal> {
+        let mut memory =
+            self.remember(tenant, bytes, declared_mime, source_message, citing_memory)?;
+        for d in derivations {
+            self.derive(tenant, &memory.blob_id, &d.derivation_id, &d.text)?;
+        }
+        memory.transcript_ref = self
+            .tenants
+            .get(tenant)
+            .and_then(|t| t.get(&memory.blob_id))
+            .and_then(|e| e.derivations.keys().next().cloned());
+        Ok(memory)
     }
 
     /// Attach a derivation (transcript, caption) as a separate derived node.
@@ -216,7 +224,7 @@ mod tests {
             Err(MediaMemoryRefusal::OversizeBlob)
         );
         assert!(s.tenants.is_empty());
-        assert_eq!(MediaMemoryRefusal::OversizeBlob.code(), "media_memory_oversize_blob");
+        assert_eq!(MediaMemoryRefusal::OversizeBlob.code(), "MEDIA_MEMORY_OVERSIZE_BLOB");
         assert_eq!(s.derive("t", "x", "d", "t"), Err(MediaMemoryRefusal::UnknownBlob));
     }
 

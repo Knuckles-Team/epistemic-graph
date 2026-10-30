@@ -443,7 +443,8 @@ pub(super) async fn dispatch_compute_and_media_methods(
         feature = "statechart",
         feature = "quantum-agent-api",
         feature = "asr-whisper",
-        feature = "viz-static-export"
+        feature = "viz-static-export",
+        feature = "modality-serving"
     )))]
     {
         let _ = ctx;
@@ -454,7 +455,8 @@ pub(super) async fn dispatch_compute_and_media_methods(
         feature = "statechart",
         feature = "quantum-agent-api",
         feature = "asr-whisper",
-        feature = "viz-static-export"
+        feature = "viz-static-export",
+        feature = "modality-serving"
     ))]
     {
         #[allow(unused_variables)]
@@ -519,8 +521,26 @@ pub(super) async fn dispatch_compute_and_media_methods(
             method @ Method::Viz { .. } => {
                 dispatch_compute_and_media_methods_arm_4(ctx, method).await
             }
+            // ── Multimodal memory (EG-MEDIA-VOCAB-R650.3, feature `modality-serving`) ──
+            // NOT graph-scoped: the tenant-scoped store lives in engine state, so it
+            // self-routes here BEFORE the per-graph chain, like `AnalyticsJob` above.
+            #[cfg(feature = "modality-serving")]
+            method @ (Method::MediaRemember { .. } | Method::MediaRecall { .. }) => {
+                dispatch_media_memory_method(ctx, method).await
+            }
             other => return ControlFlow::Continue(other),
         })
+    }
+}
+
+#[cfg(feature = "modality-serving")]
+async fn dispatch_media_memory_method(ctx: DispatchCtx<'_>, method: Method) -> Response {
+    let req_id = ctx.req.id;
+    match handlers::media_memory::try_handle(ctx.state, req_id, ctx.verified_context, method)
+        .await
+    {
+        Ok(resp) => resp,
+        Err(_) => Response::err(req_id, "router dispatch helper routing mismatch"),
     }
 }
 

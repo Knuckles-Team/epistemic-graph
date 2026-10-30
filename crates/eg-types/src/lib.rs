@@ -205,6 +205,8 @@ pub mod pg_diff_baseline;
 pub mod schema_context;
 // EG-FEDERATED-QUERY-R058.2.2.1 — the disclosed NL query result (executed UQL + rows).
 pub mod nl_query;
+// EG-MEDIA-VOCAB-R650.1 — multimodal memory wire types.
+pub mod media_memory;
 // EG-UNIFIED-DATA-PLANE-R030.1 — typed cross-application entity-link
 // proposal, refusing an owl:sameAs assertion before approval or for a
 // non-Match classification. Pure data; blocking, field-similarity scoring
