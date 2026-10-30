@@ -1689,9 +1689,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R077.1",
       "title": "`ColumnVectorBinding` typed model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bfa5ffcc7228"
+      ],
+      "verified_by": [
+        "crates/eg-query/src/sql/ann.rs:413"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R077.2",
@@ -1740,8 +1744,10 @@
     {
       "id": "EG-FEDERATED-QUERY-R078.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bfa5ffcc7228"
+      ],
       "verified_by": [
         "crates/eg-query/src/plan_scope.rs:107"
       ]
@@ -1799,12 +1805,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R079.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bfa5ffcc7228"
+      ],
       "verified_by": [
         "crates/eg-types/src/lake_catalog.rs:683",
         "crates/eg-types/src/lake_catalog.rs:691",
-        "crates/eg-types/src/lake_catalog.rs:705"
+        "crates/eg-types/src/lake_catalog.rs:705",
+        "crates/eg-types/src/lake_catalog.rs:778"
       ]
     },
     {
@@ -1866,7 +1875,7 @@
       ],
       "verified_by": [
         "crates/eg-lake/src/catalog.rs:410",
-        "crates/eg-types/src/lake_catalog.rs:1056"
+        "crates/eg-types/src/lake_catalog.rs:1057"
       ]
     },
     {
@@ -2374,8 +2383,10 @@
     {
       "id": "EG-FEDERATED-QUERY-R040.1.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bfa5ffcc7228"
+      ],
       "verified_by": [
         "crates/eg-types/src/wire_query_core.rs:1061",
         "crates/eg-types/src/wire_query_core.rs:1073",
@@ -3167,8 +3178,10 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.4.8",
       "title": "The hint offers mapped connector properties under their ontology names",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bfa5ffcc7228"
+      ],
       "verified_by": [
         "crates/eg-plan/src/nl/context_tests.rs:445",
         "crates/eg-plan/src/nl/context_tests.rs:592"
@@ -4692,8 +4705,10 @@
     {
       "id": "EG-FEDERATED-QUERY-R722.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bfa5ffcc7228"
+      ],
       "verified_by": [
         "crates/eg-rdf/src/pack/sources.rs:114",
         "crates/eg-types/src/connector_pack/source.rs:63",
