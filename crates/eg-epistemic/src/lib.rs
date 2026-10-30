@@ -94,7 +94,11 @@ pub use causal::{
 };
 // EPI-P3-3 — provenance-aware retrieval ranking, see `ranking` module docs.
 #[cfg(feature = "epistemic-causal")]
-pub use ranking::{evidence_quality, rank, RankWeights, RankedResult, RetrievalCandidate};
+pub use ranking::{
+    evidence_quality, rank, rank_calibrated, CalibratedRankRules, CalibratedRanking,
+    RankAbstention, RankWeights, RankedCandidate, RankedResult, RetrievalCandidate, TieBreakPolicy,
+    CALIBRATED_FIRST, ITEM_LEVEL_TIE_BREAK, UNCALIBRATED_CANDIDATE,
+};
 
 // X2 — paraconsistent justification-based TMS + Dung-style abstract argumentation
 // semantics (grounded/preferred/stable extensions, bipolar "supported attack" closure,

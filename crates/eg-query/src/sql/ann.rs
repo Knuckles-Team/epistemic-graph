@@ -410,6 +410,7 @@ mod tests {
         assert_eq!(parse_query_vector("'[]'"), None, "empty vector");
     }
 
+    // spec: EG-FEDERATED-QUERY-R077.1
     #[test]
     fn r0771_column_vector_binding_round_trips_and_rejects_zero_dimension() {
         let binding =

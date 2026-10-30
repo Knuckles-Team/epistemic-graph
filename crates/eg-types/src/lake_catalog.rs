@@ -775,6 +775,7 @@ mod tests {
 
     // ── schema change / compatibility classification ────────────────────────
 
+    // spec: EG-FEDERATED-QUERY-R079.1
     #[test]
     fn classify_schema_change_covers_every_variant() {
         assert_eq!(
