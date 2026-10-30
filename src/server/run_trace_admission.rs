@@ -104,7 +104,7 @@ pub fn admit(method: Method, core: &crate::graph::GraphCore) -> Result<Admitted,
     else {
         return Ok(passthrough(method));
     };
-    let Some(mut props) = eg_types::msgpack::decode_property_object(properties_msgpack) else {
+    let Ok(mut props) = eg_types::msgpack::decode_property_object(properties_msgpack) else {
         return Ok(passthrough(method));
     };
     if !is_run_trace(&props) {
