@@ -6,6 +6,7 @@ fn task(id: &str, deps: &[&str]) -> TaskPlanTask {
         prompt: format!("Analyze {id} with cited evidence"),
         depends_on: BoundedVec::new(deps.iter().map(|s| s.to_string()).collect()).unwrap(),
         call: None,
+        aggregation: None,
     }
 }
 
@@ -26,9 +27,21 @@ fn proposal() -> TaskPlanProposal {
 
 // spec: EG-DECISION-ENGINE-R134
 // spec: EG-DECISION-ENGINE-R134.111.1
+// spec: EG-DECISION-ENGINE-R134.1
 #[test]
 fn task_plan_round_trips() {
-    let plan = plan_explicit_tasks(&proposal()).unwrap();
+    let mut input = proposal();
+    let mut tasks = input.tasks.as_slice().to_vec();
+    tasks[0].aggregation = Some(AggregationOp::MajorityVote);
+    input.tasks = BoundedVec::new(tasks).unwrap();
+    let plan = plan_explicit_tasks(&input).unwrap();
+    assert_eq!(
+        plan.tasks
+            .iter()
+            .find(|t| t.task_id == "join")
+            .and_then(|t| t.aggregation),
+        Some(AggregationOp::MajorityVote)
+    );
     let value = serde_json::to_value(&plan).unwrap();
     assert_eq!(
         serde_json::from_value::<TaskPlan>(value.clone()).unwrap(),
@@ -37,9 +50,55 @@ fn task_plan_round_trips() {
     let mut unknown = value;
     unknown["authorize"] = serde_json::json!(true);
     assert!(serde_json::from_value::<TaskPlan>(unknown).is_err());
-    let mut value = serde_json::to_value(proposal()).unwrap();
+    let mut value = serde_json::to_value(input).unwrap();
     value["tasks"][0]["model"] = serde_json::json!("untrusted");
     assert!(serde_json::from_value::<TaskPlanProposal>(value).is_err());
+}
+
+// spec: EG-DECISION-ENGINE-R134.1
+#[test]
+fn aggregation_round_trips() {
+    // Every closed value round-trips on its wire name.
+    for (op, wire) in [
+        (AggregationOp::Concat, "concat"),
+        (AggregationOp::MajorityVote, "majority_vote"),
+        (AggregationOp::Reduce, "reduce"),
+        (AggregationOp::FirstValid, "first_valid"),
+    ] {
+        assert_eq!(serde_json::to_string(&op).unwrap(), format!("\"{wire}\""));
+        assert_eq!(
+            serde_json::from_str::<AggregationOp>(&format!("\"{wire}\"")).unwrap(),
+            op
+        );
+    }
+    // An unknown value is refused.
+    assert!(serde_json::from_str::<AggregationOp>("\"median\"").is_err());
+
+    // The operator survives the canonical form and binds the plan digest.
+    let mut input = proposal();
+    let mut tasks = input.tasks.as_slice().to_vec();
+    tasks[0].aggregation = Some(AggregationOp::FirstValid);
+    input.tasks = BoundedVec::new(tasks).unwrap();
+    let plan = plan_explicit_tasks(&input).unwrap();
+    assert_eq!(
+        plan.tasks
+            .iter()
+            .find(|t| t.task_id == "join")
+            .and_then(|t| t.aggregation),
+        Some(AggregationOp::FirstValid)
+    );
+    assert_ne!(
+        plan.plan_digest,
+        plan_explicit_tasks(&proposal()).unwrap().plan_digest
+    );
+
+    // An operator on a non-output task is refused.
+    let mut input = proposal();
+    let mut tasks = input.tasks.as_slice().to_vec();
+    tasks[3].aggregation = Some(AggregationOp::Concat);
+    input.tasks = BoundedVec::new(tasks).unwrap();
+    let message = plan_explicit_tasks(&input).unwrap_err();
+    assert!(message.starts_with("aggregation_on_non_output_task"));
 }
 
 // spec: EG-DECISION-ENGINE-R134.111.2
@@ -182,6 +241,7 @@ fn maximum_bounded_chain_is_valid() {
             })
             .unwrap(),
             call: None,
+            aggregation: None,
         })
         .collect();
     let input = TaskPlanProposal {

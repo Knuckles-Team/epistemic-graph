@@ -1528,7 +1528,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:411"
+        "crates/eg-types/src/decision/statistical.rs:420"
       ]
     },
     {
@@ -1561,7 +1561,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:418"
+        "crates/eg-types/src/decision/statistical.rs:427"
       ]
     },
     {
@@ -3979,7 +3979,7 @@
         "c7da75413a3c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:399",
+        "crates/eg-types/src/decision/statistical.rs:408",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:57",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:98"
       ]
@@ -4449,7 +4449,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/run_governance/tests.rs:23"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R133.2",
@@ -4495,7 +4497,7 @@
         "2e1d91e99882"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:27"
+        "crates/eg-types/src/decision/task_plan/tests.rs:28"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R134.1",
@@ -4534,7 +4536,10 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:30",
+        "crates/eg-types/src/decision/task_plan/tests.rs:58"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R134.2",
@@ -4614,7 +4619,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/program_store/tests.rs:21"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R135.2",
@@ -4811,7 +4818,9 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/context_budget/tests.rs:158"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R137.8",
@@ -9896,7 +9905,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:28",
+        "crates/eg-types/src/decision/task_plan/tests.rs:29",
         "tests/test_task_plan_client.py:10"
       ]
     },
@@ -9906,8 +9915,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:171",
-        "crates/eg-types/src/decision/task_plan/tests.rs:45"
+        "crates/eg-types/src/decision/task_plan/tests.rs:104",
+        "crates/eg-types/src/decision/task_plan/tests.rs:230"
       ]
     },
     {
@@ -9916,7 +9925,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:61",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:62",
         "tests/decide/test_task_plan_served.py:237",
         "tests/decide/test_task_plan_served.py:359"
       ]
@@ -9929,11 +9938,11 @@
         "f9bfc0da8ae7"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:119",
-        "crates/eg-types/src/decision/task_plan/tests.rs:198",
-        "crates/eg-types/src/decision/task_plan/tests.rs:208",
-        "crates/eg-types/src/decision/task_plan/tests.rs:236",
-        "crates/eg-types/src/decision/task_plan/tests.rs:84"
+        "crates/eg-types/src/decision/task_plan/tests.rs:143",
+        "crates/eg-types/src/decision/task_plan/tests.rs:178",
+        "crates/eg-types/src/decision/task_plan/tests.rs:258",
+        "crates/eg-types/src/decision/task_plan/tests.rs:268",
+        "crates/eg-types/src/decision/task_plan/tests.rs:296"
       ]
     },
     {
@@ -9942,8 +9951,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:156",
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:62",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:157",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:63",
         "tests/decide/test_task_plan_served.py:238"
       ]
     },
@@ -9962,8 +9971,8 @@
         "67dffe78b02d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:253",
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:182",
+        "crates/eg-types/src/decision/task_plan/tests.rs:313",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:183",
         "tests/test_decision_stat_client.py:80"
       ]
     },
@@ -9975,7 +9984,7 @@
         "08e6ef4d5749"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:296"
+        "crates/eg-types/src/decision/task_plan/tests.rs:356"
       ]
     },
     {
@@ -9986,8 +9995,8 @@
         "08e6ef4d5749"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:340",
-        "crates/eg-types/src/decision/task_plan/tests.rs:375"
+        "crates/eg-types/src/decision/task_plan/tests.rs:400",
+        "crates/eg-types/src/decision/task_plan/tests.rs:435"
       ]
     },
     {
@@ -9998,7 +10007,7 @@
         "08e6ef4d5749"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:455"
+        "crates/eg-types/src/decision/task_plan/tests.rs:515"
       ]
     },
     {
@@ -10007,8 +10016,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:539",
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:284"
+        "crates/eg-types/src/decision/task_plan/tests.rs:599",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:285"
       ]
     },
     {
@@ -10019,7 +10028,7 @@
         "7fe7724bc0af"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:249",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:250",
         "tests/test_decision_stat_client.py:81"
       ]
     },

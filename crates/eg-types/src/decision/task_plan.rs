@@ -58,6 +58,18 @@ pub const MAX_CONCURRENCY: u16 = 8;
 pub const MAX_PROMPT_BYTES: usize = 16 * 1024;
 pub const MAX_TOTAL_PROMPT_BYTES: usize = 64 * 1024;
 
+/// How the output task combines its children's results
+/// (EG-DECISION-ENGINE-R134.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum AggregationOp {
+    Concat,
+    MajorityVote,
+    Reduce,
+    FirstValid,
+}
+
 /// A prompt step uses the host's already-bound agent. It cannot select
 /// credentials, models or a different principal. A task with `call` is a tool
 /// step: no model runs it and `prompt` is only its label. The call is a caller
@@ -72,6 +84,10 @@ pub struct TaskPlanTask {
     pub depends_on: BoundedVec<String, 64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub call: Option<TaskPlanCall>,
+    /// How the children's results are combined. Valid only on the output
+    /// task; `None` on every other task (EG-DECISION-ENGINE-R134.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregation: Option<AggregationOp>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -243,6 +259,20 @@ fn check_output(tasks: &BTreeMap<String, TaskPlanTask>, output: &str) -> Result<
     Ok(())
 }
 
+/// The aggregation operator is valid only on the output task
+/// (EG-DECISION-ENGINE-R134.1).
+fn check_aggregation(tasks: &BTreeMap<String, TaskPlanTask>, output: &str) -> Result<(), String> {
+    for task in tasks.values() {
+        if task.task_id != output && task.aggregation.is_some() {
+            return Err(error(
+                "aggregation_on_non_output_task",
+                "the aggregation operator is valid only on the output task",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Derive a bounded executable DAG from explicit caller claims. No model,
 /// external service, mutable state or authorization mechanism is consulted.
 pub fn plan_explicit_tasks(proposal: &TaskPlanProposal) -> Result<TaskPlan, String> {
@@ -250,6 +280,7 @@ pub fn plan_explicit_tasks(proposal: &TaskPlanProposal) -> Result<TaskPlan, Stri
     let canonical = ordered(&tasks)?;
     call::check_bindings(&tasks)?;
     check_output(&tasks, &proposal.output_task_id)?;
+    check_aggregation(&tasks, &proposal.output_task_id)?;
     let mut plan = TaskPlan {
         total_tasks: canonical.len() as u16,
         tasks: BoundedVec::new(canonical).expect("validated task bound"),

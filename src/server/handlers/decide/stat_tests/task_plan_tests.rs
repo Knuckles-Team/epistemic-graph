@@ -17,6 +17,7 @@ fn task_request(pin: &ComponentDependency) -> DecideRequest {
         prompt: format!("Analyze {id} with evidence"),
         depends_on: BoundedVec::new(deps.into_iter().map(str::to_string).collect()).unwrap(),
         call: None,
+        aggregation: None,
     })
     .collect();
     DecideRequest {

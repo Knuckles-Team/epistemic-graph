@@ -99,6 +99,9 @@ pub enum QuestionKind {
     HarnessConfig,
     /// Bounded explicit dependency planning; admission belongs to the host.
     TaskPlan,
+    /// Tool relevance ranking over the fleet catalog, the prefilter ahead of
+    /// the covering-subset selection (EG-DECISION-ENGINE-R134.1). Evaluate-only.
+    ToolRelevance,
     /// The contrastive harness composition decision (EG-DECISION-ENGINE-R803):
     /// two to eight candidate component versions probed against the same
     /// baseline under identical conditions; the engine adopts a candidate only
@@ -136,6 +139,12 @@ pub enum QuestionKind {
     BranchOutcome,
     /// Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).
     EditConcentration,
+    /// The wall time, memory, process count and grace period of one agent run
+    /// (EG-DECISION-ENGINE-R133.1). See `decision::run_governance`.
+    RuntimeQuota,
+    /// A stored program looked up by task signature
+    /// (EG-DECISION-ENGINE-R135.1). See `decision::program_store`.
+    ProgramLookup,
 }
 
 /// What is at stake. Exploration is permitted only for
