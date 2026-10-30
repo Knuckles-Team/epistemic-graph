@@ -247,9 +247,9 @@ pub fn rank_calibrated(
     let applied: Vec<bool> = (0..ranked.len())
         .map(|i| {
             let shares = |j: usize| {
-                ranked.get(j).is_some_and(|o| {
-                    o.code == ranked[i].code && score(o) == score(&ranked[i])
-                })
+                ranked
+                    .get(j)
+                    .is_some_and(|o| o.code == ranked[i].code && score(o) == score(&ranked[i]))
             };
             (i > 0 && shares(i - 1)) || shares(i + 1)
         })
@@ -398,11 +398,13 @@ mod tests {
             );
         }
         assert!(serde_json::from_value::<TieBreakPolicy>(serde_json::json!("likelihood")).is_err());
-        assert!(serde_json::from_value::<RankedCandidate>(serde_json::json!({
-            "id": "a", "calibrated_score": 0.1, "code": "c", "tie_break_score": 0.0,
-            "evidence_class": "x", "extra": 1
-        }))
-        .is_err());
+        assert!(
+            serde_json::from_value::<RankedCandidate>(serde_json::json!({
+                "id": "a", "calibrated_score": 0.1, "code": "c", "tie_break_score": 0.0,
+                "evidence_class": "x", "extra": 1
+            }))
+            .is_err()
+        );
     }
 
     // spec: EG-DECISION-ENGINE-R130.2
@@ -448,8 +450,14 @@ mod tests {
         assert_eq!(
             out.abstained,
             vec![
-                RankAbstention { id: "uncal".into(), reason: UNCALIBRATED_CANDIDATE },
-                RankAbstention { id: "nan".into(), reason: UNCALIBRATED_CANDIDATE },
+                RankAbstention {
+                    id: "uncal".into(),
+                    reason: UNCALIBRATED_CANDIDATE
+                },
+                RankAbstention {
+                    id: "nan".into(),
+                    reason: UNCALIBRATED_CANDIDATE
+                },
             ]
         );
     }

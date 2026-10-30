@@ -401,8 +401,16 @@ mod tests {
         let r = rule("eg:rule/skip-review", "eg:task/Deploy");
         let invariants = [
             invariant("eg:invariant/unrelated", "eg:rule/other", "eg:task/Deploy"),
-            invariant("eg:invariant/first", "eg:rule/skip-review", "eg:task/Deploy"),
-            invariant("eg:invariant/second", "eg:rule/skip-review", "eg:task/Deploy"),
+            invariant(
+                "eg:invariant/first",
+                "eg:rule/skip-review",
+                "eg:task/Deploy",
+            ),
+            invariant(
+                "eg:invariant/second",
+                "eg:rule/skip-review",
+                "eg:task/Deploy",
+            ),
         ];
         assert_eq!(
             check_rule_against_invariants(&r, &invariants),
