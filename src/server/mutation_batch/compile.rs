@@ -674,12 +674,12 @@ fn compiled_envelope(
 
 /// The request-schema digest one method's identity binds.
 ///
-/// A method the contract declares gets its generated row's digest. A reserved
+/// A method the contract declares gets its catalog row's digest. A reserved
 /// batch id -- the shape of a multi-operation or state-backed batch -- has no
 /// wire method and therefore no request schema, so its digest frames the
 /// reserved id itself rather than pretending a schema exists. The `SchemaId`
 /// itself is derived by the one documented rule in
-/// `eg_types::mutation_batch::method_schema_id`, which the generated table also
+/// `eg_types::mutation_batch::method_schema_id`, which the computed catalog also
 /// follows, so the two cannot disagree.
 fn method_schema_digest(
     method: &eg_types::contract::MethodId,

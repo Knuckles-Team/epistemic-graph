@@ -88,33 +88,17 @@ fn modality_lists_enforce_wire_types_and_both_size_edges() {
 // spec: EG-TYPED-PACKS-R043
 #[test]
 fn modality_digest_replay_is_canonical_and_direction_sensitive() {
-    let vectors: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/contract/fixtures/connector_pack_digest_vectors.json"
-    )))
-    .unwrap();
-    let full = vectors["vectors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|v| v["name"] == "annotations_digest/full")
-        .unwrap();
     let annotations = eg_types::test_support::contract_wave::pack::annotations();
     assert_eq!(
         annotations_digest(&annotations).unwrap().to_hex(),
-        full["sha256"].as_str().unwrap()
+        // The golden digest Python's connector-pack client must also produce.
+        "2184e78879af1f369b47adac45d9b847eb9c0f9f3f1f87fe53df73140eb0fe82"
     );
-    let empty = vectors["vectors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|v| v["name"] == "annotations_digest/empty")
-        .unwrap();
     assert_eq!(
         annotations_digest(&PackAnnotations::default())
             .unwrap()
             .to_hex(),
-        empty["sha256"].as_str().unwrap()
+        "0df97c2f617f661b8c75e150998cc346613a374329f484701a7ab813a6fde073"
     );
     for field in ["modalities_in", "modalities_out"] {
         let ordered = annotated(field, &["eg:modality/image", "eg:modality/text"]);

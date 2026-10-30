@@ -558,15 +558,10 @@ pub fn reserved_method_schema_digest(method: &MethodId) -> Result<Digest256, Str
 
 /// The generated request schema one `Method` variant's id points at.
 ///
-/// Every descriptor's `request_schema` is `SchemaRef::MethodVariant`, and
-/// `gen_contract` emits those variants into one document keyed by the serde tag,
-/// so this pointer is a derivation with one rule rather than 408 authored
-/// strings.
+/// One rule for every method: `medulla:method/<id>`, the same id
+/// `eg_capabilities::method_schema` returns.
 pub fn method_schema_id(method: &MethodId) -> Result<SchemaId, String> {
-    SchemaId::new(format!(
-        "contract/schemas/method.request.json#/methods/{}",
-        method.as_str()
-    ))
+    SchemaId::new(format!("medulla:method/{}", method.as_str()))
 }
 
 /// This engine is the audience of every authority it admits.
