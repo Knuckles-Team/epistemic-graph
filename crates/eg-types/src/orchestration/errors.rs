@@ -56,5 +56,8 @@ closed_error_codes! {
         /// A write that would mutate a published lesson, adoption, contrast
         /// or probe run.
         RecordImmutable => "HarnessRecordImmutable",
+        /// A `:MeasuredModelFact` written without evidence that names an
+        /// `:EvaluationRun` (or other evidence for the fact).
+        MeasuredFactWithoutEvidence => "MeasuredFactWithoutEvidence",
     }
 }

@@ -14,6 +14,7 @@ use crate::mutation_batch::MutationBatch;
 
 mod draft;
 mod material;
+mod measured_fact;
 pub use draft::{ChangeEnvelopeDraft, ChangeMutationDraft};
 pub use material::MaterialClass;
 use material::TextRule;
@@ -164,6 +165,10 @@ pub struct EvidenceRecord {
     #[serde(with = "serde_bytes")]
     pub locus_msgpack: Vec<u8>,
     pub content_digest: String,
+    /// The `:EvaluationRun` this evidence records, when it is run evidence
+    /// (EG-ORCH-VOCAB-R011.8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluation_run: Option<String>,
 }
 
 /// Policy rows carry an opaque subject-set digest, never raw principals.
@@ -277,6 +282,50 @@ mod validation {
         validate_content(envelope)?;
         validate_material(envelope)?;
         validate_operations(envelope)?;
+        validate_measured_facts(envelope)?;
+        Ok(())
+    }
+
+    /// EG-ORCH-VOCAB-R011.8 — an envelope that writes a `:MeasuredModelFact`
+    /// must carry evidence for it: a record naming an `:EvaluationRun`, or
+    /// evidence whose object is the fact itself.
+    fn validate_measured_facts(envelope: &ChangeEnvelope) -> Result<(), String> {
+        for operation in &envelope.mutation.operations {
+            let crate::protocol::Method::AddNode {
+                node_id,
+                properties_msgpack,
+            } = &operation.method
+            else {
+                continue;
+            };
+            let is_fact = crate::msgpack::decode_property_object(properties_msgpack)
+                .ok()
+                .and_then(|props| {
+                    props
+                        .get("node_type")
+                        .and_then(|value| value.as_str())
+                        .map(|kind| kind == "MeasuredModelFact")
+                })
+                .unwrap_or(false);
+            if !is_fact {
+                continue;
+            }
+            let evidenced = envelope.evidence.iter().any(|record| {
+                record
+                    .evaluation_run
+                    .as_deref()
+                    .is_some_and(|run| !run.is_empty())
+                    || record.object_id == *node_id
+            });
+            if !evidenced {
+                return Err(at_operation(
+                    operation.ordinal,
+                    &format!(
+                        "MeasuredFactWithoutEvidence: measured model fact {node_id} names no evaluation run or evidence"
+                    ),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -1215,6 +1264,7 @@ mod tests {
             modality: "text".into(),
             locus_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"a": 1})).unwrap(),
             content_digest: "d".repeat(64),
+            evaluation_run: None,
         });
         let err = envelope.validate().unwrap_err();
         assert!(
