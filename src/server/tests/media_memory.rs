@@ -94,24 +94,29 @@ async fn served_media_methods_write_the_blob_cas_and_the_durable_index() {
     assert_eq!(served[0].blob_id, memory.blob_id);
 }
 
-/// Tenant A can never recall tenant B's media, by digest or by text.
+/// Tenant A can never recall tenant B's media, by digest or by text. Driven
+/// at the production handler with two verified tenant contexts: the served
+/// test harness signs every request for the deployment's one tenant, so a
+/// full-dispatch request as a second tenant is refused at authentication.
 // spec: EG-MEDIA-VOCAB-R650.3
 #[tokio::test]
 async fn one_tenant_cannot_recall_another_tenants_media() {
     let state = durable_state();
-    let as_tenant = |tenant: &str| {
-        let context =
-            crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant("agent", tenant);
-        crate::server::access::CarrierAuthority::from_verified(&context).expect("carrier")
-    };
-    let (a, b) = (as_tenant("tenant-a"), as_tenant("tenant-b"));
-    let call = |authority: &crate::server::access::CarrierAuthority, id: u64, method: Method| {
+    let a = crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant("agent", "tenant-a");
+    let b = crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant("agent", "tenant-b");
+    let call = |context: &crate::server::auth::VerifiedRequestContext, id: u64, method: Method| {
         let state = state.clone();
-        let authority = authority.clone();
+        let context = context.clone();
         async move {
-            crate::server::handlers::media_memory::try_handle(&state, id, &authority, method)
-                .await
-                .expect("media method")
+            crate::server::handlers::media_memory::try_handle(
+                &state,
+                id,
+                "__commons__",
+                &context,
+                method,
+            )
+            .await
+            .expect("media method")
         }
     };
     let stored = call(&b, 30, remember(PNG, "image/png", &[("tr-b", "secret plan")])).await;

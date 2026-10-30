@@ -782,6 +782,9 @@ fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute>
             | Method::SourceIngest { .. }
             | Method::IndexRepository { .. }
             | Method::EnrichDocument { .. }
+            // EG-MEDIA-VOCAB-R650.3: admits the blob through the CAS path, then
+            // proposes its byte-free `MediaIndexPut` as the native command.
+            | Method::MediaRemember { .. }
     ) {
         return Some(ClusterMutationRoute::VolatileControl);
     }

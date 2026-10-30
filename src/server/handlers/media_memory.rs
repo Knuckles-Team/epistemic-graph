@@ -104,40 +104,103 @@ struct RememberArgs {
     derivations: Vec<MediaDerivation>,
 }
 
-fn remember(
+/// Admit the bytes into the blob CAS and lower to the byte-free
+/// `MediaIndexPut` that commits the index row.
+fn lower_remember(
     stores: &Stores,
     req_id: u64,
     authority: &CarrierAuthority,
     args: RememberArgs,
-) -> Response {
-    let blob_id = match admit(&args.bytes, &args.mime) {
-        Ok(id) => id,
-        Err(r) => return refusal(req_id, r),
+) -> Result<Method, Response> {
+    let blob_id = admit(&args.bytes, &args.mime).map_err(|r| refusal(req_id, r))?;
+    let cas_digest =
+        admit_blob(&stores.blob, req_id, authority, &args.bytes).map_err(|e| Response::err(req_id, e))?;
+    if cas_digest != blob_id {
+        return Err(Response::err(
+            req_id,
+            "INTERNAL: blob CAS digest differs from the media digest",
+        ));
+    }
+    Ok(Method::MediaIndexPut {
+        blob_id,
+        mime: args.mime,
+        size: args.bytes.len() as u64,
+        source_message: args.source_message,
+        citing_memory: args.citing_memory,
+        derivations: args.derivations,
+    })
+}
+
+/// Commit one index row: fold the delta into the tenant's existing row for
+/// the digest, then write it as one ledgered `kv.redb` owner mutation.
+fn index_put(stores: &Stores, req_id: u64, authority: &CarrierAuthority, method: Method) -> Response {
+    let Method::MediaIndexPut {
+        blob_id,
+        mime,
+        size,
+        source_message,
+        citing_memory,
+        derivations,
+    } = method
+    else {
+        return Response::err(req_id, "media memory routing mismatch");
     };
+    if size > eg_modality::media_memory::MEDIA_MEMORY_MAX_BYTES as u64 {
+        return refusal(req_id, MediaMemoryRefusal::OversizeBlob);
+    }
+    let ns = index_namespace(authority);
     let committed = (|| {
-        let cas_digest = admit_blob(&stores.blob, req_id, authority, &args.bytes)?;
-        if cas_digest != blob_id {
-            return Err("INTERNAL: blob CAS digest differs from the media digest".to_string());
-        }
-        let ns = index_namespace(authority);
         let entry = fold_remember(
             read_entry(&stores.kv, &ns, &blob_id)?,
-            &args.bytes,
-            &args.mime,
-            &args.source_message,
-            &args.citing_memory,
-            &args.derivations,
+            size,
+            &mime,
+            &source_message,
+            &citing_memory,
+            &derivations,
         );
         let row = rmp_serde::to_vec_named(&entry).map_err(|e| e.to_string())?;
         stores.kv.put(&ns, &blob_id, row)?;
-        Ok(entry.memory(&blob_id))
+        Ok::<_, String>(entry.memory(&blob_id))
     })();
     match committed {
         Ok(memory) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<storage_results::MediaRemember>(&memory),
+            ResultPayload::of_ref::<storage_results::MediaIndexPut>(&memory),
         ),
         Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// Whether the index row must be proposed through consensus.
+async fn proposes_through_consensus(state: &Arc<RwLock<ServerState>>) -> bool {
+    #[cfg(feature = "raft")]
+    {
+        !crate::server::dispatch::is_replicated_apply()
+            && matches!(
+                state.read().await.placement_authority(),
+                crate::server::state::PlacementAuthorityKind::MultiRaft
+            )
+    }
+    #[cfg(not(feature = "raft"))]
+    {
+        let _ = state;
+        false
+    }
+}
+
+/// Re-label an index-put answer as the public `MediaRemember` result (same body).
+fn as_remember(resp: Response) -> Response {
+    match resp.result {
+        Some(ResultPayload::Raw(bytes)) if resp.error.is_none() => {
+            match rmp_serde::from_slice::<eg_types::media_memory::MediaMemory>(&bytes) {
+                Ok(memory) => Response::ok(
+                    resp.id,
+                    ResultPayload::of_ref::<storage_results::MediaRemember>(&memory),
+                ),
+                Err(e) => Response::err(resp.id, format!("INTERNAL: media index answer: {e}")),
+            }
+        }
+        _ => resp,
     }
 }
 
@@ -172,15 +235,20 @@ fn recall(
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
-    authority: &CarrierAuthority,
+    request_graph: &str,
+    verified_context: &crate::server::auth::VerifiedRequestContext,
     method: Method,
 ) -> Result<Response, Method> {
     if !matches!(
         method,
-        Method::MediaRemember { .. } | Method::MediaRecall { .. }
+        Method::MediaRemember { .. } | Method::MediaIndexPut { .. } | Method::MediaRecall { .. }
     ) {
         return Err(method);
     }
+    let authority = match CarrierAuthority::from_verified(verified_context) {
+        Ok(authority) => authority,
+        Err(denied) => return Ok(Response::err(req_id, denied)),
+    };
     let stores = match stores(state).await {
         Ok(stores) => stores,
         Err(e) => return Ok(Response::err(req_id, e)),
@@ -192,19 +260,49 @@ pub(crate) async fn try_handle(
             source_message,
             citing_memory,
             derivations,
-        } => remember(
-            &stores,
-            req_id,
-            authority,
-            RememberArgs {
-                bytes,
-                mime,
-                source_message,
-                citing_memory,
-                derivations,
-            },
-        ),
-        Method::MediaRecall { blob_id, text } => match recall(&stores, authority, blob_id, text) {
+        } => {
+            let index = match lower_remember(
+                &stores,
+                req_id,
+                &authority,
+                RememberArgs {
+                    bytes,
+                    mime,
+                    source_message,
+                    citing_memory,
+                    derivations,
+                },
+            ) {
+                Ok(index) => index,
+                Err(resp) => return Ok(resp),
+            };
+            if proposes_through_consensus(state).await {
+                #[cfg(feature = "raft")]
+                {
+                    as_remember(
+                        crate::server::dispatch::propose_native_mutation(
+                            state,
+                            request_graph,
+                            req_id,
+                            verified_context,
+                            false,
+                            index,
+                        )
+                        .await,
+                    )
+                }
+                #[cfg(not(feature = "raft"))]
+                {
+                    let _ = request_graph;
+                    unreachable!("consensus needs the raft feature")
+                }
+            } else {
+                let _ = request_graph;
+                as_remember(index_put(&stores, req_id, &authority, index))
+            }
+        }
+        method @ Method::MediaIndexPut { .. } => index_put(&stores, req_id, &authority, method),
+        Method::MediaRecall { blob_id, text } => match recall(&stores, &authority, blob_id, text) {
             Ok(rows) => Response::ok(
                 req_id,
                 ResultPayload::of_ref::<storage_results::MediaRecall>(&rows),
@@ -213,4 +311,62 @@ pub(crate) async fn try_handle(
         },
         _ => Response::err(req_id, "media memory routing mismatch"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EG-MEDIA-VOCAB-R650.3: the replicated command carries the digest and
+    /// the index row only, never the blob bytes.
+    // spec: EG-MEDIA-VOCAB-R650.3
+    #[test]
+    fn replicated_index_command_carries_no_blob_bytes() {
+        let dir = crate::server::unique_temp_dir("media-memory-lower");
+        let dir = dir.to_str().expect("utf-8").to_string();
+        let stores = Stores {
+            kv: Arc::new(crate::server::kv::KvStore::open(Some(&dir)).unwrap()),
+            blob: crate::server::handlers::blob::cursors_for_test(&dir),
+        };
+        let context = crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+            "agent", "tenant-a",
+        );
+        let authority = CarrierAuthority::from_verified(&context).expect("carrier");
+        let mut bytes = vec![0x89, b'P', b'N', b'G'];
+        bytes.extend((0..4096u32).map(|i| (i * 31 % 251) as u8));
+        let index = lower_remember(
+            &stores,
+            1,
+            &authority,
+            RememberArgs {
+                bytes: bytes.clone(),
+                mime: "image/png".into(),
+                source_message: "m".into(),
+                citing_memory: "c".into(),
+                derivations: vec![],
+            },
+        )
+        .expect("lowered");
+        let Method::MediaIndexPut { ref blob_id, size, .. } = index else {
+            panic!("MediaRemember must lower to MediaIndexPut");
+        };
+        assert_eq!(size, bytes.len() as u64);
+        let wire = rmp_serde::to_vec_named(&index).unwrap();
+        assert!(
+            wire.len() < 512,
+            "the replicated command must not carry the {}-byte blob ({} bytes)",
+            bytes.len(),
+            wire.len()
+        );
+        assert!(!wire.windows(64).any(|w| w == &bytes[100..164]));
+        assert_eq!(
+            stores.blob.store.get_chunk(blob_id).unwrap().as_deref(),
+            Some(bytes.as_slice()),
+            "the bytes travel through the blob CAS instead"
+        );
+        assert_eq!(
+            crate::server::mutation::cluster_mutation_route(&index),
+            crate::server::mutation::ClusterMutationRoute::ConsensusNative
+        );
+    }
 }

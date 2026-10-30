@@ -97,7 +97,7 @@ pub fn admit(bytes: &[u8], declared_mime: &str) -> Result<String, MediaMemoryRef
 /// every write adds its derivations as separate derived nodes.
 pub fn fold_remember(
     existing: Option<MediaEntry>,
-    bytes: &[u8],
+    size: u64,
     declared_mime: &str,
     source_message: &str,
     citing_memory: &str,
@@ -105,7 +105,7 @@ pub fn fold_remember(
 ) -> MediaEntry {
     let mut entry = existing.unwrap_or_else(|| MediaEntry {
         mime: declared_mime.to_string(),
-        size: bytes.len() as u64,
+        size,
         citing_memory: citing_memory.to_string(),
         source_message: source_message.to_string(),
         ..MediaEntry::default()
@@ -177,7 +177,7 @@ impl MediaMemoryStore {
         let blobs = self.tenants.entry(tenant.to_string()).or_default();
         let entry = fold_remember(
             blobs.remove(&blob_id),
-            bytes,
+            bytes.len() as u64,
             declared_mime,
             source_message,
             citing_memory,

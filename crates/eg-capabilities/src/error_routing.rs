@@ -126,6 +126,7 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "MediaRemember",
         &["MEDIA_MEMORY_OVERSIZE_BLOB", "MEDIA_MEMORY_TYPE_MISMATCH"],
     ),
+    ("MediaIndexPut", &["MEDIA_MEMORY_OVERSIZE_BLOB"]),
     ("AnalyticsJob", &["INVALID_CONFIGURATION"]),
     ("GetRunWorkItem", &["RUN_ADMISSION_UNAVAILABLE"]),
     (

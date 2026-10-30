@@ -84,6 +84,8 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "KvDelete",
     "KvPut",
     "Maintain",
+    "MediaIndexPut",
+    "MediaRemember",
     "MiningPipelineServe",
     "PruneByLifecycle",
     "Publish",

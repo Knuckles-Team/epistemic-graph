@@ -107,7 +107,7 @@ macro_rules! native_method_catalog {
             record KvCas => KeyValue,
             // EG-MEDIA-VOCAB-R650.3: the tenant-namespaced media index row in kv.redb.
             #[cfg(all(feature = "kv", feature = "blob", feature = "modality-serving"))]
-            record MediaRemember => KeyValue,
+            record MediaIndexPut => KeyValue,
 
             #[cfg(feature = "tsdb")]
             record TsAppend => TimeSeries,

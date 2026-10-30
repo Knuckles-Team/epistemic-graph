@@ -69,7 +69,8 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
         Method::KvPut { .. }
         | Method::KvDelete { .. }
         | Method::KvCas { .. }
-        | Method::MediaRemember { .. } => DurabilityDomain::KvStore,
+        | Method::MediaRemember { .. }
+        | Method::MediaIndexPut { .. } => DurabilityDomain::KvStore,
         // `TsAppend`/`TsEvict`/`TsDeleteSeries` are wire-unconditional (only the
         // SERVER-SIDE handling is gated behind `tsdb`; a slim build still carries
         // the variant and routes it to the "not built" catch-all downstream) --

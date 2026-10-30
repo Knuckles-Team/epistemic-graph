@@ -447,6 +447,19 @@ $($variants)*
         #[serde(default)]
         derivations: Vec<crate::media_memory::MediaDerivation>,
     },
+    /// Engine-internal (EG-MEDIA-VOCAB-R650.3): commit one media index row for
+    /// a blob `MediaRemember` already admitted into the blob CAS. Carries the
+    /// digest and the row only, never blob bytes, so it is the replicated
+    /// native KeyValue command in clustered mode. Refused from the wire.
+    MediaIndexPut {
+        blob_id: String,
+        mime: String,
+        size: u64,
+        source_message: String,
+        citing_memory: String,
+        #[serde(default)]
+        derivations: Vec<crate::media_memory::MediaDerivation>,
+    },
     /// Recall remembered media for the verified tenant (EG-MEDIA-VOCAB-R650.3):
     /// by digest (`blob_id`) or by derivation text (`text`). Exactly one key is
     /// required.

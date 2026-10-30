@@ -1981,7 +1981,8 @@ mod tests {
         ("KvPut", "native MutationBatch in kv.redb: KV row + status/fence/idempotency/outbox in one WTX"),
         ("KvDelete", "native MutationBatch in kv.redb: KV row + status/fence/idempotency/outbox in one WTX"),
         ("KvCas", "native MutationBatch in kv.redb: CAS decision/row + exact result/coordinator metadata in one WTX"),
-        ("MediaRemember", "EG-MEDIA-VOCAB-R650.3: blob bytes into the blob CAS under the owner holder (blob.redb WTX), then the tenant-namespaced media index row as one ledgered kv.redb owner mutation"),
+        ("MediaRemember", "EG-MEDIA-VOCAB-R650.3: blob bytes into the blob CAS under the owner holder (blob.redb WTX), then lowers to MediaIndexPut"),
+        ("MediaIndexPut", "EG-MEDIA-VOCAB-R650.3 engine-internal: the tenant-namespaced media index row as one ledgered kv.redb owner mutation; native KeyValue command, no blob bytes"),
         ("TsAppend", "native MutationBatch in series.redb: series rows/projection + coordinator metadata in one WTX"),
         ("TsEvict", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::evict_before_scoped -- no eg_transaction idempotency batch, because retention is content-idempotent (re-evicting an already-past cutoff is a safe no-op), unlike TsAppend"),
         ("TsDeleteSeries", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::delete_scoped -- no eg_transaction idempotency batch, because deletion is content-idempotent (re-deleting an already-gone series is a safe no-op), unlike TsAppend"),
@@ -2255,6 +2256,7 @@ mod tests {
         covered.insert("ApplyChangeEnvelopeDraft");
         covered.insert("ApplyChangeEnvelopeDrafts");
         covered.insert("SourceIngest");
+        covered.insert("MediaRemember");
         covered.insert("IndexRepository");
         covered.insert("EnrichDocument");
         covered.insert("ServedModality");

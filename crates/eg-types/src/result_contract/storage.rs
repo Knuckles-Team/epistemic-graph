@@ -96,6 +96,8 @@ method_results! {
     KvCas(KvCas) => Raw<KvCasOutcome>;
     // EG-MEDIA-VOCAB-R650.3: the stored blob node (digest, type, first derivation, source message).
     MediaRemember(MediaRemember) => Raw<crate::media_memory::MediaMemory>;
+    // EG-MEDIA-VOCAB-R650.3 engine-internal: the committed index row's node view.
+    MediaIndexPut(MediaIndexPut) => Raw<crate::media_memory::MediaMemory>;
     // EG-MEDIA-VOCAB-R650.3: the recalled blobs in digest order, each with its evidence.
     MediaRecall(MediaRecall) => Raw<Vec<crate::media_memory::MediaRecall>>;
     #[cfg(feature = "query")]
