@@ -47,9 +47,7 @@ while the generated method ledger (`crates/eg-capabilities/src/domains/`) record
 authority, durability, audit, CDC, and transaction properties.
 
 !!! info "Capability truth is part of the product"
-    Status is generated from the same method contracts the engine serves. Check
-    [current status](status.md) and the [capability matrix](capabilities.md)
-    before selecting an interface or deployment shape.
+    Check the [capability matrix](capabilities.md) before selecting an interface or deployment shape.
 
 ## Where this engine fits
 
