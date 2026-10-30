@@ -69,7 +69,6 @@ pub mod artifact;
 mod capability;
 mod contract;
 pub mod delta_store;
-pub mod media_memory;
 mod native;
 mod provenance;
 mod registry;
