@@ -19,7 +19,7 @@
 
 mod common;
 
-use common::{connection_fixture, parse_all};
+use common::{assert_acceptance, connection_fixture, parse_all, AcceptanceQuestion};
 use eg_core::graph::{GraphCore, GraphView};
 use eg_rdf::mapping::{load_triples, parse_turtle, IriStore};
 use eg_rdf::sparql::{execute, Dataset, Projection, QueryOutcome};
@@ -1202,6 +1202,34 @@ SELECT ?attendee ?meeting ?source ?record ?asof WHERE {
             "unexpected record id {record:?}: {rows:?}"
         );
     }
+}
+
+// spec: EG-CQ-CONN-R039.3
+#[test]
+fn microsoft_acceptance_through_declared_contracts() {
+    // Both questions run end to end through the connectors' declared access
+    // contracts: every source the questions read is declared through an
+    // approved virtual mapping onto the concept it serves, so with every
+    // source connected neither question abstains and each answers through its
+    // own test; with any one required source unconnected, the question
+    // returns the typed abstention naming exactly that source, never an
+    // empty success.
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R039.1",
+            required: &[("microsoft", "CalendarEvent")],
+            answer: microsoft_overlapping_meetings_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R039.2",
+            required: &[
+                ("microsoft", "CalendarEvent"),
+                ("okta", "IdentityUser"),
+                ("mattermost", "Person"),
+            ],
+            answer: microsoft_attendees_without_idp_or_mattermost_answer,
+        },
+    ]);
 }
 
 // Atlassian R006.1 criterion body; keep unbound until the native Rust test runs.

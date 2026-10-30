@@ -451,6 +451,111 @@ f:abs-3 a :Audiobook ; owl:sameAs f:file-3 ; dc:source "audiobookshelf" ; dc:ide
     assert_asof(&rows[0], "asof");
 }
 
+// spec: EG-CQ-CONN-R040.1
+#[test]
+fn nextcloud_publicly_shared_folders_answer() {
+    // "Which shared folders are accessible by external links and when do
+    // those shares expire?" — answered from the nextcloud connector alone
+    // (Vocabulary: personal-v1.ttl: FileShare, sharesFile, isPublicLink,
+    // shareExpiresAt). Frozen as-of: 2026-01-15T00:00:00Z.
+    let fixture = format!(
+        r#"
+ f:share-1 a :FileShare ; :isPublicLink true ; :sharesFile f:folder-1 ;
+     :shareExpiresAt "2026-02-01"^^xsd:date ; {p1} .
+ f:share-2 a :FileShare ; :isPublicLink true ; :sharesFile f:folder-2 ;
+     :shareExpiresAt "2026-03-15"^^xsd:date ; {p2} .
+ # share-3 is a private (no external link) share — no row.
+ f:share-3 a :FileShare ; :isPublicLink false ; :sharesFile f:folder-3 ;
+     :shareExpiresAt "2026-02-01"^^xsd:date ; {p3} .
+ # share-4 is public but no expiry is recorded — outside the question.
+ f:share-4 a :FileShare ; :isPublicLink true ; :sharesFile f:folder-4 ; {p4} .
+ f:folder-1 a :Document .
+ f:folder-2 a :Document .
+ f:folder-3 a :Document .
+ f:folder-4 a :Document .
+ "#,
+        p1 = prov("nextcloud", "nc:share:1"),
+        p2 = prov("nextcloud", "nc:share:2"),
+        p3 = prov("nextcloud", "nc:share:3"),
+        p4 = prov("nextcloud", "nc:share:4"),
+    );
+    let view = graph(&[PERSONAL], &fixture);
+    let rows = select(
+        &view,
+        r#"SELECT ?share ?folder ?expiry ?source ?record ?asof WHERE {
+  ?share a :FileShare ; :isPublicLink ?flag ; :sharesFile ?folder ;
+         :shareExpiresAt ?expiry ;
+         dc:source ?source ; dc:identifier ?record ; dc:date ?asof .
+  FILTER(?flag = "true")
+  ?folder a :Document .
+}"#,
+    );
+    assert_eq!(locals(&rows, "share"), ["share-1", "share-2"], "{rows:?}");
+    assert_eq!(rows[0]["expiry"], "2026-02-01", "{rows[0]:?}");
+    assert_eq!(rows[1]["expiry"], "2026-03-15", "{rows[1]:?}");
+    for (row, record) in rows.iter().zip(["nc:share:1", "nc:share:2"]) {
+        assert_prov(row, "source", "nextcloud", "record", record);
+        assert_asof(row, "asof");
+    }
+}
+
+// spec: EG-CQ-CONN-R040.2
+#[test]
+fn nextcloud_public_shares_also_in_paperless_confidential_answer() {
+    // "Which publicly shared Nextcloud files also exist as Paperless-ngx
+    // documents tagged confidential?" — nextcloud (FileShare, isPublicLink,
+    // sharesFile) linked to paperless-ngx (Document, documentType: the
+    // Paperless-ngx classification) through the shared :Document concept,
+    // joined with owl:sameAs, the approved identity-resolution output.
+    let fixture = format!(
+        r#"
+ f:share-1 a :FileShare ; :isPublicLink true ; :sharesFile f:doc-1 ; {n1} .
+ f:share-2 a :FileShare ; :isPublicLink true ; :sharesFile f:doc-2 ; {n2} .
+ f:share-3 a :FileShare ; :isPublicLink false ; :sharesFile f:doc-3 ; {n3} .
+ f:share-4 a :FileShare ; :isPublicLink true ; :sharesFile f:doc-4 ; {n4} .
+ # doc-1: publicly shared and a confidential paperless document — the row.
+ f:doc-1 a :Document ; owl:sameAs f:pdoc-1 ; {n1} .
+ f:pdoc-1 a :Document ; :documentType "confidential" ; {l1} .
+ # doc-2: publicly shared, but the paperless copy is classified invoice.
+ f:doc-2 a :Document ; owl:sameAs f:pdoc-2 ; {n2} .
+ f:pdoc-2 a :Document ; :documentType "invoice" ; {l2} .
+ # doc-3: confidential paperless document, but the nextcloud share is private.
+ f:doc-3 a :Document ; owl:sameAs f:pdoc-3 ; {n3} .
+ f:pdoc-3 a :Document ; :documentType "confidential" ; {l3} .
+ # doc-4: publicly shared, but it has no paperless-ngx twin at all.
+ f:doc-4 a :Document ; {n4} .
+ "#,
+        n1 = prov("nextcloud", "nc:doc:1"),
+        n2 = prov("nextcloud", "nc:doc:2"),
+        n3 = prov("nextcloud", "nc:doc:3"),
+        n4 = prov("nextcloud", "nc:doc:4"),
+        l1 = prov("paperless-ngx", "pl:doc:1"),
+        l2 = prov("paperless-ngx", "pl:doc:2"),
+        l3 = prov("paperless-ngx", "pl:doc:3"),
+    );
+    let view = graph(&[PERSONAL], &fixture);
+    let rows = select(
+        &view,
+        r#"SELECT ?share ?file ?ptype ?source ?record ?plRecord ?asof WHERE {
+  ?share a :FileShare ; :isPublicLink ?flag ; :sharesFile ?file .
+  FILTER(?flag = "true")
+  ?file owl:sameAs ?pdoc .
+  ?pdoc a :Document ; :documentType ?ptype .
+  ?file dc:source ?source ; dc:identifier ?record ; dc:date ?asof .
+  ?pdoc dc:source ?plSource ; dc:identifier ?plRecord ; dc:date ?asof .
+  FILTER(?source = "nextcloud")
+  FILTER(?plSource = "paperless-ngx")
+  FILTER(?ptype = "confidential")
+}"#,
+    );
+    assert_eq!(locals(&rows, "share"), ["share-1"], "{rows:?}");
+    assert_eq!(rows[0]["ptype"], "confidential", "{rows[0]:?}");
+    // Provenance from each of the two linked sources.
+    assert_prov(&rows[0], "source", "nextcloud", "record", "nc:doc:1");
+    assert_prov(&rows[0], "plSource", "paperless-ngx", "plRecord", "pl:doc:1");
+    assert_asof(&rows[0], "asof");
+}
+
 // spec: EG-CQ-CONN-R045.1
 #[test]
 fn owncast_highest_peak_viewers_answer() {
@@ -1683,6 +1788,27 @@ fn media_downloader_acceptance_through_declared_contracts() {
                 ("jellyfin", "Video"),
             ],
             answer: media_downloader_completed_never_added_answers,
+        },
+    ]);
+}
+
+// spec: EG-CQ-CONN-R040.3
+#[test]
+fn nextcloud_acceptance_through_declared_contracts() {
+    assert_acceptance(&[
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R040.1",
+            required: &[("nextcloud", "FileShare"), ("nextcloud", "Document")],
+            answer: nextcloud_publicly_shared_folders_answer,
+        },
+        AcceptanceQuestion {
+            id: "EG-CQ-CONN-R040.2",
+            required: &[
+                ("nextcloud", "FileShare"),
+                ("nextcloud", "Document"),
+                ("paperless-ngx", "Document"),
+            ],
+            answer: nextcloud_public_shares_also_in_paperless_confidential_answer,
         },
     ]);
 }
