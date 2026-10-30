@@ -85,10 +85,17 @@ def decide_request(
     policy: Mapping[str, Any] | None = None,
     params: Iterable[Mapping[str, Any]] = (),
     max_records: int | None = None,
+    guarded_action: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A ``DecideRequest``; ``question`` is ``(question_id, kind, safety)``."""
+    """A ``DecideRequest``; ``question`` is ``(question_id, kind, safety)``.
+
+    ``guarded_action`` names the action the answer would advise, as
+    ``{"graph", "signal_iri", "observations": [{"metric", "scope", "value"}],
+    "requested_bounds": [{"rule_id", "bound"}]}``; the policy's limit rules
+    are checked against it and a breach abstains with ``limit_breach``.
+    """
     question_id, kind, safety = question
-    return {
+    request = {
         "tenant_id": tenant_id,
         "question": {"question_id": question_id, "kind": kind, "safety": safety},
         "candidates": dict(candidates),
@@ -97,6 +104,25 @@ def decide_request(
         "policy": dict(policy or {"policy": "default"}),
         "params": sorted((dict(p) for p in params), key=lambda p: str(p["name"])),
         "max_records": max_records,
+    }
+    if guarded_action is not None:
+        request["guarded_action"] = dict(guarded_action)
+    return request
+
+
+def decision_policy_fields(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """The ``content_digest`` and ``attributes`` of a ``DecisionPolicy`` draft.
+
+    The component carries the policy's compact JSON in ``decision.policy`` and
+    its digest as ``content_digest``, so a pinned policy is exactly the body
+    that was reviewed. ``policy`` must list keys in the engine's declaration
+    order: the digest covers those exact bytes (see ``decision._digest``).
+    """
+    from epistemic_graph.decision._digest import compact_json, policy_digest
+
+    return {
+        "content_digest": policy_digest(dict(policy)),
+        "attributes": {"decision.policy": compact_json(dict(policy)).decode("utf-8")},
     }
 
 
@@ -454,6 +480,8 @@ __all__ = [
     "DeclaredOption",
     "aggregate_op",
     "commit_op",
+    "decision_policy_fields",
+    "decision_policy_fields",
     "decide_request",
     "declared",
     "evaluate_op",
