@@ -21,8 +21,10 @@
 //! a page may be empty yet still carry a cursor. Callers loop until
 //! `next_cursor` is `None`, not until a page is empty.
 
+use hex::encode as hex_encode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 
 use crate::keyset_page::{matches_pairs, validate_pair_filter, KeysetListing, KeysetPage};
 use crate::native_control::MAX_SUBMIT_REF_BYTES;
@@ -47,11 +49,16 @@ pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
 pub const WORK_ITEM_EVENT_BATCH: &str = "terminal_event_batch";
 pub const WORK_ITEM_EVENT_DIGEST: &str = "terminal_event_digest";
 pub const RUN_ADMISSION_REQUEST: &str = "run_admission_request";
+/// The row property a work item's effect state is stored under (EG-DURABLE-
+/// KERNEL-R820.1): written only by the native kernel, refused to generic
+/// writers by the row guard through [`NATIVE_WORK_ITEM_ROW_KEYS`].
+pub const WORK_ITEM_EFFECT_STATE: &str = "effect_state";
 pub const WORK_ITEM_CHECKPOINT_REF: &str = "run_checkpoint_ref";
 pub const WORK_ITEM_CHECKPOINT_REVISION: &str = "run_checkpoint_revision";
 pub const WORK_ITEM_CHECKPOINT_DIGEST: &str = "run_checkpoint_digest";
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 15] = [
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 16] = [
     RUN_ADMISSION_REQUEST,
+    WORK_ITEM_EFFECT_STATE,
     WORK_ITEM_CHECKPOINT_REF,
     WORK_ITEM_CHECKPOINT_REVISION,
     WORK_ITEM_CHECKPOINT_DIGEST,
@@ -133,6 +140,106 @@ pub(crate) fn stored_value<T: Copy>(table: &[(&str, T)], stored: &str) -> Option
         .iter()
         .find(|(text, _)| *text == stored)
         .map(|(_, value)| *value)
+}
+
+/// Where a work item's recorded effect is (EG-DURABLE-KERNEL-R820.1). A work
+/// item can record an effect that started and has no proven outcome: `Started`
+/// is the uncertain middle state, and `Resolved` is reached only once a
+/// receipt proves what the effect did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum EffectState {
+    Unstarted,
+    Started,
+    Resolved,
+}
+
+/// The stored `effect_state` text of each state, read off one list like
+/// [`WorkItemStatus`]'s table.
+const STORED_EFFECT_STATE: [(&str, EffectState); 3] = [
+    ("unstarted", EffectState::Unstarted),
+    ("started", EffectState::Started),
+    ("resolved", EffectState::Resolved),
+];
+
+impl EffectState {
+    /// The stored `effect_state` text of this state.
+    pub fn as_stored(self) -> &'static str {
+        STORED_EFFECT_STATE
+            .iter()
+            .find(|(_, state)| *state == self)
+            .map_or("", |(text, _)| text)
+    }
+
+    /// The state a stored row's `effect_state` names, if it names one.
+    pub fn from_stored(stored: &str) -> Option<Self> {
+        stored_value(&STORED_EFFECT_STATE, stored)
+    }
+}
+
+/// One proof that a work item's effect did something (EG-DURABLE-KERNEL-R820.1).
+/// Exactly one receipt exists for each `job_id`; `request_ref` points at the
+/// admitted request the effect was admitted under.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct EffectReceipt {
+    pub job_id: String,
+    pub request_ref: String,
+    pub principal_ref: String,
+    pub outcome: EffectState,
+    pub receipt_ref: String,
+    pub committed_at: u64,
+}
+
+/// An immutable, content-addressed admission record (EG-DURABLE-KERNEL-R820.1).
+/// The record is addressed by its own digest: `payload_digest` is the SHA-256
+/// of `bytes`, and `request_ref` is the SHA-256 of the canonical request
+/// (domain, tenant, session and payload digest, NUL-separated) — so two
+/// admissions of the same content in the same session address to the same
+/// record, and any byte of the record proves the other three.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AdmittedRequest {
+    pub request_ref: String,
+    pub tenant: String,
+    pub session_ref: String,
+    pub payload_digest: String,
+    pub bytes: Vec<u8>,
+}
+
+impl AdmittedRequest {
+    /// The canonical request whose SHA-256 is the `request_ref`.
+    pub fn canonical(&self) -> String {
+        format!(
+            "eg-work-item-admitted-request/v1\0{}\0{}\0{}",
+            self.tenant, self.session_ref, self.payload_digest
+        )
+    }
+
+    /// Admit one immutable record: digest the payload, then address the record
+    /// by the digest of its canonical request.
+    pub fn admit(tenant: &str, session_ref: &str, bytes: Vec<u8>) -> Result<Self, String> {
+        bounded("tenant", tenant, MAX_WORK_ITEM_ID_BYTES)?;
+        bounded("session_ref", session_ref, MAX_WORK_ITEM_ID_BYTES)?;
+        let payload_digest = hex_encode(Sha256::digest(&bytes));
+        let candidate = Self {
+            request_ref: String::new(),
+            tenant: tenant.to_string(),
+            session_ref: session_ref.to_string(),
+            payload_digest: payload_digest.clone(),
+            bytes,
+        };
+        Ok(Self {
+            request_ref: hex_encode(Sha256::digest(candidate.canonical().as_bytes())),
+            tenant: candidate.tenant,
+            session_ref: candidate.session_ref,
+            payload_digest,
+            bytes: candidate.bytes,
+        })
+    }
 }
 
 /// Owner-only historical admission evidence and the current caller-safe view.

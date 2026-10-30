@@ -213,3 +213,100 @@ fn a_metadata_match_selects_exact_top_level_pairs_and_is_bounded() {
     request.metadata_match = Some(too_many);
     assert!(request.validate().is_err());
 }
+
+// spec: EG-DURABLE-KERNEL-R820.1
+#[test]
+fn an_effect_receipt_round_trip_keeps_every_field() {
+    for (stored, outcome) in [
+        ("unstarted", EffectState::Unstarted),
+        ("started", EffectState::Started),
+        ("resolved", EffectState::Resolved),
+    ] {
+        assert_eq!(EffectState::from_stored(stored), Some(outcome));
+        assert_eq!(outcome.as_stored(), stored);
+        assert_eq!(EffectState::from_stored("forged"), None);
+
+        let receipt = EffectReceipt {
+            job_id: "job-r820".to_string(),
+            request_ref: "req-ref".to_string(),
+            principal_ref: "principal-a".to_string(),
+            outcome,
+            receipt_ref: "receipt-9".to_string(),
+            committed_at: 1_700_000_000_000,
+        };
+        let json = serde_json::to_string(&receipt).unwrap();
+        let decoded: EffectReceipt = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, receipt);
+        assert!(json.contains(&format!("\"outcome\":\"{stored}\"")));
+        let rmp = rmp_serde::to_vec_named(&receipt).unwrap();
+        assert_eq!(rmp_serde::from_slice::<EffectReceipt>(&rmp).unwrap(), receipt);
+    }
+    // `deny_unknown_fields` refuses an extension of the receipt.
+    let unknown = format!(
+        r#"{{"job_id":"j","request_ref":"r","principal_ref":"p","outcome":"started","receipt_ref":"x","committed_at":1,"extra":true}}"#
+    );
+    assert!(serde_json::from_str::<EffectReceipt>(&unknown).is_err());
+    assert_eq!(
+        WORK_ITEM_EFFECT_STATE,
+        "effect_state",
+        "the row key the kernel stores EffectState under"
+    );
+    assert!(NATIVE_WORK_ITEM_ROW_KEYS.contains(&WORK_ITEM_EFFECT_STATE));
+}
+
+// spec: EG-DURABLE-KERNEL-R820.1
+#[test]
+fn an_admitted_request_golden_vector_pins_the_request_ref_digest() {
+    let admitted = AdmittedRequest::admit(
+        "tenant-golden",
+        "sess-golden",
+        b"canonical golden payload bytes".to_vec(),
+    )
+    .expect("golden admission is within bounds");
+    // The pinned vector: SHA-256 of the canonical request, independently
+    // computed. A change of the domain, ordering, separator or any field
+    // moves this digest.
+    assert_eq!(
+        admitted.payload_digest,
+        "6603b14d9e1c42e0c9f0415bcca324f6d55ef17de2646a7b98b1dbeb94539ce5"
+    );
+    assert_eq!(
+        admitted.request_ref,
+        "e6bb1e7ab5ffff2d59e2f2227a633625aaadda64b23476250b3c5714fae22319"
+    );
+    assert_eq!(
+        admitted.canonical(),
+        "eg-work-item-admitted-request/v1\0tenant-golden\0sess-golden\06603b14d9e1c42e0c9f0415bcca324f6d55ef17de2646a7b98b1dbeb94539ce5"
+    );
+
+    // Content-addressed: the same admission addresses identically, and any
+    // input byte changes the address.
+    let again = AdmittedRequest::admit(
+        "tenant-golden",
+        "sess-golden",
+        b"canonical golden payload bytes".to_vec(),
+    )
+    .unwrap();
+    assert_eq!(again.request_ref, admitted.request_ref);
+    assert_eq!(again, admitted);
+    assert_ne!(
+        AdmittedRequest::admit("tenant-golden", "sess-other", admitted.bytes.clone()).unwrap()
+            .request_ref,
+        admitted.request_ref
+    );
+    assert_ne!(
+        AdmittedRequest::admit("tenant-golden", "sess-golden", b"other bytes")
+            .unwrap()
+            .request_ref,
+        admitted.request_ref
+    );
+
+    // The serde round trip keeps every field of the record.
+    let json = serde_json::to_string(&admitted).unwrap();
+    let decoded: AdmittedRequest = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded, admitted);
+    let rmp = rmp_serde::to_vec_named(&admitted).unwrap();
+    assert_eq!(rmp_serde::from_slice::<AdmittedRequest>(&rmp).unwrap(), admitted);
+    assert!(AdmittedRequest::admit("", "sess-golden", b"x".to_vec()).is_err());
+    assert!(AdmittedRequest::admit("tenant-golden", " ", b"x".to_vec()).is_err());
+}

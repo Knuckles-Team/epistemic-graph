@@ -237,6 +237,13 @@ mod tests {
             updates_msgpack: msgpack(serde_json::json!({"outcome_ref": "forged"})),
         };
         assert!(check(&temp.shard, "repoint", repoint).is_err());
+        // spec: EG-DURABLE-KERNEL-R820.1
+        let effect = Method::CompareAndSetNodeFields {
+            node_id: "wi-1".into(),
+            conditions_msgpack: msgpack(serde_json::json!({})),
+            updates_msgpack: msgpack(serde_json::json!({"effect_state": "resolved"})),
+        };
+        assert!(check(&temp.shard, "effect", effect).is_err());
 
         let approval = Method::AddNode {
             node_id: "action_approval:1".into(),
