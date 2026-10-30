@@ -31,8 +31,8 @@ pub enum ChangesetState {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GateOutcome {
-    Pass,
-    Fail,
+    Succeeded,
+    Failed,
 }
 
 /// One sealed gate verdict against one changeset.
@@ -414,7 +414,7 @@ pub fn judge_landing(
     if let Some(failed) = record
         .verdicts
         .iter()
-        .find(|v| v.verdict == GateOutcome::Fail)
+        .find(|v| v.verdict == GateOutcome::Failed)
     {
         return Err(SourceRefusal::GateFailed(failed.gate_id.clone()));
     }

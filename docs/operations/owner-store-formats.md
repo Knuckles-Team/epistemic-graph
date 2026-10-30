@@ -24,7 +24,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `node_info` | `02e5ca262822f4de0a1507780b2e908e605655d3a758e78c2a75f205ffa80347` | none |
 | `cluster_hierarchy` | `0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431` | none |
 | `graph_shard` | `3d32d052bba344a00ecdb4bd0aededaadf6d55e86fe0d1e43575e1705c78fc51` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
-| `agent_library` | `e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
+| `agent_library` | `45ccdc78cf609a460c65430d2b4d79a45d1bad317cce4edffce6c3ef91407e1b` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
 
 ## `BLOB_FORMAT_UPGRADE_REQUIRED`: blob store from before holder-scoped references
 
@@ -113,6 +113,14 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Data lost: its rows require the explicit offline MCP catalog layout upgrade before normal open. Alternatively, republishing after moving the file aside
 - Tables: Same table set as **Agent Library before connector packs and governed write-back** above. Added tables: `connector_pack_heads`, `connector_pack_members`, `connector_pack_imports`, `connector_pack_body_holders`, `connector_pack_bindings`, `decision_artifacts`, `decision_records`, `write_back_change_sets`, `write_back_idempotency`, `write_back_receipts`, `write_back_receipt_heads`.
 - Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+
+## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before source changesets
+
+- Store file: `agent_library.redb`
+- Refused generation: Agent Library before source changesets
+- Data lost: its Agent Library rows are not upgraded. republish after moving the file aside
+- Tables: Same table set as **Agent Library before served MCP catalog authority** above. Added tables: `mcp_catalog_configs`, `mcp_catalog_scopes`.
+- Removal step: stop the engine, move `agent_library.redb` aside (keep it until the restarted engine is confirmed healthy), and restart. a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
 ## Offline upgrade procedure
 

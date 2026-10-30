@@ -103,7 +103,7 @@ fn failed_verdict_blocks_landing_and_verdicts_are_sealed() {
         recorded_by: "ci".into(),
         recorded_at_ms: 4,
     };
-    let (pass, fail) = (verdict("fmt", GateOutcome::Pass), verdict("tests", GateOutcome::Fail));
+    let (pass, fail) = (verdict("fmt", GateOutcome::Succeeded), verdict("tests", GateOutcome::Failed));
     seal_verdict(&mut record, pass.clone()).unwrap();
     let again = seal_verdict(&mut record, pass).unwrap_err();
     assert_eq!(again, SourceRefusal::VerdictSealed("fmt".into()));

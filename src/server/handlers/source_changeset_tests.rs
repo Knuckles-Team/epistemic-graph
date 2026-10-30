@@ -18,7 +18,7 @@ use crate::server::auth::dispatch_test_on_heap;
 use crate::server::state::ServerState;
 
 const SECRET: &str = "source-changeset-served-fixture-secret"; // sanitizer:ignore
-const TENANT: &str = "tenant-scm";
+const TENANT: &str = "tenant-shared"; // the tenant auth::request_context_policy expects under cfg(test)
 const AUTHOR: &str = "scm-author";
 
 struct Served {
@@ -260,15 +260,15 @@ async fn failed_verdict_blocks_landing_and_verdicts_are_sealed() {
         evidence_digest: "evidence".into(),
         duration_ms: 7,
     };
-    let sealed: SourceChangesetRecord = ok("pass", served.op(verdict("fmt", GateOutcome::Pass)).await);
+    let sealed: SourceChangesetRecord = ok("pass", served.op(verdict("fmt", GateOutcome::Succeeded)).await);
     assert_eq!(sealed.verdicts.len(), 1);
-    refused("overwrite", served.op(verdict("fmt", GateOutcome::Fail)).await, "SOURCE_VERDICT_SEALED");
-    let mut wrong = verdict("types", GateOutcome::Pass);
+    refused("overwrite", served.op(verdict("fmt", GateOutcome::Failed)).await, "SOURCE_VERDICT_SEALED");
+    let mut wrong = verdict("types", GateOutcome::Succeeded);
     if let SourceChangesetOp::RecordVerdict { input_digest, .. } = &mut wrong {
         *input_digest = "other".into();
     }
     refused("digest", served.op(wrong).await, "SOURCE_INVALID_NAME");
-    let _: SourceChangesetRecord = ok("fail", served.op(verdict("tests", GateOutcome::Fail)).await);
+    let _: SourceChangesetRecord = ok("fail", served.op(verdict("tests", GateOutcome::Failed)).await);
     refused("land", served.land(&proposed.changeset.id).await, "SOURCE_GATE_FAILED: tests");
     assert_eq!(served.head().await.sequence, 0);
 }

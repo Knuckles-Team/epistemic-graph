@@ -77,11 +77,39 @@ pub const AGENT_LIBRARY_BEFORE_MCP_CATALOG: LayoutPredecessor = LayoutPredecesso
         "write_back_idempotency",
         "write_back_receipts",
         "write_back_receipt_heads",
-        "source_changesets",
-        "source_chain",
-        "source_chain_heads",
     ],
     data_lost: "its rows require the explicit offline MCP catalog layout upgrade before normal open, or republishing after moving the file aside",
+    file_name: "agent_library.redb",
+};
+
+/// `agent_library.redb` before the EG-SCM source changeset chain tables.
+pub const AGENT_LIBRARY_BEFORE_SOURCE_CHANGESETS: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::AgentLibrary,
+    label: "Agent Library before source changesets",
+    owner_tables: &[
+        "agent_library",
+        "agent_library_heads",
+        "agent_graph",
+        "agent_graph_heads",
+        "agent_component",
+        "agent_component_heads",
+        "agent_template",
+        "agent_template_heads",
+        "connector_pack_heads",
+        "connector_pack_members",
+        "connector_pack_imports",
+        "connector_pack_body_holders",
+        "connector_pack_bindings",
+        "mcp_catalog_configs",
+        "mcp_catalog_scopes",
+        "decision_artifacts",
+        "decision_records",
+        "write_back_change_sets",
+        "write_back_idempotency",
+        "write_back_receipts",
+        "write_back_receipt_heads",
+    ],
+    data_lost: "its Agent Library rows are not upgraded; republish after moving the file aside",
     file_name: "agent_library.redb",
 };
 
@@ -271,6 +299,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
         OwnerLayout::AgentLibrary => &[
             AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS,
             AGENT_LIBRARY_BEFORE_MCP_CATALOG,
+            AGENT_LIBRARY_BEFORE_SOURCE_CHANGESETS,
         ],
         OwnerLayout::Blob => &[BLOB_BEFORE_HOLDERS],
         OwnerLayout::Sql => &[SQL_BEFORE_SOURCE_CHECKPOINTS, SQL_BEFORE_DURABLE_ANN],
@@ -366,7 +395,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "3d32d052bba344a00ecdb4bd0aededaadf6d55e86fe0d1e43575e1705c78fc51"
         }
         OwnerLayout::AgentLibrary => {
-            "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"
+            "45ccdc78cf609a460c65430d2b4d79a45d1bad317cce4edffce6c3ef91407e1b"
         }
     }
 }
