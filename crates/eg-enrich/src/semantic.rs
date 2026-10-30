@@ -205,7 +205,10 @@ mod tests {
             r#"{"id":"a","document":"b","topic":"c","confidence":10001}"#
         )
         .is_err());
-        assert_eq!(Confidence::new(10_001).unwrap_err().code, INVALID_CONFIDENCE);
+        assert_eq!(
+            Confidence::new(10_001).unwrap_err().code,
+            INVALID_CONFIDENCE
+        );
         assert_eq!(Confidence::new(10_000).unwrap().basis_points(), 10_000);
     }
 }

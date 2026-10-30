@@ -45,13 +45,15 @@ impl std::fmt::Display for WritebackError {
 impl std::error::Error for WritebackError {}
 
 fn resource_id<T: Into<String>>(value: T, field: &str) -> Result<ResourceId, WritebackError> {
-    ResourceId::new(value)
-        .map_err(|detail| WritebackError::new(INVALID_WRITEBACK_IDENTIFIER, format!("{field}: {detail}")))
+    ResourceId::new(value).map_err(|detail| {
+        WritebackError::new(INVALID_WRITEBACK_IDENTIFIER, format!("{field}: {detail}"))
+    })
 }
 
 fn tenant_id<T: Into<String>>(value: T, field: &str) -> Result<TenantId, WritebackError> {
-    TenantId::new(value)
-        .map_err(|detail| WritebackError::new(INVALID_WRITEBACK_IDENTIFIER, format!("{field}: {detail}")))
+    TenantId::new(value).map_err(|detail| {
+        WritebackError::new(INVALID_WRITEBACK_IDENTIFIER, format!("{field}: {detail}"))
+    })
 }
 
 fn as_of(as_of_ms: i64) -> Result<(), WritebackError> {
@@ -146,7 +148,10 @@ impl ProposalQueue {
             if !external.insert(&proposal.external_id) {
                 return Err(WritebackError::new(
                     WRITEBACK_DUPLICATE_EXTERNAL_ID,
-                    format!("external id {} is queued more than once", proposal.external_id),
+                    format!(
+                        "external id {} is queued more than once",
+                        proposal.external_id
+                    ),
                 ));
             }
         }
@@ -242,18 +247,29 @@ mod tests {
     use super::*;
 
     fn proposal(external_id: &str, tenant: &str) -> WritebackProposal {
-        WritebackProposal::new("wp:1", tenant, external_id, RiskTier::High, 1_700_000_000_000)
-            .unwrap()
+        WritebackProposal::new(
+            "wp:1",
+            tenant,
+            external_id,
+            RiskTier::High,
+            1_700_000_000_000,
+        )
+        .unwrap()
     }
 
     // spec: EG-DECISION-ENGINE-R615.1
     #[test]
     fn writeback_types_round_trip() {
-        let queue = ProposalQueue::new("queue:1", "tenant-a", vec![proposal("ext:1", "tenant-a")])
-            .unwrap();
-        let creation =
-            InventoryCreation::new("inv:1", "tenant-a", "ext:1", "sor:ledger", 1_700_000_000_000)
-                .unwrap();
+        let queue =
+            ProposalQueue::new("queue:1", "tenant-a", vec![proposal("ext:1", "tenant-a")]).unwrap();
+        let creation = InventoryCreation::new(
+            "inv:1",
+            "tenant-a",
+            "ext:1",
+            "sor:ledger",
+            1_700_000_000_000,
+        )
+        .unwrap();
         let ticket = FindingTicket::new(
             "tick:1",
             "tenant-a",
@@ -272,10 +288,7 @@ mod tests {
         round_trip!(queue, ProposalQueue);
         round_trip!(creation, InventoryCreation);
         round_trip!(ticket, FindingTicket);
-        assert_eq!(
-            serde_json::to_value(&ticket.risk_tier).unwrap(),
-            "medium"
-        );
+        assert_eq!(serde_json::to_value(&ticket.risk_tier).unwrap(), "medium");
     }
 
     // spec: EG-DECISION-ENGINE-R615.1

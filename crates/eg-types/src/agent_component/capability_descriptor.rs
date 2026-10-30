@@ -160,9 +160,7 @@ impl DesignationRequest {
     /// Validate before the closure projection starts.
     pub fn validate(&self) -> Result<(), String> {
         if self.required_capabilities.is_empty() {
-            return Err(
-                "a designation request needs at least one required capability".to_owned(),
-            );
+            return Err("a designation request needs at least one required capability".to_owned());
         }
         if self.as_of_ms <= 0 {
             return Err(format!(
@@ -348,8 +346,7 @@ mod tests {
             as_of_ms: 1,
         };
         assert!(request.validate().is_err());
-        request.required_capabilities =
-            vec![ResourceId::new("eg:capability/translate").unwrap()];
+        request.required_capabilities = vec![ResourceId::new("eg:capability/translate").unwrap()];
         request.as_of_ms = 0;
         assert!(request.validate().is_err());
 

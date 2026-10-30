@@ -31,15 +31,12 @@ pub enum MemoryError {
     InvalidBudget(String),
 }
 
-fn identifier<T: Into<String>>(
-    value: T,
-    field: &str,
-) -> Result<ResourceId, MemoryError> {
+fn identifier<T: Into<String>>(value: T, field: &str) -> Result<ResourceId, MemoryError> {
     ResourceId::new(value)
         .map_err(|detail| MemoryError::InvalidIdentifier(format!("{field}: {detail}")))
 }
 
-fn tenant(value: impl Into<String>) -> Result<TenantId, MemoryError> {
+fn tenant_id(value: impl Into<String>) -> Result<TenantId, MemoryError> {
     TenantId::new(value)
         .map_err(|detail| MemoryError::InvalidIdentifier(format!("tenant: {detail}")))
 }
@@ -88,7 +85,7 @@ impl ConversationRecord {
         conversation_id: impl Into<String>,
         messages: Vec<ConversationMessage>,
     ) -> Result<Self, MemoryError> {
-        let tenant = tenant(tenant)?;
+        let tenant = tenant_id(tenant)?;
         let conversation_id = identifier(conversation_id, "conversation_id")?;
         let mut seen = std::collections::BTreeSet::new();
         for message in &messages {
@@ -142,7 +139,7 @@ pub struct ProjectRules {
 }
 
 /// A memory class the retention policy may prune.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MemoryClass {
@@ -176,7 +173,7 @@ impl RetentionPolicy {
         classes: Vec<MemoryClass>,
         max_per_step: u32,
     ) -> Result<Self, MemoryError> {
-        let tenant = tenant(tenant)?;
+        let tenant = tenant_id(tenant)?;
         let policy_id = identifier(policy_id, "policy_id")?;
         let mut classes = classes;
         classes.sort_unstable();
@@ -227,7 +224,7 @@ impl ContextBudget {
         max_tokens: u64,
         max_items: u32,
     ) -> Result<Self, MemoryError> {
-        let tenant = tenant(tenant)?;
+        let tenant = tenant_id(tenant)?;
         let budget_id = identifier(budget_id, "budget_id")?;
         if max_tokens == 0 {
             return Err(MemoryError::InvalidBudget(
@@ -265,12 +262,9 @@ mod tests {
     // spec: EG-DECISION-ENGINE-R617.1
     #[test]
     fn engine_held_memory_types_round_trip() {
-        let record = ConversationRecord::new(
-            "tenant-a",
-            "conv:1",
-            vec![message("m1"), message("m2")],
-        )
-        .unwrap();
+        let record =
+            ConversationRecord::new("tenant-a", "conv:1", vec![message("m1"), message("m2")])
+                .unwrap();
         let rules = ProjectRules {
             tenant: TenantId::new("tenant-a").unwrap(),
             project_id: ResourceId::new("proj:1").unwrap(),
@@ -314,30 +308,21 @@ mod tests {
     #[test]
     fn engine_held_memory_types_reject_invalid_identifiers() {
         for bad in ["", "has space", "é"] {
-            assert!(
-                matches!(
-                    ConversationRecord::new(bad, "conv:1", vec![]),
-                    Err(MemoryError::InvalidIdentifier(_))
-                )
-            );
-            assert!(
-                ContextBudget::new("tenant-a", bad, 1, 1)
-                    .is_err()
-            );
+            assert!(matches!(
+                ConversationRecord::new(bad, "conv:1", vec![]),
+                Err(MemoryError::InvalidIdentifier(_))
+            ));
+            assert!(ContextBudget::new("tenant-a", bad, 1, 1).is_err());
         }
-        assert!(
-            matches!(
-                ConversationRecord::new("tenant-a", "conv:1", vec![message("m1"), message("m1")]),
-                Err(MemoryError::RepeatedMessage(_))
-            )
-        );
+        assert!(matches!(
+            ConversationRecord::new("tenant-a", "conv:1", vec![message("m1"), message("m1")]),
+            Err(MemoryError::RepeatedMessage(_))
+        ));
         assert!(
             RetentionPolicy::new("tenant-a", "policy:1", 0, vec![MemoryClass::MemoryNode], 1)
                 .is_err()
         );
-        assert!(
-            RetentionPolicy::new("tenant-a", "policy:1", 1, vec![], 1).is_err()
-        );
+        assert!(RetentionPolicy::new("tenant-a", "policy:1", 1, vec![], 1).is_err());
         assert!(
             RetentionPolicy::new("tenant-a", "policy:1", 1, vec![MemoryClass::MemoryNode], 0)
                 .is_err()
