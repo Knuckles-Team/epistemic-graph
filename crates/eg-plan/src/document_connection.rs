@@ -96,6 +96,7 @@ impl DocumentDriverConfig {
 mod tests {
     use super::*;
 
+    // spec: EG-UNIFIED-DATA-PLANE-R019.2.1
     #[test]
     fn document_driver_config_and_destination_gate() {
         let config = DocumentDriverConfig::new("localhost", 27017, "catalog").unwrap();
