@@ -216,6 +216,7 @@ def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     light = jobs["light-gates"]
     assert light == {
+        "if": "github.event_name != 'pull_request'",
         "uses": CENTRAL_LIGHT_GATES,
         "with": {"runner": CENTRAL_RUNNER},
     }
@@ -229,7 +230,7 @@ def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
         assert "if" not in security[name]
     for name in ("Install pinned cargo-deny", "Rust dependency advisory gate"):
         assert security[name]["if"] == "needs.changes.outputs.code != 'false'"
-    assert jobs["security"]["if"] == "always()"
+    assert jobs["security"]["if"] == "always() && github.event_name != 'pull_request'"
     assert jobs["security"]["needs"] == "changes"
     assert {"light-gates", "changes"} <= set(jobs["engine-main-wheel"]["needs"])
     assert "lint-and-architecture" not in jobs["engine-main-wheel"]["needs"]
@@ -288,6 +289,7 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
 def test_light_runtime_and_spec_checks_are_centralized() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     assert jobs["light-gates"] == {
+        "if": "github.event_name != 'pull_request'",
         "uses": CENTRAL_LIGHT_GATES,
         "with": {"runner": CENTRAL_RUNNER},
     }

@@ -163,6 +163,7 @@ def _assert_runtime_contract_jobs(jobs, security):
     # workflow; native jobs read scope from the local `changes` job.
     runtime_contracts = jobs["light-gates"]
     assert runtime_contracts == {
+        "if": "github.event_name != 'pull_request'",
         "uses": CENTRAL_LIGHT_GATES,
         "with": {"runner": CENTRAL_RUNNER},
     }
@@ -176,6 +177,7 @@ def _assert_runtime_contract_jobs(jobs, security):
 def test_spec_status_gates_are_delegated_to_the_central_workflow():
     """The central workflow owns full-history checkout and spec-status steps."""
     assert _workflow()["jobs"]["light-gates"] == {
+        "if": "github.event_name != 'pull_request'",
         "uses": CENTRAL_LIGHT_GATES,
         "with": {"runner": CENTRAL_RUNNER},
     }
