@@ -75,3 +75,7 @@ Bind each tag to media item/revision, taxonomy ID/version, object/context, and c
 
 For bookmarks, `BookmarkSemanticSearchV1` and `BookmarkRelationsV1` reuse certified Graft SDK SourceIngest envelopes. They use the current semantic index and UQL relation path. Both bind ingestion/source/index/snapshot/authorization revisions. Unknown metadata stays explicit. Filter denied edges/counts before aggregation. Arbora owns the served adapter. Overstory R001.5 and R001.6 own meeting/bookmark presentation. These interfaces are definitions only. No source, provider, or consumer receipt is claimed.
 <!-- /spec-definition-patch -->
+
+## Connector operations owned elsewhere
+
+The operations that competency questions need from five connectors are specified in those connectors' repositories, not here: `CONN-ARR-MCP-COMPETENCY-OPERATIONS`, `CONN-AUDIOBOOKSHELF-MCP-COMPETENCY-OPERATIONS`, `CONN-MEDIA-DOWNLOADER-COMPETENCY-OPERATIONS`, `CONN-ROM-MANAGER-COMPETENCY-OPERATIONS` and `CONN-OWNCAST-AGENT-COMPETENCY-OPERATIONS`. Until an operation lands, Medulla answers the question with a typed abstention that names it.

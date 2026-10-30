@@ -9223,7 +9223,7 @@
         "cfe7d38376a4"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/scopes/tests.rs:73"
+        "crates/eg-capabilities/src/scopes/tests.rs:74"
       ]
     },
     {

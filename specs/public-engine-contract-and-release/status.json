@@ -600,11 +600,14 @@
     {
       "id": "EG-CONTRACT-R024",
       "title": "Pre-commit and codespell configuration finalized and locked",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "9dd2343e2b89",
         "c65a2566a170"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_contract_landed_rows.py:21"
+      ]
     },
     {
       "id": "EG-CONTRACT-R025",
@@ -666,11 +669,14 @@
     {
       "id": "EG-CONTRACT-R030",
       "title": "Unconstrained build step is not CPU-affinity restricted",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "9dd2343e2b89",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_contract_landed_rows.py:47"
+      ]
     },
     {
       "id": "EG-CONTRACT-R031",
@@ -724,11 +730,14 @@
     {
       "id": "EG-CONTRACT-R033",
       "title": "Wire acceptance stays aligned with classifier and dispatch support",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "5bf5b719de7e"
+        "5bf5b719de7e",
+        "9dd2343e2b89"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_contract_landed_rows.py:61"
+      ]
     },
     {
       "id": "EG-CONTRACT-R034",
@@ -803,9 +812,11 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0141255ac197",
-        "57a12eb06632"
+        "57a12eb06632",
+        "9dd2343e2b89"
       ],
       "verified_by": [
+        "tests/test_contract_landed_rows.py:83",
         "tests/test_gate_base_ref.py:29"
       ]
     },
@@ -904,7 +915,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "326bfadafe28",
-        "9084e9343bf4"
+        "9084e9343bf4",
+        "9dd2343e2b89"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:387"
