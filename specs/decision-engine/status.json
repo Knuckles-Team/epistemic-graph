@@ -2778,7 +2778,7 @@
       "landed_in": [
         "1e9ea1ef3790",
         "7a89c881dad4",
-        "cbabf5a2086e",
+        "c83766263728",
         "e8aaa8ae5ccd",
         "e9da9f0a77e1"
       ],
@@ -2808,7 +2808,7 @@
       "title": "Wire OptionFacts encoding into the real FeatureMatrix computation",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "cbabf5a2086e"
+        "c83766263728"
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/features.rs:168"
