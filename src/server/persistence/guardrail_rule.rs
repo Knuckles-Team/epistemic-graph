@@ -39,6 +39,9 @@ const PUBLISH_AGREEMENT: f64 = 1.0;
 /// Consensus a rule must reach to be promoted.
 const PROMOTION_THRESHOLD: f64 = 1.0;
 
+/// A published rule paired with its stored component metadata.
+type PublishedRuleComponent = (GuardrailRule, BTreeMap<String, String>);
+
 impl AgentLibraryStore {
     /// Every current, published `GuardrailRule` of `tenant_id`, sorted by
     /// rule id, read from one snapshot. Retired and withdrawn rules are not
@@ -93,7 +96,7 @@ impl AgentLibraryStore {
     fn published_rule_components(
         &self,
         tenant_id: &str,
-    ) -> Result<Vec<(GuardrailRule, BTreeMap<String, String>)>, String> {
+    ) -> Result<Vec<PublishedRuleComponent>, String> {
         let read = self.read()?;
         let heads = read.open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)?;
         let revisions = read.open_owner_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
