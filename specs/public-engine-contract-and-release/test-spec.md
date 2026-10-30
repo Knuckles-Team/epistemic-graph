@@ -51,6 +51,17 @@ These checks validate documentation against source. They do not execute or certi
 | EG-T-12.3 | EG-CONTRACT-R052.3 | Resolve every named symbol and call site. Compare each contract with its linked owner. | Reject duplicate authorities and universal-planner claims. Record source anchors and owner IDs. |
 | EG-T-12.4 | EG-CONTRACT-R052.4 | Review real-entry-point evidence requirements against the existing owner tests. Compare diagram labels with the coverage map. | Reject a diagram, unit-only proof, or status label offered as served evidence. Record missing evidence explicitly. |
 
+### EG-T-12.4 real entry-point evidence
+
+Each R052.3 entry point names its source anchor and the existing owner test that enters it, or records the evidence as missing.
+Evidence must be a test file and test name. A document, diagram, feature declaration or `status.json` is refused as evidence.
+`tests/test_contract_architecture_evidence.py` resolves every row against source.
+
+| Entry point | Source anchor | Owner evidence |
+|---|---|---|
+| Served mutation | `src/server/mutation/commit_entry.rs::commit_mutation` | missing: no served test asserts a committed result through this entry point; owner EG-DURABLE-KERNEL |
+| Planned query | `src/server/handlers/query/planning.rs::run_unified_with` | `src/server/handlers/query/planning/federation_served_tests.rs::a_served_named_join_keeps_the_exact_intersection` |
+
 Runtime proof must enter the actual served or embedded boundary named by the owning requirement.
 Query proof must observe authorized results and the specified planner behavior where applicable.
 Mutation proof must observe the committed result and the owner's refusal, replay, restart, and atomicity cases.
