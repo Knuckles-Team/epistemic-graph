@@ -51,11 +51,11 @@ fn action(position: i64, requested: Vec<RequestedBound>) -> GuardedAction {
 }
 
 fn guarded_request(
-    h: &Harness,
+    pin: &ComponentDependency,
     schema: &ComponentDependency,
     guarded: Option<GuardedAction>,
 ) -> DecideRequest {
-    let pin = h.publish_policy("limit-policy", &limited_policy());
+    let pin = pin.clone();
     let mut request = tool_subset_request(schema, &["search"], 100, vec![tool("tool-a", &["search"], 10)]);
     request.policy = DecisionPolicyRef::Pinned { component: pin };
     request.guarded_action = guarded;
@@ -68,8 +68,9 @@ fn guarded_request(
 async fn breach_abstains_with_rule_id() {
     let h = Harness::new().await;
     let (schema_pin, _digest) = publish_route_schema(&h);
+    let policy_pin = h.publish_policy("limit-policy", &limited_policy());
 
-    let breaching = guarded_request(&h, &schema_pin, Some(action(12_000, Vec::new())));
+    let breaching = guarded_request(&policy_pin, &schema_pin, Some(action(12_000, Vec::new())));
     let batch = decide(&h, breaching).await.unwrap();
     let StatisticalOutcome::Abstained { reasons } = &batch.records.as_slice()[0].outcome else {
         panic!("a breaching action must abstain")
@@ -87,7 +88,7 @@ async fn breach_abstains_with_rule_id() {
         rule_id: "max-position".to_string(),
         bound: 5_000,
     };
-    let tight = guarded_request(&h, &schema_pin, Some(action(8_000, vec![tightened])));
+    let tight = guarded_request(&policy_pin, &schema_pin, Some(action(8_000, vec![tightened])));
     let batch = decide(&h, tight).await.unwrap();
     assert!(matches!(
         batch.records.as_slice()[0].outcome,
@@ -97,7 +98,7 @@ async fn breach_abstains_with_rule_id() {
         rule_id: "max-position".to_string(),
         bound: 50_000,
     };
-    let loose = guarded_request(&h, &schema_pin, Some(action(12_000, vec![loosened])));
+    let loose = guarded_request(&policy_pin, &schema_pin, Some(action(12_000, vec![loosened])));
     let batch = decide(&h, loose).await.unwrap();
     let StatisticalOutcome::Abstained { reasons } = &batch.records.as_slice()[0].outcome else {
         panic!("a loosening request bound is ignored")
@@ -114,8 +115,9 @@ async fn breach_abstains_with_rule_id() {
 async fn action_within_limits_is_not_refused() {
     let h = Harness::new().await;
     let (schema_pin, _digest) = publish_route_schema(&h);
+    let policy_pin = h.publish_policy("limit-policy", &limited_policy());
 
-    let within = guarded_request(&h, &schema_pin, Some(action(9_000, Vec::new())));
+    let within = guarded_request(&policy_pin, &schema_pin, Some(action(9_000, Vec::new())));
     let batch = decide(&h, within).await.unwrap();
     if let StatisticalOutcome::Abstained { reasons } = &batch.records.as_slice()[0].outcome {
         assert!(
