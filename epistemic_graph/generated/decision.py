@@ -282,6 +282,7 @@ class AgentGraphDraft(BaseModel):
     tenant_id: str
     topology: TopologyFacts | None = None
     version: str
+    visibility: str | None = None
 
 
 class AgentLibraryEntryDraft(BaseModel):

@@ -1252,6 +1252,13 @@
         },
         "version": {
           "type": "string"
+        },
+        "visibility": {
+          "description": "Opt-in to the shared commons graph: only `commons` projects the\ntemplate's topology there. Absent means tenant-private, and absent\nkeeps every existing digest.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

@@ -837,6 +837,7 @@ class AgentGraphEntry(BaseModel):
     topology: TopologyFacts | None = None
     updated_at_ms: Annotated[int, Field(ge=0)]
     version: str
+    visibility: str | None = None
 
 
 class AgentGraphMutationKind(str, Enum):
