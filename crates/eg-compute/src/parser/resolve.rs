@@ -89,7 +89,7 @@ pub fn index_repository(files: &[(String, Vec<u8>)]) -> IndexResult {
 /// The non-code branch of the index (EG-ORCH-VOCAB-R012.3): a markdown file the
 /// code parsers do not own is classified as a spec folder file. A classified
 /// file becomes its typed node; a refused one becomes a plain `Document`.
-fn add_spec_folder_nodes(
+pub(super) fn add_spec_folder_nodes(
     indexed: &mut IndexResult,
     files: &[(String, Vec<u8>)],
     outcomes: &mut [eg_types::ingestion_wire::IndexFileOutcome],

@@ -27,7 +27,7 @@ use eg_types::ingestion_wire::{
 use super::branch_projection::project_scope;
 use super::branch_scope::{blob_node_id, content_digest, file_version_id, ScopeCatalog};
 use super::enrichment_admission::{record_native_evidence, record_resolved_facts};
-use super::resolve::resolve;
+use super::resolve::{add_spec_folder_nodes, resolve};
 use super::tree_sitter::parse_files_with_outcomes;
 
 const INVALID: &str = "AST_INPUT_INVALID";
@@ -138,7 +138,17 @@ pub fn index_branches(
         .filter(|outcome| outcome.status == IndexFileStatus::Success)
         .count();
     out.native_rung_evidence = evidence;
-    out.file_outcomes = units.restore_names(outcomes);
+    let mut outcomes = units.restore_names(outcomes);
+    // The non-code branch (EG-ORCH-VOCAB-R012.3): spec-folder markdown rides
+    // the durable scoped batch under its repository path, one node set per path.
+    let named: Vec<(String, Vec<u8>)> = units
+        .submitted
+        .iter()
+        .cloned()
+        .zip(units.files.iter().map(|(_, content)| content.clone()))
+        .collect();
+    add_spec_folder_nodes(&mut out, &named, &mut outcomes);
+    out.file_outcomes = outcomes;
     Ok(out)
 }
 
