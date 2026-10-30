@@ -27,6 +27,7 @@ mod columns;
 mod engine;
 mod http;
 mod limiter;
+pub mod plan_evolution;
 pub(crate) mod oq2;
 mod remote;
 mod run;

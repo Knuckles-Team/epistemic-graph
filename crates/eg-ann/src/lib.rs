@@ -31,6 +31,7 @@ pub mod flat;
 pub mod hnsw;
 pub mod ivfpq;
 pub mod kmeans;
+pub mod low_storage;
 /// GPU-accelerable batch-assignment backend for the k-means build hot loop
 /// (CONCEPT:EG-KG.compute.gpu-distance-seam / EG-327). See module docs.
 pub mod kmeans_gpu;

@@ -116,6 +116,8 @@ pub mod dag;
 pub mod dag_exec;
 #[cfg(feature = "query")]
 pub mod exec;
+// EG-FEDERATED-QUERY-R040.2.1 — topic backends for topic-weighted fusion.
+pub mod topic_backend;
 /// DBSP-style INCREMENTAL materialized-view maintenance (CONCEPT:EG-KG.storage.incremental-matview):
 /// a dep-free Z-set delta model + a circuit compiler for the LINEAR operator subset
 /// (`Scan`/`Filter`/`AsOf`/`WindowAgg`(linear)/`Limit`), generalizing `src/server/cdc.rs`'s

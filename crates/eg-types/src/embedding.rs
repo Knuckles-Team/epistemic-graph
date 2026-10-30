@@ -313,6 +313,69 @@ impl StampedVector {
     }
 }
 
+/// One media modality a multimodal embedding space can bind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum EmbeddingModality {
+    Text,
+    Image,
+    Audio,
+    Video,
+}
+
+impl EmbeddingModality {
+    /// Every modality a complete multimodal space must bind, in wire order.
+    pub const ALL: [Self; 4] = [Self::Text, Self::Image, Self::Audio, Self::Video];
+}
+
+/// One modality's encoder, bound into a shared coordinate space.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ModalityBinding {
+    pub modality: EmbeddingModality,
+    /// The encoder (model tower) that maps this modality into the space.
+    pub encoder: String,
+}
+
+/// The modality contract of an [`EmbeddingSpaceRef`] (EG-FEDERATED-QUERY-R039.1.1):
+/// text, image, audio and video bindings inside ONE pinned coordinate space.
+/// The space identity is carried, not copied per modality, so every modality
+/// is compared under the same `digest`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MultimodalEmbeddingSpace {
+    pub space: EmbeddingSpaceRef,
+    pub bindings: Vec<ModalityBinding>,
+}
+
+impl MultimodalEmbeddingSpace {
+    /// Refuse an absent or ill-formed space identity, a missing, duplicated or
+    /// empty modality binding.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.space.id.is_empty() || self.space.digest.is_empty() {
+            return Err("multimodal embedding space requires a pinned space identity".into());
+        }
+        self.space.validate()?;
+        for modality in EmbeddingModality::ALL {
+            let n = self.bindings.iter().filter(|b| b.modality == modality).count();
+            if n != 1 {
+                return Err(format!(
+                    "multimodal embedding space needs exactly one {modality:?} binding, found {n}"
+                ));
+            }
+        }
+        if self.bindings.len() != EmbeddingModality::ALL.len() {
+            return Err("multimodal embedding space has unknown extra bindings".into());
+        }
+        if self.bindings.iter().any(|b| b.encoder.is_empty()) {
+            return Err("multimodal embedding binding requires an encoder".into());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -454,5 +517,36 @@ mod tests {
             values: vec![1.0, f32::NAN],
         };
         assert!(stamped.validate().is_err());
+    }
+
+    // spec: EG-FEDERATED-QUERY-R039.1.1
+    #[test]
+    fn multimodal_space_round_trips_four_bindings_and_rejects_absent_identity() {
+        let space = EmbeddingSpaceRef::pinned("clip", "r1", "mh", "ph", 512, true).unwrap();
+        let multimodal = MultimodalEmbeddingSpace {
+            space: space.clone(),
+            bindings: EmbeddingModality::ALL
+                .iter()
+                .map(|m| ModalityBinding {
+                    modality: *m,
+                    encoder: format!("{m:?}-tower"),
+                })
+                .collect(),
+        };
+        multimodal.validate().unwrap();
+        let wire = serde_json::to_string(&multimodal).unwrap();
+        let decoded: MultimodalEmbeddingSpace = serde_json::from_str(&wire).unwrap();
+        assert_eq!(decoded, multimodal);
+
+        let mut missing = multimodal.clone();
+        missing.bindings.pop();
+        assert!(missing.validate().is_err());
+        let mut absent = multimodal.clone();
+        absent.space.id.clear();
+        absent.space.digest.clear();
+        assert!(absent.validate().is_err());
+        let mut dup = multimodal;
+        dup.bindings[3].modality = EmbeddingModality::Text;
+        assert!(dup.validate().is_err());
     }
 }

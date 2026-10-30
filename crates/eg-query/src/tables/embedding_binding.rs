@@ -387,6 +387,87 @@ impl BindingRequest {
     }
 }
 
+/// Why a column can or cannot be embedded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColumnEmbeddingEligibility {
+    /// A text-bearing column an embedding binding could cover.
+    Eligible,
+    /// The column type cannot be embedded; no binding is proposed.
+    UnsupportedType,
+}
+
+/// Advice that a column is worth embedding (EG-FEDERATED-QUERY-R077.6.1), derived
+/// from the observed workload. Advice is data only: it never creates a
+/// [`EmbeddingBinding`]; a binding stays an explicit, owner-scoped declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ColumnVectorAdvice {
+    pub table: String,
+    pub column: String,
+    /// Schema revision the advice was computed against.
+    pub schema_revision: String,
+    /// Observed workload window, as `[start_ms, end_ms)`.
+    pub window_start_ms: u64,
+    pub window_end_ms: u64,
+    pub sample_count: u64,
+    pub eligibility: ColumnEmbeddingEligibility,
+    /// Human-readable reason; `unsupported_type` for an ineligible column.
+    pub reason: String,
+}
+
+impl ColumnVectorAdvice {
+    /// Rank advice: eligible first, then the most samples, then table/column.
+    pub fn rank(advice: &mut [ColumnVectorAdvice]) {
+        advice.sort_by(|a, b| {
+            let rank = |x: &ColumnVectorAdvice| x.eligibility != ColumnEmbeddingEligibility::Eligible;
+            rank(a)
+                .cmp(&rank(b))
+                .then(b.sample_count.cmp(&a.sample_count))
+                .then(a.table.cmp(&b.table))
+                .then(a.column.cmp(&b.column))
+        });
+    }
+
+    /// Advice for a column of `type_name`; non-text types are `unsupported_type`.
+    pub fn for_column(
+        table: &str,
+        column: &str,
+        type_name: &str,
+        schema_revision: &str,
+        window: (u64, u64),
+        sample_count: u64,
+    ) -> Result<Self, String> {
+        if table.is_empty() || column.is_empty() || schema_revision.is_empty() {
+            return Err("column advice requires table, column and schema revision".into());
+        }
+        if window.1 <= window.0 {
+            return Err("column advice window must be non-empty".into());
+        }
+        let text = matches!(
+            type_name.to_ascii_lowercase().as_str(),
+            "text" | "varchar" | "string" | "utf8" | "char" | "clob"
+        );
+        let (eligibility, reason) = if text {
+            (ColumnEmbeddingEligibility::Eligible, "text column".to_string())
+        } else {
+            (
+                ColumnEmbeddingEligibility::UnsupportedType,
+                "unsupported_type".to_string(),
+            )
+        };
+        Ok(Self {
+            table: table.into(),
+            column: column.into(),
+            schema_revision: schema_revision.into(),
+            window_start_ms: window.0,
+            window_end_ms: window.1,
+            sample_count,
+            eligibility,
+            reason,
+        })
+    }
+}
+
 /// A durable declaration that a text-bearing source is semantically indexed.
 ///
 /// `tenant_scope` is not inferred from SQL text.  It is supplied by the
@@ -1139,5 +1220,27 @@ mod embedding_binding_tests {
             let bytes = encode_binding(&candidate, &schema).unwrap();
             assert_eq!(decode_binding(&bytes, &schema).unwrap().state, state);
         }
+    }
+
+    // spec: EG-FEDERATED-QUERY-R077.6.1
+    #[test]
+    fn column_advice_ranks_round_trips_and_refuses_unsupported_type() {
+        let mk = |t: &str, c: &str, ty: &str, n: u64| {
+            ColumnVectorAdvice::for_column(t, c, ty, "s1", (0, 100), n).unwrap()
+        };
+        let mut advice = vec![
+            mk("a", "blob", "bytea", 900),
+            mk("a", "title", "text", 5),
+            mk("a", "body", "varchar", 50),
+        ];
+        ColumnVectorAdvice::rank(&mut advice);
+        assert_eq!(advice[0].column, "body");
+        assert_eq!(advice[1].column, "title");
+        assert_eq!(advice[2].eligibility, ColumnEmbeddingEligibility::UnsupportedType);
+        assert_eq!(advice[2].reason, "unsupported_type");
+        let wire = serde_json::to_string(&advice).unwrap();
+        let back: Vec<ColumnVectorAdvice> = serde_json::from_str(&wire).unwrap();
+        assert_eq!(back, advice);
+        assert!(ColumnVectorAdvice::for_column("a", "c", "text", "s1", (5, 5), 1).is_err());
     }
 }
