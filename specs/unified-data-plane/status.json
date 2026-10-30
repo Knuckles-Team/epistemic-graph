@@ -1067,9 +1067,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.2.1",
       "title": "`DocumentDriverConfig` builds from a validated host/port/database, and `connect` refuses an unsafe or invalid destination before issuing any request",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bfa5ffcc7228"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/document_connection.rs:99"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.2.2",
@@ -2167,8 +2171,10 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R760.1",
       "title": "Model: served incident authority",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bfa5ffcc7228"
+      ],
       "verified_by": [
         "crates/eg-stream/src/telemetry/incident_authority.rs:252"
       ]
