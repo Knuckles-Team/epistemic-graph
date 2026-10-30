@@ -90,7 +90,8 @@
     "EG-CONTRACT-R053.11",
     "EG-CONTRACT-R053.12",
     "EG-CONTRACT-R006.3",
-    "EG-CONTRACT-R053.13"
+    "EG-CONTRACT-R053.13",
+    "EG-CONTRACT-R054"
   ],
   "requirements": [
     {
@@ -1266,6 +1267,13 @@
         "tests/test_ci_change_scope.py:817",
         "tests/test_ci_change_scope.py:946"
       ]
+    },
+    {
+      "id": "EG-CONTRACT-R054",
+      "title": "The engine serves its method descriptors and scope registry",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
