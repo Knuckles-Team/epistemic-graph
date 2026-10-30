@@ -2,8 +2,11 @@
 #![cfg(feature = "rdf")]
 #![allow(dead_code)]
 
+use std::collections::BTreeSet;
+
 use eg_rdf::mapping::parse_turtle;
 use eg_rdf::oxrdf::{NamedNode, Triple};
+use eg_rdf::source_selection::{question_abstention, NotUsedReason};
 
 pub const KG: &str = "http://knuckles.team/kg#";
 pub const BFO: &str = "http://purl.obolibrary.org/obo/BFO_";
@@ -159,4 +162,68 @@ pub fn assert_acceptance(questions: &[AcceptanceQuestion<'_>]) {
             );
         }
     }
+}
+
+/// Declared access contracts for the named sources: a read-only
+/// `vg:SourceConnection` (nothing in it asks the engine to hold a copy of the
+/// source) and a discovered `vg:MetadataContract` per source, with no
+/// approved `vg:VirtualMapping` — the ontology terms a mapping would target
+/// are not on main yet, so none of the sources is connected.
+#[cfg(feature = "sparql")]
+pub fn unconnected_contract_fixture(sources: &[&str]) -> String {
+    let mut ttl = String::from(
+        "@prefix vg: <http://knuckles.team/kg/virtual-graph#> .\n\
+         @prefix dc: <http://purl.org/dc/terms/> .\n\
+         @prefix k: <urn:eg-cq-conn:contract/> .\n",
+    );
+    for source in sources {
+        ttl.push_str(&format!(
+            "k:conn-{source} a vg:SourceConnection ; dc:identifier \"{source}\" ; \
+             vg:sourceKind \"mcp\" ; vg:endpointRef k:ep-{source} ; \
+             vg:declaredCapability \"read\" .\n\
+             k:ep-{source} a vg:EndpointRef ; vg:url \"mcp://{source}\" .\n\
+             k:contract-{source} a vg:MetadataContract ; \
+             vg:contractSource k:conn-{source} ; vg:discoveredEntity \"records\" .\n"
+        ));
+    }
+    ttl
+}
+
+/// The typed-abstention proof for one question row whose required sources are
+/// all unconnected: the engine's source selection must abstain — naming
+/// exactly the question's `(source, concept)` pairs with the closed
+/// `Unconnected` reason and using no source. Never an empty success
+/// (`specs/connector-competency/test-spec.md`).
+#[cfg(feature = "sparql")]
+pub fn assert_unconnected_question(
+    id: &str,
+    connected: &BTreeSet<String>,
+    required: &[(&str, &str)],
+) {
+    let abstention = question_abstention(required, connected)
+        .unwrap_or_else(|| panic!("{id}: an unconnected question must abstain, never return an empty success"));
+    abstention
+        .validate()
+        .expect("the typed abstention is a well-formed wire value");
+    assert!(
+        abstention.used.is_empty(),
+        "{id}: the abstention uses no source: {abstention:?}"
+    );
+    let named: Vec<(&str, &str)> = abstention
+        .not_used
+        .iter()
+        .map(|entry| {
+            assert_eq!(
+                entry.reason,
+                Some(NotUsedReason::Unconnected),
+                "{id}: the closed Unconnected reason: {abstention:?}"
+            );
+            (entry.source.as_str(), entry.concept.as_str())
+        })
+        .collect();
+    let expected: Vec<(&str, &str)> = required.to_vec();
+    assert_eq!(
+        named, expected,
+        "{id}: names exactly the unconnected sources: {abstention:?}"
+    );
 }
