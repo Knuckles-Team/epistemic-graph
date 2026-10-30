@@ -463,6 +463,7 @@
     "EG-DECISION-ENGINE-R144.4",
     "EG-DECISION-ENGINE-R144.5",
     "EG-DECISION-ENGINE-R144.6",
+    "EG-DECISION-ENGINE-R144.7",
     "EG-DECISION-ENGINE-R145",
     "EG-DECISION-ENGINE-R145.1",
     "EG-DECISION-ENGINE-R145.2",
@@ -5869,7 +5870,8 @@
         "EG-DECISION-ENGINE-R144.3",
         "EG-DECISION-ENGINE-R144.4",
         "EG-DECISION-ENGINE-R144.5",
-        "EG-DECISION-ENGINE-R144.6"
+        "EG-DECISION-ENGINE-R144.6",
+        "EG-DECISION-ENGINE-R144.7"
       ]
     },
     {
@@ -5910,6 +5912,13 @@
     {
       "id": "EG-DECISION-ENGINE-R144.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R144.7",
+      "title": "Consumer budgets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
