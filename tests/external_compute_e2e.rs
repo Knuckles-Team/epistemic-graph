@@ -96,6 +96,7 @@ fn stream(query: KnowledgeStreamQuery) -> Method {
     }
 }
 
+// spec: EG-DURABLE-KERNEL-R082.1
 #[test]
 fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
     let driver = epistemic_graph::server::spawn_engine_driver(|| {
