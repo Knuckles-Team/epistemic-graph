@@ -228,8 +228,9 @@ impl ClosureProjection {
 mod tests {
     use super::*;
 
-    /// A valid sha256 hex digest (64 lowercase hex bytes).
-    const DIGEST: &str = "abababababababababababababababababababababababababababababababab";
+    /// A valid `sha256:<64 lowercase hex>` digest.
+    const DIGEST: &str =
+        "sha256:abababababababababababababababababababababababababababababababab";
 
     fn descriptor() -> CapabilityDescriptor {
         CapabilityDescriptor {
@@ -302,11 +303,11 @@ mod tests {
         round_trip!(designation, Designation);
         round_trip!(projection, ClosureProjection);
         assert_eq!(
-            serde_json::to_value(&descriptor.side_effect_class).unwrap(),
+            serde_json::to_value(descriptor.side_effect_class).unwrap(),
             "external"
         );
         assert_eq!(
-            serde_json::to_value(&descriptor.approval_class).unwrap(),
+            serde_json::to_value(descriptor.approval_class).unwrap(),
             "low"
         );
         assert!(descriptor.validate().is_ok());

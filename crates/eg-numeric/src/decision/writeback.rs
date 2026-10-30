@@ -290,7 +290,7 @@ mod tests {
         round_trip!(queue, ProposalQueue);
         round_trip!(creation, InventoryCreation);
         round_trip!(ticket, FindingTicket);
-        assert_eq!(serde_json::to_value(&ticket.risk_tier).unwrap(), "medium");
+        assert_eq!(serde_json::to_value(ticket.risk_tier).unwrap(), "medium");
     }
 
     // spec: EG-DECISION-ENGINE-R615.1
