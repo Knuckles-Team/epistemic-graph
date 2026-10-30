@@ -293,7 +293,7 @@ References
 - Planned acceptance: `run_observations_change_model_and_width_with_trace` exercises Meristem routing/continuation and served Medulla Decide. It compares controlled latency, cost, and error windows under identical budgets. Full positive, refusal, trace, and capacity cases remain in `requirements.md` and `test-spec.md`.
 - Preserve existing coverage: `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `ARBORA-CAPACITY-R001.1`.
 - Source record: AU:26 SHA-256 and exact owner references are retained in `requirements.md`.
-- Explicit owner holds: AU-CONTROL-R006.30 is unmerged. Policy thresholds, predictive cost inputs, and tie breaks remain open until the owner publishes a versioned policy. No tuning defaults or implementation claims are supplied.
+- Explicit owner dependencies: AU-CONTROL-R006.30 is unmerged. Policy thresholds, predictive cost inputs, and tie breaks remain open until the owner publishes a versioned policy. No tuning defaults or implementation claims are supplied.
 - Unmerged consumer dependencies: AU-CONTROL-R006.30 (draft/unmerged).
 - Proposed owner-review choices, not source-established facts: The joint carrier and policy-required fields make missing decisions explicit. A self-referential command to adjust appropriately is not a substitute for that published policy..
 - Keep status SPECIFIED with empty `landed_in`/`verified_by` until separately reviewed implementation and served evidence exist; no receipt is inferred.
@@ -323,7 +323,7 @@ References
 - Planned acceptance: `repository_policy_is_synthesized_guarded_and_used` exercises real IndexRepository ingestion, exact-digest owner review, activation, and served decision use. Full conflict, stale, unsupported, and race cases remain in `requirements.md` and `test-spec.md`.
 - Preserve existing coverage: `EG-ORCH-VOCAB-R012.1`, `EG-ORCH-VOCAB-R012.2`, `EG-ORCH-VOCAB-R012.3`, `EG-ORCH-VOCAB-R012.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`, `EG-DECISION-ENGINE-R129.3`, `EG-DECISION-ENGINE-R129.4`, `EG-DECISION-ENGINE-R129.5`, `EG-IDENTITY-R008.4`.
 - Source record: EG:46 SHA-256 `9de4d3274232cb97a9a85ad17ea20b368fff1bd729bdb4e7b2799991da106c58`. Owner reference IDs and paths are in the canonical R012.7 requirement.
-- Explicit owner holds: The supported declarative grammar/synthesis profile and concrete review receipt producer must be published and bound. Unstructured text synthesis may produce candidates, but cannot silently fill those authority gaps.
+- Explicit owner dependencies: The supported declarative grammar/synthesis profile and concrete review receipt producer must be published and bound. Unstructured text synthesis may produce candidates, but cannot silently fill those authority gaps.
 - Unmerged consumer dependencies: none.
 - Proposed owner-review choice, not source-established fact: Atomic publication covers the active graph policy set only. It does not imply atomic cross-repository filesystem effects.
 - Keep status SPECIFIED with empty `landed_in`/`verified_by` until separately reviewed implementation and served evidence exist; no receipt is inferred.
@@ -337,7 +337,7 @@ References
 - Planned acceptance: `capability_gap_and_enhancement_are_queryable` uses served mutation and generated UnifiedQuery. It proves abstention alone creates no durable gap, then admits a separate gap and enhancement. It tests task classes, restart/readback, deduplication, revision conflict, invalid taxonomy, matching modes, tenant isolation, and unchanged capability state.
 - Preserve existing coverage: `EG-ORCH-VOCAB-R004`, `EG-DECISION-ENGINE-R010`.
 - Source record: EG:51 SHA-256 `ed01ad35731abc6a739b3e1a39ee198549103acf0d30ec51c77316ca7cf75c49`. Owner reference IDs and paths are in the canonical R004.6 requirement.
-- Explicit owner holds: The authoritative domain taxonomy/task-class resolver and admitted mutation producer must be bound to existing owner contracts. Do not fabricate a new owner role-export ID to cover the unrelated EG:7 hold.
+- Explicit owner dependencies: The authoritative domain taxonomy/task-class resolver and admitted mutation producer must be bound to existing owner contracts. Do not fabricate a new owner role-export ID to cover the unrelated EG:7 hold.
 - Unmerged consumer dependencies: none.
 - Proposed owner-review choices, not source-established facts: Distinct gap/enhancement types and explicit query match mode are proposed schema additions..
 - Keep status SPECIFIED with empty `landed_in`/`verified_by` until separately reviewed implementation and served evidence exist; no receipt is inferred.
@@ -351,7 +351,7 @@ References
 - Planned acceptance: `reviewed_normative_source_activates_without_graph_overwrite` exercises served ingestion, owner review, activation, and decision use. It confirms unchanged source bytes after graph operations and refusal without reviewed governed writeback. Full mismatch, stale, and race cases remain in `requirements.md` and `test-spec.md`.
 - Preserve existing coverage: `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `ARBORA-OPS-R050.2`, `ARBORA-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
 - Source record: EG:61 SHA-256 `c5f1dfe7867267169ebc8c75abba87a1d9ed47568a65cbfe1bf6d183b8026e59`. Owner reference IDs and paths are in the canonical R012.8 requirement.
-- Explicit owner holds: The concrete producer of the review receipt and normative-file source-effect binding must be owner-confirmed. R050 references establish review/ops boundaries, not proof that the proposed full carrier already exists.
+- Explicit owner dependencies: The concrete producer of the review receipt and normative-file source-effect binding must be owner-confirmed. R050 references establish review/ops boundaries, not proof that the proposed full carrier already exists.
 - Unmerged consumer dependencies: none.
 - Proposed owner-review choice, not source-established fact: Reviewed files remain normative source. Medulla owns active policy, not file-only runtime authority.
 - Keep status SPECIFIED with empty `landed_in`/`verified_by` until separately reviewed implementation and served evidence exist; no receipt is inferred.

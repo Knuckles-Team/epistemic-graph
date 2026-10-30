@@ -188,8 +188,8 @@ repos:
     stages: [manual]
   - id: jscpd-differential
     name: jscpd — differential clone gate (new pairs only)
-    # The base is the remote tip a push replaces (scripts/gate_base_ref.sh), as
-    # in CI; without one, enforce compares HEAD with HEAD and never sees a
+    # The base is origin/main (scripts/gate_base_ref.sh, EG-CONTRACT-R039), as
+    # in the release workflow; without one, enforce compares HEAD with HEAD and never sees a
     # committed pair. It reads the committed tree (HEAD), not the worktree.
     entry: bash -c 'base="$(bash scripts/gate_base_ref.sh)" && exec python3 scripts/check_duplication.py enforce --base-ref "$base"'
     language: system

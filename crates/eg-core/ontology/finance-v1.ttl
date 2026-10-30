@@ -794,7 +794,7 @@
     rdfs:label "Analysis Type" ;
     rdfs:comment "The kind of financial analysis a finance algorithm computes (e.g. a risk, valuation or trend-signal analysis): the analysis half of the algorithm applicability question. BFO:GenericallyDependentContinuant." ;
     rdfs:subClassOf bfo:0000031 ;
-    skos:relatedMatch wd:Q10870555 .
+    skos:relatedMatch wd:Q217602 .
 
 :appliesToAnalysis a owl:ObjectProperty ;
     rdfs:label "applies to analysis" ;
