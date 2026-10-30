@@ -3902,6 +3902,8 @@ components:
       - "tests/test_contract_method_reachability.py"
       - "tests/test_contract_receipt_verification.py"
       - "tests/test_contract_wave_surface.py"
+      - "tests/test_contract_landed_rows.py"
+      - "tests/test_identity_scope_registry.py"
       - "tests/test_connector_pack_client.py"
       - "tests/test_connector_pack_content.py"
       - "tests/test_control_lease_kind_policy.py"

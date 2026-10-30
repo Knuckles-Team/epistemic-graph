@@ -63,6 +63,7 @@ fn every_authorized_action_is_registered() {
 }
 
 // spec: EG-IDENTITY-R004
+// spec: EG-IDENTITY-R007
 #[test]
 fn the_rot_check_catches_an_unregistered_scope() {
     assert!(scope_entry("made:up").is_none());
@@ -139,6 +140,7 @@ fn every_approver_scope_has_exactly_its_built_in_group() {
 /// the EG contract, or it fails API registry construction. Pin them here so a
 /// future reclassification is caught at the source, not at GraphOS startup.
 // spec: EG-IDENTITY-R004
+// spec: EG-IDENTITY-R007
 #[test]
 fn graph_os_scope_classes_and_owners_match_the_api_contract() {
     for (scope, class, owner) in [
