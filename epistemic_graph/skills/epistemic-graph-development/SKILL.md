@@ -66,7 +66,7 @@ Specs are already designed. The work is implementation, delivered in very small,
 - Every delivered ID gets at least one test bound to it in the same PR. Python: `@pytest.mark.spec("<ID>")`. Rust/TypeScript: a `// spec: <ID>` line directly above the test.
 - Never hand-edit `status.json`; it is generated (`spec-status`). Never write placeholder SHAs. If the work is only part of a requirement, decompose it into `<ID>.<n>` children first and deliver whole children.
 - Write the marker with the literal ID, never a variable. Put `Spec:` and `Co-Authored-By:` on consecutive lines in the last paragraph of the commit message, or `Spec:` is not read as a trailer.
-- Generated status depends on the commit: run `pipelines-hook spec-status --write` again after committing and commit the result.
+- Status is computed at read time and never committed; `pipelines-hook spec-status --write` writes an ignored local copy.
 - The generator applies the rules. Run `pipelines-hook spec-status` to see each row's state.
 
 **Delivered means the row's acceptance is met**
