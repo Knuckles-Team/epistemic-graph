@@ -50,6 +50,12 @@ pub enum AbstainReason {
     /// Statistical: below the policy's support, coverage or risk floor. It
     /// names no invisible data, by construction.
     InsufficientConfidence,
+    /// An edit-concentration question whose edit names no usable
+    /// concentration policy (EG-DECISION-ENGINE-R173.4).
+    NoConcentrationPolicy,
+    /// The counted edits were judged under different policy revisions
+    /// (EG-DECISION-ENGINE-R173.4).
+    MixedPolicyRevision { revisions: BoundedVec<u64, 64> },
 }
 
 /// Why one candidate did not win its slot.

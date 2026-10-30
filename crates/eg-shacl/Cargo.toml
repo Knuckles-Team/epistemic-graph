@@ -42,6 +42,10 @@ regex = "1"
 # (parser + algebra only, no store) — pinned to the SAME version eg-rdf's `sparql`
 # feature uses, so a `full` build still links exactly one copy.
 spargebra = "0.4"
+# The edit-concentration constraint (EG-DECISION-ENGINE-R173.3) applies the one
+# typed verdict `eg_types::decision::concentration`, so `Decide` and `ShaclValidate`
+# agree by construction. Already in the tree via eg-rdf -> eg-core.
+eg-types = { path = "../eg-types" }
 # ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
 # OFF) — a default/pi/node/full build links none of it and `ValidationResult`
 # carries no new required trait. See `src/contract.rs`.

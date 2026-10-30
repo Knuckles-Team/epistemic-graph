@@ -31,6 +31,9 @@ mod stat_adapter;
 mod stat_belief;
 #[cfg(feature = "decide")]
 mod stat_classes;
+// EG-DECISION-ENGINE-R173: the cross-round edit concentration cap.
+#[cfg(feature = "decide")]
+mod stat_concentration;
 #[cfg(feature = "decide")]
 mod stat_decide;
 #[cfg(feature = "decide")]

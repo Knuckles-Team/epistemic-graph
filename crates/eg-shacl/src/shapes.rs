@@ -118,6 +118,10 @@ pub enum Constraint {
     /// `sh:prefixes`) by the evaluator ([`crate::validate`]) and the ICV witness
     /// builder ([`crate::icv`]).
     Sparql(Term),
+    /// `kg:editConcentration true` — the focus edit must not reach its
+    /// concentration policy's threshold (EG-DECISION-ENGINE-R173.3); see
+    /// [`crate::concentration`].
+    EditConcentration,
 }
 
 /// A resolved `sh:sparql` constraint descriptor (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL-SPARQL §3.5.1):
@@ -426,6 +430,9 @@ impl<'a> ShapesGraph<'a> {
             for v in self.objects(id, predicate) {
                 out.push(as_constraint(v));
             }
+        }
+        if self.flag_is_true(id, crate::concentration::EDIT_CONCENTRATION) {
+            out.push(Constraint::EditConcentration);
         }
     }
 

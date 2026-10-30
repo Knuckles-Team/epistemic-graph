@@ -172,5 +172,54 @@ pub fn concentration_verdict(
     })
 }
 
+/// What one verdict counted (EG-DECISION-ENGINE-R173.5): the shipped edit
+/// ids inside the window (the candidate last), the window bounds, the
+/// threshold and the policy that supplied it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ConcentrationEvidence {
+    pub counted_edit_ids: Vec<String>,
+    pub window_start: u32,
+    pub window_end: u32,
+    pub min_shipped: u32,
+    pub policy_iri: String,
+    pub policy_revision: u64,
+}
+
+/// [`concentration_verdict`] plus the evidence it counted. The counted ids
+/// are exactly the edits the verdict's `count` covers.
+pub fn concentration_judgement(
+    facts: &[EditFact],
+    candidate: &EditFact,
+    policy: Option<&ConcentrationPolicy>,
+) -> Result<(ConcentrationVerdict, ConcentrationEvidence), ConcentrationAbstention> {
+    let verdict = concentration_verdict(facts, candidate, policy)?;
+    let policy = policy.ok_or(ConcentrationAbstention::NoConcentrationPolicy)?;
+    let window_start = candidate
+        .round
+        .saturating_sub(policy.window_rounds.saturating_sub(1));
+    let mut counted: Vec<&EditFact> = facts
+        .iter()
+        .filter(|f| f.status == EditStatus::Shipped && f.dimension_iri == candidate.dimension_iri)
+        .filter(|f| f.edit_id != candidate.edit_id)
+        .filter(|f| (window_start..=candidate.round).contains(&f.round))
+        .collect();
+    counted.sort_by(|a, b| (a.round, &a.edit_id).cmp(&(b.round, &b.edit_id)));
+    let mut counted_edit_ids: Vec<String> = counted.iter().map(|f| f.edit_id.clone()).collect();
+    counted_edit_ids.push(candidate.edit_id.clone());
+    Ok((
+        verdict,
+        ConcentrationEvidence {
+            counted_edit_ids,
+            window_start,
+            window_end: candidate.round,
+            min_shipped: policy.min_shipped,
+            policy_iri: policy.policy_iri.clone(),
+            policy_revision: policy.revision,
+        },
+    ))
+}
+
 #[cfg(test)]
 mod tests;

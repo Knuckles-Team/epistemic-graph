@@ -183,6 +183,21 @@ impl Validator<'_> {
                 Constraint::Sparql(constraint_ref) => {
                     self.check_sparql(shape, focus, constraint_ref, out)?;
                 }
+                Constraint::EditConcentration => {
+                    let judged = crate::concentration::judge_edit(self.data, focus);
+                    if let Some(message) = crate::concentration::violation_message(&judged) {
+                        out.push(ValidationResult {
+                            focus_node: focus.to_string(),
+                            path: None,
+                            value: None,
+                            source_shape: shape.id.to_string(),
+                            constraint_component: crate::concentration::CC_EDIT_CONCENTRATION
+                                .to_string(),
+                            message: Some(message),
+                            severity: shape.severity,
+                        });
+                    }
+                }
                 // ── Per value node ────────────────────────────────────────
                 _ => values
                     .iter()
@@ -232,7 +247,8 @@ impl Validator<'_> {
             Constraint::MinCount(_)
             | Constraint::MaxCount(_)
             | Constraint::HasValue(_)
-            | Constraint::Sparql(_) => {}
+            | Constraint::Sparql(_)
+            | Constraint::EditConcentration => {}
         }
         Ok(())
     }

@@ -64,3 +64,11 @@
         sh:nodeKind sh:IRI ;
         sh:message "A stoppingBehaviour value must cite its evaluationRun."
     ] .
+
+# Edit concentration cap (EG-DECISION-ENGINE-R173.3). Every edit that names a
+# concentration policy is judged by the same verdict the served Decide arm
+# (QuestionKind::EditConcentration) applies; a revert verdict or an abstention
+# is a violation.
+:EditConcentrationShape a sh:NodeShape ;
+    sh:targetSubjectsOf :governedByConcentrationPolicy ;
+    :editConcentration true .

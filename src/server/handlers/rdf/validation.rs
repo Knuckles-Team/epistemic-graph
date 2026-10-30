@@ -6,9 +6,9 @@ use crate::protocol::{Response, ResultPayload};
 /// The data half of a `ShaclValidate` request: an inline Turtle document, typed
 /// triples, or neither (the live graph).
 #[cfg(feature = "shacl")]
-pub(super) struct ShaclData<'a> {
-    pub(super) turtle: &'a str,
-    pub(super) triples: Option<&'a [eg_types::ontology_inspection::RdfTriple]>,
+pub(in crate::server) struct ShaclData<'a> {
+    pub(in crate::server) turtle: &'a str,
+    pub(in crate::server) triples: Option<&'a [eg_types::ontology_inspection::RdfTriple]>,
 }
 
 /// Validate the request graph (or an inline `data_graph` Turtle document, or typed
@@ -18,7 +18,7 @@ pub(super) struct ShaclData<'a> {
 /// exports the LIVE graph's RDF (the same triples `GetRdf` serializes) and
 /// validates that.
 #[cfg(feature = "shacl")]
-pub(super) async fn handle_shacl_validate(
+pub(in crate::server) async fn handle_shacl_validate(
     req_id: u64,
     graph_name: &str,
     core: &Arc<GraphCore>,

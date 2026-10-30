@@ -295,6 +295,10 @@ fn component_matches(c: &Constraint, cc: &str) -> bool {
             | (Constraint::In(_), vocab::CC_IN)
             | (Constraint::HasValue(_), vocab::CC_HAS_VALUE)
             | (Constraint::Sparql(_), vocab::CC_SPARQL)
+            | (
+                Constraint::EditConcentration,
+                crate::concentration::CC_EDIT_CONCENTRATION
+            )
     ) || matches!(
         (c, cc),
         (
@@ -479,7 +483,8 @@ fn constraint_witness(site: &WitnessSite, constraint: &Constraint) -> String {
         | Constraint::Xone(_)
         | Constraint::Node(_)
         | Constraint::Property(_)
-        | Constraint::Sparql(_) => referenced_shape_witness(site),
+        | Constraint::Sparql(_)
+        | Constraint::EditConcentration => referenced_shape_witness(site),
     }
 }
 

@@ -1238,3 +1238,5 @@ mod scorer_tests;
 mod replay_tests;
 
 mod task_plan_tests;
+// EG-DECISION-ENGINE-R173: the served edit concentration cap.
+mod concentration_tests;

@@ -323,3 +323,46 @@ Aligned to ArchiMate 3.2 layers.""" ;
     rdfs:label "Harness Hook" ;
     rdfs:comment "One of the eight lifecycle hook points a processor attaches to (task_start, step_start, before_model, after_model, before_tool, after_tool, step_end, task_end). Distinct from the dev-CLI :Hook (CONCEPT:KG-2.109)." ;
     rdfs:subClassOf :ApplicationLayer .
+
+# Edit concentration cap (EG-DECISION-ENGINE-R173.3). One policy node supplies
+# the threshold to both the served Decide arm and the :EditConcentrationShape.
+
+:ConcentrationPolicy a owl:Class ;
+    rdfs:label "Concentration Policy" ;
+    rdfs:comment "The cross-round edit concentration cap: a candidate HarnessEdit reverts when the shipped edits on its dimension inside windowRounds, counting the candidate, reach minShipped (EG-DECISION-ENGINE-R173)." ;
+    rdfs:subClassOf :Policy .
+
+:governedByConcentrationPolicy a owl:ObjectProperty ;
+    rdfs:label "governed by concentration policy" ;
+    rdfs:comment "The ConcentrationPolicy a HarnessEdit is judged under." ;
+    rdfs:subPropertyOf :governedBy ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range :ConcentrationPolicy .
+
+:judgedUnderRevision a owl:DatatypeProperty ;
+    rdfs:label "judged under revision" ;
+    rdfs:comment "The ConcentrationPolicy revision a HarnessEdit was judged under; edits under mixed revisions abstain." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range xsd:integer .
+
+:minShipped a owl:DatatypeProperty ;
+    rdfs:label "min shipped" ;
+    rdfs:comment "The shipped-edit count on one dimension, counting the candidate, at which a ConcentrationPolicy reverts the candidate." ;
+    rdfs:domain :ConcentrationPolicy ;
+    rdfs:range xsd:integer .
+
+:windowRounds a owl:DatatypeProperty ;
+    rdfs:label "window rounds" ;
+    rdfs:comment "The rolling round window, ending at the candidate's round, inside which a ConcentrationPolicy counts shipped edits." ;
+    rdfs:domain :ConcentrationPolicy ;
+    rdfs:range xsd:integer .
+
+:concentrationRevision a owl:DatatypeProperty ;
+    rdfs:label "concentration revision" ;
+    rdfs:comment "The revision of a ConcentrationPolicy." ;
+    rdfs:domain :ConcentrationPolicy ;
+    rdfs:range xsd:integer .
+
+:editConcentration a owl:AnnotationProperty ;
+    rdfs:label "edit concentration" ;
+    rdfs:comment "SHACL shape parameter: when true, each focus HarnessEdit must not reach its ConcentrationPolicy threshold (native constraint component :EditConcentrationConstraintComponent)." .

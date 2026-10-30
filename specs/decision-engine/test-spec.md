@@ -677,9 +677,9 @@ Hot-path proof for `EG-DECISION-ENGINE-R175`: `tests/decide/test_recommend_serve
 |---|---|---|
 | Model | `EG-DECISION-ENGINE-R173.1` | A serde round trip keeps every field and rejects `window_rounds = 0`. |
 | Behavior | `EG-DECISION-ENGINE-R173.2` | Unit tests cover the third edit in rounds 2 to 4 and two edits only. |
-| Wiring | `EG-DECISION-ENGINE-R173.3` | A test asserts the same verdict from `Decide` and from `ShaclValidate`. |
+| Wiring | `EG-DECISION-ENGINE-R173.3` | `src/server/handlers/decide/stat_tests/concentration_tests.rs::decide_and_shacl_validate_give_the_same_concentration_verdict`: A test asserts the same verdict from `Decide` and from `ShaclValidate`. |
 | Refusal | `EG-DECISION-ENGINE-R173.4` | Each case returns its typed reason and no verdict. |
-| Evidence | `EG-DECISION-ENGINE-R173.5` | A record readback lists each field. |
+| Evidence | `EG-DECISION-ENGINE-R173.5` | `src/server/handlers/decide/stat_tests/concentration_tests.rs::the_record_lists_counted_edits_window_threshold_and_revision`: A record readback lists each field. |
 | Hot-path proof | `EG-DECISION-ENGINE-R173.6` | The served test passes, and the benchmark receipt meets the budget. |
 
 Hot-path proof for `EG-DECISION-ENGINE-R173`: `tests/decide/test_concentration_served.py::test_third_same_dimension_edit_reverts`.

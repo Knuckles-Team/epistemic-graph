@@ -88,7 +88,12 @@ async fn serve(
     // A `harness_contrast` question declares its candidates but still reads
     // its evidence (held versions, probe runs, stored contrasts) from the
     // graph named by its `graph` param, under the same RLS filter.
-    let graph_view = if request.question.kind == QuestionKind::HarnessContrast {
+    let graph_view = if request.question.kind == QuestionKind::EditConcentration {
+        Some(
+            super::stat_concentration::concentration_view(state, verified.agent_id(), &request)
+                .await?,
+        )
+    } else if request.question.kind == QuestionKind::HarnessContrast {
         Some(
             super::stat_harness_contrast::contrast_evidence_view(
                 state,
@@ -148,9 +153,18 @@ fn decide_blocking(
         policy.statistical.tenant_public_features,
         &mut candidates.views,
     )?;
+    let mut extra_premises = Vec::new();
+    let concentration = super::stat_concentration::concentration_outcome(request, graph_view)
+        .transpose()?
+        .map(|judged| {
+            extra_premises = judged.premises;
+            Ok(judged.outcome)
+        });
+    let constraint_resolved = concentration.is_some();
     let specialized = task_plan
         .as_ref()
         .map(|plan| Ok(super::stat_task_plan::outcome(plan)))
+        .or(concentration)
         .or_else(|| tool_subset_outcome(request));
     let executed = match specialized {
         Some(outcome_result) => Executed {
@@ -186,6 +200,10 @@ fn decide_blocking(
         &executed,
         nl,
         task_plan,
+        Resolved {
+            extra_premises,
+            constraint: constraint_resolved,
+        },
     )?;
     telemetry::decided(&record, candidates.views.len(), started);
     let records = BoundedVec::new(vec![record])
@@ -398,11 +416,20 @@ fn resolution(outcome: &StatisticalOutcome) -> ResolutionKind {
     }
 }
 
+/// What a deterministic specialised arm adds to the seal: its own premises,
+/// and whether its verdict is a constraint resolution (an edit concentration
+/// verdict) rather than a statistical one.
+struct Resolved {
+    extra_premises: Vec<PremiseRef>,
+    constraint: bool,
+}
+
 fn seal(
     sealing: Sealing,
     executed: &Executed,
     nl: Option<NlBinding>,
     task_plan: Option<eg_types::decision::task_plan::TaskPlan>,
+    resolved: Resolved,
 ) -> Result<StatisticalDecisionRecord, String> {
     let inputs = StatisticalInputs {
         harness_evaluation: None,
@@ -430,6 +457,7 @@ fn seal(
     if let Some(plan) = &task_plan {
         premise_list.extend(super::stat_task_plan::premises(plan));
     }
+    premise_list.extend(resolved.extra_premises);
     let outcome = executed.ladder.outcome.clone();
     let synthetic = sealing
         .pinned
@@ -446,7 +474,9 @@ fn seal(
         candidate_source: sealing.candidates.record.clone(),
         inputs,
         inputs_digest,
-        resolution_kind: if task_plan.is_some() {
+        resolution_kind: if task_plan.is_some()
+            || (resolved.constraint && !matches!(outcome, StatisticalOutcome::Abstained { .. }))
+        {
             ResolutionKind::Constraint
         } else {
             resolution(&outcome)

@@ -220,6 +220,10 @@ pub fn every_abstain_reason() -> Vec<AbstainReason> {
             field: "node_budget".to_string(),
         },
         AbstainReason::InsufficientConfidence,
+        AbstainReason::NoConcentrationPolicy,
+        AbstainReason::MixedPolicyRevision {
+            revisions: bounded(vec![1, 2]),
+        },
     ]
 }
 
