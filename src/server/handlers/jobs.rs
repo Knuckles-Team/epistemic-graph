@@ -82,6 +82,8 @@ mod executor_claim;
 mod executor_loop;
 mod executor_program;
 #[cfg(test)]
+mod executor_tests;
+#[cfg(test)]
 mod graph_tests;
 mod helpers;
 mod native_validation;

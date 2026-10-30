@@ -4,10 +4,24 @@ use super::prelude_jobs::*;
 use super::prelude_std::*;
 use super::*;
 
+/// The association-mining kernel a colocated worker runs. Production composition
+/// always passes [`REAL_MINING_KERNEL`]; tests inject a synthetic kernel to
+/// exercise cancellation, deadline, CPU-budget and failure handling.
+pub(super) type MiningKernel = fn(
+    &[Vec<String>],
+    f64,
+    f64,
+    Algorithm,
+    Arc<AtomicBool>,
+) -> Result<Vec<association::LabeledRule>, association::MiningCancelled>;
+
+pub(super) const REAL_MINING_KERNEL: MiningKernel = association::mine_labeled_cancellable;
+
 pub(super) async fn execute_claim(
     state: &Arc<RwLock<ServerState>>,
     store: &Arc<JobStore>,
     claim: WorkerClaim,
+    kernel_fn: MiningKernel,
 ) -> Result<(), String> {
     let worker_ref = claim.lease.worker_ref.clone();
     let epoch = claim.lease.epoch;
@@ -69,7 +83,7 @@ pub(super) async fn execute_claim(
         let cancellation = Arc::new(AtomicBool::new(false));
         let kernel_token = cancellation.clone();
         let mut kernel = tokio::task::spawn_blocking(move || {
-            association::mine_labeled_cancellable(
+            kernel_fn(
                 &transactions,
                 min_support,
                 min_confidence,

@@ -23,7 +23,7 @@ fn job_persistence_path(persist_dir: Option<&str>) -> Result<&Path, String> {
         })
 }
 
-fn open_job_store(persist_path: &Path) -> Result<Arc<JobStore>, String> {
+pub(super) fn open_job_store(persist_path: &Path) -> Result<Arc<JobStore>, String> {
     let authority = crate::store_authority::process_authority();
     let proof = authority.proof();
     JobStore::open_in_dir(

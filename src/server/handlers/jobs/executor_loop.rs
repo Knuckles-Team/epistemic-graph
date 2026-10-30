@@ -82,7 +82,7 @@ pub(super) fn ensure_job_workers(
             .unwrap_or(1)
             .min(32);
         for slot in 0..workers {
-            tokio::spawn(worker_loop(state.clone(), store.clone(), slot, timing));
+            tokio::spawn(worker_loop(state.clone(), store.clone(), slot, timing, REAL_MINING_KERNEL));
         }
     });
     Ok(())
@@ -94,11 +94,50 @@ pub(super) fn refresh_job_metrics(store: &JobStore) {
     }
 }
 
+/// Execute one claim and apply the durable failure policy: compute failures
+/// consume the current attempt and obey durable retry backoff; publication
+/// failures retain the complete result and release only ownership so another
+/// replica can replay it.
+pub(super) async fn run_claim(
+    state: &Arc<RwLock<ServerState>>,
+    store: &Arc<JobStore>,
+    claim: WorkerClaim,
+    kernel: MiningKernel,
+) {
+    let job_id = claim.job.job_id.clone();
+    let lease = claim.lease.clone();
+    if execute_claim(state, store, claim, kernel).await.is_err() {
+        if let Ok(current) = store.get(&job_id) {
+            match current.state {
+                JobState::Running { .. } => {
+                    let _ = store.fail_attempt_fenced(
+                        &job_id,
+                        &lease.worker_ref,
+                        lease.epoch,
+                        "worker_execution_failed",
+                        unix_ms(),
+                    );
+                }
+                JobState::Publishing { .. } => {
+                    let _ = store.release_publication_lease_fenced(
+                        &job_id,
+                        &lease.worker_ref,
+                        lease.epoch,
+                        unix_ms(),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 pub(super) async fn worker_loop(
     state: Arc<RwLock<ServerState>>,
     store: Arc<JobStore>,
     slot: usize,
     timing: AnalyticsWorkerTiming,
+    kernel: MiningKernel,
 ) {
     let worker_ref = crate::server::mutation_batch::opaque_coordinator_key(
         "analytics-worker",
@@ -120,37 +159,7 @@ pub(super) async fn worker_loop(
             timing.lease_ms,
             quota,
         ) {
-            Ok(Some(claim)) => {
-                let job_id = claim.job.job_id.clone();
-                let lease = claim.lease.clone();
-                if execute_claim(&state, &store, claim).await.is_err() {
-                    // Compute failures consume the current attempt and obey durable
-                    // retry backoff. Publication failures retain the complete result
-                    // and release only ownership so another replica can replay it.
-                    if let Ok(current) = store.get(&job_id) {
-                        match current.state {
-                            JobState::Running { .. } => {
-                                let _ = store.fail_attempt_fenced(
-                                    &job_id,
-                                    &lease.worker_ref,
-                                    lease.epoch,
-                                    "worker_execution_failed",
-                                    unix_ms(),
-                                );
-                            }
-                            JobState::Publishing { .. } => {
-                                let _ = store.release_publication_lease_fenced(
-                                    &job_id,
-                                    &lease.worker_ref,
-                                    lease.epoch,
-                                    unix_ms(),
-                                );
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
+            Ok(Some(claim)) => run_claim(&state, &store, claim, kernel).await,
             Ok(None) | Err(_) => tokio::time::sleep(Duration::from_millis(timing.poll_ms)).await,
         }
     }
