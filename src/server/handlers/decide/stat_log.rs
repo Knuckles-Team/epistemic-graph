@@ -35,7 +35,7 @@ use super::stat_replay::replay;
 use super::stat_resolve::resolve;
 use super::stat_retention::{compact, full_record, verify, Retention};
 use super::stat_slate::{evaluated_slates, slate_of, SLATE_QUESTION};
-use super::stat_support::{default_statistical_policy, pinned_entry, refusal};
+use super::stat_support::{default_statistical_policy, pinned_entry, refusal, resolve_policy};
 use super::telemetry;
 use super::SharedState;
 use crate::protocol::{Response, ResultPayload};
@@ -189,6 +189,7 @@ fn commit(
     let mut rows =
         super::stat_evaluator::grant_rows(ctx, &logged.record_id, &reader.principal, evaluator)?;
     rows.push((key, encode_artifact(&entry)?));
+    rows.extend(super::stat_limit_guard::observation_rows(&logged, &resolve_policy(ctx.store, ctx.tenant_id, &logged.inputs.policy)?)?);
     ctx.store.put_decision_artifacts(ctx.tenant_id, &rows)?;
     Ok(committed(false))
 }

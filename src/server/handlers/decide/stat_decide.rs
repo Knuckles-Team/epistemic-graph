@@ -171,7 +171,7 @@ fn decide_blocking(
             None => execute(ctx, request, &pinned, &policy, &candidates.views)?,
         },
     };
-    let executed = super::stat_limit_guard::guard(executed, request, &policy);
+    let executed = super::stat_limit_guard::guard(executed, request.guarded_action.as_ref(), &policy);
     let slices = live_slices(ctx, request, &pinned, &candidates.views)?;
     let nl = binding(request, &executed.ladder.outcome, &candidates.entries)?;
     let record = seal(
@@ -422,6 +422,7 @@ fn seal(
         },
         exploration: exploration(&sealing, executed),
         belief_slices: bounded(sealing.slices.inputs.clone())?,
+        guarded_action: sealing.request.guarded_action.clone(),
     };
     let inputs_digest = digest_text(
         STATISTICAL_INPUTS_DOMAIN,

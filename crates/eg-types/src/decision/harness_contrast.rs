@@ -896,6 +896,7 @@ mod tests {
             },
             exploration: None,
             belief_slices: BoundedVec::new(Vec::new()).unwrap(),
+            guarded_action: None,
             harness_contrast: Some(decision.clone()),
         };
         let inputs_digest = digest_text(INPUTS_DOMAIN, &(question.clone(), &inputs));

@@ -126,3 +126,34 @@ async fn action_within_limits_is_not_refused() {
         );
     }
 }
+
+#[tokio::test]
+async fn committed_breach_replays_and_stores_one_observation_per_signal() {
+    use super::super::stat_limit_guard::breaches_of_signal;
+    use super::log_tests::log_op;
+    use eg_types::decision::statistical::log::DecisionLogCommitted;
+
+    let h = Harness::new().await;
+    let (schema_pin, _digest) = publish_route_schema(&h);
+    let breaching = guarded_request(&h, &schema_pin, Some(action(12_000, Vec::new())));
+    let batch = decide(&h, breaching).await.unwrap();
+    let record = batch.records.as_slice()[0].clone();
+    assert_eq!(
+        record.inputs.guarded_action.as_ref().unwrap().signal_iri,
+        "urn:signal:order-1",
+        "the sealed record carries the action it was checked on"
+    );
+
+    let commit = DecisionLogOp::Commit {
+        record: Box::new(record.clone()),
+        evaluator: None,
+    };
+    let committed: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
+    assert!(!committed.replayed);
+
+    let stored = breaches_of_signal(&h.store, TENANT, "urn:signal:order-1").unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].rule_id, "max-position");
+    assert_eq!((stored[0].observed, stored[0].bound), (12_000, 10_000));
+    assert_eq!(stored[0].record_id, record.record_id);
+}

@@ -326,6 +326,10 @@ pub struct StatisticalInputs {
     /// The belief slices' stored inputs (EH-297); omitted when none.
     #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
     pub belief_slices: BoundedVec<belief::BeliefSliceInputs, 8>,
+    /// The action the limit guard checked, so a replay and the commit path
+    /// re-derive the same breaches (EG-DECISION-ENGINE-R131.3, R131.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guarded_action: Option<crate::decision::limit_guard::GuardedAction>,
 }
 
 /// One statistical decision, recorded. Record version 2.
