@@ -974,8 +974,8 @@
         "tests/docs/test_architecture_map.py:120",
         "tests/docs/test_architecture_map.py:39",
         "tests/docs/test_architecture_map.py:76",
-        "tests/test_contract_architecture_evidence.py:35",
-        "tests/test_contract_architecture_evidence.py:36"
+        "tests/test_contract_architecture_evidence.py:38",
+        "tests/test_contract_architecture_evidence.py:39"
       ],
       "rollup_of": [
         "EG-CONTRACT-R052.1",
@@ -1025,8 +1025,8 @@
         "e962b9937133"
       ],
       "verified_by": [
-        "tests/test_contract_architecture_evidence.py:35",
-        "tests/test_contract_architecture_evidence.py:36"
+        "tests/test_contract_architecture_evidence.py:38",
+        "tests/test_contract_architecture_evidence.py:39"
       ]
     },
     {
