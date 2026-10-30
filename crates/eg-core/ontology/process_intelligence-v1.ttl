@@ -399,3 +399,26 @@
     rdfs:comment "A source event with immutable identity, activity, event time, attributes, and qualified object participation." ;
     rdfs:subClassOf :Event,
         prov:Activity .
+
+:EpcFunction a owl:Class ;
+    rdfs:label "EPC Function" ;
+    rdfs:comment "An ARIS EPC function: the activity node of an event-driven process chart (subClassOf :ProcessEventType as the EPC node type)." ;
+    rdfs:subClassOf :ProcessEventType .
+
+:EpcRuleOperator a owl:Class ;
+    rdfs:label "EPC Rule Operator" ;
+    rdfs:comment "An ARIS EPC split/join (AND, OR, XOR) between EPC nodes (subClassOf :ProcessEventType as the EPC node type)." ;
+    rdfs:subClassOf :ProcessEventType .
+
+:flowsTo a owl:ObjectProperty ;
+    rdfs:label "flows to" ;
+    rdfs:comment "The outgoing control-flow connection of an ARIS EPC node (function or rule operator) to the EPC node that follows it." ;
+    rdfs:domain [ a owl:Class ;
+        owl:unionOf ( :EpcFunction :EpcRuleOperator ) ] ;
+    rdfs:range :ProcessEventType .
+
+:hasEpcNode a owl:ObjectProperty ;
+    rdfs:label "has EPC node" ;
+    rdfs:comment "Links an ARIS :ProcessModel to the EPC node (function or rule operator) contained in its chart." ;
+    rdfs:domain :ProcessModel ;
+    rdfs:range :ProcessEventType .

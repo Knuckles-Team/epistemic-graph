@@ -54,6 +54,8 @@ pub mod knowledge_atom;
 pub mod extracted_fact;
 // EG-INGEST-WORKER-R900.1/R902.1/R903.1/R904.1 — source governance records.
 pub mod source_governance;
+// EG-INGEST-WORKER-R900.4/R901.4/R902.4/R903.4/R904.4/R701.2/R701.4/R002.4/R003.4 — pure ingest refusal rules.
+pub mod ingest_rules;
 // EG-INGEST-WORKER-R003.7 — normalized documents and accepted/quarantined outcomes.
 pub mod source_document;
 // EG-INGEST-WORKER-R003.13 — source transcript threads and messages.
