@@ -1,6 +1,6 @@
 # EG-DATAPLAT-VOCAB — Data-platform vocabulary
 
-Owner: Medulla. Cross-repo IDs: EG-DATAPLAT-VOCAB-R009.1 to .5 (objectstore-mcp, vector-mcp, openbao-mcp, clarity-api, data-science-mcp).
+Owner: Medulla. Cross-repo IDs: CONN-OBJECTSTORE-MCP-DATA-PLATFORM-OPERATIONS-R001, CONN-VECTOR-MCP-DATA-PLATFORM-OPERATIONS-R001, CONN-OPENBAO-MCP-DATA-PLATFORM-OPERATIONS-R001, CONN-CLARITY-API-DATA-PLATFORM-OPERATIONS-R001, CONN-DATA-SCIENCE-MCP-DATA-PLATFORM-OPERATIONS-R001.
 Public provenance: gap found by `specs/connector-competency` (EG-CQ-CONN-001), rows R012, R014, R016, R029, R041, R044, R058, R065.
 
 ## Purpose and user stories
@@ -14,7 +14,7 @@ As the engine, I need one typed vocabulary for the data platform stores (sql, do
 - FR-003: Every store is virtual-first; a `materialised` mapping must state a reason (R006, R007).
 - FR-004: Schema discovery is engine-side (unified-data-plane R003, R004, R038.2); this spec adds no discovery path (R007.3).
 - FR-005: Package-local ontologies align to the `dp:` terms (R008).
-- FR-006: Operations the competency questions assume that do not exist are recorded as cross-repo rows (R009).
+- FR-006: Operations the competency questions assume that do not exist are recorded as rows in the owning connector repository (see Cross-repo IDs).
 - SC-001: every row in [requirements.md](requirements.md) is LANDED with its named test.
 
 ## Scope and interfaces
@@ -34,4 +34,4 @@ Vocabulary, shapes, mapping fixtures and validator rule in Medulla. Mechanisms c
 
 ## Open questions
 
-- None. Items 5-9 in plan.md Decisions are BLOCKED on named connector operations, owned by the rows in R009.
+- None. Items 5-9 in plan.md Decisions are BLOCKED on named connector operations, owned by the connector rows named in Cross-repo IDs.
