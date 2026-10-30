@@ -140,8 +140,10 @@ impl ProposalQueue {
                 return Err(WritebackError::new(
                     WRITEBACK_TENANT_MISMATCH,
                     format!(
-                        "proposal {} belongs to tenant {}, not {tenant}",
-                        proposal.id, proposal.tenant
+                        "proposal {} belongs to tenant {}, not {}",
+                        proposal.id.as_str(),
+                        proposal.tenant.as_str(),
+                        tenant.as_str()
                     ),
                 ));
             }
@@ -150,7 +152,7 @@ impl ProposalQueue {
                     WRITEBACK_DUPLICATE_EXTERNAL_ID,
                     format!(
                         "external id {} is queued more than once",
-                        proposal.external_id
+                        proposal.external_id.as_str()
                     ),
                 ));
             }
