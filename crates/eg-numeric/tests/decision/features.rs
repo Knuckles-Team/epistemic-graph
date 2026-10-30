@@ -160,3 +160,39 @@ fn a_missing_or_mistyped_parameter_is_a_typed_refusal() {
         feature_matrix(&schema(MissingValue::Abstain), &candidates, &inputs).expect_err("refused");
     assert_eq!(refusal.code, "PARAMETER_INVALID");
 }
+
+/// An option set whose label text far exceeds a plausible token budget still
+/// scores through the real `feature_matrix`: row width is the schema's
+/// feature count, never the text length, and only the declared capability
+/// cardinality bound can refuse.
+// spec: EG-DECISION-ENGINE-R083.2
+#[test]
+fn scoring_width_is_bounded_by_cardinality_not_text_length() {
+    use eg_numeric::decision::rapid_r083::MAX_OPTION_CAPABILITIES;
+    let long_label = format!("eg:capability/retrieval/{}", "segment-".repeat(40));
+    let long_summary = "web search ".repeat(2_000);
+    let classes: Vec<&str> = (0..MAX_OPTION_CAPABILITIES).map(|_| long_label.as_str()).collect();
+    let candidates: Vec<CandidateView> = (0..50)
+        .map(|i| candidate(&format!("c{i}"), &classes, &long_summary, Some(i)))
+        .collect();
+    let text_chars: usize = candidates
+        .iter()
+        .map(|c| c.texts["summary"].len() + c.classification.iter().map(String::len).sum::<usize>())
+        .sum();
+    assert!(text_chars > 1_000_000, "far beyond any text-token budget");
+    let p = params();
+    let inputs = FeatureInputs { params: &p, now_ms: 0 };
+    let schema = schema(MissingValue::Abstain);
+    let MatrixOutcome::Complete(matrix) =
+        feature_matrix(&schema, &candidates, &inputs).expect("scores")
+    else {
+        panic!("every fact is present");
+    };
+    assert_eq!(matrix.feature_names.len(), 3);
+    assert_eq!(matrix.values.len(), candidates.len() * 3);
+
+    let mut over = candidates[0].clone();
+    over.classification.push("eg:capability/one-too-many".to_string());
+    let refusal = feature_matrix(&schema, &[over], &inputs).expect_err("over the bound");
+    assert!(format!("{refusal:?}").contains("option encoding bound"));
+}
