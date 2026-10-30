@@ -106,8 +106,8 @@ impl CapabilityDescriptor {
             for port in ports {
                 if !seen.insert(&port.name) {
                     return Err(format!(
-                        "capability descriptor {label} repeat port name '{}'",
-                        port.name
+                        "capability descriptor {label} repeats port name '{}'",
+                        port.name.as_str()
                     ));
                 }
             }
@@ -333,7 +333,7 @@ mod tests {
         descriptor.inputs.push(descriptor.inputs[0].clone());
         assert!(descriptor.validate().is_err());
 
-        let mut power = CapabilityPowerDescriptor {
+        let power = CapabilityPowerDescriptor {
             registry_digest: "not-a-digest".into(),
             ..descriptor_power()
         };
