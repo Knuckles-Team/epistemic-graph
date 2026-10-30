@@ -2075,12 +2075,19 @@
     {
       "id": "EG-DECISION-ENGINE-R056",
       "title": "Statistical-path release of the exact solver (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0fac721690e2",
+        "3c6b457009e4",
         "65afe57d3c4e",
+        "791b0d2c71a8",
         "fa780d3e101a"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/decision/rapid_r056.rs:100",
+        "crates/eg-types/src/decision/rapid_r056.rs:83",
+        "src/server/handlers/decide/stat_tool_subset.rs:340"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R056.1",
         "EG-DECISION-ENGINE-R056.2"
@@ -2100,9 +2107,15 @@
     {
       "id": "EG-DECISION-ENGINE-R056.2",
       "title": "Route the statistical path through the exact 0-1 solver and this certificate",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3c6b457009e4",
+        "791b0d2c71a8"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/rapid_r056.rs:100",
+        "src/server/handlers/decide/stat_tool_subset.rs:340"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R056.2.1",
         "EG-DECISION-ENGINE-R056.2.2"
@@ -2122,9 +2135,13 @@
     {
       "id": "EG-DECISION-ENGINE-R056.2.2",
       "title": "Statistical-path call into the exact 0-1 solver",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "791b0d2c71a8"
+      ],
+      "verified_by": [
+        "src/server/handlers/decide/stat_tool_subset.rs:340"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R057",
