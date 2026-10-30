@@ -148,6 +148,12 @@ pub(crate) async fn try_handle_gateway(
         Err(error) => return Ok(Response::err(req_id, error)),
     };
 
+    // EG-ORCH-VOCAB-R013.3: a run trace's ordered step digests are checked at
+    // the same point; a refusal stores nothing.
+    if let Err(error) = crate::server::harness_admission::run_trace_steps_admission(&method) {
+        return Ok(Response::err(req_id, error));
+    }
+
     let plan = MutationPlan::for_method(&method);
     let ctx = MutationCtx {
         anonymous: state.read().await.local_anonymous,

@@ -135,6 +135,114 @@ pub enum ReceiptNodeKind {
     OutcomeEvaluation,
 }
 
+/// Closed kind of one recorded run step (EG-ORCH-VOCAB-R013.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum StepKind {
+    ModelRequest,
+    ToolCall,
+}
+
+impl StepKind {
+    fn name(self) -> &'static str {
+        match self {
+            StepKind::ModelRequest => "model_request",
+            StepKind::ToolCall => "tool_call",
+        }
+    }
+}
+
+/// One ordered, digest-only step of a run trace (EG-ORCH-VOCAB-R013). Raw
+/// prompt and argument bytes stay in a referenced artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct StepRecord {
+    pub step_index: u32,
+    pub kind: StepKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_request_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_args_digest: Option<String>,
+    pub result_digest: String,
+    /// The actor that wrote the step (EG-ORCH-VOCAB-R013.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_by: Option<String>,
+}
+
+/// Refusal of a step sequence (EG-ORCH-VOCAB-R013.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepRefusal {
+    DigestInvalid,
+    OrderInvalid,
+}
+
+impl StepRefusal {
+    pub fn code(self) -> &'static str {
+        match self {
+            StepRefusal::DigestInvalid => "STEP_DIGEST_INVALID",
+            StepRefusal::OrderInvalid => "STEP_ORDER_INVALID",
+        }
+    }
+}
+
+/// The one step-digest recipe the harness and the engine share
+/// (EG-ORCH-VOCAB-R013.2): SHA-256 over the kind name and the canonical
+/// (sorted-key, compact) JSON bytes of `value`. Replaceable by naming a new
+/// recipe, never by a second caller-side copy.
+pub fn step_digest(kind: StepKind, value: &serde_json::Value) -> crate::contract::Digest256 {
+    fn canonical(value: &serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Array(items) => {
+                serde_json::Value::Array(items.iter().map(canonical).collect())
+            }
+            serde_json::Value::Object(map) => serde_json::Value::Object(
+                map.iter()
+                    .collect::<std::collections::BTreeMap<_, _>>()
+                    .into_iter()
+                    .map(|(k, v)| (k.clone(), canonical(v)))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    let mut bytes = kind.name().as_bytes().to_vec();
+    bytes.push(0);
+    bytes.extend(serde_json::to_vec(&canonical(value)).expect("a JSON value serializes"));
+    crate::contract::Digest256::sha256(&bytes)
+}
+
+/// Validate an ordered step list: contiguous indices from zero, every digest
+/// 64 lowercase hex characters, and the digests each kind requires.
+pub fn validate_steps(steps: &[StepRecord]) -> Result<(), StepRefusal> {
+    for (expected, step) in steps.iter().enumerate() {
+        if step.step_index as usize != expected {
+            return Err(StepRefusal::OrderInvalid);
+        }
+        let required = match step.kind {
+            StepKind::ModelRequest => &step.model_request_digest,
+            StepKind::ToolCall => &step.tool_args_digest,
+        };
+        let Some(required) = required else {
+            return Err(StepRefusal::DigestInvalid);
+        };
+        for digest in [Some(required), Some(&step.result_digest)]
+            .into_iter()
+            .chain([
+                step.model_request_digest.as_ref(),
+                step.tool_args_digest.as_ref(),
+            ])
+            .flatten()
+        {
+            if validate_sha256("step digest", digest).is_err() {
+                return Err(StepRefusal::DigestInvalid);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// One Langfuse observation identity.  EG records the opaque receipt and its
 /// digest; the Langfuse client/export path remains outside the graph authority.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -776,6 +884,64 @@ impl RunEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // spec: EG-ORCH-VOCAB-R013.2
+    #[test]
+    fn step_digest_is_canonical() {
+        let a: serde_json::Value =
+            serde_json::from_str(r#"{"b": 1, "a": {"y": 2, "x": [1, 2]}}"#).unwrap();
+        let b: serde_json::Value =
+            serde_json::from_str("{\"a\":{\"x\":[1,2],\"y\":2},\"b\":1}").unwrap();
+        assert_eq!(
+            step_digest(StepKind::ToolCall, &a),
+            step_digest(StepKind::ToolCall, &b)
+        );
+        let c: serde_json::Value =
+            serde_json::from_str(r#"{"a":{"x":[1,3],"y":2},"b":1}"#).unwrap();
+        assert_ne!(
+            step_digest(StepKind::ToolCall, &a),
+            step_digest(StepKind::ToolCall, &c)
+        );
+        assert_ne!(
+            step_digest(StepKind::ToolCall, &a),
+            step_digest(StepKind::ModelRequest, &a)
+        );
+    }
+
+    fn tool_step(index: u32, digest: &str) -> StepRecord {
+        StepRecord {
+            step_index: index,
+            kind: StepKind::ToolCall,
+            model_request_digest: None,
+            tool_args_digest: Some(digest.to_string()),
+            result_digest: "b".repeat(64),
+            recorded_by: Some("agent:fixture".into()),
+        }
+    }
+
+    // spec: EG-ORCH-VOCAB-R013.4
+    #[test]
+    fn bad_digest_and_gap_refused() {
+        let ok = "a".repeat(64);
+        assert_eq!(
+            validate_steps(&[tool_step(0, &ok), tool_step(1, &ok)]),
+            Ok(())
+        );
+        assert_eq!(
+            validate_steps(&[tool_step(0, "xyz")]),
+            Err(StepRefusal::DigestInvalid)
+        );
+        assert_eq!(
+            validate_steps(&[tool_step(0, &ok), tool_step(2, &ok)]),
+            Err(StepRefusal::OrderInvalid)
+        );
+        assert_eq!(
+            validate_steps(&[tool_step(0, &ok), tool_step(0, &ok)]),
+            Err(StepRefusal::OrderInvalid)
+        );
+        assert_eq!(StepRefusal::DigestInvalid.code(), "STEP_DIGEST_INVALID");
+        assert_eq!(StepRefusal::OrderInvalid.code(), "STEP_ORDER_INVALID");
+    }
 
     fn complete_bundle() -> CommitOutcomeBundle {
         CommitOutcomeBundle {

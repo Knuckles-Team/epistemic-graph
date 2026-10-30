@@ -732,6 +732,36 @@ fn stamp_new_record(props: &Props, head: Option<&str>, tx_now: u64) -> Result<Ve
     })
 }
 
+/// EG-ORCH-VOCAB-R013.3 — a `RunTrace` `AddNode` that carries ordered
+/// `steps` is validated before the durable commit: every digest must be 64
+/// hex characters (`STEP_DIGEST_INVALID`) and the indices must run 0..n
+/// without a gap or repeat (`STEP_ORDER_INVALID`). A refusal stores nothing.
+/// Any other `AddNode`, or a trace without `steps`, passes untouched.
+pub fn run_trace_steps_admission(method: &Method) -> Result<(), String> {
+    let Method::AddNode {
+        properties_msgpack, ..
+    } = method
+    else {
+        return Ok(());
+    };
+    let props = decode_props(properties_msgpack);
+    if props.get("node_type").and_then(|v| v.as_str()) != Some("RunTrace") {
+        return Ok(());
+    }
+    let Some(steps) = props.get("steps") else {
+        return Ok(());
+    };
+    let steps: Vec<eg_types::outcome_bundle::StepRecord> = serde_json::from_value(steps.clone())
+        .map_err(|error| {
+            format!(
+                "{}: steps do not decode: {error}",
+                eg_types::outcome_bundle::StepRefusal::DigestInvalid.code()
+            )
+        })?;
+    eg_types::outcome_bundle::validate_steps(&steps)
+        .map_err(|refusal| format!("{}: run trace steps refused", refusal.code()))
+}
+
 /// EG-ORCH-VOCAB-R801.3/R802.4 — the harness-record write attaches to the
 /// existing AddNode path at the pre-commit point, beside the owner-id stamp.
 /// A non-harness `AddNode` passes through untouched; a harness write comes

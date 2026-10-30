@@ -1,7 +1,7 @@
 //! Direct AddNode admission of versioned harness-component writes
 //! (EG-ORCH-VOCAB-R801.3).
 
-use super::{decode_props, direct_add_node};
+use super::{decode_props, direct_add_node, run_trace_steps_admission};
 use crate::graph::GraphCore;
 use crate::protocol::Method;
 
@@ -143,4 +143,39 @@ fn harness_component_write_stamps_and_links() {
     };
     assert_eq!(node_id, "some:other:node");
     assert_eq!(properties_msgpack, plain_blob);
+}
+
+fn run_trace_with_steps(steps: serde_json::Value) -> Method {
+    let mut props = serde_json::Map::new();
+    props.insert("node_type".into(), serde_json::json!("RunTrace"));
+    props.insert("steps".into(), steps);
+    add_node("trace:steps-1".into(), &props)
+}
+
+fn step(index: u32, digest: &str) -> serde_json::Value {
+    serde_json::json!({
+        "step_index": index,
+        "kind": "tool_call",
+        "tool_args_digest": digest,
+        "result_digest": "b".repeat(64),
+        "recorded_by": "agent:fixture",
+    })
+}
+
+// spec: EG-ORCH-VOCAB-R013.3
+#[test]
+fn add_run_trace_checks_step_digests() {
+    let ok = "a".repeat(64);
+    let valid = run_trace_with_steps(serde_json::json!([step(0, &ok), step(1, &ok)]));
+    assert!(run_trace_steps_admission(&valid).is_ok());
+    let malformed = run_trace_with_steps(serde_json::json!([step(0, "not-hex")]));
+    let error = run_trace_steps_admission(&malformed).unwrap_err();
+    assert!(error.starts_with("STEP_DIGEST_INVALID"), "{error}");
+    let gap = run_trace_with_steps(serde_json::json!([step(0, &ok), step(2, &ok)]));
+    let error = run_trace_steps_admission(&gap).unwrap_err();
+    assert!(error.starts_with("STEP_ORDER_INVALID"), "{error}");
+    // A trace without steps and a non-trace write pass through.
+    let mut plain = serde_json::Map::new();
+    plain.insert("node_type".into(), serde_json::json!("RunTrace"));
+    assert!(run_trace_steps_admission(&add_node("trace:plain".into(), &plain)).is_ok());
 }
