@@ -148,6 +148,13 @@ pub(crate) async fn try_handle_gateway(
         Err(error) => return Ok(Response::err(req_id, error)),
     };
 
+    // EG-ORCH-VOCAB-R009.15: a shape-invalid RunTrace is refused before commit.
+    let (method, run_trace_links) =
+        match crate::server::run_trace_admission::admit(method, core) {
+            Ok(admitted) => (admitted.method, admitted.links),
+            Err(error) => return Ok(Response::err(req_id, error)),
+        };
+
     let plan = MutationPlan::for_method(&method);
     let ctx = MutationCtx {
         anonymous: state.read().await.local_anonymous,
@@ -170,6 +177,20 @@ pub(crate) async fn try_handle_gateway(
     if let Some(resp) =
         super::gateway_graph::try_handle(state, tenant_id, &ctx, &plan, &method).await
     {
+        if resp.error.is_some() {
+            return Ok(resp);
+        }
+        // The admitted trace's declared links become edges from the trace.
+        for link in &run_trace_links {
+            let link_plan = MutationPlan::for_method(link);
+            if let Some(linked) =
+                super::gateway_graph::try_handle(state, tenant_id, &ctx, &link_plan, link).await
+            {
+                if linked.error.is_some() {
+                    return Ok(linked);
+                }
+            }
+        }
         return Ok(resp);
     }
     #[cfg(feature = "broker")]

@@ -58,7 +58,7 @@ pub use analysis_support::{
 use core_helpers::{edge_endpoint_not_found, push_ledger_impl, HexLedger};
 pub use schema_sources::{
     current_core_set_digest, lift_v2_integrity_policy, GraphSchemaSource, GraphSchemaSources,
-    SchemaSourceOrigin, CORE_SOURCE_PREFIX, MAX_CORE_SCHEMA_SOURCES, MAX_SCHEMA_DOCUMENT_TRIPLES,
+    ORCHESTRATION_SHAPES, SchemaSourceOrigin, CORE_SOURCE_PREFIX, MAX_CORE_SCHEMA_SOURCES, MAX_SCHEMA_DOCUMENT_TRIPLES,
     MAX_TOTAL_DYNAMIC_SCHEMA_BYTES, OPERATOR_SOURCE_ID,
 };
 pub use snapshot::{GraphSnapshot, LegacyIntegrityPolicy, GRAPH_SNAPSHOT_SCHEMA_VERSION};

@@ -35,6 +35,9 @@ use super::LegacyIntegrityPolicy;
 pub const MAX_CORE_SCHEMA_SOURCES: usize = 64;
 pub const MAX_TOTAL_DYNAMIC_SCHEMA_BYTES: usize = 8 << 20;
 pub const MAX_SCHEMA_DOCUMENT_TRIPLES: usize = 100_000;
+/// The orchestration SHACL shapes, also validated at write time for `RunTrace`
+/// nodes (EG-ORCH-VOCAB-R009.15).
+pub const ORCHESTRATION_SHAPES: &str = include_str!("../../ontology/orchestration-v1.shapes.ttl");
 pub const CORE_SOURCE_PREFIX: &str = "core:";
 pub const OPERATOR_SOURCE_ID: &str = "operator";
 const COMPOSED_DIGEST_DOMAIN: &[u8] = b"eg/graph-schema-sources/v1";
@@ -889,7 +892,7 @@ fn core_specs() -> &'static [CoreSpec] {
         CoreSpec {
             module: "orchestration-shapes",
             version: 1,
-            shapes: Some(include_str!("../../ontology/orchestration-v1.shapes.ttl")),
+            shapes: Some(ORCHESTRATION_SHAPES),
             ontology: None,
         },
         CoreSpec {
