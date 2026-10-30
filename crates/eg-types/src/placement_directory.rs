@@ -424,28 +424,45 @@ impl<C> TenantPool<C> {
         }
     }
 
-    /// The client for `tenant`, built with `make` on a miss. A miss on a full
-    /// pool evicts the least recently used tenant first.
-    pub fn acquire(
+    /// The pooled client for `tenant`, marked most recently used. `None` on a
+    /// miss; the caller builds the client and [`insert`](Self::insert)s it.
+    pub fn get(&mut self, tenant: &str) -> Result<Option<&C>, PlacementModelError> {
+        validate_identifier("tenant", tenant)?;
+        if !self.entries.contains_key(tenant) {
+            return Ok(None);
+        }
+        self.touch(tenant);
+        Ok(self.entries.get(tenant).map(|(client, _)| client))
+    }
+
+    /// Pool `client` for `tenant` as most recently used. Returns the client the
+    /// pool evicted to stay within capacity (least recently used first), or the
+    /// client `tenant` previously held, so the caller can close it.
+    pub fn insert(
         &mut self,
         tenant: &str,
-        make: impl FnOnce() -> C,
-    ) -> Result<&C, PlacementModelError> {
+        client: C,
+    ) -> Result<Option<(String, C)>, PlacementModelError> {
         validate_identifier("tenant", tenant)?;
-        if self.entries.contains_key(tenant) {
-            self.touch(tenant);
-        } else {
-            if self.entries.len() >= self.capacity {
-                if let Some((_, oldest)) = self.order.pop_first() {
-                    self.entries.remove(&oldest);
+        self.tick += 1;
+        if let Some((previous, used)) = self.entries.remove(tenant) {
+            self.order.remove(&used);
+            self.order.insert(self.tick, tenant.to_string());
+            self.entries.insert(tenant.to_string(), (client, self.tick));
+            return Ok(Some((tenant.to_string(), previous)));
+        }
+        let mut evicted = None;
+        if self.entries.len() >= self.capacity {
+            if let Some((_, oldest)) = self.order.pop_first() {
+                if let Some((old, _)) = self.entries.remove(&oldest) {
                     self.evictions += 1;
+                    evicted = Some((oldest, old));
                 }
             }
-            self.tick += 1;
-            self.order.insert(self.tick, tenant.to_string());
-            self.entries.insert(tenant.to_string(), (make(), self.tick));
         }
-        Ok(&self.entries[tenant].0)
+        self.order.insert(self.tick, tenant.to_string());
+        self.entries.insert(tenant.to_string(), (client, self.tick));
+        Ok(evicted)
     }
 
     /// Tenants currently pooled.

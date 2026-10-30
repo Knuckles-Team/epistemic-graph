@@ -202,21 +202,20 @@ fn breaker_policy_round_trips_and_breaker_opens_then_half_opens() {
 fn tenant_pool_is_a_bounded_lru_and_rejects_invalid_tenants() {
     assert!(TenantPool::<u32>::new(0).is_err());
     let mut pool = TenantPool::new(2).unwrap();
-    assert_eq!(*pool.acquire("a", || 1).unwrap(), 1);
-    assert_eq!(*pool.acquire("b", || 2).unwrap(), 2);
-    assert_eq!(
-        *pool.acquire("a", || 99).unwrap(),
-        1,
-        "hit reuses the client"
-    );
-    assert_eq!(*pool.acquire("c", || 3).unwrap(), 3);
+    assert_eq!(pool.get("a").unwrap(), None);
+    assert_eq!(pool.insert("a", 1).unwrap(), None);
+    assert_eq!(pool.insert("b", 2).unwrap(), None);
+    assert_eq!(pool.get("a").unwrap(), Some(&1), "hit reuses the client");
+    assert_eq!(pool.insert("c", 3).unwrap(), Some(("b".to_string(), 2)));
     assert_eq!(
         pool.tenants(),
         vec!["a", "c"],
         "least recently used b evicted"
     );
     assert_eq!((pool.len(), pool.evictions()), (2, 1));
-    assert!(pool.acquire("", || 4).is_err());
-    assert!(pool.acquire("bad\u{0}", || 4).is_err());
+    assert_eq!(pool.insert("a", 9).unwrap(), Some(("a".to_string(), 1)));
+    assert_eq!(pool.tenants(), vec!["c", "a"]);
+    assert!(pool.insert("", 4).is_err());
+    assert!(pool.get("bad\u{0}").is_err());
     assert_eq!(pool.len(), 2, "a refused tenant changes nothing");
 }
