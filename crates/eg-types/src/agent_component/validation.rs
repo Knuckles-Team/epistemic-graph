@@ -18,10 +18,11 @@ pub(super) fn validate_draft(draft: &AgentComponentDraft) -> Result<(), String> 
 /// (EG-DECISION-ENGINE-R127.2.1), never stored to fail a later query.
 fn validate_draft_kind_body(draft: &AgentComponentDraft) -> Result<(), String> {
     if draft.kind == AgentComponentKind::GuardrailRule {
-        crate::decision::guardrail::GuardrailRule::from_attributes(
+        let rule = crate::decision::guardrail::GuardrailRule::from_attributes(
             &draft.component_id,
             &draft.attributes,
         )?;
+        crate::decision::guardrail::RuleInvariant::from_rule_component(&rule, &draft.attributes)?;
     }
     Ok(())
 }

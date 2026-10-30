@@ -44,6 +44,9 @@ impl AgentLibraryStore {
         request.component.validate()?;
         require_context_tenant::<ComponentLayer>(&request.context, &request.component.tenant_id)?;
         super::super::decision_jobs::require_head_receipt(self, &request)?;
+        if request.component.kind == eg_types::agent_component::AgentComponentKind::GuardrailRule {
+            self.require_rule_promotable(&request.component)?;
+        }
         let (expected_revision, owner) =
             revision_scope(self, &request.context, ComponentLayer::NOUN)?;
         let txn = self.mutations.open_write(&owner)?;

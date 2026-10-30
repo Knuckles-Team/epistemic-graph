@@ -167,6 +167,7 @@ closed_error_codes! {
         RepositoryBatchTooLarge => "REPOSITORY_BATCH_TOO_LARGE",
         ReservedGraphName => "RESERVED_GRAPH_NAME",
         ResultTooLarge => "RESULT_TOO_LARGE",
+        RuleContradictsInvariant => "RULE_CONTRADICTS_INVARIANT",
         SchemaInconsistent => "SCHEMA_INCONSISTENT",
         SeedDigestMismatch => "SEED_DIGEST_MISMATCH",
         SeedInvalid => "SEED_INVALID",

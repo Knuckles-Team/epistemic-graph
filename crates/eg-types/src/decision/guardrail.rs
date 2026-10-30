@@ -97,6 +97,28 @@ pub struct RuleInvariant {
 }
 
 impl RuleInvariant {
+    /// The invariant a stored `GuardrailRule` component carries, if it is
+    /// one: a component whose attributes name a forbidden rule
+    /// ([`GUARDRAIL_FORBIDS_RULE_ATTRIBUTE`]). A blank value is refused by
+    /// name rather than read as "not an invariant".
+    pub fn from_rule_component(
+        rule: &GuardrailRule,
+        attributes: &BTreeMap<String, String>,
+    ) -> Result<Option<Self>, String> {
+        match attributes.get(GUARDRAIL_FORBIDS_RULE_ATTRIBUTE) {
+            None => Ok(None),
+            Some(value) if value.trim().is_empty() => Err(format!(
+                "MALFORMED_GUARDRAIL_RULE: invariant '{}' needs a non-empty '{}' attribute",
+                rule.rule_id, GUARDRAIL_FORBIDS_RULE_ATTRIBUTE
+            )),
+            Some(value) => Ok(Some(Self {
+                invariant_iri: rule.rule_id.clone(),
+                forbidden_rule_id: value.trim().to_string(),
+                on_class: rule.applies_to_class.clone(),
+            })),
+        }
+    }
+
     /// Whether `rule` contradicts this invariant.
     pub fn is_contradicted_by(&self, rule: &GuardrailRule) -> bool {
         self.forbidden_rule_id == rule.rule_id && self.on_class == rule.applies_to_class
@@ -143,6 +165,11 @@ pub fn promote_on_consensus(
 pub const GUARDRAIL_APPLIES_TO_CLASS_ATTRIBUTE: &str = "applies_to_class";
 /// Attribute a `GuardrailRule` component carries its source generation in.
 pub const GUARDRAIL_SOURCE_GENERATION_ATTRIBUTE: &str = "source_generation";
+/// Attribute that makes a published `GuardrailRule` component a stored
+/// invariant (EG-DECISION-ENGINE-R129.3): the component id is the invariant
+/// IRI, `applies_to_class` is the class it protects and this attribute names
+/// the rule identity it forbids on that class.
+pub const GUARDRAIL_FORBIDS_RULE_ATTRIBUTE: &str = "forbids_rule_id";
 
 impl GuardrailRule {
     /// The attributes a `GuardrailRule` component is published with

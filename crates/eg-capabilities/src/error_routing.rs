@@ -125,7 +125,11 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
     ("GetRunWorkItem", &["RUN_ADMISSION_UNAVAILABLE"]),
     (
         "AgentComponent",
-        &["COMPONENT_WITHDRAWN", "MALFORMED_GUARDRAIL_RULE"],
+        &[
+            "COMPONENT_WITHDRAWN",
+            "MALFORMED_GUARDRAIL_RULE",
+            "RULE_CONTRADICTS_INVARIANT",
+        ],
     ),
     (
         "GuardrailEntailment",
