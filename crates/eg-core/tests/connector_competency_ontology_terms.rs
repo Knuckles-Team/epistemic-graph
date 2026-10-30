@@ -1,5 +1,5 @@
 //! Registered-core ontology audits for the connector-competency term rows
-//! (EG-CQ-CONN-R070/R073/R074/R076/R079/R082).
+//! (EG-CQ-CONN-R070/R073/R074/R076/R077/R078/R079/R082).
 //!
 //! Each module proves one ontology module: the term is declared with the
 //! required owl type, domain and range in the registered core source, and —
@@ -966,6 +966,128 @@ mod ontology_audit_core_foundation_v1 {
             &property,
             RDFS_RANGE,
             &format!("{KG}Action")
+        ));
+    }
+}
+
+#[allow(non_snake_case)]
+mod ontology_audit_virtual_graph_v1 {
+    use super::*;
+
+    const VG: &str = "http://knuckles.team/kg/virtual-graph#";
+
+    fn triples() -> Vec<Triple> {
+        let ontology = registered_ontology("core:virtual-graph@1", "virtual-graph");
+        parse_turtle(&ontology).expect("the registered virtual-graph ontology parses")
+    }
+
+    // spec: EG-CQ-CONN-R077.1
+    #[test]
+    fn NamedGraph_declared() {
+        let triples = triples();
+        let class = format!("{VG}NamedGraph");
+        assert!(has_iri(&triples, &class, RDF_TYPE, OWL_CLASS));
+        assert!(has_iri(
+            &triples,
+            &class,
+            RDFS_SUBCLASSOF,
+            &format!("{KG}Dataset")
+        ));
+    }
+
+    // spec: EG-CQ-CONN-R077.2
+    #[test]
+    fn tripleCount_declared() {
+        let triples = triples();
+        let property = format!("{VG}tripleCount");
+        assert!(has_iri(&triples, &property, RDF_TYPE, OWL_DATATYPE_PROPERTY));
+        assert!(has_iri(
+            &triples,
+            &property,
+            RDFS_DOMAIN,
+            &format!("{VG}NamedGraph")
+        ));
+        assert!(has_iri(
+            &triples,
+            &property,
+            RDFS_RANGE,
+            &format!("{XSD}integer")
+        ));
+    }
+
+    // spec: EG-CQ-CONN-R077.3
+    #[test]
+    fn lastModifiedAt_declared() {
+        let triples = triples();
+        let property = format!("{VG}lastModifiedAt");
+        assert!(has_iri(&triples, &property, RDF_TYPE, OWL_DATATYPE_PROPERTY));
+        assert!(has_iri(
+            &triples,
+            &property,
+            RDFS_DOMAIN,
+            &format!("{VG}NamedGraph")
+        ));
+        assert!(has_iri(
+            &triples,
+            &property,
+            RDFS_RANGE,
+            &format!("{XSD}dateTime")
+        ));
+    }
+}
+
+#[allow(non_snake_case)]
+mod ontology_audit_identity_v1 {
+    use super::*;
+
+    fn triples() -> Vec<Triple> {
+        let ontology = registered_ontology("core:identity@1", "identity");
+        parse_turtle(&ontology).expect("the registered identity ontology parses")
+    }
+
+    // spec: EG-CQ-CONN-R078.2
+    #[test]
+    fn Application_declared() {
+        let triples = triples();
+        assert!(has_iri(
+            &triples,
+            &format!("{KG}Application"),
+            RDF_TYPE,
+            OWL_CLASS
+        ));
+    }
+
+    // spec: EG-CQ-CONN-R078.3
+    #[test]
+    fn OidcClient_declared() {
+        let triples = triples();
+        let class = format!("{KG}OidcClient");
+        assert!(has_iri(&triples, &class, RDF_TYPE, OWL_CLASS));
+        assert!(has_iri(
+            &triples,
+            &class,
+            RDFS_SUBCLASSOF,
+            &format!("{KG}Application")
+        ));
+    }
+
+    // spec: EG-CQ-CONN-R078.4
+    #[test]
+    fn roleGrantsAccessTo_declared() {
+        let triples = triples();
+        let property = format!("{KG}roleGrantsAccessTo");
+        assert!(has_iri(&triples, &property, RDF_TYPE, OWL_OBJECT_PROPERTY));
+        assert!(has_iri(
+            &triples,
+            &property,
+            RDFS_DOMAIN,
+            &format!("{KG}IdentityRole")
+        ));
+        assert!(has_iri(
+            &triples,
+            &property,
+            RDFS_RANGE,
+            &format!("{KG}Application")
         ));
     }
 }

@@ -162,6 +162,17 @@ vg:trustMark a owl:DatatypeProperty ;
     rdfs:comment "The trust mark one content node carries: trusted or untrusted. Content entering a run is untrusted unless a rule marks it trusted (EG-SRC-AUTH-R011)." ;
     rdfs:range xsd:string .
 
+vg:tripleCount a owl:DatatypeProperty ;
+    rdfs:label "triple count" ;
+    rdfs:comment "The number of RDF statements one named graph holds at one observation (jena named graph size)." ;
+    rdfs:domain vg:NamedGraph ;
+    rdfs:range xsd:integer .
+vg:lastModifiedAt a owl:DatatypeProperty ;
+    rdfs:label "last modified at" ;
+    rdfs:comment "Time the last statement was added to or removed from a named graph; unbound means unknown." ;
+    rdfs:domain vg:NamedGraph ;
+    rdfs:range xsd:dateTime .
+
 # --- Classes -------------------------------------------------------------------
 
 vg:SourceConnection a owl:Class ;
@@ -176,3 +187,7 @@ vg:PredicateFieldPair a owl:Class ;
     rdfs:comment "One ontology-predicate-to-discovered-field binding inside a VirtualMapping." .
 vg:SourceAuthority a owl:Class ;
     rdfs:comment "One declared statement that a connected source is authoritative for one ontology class: its source (vg:authoritativeSource), its class (vg:authorityFor) and its rank (vg:authorityRank, lower wins). Source choice is data in the graph, not query text (EG-CQ-XSRC-R001)." .
+vg:NamedGraph a owl:Class ;
+    rdfs:label "Named Graph" ;
+    rdfs:comment "A graph in a triple store: one named set of RDF statements with its observed size (vg:tripleCount) and last modification time (vg:lastModifiedAt) (jena)." ;
+    rdfs:subClassOf <http://knuckles.team/kg#Dataset> .

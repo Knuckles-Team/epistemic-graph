@@ -18,6 +18,12 @@
     rdfs:label "has role" ;
     rdfs:range :IdentityRole .
 
+:roleGrantsAccessTo a owl:ObjectProperty ;
+    rdfs:label "role grants access to" ;
+    rdfs:comment "Links a role to the Application the role grants access to (access governance)." ;
+    rdfs:domain :IdentityRole ;
+    rdfs:range :Application .
+
 :memberOfGroup a owl:ObjectProperty ;
     rdfs:label "member of group" ;
     rdfs:domain :IdentityUser ;
@@ -40,6 +46,15 @@
     rdfs:label "Identity User" ;
     rdfs:comment "A user account in an identity provider." ;
     rdfs:subClassOf :Person .
+
+:Application a owl:Class ;
+    rdfs:label "Application" ;
+    rdfs:comment "A software application a user or role can be granted access to in an identity provider (access governance)." .
+
+:OidcClient a owl:Class ;
+    rdfs:label "OIDC Client" ;
+    rdfs:comment "An OpenID Connect client registered in an identity provider: the application-facing client record of an Application (Keycloak client)." ;
+    rdfs:subClassOf :Application .
 
 :SecurityAuditEvent a owl:Class ;
     rdfs:label "Security Audit Event" ;
