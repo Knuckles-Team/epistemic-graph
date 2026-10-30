@@ -101,7 +101,7 @@ def _publish_policy(client):
     }
 
 
-# spec: EG-DECISION-ENGINE-R131.6
+@pytest.mark.spec("EG-DECISION-ENGINE-R131.6")
 def test_oversize_order_refused_and_recorded(authenticated_plan_client):  # noqa: F811
     client = authenticated_plan_client
     try:
