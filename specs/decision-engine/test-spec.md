@@ -663,7 +663,7 @@ No test in this section has run.
 | Case | Row | Proving test and observation |
 |---|---|---|
 | Model | `EG-DECISION-ENGINE-R175.1` | A serde round trip keeps every field and rejects `pause_steps = 9`. |
-| Behavior | `EG-DECISION-ENGINE-R175.2` | A seeded fixture returns the same ranking on two runs. |
+| Behavior | `EG-DECISION-ENGINE-R175.2` | `crates/eg-numeric/src/recommend/tests.rs::seeded_fixture_ranks_the_same_on_two_runs`: A seeded fixture returns the same ranking on two runs. |
 | Wiring | `EG-DECISION-ENGINE-R175.3` | A dispatch test routes the new kind and reads the stored encoder. |
 | Refusal | `EG-DECISION-ENGINE-R175.4` | Each case returns its typed reason and no ranking. |
 | Evidence | `EG-DECISION-ENGINE-R175.5` | A record readback lists the premises and the claim. |

@@ -30,6 +30,9 @@ pub mod linalg;
 pub mod prototype;
 pub mod random;
 pub mod reductions;
+// Semantic-id item recommendation (EG-DECISION-ENGINE-R175.2): residual
+// quantization and pause-step refinement. Pure Rust, no new dependency.
+pub mod recommend;
 // Deterministic statistics for replayable decisions (Decide layer, §4.4 and §6
 // of the design): pinned soft-float transcendentals and quantised digests
 // (`detkernel`), calibration, risk control, conformal prediction and off-policy
