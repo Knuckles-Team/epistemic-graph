@@ -463,6 +463,7 @@
     "EG-DECISION-ENGINE-R144.4",
     "EG-DECISION-ENGINE-R144.5",
     "EG-DECISION-ENGINE-R144.6",
+    "EG-DECISION-ENGINE-R144.7",
     "EG-DECISION-ENGINE-R145",
     "EG-DECISION-ENGINE-R145.1",
     "EG-DECISION-ENGINE-R145.2",
@@ -2079,8 +2080,8 @@
         "0fac721690e2",
         "3c6b457009e4",
         "65afe57d3c4e",
-        "791b0d2c71a8",
-        "fa780d3e101a"
+        "fa780d3e101a",
+        "fa8712ffe119"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/rapid_r056.rs:100",
@@ -2109,7 +2110,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3c6b457009e4",
-        "791b0d2c71a8"
+        "fa8712ffe119"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/rapid_r056.rs:100",
@@ -2136,7 +2137,7 @@
       "title": "Statistical-path call into the exact 0-1 solver",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "791b0d2c71a8"
+        "fa8712ffe119"
       ],
       "verified_by": [
         "src/server/handlers/decide/stat_tool_subset.rs:340"
@@ -5886,7 +5887,8 @@
         "EG-DECISION-ENGINE-R144.3",
         "EG-DECISION-ENGINE-R144.4",
         "EG-DECISION-ENGINE-R144.5",
-        "EG-DECISION-ENGINE-R144.6"
+        "EG-DECISION-ENGINE-R144.6",
+        "EG-DECISION-ENGINE-R144.7"
       ]
     },
     {
@@ -5927,6 +5929,13 @@
     {
       "id": "EG-DECISION-ENGINE-R144.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R144.7",
+      "title": "Consumer budgets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
