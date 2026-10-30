@@ -243,6 +243,7 @@ fn encode_keys(keys: &[String]) -> String {
 mod tests {
     use super::*;
 
+    // spec: EG-FEDERATED-QUERY-R071
     #[test]
     fn placeholders_are_only_recognised_in_the_query_string() {
         assert!(Placeholders::of("https://api.example/{keys}/x").is_err());
@@ -251,6 +252,7 @@ mod tests {
         assert!(p.keys && p.limit && !p.offset && !p.page);
     }
 
+    // spec: EG-FEDERATED-QUERY-R071
     #[test]
     fn keys_are_percent_encoded_and_comma_joined() {
         let keys = vec!["a b".to_string(), "é/&".to_string(), "plain-1".to_string()];

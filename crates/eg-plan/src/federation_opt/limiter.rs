@@ -161,6 +161,7 @@ mod tests {
         Instant::now() + Duration::from_secs(30)
     }
 
+    // spec: EG-FEDERATED-QUERY-R047
     #[test]
     fn rate_window_is_shared_by_one_fingerprint() {
         let source = fingerprint(b"fo09-rate-window");

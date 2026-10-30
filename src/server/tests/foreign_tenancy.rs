@@ -135,6 +135,7 @@ fn assert_access_denied_for_caller(resp: &crate::protocol::Response, surface: &s
 /// A registers `remote_docs`; A's queries succeed on every surface and B's ungranted names are
 /// concealed. A queries FIRST with the identical plan, so B's refusal also proves the result cache
 /// is keyed by the foreign owner (B is never served A's cached foreign rows).
+// spec: EG-FEDERATED-QUERY-R013
 #[tokio::test]
 async fn foreign_source_resolves_only_for_the_registering_principal() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -432,6 +433,7 @@ async fn nl_query_foreign_leg_is_owner_scoped() {
 /// engine-provisioned share role, by its qualified name; revoking the role stops use.
 /// The granted success is result-cached, so the post-revocation refusal also proves the
 /// cache key follows the grant.
+// spec: EG-FEDERATED-QUERY-R013
 #[tokio::test]
 async fn shared_source_needs_an_explicit_grant() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;

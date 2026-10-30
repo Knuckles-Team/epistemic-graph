@@ -138,6 +138,7 @@ fn a_predicate_shared_by_two_subjects_is_not_filtered() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R042
 #[test]
 fn a_constant_subject_is_a_key_lookup() {
     let (names, scans) = both_ways(
@@ -155,6 +156,7 @@ fn a_constant_subject_is_a_key_lookup() {
     assert_eq!(key.1, 1, "one row moved, not the table");
 }
 
+// spec: EG-FEDERATED-QUERY-R042
 #[test]
 fn a_constant_object_is_a_column_equality() {
     let (people, scans) = both_ways("SELECT ?p WHERE { ?p ex:name \"Bob\" }", "p");
@@ -164,6 +166,7 @@ fn a_constant_object_is_a_column_equality() {
         .any(|(f, rows)| *rows == 1 && f.iter().any(|f| f.column == "name" && f.value == "Bob")));
 }
 
+// spec: EG-FEDERATED-QUERY-R042
 #[test]
 fn the_semi_join_ships_only_anchor_keys() {
     let (names, scans) = both_ways(

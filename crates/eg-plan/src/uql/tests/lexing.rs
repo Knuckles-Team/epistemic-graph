@@ -8,6 +8,7 @@ fn kinds(src: &str) -> Vec<Tok> {
     lex(src).unwrap().into_iter().map(|t| t.kind).collect()
 }
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn hash_and_double_dash_comments_run_to_end_of_line() {
     let src = "MATCH (:Doc)   # the source\n  |> LIMIT 3 -- keep three\n";
@@ -22,6 +23,7 @@ fn hash_and_double_dash_comments_run_to_end_of_line() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn scientific_notation_and_exact_text() {
     assert_eq!(
@@ -41,6 +43,7 @@ fn scientific_notation_and_exact_text() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn unicode_strings_survive_intact() {
     let plan = parse("MATCH (:Doc) WHERE city = 'Zürich — 東京'").unwrap();
@@ -55,6 +58,7 @@ fn unicode_strings_survive_intact() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn unicode_and_quoted_identifiers() {
     assert_eq!(
@@ -82,6 +86,7 @@ fn unicode_and_quoted_identifiers() {
     assert_eq!(kinds("`a``b`"), vec![Tok::QIdent("a`b".into())]);
 }
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn string_escapes() {
     assert_eq!(
@@ -90,6 +95,7 @@ fn string_escapes() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R064
 #[test]
 fn dollar_is_a_parameter_or_a_json_path() {
     assert_eq!(

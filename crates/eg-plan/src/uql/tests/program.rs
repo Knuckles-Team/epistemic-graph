@@ -28,6 +28,7 @@ fn version_pragma_and_modes() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R044
 #[cfg(feature = "federation")]
 #[test]
 fn federation_budget_hint_is_typed_and_cannot_disappear_in_pipeline_parse() {

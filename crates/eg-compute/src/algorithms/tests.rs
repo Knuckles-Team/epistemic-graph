@@ -131,6 +131,7 @@ mod community_tests {
     }
 
     // spec: EG-REPO-INGEST-R011
+    // spec: EG-FEDERATED-QUERY-R063
     #[test]
     fn every_community_induces_a_connected_subgraph() {
         // community_detection is the ingestion path's facade over the pure

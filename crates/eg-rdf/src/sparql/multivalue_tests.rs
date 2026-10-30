@@ -35,6 +35,7 @@ fn column(query: &str, var: &str) -> Vec<String> {
     out
 }
 
+// spec: EG-FEDERATED-QUERY-R055
 #[test]
 fn both_values_of_one_property_bind() {
     assert_eq!(
@@ -47,6 +48,7 @@ fn both_values_of_one_property_bind() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R055
 #[test]
 fn a_filter_applies_to_each_binding() {
     let over = column("SELECT ?a WHERE { ?s ex:age ?a FILTER (?a > 30) }", "a");
@@ -55,12 +57,14 @@ fn a_filter_applies_to_each_binding() {
     assert_eq!(under, vec!["18"], "the second value is filtered on its own");
 }
 
+// spec: EG-FEDERATED-QUERY-R055
 #[test]
 fn two_multi_valued_properties_join_as_a_cross_product() {
     let names = column("SELECT ?n WHERE { ex:p ex:name ?n ; ex:age ?a }", "n");
     assert_eq!(names, vec!["Alice", "Alice", "Alys", "Alys"]);
 }
 
+// spec: EG-FEDERATED-QUERY-R055
 #[test]
 fn a_constant_object_matches_a_second_value() {
     let subjects = column("SELECT ?s WHERE { ?s ex:name \"Alys\" }", "s");
