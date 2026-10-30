@@ -1675,7 +1675,7 @@ mod tests {
     /// a fresh key WITHOUT complaint, wrote a canary, and logged
     /// `redb encryption-at-rest ENABLED`. Every value already in the store then failed
     /// to unseal, one read at a time. This is the shape the deployment hits when the
-    /// key lives under an ephemeral `AGENT_UTILITIES_DATA_DIR` (an emptyDir) while the
+    /// key lives under an ephemeral `ARBORA_DATA_DIR` (an emptyDir) while the
     /// store is on a persistent hostPath: a fresh key on every restart, against
     /// durable data.
     #[cfg(feature = "security")]
