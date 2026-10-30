@@ -31,12 +31,6 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **EG-MEDIA-VOCAB-R025:** Cross-repo, owner media-downloader: see media-downloader B1.
 - [ ] **EG-MEDIA-VOCAB-R026:** Cross-repo, owner owncast-agent: past broadcast list with start/end and peak viewers: add an owncast_internal stream-history action or persist sessions.
 - [ ] **EG-MEDIA-VOCAB-R027:** Cross-repo, owner media-downloader: download history: add a list_downloads operation returning job id, source URL, status, error, completedAt, output path.
-- [ ] **EG-MEDIA-VOCAB-R028:** Cross-repo, owner audio-transcriber: transcript list/get operation by recording id and date.
-- [ ] **EG-MEDIA-VOCAB-R029:** Cross-repo, owner audio-transcriber: expose avg_logprob (confidence) per segment.
-- [ ] **EG-MEDIA-VOCAB-R030:** Cross-repo, owner scholarx: citing-papers operation: add sx_search action 'citations' returning papers that cite a given id.
-- [ ] **EG-MEDIA-VOCAB-R031:** Cross-repo, owner searxng-mcp: pass through per-engine result counts and unresponsive_engines from the SearXNG response.
-- [ ] **EG-MEDIA-VOCAB-R032:** Cross-repo, owner arr-mcp: rename connector :Episode to mv:TelevisionEpisode subclass (collision with core :Episode).
-- [ ] **EG-MEDIA-VOCAB-R033:** Cross-repo, owner jellyfin-mcp and audiobookshelf-mcp: stop declaring :Author in the shared namespace; use mv:contributor to :Person.
 
 <!-- spec-definition-patch:owner-batch-20261012-media-and-personal-vocabulary -->
 ## R002.5 owner implementation and held-dependency tasks — 2026-10-12
