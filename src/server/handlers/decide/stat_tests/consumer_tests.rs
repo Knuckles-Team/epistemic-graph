@@ -74,6 +74,7 @@ fn declared_request(schema: &ComponentDependency, options: Vec<DeclaredOption>) 
         params: BoundedVec::default(),
         max_records: None,
         belief_as_of: BoundedVec::default(),
+        guarded_action: None,
     }
 }
 
@@ -357,6 +358,7 @@ async fn an_unregistered_ingestion_lane_is_refused_through_decide() {
         params: BoundedVec::default(),
         max_records: None,
         belief_as_of: BoundedVec::default(),
+        guarded_action: None,
     };
     let error = decide(&h, request).await.expect_err("must be refused");
     assert!(error.contains("UNSUPPORTED_INGESTION_LANE"), "got: {error}");
@@ -393,6 +395,7 @@ async fn a_negative_enrichment_cost_is_refused_through_decide() {
         params: BoundedVec::default(),
         max_records: None,
         belief_as_of: BoundedVec::default(),
+        guarded_action: None,
     };
     let error = decide(&h, request).await.expect_err("must be refused");
     assert!(
@@ -466,6 +469,7 @@ async fn graph_decide_answers_every_execution_routing_category() {
             params: BoundedVec::default(),
             max_records: None,
             belief_as_of: BoundedVec::default(),
+            guarded_action: None,
         };
         let batch = decide(&h, request)
             .await

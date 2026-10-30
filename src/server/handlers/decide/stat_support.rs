@@ -174,6 +174,7 @@ pub(super) fn default_statistical_policy() -> StatisticalPolicy {
         approved_commit_principals: eg_types::contract::BoundedVec::default(),
         compact_after_ms: None,
         drop_blob_after_ms: None,
+        limit_rules: Default::default(),
     }
 }
 

@@ -213,6 +213,32 @@ the spec↔ticket link flow (CONCEPT:KG-2.9).""" ;
     user stories, and acceptance criteria trace back to a Specification.""" ;
     rdfs:subClassOf bfo:0000031 .
 
+:SpecTask a owl:Class ;
+    rdfs:label "Spec Task" ;
+    rdfs:comment "A task list file of a spec folder (EG-ORCH-VOCAB-R012.1)." ;
+    rdfs:subClassOf :Specification .
+
+:SpecGoal a owl:Class ;
+    rdfs:label "Spec Goal" ;
+    rdfs:comment "A goal declared in the front matter of a spec folder file (EG-ORCH-VOCAB-R012.1)." ;
+    rdfs:subClassOf :Specification .
+
+:SpecMemory a owl:Class ;
+    rdfs:label "Spec Memory" ;
+    rdfs:comment "A file inside a memory folder of a spec folder (EG-ORCH-VOCAB-R012.1)." ;
+    rdfs:subClassOf :Specification .
+
+:SpecPolicy a owl:Class ;
+    rdfs:label "Spec Policy" ;
+    rdfs:comment "A constitution or policy file of a spec folder (EG-ORCH-VOCAB-R012.1)." ;
+    rdfs:subClassOf :Specification .
+
+:classifiedByRule a owl:DatatypeProperty ;
+    rdfs:label "classified by rule" ;
+    rdfs:comment "The name of the default rule that gave a spec folder file its kind (EG-ORCH-VOCAB-R012.5)." ;
+    rdfs:domain :Specification ;
+    rdfs:range xsd:string .
+
 :ImplementationPlan a owl:Class ;
     rdfs:label "Implementation Plan" ;
     rdfs:comment """A detailed engineering implementation plan that defines how to implement a SoftwareFeature.

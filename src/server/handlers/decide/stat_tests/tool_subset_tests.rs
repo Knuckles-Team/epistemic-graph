@@ -4,7 +4,7 @@
 use super::*;
 use eg_types::decision::statistical::declared::{DeclaredNumber, DeclaredOption};
 
-fn tool(id: &str, capabilities: &[&str], schema_tokens: i64) -> DeclaredOption {
+pub(super) fn tool(id: &str, capabilities: &[&str], schema_tokens: i64) -> DeclaredOption {
     DeclaredOption {
         option_id: id.to_string(),
         classification: BoundedVec::new(capabilities.iter().map(|s| s.to_string()).collect())
@@ -28,7 +28,7 @@ fn tool_without_schema_tokens(id: &str, capabilities: &[&str]) -> DeclaredOption
     }
 }
 
-fn tool_subset_request(
+pub(super) fn tool_subset_request(
     schema: &ComponentDependency,
     required: &[&str],
     budget_tokens: i64,
@@ -62,6 +62,7 @@ fn tool_subset_request(
         .unwrap(),
         max_records: None,
         belief_as_of: BoundedVec::default(),
+        guarded_action: None,
     }
 }
 

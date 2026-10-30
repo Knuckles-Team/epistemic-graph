@@ -109,5 +109,15 @@ pub fn check_limits(action: &GuardedAction, rules: &[LimitRule]) -> Vec<LimitBre
         .collect()
 }
 
+/// The typed refusal for a set of breaches: an abstention naming the first
+/// breached rule (EG-DECISION-ENGINE-R131.4). `None` when nothing breached.
+pub fn limit_refusal(breaches: &[LimitBreach]) -> Option<crate::decision::AbstainReason> {
+    breaches
+        .first()
+        .map(|breach| crate::decision::AbstainReason::LimitBreach {
+            rule_id: breach.rule_id.clone(),
+        })
+}
+
 #[cfg(test)]
 mod tests;

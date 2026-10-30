@@ -171,6 +171,7 @@ fn decide_blocking(
             None => execute(ctx, request, &pinned, &policy, &candidates.views)?,
         },
     };
+    let executed = super::stat_limit_guard::guard(executed, request, &policy);
     let slices = live_slices(ctx, request, &pinned, &candidates.views)?;
     let nl = binding(request, &executed.ladder.outcome, &candidates.entries)?;
     let record = seal(

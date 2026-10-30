@@ -80,8 +80,34 @@ pub fn index_repository(files: &[(String, Vec<u8>)]) -> IndexResult {
         .collect();
     super::enrichment_admission::record_resolved_facts(&mut evidence, &endpoints, &indexed.edges);
     indexed.native_rung_evidence = evidence;
+    add_spec_folder_nodes(&mut indexed, files, &file_outcomes);
     indexed.file_outcomes = file_outcomes;
     indexed
+}
+
+/// The non-code branch of the index (EG-ORCH-VOCAB-R012.3): a markdown file the
+/// code parsers do not own is classified as a spec folder file. A classified
+/// file becomes its typed node; a refused one becomes a plain `Document`.
+fn add_spec_folder_nodes(
+    indexed: &mut IndexResult,
+    files: &[(String, Vec<u8>)],
+    outcomes: &[eg_types::ingestion_wire::IndexFileOutcome],
+) {
+    for ((path, source), outcome) in files.iter().zip(outcomes) {
+        let is_markdown = std::path::Path::new(path)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"));
+        if outcome.status != eg_types::ingestion_wire::IndexFileStatus::Unsupported || !is_markdown
+        {
+            continue;
+        }
+        let (node_type, properties) = eg_core::spec_folder::spec_file_node(path, source);
+        indexed.nodes.push(eg_types::ingestion_wire::ExtractedNode {
+            node_id: format!("spec:{path}"),
+            node_type,
+            properties: properties.into_iter().collect(),
+        });
+    }
 }
 
 /// Resolve already-parsed results against the file set they came from. Split out
@@ -839,6 +865,34 @@ pub(crate) fn node_id(r: &IndexResult, name: &str, file: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // spec: EG-ORCH-VOCAB-R012.3
+    #[test]
+    fn index_repository_writes_typed_nodes() {
+        let batch = files(&[
+            ("specs/a/tasks.md", "- [ ] one"),
+            ("specs/a/notes.md", "free text"),
+            ("src/lib.py", "def f():\n    return 1\n"),
+        ]);
+        let indexed = index_repository(&batch);
+        let spec_node = |path: &str| {
+            indexed
+                .nodes
+                .iter()
+                .find(|n| n.node_id == format!("spec:{path}"))
+                .unwrap_or_else(|| panic!("no spec node for {path}"))
+        };
+        let tasks = spec_node("specs/a/tasks.md");
+        assert_eq!(tasks.node_type, "SpecTask");
+        assert_eq!(tasks.properties["classifiedByRule"], "tasks_file");
+        let notes = spec_node("specs/a/notes.md");
+        assert_eq!(notes.node_type, "Document");
+        assert!(!notes.properties.contains_key("classifiedByRule"));
+        assert!(
+            !indexed.nodes.iter().any(|n| n.node_id == "spec:src/lib.py"),
+            "a code file is never a spec folder node"
+        );
+    }
 
     #[test]
     fn parser_and_resolver_edges_keep_their_cost_ladder_provenance() {

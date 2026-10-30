@@ -412,6 +412,7 @@ impl<'a> Parser<'a> {
             params: self.typed_params()?,
             max_records: q.max_records,
             belief_as_of: Default::default(),
+            guarded_action: None,
         })))
     }
 

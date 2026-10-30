@@ -50,6 +50,9 @@ pub enum AbstainReason {
     /// Statistical: below the policy's support, coverage or risk floor. It
     /// names no invisible data, by construction.
     InsufficientConfidence,
+    /// Statistical: a proposed action breaches a configured limit. Names the
+    /// first breached rule (EG-DECISION-ENGINE-R131.4).
+    LimitBreach { rule_id: String },
 }
 
 /// Why one candidate did not win its slot.

@@ -138,6 +138,10 @@ pub struct StatisticalPolicy {
     /// then answers `INPUTS_RETIRED`. `None` keeps the blob.
     #[serde(default)]
     pub drop_blob_after_ms: Option<u64>,
+    /// Limits a proposed action is checked against before any option is
+    /// advised (EG-DECISION-ENGINE-R131.3). Empty guards nothing.
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub limit_rules: BoundedVec<crate::decision::limit_guard::LimitRule, 64>,
 }
 
 /// The complete decision policy.

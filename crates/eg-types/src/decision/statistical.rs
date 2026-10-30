@@ -238,6 +238,11 @@ pub struct DecideRequest {
     /// when empty.
     #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
     pub belief_as_of: BoundedVec<u64, 8>,
+    /// The action the answer would advise, as the limit guard sees it. When
+    /// present, a breach of the policy's limit rules makes the answer an
+    /// abstention naming the rule (EG-DECISION-ENGINE-R131.3, R131.4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guarded_action: Option<crate::decision::limit_guard::GuardedAction>,
 }
 
 /// How the feature matrix the decision read is pinned.

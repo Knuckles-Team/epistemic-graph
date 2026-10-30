@@ -46,6 +46,7 @@ fn policy() -> StatisticalPolicy {
         approved_commit_principals: BoundedVec::default(),
         compact_after_ms: None,
         drop_blob_after_ms: None,
+        limit_rules: Default::default(),
     }
 }
 

@@ -220,6 +220,9 @@ pub fn every_abstain_reason() -> Vec<AbstainReason> {
             field: "node_budget".to_string(),
         },
         AbstainReason::InsufficientConfidence,
+        AbstainReason::LimitBreach {
+            rule_id: "limit-a".to_string(),
+        },
     ]
 }
 

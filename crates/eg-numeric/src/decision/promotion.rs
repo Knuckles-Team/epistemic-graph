@@ -291,6 +291,7 @@ mod class_metric_tests {
             approved_commit_principals: BoundedVec::default(),
             compact_after_ms: None,
             drop_blob_after_ms: None,
+            limit_rules: Default::default(),
         }
     }
 

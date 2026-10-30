@@ -41,6 +41,7 @@ pub fn statistical() -> StatisticalPolicy {
         approved_commit_principals: bounded(vec!["approved".to_string()]),
         compact_after_ms: None,
         drop_blob_after_ms: None,
+        limit_rules: Default::default(),
     }
 }
 

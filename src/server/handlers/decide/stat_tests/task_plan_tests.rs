@@ -55,6 +55,7 @@ fn task_request(pin: &ComponentDependency) -> DecideRequest {
         .unwrap(),
         max_records: None,
         belief_as_of: BoundedVec::default(),
+        guarded_action: None,
     }
 }
 

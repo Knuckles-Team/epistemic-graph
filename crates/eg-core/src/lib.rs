@@ -130,5 +130,6 @@ pub(crate) mod rls_view_cache;
 /// composition, AABBs). Pure deterministic math; the `GraphCore` scene methods
 /// (`add_scene_object`, `world_transform`, spatial relations) live in `graph`.
 pub mod scene;
+pub mod spec_folder;
 #[cfg(all(test, any(feature = "security", feature = "path-persist")))]
 pub(crate) mod test_scope_grant;

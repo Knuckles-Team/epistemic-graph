@@ -275,6 +275,7 @@ fn request(
         .unwrap(),
         max_records: None,
         belief_as_of: BoundedVec::default(),
+        guarded_action: None,
     }
 }
 
@@ -1203,6 +1204,8 @@ use log_tests::{retention_compacts_and_verifies, retention_retires};
 mod classes_tests;
 
 mod tool_subset_tests;
+
+mod limit_guard_tests;
 
 mod harness_config_tests;
 
