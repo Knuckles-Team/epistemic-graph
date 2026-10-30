@@ -134,17 +134,20 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // `eg-types/query` (which gates this whole module) surfaces the FULL `Op` wire
         // contract, so modality ops whose executor lives behind an eg-plan feature the
         // current build did not enable (`geo`/`owl`/`federation`/`wasm-udf`/`stream`/
-        // `epistemic`) still EXIST here. Their handler crates are absent, so decode them
-        // to a typed "not built in this configuration" error rather than a non-exhaustive
-        // match. Every one of those features is in the shipped `full` build, so this arm
-        // is compiled out there (no handler is ever shadowed / left unreachable).
+        // `epistemic`/`probabilistic`) still EXIST here. Their handler crates are absent,
+        // so decode them to a typed "not built in this configuration" error rather than a
+        // non-exhaustive match. `probabilistic` is NOT in `full`, yet `eg-capabilities`
+        // forces `eg-types/probabilistic` for the complete wire inventory, so under
+        // feature unification `Op::Probabilistic` exists without its executor; this arm
+        // must therefore compile whenever any of these features is off.
         #[cfg(not(all(
             feature = "geo",
             feature = "owl",
             feature = "federation",
             feature = "wasm-udf",
             feature = "stream",
-            feature = "epistemic"
+            feature = "epistemic",
+            feature = "probabilistic"
         )))]
         // Whether this arm is reachable depends on a feature resolution this crate
         // cannot see: `Op`'s variants are gated in the crate that DEFINES it, while
