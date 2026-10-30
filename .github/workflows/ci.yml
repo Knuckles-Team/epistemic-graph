@@ -735,7 +735,7 @@ jobs:
     # (PIPE-RELEASE-R007.7), so it no longer forces the full workspace sweep.
     # A registry-dependency lock change prints FULL; main CI then owns the full
     # sweep under the 60-minute push budget, as for every other FULL scope.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 60 }}
     name: gates (workspace crates)
     needs: changes
     if: *eg-code-change
@@ -841,6 +841,16 @@ jobs:
             echo "pr-test-scope: changed crates are all covered by other steps/jobs; skipping"
             exit 0
           fi
+          # Budget guard (PR budget <= 15 min wall): a change to a low crate
+          # (eg-types) invalidates every dependent's cache entry, and the cold
+          # rebuild alone outlasted the job (medulla#980: 30 min, cancelled).
+          # Say so and defer to main instead of running a doomed sweep.
+          cargo metadata --format-version 1 --no-deps --locked > "$RUNNER_TEMP/cargo-metadata.json"
+          verdict="$(printf '%s\n' "${args[@]}" | python3 scripts/ci_pr_crate_budget.py "$RUNNER_TEMP/cargo-metadata.json")"
+          echo "pr-test-scope: $verdict"
+          case "$verdict" in
+            DEFER*) echo "::warning title=crate sweep deferred to main::$verdict"; exit 0 ;;
+          esac
           echo "pr-test-scope: running only the changed crates this diff affects:"
           printf '%s\n' "${args[@]}"
           python3 scripts/cargo_test_rescue.py cargo test --locked "${args[@]}" --all-features --no-fail-fast
