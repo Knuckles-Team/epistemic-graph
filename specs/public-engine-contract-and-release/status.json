@@ -620,11 +620,16 @@
     {
       "id": "EG-CONTRACT-R026",
       "title": "Combined quality-gate script runs all staged scanners together",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "b3faf2e3e3e4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_check_quality_gates.py:41",
+        "tests/test_check_quality_gates.py:42",
+        "tests/test_check_quality_gates.py:66"
+      ]
     },
     {
       "id": "EG-CONTRACT-R027",
