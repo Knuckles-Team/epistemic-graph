@@ -66,24 +66,27 @@ fn route_response(
     if placed && epoch == 0 {
         return Response::err(req_id, "placement catalog contains an invalid epoch");
     }
+    let route = PlacementRouteWire {
+        schema_version: PlacementRouteSchemaVersion::V1,
+        route_id: format!("request:{req_id}"),
+        tenant_ref,
+        partition_ref,
+        authoritative: true,
+        placed,
+        group,
+        epoch,
+        fencing_token: group,
+        stale: client_epoch < epoch,
+        leader_ref: None,
+        endpoints,
+    };
+    // EG-PLACEMENT-R611.1: a route with an invalid identifier is never served.
+    if let Err(error) = route.validate() {
+        return Response::err(req_id, format!("placement route is invalid: {error}"));
+    }
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::cluster::PlacementRoute>(
-            PlacementRouteWire {
-                schema_version: PlacementRouteSchemaVersion::V1,
-                route_id: format!("request:{req_id}"),
-                tenant_ref,
-                partition_ref,
-                authoritative: true,
-                placed,
-                group,
-                epoch,
-                fencing_token: group,
-                stale: client_epoch < epoch,
-                leader_ref: None,
-                endpoints,
-            },
-        ),
+        ResultPayload::of::<eg_types::result_contract::cluster::PlacementRoute>(route),
     )
 }
 
@@ -177,7 +180,7 @@ async fn handle_route(
                 0,
                 None,
                 "placement control group is unavailable",
-            )
+            );
         }
     };
     let leader = control.current_leader().await;

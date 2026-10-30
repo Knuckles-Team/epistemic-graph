@@ -431,6 +431,8 @@ pub mod series_expr;
 // F3: the typed result contract -- one marker per method result, compile-checked at every
 // handler site and walked by `eg-capabilities` to publish the result schemas.
 pub mod result_contract;
+// EG-PLACEMENT-R611.1 — the validated placement-directory model.
+pub mod placement_directory;
 // RF-019 — the sole transport-neutral semantic-index contract.  Runtime
 // storage, queues, handlers, and surface projections live in crates above this
 // bottom-of-DAG owner and must consume these exact operation and identity DTOs.

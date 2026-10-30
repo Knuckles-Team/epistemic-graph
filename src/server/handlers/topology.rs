@@ -102,19 +102,22 @@ fn signed_snapshot(
     mac.update(DISCOVERY_DOMAIN);
     mac.update(payload.as_bytes());
     let signature = format!("hmac-sha256:{}", hex::encode(mac.finalize().into_bytes()));
-    Ok(
-        eg_types::result_contract::cluster::ClusterDiscoverySnapshot {
-            schema_version: DISCOVERY_SCHEMA_VERSION,
-            cluster_id: cluster_id.to_string(),
-            membership_epoch,
-            placement_epoch,
-            leader,
-            leaders,
-            groups,
-            auth_binding: context_binding(context),
-            signature,
-        },
-    )
+    let snapshot = eg_types::result_contract::cluster::ClusterDiscoverySnapshot {
+        schema_version: DISCOVERY_SCHEMA_VERSION,
+        cluster_id: cluster_id.to_string(),
+        membership_epoch,
+        placement_epoch,
+        leader,
+        leaders,
+        groups,
+        auth_binding: context_binding(context),
+        signature,
+    };
+    // EG-PLACEMENT-R611.1: the engine never serves a snapshot its own clients
+    // would refuse; every member identifier is validated before signing leaves.
+    eg_types::placement_directory::ClusterSnapshot::new(snapshot)
+        .map(eg_types::placement_directory::ClusterSnapshot::into_inner)
+        .map_err(|error| format!("cluster discovery snapshot is invalid: {error}"))
 }
 
 #[cfg(feature = "raft")]

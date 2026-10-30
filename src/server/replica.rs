@@ -30,7 +30,7 @@
 //!
 //! Three composable, pure, unit-testable guards that the transport / follower consult:
 //!
-//! * **Circuit breaker** ([`CircuitBreaker`]) — a per-target Closed→Open→HalfOpen breaker.
+//! * **Circuit breaker** ([`Breaker`]) — a per-target Closed→Open→HalfOpen breaker.
 //!   After `failure_threshold` consecutive failures it OPENS (fail-fast, no calls) for a
 //!   `cooldown`, then HALF-OPENS one trial call; a success closes it, a failure re-opens.
 //!   Stops a dead region from tying up follower threads on doomed pulls.
@@ -150,105 +150,10 @@ impl ReplicationLog {
 }
 
 // ── CONCEPT:EG-KG.coordination.circuit-breaker — circuit breaker ─────────────────────────────────────────
-
-/// Circuit-breaker state (CONCEPT:EG-KG.coordination.circuit-breaker).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BreakerState {
-    /// Calls flow; consecutive failures are counted.
-    Closed,
-    /// Fail-fast — no calls until the cooldown elapses.
-    Open,
-    /// One trial call is allowed; its outcome closes or re-opens the breaker.
-    HalfOpen,
-}
-
-/// A per-target circuit breaker (CONCEPT:EG-KG.coordination.circuit-breaker). Pure decision logic driven by an
-/// explicit `now: Instant`, so it is deterministically unit-testable without sleeping.
-#[derive(Debug)]
-pub struct CircuitBreaker {
-    failure_threshold: u32,
-    cooldown: Duration,
-    consecutive_failures: AtomicU64,
-    /// `Some(instant)` = OPEN until that instant; guarded by the mutex for the trial gate.
-    state: Mutex<BreakerInner>,
-}
-
-#[derive(Debug)]
-struct BreakerInner {
-    open_until: Option<Instant>,
-    half_open_in_flight: bool,
-}
-
-impl CircuitBreaker {
-    /// A closed breaker that opens after `failure_threshold` (≥1) consecutive failures and
-    /// stays open for `cooldown`.
-    pub fn new(failure_threshold: u32, cooldown: Duration) -> Self {
-        Self {
-            failure_threshold: failure_threshold.max(1),
-            cooldown,
-            consecutive_failures: AtomicU64::new(0),
-            state: Mutex::new(BreakerInner {
-                open_until: None,
-                half_open_in_flight: false,
-            }),
-        }
-    }
-
-    /// The breaker's state at `now` (CONCEPT:EG-KG.coordination.circuit-breaker) — `Open` while cooling down, else
-    /// `HalfOpen` if the cooldown just elapsed and no trial is in flight, else `Closed`.
-    pub fn state_at(&self, now: Instant) -> BreakerState {
-        let g = self.state.lock().expect("breaker poisoned");
-        match g.open_until {
-            Some(until) if now < until => BreakerState::Open,
-            Some(_) => BreakerState::HalfOpen,
-            None => BreakerState::Closed,
-        }
-    }
-
-    /// Whether a call may proceed at `now` (CONCEPT:EG-KG.coordination.circuit-breaker). `Closed` ⇒ yes; `Open` ⇒ no;
-    /// `HalfOpen` ⇒ yes for exactly ONE trial call (the caller reports its outcome via
-    /// [`on_success`]/[`on_failure`]). Advances the internal state (arms the trial gate).
-    ///
-    /// [`on_success`]: CircuitBreaker::on_success
-    /// [`on_failure`]: CircuitBreaker::on_failure
-    pub fn allow(&self, now: Instant) -> bool {
-        let mut g = self.state.lock().expect("breaker poisoned");
-        match g.open_until {
-            Some(until) if now < until => false, // OPEN — fail fast
-            Some(_) => {
-                // Cooldown elapsed → HALF-OPEN: admit exactly one trial call.
-                if g.half_open_in_flight {
-                    false
-                } else {
-                    g.half_open_in_flight = true;
-                    true
-                }
-            }
-            None => true, // CLOSED
-        }
-    }
-
-    /// Record a successful call at `now` (CONCEPT:EG-KG.coordination.circuit-breaker): resets the failure count and
-    /// fully closes the breaker (clears any half-open trial).
-    pub fn on_success(&self, _now: Instant) {
-        self.consecutive_failures.store(0, Ordering::SeqCst);
-        let mut g = self.state.lock().expect("breaker poisoned");
-        g.open_until = None;
-        g.half_open_in_flight = false;
-    }
-
-    /// Record a failed call at `now` (CONCEPT:EG-KG.coordination.circuit-breaker): increments the failure count and,
-    /// once it reaches the threshold (or a half-open trial failed), OPENS for the cooldown.
-    pub fn on_failure(&self, now: Instant) {
-        let fails = self.consecutive_failures.fetch_add(1, Ordering::SeqCst) + 1;
-        let mut g = self.state.lock().expect("breaker poisoned");
-        let was_half_open = g.half_open_in_flight;
-        g.half_open_in_flight = false;
-        if was_half_open || fails >= self.failure_threshold as u64 {
-            g.open_until = Some(now + self.cooldown);
-        }
-    }
-}
+//
+// The breaker is the placement-directory model's `Breaker` (EG-PLACEMENT-R611.1);
+// `eg-types` owns it so the engine and its clients share one implementation.
+pub use eg_types::placement_directory::{Breaker, BreakerPolicy, BreakerState};
 
 // ── CONCEPT:EG-KG.coordination.circuit-breaker — per-tenant quota + backpressure guard ───────────────────
 
@@ -521,17 +426,19 @@ pub fn pull_replication_tail(
 }
 
 /// Run the follower pull loop until the process exits (CONCEPT:EG-KG.sharding.follower-pull-loop). Periodically pulls
-/// the primary's tail (guarded by a [`CircuitBreaker`] so a dead primary fails fast for a
+/// the primary's tail (guarded by a [`Breaker`] so a dead primary fails fast for a
 /// cooldown rather than blocking every tick), applies it, and advances the cursor. Spawned
 /// from `main` when [`ReplicaConfig::from_env`] is `Some`.
 pub async fn run_replica_follower(
     state: std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
     cfg: ReplicaConfig,
 ) {
-    let breaker = CircuitBreaker::new(
-        cfg.failure_threshold,
-        Duration::from_secs(cfg.cooldown_secs),
-    );
+    let policy = BreakerPolicy::new(
+        cfg.failure_threshold.max(1),
+        cfg.cooldown_secs.max(1).saturating_mul(1_000),
+    )
+    .expect("threshold and cooldown are floored to 1");
+    let breaker = Breaker::new(policy);
     let mut cursor: u64 = 0;
     let poll = Duration::from_secs(cfg.poll_secs.max(1));
     loop {
@@ -544,7 +451,7 @@ pub async fn run_replica_follower(
         let pull = tokio::task::spawn_blocking(move || pull_replication_tail(&cfg2, cursor)).await;
         match pull {
             Ok(Ok(ops)) => {
-                breaker.on_success(Instant::now());
+                breaker.on_success();
                 if !ops.is_empty() {
                     cursor = apply_replicated_batch(&state, &ops, cursor).await;
                 }
@@ -607,7 +514,7 @@ mod tests {
     #[test]
     fn eg3_2_circuit_breaker_opens_after_threshold_then_half_opens_and_recovers() {
         let t0 = Instant::now();
-        let cb = CircuitBreaker::new(3, Duration::from_secs(10));
+        let cb = Breaker::new(BreakerPolicy::new(3, 10_000).unwrap());
         assert_eq!(cb.state_at(t0), BreakerState::Closed);
         assert!(cb.allow(t0));
         // Three consecutive failures OPEN the breaker.
@@ -631,7 +538,7 @@ mod tests {
         assert!(cb.allow(t1), "one trial call admitted");
         assert!(!cb.allow(t1), "second trial refused while one is in flight");
         // The trial SUCCEEDS → closed again.
-        cb.on_success(t1);
+        cb.on_success();
         assert_eq!(cb.state_at(t1), BreakerState::Closed);
         assert!(cb.allow(t1));
     }
@@ -639,7 +546,7 @@ mod tests {
     #[test]
     fn eg3_2_half_open_trial_failure_reopens() {
         let t0 = Instant::now();
-        let cb = CircuitBreaker::new(1, Duration::from_secs(5));
+        let cb = Breaker::new(BreakerPolicy::new(1, 5_000).unwrap());
         cb.on_failure(t0); // threshold 1 → open immediately
         assert_eq!(cb.state_at(t0), BreakerState::Open);
         let t1 = t0 + Duration::from_secs(6);
