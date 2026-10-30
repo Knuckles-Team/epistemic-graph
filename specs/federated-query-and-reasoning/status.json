@@ -230,10 +230,8 @@
     "EG-FEDERATED-QUERY-R085.6",
     "EG-FEDERATED-QUERY-R085.7",
     "EG-FEDERATED-QUERY-R085.8",
-    "EG-FEDERATED-QUERY-R070.1",
     "EG-FEDERATED-QUERY-R006.1",
     "EG-FEDERATED-QUERY-R040.5",
-    "EG-FEDERATED-QUERY-R040.6",
     "EG-FEDERATED-QUERY-R083.7",
     "EG-FEDERATED-QUERY-R081.10",
     "EG-FEDERATED-QUERY-R028.1",
@@ -1081,8 +1079,7 @@
         "EG-FEDERATED-QUERY-R040.2",
         "EG-FEDERATED-QUERY-R040.3",
         "EG-FEDERATED-QUERY-R040.4",
-        "EG-FEDERATED-QUERY-R040.5",
-        "EG-FEDERATED-QUERY-R040.6"
+        "EG-FEDERATED-QUERY-R040.5"
       ]
     },
     {
@@ -1662,7 +1659,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R070",
       "title": "UQL execution budgets are enforced and reported in EXPLAIN/PROFILE",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
         "e93f988eae07"
@@ -1670,9 +1667,6 @@
       "verified_by": [
         "crates/eg-plan/src/budget.rs:73",
         "crates/eg-plan/src/exec.rs:2721"
-      ],
-      "rollup_of": [
-        "EG-FEDERATED-QUERY-R070.1"
       ]
     },
     {
@@ -2978,13 +2972,6 @@
       "verified_by": []
     },
     {
-      "id": "EG-FEDERATED-QUERY-R070.1",
-      "title": "Source-backed definition disposition",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
       "id": "EG-FEDERATED-QUERY-R006.1",
       "title": "Source-backed definition disposition",
       "delivery_state": "SPECIFIED",
@@ -3009,13 +2996,6 @@
         "EG-FEDERATED-QUERY-R040.5.5",
         "EG-FEDERATED-QUERY-R040.5.6"
       ]
-    },
-    {
-      "id": "EG-FEDERATED-QUERY-R040.6",
-      "title": "Source-backed definition disposition",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R083.7",
