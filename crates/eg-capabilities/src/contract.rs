@@ -18,6 +18,7 @@ pub mod access_path;
 mod errors;
 mod format_identity;
 mod method_bodies;
+mod ontology;
 mod python;
 mod python_render;
 mod results;
@@ -351,6 +352,7 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
         bytes: schema::method_catalog_source(),
     });
     out.extend(schema::artifacts(catalog));
+    out.extend(ontology::artifacts(catalog));
     out.extend(python::artifacts(catalog));
     out.extend(vectors::artifacts());
     out.extend(method_bodies::artifacts());
@@ -550,6 +552,7 @@ pub fn write_all(root: &Path) -> std::io::Result<usize> {
 const GENERATED_DIRS: &[&str] = &[
     "contract/fixtures",
     "contract/schemas",
+    "contract/ontology",
     "epistemic_graph/contract/schemas",
     "epistemic_graph/generated",
 ];
