@@ -3971,6 +3971,7 @@ components:
       - "tests/test_kiss_fork.py"
       - "tests/test_kiss_hook_context.py"
       - "tests/test_kiss_staged.py"
+      - "tests/test_federated_query_file_size.py"
       - "tests/test_kvcache_config.py"
       - "tests/test_kvcache_connector.py"
       - "tests/test_lake_iceberg_delta_parity.py"
