@@ -116,3 +116,31 @@
     rdfs:comment "The documentation module's meaning of the shared kg:validUntil: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
     rdfs:subPropertyOf :validUntil ;
     rdfs:range xsd:dateTime .
+
+:WebSnapshot a owl:Class ;
+    rdfs:label "Web Snapshot" ;
+    rdfs:comment "A captured snapshot of one URL (an ArchiveBox capture); :sourceRef carries the URL." ;
+    rdfs:subClassOf :Document .
+
+:ArchiveResult a owl:Class ;
+    rdfs:label "Archive Result" ;
+    rdfs:comment "One extractor outcome for a :WebSnapshot, named by :extractorName with a :resultStatus." ;
+    rdfs:subClassOf prov:Entity .
+
+:hasArchiveResult a owl:ObjectProperty ;
+    rdfs:label "has archive result" ;
+    rdfs:comment "Links a :WebSnapshot to the :ArchiveResult of one of its extractors." ;
+    rdfs:domain :WebSnapshot ;
+    rdfs:range :ArchiveResult .
+
+:extractorName a owl:DatatypeProperty ;
+    rdfs:label "extractor name" ;
+    rdfs:comment "The extractor an ArchiveBox :ArchiveResult is the outcome of (pdf, webpage, youtube-dl, ...)." ;
+    rdfs:domain :ArchiveResult ;
+    rdfs:range xsd:string .
+
+:resultStatus a owl:DatatypeProperty ;
+    rdfs:label "result status" ;
+    rdfs:comment "The status string of an ArchiveBox :ArchiveResult (succeeded, failed, skipped)." ;
+    rdfs:domain :ArchiveResult ;
+    rdfs:range xsd:string .
