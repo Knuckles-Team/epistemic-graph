@@ -972,9 +972,17 @@
     {
       "id": "EG-MEDIA-VOCAB-R014",
       "title": "scholarx virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef",
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3798",
+        "crates/eg-core/tests/media_vocab_a.rs:3828",
+        "crates/eg-core/tests/media_vocab_a.rs:3870",
+        "crates/eg-core/tests/media_vocab_b.rs:94"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R014.1",
         "EG-MEDIA-VOCAB-R014.2",
@@ -996,30 +1004,50 @@
     {
       "id": "EG-MEDIA-VOCAB-R014.2",
       "title": "Add the `scholarx` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R055.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3798"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R014.3",
       "title": "Add the test that answers the `scholarx` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3828"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R014.4",
       "title": "Update `EG-CQ-CONN-R055` vocabulary column from MISSING to media-v1 / content-v1 once R014.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3870"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R015",
       "title": "searxng virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef",
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3876",
+        "crates/eg-core/tests/media_vocab_a.rs:3906",
+        "crates/eg-core/tests/media_vocab_a.rs:3958",
+        "crates/eg-core/tests/media_vocab_b.rs:111"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R015.1",
         "EG-MEDIA-VOCAB-R015.2",
@@ -1041,30 +1069,49 @@
     {
       "id": "EG-MEDIA-VOCAB-R015.2",
       "title": "Add the `searxng` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R056.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3876"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R015.3",
       "title": "Add the test that answers the `searxng` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3906"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R015.4",
       "title": "Update `EG-CQ-CONN-R056` vocabulary column from MISSING to media-v1 / content-v1 once R015.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3958"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R016",
       "title": "pulselink virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3964",
+        "crates/eg-core/tests/media_vocab_a.rs:3978",
+        "crates/eg-core/tests/media_vocab_a.rs:4006",
+        "crates/eg-core/tests/media_vocab_a.rs:4051"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R016.1",
         "EG-MEDIA-VOCAB-R016.2",
@@ -1075,37 +1122,61 @@
     {
       "id": "EG-MEDIA-VOCAB-R016.1",
       "title": "Add the `pulselink` `vg:VirtualMapping` source file (operation to class/property rows listed in plan.md section Connector mapping tables) as a mapping fixture under crates/eg-core/tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3964"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R016.2",
       "title": "Add the `pulselink` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R050.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:3978"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R016.3",
       "title": "Add the test that answers the `pulselink` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4006"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R016.4",
       "title": "Update `EG-CQ-CONN-R050` vocabulary column from MISSING to media-v1 / content-v1 once R016.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4051"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R017",
       "title": "postiz virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef",
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4057",
+        "crates/eg-core/tests/media_vocab_a.rs:4087",
+        "crates/eg-core/tests/media_vocab_a.rs:4131",
+        "crates/eg-core/tests/media_vocab_b.rs:127"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R017.1",
         "EG-MEDIA-VOCAB-R017.2",
@@ -1127,30 +1198,50 @@
     {
       "id": "EG-MEDIA-VOCAB-R017.2",
       "title": "Add the `postiz` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R049.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4057"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R017.3",
       "title": "Add the test that answers the `postiz` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4087"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R017.4",
       "title": "Update `EG-CQ-CONN-R049` vocabulary column from MISSING to media-v1 / content-v1 once R017.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4131"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R018",
       "title": "listmonk virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef",
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4137",
+        "crates/eg-core/tests/media_vocab_a.rs:4172",
+        "crates/eg-core/tests/media_vocab_a.rs:4221",
+        "crates/eg-core/tests/media_vocab_b.rs:142"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R018.1",
         "EG-MEDIA-VOCAB-R018.2",
@@ -1172,30 +1263,50 @@
     {
       "id": "EG-MEDIA-VOCAB-R018.2",
       "title": "Add the `listmonk` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R035.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4137"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R018.3",
       "title": "Add the test that answers the `listmonk` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4172"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R018.4",
       "title": "Update `EG-CQ-CONN-R035` vocabulary column from MISSING to media-v1 / content-v1 once R018.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4221"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R019",
       "title": "mattermost virtual-graph mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "42fcf51b8bef",
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4227",
+        "crates/eg-core/tests/media_vocab_a.rs:4259",
+        "crates/eg-core/tests/media_vocab_a.rs:4295",
+        "crates/eg-core/tests/media_vocab_b.rs:172"
+      ],
       "rollup_of": [
         "EG-MEDIA-VOCAB-R019.1",
         "EG-MEDIA-VOCAB-R019.2",
@@ -1217,23 +1328,35 @@
     {
       "id": "EG-MEDIA-VOCAB-R019.2",
       "title": "Add the `mattermost` fixture (recorded tool response) for its single-source question for `EG-CQ-CONN-R036.1`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4227"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R019.3",
       "title": "Add the test that answers the `mattermost` single-source question from the fixture, or returns the typed abstention naming the missing operation for the BLOCKED part",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4259"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R019.4",
       "title": "Update `EG-CQ-CONN-R036` vocabulary column from MISSING to media-v1 / content-v1 once R019.1 is LANDED (wire one call site: specs/connector-competency/design.md)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c3b6139318e"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/media_vocab_a.rs:4295"
+      ]
     },
     {
       "id": "EG-MEDIA-VOCAB-R020",
