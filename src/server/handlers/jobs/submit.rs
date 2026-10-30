@@ -360,6 +360,17 @@ pub(super) fn submit_job_mine_associate(
     ))
 }
 
+/// The optimizer name in an undecodable request when it names no known kind.
+#[cfg(feature = "program-optimization")]
+pub(super) fn unknown_optimizer(request_msgpack: &[u8]) -> Option<String> {
+    let value: serde_json::Value = rmp_serde::from_slice(request_msgpack).ok()?;
+    let name = value.get("optimizer")?.as_str()?;
+    (!eg_program::OptimizerKind::ALL
+        .iter()
+        .any(|kind| kind.as_str() == name))
+    .then(|| name.to_string())
+}
+
 /// The `JobKind::ProgramOptimize` arm of [`handle_submit`]'s kind-governance
 /// match: bounded-decode the request, rebind its policy to the verified
 /// caller, re-encode it, and ensure the native capability is required.
@@ -384,7 +395,12 @@ pub(super) fn submit_job_program_optimize(
         Err(_) => {
             return Err(Response::err(
                 req_id,
-                "program optimization request failed bounded decoding",
+                match unknown_optimizer(&request_msgpack) {
+                    Some(name) => format!(
+                        "PROGRAM_OPTIMIZER_UNKNOWN: `{name}` is not one of the closed optimizer kinds"
+                    ),
+                    None => "program optimization request failed bounded decoding".to_string(),
+                },
             ));
         }
     };
@@ -397,7 +413,7 @@ pub(super) fn submit_job_program_optimize(
         Err(error) => {
             return Err(Response::err(
                 req_id,
-                format!("program optimization request is invalid: {error}"),
+                format!("{}: program optimization request is invalid: {error}", error.code()),
             ));
         }
     };

@@ -348,6 +348,13 @@ impl TrainingCorpus {
         {
             return Err(ProgramError::ResourceLimit);
         }
+        if !self
+            .examples
+            .iter()
+            .any(|example| example.split != ExampleSplit::Train)
+        {
+            return Err(ProgramError::HeldoutMissing);
+        }
         let mut ids = BTreeSet::new();
         let mut loci = BTreeSet::new();
         for example in &self.examples {
@@ -388,6 +395,37 @@ pub enum ProgramError {
     Cancelled,
     InvalidPromotion,
     InvalidCommit,
+    /// The corpus has no validation or test example to score candidates on.
+    HeldoutMissing,
+    /// A budget field is over its job ceiling.
+    BudgetExceeded,
+    /// An evaluation scored fewer cases than the promotion policy requires.
+    EvalTooSmall,
+}
+
+impl ProgramError {
+    /// The stable refusal code (EG-DECISION-ENGINE-R810.4, R812.4).
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::HeldoutMissing => "PROGRAM_HELDOUT_MISSING",
+            Self::BudgetExceeded => "PROGRAM_BUDGET_EXCEEDED",
+            Self::EvalTooSmall => "PROGRAM_EVAL_TOO_SMALL",
+            Self::UnsupportedVersion => "PROGRAM_UNSUPPORTED_VERSION",
+            Self::InvalidProgram => "PROGRAM_INVALID",
+            Self::InvalidSignature => "PROGRAM_INVALID_SIGNATURE",
+            Self::InvalidExample => "PROGRAM_INVALID_EXAMPLE",
+            Self::PolicyMismatch => "PROGRAM_POLICY_MISMATCH",
+            Self::PrivacyAttestation => "PROGRAM_PRIVACY_ATTESTATION",
+            Self::ModalityMismatch => "PROGRAM_MODALITY_MISMATCH",
+            Self::ResourceLimit => "PROGRAM_RESOURCE_LIMIT",
+            Self::InvalidArtifact => "PROGRAM_INVALID_ARTIFACT",
+            Self::InvalidPlan => "PROGRAM_INVALID_PLAN",
+            Self::NoEligibleExamples => "PROGRAM_NO_ELIGIBLE_EXAMPLES",
+            Self::Cancelled => "PROGRAM_CANCELLED",
+            Self::InvalidPromotion => "PROGRAM_INVALID_PROMOTION",
+            Self::InvalidCommit => "PROGRAM_INVALID_COMMIT",
+        }
+    }
 }
 
 impl std::fmt::Display for ProgramError {
@@ -407,6 +445,9 @@ impl std::fmt::Display for ProgramError {
             Self::Cancelled => "program optimization cancelled",
             Self::InvalidPromotion => "program candidate failed the promotion contract",
             Self::InvalidCommit => "program promotion commit is invalid",
+            Self::HeldoutMissing => "corpus has no held-out validation or test example",
+            Self::BudgetExceeded => "optimization budget exceeds the job limit",
+            Self::EvalTooSmall => "evaluation scored fewer cases than the promotion policy requires",
         })
     }
 }

@@ -62,3 +62,16 @@ fn repeated_raw_label_counts_once_within_and_across_transactions() {
     assert_eq!(mapped[0][0], mapped[1][0]);
     assert_eq!(mapped[1][0], mapped[1][1]);
 }
+
+#[cfg(feature = "program-optimization")]
+#[test]
+fn an_unknown_optimizer_name_is_named_in_the_refusal() {
+    let bytes = rmp_serde::to_vec_named(&serde_json::json!({"optimizer": "gradient_magic"}))
+        .expect("encode");
+    assert_eq!(
+        super::submit::unknown_optimizer(&bytes).as_deref(),
+        Some("gradient_magic")
+    );
+    let known = rmp_serde::to_vec_named(&serde_json::json!({"optimizer": "gepa"})).expect("encode");
+    assert_eq!(super::submit::unknown_optimizer(&known), None);
+}

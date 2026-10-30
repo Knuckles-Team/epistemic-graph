@@ -3,7 +3,7 @@ use eg_modality::{
     OpaqueRef, PolicyEnvelope, PrivacyAttestation, ResourceId,
 };
 use eg_program::{
-    AdapterKind, EvaluationSummary, EvidenceBinding, ExampleOutcome, ExampleSplit, FieldRole,
+    AdapterKind, EvaluationSummary, ScoreSource, EvidenceBinding, ExampleOutcome, ExampleSplit, FieldRole,
     FieldSpec, GovernedContentRef, ModelCallRequest, ModelCallResponse, ModelFinishReason,
     ModelTier, ModelUsage, ModuleKind, NativeCompiler, OptimizationBudget, OptimizationRequest,
     OptimizerArtifact, OptimizerArtifactKind, OptimizerExecution, OptimizerKind, PlanExecutor,
@@ -125,8 +125,10 @@ fn request(optimizer: OptimizerKind) -> OptimizationRequest {
             .collect(),
         policy: policy.clone(),
     };
+    let held_out_index = ProgramModality::ALL.len();
     let examples = ProgramModality::ALL
         .into_iter()
+        .chain([ProgramModality::Text])
         .enumerate()
         .map(|(index, modality)| {
             let artifact =
@@ -138,7 +140,11 @@ fn request(optimizer: OptimizerKind) -> OptimizationRequest {
                 observed_output_ref: Some(opaque("content", &format!("observed:{index}"))),
                 feedback_ref: Some(opaque("feedback", &format!("feedback:{index}"))),
                 trace_ref: Some(opaque("trace", &format!("example-trace:{index}"))),
-                split: ExampleSplit::Train,
+                split: if index == held_out_index {
+                    ExampleSplit::Validation
+                } else {
+                    ExampleSplit::Train
+                },
                 outcome: if optimizer == OptimizerKind::Avatar && index % 2 == 1 {
                     ExampleOutcome::Failure
                 } else {
@@ -198,6 +204,8 @@ fn request(optimizer: OptimizerKind) -> OptimizationRequest {
         baseline: EvaluationSummary {
             subject_ref: program_ref,
             aggregate_score: 0.5,
+            case_count: 100,
+            score_source: ScoreSource::Verifier,
             modality_scores: ProgramModality::ALL
                 .into_iter()
                 .map(|modality| (modality, 0.5))
@@ -225,6 +233,8 @@ fn all_modalities_compile_and_require_evidence_before_promotion() {
     request.candidate_evaluations.push(EvaluationSummary {
         subject_ref: proposal.candidates[0].candidate_ref.clone(),
         aggregate_score: 0.8,
+        case_count: 100,
+        score_source: ScoreSource::Verifier,
         modality_scores: ProgramModality::ALL
             .into_iter()
             .map(|modality| (modality, 0.8))
@@ -453,6 +463,8 @@ fn promotion_identity_and_model_trace_bind_to_one_revision() {
     request.candidate_evaluations.push(EvaluationSummary {
         subject_ref: proposal.candidates[0].candidate_ref.clone(),
         aggregate_score: 0.8,
+        case_count: 100,
+        score_source: ScoreSource::Verifier,
         modality_scores: ProgramModality::ALL
             .into_iter()
             .map(|modality| (modality, 0.8))
@@ -552,4 +564,59 @@ fn promotion_identity_and_model_trace_bind_to_one_revision() {
     let mut wrong_profile = model_request.clone();
     wrong_profile.model_profile_ref = opaque("model_profile", "other-model");
     assert!(wrong_profile.validate_for_revision(&identity).is_err());
+}
+
+#[test]
+fn invalid_optimization_requests_refuse_with_their_stable_code() {
+    let mut no_heldout = request(OptimizerKind::LabeledFewShot);
+    no_heldout
+        .corpus
+        .examples
+        .retain(|example| example.split == ExampleSplit::Train);
+    let error = no_heldout.validate().expect_err("train-only corpus");
+    assert_eq!(error.code(), "PROGRAM_HELDOUT_MISSING");
+
+    let mut over_budget = request(OptimizerKind::LabeledFewShot);
+    over_budget.budget.max_candidates = usize::MAX;
+    let error = over_budget.validate().expect_err("budget over the ceiling");
+    assert_eq!(error.code(), "PROGRAM_BUDGET_EXCEEDED");
+    assert!(request(OptimizerKind::LabeledFewShot).validate().is_ok());
+}
+
+fn evaluation(score: f64, cases: u64, source: ScoreSource) -> EvaluationSummary {
+    EvaluationSummary {
+        subject_ref: opaque("candidate", "challenger"),
+        aggregate_score: score,
+        case_count: cases,
+        score_source: source,
+        modality_scores: Default::default(),
+        evidence_refs: vec![opaque("evaluation", "challenger-evidence")],
+    }
+}
+
+#[test]
+fn a_challenger_scored_on_too_few_cases_is_refused_before_the_run() {
+    let mut request = request(OptimizerKind::LabeledFewShot);
+    let mut small = evaluation(0.9, 3, ScoreSource::Verifier);
+    small.modality_scores = request.baseline.modality_scores.clone();
+    request.candidate_evaluations.push(small);
+    let error = request.validate().expect_err("too few cases");
+    assert_eq!(error.code(), "PROGRAM_EVAL_TOO_SMALL");
+}
+
+#[test]
+fn challenger_verdicts_follow_the_margin_and_the_score_source() {
+    use eg_program::ChallengerVerdict::{Loss, ModelJudgeOnly, Tie, Win};
+    let policy = PromotionPolicy::default();
+    assert_eq!(policy.min_score_delta, 0.02);
+    let verdict = |score, source| policy.judge(0.5, &evaluation(score, 100, source));
+    assert_eq!(verdict(0.53, ScoreSource::Verifier), Ok(Win));
+    assert_eq!(verdict(0.51, ScoreSource::Verifier), Ok(Tie));
+    assert_eq!(verdict(0.5, ScoreSource::Verifier), Ok(Tie));
+    assert_eq!(verdict(0.4, ScoreSource::Verifier), Ok(Loss));
+    assert_eq!(verdict(0.9, ScoreSource::ModelJudge), Ok(ModelJudgeOnly));
+    assert_eq!(
+        policy.judge(0.5, &evaluation(0.9, 3, ScoreSource::Verifier)),
+        Err(eg_program::ProgramError::EvalTooSmall)
+    );
 }

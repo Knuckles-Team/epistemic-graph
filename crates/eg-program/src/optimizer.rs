@@ -172,7 +172,7 @@ impl Default for OptimizationBudget {
 impl OptimizationBudget {
     fn validate(&self, optimizer: OptimizerKind) -> Result<(), ProgramError> {
         if !self.bounds_ok() {
-            return Err(ProgramError::ResourceLimit);
+            return Err(ProgramError::BudgetExceeded);
         }
         if !self.executor_budget_matches(optimizer)
             || (optimizer == OptimizerKind::Ensemble && self.max_candidates < 3)
@@ -216,10 +216,21 @@ impl OptimizationBudget {
     }
 }
 
+/// Default margin a challenger must beat the champion by.
+pub const DEFAULT_PROMOTION_MARGIN: f64 = 0.02;
+
+const fn default_min_case_count() -> u64 {
+    20
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PromotionPolicy {
+    /// Margin a challenger must beat the champion by (default 0.02).
     pub min_score_delta: f64,
+    /// Fewest held-out cases an evaluation must have scored.
+    #[serde(default = "default_min_case_count")]
+    pub min_case_count: u64,
     pub max_modality_regression: f64,
     pub require_all_observed_modalities: bool,
     pub min_evidence_refs: usize,
@@ -228,7 +239,8 @@ pub struct PromotionPolicy {
 impl Default for PromotionPolicy {
     fn default() -> Self {
         Self {
-            min_score_delta: 0.0,
+            min_score_delta: DEFAULT_PROMOTION_MARGIN,
+            min_case_count: default_min_case_count(),
             max_modality_regression: 0.0,
             require_all_observed_modalities: true,
             min_evidence_refs: 1,
@@ -243,6 +255,7 @@ impl PromotionPolicy {
             || self.min_score_delta < 0.0
             || self.max_modality_regression < 0.0
             || self.max_modality_regression > 1.0
+            || self.min_case_count == 0
             || self.min_evidence_refs == 0
             || self.min_evidence_refs > crate::MAX_EVIDENCE_PER_EXAMPLE
         {
@@ -259,9 +272,60 @@ impl PromotionPolicy {
 pub struct EvaluationSummary {
     pub subject_ref: OpaqueRef,
     pub aggregate_score: f64,
+    /// Held-out cases the score was measured on.
+    pub case_count: u64,
+    /// Who produced the score. A model-judge-only score never promotes
+    /// (EG-DECISION-ENGINE-R016).
+    pub score_source: ScoreSource,
     #[serde(default)]
     pub modality_scores: BTreeMap<ProgramModality, f64>,
     pub evidence_refs: Vec<OpaqueRef>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScoreSource {
+    /// An independent verifier or recorded outcome produced the score.
+    Verifier,
+    /// A language model judged the output.
+    ModelJudge,
+}
+
+/// How a challenger's held-out score compares with the champion's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChallengerVerdict {
+    /// Beats the champion by at least the policy margin.
+    Win,
+    /// Scores below the champion.
+    Loss,
+    /// Within the margin of the champion.
+    Tie,
+    /// The score is a model judgement only and cannot promote.
+    ModelJudgeOnly,
+}
+
+impl PromotionPolicy {
+    /// Compare a challenger with the champion's score on the policy margin.
+    pub fn judge(
+        &self,
+        champion_score: f64,
+        challenger: &EvaluationSummary,
+    ) -> Result<ChallengerVerdict, ProgramError> {
+        if challenger.case_count < self.min_case_count {
+            return Err(ProgramError::EvalTooSmall);
+        }
+        if challenger.score_source == ScoreSource::ModelJudge {
+            return Ok(ChallengerVerdict::ModelJudgeOnly);
+        }
+        let delta = challenger.aggregate_score - champion_score;
+        Ok(if delta + f64::EPSILON >= self.min_score_delta && delta > 0.0 {
+            ChallengerVerdict::Win
+        } else if delta < 0.0 {
+            ChallengerVerdict::Loss
+        } else {
+            ChallengerVerdict::Tie
+        })
+    }
 }
 
 impl EvaluationSummary {
@@ -393,6 +457,9 @@ impl OptimizationRequest {
         let mut subjects = BTreeSet::new();
         for evaluation in &self.candidate_evaluations {
             evaluation.validate()?;
+            if evaluation.case_count < self.promotion.min_case_count {
+                return Err(ProgramError::EvalTooSmall);
+            }
             if !subjects.insert(evaluation.subject_ref.as_str()) {
                 return Err(ProgramError::InvalidPromotion);
             }
@@ -1515,8 +1582,10 @@ fn promotable(request: &OptimizationRequest, candidate: &ProgramCandidate) -> bo
         return false;
     };
     if evaluation.evidence_refs.len() < request.promotion.min_evidence_refs
-        || evaluation.aggregate_score + f64::EPSILON
-            < request.baseline.aggregate_score + request.promotion.min_score_delta
+        || request
+            .promotion
+            .judge(request.baseline.aggregate_score, evaluation)
+            != Ok(ChallengerVerdict::Win)
     {
         return false;
     }
