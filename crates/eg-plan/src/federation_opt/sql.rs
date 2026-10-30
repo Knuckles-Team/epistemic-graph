@@ -254,6 +254,7 @@ mod tests {
         ks.iter().map(|k| k.to_string()).collect()
     }
 
+    // spec: EG-FEDERATED-QUERY-R069
     #[test]
     fn key_lookups_wrap_the_statement_and_escape_every_key() {
         let sql = render_key_lookup(
@@ -278,6 +279,7 @@ mod tests {
         assert!(hostile.ends_with("IN ('x'') OR 1=1 --')"), "{hostile}");
     }
 
+    // spec: EG-FEDERATED-QUERY-R069
     #[test]
     fn a_statement_that_swallows_the_key_predicate_is_refused() {
         for query in [
@@ -295,6 +297,7 @@ mod tests {
         );
     }
 
+    // spec: EG-FEDERATED-QUERY-R069
     #[test]
     fn the_limit_goes_into_the_statements_own_limit_clause() {
         let pg = SqlDialect::Postgres;

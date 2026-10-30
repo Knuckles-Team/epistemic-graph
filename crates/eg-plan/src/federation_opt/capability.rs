@@ -524,6 +524,7 @@ mod r038_1_tests {
         )
     }
 
+    // spec: EG-FEDERATED-QUERY-R038.1
     #[test]
     fn a_sql_like_capability_proves_every_kind_it_declares_sound() {
         let cap = sql_like_capability();
@@ -539,6 +540,7 @@ mod r038_1_tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R038.1
     #[test]
     fn a_fetch_only_capability_refuses_every_kind_but_nothing_panics() {
         let cap = ForeignSourceCapability::fetch_only(SourceCostModel::new(1, 1));
@@ -557,6 +559,7 @@ mod r038_1_tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R038.1
     #[test]
     fn a_key_only_source_proves_batched_lookup_but_not_relational_pushdown() {
         let cap = ForeignSourceCapability::new(
@@ -576,6 +579,7 @@ mod r038_1_tests {
         assert!(!cap.proves_sound(PushdownKind::SameSourceJoin));
     }
 
+    // spec: EG-FEDERATED-QUERY-R038.1
     #[test]
     fn same_source_join_is_refused_without_an_explicit_proof() {
         let cap = ForeignSourceCapability::new(
@@ -587,6 +591,7 @@ mod r038_1_tests {
         assert!(!cap.proves_sound(PushdownKind::SameSourceJoin));
     }
 
+    // spec: EG-FEDERATED-QUERY-R038.1
     #[test]
     fn cost_model_carries_the_declared_estimates_unchanged() {
         let cost = SourceCostModel::new(12_345, 99);

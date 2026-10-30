@@ -662,6 +662,8 @@ impl ObdaSqlExecutor for FederationSqlExecutor {
 mod outbound_verification_tests {
     use super::{register_table_sources, SqlObdaSource};
 
+    // spec: EG-FEDERATED-QUERY-R043
+    // spec: EG-UNIFIED-DATA-PLANE-R002.2
     #[test]
     fn a_disallowed_obda_destination_is_refused_before_registration() {
         let _allow = crate::test_support::FederationAllowGuard::blocking("");
@@ -683,6 +685,7 @@ mod outbound_verification_tests {
             .expect("an allowed OBDA destination must still connect");
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R002.2
     #[test]
     fn a_refused_source_does_not_skip_later_allowed_registration() {
         let _allow = crate::test_support::FederationAllowGuard::blocking("127.0.0.1:5432");

@@ -107,3 +107,114 @@ fn package_class_and_dependency_declared() {
         "exactly one transitive :dependsOn declaration in crates/eg-core/ontology"
     );
 }
+
+mod propagation {
+    use eg_core::ecosystem::{
+        inherit_severity, propagate_package_risk, propagate_package_risk_with, PackageFinding,
+        PackageImpact, PackageRefusal, Severity,
+    };
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    /// app -> mid -> lib -> core, plus side -> core and an unrelated leaf.
+    fn chain() -> GraphCore {
+        let graph = GraphCore::new();
+        for id in ["core", "lib", "mid", "app", "side", "leaf"] {
+            graph.add_node(id.into(), rmp_serde::to_vec_named(&json!({})).unwrap());
+        }
+        for (dependent, dependency) in [
+            ("lib", "core"),
+            ("mid", "lib"),
+            ("app", "mid"),
+            ("side", "core"),
+        ] {
+            graph
+                .add_edge(
+                    dependent.into(),
+                    dependency.into(),
+                    rmp_serde::to_vec_named(&json!({"relationship": "DEPENDS_ON"})).unwrap(),
+                )
+                .unwrap();
+        }
+        // A non-dependency edge must never carry risk.
+        graph
+            .add_edge(
+                "leaf".into(),
+                "core".into(),
+                rmp_serde::to_vec_named(&json!({"relationship": "MENTIONS"})).unwrap(),
+            )
+            .unwrap();
+        graph
+    }
+
+    fn finding() -> PackageFinding {
+        PackageFinding {
+            id: "vuln-1".into(),
+            severity: Severity::High,
+        }
+    }
+
+    // spec: EG-SUPPLY-VOCAB-R009.2
+    #[test]
+    fn finding_reaches_transitive_dependents() {
+        let impacts = propagate_package_risk(&chain(), "core", &finding()).unwrap();
+        let reached: Vec<&str> = impacts.iter().map(|i| i.package.as_str()).collect();
+        assert_eq!(reached, ["lib", "side", "mid", "app"]);
+        assert!(impacts.iter().all(|i| i.severity == Severity::High));
+        assert!(
+            !reached.contains(&"leaf"),
+            "a non-dependency edge carries no risk"
+        );
+        // The depth bound is honoured: one hop reaches only direct dependents.
+        let shallow =
+            propagate_package_risk_with(&chain(), "core", &finding(), 1, inherit_severity).unwrap();
+        assert_eq!(
+            shallow
+                .iter()
+                .map(|i| i.package.as_str())
+                .collect::<Vec<_>>(),
+            ["lib", "side"]
+        );
+        // The worst severity per dependent is kept when the rule varies by depth.
+        fn attenuate(f: &PackageFinding, depth: usize) -> Severity {
+            if depth > 1 {
+                Severity::Low
+            } else {
+                f.severity
+            }
+        }
+        let attenuated =
+            propagate_package_risk_with(&chain(), "core", &finding(), 8, attenuate).unwrap();
+        let severity_of = |name: &str| {
+            attenuated
+                .iter()
+                .find(|i| i.package == name)
+                .map(|i| i.severity)
+        };
+        assert_eq!(severity_of("lib"), Some(Severity::High));
+        assert_eq!(severity_of("app"), Some(Severity::Low));
+    }
+
+    // spec: EG-SUPPLY-VOCAB-R009.4
+    #[test]
+    fn unknown_package_is_refused() {
+        let outcome = propagate_package_risk(&chain(), "absent", &finding());
+        assert_eq!(
+            outcome,
+            Err(PackageRefusal::UnknownPackage("absent".into()))
+        );
+        // A known package nothing depends on yields an empty list, not a refusal.
+        let none = propagate_package_risk(&chain(), "app", &finding()).unwrap();
+        assert!(none.is_empty());
+    }
+
+    // spec: EG-SUPPLY-VOCAB-R009.5
+    #[test]
+    fn impact_carries_dependency_path() {
+        let impacts = propagate_package_risk(&chain(), "core", &finding()).unwrap();
+        let app: &PackageImpact = impacts.iter().find(|i| i.package == "app").unwrap();
+        assert_eq!(app.path, ["core", "lib", "mid", "app"]);
+        let side = impacts.iter().find(|i| i.package == "side").unwrap();
+        assert_eq!(side.path, ["core", "side"]);
+    }
+}

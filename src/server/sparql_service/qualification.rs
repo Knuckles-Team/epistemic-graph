@@ -128,6 +128,7 @@ fn live_service_query_returns_real_filtered_rows_from_fuseki() {
 /// since `check_endpoint` rejects on the allowlist-membership STRING check before any DNS
 /// resolution or network I/O happens, so the target need not be reachable, or even
 /// Fuseki-shaped, to prove the guard fires.
+// spec: EG-FEDERATED-QUERY-R050
 #[test]
 fn disallowed_host_is_refused_by_name_not_silently_emptied() {
     let client = ServiceClient::with_allow(vec!["allowed-elsewhere.example".to_string()]);
