@@ -402,9 +402,13 @@
     {
       "id": "EG-INGEST-WORKER-R002.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d65d223eadaa"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/ingest_rules.rs:280"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R002.5",
@@ -477,9 +481,13 @@
     {
       "id": "EG-INGEST-WORKER-R003.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d65d223eadaa"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/ingest_rules.rs:318"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R003.5",
@@ -844,9 +852,13 @@
     {
       "id": "EG-INGEST-WORKER-R701.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d65d223eadaa"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/ingest_rules.rs:200"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R701.3",
@@ -858,9 +870,13 @@
     {
       "id": "EG-INGEST-WORKER-R701.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d65d223eadaa"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/ingest_rules.rs:237"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R701.5",
@@ -1047,9 +1063,13 @@
     {
       "id": "EG-INGEST-WORKER-R900.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d65d223eadaa"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/ingest_rules.rs:32"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R900.5",
@@ -1108,9 +1128,13 @@
     {
       "id": "EG-INGEST-WORKER-R901.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d65d223eadaa"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/ingest_rules.rs:50"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R901.5",
@@ -1169,9 +1193,13 @@
     {
       "id": "EG-INGEST-WORKER-R902.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d65d223eadaa"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/ingest_rules.rs:73"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R902.5",
@@ -1230,9 +1258,13 @@
     {
       "id": "EG-INGEST-WORKER-R903.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d65d223eadaa"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/ingest_rules.rs:97"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R903.5",
@@ -1291,9 +1323,13 @@
     {
       "id": "EG-INGEST-WORKER-R904.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d65d223eadaa"
+      ],
+      "verified_by": [
+        "crates/eg-types/tests/ingest_rules.rs:141"
+      ]
     },
     {
       "id": "EG-INGEST-WORKER-R904.5",
