@@ -629,7 +629,7 @@
         "f17f47ab300f"
       ],
       "verified_by": [
-        "src/server/graph_schema/compose.rs:1015"
+        "src/server/graph_schema/compose.rs:1017"
       ]
     },
     {
@@ -1340,8 +1340,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3241ec8af9d4",
-        "598d120b4f5e",
-        "62c450561948"
+        "62c450561948",
+        "978065aeb95c"
       ],
       "verified_by": [
         "tests/test_federated_query_file_size.py:19"
@@ -1608,8 +1608,8 @@
       "title": "SPARQL evaluator is split into modules within the file-size limit",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "598d120b4f5e",
         "62c450561948",
+        "978065aeb95c",
         "fbb3b6f0ff6c"
       ],
       "verified_by": [
