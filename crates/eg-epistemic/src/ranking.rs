@@ -381,7 +381,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R130.1
     #[test]
     fn ranked_candidate_round_trips() {
         let c = cand("a", Some(0.7), "C1", 0.4);
@@ -407,7 +406,6 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R130.2
     #[test]
     fn equal_codes_order_by_item_score() {
         let input = vec![
@@ -436,7 +434,6 @@ mod tests {
         assert_eq!(ids, ["top", "x", "y", "z"]);
     }
 
-    // spec: EG-DECISION-ENGINE-R130.4
     #[test]
     fn uncalibrated_candidate_abstains() {
         let input = vec![
