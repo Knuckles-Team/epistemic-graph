@@ -2756,13 +2756,17 @@
     {
       "id": "EG-DECISION-ENGINE-R083",
       "title": "Options encode structured facts, not option-label text (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "7a89c881dad4",
+        "cbabf5a2086e",
+        "e8aaa8ae5ccd",
         "e9da9f0a77e1"
       ],
       "verified_by": [
+        "crates/eg-numeric/src/decision/rapid_r083.rs:82",
+        "crates/eg-numeric/tests/decision/features.rs:168",
         "crates/eg-numeric/tests/decision/scorer.rs:367"
       ],
       "rollup_of": [
@@ -2778,15 +2782,19 @@
         "e8aaa8ae5ccd"
       ],
       "verified_by": [
-        "crates/eg-numeric/src/decision/rapid_r083.rs:64"
+        "crates/eg-numeric/src/decision/rapid_r083.rs:82"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R083.2",
       "title": "Wire OptionFacts encoding into the real FeatureMatrix computation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cbabf5a2086e"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/features.rs:168"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R084",
