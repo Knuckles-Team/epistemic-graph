@@ -48,6 +48,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::agent_library::AgentLibraryLifecycle;
 
+pub mod capability_descriptor;
 pub mod content;
 pub mod facts;
 pub mod input_capabilities;
