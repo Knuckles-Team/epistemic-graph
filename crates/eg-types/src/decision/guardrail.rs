@@ -82,6 +82,63 @@ pub enum RulePromotionVerdict {
     },
 }
 
+/// A stored invariant a promoted rule may not contradict
+/// (EG-DECISION-ENGINE-R129.3). An invariant forbids a rule identity on a
+/// task class: a rule with that `rule_id` governing that class contradicts it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RuleInvariant {
+    pub invariant_iri: String,
+    /// The rule identity this invariant forbids.
+    pub forbidden_rule_id: String,
+    /// The task class (an IRI) on which the rule is forbidden.
+    pub on_class: String,
+}
+
+impl RuleInvariant {
+    /// Whether `rule` contradicts this invariant.
+    pub fn is_contradicted_by(&self, rule: &GuardrailRule) -> bool {
+        self.forbidden_rule_id == rule.rule_id && self.on_class == rule.applies_to_class
+    }
+}
+
+/// The pure invariant gate (EG-DECISION-ENGINE-R129.3): names the first
+/// invariant, in the given order, that `rule` contradicts. It reads no
+/// confidence or consensus input, so no level of human agreement can
+/// override it (R129.4); callers run it before any confidence threshold.
+pub fn check_rule_against_invariants(
+    rule: &GuardrailRule,
+    invariants: &[RuleInvariant],
+) -> RulePromotionVerdict {
+    match invariants.iter().find(|inv| inv.is_contradicted_by(rule)) {
+        Some(inv) => RulePromotionVerdict::RejectedInvariant {
+            invariant_iri: inv.invariant_iri.clone(),
+        },
+        None => RulePromotionVerdict::Promotable,
+    }
+}
+
+/// Promotion of a rule backed by `agreement` (fraction of agreeing human
+/// overrides in `[0, 1]`) against `threshold` (EG-DECISION-ENGINE-R129.4).
+/// The invariant check runs first; only a rule that passes it is compared
+/// with the threshold. `None` means the rule is not yet promotable on
+/// consensus grounds.
+pub fn promote_on_consensus(
+    rule: &GuardrailRule,
+    invariants: &[RuleInvariant],
+    agreement: f64,
+    threshold: f64,
+) -> Option<RulePromotionVerdict> {
+    match check_rule_against_invariants(rule, invariants) {
+        rejected @ RulePromotionVerdict::RejectedInvariant { .. } => Some(rejected),
+        RulePromotionVerdict::Promotable if agreement >= threshold => {
+            Some(RulePromotionVerdict::Promotable)
+        }
+        RulePromotionVerdict::Promotable => None,
+    }
+}
+
 /// Attribute a `GuardrailRule` component carries its governed task class in.
 pub const GUARDRAIL_APPLIES_TO_CLASS_ATTRIBUTE: &str = "applies_to_class";
 /// Attribute a `GuardrailRule` component carries its source generation in.
@@ -328,5 +385,67 @@ mod tests {
         let first = entailed_guardrails("eg:task/research", &rules);
         let second = entailed_guardrails("eg:task/research", &rules);
         assert_eq!(first, second, "premises stay stable across a restart");
+    }
+
+    fn invariant(iri: &str, rule_id: &str, class: &str) -> RuleInvariant {
+        RuleInvariant {
+            invariant_iri: iri.into(),
+            forbidden_rule_id: rule_id.into(),
+            on_class: class.into(),
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R129.3
+    #[test]
+    fn first_contradicted_invariant_is_named() {
+        let r = rule("eg:rule/skip-review", "eg:task/Deploy");
+        let invariants = [
+            invariant("eg:invariant/unrelated", "eg:rule/other", "eg:task/Deploy"),
+            invariant("eg:invariant/first", "eg:rule/skip-review", "eg:task/Deploy"),
+            invariant("eg:invariant/second", "eg:rule/skip-review", "eg:task/Deploy"),
+        ];
+        assert_eq!(
+            check_rule_against_invariants(&r, &invariants),
+            RulePromotionVerdict::RejectedInvariant {
+                invariant_iri: "eg:invariant/first".into()
+            }
+        );
+        let other_class = rule("eg:rule/skip-review", "eg:task/Read");
+        assert_eq!(
+            check_rule_against_invariants(&other_class, &invariants),
+            RulePromotionVerdict::Promotable
+        );
+        assert_eq!(
+            check_rule_against_invariants(&r, &[]),
+            RulePromotionVerdict::Promotable
+        );
+    }
+
+    // spec: EG-DECISION-ENGINE-R129.4
+    #[test]
+    fn full_consensus_does_not_override() {
+        let r = rule("eg:rule/skip-review", "eg:task/Deploy");
+        let invariants = [invariant(
+            "eg:invariant/review-required",
+            "eg:rule/skip-review",
+            "eg:task/Deploy",
+        )];
+        assert_eq!(
+            promote_on_consensus(&r, &invariants, 1.0, 0.8),
+            Some(RulePromotionVerdict::RejectedInvariant {
+                invariant_iri: "eg:invariant/review-required".into()
+            })
+        );
+        // Rejected even when the threshold would never be met.
+        assert!(matches!(
+            promote_on_consensus(&r, &invariants, 0.0, 0.8),
+            Some(RulePromotionVerdict::RejectedInvariant { .. })
+        ));
+        let ok = rule("eg:rule/add-check", "eg:task/Deploy");
+        assert_eq!(
+            promote_on_consensus(&ok, &invariants, 1.0, 0.8),
+            Some(RulePromotionVerdict::Promotable)
+        );
+        assert_eq!(promote_on_consensus(&ok, &invariants, 0.5, 0.8), None);
     }
 }
