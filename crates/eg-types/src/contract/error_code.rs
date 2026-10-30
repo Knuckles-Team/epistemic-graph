@@ -72,6 +72,9 @@ pub fn declared_error_code(code: &str) -> bool {
         crate::connector_pack::result::PackWriteErrorCode::ALL
             .iter()
             .any(|item| item.as_str() == code),
+        super::ProgramErrorCode::ALL
+            .iter()
+            .any(|item| item.as_str() == code),
         crate::solve::SolveErrorCode::ALL
             .iter()
             .any(|item| item.as_str() == code),

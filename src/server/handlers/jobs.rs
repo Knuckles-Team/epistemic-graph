@@ -85,6 +85,8 @@ mod executor_program;
 mod graph_tests;
 mod helpers;
 mod native_validation;
+#[cfg(all(test, feature = "program-optimization"))]
+mod program_submit_tests;
 mod prelude_jobs;
 mod prelude_server;
 mod prelude_std;

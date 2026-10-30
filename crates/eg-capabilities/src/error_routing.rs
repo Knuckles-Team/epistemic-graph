@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 use eg_types::connector_pack::result::PackWriteErrorCode;
-use eg_types::contract::{EngineErrorCode, ServerErrorCode, UqlCode};
+use eg_types::contract::{EngineErrorCode, ProgramErrorCode, ServerErrorCode, UqlCode};
 use eg_types::decision::harness_contrast::HarnessContrastErrorCode;
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::DecisionErrorCode;
@@ -366,6 +366,12 @@ fn add_typed_handler_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static 
         codes.extend(typed_codes(
             PackWriteErrorCode::ALL,
             PackWriteErrorCode::as_str,
+        ));
+    }
+    if id == "AnalyticsJob" {
+        codes.extend(typed_codes(
+            ProgramErrorCode::ALL,
+            ProgramErrorCode::as_str,
         ));
     }
     if id == "Solve" {

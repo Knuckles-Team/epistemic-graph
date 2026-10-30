@@ -9,6 +9,7 @@ mod collections;
 mod crypto;
 mod engine_error_code;
 mod error_code;
+mod program_error_code;
 mod identifiers;
 mod server_error_code;
 mod uql_error_code;
@@ -26,6 +27,7 @@ pub use identifiers::{
     PolicyRevision, ProtocolId, PurposeKind, ReplayStatus, RequestedMutationResult, ResourceId,
     SchemaId, ScopeKind, TenantId, UtcUnixNanos, VerificationStatus,
 };
+pub use program_error_code::ProgramErrorCode;
 pub use server_error_code::ServerErrorCode;
 pub use uql_error_code::UqlCode;
 

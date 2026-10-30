@@ -405,26 +405,28 @@ pub enum ProgramError {
 
 impl ProgramError {
     /// The stable refusal code (EG-DECISION-ENGINE-R810.4, R812.4).
-    pub const fn code(self) -> &'static str {
+    pub fn code(self) -> &'static str {
+        use eg_types::contract::ProgramErrorCode as Code;
         match self {
-            Self::HeldoutMissing => "PROGRAM_HELDOUT_MISSING",
-            Self::BudgetExceeded => "PROGRAM_BUDGET_EXCEEDED",
-            Self::EvalTooSmall => "PROGRAM_EVAL_TOO_SMALL",
-            Self::UnsupportedVersion => "PROGRAM_UNSUPPORTED_VERSION",
-            Self::InvalidProgram => "PROGRAM_INVALID",
-            Self::InvalidSignature => "PROGRAM_INVALID_SIGNATURE",
-            Self::InvalidExample => "PROGRAM_INVALID_EXAMPLE",
-            Self::PolicyMismatch => "PROGRAM_POLICY_MISMATCH",
-            Self::PrivacyAttestation => "PROGRAM_PRIVACY_ATTESTATION",
-            Self::ModalityMismatch => "PROGRAM_MODALITY_MISMATCH",
-            Self::ResourceLimit => "PROGRAM_RESOURCE_LIMIT",
-            Self::InvalidArtifact => "PROGRAM_INVALID_ARTIFACT",
-            Self::InvalidPlan => "PROGRAM_INVALID_PLAN",
-            Self::NoEligibleExamples => "PROGRAM_NO_ELIGIBLE_EXAMPLES",
-            Self::Cancelled => "PROGRAM_CANCELLED",
-            Self::InvalidPromotion => "PROGRAM_INVALID_PROMOTION",
-            Self::InvalidCommit => "PROGRAM_INVALID_COMMIT",
+            Self::HeldoutMissing => Code::HeldoutMissing,
+            Self::BudgetExceeded => Code::BudgetExceeded,
+            Self::EvalTooSmall => Code::EvalTooSmall,
+            Self::UnsupportedVersion => Code::UnsupportedVersion,
+            Self::InvalidProgram
+            | Self::InvalidSignature
+            | Self::InvalidExample
+            | Self::InvalidArtifact
+            | Self::InvalidPlan
+            | Self::InvalidPromotion
+            | Self::InvalidCommit => Code::Invalid,
+            Self::PolicyMismatch | Self::PrivacyAttestation | Self::ModalityMismatch => {
+                Code::PolicyMismatch
+            }
+            Self::ResourceLimit => Code::ResourceLimit,
+            Self::NoEligibleExamples => Code::NoEligibleExamples,
+            Self::Cancelled => Code::Cancelled,
         }
+        .as_str()
     }
 }
 

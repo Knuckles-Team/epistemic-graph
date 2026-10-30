@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use eg_types::connector_pack::result::PackWriteErrorCode;
-use eg_types::contract::{EngineErrorCode, ServerErrorCode, UqlCode};
+use eg_types::contract::{EngineErrorCode, ProgramErrorCode, ServerErrorCode, UqlCode};
 use eg_types::decision::harness_contrast::HarnessContrastErrorCode;
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::DecisionErrorCode;
@@ -15,7 +15,7 @@ use eg_types::solve::SolveErrorCode;
 pub(super) use crate::error_routing::method_error_set;
 use crate::error_routing::typed_codes;
 
-fn families() -> [(&'static str, Vec<&'static str>); 10] {
+fn families() -> [(&'static str, Vec<&'static str>); 11] {
     [
         (
             "engine",
@@ -51,6 +51,10 @@ fn families() -> [(&'static str, Vec<&'static str>); 10] {
         (
             "connector",
             typed_codes(PackWriteErrorCode::ALL, PackWriteErrorCode::as_str),
+        ),
+        (
+            "program",
+            typed_codes(ProgramErrorCode::ALL, ProgramErrorCode::as_str),
         ),
         (
             "solve",
@@ -106,6 +110,7 @@ const FAMILY_CLASSES: &[(&str, &str)] = &[
     ("decision", "decision"),
     ("schema", "schema"),
     ("connector", "connector"),
+    ("program", "validation"),
     ("solve", "solve"),
     ("server", "server"),
 ];

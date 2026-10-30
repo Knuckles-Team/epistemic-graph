@@ -13,6 +13,8 @@ pub mod optimize;
 mod optimizer;
 mod plan;
 mod transport;
+#[cfg(feature = "test-support")]
+pub mod testing;
 
 pub use commit::*;
 pub use contracts::*;
