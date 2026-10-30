@@ -4472,7 +4472,9 @@
       "id": "EG-DECISION-ENGINE-R134",
       "title": "The engine selects tools, decomposes tasks and plans over the skill library (rollup)",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "2e1d91e99882"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-DECISION-ENGINE-R134.1",
