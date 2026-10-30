@@ -41,7 +41,10 @@ impl Method {
     /// Whether a caller may name this method at all. Engine-internal methods
     /// are dispatched only by the engine itself.
     pub fn is_wire_callable(&self) -> bool {
-        !matches!(self, Self::PolicyEvolutionStore { .. })
+        !matches!(
+            self,
+            Self::PolicyEvolutionStore { .. } | Self::MediaIndexPut { .. }
+        )
     }
 
     /// Why a carrier must refuse this method as an inner operation, if it must.

@@ -196,3 +196,89 @@ async fn evidence_reads_back_through_a_separate_recall() {
     .await;
     assert_eq!(bad.error.as_deref(), Some("INVALID_ARGUMENT"));
 }
+
+fn index_put(blob_id: &str) -> Method {
+    Method::MediaIndexPut {
+        blob_id: blob_id.into(),
+        mime: "image/png".into(),
+        size: PNG.len() as u64,
+        source_message: "msg-r".into(),
+        citing_memory: "mem-r".into(),
+        derivations: vec![MediaDerivation {
+            derivation_id: "tr-r".into(),
+            text: "replicated caption".into(),
+        }],
+    }
+}
+
+/// A caller can never name the engine-internal `MediaIndexPut`: the public
+/// boundary refuses it exactly as it refuses `PolicyEvolutionStore`, and
+/// nothing is written.
+// spec: EG-MEDIA-VOCAB-R650.3
+#[tokio::test]
+async fn public_boundary_refuses_the_internal_index_put() {
+    let state = durable_state();
+    let blob_id = sha256_hex(PNG);
+    let refused = send(&state, 40, index_put(&blob_id)).await;
+    assert_eq!(refused.error.as_deref(), Some("ENGINE_INTERNAL_METHOD"));
+    let rows: Vec<MediaRecall> = body(&send(&state, 41, recall_digest(&blob_id)).await);
+    assert!(rows.is_empty(), "a refused internal write must not land");
+}
+
+/// Applying the replicated native KeyValue command (as a follower does after
+/// the log commits) writes the tenant-namespaced index row, and a served
+/// recall in that tenant finds it.
+// spec: EG-MEDIA-VOCAB-R650.3
+#[cfg(feature = "raft")]
+#[tokio::test]
+async fn replicated_index_command_applies_and_recall_finds_it() {
+    use crate::raft::{NativeMutationCommand, RaftMutationContext, RaftMutationTiming};
+    let state = durable_state();
+    let context = crate::server::auth::VerifiedRequestContext::from_verified_claims(
+        test_claims("system"),
+        "media-replica".to_string(),
+    );
+    let carrier = crate::server::access::CarrierAuthority::from_verified(&context).unwrap();
+    let now = crate::server::dispatch::authoritative_now_ms();
+    let mutation = RaftMutationContext::from_verified_request(
+        "synthetic-replicated-media-index".to_string(),
+        50,
+        context.attempt_nonce(),
+        carrier.tenant_scope(),
+        carrier.actor_scope().to_string(),
+        false,
+        RaftMutationTiming {
+            placement_epoch: 0,
+            fencing_token: None,
+            created_at_ms: now,
+        },
+    )
+    .unwrap();
+    let blob_id = sha256_hex(PNG);
+    let command = NativeMutationCommand::from_public_method(index_put(&blob_id), SECRET).unwrap();
+    let wire = rmp_serde::to_vec_named(&command).unwrap();
+    let decoded: NativeMutationCommand = rmp_serde::from_slice(&wire).unwrap();
+    let method = decoded.open_public_method(SECRET).unwrap().unwrap();
+    let applied = crate::server::dispatch::apply_replicated_native(
+        &state,
+        "__commons__".to_string(),
+        50,
+        now,
+        &mutation,
+        method,
+    )
+    .await;
+    assert!(applied.error.is_none(), "{:?}", applied.error);
+
+    let rows: Vec<MediaRecall> = body(&send(&state, 51, recall_text("REPLICATED")).await);
+    assert_eq!(
+        rows,
+        vec![MediaRecall {
+            blob_id,
+            mime: "image/png".into(),
+            size: PNG.len() as u64,
+            derivation_ids: vec!["tr-r".into()],
+            citing_memory: "mem-r".into(),
+        }]
+    );
+}
