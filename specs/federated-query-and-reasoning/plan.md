@@ -708,12 +708,6 @@ The source-backed contracts and precise holds for the mapped FQR rows are in the
 
 The following rows either state a closed contract at an existing owner path or name the exact missing owner decision. A hold is an unresolved requirement, not implementation or evidence. Parent obligations and original source hashes remain in `requirements.md`.
 
-### `EG-FEDERATED-QUERY-R070.1`
-
-**Open definition — governed raw-corpus producer is not defined.** R070.1 requires exact lexical search, file reads, context verification, per-query cost and abstention before budget overrun. While R070 only bounds indexed UQL rows/visits and Arbora retrieval returns a top-K boundary. Do not route this requirement through the indexed retriever or claim that its budget is a raw-source cost. The missing owner contract must identify the authorized raw-source provider and immutable source/snapshot identity. Exact search/read/verification operations and byte/line coordinate system. Finite scan/read/verification cost units and ceilings. The typed over-budget refusal. And the producer-to-Medulla request/response fields consumed by GovernedRetriever/Meristem. Until those decisions exist, this row defines no callable producer and remains held.
-
-Preserve `EG-FEDERATED-QUERY-R070; ARBORA-OPS-R053.2, ARBORA-OPS-R053.3, ARBORA-OPS-R053.5`. Source record `AU:71` SHA-256 `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
-
 ### `EG-FEDERATED-QUERY-R006.1`
 
 **Open definition — temporal derivation producer and semantics are absent.** R006 continues to require proof-carrying results for rule-derived queries. The source asks for temporal forward chaining over extracted facts. Each derived fact must retain provenance to its originating sentence or axiom. But the owner review found only answer-level proofs and no persistent fact-production API/origin chain. Before specifying a producer, the owner must decide rule language/version, temporal interval vocabulary, join/overlap semantics and conflict handling. The owner must also define derived-fact identity/update/retraction behavior and the persistent origin-record schema. The owner must also name the authoritative admission/readback operation. Do not treat query proof premises as a durable fact producer. No derivation or write is authorized by this row.
@@ -725,12 +719,6 @@ Preserve `EG-FEDERATED-QUERY-R001, EG-FEDERATED-QUERY-R011, EG-DECISION-ENGINE-R
 The low-storage ANN definition patch below replaces the earlier generic hold. This plan makes no implementation or evidence claim. The patch keeps the source record and the existing obligations. It binds the work to the current semantic-index, embedding-identity, and query authorities.
 
 Preserve `EG-FEDERATED-QUERY-R007, EG-FEDERATED-QUERY-R040, EG-FEDERATED-QUERY-R040.4, EG-FEDERATED-QUERY-R008`. Source record `EG:20` SHA-256 `07df52b453f0f1b7be7aec7bf790f087c3fc5e13500915011382a9fcd8d9d41a`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
-
-### `EG-FEDERATED-QUERY-R040.6`
-
-**Open definition — episode/layer producer and consumer policy are absent.** Existing SourceIngest validates/projects transcript records and UnifiedQuery supports filtered search. Neither defines semantic/procedural/episodic layer identity or builds graph episodes across sessions. The owner must decide session/episode identity and boundaries and participant/turn ordering. Define utterance assignment among semantic, procedural and episodic memory. The owner must define cross-session merge/duplicate rules and temporal validation/conflict behavior. Name the Meristem operation that consumes/retrieves episodes. Keep the existing transcript and search contracts intact. Do not infer episode construction from transcript projection or introduce an unapproved Meristem consumer.
-
-Preserve `EG-INGEST-WORKER-R003.13, R003.14, R003.17, EG-FEDERATED-QUERY-R040, EG-INGEST-WORKER-R003.18, R003.16, EG-FEDERATED-QUERY-R016`. Source record `EG:21` SHA-256 `c321db3aa79c29d891456f2bee98f545611b8d1be7c93d299b939c3d73a40279`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
 ### `EG-FEDERATED-QUERY-R081.10`
 
