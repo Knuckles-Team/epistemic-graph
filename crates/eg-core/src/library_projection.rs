@@ -36,14 +36,20 @@ pub enum ProjectionOp {
     RemoveNode { id: String },
 }
 
-/// The graph id of a library.
-pub fn library_id(tenant: &str) -> String {
-    format!("agent-library:{tenant}")
+/// The component attribute that opts a component into the shared commons
+/// graph. `__commons__` holds tenant-free facts, so a component without
+/// `visibility = commons` is tenant-private and never projected.
+pub const VISIBILITY_ATTRIBUTE: &str = "visibility";
+pub const COMMONS_VISIBILITY: &str = "commons";
+
+/// The graph id of the shared library.
+pub fn library_id() -> String {
+    "agent-library".to_string()
 }
 
-/// The graph id of a component in a tenant's library.
-pub fn member_id(tenant: &str, component_id: &str) -> String {
-    format!("agent-library:{tenant}:{component_id}")
+/// The graph id of a commons-visible component.
+pub fn member_id(component_id: &str) -> String {
+    format!("agent-library:{component_id}")
 }
 
 fn node(id: String, node_type: &str, props: Value, stub: bool) -> ProjectionOp {
@@ -88,8 +94,10 @@ fn member_class(entry: &eg_types::agent_component::AgentComponentEntry) -> Optio
 /// The operations one committed component revision projects to.
 pub fn project_component(event: &AgentComponentOutboxEvent) -> Vec<ProjectionOp> {
     let entry = &event.component;
-    let tenant = entry.tenant_id.as_str();
-    let member = member_id(tenant, &entry.component_id);
+    let member = member_id(&entry.component_id);
+    if entry.attributes.get(VISIBILITY_ATTRIBUTE).map(String::as_str) != Some(COMMONS_VISIBILITY) {
+        return Vec::new();
+    }
     let Some(class) = member_class(entry) else {
         return Vec::new();
     };
@@ -98,7 +106,6 @@ pub fn project_component(event: &AgentComponentOutboxEvent) -> Vec<ProjectionOp>
     }
     let mut props = json!({
         "component_id": entry.component_id,
-        "tenant_id": tenant,
         "component_kind": entry.kind.as_str(),
         "version": entry.version,
         "definition_digest": entry.definition_digest,
@@ -118,9 +125,9 @@ pub fn project_component(event: &AgentComponentOutboxEvent) -> Vec<ProjectionOp>
         }
     }
     let mut ops = vec![node(member.clone(), class, props, false)];
-    let library = library_id(tenant);
+    let library = library_id();
     if class != "BestPractice" && class != "ModelProfile" {
-        ops.push(node(library.clone(), "AgentLibrary", json!({ "tenant_id": tenant }), true));
+        ops.push(node(library.clone(), "AgentLibrary", json!({}), true));
         ops.push(edge(&member, &library, "memberOfLibrary", json!({})));
     }
     if let Some(kind) = entry.attributes.get("agent_kind") {
@@ -129,7 +136,7 @@ pub fn project_component(event: &AgentComponentOutboxEvent) -> Vec<ProjectionOp>
         ops.push(edge(&member, &kind_id, "hasAgentKind", json!({})));
     }
     if let Some(template) = entry.attributes.get("instance_of_template") {
-        let template_id = member_id(tenant, template);
+        let template_id = member_id(template);
         ops.push(node(template_id.clone(), "AgentTemplate", json!({ "component_id": template }), true));
         ops.push(edge(&member, &template_id, "instanceOfTemplate", json!({})));
     }

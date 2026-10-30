@@ -34,6 +34,7 @@ fn entry(
         attributes: attributes
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
+            .chain([("visibility".to_string(), "commons".to_string())])
             .collect::<BTreeMap<_, _>>(),
         tenant_id: "t1".into(),
         actor_scope: "a".into(),
@@ -86,11 +87,11 @@ fn a2a_card_component_projects_as_library_member_with_claim_capabilities() {
         &["eg:capability/retrieval"],
     );
     let ops = project_component(&event(card));
-    let member = member_id("t1", "card-1");
+    let member = member_id("card-1");
     assert_eq!(node_type(&ops, &member).as_deref(), Some("A2AAgentCard"));
-    assert!(has_edge(&ops, &member, "agent-library:t1", "memberOfLibrary"));
+    assert!(has_edge(&ops, &member, "agent-library", "memberOfLibrary"));
     assert!(has_edge(&ops, &member, "agentKind:verifier", "hasAgentKind"));
-    assert!(has_edge(&ops, &member, &member_id("t1", "tpl-1"), "instanceOfTemplate"));
+    assert!(has_edge(&ops, &member, &member_id("tpl-1"), "instanceOfTemplate"));
     let claim = ops.iter().any(|op| {
         matches!(op, ProjectionOp::Edge { relationship, target, props, .. }
             if relationship == "providesCapability"
@@ -111,7 +112,7 @@ fn guardrail_rule_component_projects_applies_to_task_class() {
         &[],
     );
     let ops = project_component(&event(rule));
-    let member = member_id("t1", "rule-1");
+    let member = member_id("rule-1");
     assert_eq!(node_type(&ops, &member).as_deref(), Some("BestPractice"));
     assert!(has_edge(&ops, &member, "eg:task/research", "appliesToTaskClass"));
     let provenance = ops.iter().any(|op| {
@@ -147,7 +148,7 @@ fn model_profile_component_projects_with_context_window() {
         &[],
     );
     let ops = project_component(&event(model));
-    let member = member_id("t1", "model-1");
+    let member = member_id("model-1");
     assert_eq!(node_type(&ops, &member).as_deref(), Some("ModelProfile"));
     assert!(ops.iter().any(|op| matches!(op, ProjectionOp::Node { id, props, .. }
         if *id == member && props.get("contextWindow").and_then(|v| v.as_u64()) == Some(128_000))));
@@ -161,8 +162,17 @@ fn retired_member_is_removed_and_other_kinds_project_nothing() {
     retire.kind = AgentComponentMutationKind::Retire;
     assert_eq!(
         project_component(&retire),
-        vec![ProjectionOp::RemoveNode { id: member_id("t1", "card-2") }]
+        vec![ProjectionOp::RemoveNode { id: member_id("card-2") }]
     );
     let tool = entry("tool-1", AgentComponentKind::Skill, AgentComponentFacts::Opaque, &[], &[]);
     assert!(project_component(&event(tool)).is_empty());
+}
+
+#[test]
+fn tenant_private_components_are_not_projected_to_commons() {
+    let mut card = entry("card-private", AgentComponentKind::A2aAgentCard, AgentComponentFacts::Opaque, &[], &["eg:capability/retrieval"]);
+    card.attributes.remove("visibility");
+    assert!(project_component(&event(card.clone())).is_empty());
+    card.attributes.insert("visibility".into(), "tenant".into());
+    assert!(project_component(&event(card)).is_empty());
 }

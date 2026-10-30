@@ -270,10 +270,10 @@ mod tests {
         )
         .await;
         assert!(seeded.error.is_none(), "{:?}", seeded.error);
-        let member = "agent-library:t1:card-1".to_string();
+        let member = "agent-library:card-1".to_string();
         let ops = vec![
             ProjectionOp::Node {
-                id: "agent-library:t1".into(),
+                id: "agent-library".into(),
                 node_type: "AgentLibrary".into(),
                 props: serde_json::Map::new(),
                 stub: true,
@@ -286,7 +286,7 @@ mod tests {
             },
             ProjectionOp::Edge {
                 source: member.clone(),
-                target: "agent-library:t1".into(),
+                target: "agent-library".into(),
                 relationship: "memberOfLibrary".into(),
                 props: serde_json::Map::new(),
             },
@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(
             edges
                 .iter()
-                .filter(|(s, t, _)| s == &member && t == "agent-library:t1")
+                .filter(|(s, t, _)| s == &member && t == "agent-library")
                 .count(),
             1
         );
