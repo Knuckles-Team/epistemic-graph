@@ -2253,9 +2253,8 @@
         "394f82a01e83"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/python/tests.rs:818",
-        "tests/test_generated_models.py:139",
-        "tests/test_generated_models.py:176"
+        "tests/test_generated_models.py:140",
+        "tests/test_generated_models.py:177"
       ]
     },
     {
@@ -2591,7 +2590,7 @@
         "bad0283526ba"
       ],
       "verified_by": [
-        "tests/test_decision_client.py:152"
+        "tests/test_decision_client.py:103"
       ]
     },
     {
@@ -2610,7 +2609,7 @@
     {
       "id": "EG-DECISION-ENGINE-R078",
       "title": "Contract freeze reissued with the decide feature (rollup)",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1527a97f2118",
         "1e9ea1ef3790",
@@ -2618,10 +2617,7 @@
         "45beac8d810b",
         "e8aaa8ae5ccd"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:637",
-        "crates/eg-capabilities/src/contract.rs:667"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "EG-DECISION-ENGINE-R078.1",
         "EG-DECISION-ENGINE-R078.2"
@@ -2630,28 +2626,23 @@
     {
       "id": "EG-DECISION-ENGINE-R078.1",
       "title": "Typed refusal for a feature-profile freeze omitting an enabled feature",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1527a97f2118",
         "1f2d473cf663"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:637",
-        "crates/eg-capabilities/src/contract.rs:667"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R078.2",
       "title": "Reissue the committed contract freeze artifacts with the decide feature",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1527a97f2118",
         "45beac8d810b",
         "e8aaa8ae5ccd"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:667"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R079",
@@ -2777,8 +2768,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
+        "4d13af223471",
         "7a89c881dad4",
-        "c83766263728",
         "e8aaa8ae5ccd",
         "e9da9f0a77e1"
       ],
@@ -2808,7 +2799,7 @@
       "title": "Wire OptionFacts encoding into the real FeatureMatrix computation",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "c83766263728"
+        "4d13af223471"
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/features.rs:168"
@@ -3572,16 +3563,12 @@
     {
       "id": "EG-DECISION-ENGINE-R116.1",
       "title": "A typed gate admits only the published client-contract call path",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "253a69935dfd",
         "26b04e133dfd"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/contract/access_path.rs:45",
-        "crates/eg-capabilities/src/contract/access_path.rs:54",
-        "crates/eg-capabilities/src/contract/access_path.rs:64"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R116.2",
@@ -4171,13 +4158,11 @@
     {
       "id": "EG-DECISION-ENGINE-R128.14",
       "title": "The generated contract and clients carry the kind",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "c7da75413a3c"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_generated.rs:44"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R128.15",
@@ -8011,8 +7996,8 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5ad449c36e7f",
-        "be7403075c23"
+        "21fd1d37d050",
+        "8ed606380a82"
       ],
       "verified_by": [
         "crates/eg-enrich/src/semantic.rs:146",
@@ -8074,9 +8059,9 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5ad449c36e7f",
-        "6d3c4c2fb046",
-        "be7403075c23"
+        "21fd1d37d050",
+        "78399dc70ab1",
+        "8ed606380a82"
       ],
       "verified_by": [
         "crates/eg-numeric/src/decision/writeback.rs:262",
@@ -8138,8 +8123,8 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4ef100345f8c",
-        "be7403075c23"
+        "21fd1d37d050",
+        "70433cf2137e"
       ],
       "verified_by": [
         "crates/eg-types/src/memory.rs:307",
@@ -8414,9 +8399,9 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4ef100345f8c",
-        "6d3c4c2fb046",
-        "be7403075c23"
+        "21fd1d37d050",
+        "70433cf2137e",
+        "78399dc70ab1"
       ],
       "verified_by": [
         "crates/eg-types/src/agent_component/capability_descriptor.rs:257",
