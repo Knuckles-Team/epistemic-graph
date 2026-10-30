@@ -270,13 +270,9 @@ The following are proving targets, not execution receipts. Runtime delivery requ
 
 All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
 
-- **`EG-FEDERATED-QUERY-R070.1` / AU:71. Source `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`:** Definition acceptance is blocked until the owner publishes the producer fields above. Serve an authorized query over an unindexed corpus. Return exact lexical hits, bounded file spans, verification result, source revision and measured cost. An over-ceiling query must return typed abstention before reading beyond the ceiling. Repeat against an indexed-only fixture and prove it is not accepted as this contract. Do not claim a served test or implementation now.
-
 - **`EG-FEDERATED-QUERY-R006.1` / EG:11. Source `2c2ffcf18d947730bc60a935fed942e1f82e9e8547f4509fe2941a34672fb8f3`:** After owner decisions are recorded, acceptance uses two source facts with sentence and axiom origins. It exercises matching and nonmatching temporal intervals. Read back the derived fact with rule digest, graph generation and complete origin refs. Missing/stale origins, unsupported rule versions, conflicting validity windows and unauthorized writes must refuse without changing graph revision. Until then no producer test is specified as executable.
 
 - **`EG-FEDERATED-QUERY-R040.5` / EG:20. Source `07df52b453f0f1b7be7aec7bf790f087c3fc5e13500915011382a9fcd8d9d41a`:** Blocked until the owner binds admission, relation, retention and benchmark semantics. The benchmark compares fixed query-selectivity workloads at multiple corpus sizes. It reports rows/bytes/visits and demonstrates the declared cost bound. Read back new knowledge; prove prior records and model revision remain unchanged. Missing admission authority, relation target or bound refuses. No runnable acceptance is asserted before the missing policy is supplied.
-
-- **`EG-FEDERATED-QUERY-R040.6` / EG:21. Source `c321db3aa79c29d891456f2bee98f545611b8d1be7c93d299b939c3d73a40279`:** After the owner fixes those decisions, acceptance ingests two ordered sessions. It builds and independently reads back an episode with transcript/revision/span provenance. It searches for the episode using hybrid vector+keyword search. Validate event time against storage time. Refuse or report partial for duplicate/conflicting chronology, stale transcript revision or unauthorized cross-session reference. Apply the owner-approved rule. No executable test exists until taxonomy and consumer are fixed.
 
 - **`EG-FEDERATED-QUERY-R083.7` / EG:22:** Extend existing R083 behavior/model/refusal acceptance with the support-margin inputs and invariant that unsupported candidates lose. Add a served counterexample with a higher-confidence unsupported candidate and an evidence-supported lower-confidence candidate. Retain current two-candidate, class, abstention and evidence obligations. Producer/consumer path: Planned AU-RETRIEVAL-R006 prior probe -> served cross-modal query -> eg_plan::execute -> arbitrate -> ArbitrationVerdict -> harness. R083.3/.6 identify the producer path. This audit does not claim it is implemented. Source review `544b7b0054e8c7cd9a76aedd0d665589d555a0bcf20d1f00679442574936af36`. Exercise the served Medulla producer and named consumer where that owner contract exists. Assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
 
@@ -326,7 +322,6 @@ No case listed here has run.
 
 - **`EG-FEDERATED-QUERY-R081.100` / EG:41. Source `bceeed106b5db2933cf5161d58b4203fc7afe9d714503a31d68323992906c23b`:** Compare served retrieval on a tiny fixture with an independent exhaustive nonnegative-sparse oracle. Include two highly correlated documents and an alternative diverse pair. Assert exact selection, coefficients, residual and deterministic order. Refuse embedding-space mismatch, invalid policy and non-convergence. Verify existing tenant and result-count filters still apply. Producer/consumer: Medulla retrieval selection owns the joint objective and set result. The existing served UnifiedQuery/retrieval path consumes it. Preserve R081.1-.9 selection and tenant bounds. No new caller-controlled score authority. Parent `R081` remains intact.
 <!-- /spec-definition-patch -->
-
 
 <!-- spec-definition-patch:owner-dispatch-20261012-tests -->
 ## Planned served acceptance — viewport query
@@ -421,7 +416,6 @@ Hot-path proof for `EG-FEDERATED-QUERY-R090`: `tests/discover_planning_served.rs
 | Evidence | `EG-FEDERATED-QUERY-R091.5` | `crates/eg-plan/src/federation_opt/plan_evolution.rs::tests::receipt_names_measurements`: A served read finds the receipt linked to the shape. |
 
 | Hot-path proof | `EG-FEDERATED-QUERY-R091.6` | `tests/federation/test_plan_evolution_served.py::test_kept_plan_measurably_faster_and_mismatch_reverts`: The kept plan improves p50 by 10% or more, the unequal candidate reverts, and the overhead meets the budget. |
-
 
 Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolution_served.py::test_kept_plan_measurably_faster_and_mismatch_reverts`.
 
