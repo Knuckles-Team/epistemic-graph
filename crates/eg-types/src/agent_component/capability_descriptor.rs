@@ -229,8 +229,7 @@ mod tests {
     use super::*;
 
     /// A valid `sha256:<64 lowercase hex>` digest.
-    const DIGEST: &str =
-        "sha256:abababababababababababababababababababababababababababababababab";
+    const DIGEST: &str = "sha256:abababababababababababababababababababababababababababababababab";
 
     fn descriptor() -> CapabilityDescriptor {
         CapabilityDescriptor {
