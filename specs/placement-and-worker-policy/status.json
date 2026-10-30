@@ -32,7 +32,6 @@
     "EG-PLACEMENT-R002.10",
     "EG-PLACEMENT-R002.11",
     "EG-PLACEMENT-R002.12",
-    "EG-PLACEMENT-R002.13",
     "EG-PLACEMENT-R002.14",
     "EG-PLACEMENT-R002.15",
     "EG-PLACEMENT-R003",
@@ -241,7 +240,6 @@
         "EG-PLACEMENT-R002.10",
         "EG-PLACEMENT-R002.11",
         "EG-PLACEMENT-R002.12",
-        "EG-PLACEMENT-R002.13",
         "EG-PLACEMENT-R002.14",
         "EG-PLACEMENT-R002.15",
         "EG-PLACEMENT-R002.600"
@@ -342,13 +340,6 @@
     {
       "id": "EG-PLACEMENT-R002.12",
       "title": "Reword `EG-INGEST-WORKER-R001.15`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-PLACEMENT-R002.13",
-      "title": "Cross-repo (connector Graft SDK repository): no policy constants in the worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
