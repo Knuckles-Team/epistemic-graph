@@ -1006,7 +1006,9 @@ ex:parent a owl:AsymmetricProperty .
             // +22: the C2 train's connector-pack surface, media lane B, secret-metadata and
             // CQ-CONN chunk 5 classes.
             // +26: the #964 class placements (media +24, commercial +1, supply-chain +1).
-            724
+            // +7: the connector-competency class placements (archimate, documentation,
+            // infrastructure, process-intelligence).
+            731
         );
     }
 
