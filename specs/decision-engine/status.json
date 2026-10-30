@@ -463,6 +463,7 @@
     "EG-DECISION-ENGINE-R144.4",
     "EG-DECISION-ENGINE-R144.5",
     "EG-DECISION-ENGINE-R144.6",
+    "EG-DECISION-ENGINE-R144.7",
     "EG-DECISION-ENGINE-R145",
     "EG-DECISION-ENGINE-R145.1",
     "EG-DECISION-ENGINE-R145.2",
@@ -2074,12 +2075,19 @@
     {
       "id": "EG-DECISION-ENGINE-R056",
       "title": "Statistical-path release of the exact solver (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0fac721690e2",
+        "3c6b457009e4",
         "65afe57d3c4e",
-        "fa780d3e101a"
+        "fa780d3e101a",
+        "fa8712ffe119"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/decision/rapid_r056.rs:100",
+        "crates/eg-types/src/decision/rapid_r056.rs:83",
+        "src/server/handlers/decide/stat_tool_subset.rs:340"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R056.1",
         "EG-DECISION-ENGINE-R056.2"
@@ -2099,9 +2107,15 @@
     {
       "id": "EG-DECISION-ENGINE-R056.2",
       "title": "Route the statistical path through the exact 0-1 solver and this certificate",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3c6b457009e4",
+        "fa8712ffe119"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/rapid_r056.rs:100",
+        "src/server/handlers/decide/stat_tool_subset.rs:340"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R056.2.1",
         "EG-DECISION-ENGINE-R056.2.2"
@@ -2121,9 +2135,13 @@
     {
       "id": "EG-DECISION-ENGINE-R056.2.2",
       "title": "Statistical-path call into the exact 0-1 solver",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fa8712ffe119"
+      ],
+      "verified_by": [
+        "src/server/handlers/decide/stat_tool_subset.rs:340"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R057",
@@ -3838,10 +3856,10 @@
         "334c101eb64f"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:254",
-        "crates/eg-types/src/decision/guardrail.rs:292",
-        "crates/eg-types/src/decision/guardrail.rs:317",
-        "crates/eg-types/src/decision/guardrail.rs:324",
+        "crates/eg-types/src/decision/guardrail.rs:311",
+        "crates/eg-types/src/decision/guardrail.rs:349",
+        "crates/eg-types/src/decision/guardrail.rs:374",
+        "crates/eg-types/src/decision/guardrail.rs:381",
         "src/server/handlers/decide/guardrail_tests.rs:139"
       ],
       "rollup_of": [
@@ -3859,9 +3877,9 @@
         "30405ee73d13"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:292",
-        "crates/eg-types/src/decision/guardrail.rs:317",
-        "crates/eg-types/src/decision/guardrail.rs:324"
+        "crates/eg-types/src/decision/guardrail.rs:349",
+        "crates/eg-types/src/decision/guardrail.rs:374",
+        "crates/eg-types/src/decision/guardrail.rs:381"
       ]
     },
     {
@@ -3876,7 +3894,7 @@
         "45beac8d810b"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:254",
+        "crates/eg-types/src/decision/guardrail.rs:311",
         "src/server/handlers/decide/guardrail_tests.rs:139",
         "src/server/handlers/decide/guardrail_tests.rs:161",
         "src/server/handlers/decide/guardrail_tests.rs:78",
@@ -3910,7 +3928,7 @@
         "e7580aeb141f"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:254",
+        "crates/eg-types/src/decision/guardrail.rs:311",
         "src/server/handlers/decide/guardrail_tests.rs:139",
         "src/server/handlers/decide/guardrail_tests.rs:161",
         "src/server/handlers/decide/guardrail_tests.rs:78"
@@ -4191,8 +4209,8 @@
         "dcd3f241e93c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:215",
-        "crates/eg-types/src/decision/guardrail.rs:239"
+        "crates/eg-types/src/decision/guardrail.rs:272",
+        "crates/eg-types/src/decision/guardrail.rs:296"
       ]
     },
     {
@@ -4472,8 +4490,13 @@
       "id": "EG-DECISION-ENGINE-R134",
       "title": "The engine selects tools, decomposes tasks and plans over the skill library (rollup)",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "landed_in": [
+        "0020c2d9ecb5",
+        "2e1d91e99882"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:27"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R134.1",
         "EG-DECISION-ENGINE-R134.2",
@@ -5869,7 +5892,8 @@
         "EG-DECISION-ENGINE-R144.3",
         "EG-DECISION-ENGINE-R144.4",
         "EG-DECISION-ENGINE-R144.5",
-        "EG-DECISION-ENGINE-R144.6"
+        "EG-DECISION-ENGINE-R144.6",
+        "EG-DECISION-ENGINE-R144.7"
       ]
     },
     {
@@ -5910,6 +5934,13 @@
     {
       "id": "EG-DECISION-ENGINE-R144.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R144.7",
+      "title": "Consumer budgets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -9865,7 +9896,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:27",
+        "crates/eg-types/src/decision/task_plan/tests.rs:28",
         "tests/test_task_plan_client.py:10"
       ]
     },
@@ -9875,8 +9906,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:170",
-        "crates/eg-types/src/decision/task_plan/tests.rs:44"
+        "crates/eg-types/src/decision/task_plan/tests.rs:171",
+        "crates/eg-types/src/decision/task_plan/tests.rs:45"
       ]
     },
     {
@@ -9898,11 +9929,11 @@
         "f9bfc0da8ae7"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:118",
-        "crates/eg-types/src/decision/task_plan/tests.rs:197",
-        "crates/eg-types/src/decision/task_plan/tests.rs:207",
-        "crates/eg-types/src/decision/task_plan/tests.rs:235",
-        "crates/eg-types/src/decision/task_plan/tests.rs:83"
+        "crates/eg-types/src/decision/task_plan/tests.rs:119",
+        "crates/eg-types/src/decision/task_plan/tests.rs:198",
+        "crates/eg-types/src/decision/task_plan/tests.rs:208",
+        "crates/eg-types/src/decision/task_plan/tests.rs:236",
+        "crates/eg-types/src/decision/task_plan/tests.rs:84"
       ]
     },
     {
@@ -9931,7 +9962,7 @@
         "67dffe78b02d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:252",
+        "crates/eg-types/src/decision/task_plan/tests.rs:253",
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:182",
         "tests/test_decision_stat_client.py:80"
       ]
@@ -9944,7 +9975,7 @@
         "08e6ef4d5749"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:295"
+        "crates/eg-types/src/decision/task_plan/tests.rs:296"
       ]
     },
     {
@@ -9955,8 +9986,8 @@
         "08e6ef4d5749"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:339",
-        "crates/eg-types/src/decision/task_plan/tests.rs:374"
+        "crates/eg-types/src/decision/task_plan/tests.rs:340",
+        "crates/eg-types/src/decision/task_plan/tests.rs:375"
       ]
     },
     {
@@ -9967,7 +9998,7 @@
         "08e6ef4d5749"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:454"
+        "crates/eg-types/src/decision/task_plan/tests.rs:455"
       ]
     },
     {
@@ -9976,7 +10007,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/decision/task_plan/tests.rs:538",
+        "crates/eg-types/src/decision/task_plan/tests.rs:539",
         "src/server/handlers/decide/stat_tests/task_plan_tests.rs:284"
       ]
     },

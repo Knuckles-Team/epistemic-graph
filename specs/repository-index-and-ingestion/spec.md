@@ -68,7 +68,7 @@ Requirement IDs are defined in [requirements.md](requirements.md); delivery stat
 <!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
 ## Reviewed definition index — 2026-10-12
 
-Normative contracts, production wiring, owner references, holds, and acceptance cases appear in `requirements.md`.
+Normative contracts, production wiring, owner references, open dependencies, and acceptance cases appear in `requirements.md`.
 This file indexes the definitions and their source records.
 Each child extends the listed parent. Existing parent obligations remain unchanged.
 No implementation or served evidence is claimed here.

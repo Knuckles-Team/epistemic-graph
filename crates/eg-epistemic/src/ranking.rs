@@ -140,6 +140,126 @@ pub fn rank(candidates: &[RetrievalCandidate], weights: RankWeights) -> Vec<Rank
     ranked
 }
 
+/// Tie-break policy among candidates that share one code
+/// (EG-DECISION-ENGINE-R130.1). Closed set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TieBreakPolicy {
+    /// Order equal-code candidates by their item-level `tie_break_score`.
+    ItemScore,
+    /// Order equal-code candidates by their stable `id`.
+    StableId,
+}
+
+/// One candidate for calibrated ranking (EG-DECISION-ENGINE-R130.1).
+/// `calibrated_score` is `None` when no calibration exists; such a
+/// candidate is never ranked on a substitute likelihood (R130.4).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RankedCandidate {
+    pub id: String,
+    pub calibrated_score: Option<f64>,
+    /// The shared code (e.g. a generated sequence code) candidates may tie on.
+    pub code: String,
+    /// The item-level score that separates candidates sharing one code.
+    pub tie_break_score: f64,
+    pub evidence_class: String,
+}
+
+/// Named default: the calibrated score orders candidates first (R130.2).
+pub const CALIBRATED_FIRST: &str = "calibrated_first";
+/// Named default: equal codes are separated by the item-level score (R130.2).
+pub const ITEM_LEVEL_TIE_BREAK: &str = "item_level_tie_break";
+/// Abstention reason for a candidate without a calibrated score (R130.4).
+pub const UNCALIBRATED_CANDIDATE: &str = "uncalibrated_candidate";
+
+/// The replaceable ranking rules (R130.2). `Default` is the named defaults
+/// `calibrated_first` plus `item_level_tie_break`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CalibratedRankRules {
+    pub calibrated_first: bool,
+    pub tie_break: TieBreakPolicy,
+}
+
+impl Default for CalibratedRankRules {
+    fn default() -> Self {
+        CalibratedRankRules {
+            calibrated_first: true,
+            tie_break: TieBreakPolicy::ItemScore,
+        }
+    }
+}
+
+/// A candidate the ranking refused to order (R130.4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RankAbstention {
+    pub id: String,
+    pub reason: &'static str,
+}
+
+/// The outcome of [`rank_calibrated`]: the ordered candidates (each with
+/// whether the tie-break decided its position against a neighbour) and the
+/// candidates abstained on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalibratedRanking {
+    pub ranked: Vec<(RankedCandidate, bool)>,
+    pub abstained: Vec<RankAbstention>,
+}
+
+/// Rank by calibrated score, highest first; candidates sharing one code are
+/// ordered by the tie-break policy (EG-DECISION-ENGINE-R130.2). Uncalibrated
+/// candidates abstain with `uncalibrated_candidate` (R130.4). Fully
+/// deterministic: the final key is the candidate `id`.
+pub fn rank_calibrated(
+    candidates: &[RankedCandidate],
+    rules: CalibratedRankRules,
+) -> CalibratedRanking {
+    use std::cmp::Ordering;
+    let mut abstained = Vec::new();
+    let mut ranked: Vec<RankedCandidate> = Vec::new();
+    for c in candidates {
+        match c.calibrated_score {
+            Some(s) if s.is_finite() => ranked.push(c.clone()),
+            _ => abstained.push(RankAbstention {
+                id: c.id.clone(),
+                reason: UNCALIBRATED_CANDIDATE,
+            }),
+        }
+    }
+    let score = |c: &RankedCandidate| c.calibrated_score.unwrap_or(f64::NEG_INFINITY);
+    let tie = |a: &RankedCandidate, b: &RankedCandidate| match rules.tie_break {
+        TieBreakPolicy::ItemScore => b
+            .tie_break_score
+            .partial_cmp(&a.tie_break_score)
+            .unwrap_or(Ordering::Equal),
+        TieBreakPolicy::StableId => Ordering::Equal,
+    };
+    ranked.sort_by(|a, b| {
+        let primary = if rules.calibrated_first {
+            score(b).partial_cmp(&score(a)).unwrap_or(Ordering::Equal)
+        } else {
+            Ordering::Equal
+        };
+        primary
+            .then_with(|| a.code.cmp(&b.code).then_with(|| tie(a, b)))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    let applied: Vec<bool> = (0..ranked.len())
+        .map(|i| {
+            let shares = |j: usize| {
+                ranked
+                    .get(j)
+                    .is_some_and(|o| o.code == ranked[i].code && score(o) == score(&ranked[i]))
+            };
+            (i > 0 && shares(i - 1)) || shares(i + 1)
+        })
+        .collect();
+    CalibratedRanking {
+        ranked: ranked.into_iter().zip(applied).collect(),
+        abstained,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +369,93 @@ mod tests {
         let ranked = rank(&candidates, RankWeights::default());
         assert_eq!(ranked.len(), 3);
         assert_eq!(ranked[0].id, "c");
+    }
+
+    fn cand(id: &str, score: Option<f64>, code: &str, tie: f64) -> RankedCandidate {
+        RankedCandidate {
+            id: id.into(),
+            calibrated_score: score,
+            code: code.into(),
+            tie_break_score: tie,
+            evidence_class: "measured".into(),
+        }
+    }
+
+    #[test]
+    fn ranked_candidate_round_trips() {
+        let c = cand("a", Some(0.7), "C1", 0.4);
+        let json = serde_json::to_value(&c).unwrap();
+        assert_eq!(serde_json::from_value::<RankedCandidate>(json).unwrap(), c);
+        for (p, w) in [
+            (TieBreakPolicy::ItemScore, "item_score"),
+            (TieBreakPolicy::StableId, "stable_id"),
+        ] {
+            assert_eq!(serde_json::to_value(p).unwrap(), serde_json::json!(w));
+            assert_eq!(
+                serde_json::from_value::<TieBreakPolicy>(serde_json::json!(w)).unwrap(),
+                p
+            );
+        }
+        assert!(serde_json::from_value::<TieBreakPolicy>(serde_json::json!("likelihood")).is_err());
+        assert!(
+            serde_json::from_value::<RankedCandidate>(serde_json::json!({
+                "id": "a", "calibrated_score": 0.1, "code": "c", "tie_break_score": 0.0,
+                "evidence_class": "x", "extra": 1
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn equal_codes_order_by_item_score() {
+        let input = vec![
+            cand("x", Some(0.5), "C", 0.2),
+            cand("y", Some(0.5), "C", 0.9),
+            cand("z", Some(0.5), "C", 0.5),
+            cand("top", Some(0.8), "D", 0.0),
+        ];
+        let out = rank_calibrated(&input, CalibratedRankRules::default());
+        let ids: Vec<&str> = out.ranked.iter().map(|(c, _)| c.id.as_str()).collect();
+        assert_eq!(ids, ["top", "y", "z", "x"]);
+        assert_eq!(
+            out.ranked.iter().map(|(_, t)| *t).collect::<Vec<_>>(),
+            [false, true, true, true]
+        );
+        let again = rank_calibrated(&input, CalibratedRankRules::default());
+        assert_eq!(format!("{again:?}"), format!("{out:?}"));
+        let stable = rank_calibrated(
+            &input,
+            CalibratedRankRules {
+                tie_break: TieBreakPolicy::StableId,
+                ..Default::default()
+            },
+        );
+        let ids: Vec<&str> = stable.ranked.iter().map(|(c, _)| c.id.as_str()).collect();
+        assert_eq!(ids, ["top", "x", "y", "z"]);
+    }
+
+    #[test]
+    fn uncalibrated_candidate_abstains() {
+        let input = vec![
+            cand("cal", Some(0.3), "C", 0.0),
+            cand("uncal", None, "C", 0.99),
+            cand("nan", Some(f64::NAN), "C", 0.5),
+        ];
+        let out = rank_calibrated(&input, CalibratedRankRules::default());
+        assert_eq!(out.ranked.len(), 1);
+        assert_eq!(out.ranked[0].0.id, "cal");
+        assert_eq!(
+            out.abstained,
+            vec![
+                RankAbstention {
+                    id: "uncal".into(),
+                    reason: UNCALIBRATED_CANDIDATE
+                },
+                RankAbstention {
+                    id: "nan".into(),
+                    reason: UNCALIBRATED_CANDIDATE
+                },
+            ]
+        );
     }
 }

@@ -252,7 +252,7 @@ pub(in crate::server::dispatch) async fn multi_graph_batch_update(
     )
 }
 
-const MAX_MULTI_GRAPH_BATCHES: usize = 256;
+const MAX_MULTI_GRAPH_BATCHES: usize = eg_types::mutation_batch::MAX_FANOUT_SUB_BATCHES;
 const MAX_MULTI_GRAPH_NAME_BYTES: usize = 512;
 const MAX_MULTI_GRAPH_OPERATIONS_BYTES: usize = 32 * 1024 * 1024;
 const MAX_MULTI_GRAPH_TOTAL_OPERATIONS_BYTES: usize = 64 * 1024 * 1024;
@@ -301,4 +301,31 @@ pub(in crate::server::dispatch) fn decode_multi_graph_batches(
         .map_err(str::to_string)?;
     }
     Ok(batches)
+}
+
+#[cfg(test)]
+mod fanout_cap_tests {
+    use super::*;
+
+    fn encoded(count: usize) -> Vec<u8> {
+        let batches: Vec<(String, serde_bytes::ByteBuf)> = (0..count)
+            .map(|i| (format!("g{i}"), serde_bytes::ByteBuf::new()))
+            .collect();
+        rmp_serde::to_vec(&batches).unwrap()
+    }
+
+    // spec: EG-DURABLE-KERNEL-R099.1
+    #[test]
+    fn sub_batch_cap_is_the_fanout_limit() {
+        assert_eq!(MAX_MULTI_GRAPH_BATCHES, 256);
+        let over = decode_multi_graph_batches(&encoded(257)).unwrap_err();
+        assert!(over.contains("batch count exceeds"), "{over}");
+        let at_cap = decode_multi_graph_batches(&encoded(256));
+        assert!(
+            !at_cap
+                .err()
+                .is_some_and(|e| e.contains("batch count exceeds")),
+            "256 sub-batches must pass the count check"
+        );
+    }
 }

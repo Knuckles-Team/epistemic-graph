@@ -628,7 +628,7 @@
     },
     {
       "id": "EG-CONTRACT-R027",
-      "title": "Exhaustive dispatch matches pass the complexity gate via extraction",
+      "title": "Exhaustive dispatch matches are accepted by rule, not decomposed",
       "delivery_state": "LANDED",
       "landed_in": [
         "b43f33569dd4"
@@ -796,11 +796,14 @@
     {
       "id": "EG-CONTRACT-R039",
       "title": "Duplication gate runs against the full combined diff, not per-change",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0141255ac197",
         "57a12eb06632"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_gate_base_ref.py:29"
+      ]
     },
     {
       "id": "EG-CONTRACT-R040",
@@ -894,11 +897,14 @@
     {
       "id": "EG-CONTRACT-R047",
       "title": "Main publishes a rolling engine wheel for consumer CI",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "326bfadafe28",
         "9084e9343bf4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:387"
+      ]
     },
     {
       "id": "EG-CONTRACT-R048",
