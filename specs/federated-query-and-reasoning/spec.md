@@ -102,18 +102,6 @@ Medulla supplies immutable, read-only source-query approvals and verifies their 
 <!-- spec-definition-patch:owner-batch-20261012-federated-query-and-reasoning -->
 ## Reviewed owner residuals — 2026-10-12
 
-### `EG-FEDERATED-QUERY-R070.1` — AU:71
-
-Original objective: An agent may search a raw corpus directly with exact lexical, file-read and context-verification operations without an index. Each query reports its cost, and over-budget scans abstain.
-
-Medulla-owned residual: Existing indexed lexical search does not guarantee indexless raw-corpus queries. It lacks exact file-read/context-verification primitives, per-scan cost reporting and refusal before budget overrun.
-
-Producer/consumer boundary: Arbora retrieval.space -> GovernedRetriever -> Medulla retrieval returns a top-K boundary; Medulla UQL budgets bound rows/visits. No reviewed governed indexless scan/file-read/context-verification producer contract supplies the requested operations.
-
-Preserve existing coverage: `EG-FEDERATED-QUERY-R070`, `ARBORA-OPS-R053.2`, `ARBORA-OPS-R053.3`, `ARBORA-OPS-R053.5`.
-
-Owner source hash: `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
-
 ### `EG-FEDERATED-QUERY-R006.1` — EG:11
 
 Original objective: The engine derives facts from extracted facts using temporal forward chaining. Each derived fact links to its originating sentence or axiom.
@@ -137,18 +125,6 @@ Producer/consumer boundary: Medulla lifecycle and filtered query operators are a
 Preserve existing coverage: `EG-FEDERATED-QUERY-R007`, `EG-FEDERATED-QUERY-R040`, `EG-FEDERATED-QUERY-R040.4`, `EG-FEDERATED-QUERY-R008`.
 
 Owner source hash: `07df52b453f0f1b7be7aec7bf790f087c3fc5e13500915011382a9fcd8d9d41a`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
-
-### `EG-FEDERATED-QUERY-R040.6` — EG:21
-
-Original objective: Agents keep semantic, procedural and episodic memory layers. They build graph episodes from multi-session dialogue and query across sessions using hybrid vector/keyword search and temporal validation.
-
-Medulla-owned residual: Define memory layers, multi-session episode construction and hybrid cross-session retrieval/temporal validation.
-
-Producer/consumer boundary: SourceIngest validates/project transcripts and UnifiedQuery supports filtered search. The episode builder and Meristem consumer joining these paths are absent definitions.
-
-Preserve existing coverage: `EG-INGEST-WORKER-R003.13`, `EG-INGEST-WORKER-R003.14`, `EG-INGEST-WORKER-R003.17`, `EG-FEDERATED-QUERY-R040`, `EG-INGEST-WORKER-R003.18`, `EG-INGEST-WORKER-R003.16`, `EG-FEDERATED-QUERY-R016`.
-
-Owner source hash: `c321db3aa79c29d891456f2bee98f545611b8d1be7c93d299b939c3d73a40279`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 
 ### `EG-FEDERATED-QUERY-R083.7` — EG:22
 

@@ -843,10 +843,12 @@ ex:parent a owl:AsymmetricProperty .
         // +2: catalog imports for connector-seed and virtual-graph.
         // +474: #964 core modules (media +436, commercial +25, supply_chain +9 = +470) plus the
         // media module-local :mediaFileSizeBytes (+5 declared, -1 shared-domain triple = +4).
+        // +95: the connector-competency terms (archimate, documentation, infrastructure,
+        // process_intelligence) add classes and properties to their modules.
         // +29: the supply-chain fold (#972): commercial :customerLastActivityAt +5,
         // infrastructure :serviceRunsOn +6, supply_chain suppliesService one-direction with
         // :serviceSupplier and :suppliesServiceViaHost +18 (rdflib per-file deltas).
-        assert_eq!(composed.ontology.len(), 17_691);
+        assert_eq!(composed.ontology.len(), 17_786);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -926,8 +928,9 @@ ex:parent a owl:AsymmetricProperty .
         // +533: the C2 train vocabularies (connector-pack surface, media lane B, secrets,
         // CQ-CONN chunk 5, finance method terms), as semantic axioms.
         // +474: the #964 core modules and :mediaFileSizeBytes, as semantic axioms (see the total pin).
+        // +95: the connector-competency terms, all semantic axioms (see the total pin).
         // +29: the #972 supply-chain fold, all semantic axioms (headers and imports unchanged).
-        assert_eq!(semantic_axioms, 17_422);
+        assert_eq!(semantic_axioms, 17_517);
 
         let count_type = |object: &str| {
             composed
@@ -1003,7 +1006,9 @@ ex:parent a owl:AsymmetricProperty .
             // +22: the C2 train's connector-pack surface, media lane B, secret-metadata and
             // CQ-CONN chunk 5 classes.
             // +26: the #964 class placements (media +24, commercial +1, supply-chain +1).
-            724
+            // +7: the connector-competency class placements (archimate, documentation,
+            // infrastructure, process-intelligence).
+            731
         );
     }
 

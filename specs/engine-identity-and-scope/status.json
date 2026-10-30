@@ -141,8 +141,8 @@
         "a2cbfc473ba2"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/scopes/tests.rs:141",
-        "crates/eg-capabilities/src/scopes/tests.rs:201",
+        "crates/eg-capabilities/src/scopes/tests.rs:142",
+        "crates/eg-capabilities/src/scopes/tests.rs:203",
         "crates/eg-capabilities/src/scopes/tests.rs:38",
         "crates/eg-capabilities/src/scopes/tests.rs:51",
         "crates/eg-capabilities/src/scopes/tests.rs:65"
@@ -177,9 +177,16 @@
     {
       "id": "EG-IDENTITY-R007",
       "title": "Scopes `identity:admin`, `loops:read` and `loops:control` are registered in the engine contract",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9dd2343e2b89"
+      ],
+      "verified_by": [
+        "crates/eg-capabilities/src/scopes/tests.rs:143",
+        "crates/eg-capabilities/src/scopes/tests.rs:66",
+        "tests/test_identity_scope_registry.py:25",
+        "tests/test_identity_scope_registry.py:39"
+      ]
     },
     {
       "id": "EG-IDENTITY-R008",
@@ -275,9 +282,13 @@
     {
       "id": "EG-IDENTITY-R023.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9dd2343e2b89"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/identity/segment.rs:150"
+      ]
     },
     {
       "id": "EG-IDENTITY-R023.2",
@@ -287,7 +298,7 @@
         "ef06195c8341"
       ],
       "verified_by": [
-        "crates/eg-types/src/identity/segment.rs:209"
+        "crates/eg-types/src/identity/segment.rs:208"
       ]
     },
     {
