@@ -1,0 +1,10 @@
+{
+  "traces": [
+    {"id": "trace-final-answer", "status": "completed", "terminationReason": "final_answer", "peakContextTokens": 6200, "contextBudgetTokens": 8000, "elisionCount": 0, "summarizationCount": 0, "turnCount": 7, "toolCallCount": 5, "costUsd": "0.042", "runModel": "model-a", "runTaskClass": "shell-task", "appliedHarnessConfig": "config-1"},
+    {"id": "trace-context-overflow", "status": "failed", "terminationReason": "context_overflow", "peakContextTokens": 8000, "contextBudgetTokens": 8000, "elisionCount": 3, "summarizationCount": 1, "turnCount": 31, "toolCallCount": 29, "costUsd": "0.310", "runModel": "model-a", "runTaskClass": "shell-task", "appliedHarnessConfig": "config-1"},
+    {"id": "trace-stuck", "status": "failed", "terminationReason": "stuck", "peakContextTokens": 5100, "contextBudgetTokens": 8000, "elisionCount": 1, "summarizationCount": 0, "turnCount": 20, "toolCallCount": 19, "costUsd": "0.180", "runModel": "model-b", "runTaskClass": "shell-task", "appliedHarnessConfig": "config-2"},
+    {"id": "trace-step-budget", "status": "failed", "terminationReason": "step_budget", "peakContextTokens": 7400, "contextBudgetTokens": 8000, "elisionCount": 2, "summarizationCount": 1, "turnCount": 40, "toolCallCount": 38, "costUsd": "0.400", "runModel": "model-b", "runTaskClass": "edit-task", "appliedHarnessConfig": "config-2"},
+    {"id": "trace-error", "status": "failed", "terminationReason": "error", "peakContextTokens": 1200, "contextBudgetTokens": 8000, "elisionCount": 0, "summarizationCount": 0, "turnCount": 2, "toolCallCount": 1, "costUsd": "0.003", "runModel": "model-a", "runTaskClass": "edit-task", "appliedHarnessConfig": "config-1"},
+    {"id": "trace-overflow-over-budget", "status": "failed", "terminationReason": "context_overflow", "peakContextTokens": 9100, "contextBudgetTokens": 8000, "elisionCount": 5, "summarizationCount": 2, "turnCount": 44, "toolCallCount": 43, "costUsd": "0.520", "runModel": "model-a", "runTaskClass": "edit-task", "appliedHarnessConfig": "config-1"}
+  ]
+}

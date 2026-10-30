@@ -1,0 +1,45 @@
+{
+ "Channel": [
+  {
+   "id": "c1",
+   "display_name": "town square",
+   "member_count": 25,
+   "last_post_at": "2025-09-01T00:00:00Z"
+  },
+  {
+   "id": "c2",
+   "display_name": "quiet small",
+   "member_count": 8,
+   "last_post_at": "2025-06-01T00:00:00Z"
+  },
+  {
+   "id": "c3",
+   "display_name": "busy",
+   "member_count": 30,
+   "last_post_at": "2026-01-14T00:00:00Z"
+  },
+  {
+   "id": "c4",
+   "display_name": "edge of window",
+   "member_count": 11,
+   "last_post_at": "2025-10-17T00:00:00Z"
+  }
+ ],
+ "Message": [
+  {
+   "id": "m1",
+   "create_at": "2026-01-14T10:00:00Z",
+   "user": "alice"
+  },
+  {
+   "id": "m2",
+   "create_at": "2026-01-14T11:00:00Z",
+   "user": "alice"
+  },
+  {
+   "id": "m3",
+   "create_at": "2026-01-13T09:00:00Z",
+   "user": "bob"
+  }
+ ]
+}
