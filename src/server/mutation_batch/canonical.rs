@@ -746,10 +746,12 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
         // Wire-unconditional (`eg-capabilities` forces `eg-types/kv` on
         // unconditionally), same reason as `blob` above (EH-319).
-        Method::KvPut { .. } | Method::KvDelete { .. } | Method::KvCas { .. } => owner_domain(
-            method,
-        )
-        .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
+        Method::KvPut { .. }
+        | Method::KvDelete { .. }
+        | Method::KvCas { .. }
+        | Method::MediaRemember { .. }
+        | Method::MediaIndexPut { .. } => owner_domain(method)
+            .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
