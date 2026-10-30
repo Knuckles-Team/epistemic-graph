@@ -3682,3 +3682,618 @@ fn content_message_terms_reuse_team_without_redeclaration() {
         "media-v1 must not redeclare :Team"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Lane B connectors (EG-MEDIA-VOCAB-R014 to R019, rows .2 to .4): scholarx,
+// searxng, pulselink, postiz, listmonk and mattermost, over the same harness.
+// ---------------------------------------------------------------------------
+
+const MEDIA_VOCAB_SUBJECT: &str = "urn:eg-media-vocab";
+
+/// Apply one connector's mapping fixture to its recorded response.
+fn mapped_connector(connector: &str, mapping: &str, response: &str) -> Vec<Triple> {
+    let rows = mapping_rows(mapping);
+    let universe = vocabulary_universe();
+    let response: serde_json::Value =
+        serde_json::from_str(response).expect("the recorded response parses");
+    apply_mapping(&rows, &response, connector, &universe)
+}
+
+/// The mapping connects over MCP with a url-only endpoint, and every row
+/// binds discovered names and existing vocabulary (the R013.1 contract).
+fn assert_mapping_rows_resolve(mapping: &str, expected_rows: usize, bound: &[(&str, &str)]) {
+    let (kind, _endpoint, only_url) = connection_of(mapping);
+    assert_eq!(kind, "mcp", "vg:sourceKind is mcp");
+    assert!(only_url, "the endpoint reference carries only its url");
+    let (entities, fields, _operations) = contract_of(mapping);
+    let rows = mapping_rows(mapping);
+    assert_eq!(
+        rows.len(),
+        expected_rows,
+        "the plan.md table rows are mapped"
+    );
+    let universe = vocabulary_universe();
+    for row in &rows {
+        assert!(
+            entities.contains(&row.entity),
+            "mapsEntity {} is a discovered entity",
+            row.entity
+        );
+        assert!(
+            fields.contains(&row.key_field),
+            "keyField {} is a discovered field",
+            row.key_field
+        );
+        assert!(
+            universe.get(&row.class).map(|(kind, _)| *kind) == Some(TermKind::Class),
+            "row class {} is a declared class",
+            row.class
+        );
+        for pair in &row.pairs {
+            assert!(
+                fields.contains(&pair.field),
+                "pair field {} is a discovered field",
+                pair.field
+            );
+            assert!(
+                universe.contains_key(&pair.predicate),
+                "row predicate {} is declared vocabulary",
+                pair.predicate
+            );
+        }
+    }
+    let have: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.entity.as_str(),
+                r.class.strip_prefix(KG).unwrap_or(&r.class),
+            )
+        })
+        .collect();
+    for pair in bound {
+        assert!(have.contains(pair), "the table row {pair:?} is mapped");
+    }
+}
+
+/// Every record becomes one node and every mapped predicate is declared.
+fn assert_round_trip_nodes(mapped: &[Triple], expected_nodes: usize) {
+    let universe = vocabulary_universe();
+    let nodes = node_subjects(mapped);
+    assert_eq!(
+        nodes.len(),
+        expected_nodes,
+        "every record becomes exactly one node: {nodes:?}"
+    );
+    for t in mapped {
+        let predicate = t.predicate.as_str();
+        if predicate == format!("{RDF}type")
+            || predicate == format!("{DC}source")
+            || predicate == format!("{DC}identifier")
+            || predicate == format!("{DC}date")
+        {
+            continue;
+        }
+        assert!(
+            universe.contains_key(predicate),
+            "the mapped triple uses declared vocabulary: {predicate}"
+        );
+    }
+}
+
+fn media_node(connector: &str, entity: &str, key: &str) -> String {
+    format!("{MEDIA_VOCAB_SUBJECT}:{connector}:{entity}:{key}")
+}
+
+fn vocab_cell_is(row: &str, expected: &str) {
+    let plan = std::fs::read_to_string(CONNECTOR_COMPETENCY_PLAN)
+        .expect("the connector-competency plan reads");
+    assert_eq!(
+        connector_competency_vocab_cell(&plan, row),
+        expected,
+        "the {row} Vocabulary cell names {expected}, not MISSING"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R014.2
+#[test]
+fn media_vocab_scholarx_response_round_trips_through_mapping() {
+    let mapping = include_str!("fixtures/media_vocab/scholarx_mapping.ttl");
+    assert_mapping_rows_resolve(
+        mapping,
+        3,
+        &[
+            ("Paper", "ScholarlyPaper"),
+            ("Category", "ResearchCategory"),
+            ("Source", "PaperSource"),
+        ],
+    );
+    let mapped = mapped_connector(
+        "scholarx",
+        mapping,
+        include_str!("fixtures/media_vocab/scholarx_response.json"),
+    );
+    assert_round_trip_nodes(&mapped, 5);
+    let paper = media_node("scholarx", "Paper", "sx-1");
+    assert_eq!(
+        values_of(&mapped, &paper, format!("{KG}doi").as_str()),
+        vec!["10.1000/gm.1".to_string()]
+    );
+    assert_eq!(
+        values_of(&mapped, &paper, format!("{KG}citationCount").as_str()),
+        vec!["12".to_string()]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R014.3
+#[test]
+fn media_vocab_scholarx_single() {
+    // "Which papers cite a given paper and were published in the last two
+    // years?" is BLOCKED: only the citation COUNT is available. The count leg
+    // answers; the citing-papers leg abstains naming the missing operation.
+    let mapping = include_str!("fixtures/media_vocab/scholarx_mapping.ttl");
+    let mapped = mapped_connector(
+        "scholarx",
+        mapping,
+        include_str!("fixtures/media_vocab/scholarx_response.json"),
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            &media_node("scholarx", "Paper", "sx-2"),
+            format!("{KG}citationCount").as_str()
+        ),
+        vec!["40".to_string()],
+        "the citation count of the given paper answers"
+    );
+    let (_entities, fields, operations) = contract_of(mapping);
+    assert!(
+        fields
+            .iter()
+            .all(|f| !f.contains("citing") && !f.contains("cited")),
+        "no citing-paper field is discovered: {fields:?}"
+    );
+    assert!(
+        operations.iter().all(|o| !o.ends_with("/citations")),
+        "no citations operation is discovered: {operations:?}"
+    );
+    let abstention = TypedAbstention {
+        connector: "scholarx",
+        missing_operation: "sx_search/citations (papers that cite a given id)",
+        owner: "scholarx",
+    };
+    assert_eq!(abstention.connector, "scholarx");
+    assert!(abstention.missing_operation.contains("citations"));
+    assert_eq!(abstention.owner, "scholarx");
+}
+
+// spec: EG-MEDIA-VOCAB-R014.4
+#[test]
+fn media_vocab_scholarx_vocabulary_docs_truth() {
+    vocab_cell_is("R055", "media-v1 / content-v1");
+}
+
+// spec: EG-MEDIA-VOCAB-R015.2
+#[test]
+fn media_vocab_searxng_response_round_trips_through_mapping() {
+    let mapping = include_str!("fixtures/media_vocab/searxng_mapping.ttl");
+    assert_mapping_rows_resolve(
+        mapping,
+        2,
+        &[("SearchResult", "SearchResult"), ("Engine", "SearchEngine")],
+    );
+    let mapped = mapped_connector(
+        "searxng",
+        mapping,
+        include_str!("fixtures/media_vocab/searxng_response.json"),
+    );
+    // Six results, three minted engine reference nodes, four settings engines.
+    assert_round_trip_nodes(&mapped, 13);
+    let result = media_node("searxng", "SearchResult", "r3");
+    assert_eq!(
+        values_of(&mapped, &result, format!("{KG}rank").as_str()),
+        vec!["3".to_string()]
+    );
+    let engine = iri_of(&mapped, &result, format!("{KG}servedByEngine").as_str())
+        .expect("the result names its engine");
+    // A reference node shared by several records is typed once per record.
+    let types: BTreeSet<String> = values_of(&mapped, &engine, format!("{RDF}type").as_str())
+        .into_iter()
+        .collect();
+    assert_eq!(types, BTreeSet::from([format!("{KG}SearchEngine")]));
+}
+
+// spec: EG-MEDIA-VOCAB-R015.3
+#[test]
+fn media_vocab_searxng_single() {
+    // "Which engines returned no results, and which returned the most?" The
+    // most-results leg is CONFIRMED by counting servedByEngine; the
+    // zero-result leg is BLOCKED and abstains naming the missing field.
+    let mapping = include_str!("fixtures/media_vocab/searxng_mapping.ttl");
+    let mapped = mapped_connector(
+        "searxng",
+        mapping,
+        include_str!("fixtures/media_vocab/searxng_response.json"),
+    );
+    let mut per_engine: BTreeMap<String, usize> = BTreeMap::new();
+    for result in subjects_typed(&mapped, &["SearchResult"]) {
+        let engine = iri_of(&mapped, &result, format!("{KG}servedByEngine").as_str())
+            .expect("every result names its engine");
+        let name = values_of(&mapped, &engine, format!("{KG}title").as_str())
+            .pop()
+            .expect("the engine reference carries its name");
+        *per_engine.entry(name).or_default() += 1;
+    }
+    assert_eq!(
+        per_engine,
+        [("bing", 2), ("duckduckgo", 1), ("google", 3)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect::<BTreeMap<_, _>>()
+    );
+    let top = per_engine
+        .iter()
+        .max_by_key(|(_, count)| **count)
+        .unwrap()
+        .0;
+    assert_eq!(top, "google", "the engine with the most results");
+    let (_entities, fields, operations) = contract_of(mapping);
+    assert!(
+        fields.iter().all(|f| !f.contains("unresponsive")),
+        "no unresponsive-engines field is discovered: {fields:?}"
+    );
+    assert!(operations.iter().all(|o| !o.contains("unresponsive")));
+    let abstention = TypedAbstention {
+        connector: "searxng",
+        missing_operation: "web_search unresponsive_engines / per-engine result counts",
+        owner: "searxng-mcp",
+    };
+    assert_eq!(abstention.connector, "searxng");
+    assert!(abstention
+        .missing_operation
+        .contains("unresponsive_engines"));
+    assert_eq!(abstention.owner, "searxng-mcp");
+}
+
+// spec: EG-MEDIA-VOCAB-R015.4
+#[test]
+fn media_vocab_searxng_vocabulary_docs_truth() {
+    vocab_cell_is("R056", "media-v1 / content-v1");
+}
+
+// spec: EG-MEDIA-VOCAB-R016.1
+#[test]
+fn media_vocab_pulselink_mapping_rows_resolve_existing_terms() {
+    assert_mapping_rows_resolve(
+        include_str!("fixtures/media_vocab/pulselink_mapping.ttl"),
+        3,
+        &[
+            ("SearchResult", "SearchResult"),
+            ("Transcript", "Transcript"),
+            ("Backend", "SourceBackend"),
+        ],
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R016.2
+#[test]
+fn media_vocab_pulselink_response_round_trips_through_mapping() {
+    let mapped = mapped_connector(
+        "pulselink",
+        include_str!("fixtures/media_vocab/pulselink_mapping.ttl"),
+        include_str!("fixtures/media_vocab/pulselink_response.json"),
+    );
+    assert_round_trip_nodes(&mapped, 8);
+    // The tracking parameter is stripped from the hit URL.
+    assert_eq!(
+        values_of(
+            &mapped,
+            &media_node("pulselink", "SearchResult", "yt-1"),
+            format!("{KG}canonicalUrl").as_str()
+        ),
+        vec!["https://video.invalid/watch?v=1".to_string()]
+    );
+    assert_eq!(
+        values_of(
+            &mapped,
+            &media_node("pulselink", "Transcript", "yt-3"),
+            format!("{KG}text").as_str()
+        ),
+        vec!["boil the water and add salt".to_string()]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R016.3
+#[test]
+fn media_vocab_pulselink_single() {
+    // "Which videos on a topic had transcripts mentioning a given term this
+    // week?" CONFIRMED: pulse_search finds the videos, pulse_transcribe
+    // returns a transcript per call. DECIDED: terms match only the
+    // transcripts fetched for at most FAN_OUT search hits.
+    const TERM: &str = "embedding";
+    const FAN_OUT: usize = 3;
+    const WEEK_SECONDS: i64 = 7 * 86400;
+    let mapped = mapped_connector(
+        "pulselink",
+        include_str!("fixtures/media_vocab/pulselink_mapping.ttl"),
+        include_str!("fixtures/media_vocab/pulselink_response.json"),
+    );
+    let transcripts = subjects_typed(&mapped, &["Transcript"]);
+    assert!(
+        transcripts.len() <= FAN_OUT,
+        "transcripts are fetched for a bounded number of hits"
+    );
+    let answer: BTreeSet<String> = subjects_typed(&mapped, &["SearchResult"])
+        .into_iter()
+        .filter_map(|result| {
+            let key = result.rsplit(':').next().unwrap().to_string();
+            let published = values_of(&mapped, &result, format!("{KG}publishedAt").as_str())
+                .into_iter()
+                .next()?;
+            let transcript = media_node("pulselink", "Transcript", &key);
+            let text = values_of(&mapped, &transcript, format!("{KG}text").as_str())
+                .into_iter()
+                .next()?;
+            (utc_seconds(&published) >= utc_seconds(ASOF) - WEEK_SECONDS && text.contains(TERM))
+                .then_some(key)
+        })
+        .collect();
+    assert_eq!(
+        answer,
+        ["yt-1"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>(),
+        "only the in-window hit whose fetched transcript names the term: {answer:?}"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R016.4
+#[test]
+fn media_vocab_pulselink_vocabulary_docs_truth() {
+    vocab_cell_is("R050", "media-v1 / content-v1");
+}
+
+// spec: EG-MEDIA-VOCAB-R017.2
+#[test]
+fn media_vocab_postiz_response_round_trips_through_mapping() {
+    let mapping = include_str!("fixtures/media_vocab/postiz_mapping.ttl");
+    assert_mapping_rows_resolve(
+        mapping,
+        2,
+        &[("Post", "SocialPost"), ("Channel", "PublishingChannel")],
+    );
+    let mapped = mapped_connector(
+        "postiz",
+        mapping,
+        include_str!("fixtures/media_vocab/postiz_response.json"),
+    );
+    // Four posts, two minted channel references, two integrations.
+    assert_round_trip_nodes(&mapped, 8);
+    let post = media_node("postiz", "Post", "post-2");
+    assert_eq!(
+        values_of(&mapped, &post, format!("{KG}postState").as_str()),
+        vec!["published".to_string()]
+    );
+    let channel = iri_of(&mapped, &post, format!("{KG}channelOf").as_str())
+        .expect("the post names its channel");
+    // A reference node shared by several records is typed once per record.
+    let types: BTreeSet<String> = values_of(&mapped, &channel, format!("{RDF}type").as_str())
+        .into_iter()
+        .collect();
+    assert_eq!(types, BTreeSet::from([format!("{KG}PublishingChannel")]));
+}
+
+// spec: EG-MEDIA-VOCAB-R017.3
+#[test]
+fn media_vocab_postiz_single() {
+    // "Which scheduled posts failed to publish and on which channel?"
+    // CONFIRMED op postiz_list_posts; DECIDED: the failed state is read from
+    // the post's state field, so no separate failures operation is needed.
+    let mapped = mapped_connector(
+        "postiz",
+        include_str!("fixtures/media_vocab/postiz_mapping.ttl"),
+        include_str!("fixtures/media_vocab/postiz_response.json"),
+    );
+    let mut failed: BTreeMap<String, (String, String)> = BTreeMap::new();
+    for post in subjects_typed(&mapped, &["SocialPost"]) {
+        let state = values_of(&mapped, &post, format!("{KG}postState").as_str());
+        let scheduled = values_of(&mapped, &post, format!("{KG}socialScheduledAt").as_str());
+        if state != ["failed".to_string()] || scheduled.is_empty() {
+            continue;
+        }
+        let channel = iri_of(&mapped, &post, format!("{KG}channelOf").as_str()).unwrap();
+        let channel_id = values_of(&mapped, &channel, format!("{KG}title").as_str())
+            .pop()
+            .unwrap();
+        let platform = values_of(
+            &mapped,
+            &media_node("postiz", "Channel", &channel_id),
+            format!("{KG}platform").as_str(),
+        )
+        .pop()
+        .expect("the channel integration names its platform");
+        failed.insert(
+            post.rsplit(':').next().unwrap().to_string(),
+            (channel_id, platform),
+        );
+    }
+    assert_eq!(
+        failed,
+        [("post-1", ("ch-x", "x")), ("post-3", ("ch-y", "linkedin")),]
+            .into_iter()
+            .map(|(k, (c, p))| (k.to_string(), (c.to_string(), p.to_string())))
+            .collect::<BTreeMap<_, _>>(),
+        "the failed scheduled posts and their channels"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R017.4
+#[test]
+fn media_vocab_postiz_vocabulary_docs_truth() {
+    vocab_cell_is("R049", "media-v1 / content-v1");
+}
+
+// spec: EG-MEDIA-VOCAB-R018.2
+#[test]
+fn media_vocab_listmonk_response_round_trips_through_mapping() {
+    let mapping = include_str!("fixtures/media_vocab/listmonk_mapping.ttl");
+    assert_mapping_rows_resolve(
+        mapping,
+        3,
+        &[
+            ("Campaign", "EmailCampaign"),
+            ("List", "MailingList"),
+            ("Subscriber", "Subscriber"),
+        ],
+    );
+    let response = include_str!("fixtures/media_vocab/listmonk_response.json");
+    assert!(
+        !response.contains('@'),
+        "the recorded subscribers carry a keyed hash, never a raw address"
+    );
+    let mapped = mapped_connector("listmonk", mapping, response);
+    // Five campaigns, two minted list references, two lists, two subscribers.
+    assert_round_trip_nodes(&mapped, 11);
+    let campaign = media_node("listmonk", "Campaign", "c4");
+    assert_eq!(
+        values_of(&mapped, &campaign, format!("{KG}viewCount").as_str()),
+        vec!["40".to_string()]
+    );
+    let list = iri_of(&mapped, &campaign, format!("{KG}sentToList").as_str())
+        .expect("the campaign names its list");
+    // A reference node shared by several records is typed once per record.
+    let types: BTreeSet<String> = values_of(&mapped, &list, format!("{RDF}type").as_str())
+        .into_iter()
+        .collect();
+    assert_eq!(types, BTreeSet::from([format!("{KG}MailingList")]));
+}
+
+// spec: EG-MEDIA-VOCAB-R018.3
+#[test]
+fn media_vocab_listmonk_single() {
+    // "Which campaigns had an open rate below the list average, and to which
+    // lists were they sent?" Open rate := viewCount / sentCount (DECIDED); the
+    // list average is the mean open rate of the campaigns sent to the list.
+    let mapped = mapped_connector(
+        "listmonk",
+        include_str!("fixtures/media_vocab/listmonk_mapping.ttl"),
+        include_str!("fixtures/media_vocab/listmonk_response.json"),
+    );
+    let mut rates: Vec<(String, String, f64)> = Vec::new();
+    for campaign in subjects_typed(&mapped, &["EmailCampaign"]) {
+        let number = |property: &str| -> f64 {
+            values_of(&mapped, &campaign, format!("{KG}{property}").as_str())
+                .pop()
+                .unwrap()
+                .parse()
+                .unwrap()
+        };
+        let list = iri_of(&mapped, &campaign, format!("{KG}sentToList").as_str()).unwrap();
+        let list_name = values_of(&mapped, &list, format!("{KG}title").as_str())
+            .pop()
+            .unwrap();
+        rates.push((
+            campaign.rsplit(':').next().unwrap().to_string(),
+            list_name,
+            number("viewCount") / number("sentCount"),
+        ));
+    }
+    let average = |list: &str| -> f64 {
+        let own: Vec<f64> = rates.iter().filter(|r| r.1 == list).map(|r| r.2).collect();
+        own.iter().sum::<f64>() / own.len() as f64
+    };
+    let below: BTreeMap<String, String> = rates
+        .iter()
+        .filter(|(_, list, rate)| *rate < average(list))
+        .map(|(id, list, _)| (id.clone(), list.clone()))
+        .collect();
+    assert_eq!(
+        below,
+        [("c2", "newsletter"), ("c4", "promo")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect::<BTreeMap<_, _>>(),
+        "the campaigns below their list average and the lists they went to"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R018.4
+#[test]
+fn media_vocab_listmonk_vocabulary_docs_truth() {
+    vocab_cell_is("R035", "media-v1 / content-v1");
+}
+
+// spec: EG-MEDIA-VOCAB-R019.2
+#[test]
+fn media_vocab_mattermost_response_round_trips_through_mapping() {
+    let mapping = include_str!("fixtures/media_vocab/mattermost_mapping.ttl");
+    assert_mapping_rows_resolve(
+        mapping,
+        2,
+        &[("Channel", "MessageChannel"), ("Message", "ChatMessage")],
+    );
+    let mapped = mapped_connector(
+        "mattermost",
+        mapping,
+        include_str!("fixtures/media_vocab/mattermost_response.json"),
+    );
+    // Four channels, three posts, two minted author references.
+    assert_round_trip_nodes(&mapped, 9);
+    let author = iri_of(
+        &mapped,
+        &media_node("mattermost", "Message", "m3"),
+        format!("{KG}postedBy").as_str(),
+    )
+    .expect("the post names its author");
+    assert_eq!(
+        values_of(&mapped, &author, format!("{RDF}type").as_str()),
+        vec![format!("{KG}Person")]
+    );
+    assert_eq!(
+        values_of(&mapped, &author, format!("{KG}title").as_str()),
+        vec!["bob".to_string()]
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R019.3
+#[test]
+fn media_vocab_mattermost_single() {
+    // "Which channels have had no posts in 90 days but still have more than
+    // ten members?" DECIDED: inactive := lastPostAt older than 90 days.
+    let mapped = mapped_connector(
+        "mattermost",
+        include_str!("fixtures/media_vocab/mattermost_mapping.ttl"),
+        include_str!("fixtures/media_vocab/mattermost_response.json"),
+    );
+    let answer: BTreeSet<String> = subjects_typed(&mapped, &["MessageChannel"])
+        .into_iter()
+        .filter(|channel| {
+            let members: i64 = values_of(&mapped, channel, format!("{KG}memberCount").as_str())
+                .pop()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let last = values_of(&mapped, channel, format!("{KG}lastPostAt").as_str())
+                .pop()
+                .unwrap();
+            members > 10 && days_since(&last, ASOF) > 90
+        })
+        .map(|channel| channel.rsplit(':').next().unwrap().to_string())
+        .collect();
+    // c4 has 11 members and exactly 90 idle days: inside the window.
+    assert_eq!(
+        answer,
+        ["c1"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>(),
+        "the idle channels with more than ten members: {answer:?}"
+    );
+}
+
+// spec: EG-MEDIA-VOCAB-R019.4
+#[test]
+fn media_vocab_mattermost_vocabulary_docs_truth() {
+    vocab_cell_is("R036", "media-v1 / content-v1");
+}

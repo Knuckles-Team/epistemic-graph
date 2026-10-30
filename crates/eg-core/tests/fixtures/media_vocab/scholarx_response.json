@@ -1,0 +1,40 @@
+{
+ "Paper": [
+  {
+   "id": "sx-1",
+   "title": "graph memory for agents",
+   "doi": "10.1000/gm.1",
+   "arxivId": "2401.00001",
+   "publishedAt": "2025-06-01T00:00:00Z",
+   "citationCount": 12
+  },
+  {
+   "id": "sx-2",
+   "title": "a survey of retrieval",
+   "doi": "10.1000/sr.2",
+   "arxivId": "2303.00002",
+   "publishedAt": "2023-03-01T00:00:00Z",
+   "citationCount": 40
+  },
+  {
+   "id": "sx-3",
+   "title": "entity linking at scale",
+   "doi": "10.1000/el.3",
+   "arxivId": "2511.00003",
+   "publishedAt": "2025-11-20T00:00:00Z",
+   "citationCount": 3
+  }
+ ],
+ "Category": [
+  {
+   "id": "cs.AI",
+   "name": "Artificial Intelligence"
+  }
+ ],
+ "Source": [
+  {
+   "id": "arxiv",
+   "name": "arXiv"
+  }
+ ]
+}

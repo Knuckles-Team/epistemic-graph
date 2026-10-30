@@ -1,0 +1,58 @@
+{
+ "SearchResult": [
+  {
+   "id": "r1",
+   "url": "https://a.invalid/1",
+   "rank": 1,
+   "engine": "google"
+  },
+  {
+   "id": "r2",
+   "url": "https://b.invalid/2",
+   "rank": 2,
+   "engine": "google"
+  },
+  {
+   "id": "r3",
+   "url": "https://c.invalid/3",
+   "rank": 3,
+   "engine": "bing"
+  },
+  {
+   "id": "r4",
+   "url": "https://d.invalid/4",
+   "rank": 4,
+   "engine": "google"
+  },
+  {
+   "id": "r5",
+   "url": "https://e.invalid/5",
+   "rank": 5,
+   "engine": "bing"
+  },
+  {
+   "id": "r6",
+   "url": "https://f.invalid/6",
+   "rank": 6,
+   "engine": "duckduckgo"
+  }
+ ],
+ "Engine": [
+  {
+   "id": "google",
+   "name": "google"
+  },
+  {
+   "id": "bing",
+   "name": "bing"
+  },
+  {
+   "id": "duckduckgo",
+   "name": "duckduckgo"
+  },
+  {
+   "id": "brave",
+   "name": "brave"
+  }
+ ]
+}
