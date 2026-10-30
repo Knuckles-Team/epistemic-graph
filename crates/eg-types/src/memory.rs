@@ -151,7 +151,9 @@ pub enum MemoryClass {
 /// The retention policy that prunes engine-held memory. A node under legal
 /// hold is never pruned by this policy; the refusal and its log entry are
 /// R617.4.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Deserialization goes through [`RetentionPolicy::new`], so a wire value
+/// cannot carry a policy the constructor refuses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RetentionPolicy {
@@ -205,7 +207,9 @@ impl RetentionPolicy {
 
 /// The context budget one context request carries; the optimizer chooses
 /// the smallest covering set within it (EG-DECISION-ENGINE-R045).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Deserialization goes through [`ContextBudget::new`], so a wire value
+/// cannot carry a budget the constructor refuses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ContextBudget {
@@ -242,6 +246,47 @@ impl ContextBudget {
             max_tokens,
             max_items,
         })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetentionPolicyWire {
+    tenant: String,
+    policy_id: String,
+    min_age_ms: u64,
+    classes: Vec<MemoryClass>,
+    max_per_step: u32,
+}
+
+impl<'de> Deserialize<'de> for RetentionPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = RetentionPolicyWire::deserialize(deserializer)?;
+        Self::new(
+            wire.tenant,
+            wire.policy_id,
+            wire.min_age_ms,
+            wire.classes,
+            wire.max_per_step,
+        )
+        .map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContextBudgetWire {
+    tenant: String,
+    budget_id: String,
+    max_tokens: u64,
+    max_items: u32,
+}
+
+impl<'de> Deserialize<'de> for ContextBudget {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = ContextBudgetWire::deserialize(deserializer)?;
+        Self::new(wire.tenant, wire.budget_id, wire.max_tokens, wire.max_items)
+            .map_err(serde::de::Error::custom)
     }
 }
 

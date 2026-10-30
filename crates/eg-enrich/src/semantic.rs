@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EnrichError, Id, MAX_ID_BYTES};
+use crate::{EnrichError, Id};
 
 /// The stable code of a refused classification confidence.
 pub const INVALID_CONFIDENCE: &str = "INVALID_CONFIDENCE";
@@ -190,7 +190,7 @@ mod tests {
     // spec: EG-DECISION-ENGINE-R614.1
     #[test]
     fn semantic_types_reject_invalid_identifiers() {
-        for bad in ["", "has space", &"x".repeat(MAX_ID_BYTES + 1)] {
+        for bad in ["", "has space", &"x".repeat(crate::MAX_ID_BYTES + 1)] {
             assert_eq!(Id::new(bad).unwrap_err().code, crate::INVALID_IDENTIFIER);
         }
         let bad_card = serde_json::to_value(card()).unwrap();
