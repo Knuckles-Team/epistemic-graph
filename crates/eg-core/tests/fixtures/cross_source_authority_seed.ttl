@@ -3,6 +3,7 @@
 @prefix vg: <http://knuckles.team/kg/virtual-graph#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix dc: <http://purl.org/dc/terms/> .
 @prefix xsaa: <http://knuckles.team/xsrc/seed-authority#> .
 
 # Seed authority rows for the cross-source competency questions
@@ -28,6 +29,7 @@ xsaa:systems-manager a vg:SourceConnection ; rdfs:label "systems-manager-mcp" .
 xsaa:salesforce a vg:SourceConnection ; rdfs:label "salesforce-mcp" .
 xsaa:twenty a vg:SourceConnection ; rdfs:label "twenty-mcp" .
 xsaa:archimate a vg:SourceConnection ; rdfs:label "archimate-mcp" .
+xsaa:ciso a vg:SourceConnection ; rdfs:label "ciso-assistant-mcp" .
 
 # --- Suppliers and purchase items (EG-CQ-XSRC-R002.5 judgement: ERPNext is the
 #     transactional procurement system; LeanIX is the architecture catalogue) ---
@@ -170,3 +172,62 @@ xsaa:customer-contract-twenty a vg:SourceAuthority ;
     vg:authoritativeSource xsaa:twenty ;
     vg:authorityFor :CustomerContract ;
     vg:authorityRank 2 .
+
+# --- Third-party risk (EG-CQ-XSRC-R002.5: the GRC register is authoritative) ---
+
+xsaa:technology-risk-ciso a vg:SourceAuthority ;
+    vg:authoritativeSource xsaa:ciso ;
+    vg:authorityFor :TechnologyRisk ;
+    vg:authorityRank 1 .
+
+# --- Facet rows (EG-CQ-XSRC-R003.1, R003.2): where two sources hold different
+#     facets of one class, the row names the facet instead of the whole class.
+#     A class-level question is unaffected; a facet question reads these. ---
+
+xsaa:service-health-uptime a vg:SourceAuthority ;
+    vg:authoritativeSource xsaa:uptime ;
+    vg:authorityFor infra:Service ;
+    vg:authorityFacet :healthStatus ;
+    vg:authorityRank 1 .
+
+xsaa:service-health-lgtm a vg:SourceAuthority ;
+    vg:authoritativeSource xsaa:lgtm ;
+    vg:authorityFor infra:Service ;
+    vg:authorityFacet :healthStatus ;
+    vg:authorityRank 2 .
+
+xsaa:service-identity-servicenow a vg:SourceAuthority ;
+    vg:authoritativeSource xsaa:servicenow ;
+    vg:authorityFor infra:Service ;
+    vg:authorityFacet dc:identifier ;
+    vg:authorityRank 1 .
+
+xsaa:image-deployment-container-manager a vg:SourceAuthority ;
+    vg:authoritativeSource xsaa:container-manager ;
+    vg:authorityFor infra:ContainerImage ;
+    vg:authorityFacet infra:deployedAs ;
+    vg:authorityRank 1 .
+
+xsaa:image-deployment-portainer a vg:SourceAuthority ;
+    vg:authoritativeSource xsaa:portainer ;
+    vg:authorityFor infra:ContainerImage ;
+    vg:authorityFacet infra:deployedAs ;
+    vg:authorityRank 2 .
+
+xsaa:host-placement-container-manager a vg:SourceAuthority ;
+    vg:authoritativeSource xsaa:container-manager ;
+    vg:authorityFor infra:Host ;
+    vg:authorityFacet infra:hostedBy ;
+    vg:authorityRank 1 .
+
+xsaa:host-placement-portainer a vg:SourceAuthority ;
+    vg:authoritativeSource xsaa:portainer ;
+    vg:authorityFor infra:Host ;
+    vg:authorityFacet infra:hostedBy ;
+    vg:authorityRank 2 .
+
+xsaa:host-hardware-systems-manager a vg:SourceAuthority ;
+    vg:authoritativeSource xsaa:systems-manager ;
+    vg:authorityFor infra:Host ;
+    vg:authorityFacet :hardwareFacts ;
+    vg:authorityRank 1 .

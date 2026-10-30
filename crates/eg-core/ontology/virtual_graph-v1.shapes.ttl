@@ -133,7 +133,8 @@ vg:SourceAuthorityShape a sh:NodeShape ;
     sh:targetClass vg:SourceAuthority ;
     sh:property [
         sh:path vg:authoritativeSource ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
-        sh:message "A SourceAuthority names exactly one authoritativeSource."
+        sh:class vg:SourceConnection ;
+        sh:message "A SourceAuthority names exactly one authoritativeSource, a vg:SourceConnection."
     ] ;
     sh:property [
         sh:path vg:authorityFor ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;

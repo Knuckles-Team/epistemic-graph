@@ -180,3 +180,31 @@ fn equal_rank_claims_by_two_sources_are_refused() {
     let facet = second(1).replace(" .", " ; vg:authorityFacet ex:temperature .");
     accepted(&format!("{VALID}\n{facet}"));
 }
+
+// spec: EG-CQ-XSRC-R001.2
+#[test]
+fn an_authority_names_one_connected_source_one_class_and_one_rank() {
+    accepted(VALID);
+    refused_with(
+        &row_without("vg:authoritativeSource ex:cmdb ;"),
+        "exactly one authoritativeSource",
+    );
+    refused_with(
+        &row_without("vg:authorityFor ex:Host ;"),
+        "exactly one authorityFor",
+    );
+    refused_with(
+        &row_without("vg:authorityRank 1 ;"),
+        "positive integer authorityRank",
+    );
+    // A source that is not a vg:SourceConnection is refused.
+    refused_with(
+        &VALID.replace("vg:authoritativeSource ex:cmdb", "vg:authoritativeSource ex:nowhere"),
+        "a vg:SourceConnection",
+    );
+    // Two authorities of equal rank for one class are refused.
+    let tie = "ex:a2 a vg:SourceAuthority ; vg:authoritativeSource ex:hw ;\n\
+        vg:authorityFor ex:Host ; vg:authorityMapping ex:m2 ; vg:authorityRank 1 ;\n\
+        vg:authorityContract \"mcp\" .";
+    refused_with(&format!("{VALID}\n{tie}"), "equal authorityRank");
+}

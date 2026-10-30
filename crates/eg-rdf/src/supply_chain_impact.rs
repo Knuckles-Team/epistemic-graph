@@ -150,4 +150,68 @@ mod tests {
                 if source == "dockerhub-mcp" && class == "ContainerImage"
         )));
     }
+
+    // spec: EG-CQ-XSRC-R006.3
+    #[test]
+    fn each_abstention_kind_is_reported_and_other_services_still_report() {
+        let rows = vec![ImpactRow {
+            service: "http://knuckles.team/xsrc#checkout".to_string(),
+            supplier: "http://knuckles.team/xsrc#supplier-acme".to_string(),
+            component_version: "http://knuckles.team/xsrc#version-1.18.0".to_string(),
+            vulnerability: None,
+            impact_kind: eg_types::supply_chain_report::ImpactKind::RuntimeChain,
+            source: "erpnext-mcp".to_string(),
+        }];
+        let base = || {
+            CoverageFixture::new()
+                .with_relation("Service", "usesComponent", "Supplier")
+                .with_authority("Supplier", "erpnext-suppliers", "erpnext-mcp", 1, 1)
+        };
+        let report_for = |fixture: &CoverageFixture, roots: &[&str]| {
+            let roots: Vec<String> = roots.iter().map(|r| r.to_string()).collect();
+            supply_chain_impact(fixture, &roots, 2, &rows).expect("a report, never an error")
+        };
+        // Unconnected: the rank-1 source is absent from the catalog.
+        let unconnected = base()
+            .with_authority("Image", "dockerhub-images", "dockerhub-mcp", 1, 1)
+            .with_unconnected_source("dockerhub-mcp");
+        let report = report_for(&unconnected, &["Service", "Supplier", "Image"]);
+        assert!(report
+            .abstentions
+            .iter()
+            .any(|a| matches!(a, ReportAbstention::Unconnected { .. })));
+        // Uncovered: a related class with no authority row and no mapping.
+        let uncovered = base().with_relation("Service", "hasVuln", "Vulnerability");
+        let report = report_for(&uncovered, &["Service", "Supplier", "Vulnerability"]);
+        assert!(report
+            .abstentions
+            .iter()
+            .any(|a| matches!(a, ReportAbstention::Uncovered { .. })));
+        // Disconnected: a class with no path to a queried root.
+        let disconnected = base().with_relation("Island", "linksTo", "Atoll");
+        let report = report_for(&disconnected, &["Service", "Supplier"]);
+        assert!(report
+            .abstentions
+            .iter()
+            .any(|a| matches!(a, ReportAbstention::Disconnected { .. })));
+        // UnapprovedMapping: the row's mapping is not approved.
+        let mut row =
+            eg_rdf_row("Image", "dockerhub-images", "dockerhub-mcp");
+        row.approved = false;
+        let unapproved = base().with_row(row);
+        let report = report_for(&unapproved, &["Service", "Supplier", "Image"]);
+        assert!(report
+            .abstentions
+            .iter()
+            .any(|a| matches!(a, ReportAbstention::UnapprovedMapping { .. })));
+        // Every case still reports the other service's impact.
+        for fixture in [&unconnected, &uncovered, &disconnected, &unapproved] {
+            let report = report_for(fixture, &["Service", "Supplier"]);
+            assert_eq!(report.service_impacts.len(), 1);
+        }
+    }
+
+    fn eg_rdf_row(class: &str, mapping: &str, source: &str) -> crate::source_selection::AuthorityRow {
+        crate::source_selection::AuthorityRow::new(class, mapping, source, 1, 1)
+    }
 }

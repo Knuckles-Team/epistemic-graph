@@ -13,7 +13,10 @@ use std::collections::BTreeSet;
 use eg_core::graph::GraphCore;
 use eg_rdf::mapping::parse_turtle;
 use eg_rdf::oxrdf::{NamedOrBlankNode, Term};
-use eg_rdf::source_selection::{select_sources, CoverageFixture, CoverageResult, Premise};
+use eg_rdf::source_selection::{
+    select_sources, select_sources_with, AuthorityRow, CoverageFixture, CoverageResult, Premise,
+    SelectionQuery,
+};
 use eg_rdf::sparql::{execute, Dataset, Projection, QueryOutcome};
 
 const KG: &str = "http://knuckles.team/kg#";
@@ -47,9 +50,19 @@ struct SeedRow {
     class: String,
     rank: u64,
     allow_fallback: bool,
+    facet: Option<String>,
 }
 
+/// The class-level rows only: facet rows name one facet of a class and do not
+/// change a class-level plan.
 fn seed_rows() -> Vec<SeedRow> {
+    all_seed_rows()
+        .into_iter()
+        .filter(|row| row.facet.is_none())
+        .collect()
+}
+
+fn all_seed_rows() -> Vec<SeedRow> {
     let triples = parse_turtle(SEED).unwrap();
     let mut labels = BTreeMap::new();
     for triple in &triples {
@@ -79,6 +92,7 @@ fn seed_rows() -> Vec<SeedRow> {
             class: String::new(),
             rank: u64::MAX,
             allow_fallback: false,
+            facet: None,
         };
         for fact in triples.iter().filter(|fact| {
             matches!(&fact.subject,
@@ -99,6 +113,11 @@ fn seed_rows() -> Vec<SeedRow> {
                 pred if pred == format!("{VG}authorityRank") => {
                     if let Term::Literal(literal) = &fact.object {
                         row.rank = literal.value().parse().unwrap();
+                    }
+                }
+                pred if pred == format!("{VG}authorityFacet") => {
+                    if let Term::NamedNode(node) = &fact.object {
+                        row.facet = Some(node.as_str().to_string());
                     }
                 }
                 pred if pred == format!("{VG}allowFallback") => {
@@ -383,4 +402,106 @@ fn the_incident_contract_question_plans_to_exactly_the_named_sources() {
         .map(String::from)
         .collect::<BTreeSet<String>>()
     );
+}
+
+const DC_IDENTIFIER: &str = "http://purl.org/dc/terms/identifier";
+
+/// The whole seed as a plan fixture: class rows and facet rows both.
+fn seed_fixture() -> CoverageFixture {
+    all_seed_rows()
+        .into_iter()
+        .fold(CoverageFixture::new(), |fixture, row| {
+            let authority =
+                AuthorityRow::new(&row.class, &row.source, &row.source, 1, row.rank);
+            fixture.with_row(match &row.facet {
+                Some(facet) => authority.facet(facet),
+                None => authority,
+            })
+        })
+}
+
+/// The winning source and the alternates for `class`, or for one `facet` of it.
+fn winner(class: &str, facet: Option<&str>) -> (String, Vec<String>) {
+    let fixture = seed_fixture();
+    let class_iri = plan_class(class);
+    let query = SelectionQuery {
+        facets: facet
+            .map(|property| vec![(class_iri.clone(), property.to_string())])
+            .unwrap_or_default(),
+        ..SelectionQuery::default()
+    };
+    let results = select_sources_with(&fixture, &[class_iri.clone()], 1, &query);
+    let verdict = results
+        .iter()
+        .find(|result| {
+            result.class() == class_iri
+                && matches!(result, CoverageResult::Covered { facet: f, .. } if f.as_deref() == facet)
+        })
+        .unwrap_or_else(|| panic!("{class} {facet:?} must be covered: {results:?}"));
+    let CoverageResult::Covered {
+        mapping_name,
+        alternates,
+        ..
+    } = verdict
+    else {
+        unreachable!()
+    };
+    (mapping_name.clone(), alternates.clone())
+}
+
+// spec: EG-CQ-XSRC-R002.5
+#[test]
+fn suppliers_and_purchase_items_select_erpnext_then_leanix_and_risk_selects_ciso() {
+    for class in ["Supplier", "SupplyChainItem"] {
+        let (first, alternates) = winner(class, None);
+        assert_eq!(first, "erpnext-mcp", "{class}");
+        assert_eq!(alternates, ["leanix-mcp"], "{class}");
+    }
+    assert_eq!(winner("TechnologyRisk", None).0, "ciso-assistant-mcp");
+}
+
+// spec: EG-CQ-XSRC-R002.6
+#[test]
+fn images_select_the_registry_and_vulnerabilities_the_code_host() {
+    let (image, image_alternates) = winner("infra:ContainerImage", None);
+    assert_eq!(image, "dockerhub-mcp");
+    assert_eq!(image_alternates, ["github-mcp"]);
+    let (vulnerability, vulnerability_alternates) = winner("Vulnerability", None);
+    assert_eq!(vulnerability, "gitlab-mcp");
+    assert_eq!(vulnerability_alternates, ["github-mcp"]);
+    let (component, component_alternates) = winner("SoftwareComponent", None);
+    assert_eq!(component, "github-mcp");
+    assert_eq!(component_alternates, ["dockerhub-mcp"]);
+}
+
+// spec: EG-CQ-XSRC-R003.1
+#[test]
+fn service_health_selects_uptime_then_lgtm_and_identity_selects_the_cmdb() {
+    let (health, alternates) = winner("infra:Service", Some(&format!("{KG}healthStatus")));
+    assert_eq!(health, "uptime-mcp");
+    assert!(alternates.contains(&"lgtm-mcp".to_string()), "{alternates:?}");
+    let (identity, _) = winner("infra:Service", Some(DC_IDENTIFIER));
+    assert_eq!(identity, "servicenow-mcp");
+}
+
+// spec: EG-CQ-XSRC-R003.2
+#[test]
+fn deployed_images_and_placement_select_the_orchestrator_and_hardware_systems_manager() {
+    let deployed = format!("{INFRA}deployedAs");
+    let (image, alternates) = winner("infra:ContainerImage", Some(&deployed));
+    assert_eq!(image, "container-manager-mcp");
+    assert!(alternates.contains(&"portainer-mcp".to_string()), "{alternates:?}");
+    let (placement, alternates) = winner("infra:Host", Some(&format!("{INFRA}hostedBy")));
+    assert_eq!(placement, "container-manager-mcp");
+    assert!(alternates.contains(&"portainer-mcp".to_string()), "{alternates:?}");
+    let (hardware, _) = winner("infra:Host", Some(&format!("{KG}hardwareFacts")));
+    assert_eq!(hardware, "systems-manager-mcp");
+}
+
+// spec: EG-CQ-XSRC-R003.3
+#[test]
+fn business_capabilities_select_leanix_then_archimate() {
+    let (first, alternates) = winner("BusinessCapability", None);
+    assert_eq!(first, "leanix-mcp");
+    assert_eq!(alternates, ["archimate-mcp"]);
 }

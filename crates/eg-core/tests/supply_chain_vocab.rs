@@ -2050,3 +2050,66 @@ ex:acmeCustomer a kg:Customer ;
         report.results
     );
 }
+
+// spec: EG-CQ-XSRC-R002.4
+#[test]
+fn supplier_needs_a_name_and_component_version_needs_component_and_version() {
+    let conforms = |body: &str| {
+        let data = format!("{SUPPLY_SHAPE_DATA_PREFIX}\n{body}");
+        eg_shacl::validate_turtle(SUPPLY_SHAPES, &data)
+            .expect("fixture parses")
+            .conforms
+    };
+    let component = "ex:openssl a kg:SoftwareComponent .\n";
+    assert!(conforms(&format!(
+        "ex:acme a kg:Supplier ; rdfs:label \"Acme\" .\n{component}\
+         ex:v a kg:ComponentVersion ; kg:supplyChainVersionOf ex:openssl ; kg:versionString \"1.0\" ."
+    )));
+    assert!(!conforms("ex:nameless a kg:Supplier ."));
+    assert!(!conforms(&format!(
+        "{component}ex:v a kg:ComponentVersion ; kg:supplyChainVersionOf ex:openssl ."
+    )));
+    assert!(!conforms(
+        "ex:v a kg:ComponentVersion ; kg:versionString \"1.0\" ."
+    ));
+}
+
+// spec: EG-CQ-XSRC-R004.2
+#[test]
+fn uses_component_refuses_a_non_service_subject_and_a_non_component_object() {
+    let conforms = |body: &str| {
+        let data = format!(
+            "{SUPPLY_SHAPE_DATA_PREFIX}\n@prefix infra: <http://knuckles.team/kg/infrastructure#> .\n{body}"
+        );
+        eg_shacl::validate_turtle(SUPPLY_SHAPES, &data)
+            .expect("fixture parses")
+            .conforms
+    };
+    let version = "ex:v a kg:ComponentVersion ; kg:supplyChainVersionOf ex:c ; kg:versionString \"1\" .\nex:c a kg:SoftwareComponent .\n";
+    assert!(conforms(&format!("{version}ex:s a infra:Service ; kg:usesComponent ex:v .")));
+    assert!(!conforms(&format!("{version}ex:w a infra:Workload ; kg:usesComponent ex:v .")));
+    assert!(!conforms(&format!(
+        "{version}ex:s a infra:Service ; kg:usesComponent ex:c ."
+    )));
+}
+
+// spec: EG-CQ-XSRC-R008.3.2
+#[test]
+fn a_contract_names_a_customer_and_at_least_one_service() {
+    let shapes = commercial_shapes();
+    let conforms = |body: &str| {
+        eg_shacl::validate_turtle(&shapes, &format!("{COMMERCE_DATA_PREFIX}\n{body}"))
+            .expect("fixture parses")
+            .conforms
+    };
+    let parties = "ex:c a kg:Customer .\nex:s a infra:Service .\n";
+    assert!(conforms(&format!(
+        "{parties}ex:k a kg:CustomerContract ; kg:contractCustomer ex:c ; kg:coversService ex:s ."
+    )));
+    assert!(!conforms(&format!(
+        "{parties}ex:k a kg:CustomerContract ; kg:coversService ex:s ."
+    )));
+    assert!(!conforms(&format!(
+        "{parties}ex:k a kg:CustomerContract ; kg:contractCustomer ex:c ."
+    )));
+}
