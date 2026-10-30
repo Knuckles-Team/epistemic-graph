@@ -51,6 +51,7 @@ from .client import (
     RequestContextClaims,
     validate_request_context,
 )
+from .placement import select_transport
 
 logger = logging.getLogger(__name__)
 
@@ -178,30 +179,21 @@ class ConnectionPool:
                 self._pool.put_nowait(client)
 
     async def _create_client(self) -> EpistemicGraphClient:
-        if self.endpoint.startswith(("tcp://", "tls://")):
-            use_tls = self.endpoint.startswith("tls://")
-            tcp_addr = self.endpoint[6:]
+        # EG-PLACEMENT-R611: transport selection is the one shared function.
+        transport = select_transport(self.endpoint)
+        if transport.kind == "unix":
             client = await EpistemicGraphClient.connect(
-                tcp_addr=tcp_addr,
-                auth_secret=self.auth_secret,
-                verified_context=self.verified_context,
-                tls=use_tls,
-                node_id=self.node_id,
-            )
-        elif self.endpoint.startswith("unix://"):
-            socket_path = self.endpoint[7:]
-            client = await EpistemicGraphClient.connect(
-                socket_path=socket_path,
+                socket_path=transport.address,
                 auth_secret=self.auth_secret,
                 verified_context=self.verified_context,
                 node_id=self.node_id,
             )
         else:
-            # Default to socket if no scheme provided
             client = await EpistemicGraphClient.connect(
-                socket_path=self.endpoint,
+                tcp_addr=transport.address,
                 auth_secret=self.auth_secret,
                 verified_context=self.verified_context,
+                tls=transport.kind in ("tls", "mtls"),
                 node_id=self.node_id,
             )
 
