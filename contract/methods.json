@@ -30229,6 +30229,7 @@
         "OPERATION_REDIRECTED",
         "READ_ONLY",
         "REDIRECTED",
+        "RULE_CONTRADICTS_INVARIANT",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
         "TIMEOUT"

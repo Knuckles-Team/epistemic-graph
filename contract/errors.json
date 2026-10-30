@@ -1460,6 +1460,12 @@
       "retryable": false
     },
     {
+      "class": "validation",
+      "code": "RULE_CONTRADICTS_INVARIANT",
+      "http_status_hint": 409,
+      "retryable": false
+    },
+    {
       "class": "availability",
       "code": "RUN_ADMISSION_UNAVAILABLE",
       "http_status_hint": 409,
