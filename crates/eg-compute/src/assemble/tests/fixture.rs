@@ -35,7 +35,8 @@ fn claim(component_id: &str) -> PremiseRef {
             component_id: component_id.to_string(),
             definition_digest: digest_of(component_id),
         },
-    }
+    },
+    trust_tier: None,
 }
 
 pub fn candidate(

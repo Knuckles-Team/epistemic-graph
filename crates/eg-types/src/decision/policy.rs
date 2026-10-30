@@ -142,6 +142,10 @@ pub struct StatisticalPolicy {
     /// advised (EG-DECISION-ENGINE-R131.3). Empty guards nothing.
     #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
     pub limit_rules: BoundedVec<crate::decision::limit_guard::LimitRule, 64>,
+    /// The source record retrieved entries are admitted against
+    /// (EG-DECISION-ENGINE-R132.2).
+    #[serde(default, skip_serializing_if = "crate::decision::entry_trust::EntryTrustPolicy::is_empty")]
+    pub entry_trust: crate::decision::entry_trust::EntryTrustPolicy,
 }
 
 /// The complete decision policy.

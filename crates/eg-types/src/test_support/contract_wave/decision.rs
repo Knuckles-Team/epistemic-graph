@@ -157,6 +157,7 @@ pub fn premises() -> Vec<PremiseRef> {
         fact: "classification".to_string(),
         class,
         provenance,
+        trust_tier: None,
     })
     .collect()
 }
@@ -222,6 +223,10 @@ pub fn every_abstain_reason() -> Vec<AbstainReason> {
         AbstainReason::InsufficientConfidence,
         AbstainReason::LimitBreach {
             rule_id: "limit-a".to_string(),
+        },
+        AbstainReason::PoisonedEntry {
+            entry_id: "entry-a".to_string(),
+            check: crate::decision::entry_trust::EntryCheck::PoisonCheck,
         },
     ]
 }

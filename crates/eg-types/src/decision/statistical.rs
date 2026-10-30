@@ -243,6 +243,11 @@ pub struct DecideRequest {
     /// abstention naming the rule (EG-DECISION-ENGINE-R131.3, R131.4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guarded_action: Option<crate::decision::limit_guard::GuardedAction>,
+    /// Memory or knowledge entries the retrieval caller offers as premises.
+    /// Each passes the entry-trust check before it can become a premise
+    /// (EG-DECISION-ENGINE-R132.3).
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub retrieved_entries: BoundedVec<crate::decision::entry_trust::RetrievedEntry, 64>,
 }
 
 /// How the feature matrix the decision read is pinned.
@@ -330,6 +335,10 @@ pub struct StatisticalInputs {
     /// re-derive the same breaches (EG-DECISION-ENGINE-R131.3, R131.5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guarded_action: Option<crate::decision::limit_guard::GuardedAction>,
+    /// The retrieved entries the decision admitted from, so a replay re-runs
+    /// the same check (EG-DECISION-ENGINE-R132.3).
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub retrieved_entries: BoundedVec<crate::decision::entry_trust::RetrievedEntry, 64>,
 }
 
 /// One statistical decision, recorded. Record version 2.
@@ -375,6 +384,10 @@ pub struct StatisticalDecisionRecord {
     /// The head's belief at each requested slice (EH-297); omitted when none.
     #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
     pub belief: BoundedVec<belief::BeliefPoint, 8>,
+    /// Every retrieved entry the trust check refused, with its tier and check
+    /// name (EG-DECISION-ENGINE-R132.5).
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub refused_entries: BoundedVec<crate::decision::entry_trust::RefusedEntry, 64>,
     /// Synthetic evidence is labelled as such, always.
     pub synthetic_evidence: bool,
     pub record_digest: String,

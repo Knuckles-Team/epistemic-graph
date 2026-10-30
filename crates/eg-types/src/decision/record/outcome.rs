@@ -53,6 +53,12 @@ pub enum AbstainReason {
     /// Statistical: a proposed action breaches a configured limit. Names the
     /// first breached rule (EG-DECISION-ENGINE-R131.4).
     LimitBreach { rule_id: String },
+    /// Statistical: every retrieved entry for a required premise was refused
+    /// by the entry-trust check (EG-DECISION-ENGINE-R132.4).
+    PoisonedEntry {
+        entry_id: String,
+        check: crate::decision::entry_trust::EntryCheck,
+    },
 }
 
 /// Why one candidate did not win its slot.

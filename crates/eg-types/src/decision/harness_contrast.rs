@@ -897,6 +897,7 @@ mod tests {
             exploration: None,
             belief_slices: BoundedVec::new(Vec::new()).unwrap(),
             guarded_action: None,
+            retrieved_entries: Default::default(),
             harness_contrast: Some(decision.clone()),
         };
         let inputs_digest = digest_text(INPUTS_DOMAIN, &(question.clone(), &inputs));
@@ -936,6 +937,7 @@ mod tests {
             logging_propensities: BoundedVec::new(Vec::new()).unwrap(),
             nl_binding: None,
             belief: BoundedVec::new(Vec::new()).unwrap(),
+            refused_entries: BoundedVec::default(),
             synthetic_evidence: false,
             record_digest: String::new(),
         };

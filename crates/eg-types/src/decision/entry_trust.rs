@@ -48,8 +48,15 @@ pub struct EntryTrustPolicy {
     pub known_source_digests: BTreeSet<String>,
 }
 
+impl EntryTrustPolicy {
+    /// Whether no source is known (the serde-skipped default).
+    pub fn is_empty(&self) -> bool {
+        self.known_source_digests.is_empty()
+    }
+}
+
 /// The named rule that refused an entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum EntryCheck {

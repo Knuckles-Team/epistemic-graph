@@ -63,6 +63,7 @@ pub(super) fn tool_subset_request(
         max_records: None,
         belief_as_of: BoundedVec::default(),
         guarded_action: None,
+        retrieved_entries: Default::default(),
     }
 }
 

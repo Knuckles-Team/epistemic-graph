@@ -190,6 +190,13 @@ pub(super) fn replay(
     let matrix = stored_matrix(record)?;
     let options = matrix.candidate_ids.len();
     let replayed = run_on_matrix(&matrix_inputs, &pinned, &policy, matrix)?;
+    let admission =
+        super::stat_entry_trust::admit(inputs.retrieved_entries.as_slice(), &policy);
+    let replayed = super::stat_entry_trust::guard(
+        replayed,
+        inputs.retrieved_entries.as_slice(),
+        &admission,
+    );
     let replayed =
         super::stat_limit_guard::guard(replayed, inputs.guarded_action.as_ref(), &policy);
     let explanation = recorded_explanation(&pinned, &replayed)? == record.explanation;

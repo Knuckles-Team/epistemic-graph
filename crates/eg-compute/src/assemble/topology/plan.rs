@@ -121,6 +121,7 @@ impl Question<'_> {
                 component_id: self.template.graph_id.clone(),
                 definition_digest: self.template.definition_digest.clone(),
             },
+            trust_tier: None,
         }];
         out.extend(super::admissible::premises(self));
         out.extend(self.read.headroom.iter().map(|headroom| PremiseRef {
@@ -131,6 +132,7 @@ impl Question<'_> {
                 cell_id: headroom.cell_id.clone(),
                 epoch: headroom.epoch,
             },
+            trust_tier: None,
         }));
         out
     }

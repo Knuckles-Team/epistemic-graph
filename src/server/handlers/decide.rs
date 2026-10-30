@@ -70,6 +70,8 @@ mod stat_support;
 #[cfg(feature = "decide")]
 pub(crate) mod stat_limit_guard;
 #[cfg(feature = "decide")]
+mod stat_entry_trust;
+#[cfg(feature = "decide")]
 mod stat_task_plan;
 #[cfg(feature = "decide")]
 mod stat_tool_subset;

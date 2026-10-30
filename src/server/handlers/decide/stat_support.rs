@@ -175,6 +175,7 @@ pub(super) fn default_statistical_policy() -> StatisticalPolicy {
         compact_after_ms: None,
         drop_blob_after_ms: None,
         limit_rules: Default::default(),
+        entry_trust: Default::default(),
     }
 }
 

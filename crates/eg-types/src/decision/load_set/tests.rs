@@ -37,6 +37,7 @@ fn load_set_round_trips() {
             provenance: PremiseProvenance::Request {
                 field: "required_capabilities".into(),
             },
+            trust_tier: None,
         }],
     };
     let value = serde_json::to_value(&answer).unwrap();

@@ -171,6 +171,12 @@ fn decide_blocking(
             None => execute(ctx, request, &pinned, &policy, &candidates.views)?,
         },
     };
+    let admission = super::stat_entry_trust::admit(request.retrieved_entries.as_slice(), &policy);
+    let executed = super::stat_entry_trust::guard(
+        executed,
+        request.retrieved_entries.as_slice(),
+        &admission,
+    );
     let executed = super::stat_limit_guard::guard(executed, request.guarded_action.as_ref(), &policy);
     let slices = live_slices(ctx, request, &pinned, &candidates.views)?;
     let nl = binding(request, &executed.ladder.outcome, &candidates.entries)?;
@@ -257,7 +263,8 @@ fn premise(
         fact: fact.to_string(),
         class,
         provenance,
-    }
+    },
+    trust_tier: None,
 }
 
 /// One CLAIM premise per rule-derived class (EH-200): a derivation over a
@@ -423,12 +430,18 @@ fn seal(
         exploration: exploration(&sealing, executed),
         belief_slices: bounded(sealing.slices.inputs.clone())?,
         guarded_action: sealing.request.guarded_action.clone(),
+        retrieved_entries: sealing.request.retrieved_entries.clone(),
     };
     let inputs_digest = digest_text(
         STATISTICAL_INPUTS_DOMAIN,
         &(&sealing.request.question, &inputs),
     );
+    let admission = super::stat_entry_trust::admit(
+        sealing.request.retrieved_entries.as_slice(),
+        sealing.policy,
+    );
     let mut premise_list = premises(&sealing, nl.as_ref());
+    premise_list.extend(super::stat_entry_trust::premises(&admission));
     if let Some(plan) = &task_plan {
         premise_list.extend(super::stat_task_plan::premises(plan));
     }
@@ -465,6 +478,7 @@ fn seal(
         logging_propensities: bounded(executed.ladder.logging.clone())?,
         nl_binding: nl,
         belief: bounded(sealing.slices.points.clone())?,
+        refused_entries: bounded(admission.refused.clone())?,
         synthetic_evidence: synthetic,
         record_digest: String::new(),
     };

@@ -190,6 +190,7 @@ fn publisher_premises(entry: &AgentComponentEntry) -> Vec<PremiseRef> {
                 component_id: entry.component_id.clone(),
                 definition_digest: entry.definition_digest.clone(),
             },
+            trust_tier: None,
         })
         .collect()
 }

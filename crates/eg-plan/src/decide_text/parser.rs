@@ -413,6 +413,7 @@ impl<'a> Parser<'a> {
             max_records: q.max_records,
             belief_as_of: Default::default(),
             guarded_action: None,
+            retrieved_entries: Default::default(),
         })))
     }
 

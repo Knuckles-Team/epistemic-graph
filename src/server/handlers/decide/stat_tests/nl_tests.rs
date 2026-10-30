@@ -53,6 +53,7 @@ fn nl_request(schema: &ComponentDependency, params: Vec<TypedParam>) -> DecideRe
         max_records: None,
         belief_as_of: BoundedVec::default(),
         guarded_action: None,
+        retrieved_entries: Default::default(),
     }
 }
 

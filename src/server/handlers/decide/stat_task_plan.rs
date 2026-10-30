@@ -90,6 +90,7 @@ fn call_premises(task: &TaskPlanTask) -> Vec<PremiseRef> {
         provenance: PremiseProvenance::Request {
             field: field.to_string(),
         },
+        trust_tier: None,
     };
     let references: Vec<&str> = bindings.iter().map(|b| b.reference.as_str()).collect();
     let mut out = vec![claim(
@@ -128,6 +129,7 @@ pub(super) fn premises(plan: &TaskPlan) -> Vec<PremiseRef> {
             provenance: PremiseProvenance::Request {
                 field: "params.task_plan.tasks".to_string(),
             },
+            trust_tier: None,
         })
         .collect();
     for task in plan.tasks.iter() {
@@ -143,6 +145,7 @@ pub(super) fn premises(plan: &TaskPlan) -> Vec<PremiseRef> {
         provenance: PremiseProvenance::Policy {
             policy_digest: plan.policy_digest.clone(),
         },
+        trust_tier: None,
     });
     out
 }

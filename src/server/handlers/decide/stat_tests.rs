@@ -276,6 +276,7 @@ fn request(
         max_records: None,
         belief_as_of: BoundedVec::default(),
         guarded_action: None,
+        retrieved_entries: Default::default(),
     }
 }
 
@@ -1206,6 +1207,8 @@ mod classes_tests;
 mod tool_subset_tests;
 
 mod limit_guard_tests;
+
+mod entry_trust_tests;
 
 mod harness_config_tests;
 

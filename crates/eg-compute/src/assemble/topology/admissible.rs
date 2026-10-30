@@ -53,6 +53,7 @@ pub(super) fn premises(question: &Question<'_>) -> Vec<PremiseRef> {
                 source_key: admission.source_key.clone(),
                 schema_digest: question.read.schema_digest.clone(),
             },
+            trust_tier: None,
         })
         .collect()
 }

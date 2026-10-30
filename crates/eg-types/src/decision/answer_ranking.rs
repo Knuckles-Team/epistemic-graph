@@ -291,6 +291,7 @@ pub fn answer_ranking_premises(ranking: &AnswerCandidateRankingV1) -> Vec<Premis
             ),
             class: PremiseClass::Claim,
             provenance: request("params.answer_ranking.comparisons"),
+            trust_tier: None,
         })
         .collect();
     let joined = |items: Vec<&str>| items.join(",");
@@ -304,6 +305,7 @@ pub fn answer_ranking_premises(ranking: &AnswerCandidateRankingV1) -> Vec<Premis
         ),
         class: PremiseClass::Definition,
         provenance: request("params.answer_ranking"),
+        trust_tier: None,
     });
     out.extend(ranking.revision_actions.iter().map(|action| PremiseRef {
         subject: action.candidate_id.clone(),
@@ -314,6 +316,7 @@ pub fn answer_ranking_premises(ranking: &AnswerCandidateRankingV1) -> Vec<Premis
         ),
         class: PremiseClass::Definition,
         provenance: request("params.answer_ranking"),
+        trust_tier: None,
     }));
     out
 }

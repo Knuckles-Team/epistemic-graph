@@ -91,6 +91,10 @@ pub struct PremiseRef {
     pub fact: String,
     pub class: PremiseClass,
     pub provenance: PremiseProvenance,
+    /// Where the retrieved entry this premise rests on came from; absent for a
+    /// premise that is not a retrieved entry (EG-DECISION-ENGINE-R132.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_tier: Option<crate::decision::entry_trust::TrustTier>,
 }
 
 /// Why a candidate was removed before the solver ran.
