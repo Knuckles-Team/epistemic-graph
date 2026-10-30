@@ -42,6 +42,7 @@ from .generated.server_registry import (
     RegisteredServerListRequest,
     RegisteredServerView,
 )
+from .placement import PlacementDirectory
 from .policy_evolution import PolicyEvolutionClient
 from .work_market import GapClient, WorkMarketClient
 
@@ -15549,6 +15550,9 @@ class EpistemicGraphClient:
         self.resharding = ReshardingClient(self)
         self.placement = PlacementClient(self)
         self.cluster_topology = ClusterTopologyClient(self)
+        # EG-PLACEMENT-R611: engine-authoritative shard topology, routes,
+        # breakers and stale-snapshot refusal for every production caller.
+        self.placement_directory = PlacementDirectory(self)
         self.server_registry = ServerRegistryClient(self)
         self.raft_admin = RaftAdminClient(self)
         self.consensus = ConsensusClient(self)
@@ -16889,6 +16893,9 @@ class SyncEpistemicGraphClient:
         self.placement = self._SyncWrapper(self._client.placement, self._loop)
         self.cluster_topology = self._SyncWrapper(
             self._client.cluster_topology, self._loop
+        )
+        self.placement_directory = self._SyncWrapper(
+            self._client.placement_directory, self._loop
         )
         self.server_registry = self._SyncWrapper(
             self._client.server_registry, self._loop
