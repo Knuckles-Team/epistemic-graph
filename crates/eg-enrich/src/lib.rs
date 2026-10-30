@@ -9,7 +9,9 @@
 //! * [`links`] — infrastructure resources and HTTP routes linked to their
 //!   owning service, features resolved to business capabilities (R602);
 //! * [`fingerprint`] — content and structure hashes that keep incremental
-//!   re-indexing to real structural change (R603).
+//!   re-indexing to real structural change (R603);
+//! * [`semantic`] — capability cards, enhancement candidates, spec drafts,
+//!   topic assignments and projection rules (EG-DECISION-ENGINE-R614).
 //!
 //! Every identifier is validated at construction, and every refusal carries a
 //! stable code.
@@ -20,6 +22,7 @@ pub mod code;
 pub mod fingerprint;
 pub mod history;
 pub mod links;
+pub mod semantic;
 
 /// The longest identifier any enrichment type accepts.
 pub const MAX_ID_BYTES: usize = 512;
