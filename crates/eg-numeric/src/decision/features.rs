@@ -206,6 +206,19 @@ pub fn feature_matrix(
     candidates: &[CandidateView],
     inputs: &FeatureInputs,
 ) -> RefusalResult<MatrixOutcome> {
+    for candidate in candidates {
+        if let Err(super::rapid_r083::EncodeRefusal::TooManyCapabilities { declared, max }) =
+            super::rapid_r083::OptionFacts::from_candidate(candidate).encode()
+        {
+            return Err(Refusal::new(
+                StatisticalErrorCode::ParameterInvalid,
+                format!(
+                    "candidate {} declares {declared} capabilities; the option encoding bound is {max}",
+                    candidate.id
+                ),
+            ));
+        }
+    }
     let width = schema.features.len();
     let mut values = vec![0i64; candidates.len() * width];
     for (column_index, spec) in schema.features.iter().enumerate() {

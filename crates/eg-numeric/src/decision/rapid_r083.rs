@@ -6,8 +6,10 @@
 //! serialized text label. The encoded width this module produces is fixed
 //! by [`MAX_OPTION_CAPABILITIES`], a declared cardinality, so an option set
 //! whose capability *labels* would blow a plausible text-token budget still
-//! encodes at the same fixed width. Wiring this into the real
-//! `FeatureMatrix` computation (`super::features`) is a later slice.
+//! encodes at the same fixed width. The real `FeatureMatrix` computation
+//! (`super::features::feature_matrix`) encodes every candidate through
+//! [`OptionFacts::from_candidate`] first, so the cardinality bound governs
+//! the production scoring path (EG-DECISION-ENGINE-R083.2).
 
 /// Largest declared-capability set one option's encoding carries. This is
 /// the cardinality bound the requirement calls for: wider than it, the
@@ -31,6 +33,22 @@ pub enum EncodeRefusal {
 }
 
 impl OptionFacts {
+    /// The structured facts of one scoring candidate: its classification IRIs
+    /// are its declared capabilities, its declared cost and p95 latency its
+    /// cost/latency cells. Missing cost or latency encode as zero here only;
+    /// the feature matrix keeps its own declared missing-value rule.
+    pub fn from_candidate(candidate: &super::candidate::CandidateView) -> Self {
+        Self {
+            shacl_shape: String::new(),
+            capabilities: candidate.classification.clone(),
+            cost_q32: candidate
+                .cost_micros
+                .and_then(|v| i64::try_from(v).ok())
+                .unwrap_or(0),
+            latency_q32: candidate.p95_ms.map(i64::from).unwrap_or(0),
+        }
+    }
+
     /// Encode this option as a fixed-width `[cost, latency, capability
     /// bits...]` row. The row's width is `2 + MAX_OPTION_CAPABILITIES`
     /// regardless of how long any capability's IRI or label text is --
