@@ -155,3 +155,71 @@ pub fn spec_file_node(relative_path: &str, source: &[u8]) -> (String, BTreeMap<S
     };
     (node_type.to_string(), properties)
 }
+
+/// Stable refusal code for a `requirements.md` that repeats a row ID
+/// (EG-ORCH-VOCAB-R012.9).
+pub const SPEC_ROW_DUPLICATE: &str = "SPEC_ROW_DUPLICATE";
+
+/// One parsed row of a `requirements.md` table (EG-ORCH-VOCAB-R012.9).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequirementRow {
+    pub id: String,
+    /// The dotted parent (`A-R1.2` -> `A-R1`); `None` for a root row.
+    pub parent_id: Option<String>,
+    /// The bold lead of the row text, or empty.
+    pub title: String,
+    /// `sha256:` digest of the row's source line.
+    pub text_digest: String,
+}
+
+/// A `requirements.md` that repeats a row ID is refused whole.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DuplicateRow {
+    pub id: String,
+}
+
+impl DuplicateRow {
+    pub const fn code(&self) -> &'static str {
+        SPEC_ROW_DUPLICATE
+    }
+}
+
+fn parent_of(id: &str) -> Option<String> {
+    let (head, tail) = id.rsplit_once('.')?;
+    (!tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit())).then(|| head.to_string())
+}
+
+/// Parse the rows of a `requirements.md` table. A row starts with
+/// ``| `ID` |``. A repeated ID refuses the file.
+pub fn parse_requirement_rows(text: &str) -> Result<Vec<RequirementRow>, DuplicateRow> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("| `") else {
+            continue;
+        };
+        let Some((id, after)) = rest.split_once('`') else {
+            continue;
+        };
+        let after = after.trim_start();
+        if id.is_empty() || id.contains(' ') || !after.starts_with('|') {
+            continue;
+        }
+        if !seen.insert(id.to_string()) {
+            return Err(DuplicateRow { id: id.to_string() });
+        }
+        let body = after.trim_start_matches('|').trim_start();
+        let title = body
+            .strip_prefix("**")
+            .and_then(|b| b.split_once("**"))
+            .map(|(t, _)| t.trim().to_string())
+            .unwrap_or_default();
+        rows.push(RequirementRow {
+            id: id.to_string(),
+            parent_id: parent_of(id),
+            title,
+            text_digest: format!("sha256:{}", eg_types::lifecycle::sha256_hex(line.as_bytes())),
+        });
+    }
+    Ok(rows)
+}

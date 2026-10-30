@@ -80,7 +80,8 @@ pub fn index_repository(files: &[(String, Vec<u8>)]) -> IndexResult {
         .collect();
     super::enrichment_admission::record_resolved_facts(&mut evidence, &endpoints, &indexed.edges);
     indexed.native_rung_evidence = evidence;
-    add_spec_folder_nodes(&mut indexed, files, &file_outcomes);
+    let mut file_outcomes = file_outcomes;
+    add_spec_folder_nodes(&mut indexed, files, &mut file_outcomes);
     indexed.file_outcomes = file_outcomes;
     indexed
 }
@@ -91,9 +92,9 @@ pub fn index_repository(files: &[(String, Vec<u8>)]) -> IndexResult {
 fn add_spec_folder_nodes(
     indexed: &mut IndexResult,
     files: &[(String, Vec<u8>)],
-    outcomes: &[eg_types::ingestion_wire::IndexFileOutcome],
+    outcomes: &mut [eg_types::ingestion_wire::IndexFileOutcome],
 ) {
-    for ((path, source), outcome) in files.iter().zip(outcomes) {
+    for ((path, source), outcome) in files.iter().zip(outcomes.iter_mut()) {
         let is_markdown = std::path::Path::new(path)
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("md"));
@@ -101,7 +102,60 @@ fn add_spec_folder_nodes(
         {
             continue;
         }
+        let rows = if path.rsplit('/').next() == Some("requirements.md") {
+            match eg_core::spec_folder::parse_requirement_rows(&String::from_utf8_lossy(source)) {
+                Ok(rows) => rows,
+                Err(duplicate) => {
+                    // The file is refused whole: no node of it is written.
+                    outcome.status = eg_types::ingestion_wire::IndexFileStatus::Error;
+                    outcome.diagnostics = eg_types::contract::BoundedVec::new(vec![
+                        eg_types::ingestion_wire::IndexDiagnostic {
+                            code: duplicate.code().to_string(),
+                            message: format!("{path}: duplicate requirement row {}", duplicate.id),
+                        },
+                    ])
+                    .expect("one diagnostic is within the bound");
+                    continue;
+                }
+            }
+        } else {
+            Vec::new()
+        };
         let (node_type, properties) = eg_core::spec_folder::spec_file_node(path, source);
+        let blob_digest = format!("sha256:{}", hex::encode(<sha2::Sha256 as sha2::Digest>::digest(source)));
+        let spec_id = path
+            .rsplit('/')
+            .nth(1)
+            .unwrap_or_default()
+            .to_string();
+        let known: std::collections::BTreeSet<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+        for row in &rows {
+            let node_id = format!("requirement:{spec_id}:{}", row.id);
+            let mut props = std::collections::HashMap::from([
+                ("id".to_string(), row.id.clone()),
+                ("title".to_string(), row.title.clone()),
+                ("text_digest".to_string(), row.text_digest.clone()),
+                ("spec_id".to_string(), spec_id.clone()),
+                ("path".to_string(), path.clone()),
+                ("blob_digest".to_string(), blob_digest.clone()),
+            ]);
+            if let Some(parent) = &row.parent_id {
+                props.insert("parent_id".to_string(), parent.clone());
+                if known.contains(parent.as_str()) {
+                    indexed.edges.push(eg_types::ingestion_wire::ExtractedEdge {
+                        source: node_id.clone(),
+                        target: format!("requirement:{spec_id}:{parent}"),
+                        edge_type: "childOf".to_string(),
+                        properties: Default::default(),
+                    });
+                }
+            }
+            indexed.nodes.push(eg_types::ingestion_wire::ExtractedNode {
+                node_id,
+                node_type: "Requirement".to_string(),
+                properties: props,
+            });
+        }
         indexed.nodes.push(eg_types::ingestion_wire::ExtractedNode {
             node_id: format!("spec:{path}"),
             node_type,
@@ -892,6 +946,45 @@ mod tests {
             !indexed.nodes.iter().any(|n| n.node_id == "spec:src/lib.py"),
             "a code file is never a spec folder node"
         );
+    }
+
+    // spec: EG-ORCH-VOCAB-R012.9
+    #[test]
+    fn requirement_rows_become_nodes() {
+        let table = "| ID | Text | Proof |\n|---|---|---|\n\
+            | `X-R1` | **Rollup.** All children. | p |\n\
+            | `X-R1.1` | **Child one.** First. | p |\n\
+            | `X-R1.2` | **Child two.** Second. | p |\n";
+        let indexed = index_repository(&files(&[("specs/x/requirements.md", table)]));
+        let rows: Vec<_> = indexed
+            .nodes
+            .iter()
+            .filter(|n| n.node_type == "Requirement")
+            .collect();
+        assert_eq!(rows.len(), 3);
+        let child = rows.iter().find(|n| n.properties["id"] == "X-R1.1").unwrap();
+        assert_eq!(child.properties["parent_id"], "X-R1");
+        assert_eq!(child.properties["title"], "Child one.");
+        assert_eq!(child.properties["spec_id"], "x");
+        for key in ["text_digest", "path", "blob_digest"] {
+            assert!(child.properties.contains_key(key), "{key}");
+        }
+        let child_of: Vec<_> = indexed
+            .edges
+            .iter()
+            .filter(|e| e.edge_type == "childOf")
+            .collect();
+        assert_eq!(child_of.len(), 2);
+        assert!(child_of.iter().all(|e| e.target == "requirement:x:X-R1"));
+        // A duplicate row ID refuses the file with the stable code and writes
+        // none of its nodes.
+        let dup = format!("{table}| `X-R1.1` | **Again.** | p |\n");
+        let refused = index_repository(&files(&[("specs/x/requirements.md", dup.as_str())]));
+        assert!(refused.nodes.iter().all(|n| !n.node_id.starts_with("requirement:")
+            && n.node_id != "spec:specs/x/requirements.md"));
+        let outcome = &refused.file_outcomes[0];
+        assert_eq!(outcome.status, eg_types::ingestion_wire::IndexFileStatus::Error);
+        assert_eq!(outcome.diagnostics.as_slice()[0].code, "SPEC_ROW_DUPLICATE");
     }
 
     #[test]
