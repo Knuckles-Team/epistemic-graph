@@ -928,8 +928,9 @@ ex:parent a owl:AsymmetricProperty .
         // +533: the C2 train vocabularies (connector-pack surface, media lane B, secrets,
         // CQ-CONN chunk 5, finance method terms), as semantic axioms.
         // +474: the #964 core modules and :mediaFileSizeBytes, as semantic axioms (see the total pin).
+        // +95: the connector-competency terms, all semantic axioms (see the total pin).
         // +29: the #972 supply-chain fold, all semantic axioms (headers and imports unchanged).
-        assert_eq!(semantic_axioms, 17_422);
+        assert_eq!(semantic_axioms, 17_517);
 
         let count_type = |object: &str| {
             composed
