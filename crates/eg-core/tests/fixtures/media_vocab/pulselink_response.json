@@ -1,0 +1,48 @@
+{
+ "SearchResult": [
+  {
+   "id": "yt-1",
+   "title": "embedding drift explained",
+   "url": "https://Video.invalid/watch?v=1&utm_source=feed",
+   "publishedAt": "2026-01-13T10:00:00Z"
+  },
+  {
+   "id": "yt-2",
+   "title": "an older embedding talk",
+   "url": "https://video.invalid/watch?v=2",
+   "publishedAt": "2026-01-05T10:00:00Z"
+  },
+  {
+   "id": "yt-3",
+   "title": "cooking pasta",
+   "url": "https://video.invalid/watch?v=3",
+   "publishedAt": "2026-01-14T10:00:00Z"
+  },
+  {
+   "id": "yt-4",
+   "title": "embedding tricks",
+   "url": "https://video.invalid/watch?v=4",
+   "publishedAt": "2026-01-12T10:00:00Z"
+  }
+ ],
+ "Transcript": [
+  {
+   "id": "yt-1",
+   "text": "today we look at embedding drift in production"
+  },
+  {
+   "id": "yt-2",
+   "text": "an older talk about embedding models"
+  },
+  {
+   "id": "yt-3",
+   "text": "boil the water and add salt"
+  }
+ ],
+ "Backend": [
+  {
+   "id": "youtube",
+   "name": "YouTube"
+  }
+ ]
+}

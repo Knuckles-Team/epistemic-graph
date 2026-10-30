@@ -1,0 +1,87 @@
+# Recorded virtual-graph mapping for the `listmonk` connector
+# (listmonk-api; EG-MEDIA-VOCAB-R018.2, EG-CQ-CONN-R035). The rows are the
+# `Connector mapping tables` entry for listmonk in
+# specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
+# contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary
+# in virtual_graph-v1.ttl. Every ontology IRI stays in `:`; terms are reused
+# from media-v1, content-v1, retrieval-v1 and personal-v1, never redeclared.
+# The metadata contract is the discovery of the recorded response
+# (listmonk_response.json, same directory); vg:contentDigest is sha256 over its bytes.
+# Templates, transactional send, media and imports are effect or out of scope.
+
+@prefix :    <http://knuckles.team/kg#> .
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f:   <urn:eg-media-vocab:listmonk/> .
+
+f:connection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:declaredCapability "read" ;
+    vg:endpointRef [ a vg:EndpointRef ; vg:url "https://mcp.example.invalid/listmonk" ] .
+
+f:contract a vg:MetadataContract ;
+    vg:contractSource f:connection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:f8b3c9b338476d92da0e6c00b3bacce5116307ee85b800980875005f51a9873e" ;
+    vg:discoveredEntity "Campaign", "List", "Subscriber" ;
+    vg:discoveredField "clicks", "id", "key", "list", "name", "sent", "status", "views" ;
+    vg:discoveredOperation "listmonk_campaigns/get_campaigns", "listmonk_campaigns/get_campaign_stats", "listmonk_lists/get_lists", "listmonk_subscribers/get_subscribers" .
+
+# get_campaigns, get_campaign_stats: the campaigns and the list each was sent to
+f:row-campaign a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :EmailCampaign ;
+    vg:mapsEntity "Campaign" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :sentCount ;
+        vg:field "sent"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :viewCount ;
+        vg:field "views"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :clickCount ;
+        vg:field "clicks"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :campaignStatus ;
+        vg:field "status"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :sentToList ;
+        vg:field "list"
+    ] .
+
+# get_lists: the mailing lists
+f:row-list a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :MailingList ;
+    vg:mapsEntity "List" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ] .
+
+# get_subscribers: identity is the keyed hash, never the address
+f:row-subscriber a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :Subscriber ;
+    vg:mapsEntity "Subscriber" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :subscriberKey ;
+        vg:field "key"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :subscriptionStatus ;
+        vg:field "status"
+    ] .

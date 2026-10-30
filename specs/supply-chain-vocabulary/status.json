@@ -884,9 +884,13 @@
     {
       "id": "EG-SUPPLY-VOCAB-R009.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0688fd6d557d"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/ecosystem_dependency.rs:157"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R009.3",
@@ -898,16 +902,24 @@
     {
       "id": "EG-SUPPLY-VOCAB-R009.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0688fd6d557d"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/ecosystem_dependency.rs:198"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R009.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0688fd6d557d"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/ecosystem_dependency.rs:211"
+      ]
     },
     {
       "id": "EG-SUPPLY-VOCAB-R009.6",

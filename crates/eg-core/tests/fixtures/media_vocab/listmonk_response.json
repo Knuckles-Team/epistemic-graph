@@ -1,0 +1,66 @@
+{
+ "Campaign": [
+  {
+   "id": "c1",
+   "status": "sent",
+   "sent": 100,
+   "views": 50,
+   "clicks": 10,
+   "list": "newsletter"
+  },
+  {
+   "id": "c2",
+   "status": "sent",
+   "sent": 100,
+   "views": 20,
+   "clicks": 4,
+   "list": "newsletter"
+  },
+  {
+   "id": "c3",
+   "status": "sent",
+   "sent": 100,
+   "views": 50,
+   "clicks": 12,
+   "list": "newsletter"
+  },
+  {
+   "id": "c4",
+   "status": "sent",
+   "sent": 200,
+   "views": 40,
+   "clicks": 6,
+   "list": "promo"
+  },
+  {
+   "id": "c5",
+   "status": "sent",
+   "sent": 200,
+   "views": 60,
+   "clicks": 9,
+   "list": "promo"
+  }
+ ],
+ "List": [
+  {
+   "id": "newsletter",
+   "name": "newsletter"
+  },
+  {
+   "id": "promo",
+   "name": "promo"
+  }
+ ],
+ "Subscriber": [
+  {
+   "id": "kh-3f9a1c",
+   "key": "kh-3f9a1c",
+   "status": "subscribed"
+  },
+  {
+   "id": "kh-77be02",
+   "key": "kh-77be02",
+   "status": "unsubscribed"
+  }
+ ]
+}

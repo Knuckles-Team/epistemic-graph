@@ -52,6 +52,8 @@ pub mod dep_scope;
 /// re-deriving a drifting copy. See the module's own doc for exactly what moved and
 /// what stayed at the facade (DAG-forced: needs `eg-compute`/`eg-rdf`/`src/server`).
 pub mod durable_apply;
+/// Ecosystem package dependency risk propagation (EG-SUPPLY-VOCAB-R009).
+pub mod ecosystem;
 /// Declared freshness read from the graph (EH-400): the class volatility policy and foreign-source
 /// watermarks. Its change detector is the dependency clock, so it is gated with it.
 #[cfg(feature = "result-cache")]

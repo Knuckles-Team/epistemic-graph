@@ -892,9 +892,13 @@
     {
       "id": "EG-ORCH-VOCAB-R009.16",
       "title": "Fixture trace for each termination reason",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f4d43ff8d3f8"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/run_trace_ingest.rs:54"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R009.17",
