@@ -4218,6 +4218,7 @@
       "title": "Pure invariant check",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "55cdad4bbdd0",
         "91fa17e8e238"
       ],
       "verified_by": [
@@ -4229,10 +4230,11 @@
       "title": "Consensus gives no override",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "55cdad4bbdd0",
         "91fa17e8e238"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:424"
+        "crates/eg-types/src/decision/guardrail.rs:432"
       ]
     },
     {
@@ -4269,6 +4271,7 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "55cdad4bbdd0",
         "91fa17e8e238"
       ],
       "verified_by": [
@@ -4280,10 +4283,11 @@
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "55cdad4bbdd0",
         "91fa17e8e238"
       ],
       "verified_by": [
-        "crates/eg-epistemic/src/ranking.rs:408"
+        "crates/eg-epistemic/src/ranking.rs:410"
       ]
     },
     {
@@ -4298,10 +4302,11 @@
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "55cdad4bbdd0",
         "91fa17e8e238"
       ],
       "verified_by": [
-        "crates/eg-epistemic/src/ranking.rs:437"
+        "crates/eg-epistemic/src/ranking.rs:439"
       ]
     },
     {
