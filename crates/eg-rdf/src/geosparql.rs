@@ -191,6 +191,37 @@ pub fn eval_buffer(geom_wkt: &str, radius: f64, _units: &str) -> Option<String> 
     Some(eg_geo::to_wkt(&algebra::buffer(&g, radius)))
 }
 
+/// `geof:envelope(geom)`: the minimum bounding rectangle of the geometry as a WKT
+/// polygon (a `geo:wktLiteral` lexical form). `None` for an unparseable or empty
+/// geometry (fails SAFE).
+pub fn eval_envelope(geom_wkt: &str) -> Option<String> {
+    let b = geom_from_lexical(geom_wkt)?.bbox()?;
+    Some(format!(
+        "POLYGON(({minx} {miny}, {maxx} {miny}, {maxx} {maxy}, {minx} {maxy}, {minx} {miny}))",
+        minx = b.minx,
+        miny = b.miny,
+        maxx = b.maxx,
+        maxy = b.maxy
+    ))
+}
+
+/// Local names of the eleven GeoSPARQL Simple-Features functions the engine
+/// registers (EG-FEDERATED-QUERY-R709.1): eight boolean relations dispatched by
+/// [`eval_relation`], plus the value functions `distance`, `buffer` and `envelope`.
+pub const REGISTERED_FUNCTIONS: [&str; 11] = [
+    "sfEquals",
+    "sfDisjoint",
+    "sfIntersects",
+    "sfTouches",
+    "sfWithin",
+    "sfContains",
+    "sfOverlaps",
+    "sfCrosses",
+    "distance",
+    "buffer",
+    "envelope",
+];
+
 /// Whether a `geof:distance`/`geof:buffer` UOM IRI denotes metres (great-circle) rather
 /// than the planar/degree default. Tolerant: matches the OGC `…/metre` IRI and any
 /// spelling mentioning "met" (metre/meter). (CONCEPT:EG-KG.ontology.concept-10)
