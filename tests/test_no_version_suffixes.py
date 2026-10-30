@@ -126,6 +126,20 @@ FALSE_POSITIVE_LINE_PATTERNS: list[tuple[re.Pattern, str]] = [
         "spec-named decision-engine record type (EG-DECISION-ENGINE-R134), "
         "not a versioned component",
     ),
+    # -- Spec-named decision-engine model types, second batch. ---------------
+    #
+    # EG-DECISION-ENGINE-R147.1-R151.1 name these record types verbatim
+    # (`TeacherJudgmentV1`, `CommandConfigV1`, ...); the suffix is the
+    # spec-mandated wire version, not a component version.
+    (
+        re.compile(
+            r"\b(?:TeacherJudgment|DistilledRanker|QueryTimeRanking|CommandConfig|"
+            r"ModeDecision|ConfigReplayReceipt|SearchState|SessionNote|NoteCache|"
+            r"FeatureImportance|PenaltyObjective)V1\b"
+        ),
+        "spec-named decision-engine record type (EG-DECISION-ENGINE-R147.1-R151.1), "
+        "not a versioned component",
+    ),
     # -- Registered-ontology audit test modules (CQ-CONN spec family). -------
     #
     # `ontology_audit_<module>_v<n>` names the audit of registered core

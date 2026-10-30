@@ -41,6 +41,7 @@ mod tests {
         OpaqueId::new(value).unwrap()
     }
 
+    // spec: EG-DECISION-ENGINE-R164.1
     #[test]
     fn outcome_types_round_trip() {
         let outcome = BranchOutcome {

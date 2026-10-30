@@ -25,6 +25,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R167.1
     #[test]
     fn receipt_round_trips_with_and_without_migration() {
         for original in [receipt(Some("migration:skill-v2")), receipt(None)] {

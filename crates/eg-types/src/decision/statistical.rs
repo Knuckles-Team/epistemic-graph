@@ -136,6 +136,15 @@ pub enum QuestionKind {
     BranchOutcome,
     /// Edit concentration checks over a declared rolling round window (EG-DECISION-ENGINE-R173).
     EditConcentration,
+    /// Workspace field shielding and declared-input projection at step
+    /// boundaries (EG-DECISION-ENGINE-R162).
+    FieldShielding,
+    /// Graph-ingested papers and codebases in study intake with revision
+    /// provenance (EG-DECISION-ENGINE-R163).
+    GraphIntake,
+    /// Per-model empirical tool necessity measurement and decision
+    /// comparison tracing (EG-DECISION-ENGINE-R165).
+    ToolNecessity,
 }
 
 /// What is at stake. Exploration is permitted only for
