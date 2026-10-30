@@ -20,7 +20,11 @@ import sys
 
 
 def rebuild_closure(metadata: dict, scoped: set[str]) -> set[str]:
-    members = {p["id"]: p["name"] for p in metadata["packages"] if p["id"] in set(metadata["workspace_members"])}
+    members = {
+        p["id"]: p["name"]
+        for p in metadata["packages"]
+        if p["id"] in set(metadata["workspace_members"])
+    }
     dependents: dict[str, set[str]] = {name: set() for name in members.values()}
     for pkg in metadata["packages"]:
         if pkg["id"] not in members:
@@ -41,7 +45,9 @@ def rebuild_closure(metadata: dict, scoped: set[str]) -> set[str]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("metadata", help="path to `cargo metadata --format-version 1 --no-deps` JSON")
+    parser.add_argument(
+        "metadata", help="path to `cargo metadata --format-version 1 --no-deps` JSON"
+    )
     parser.add_argument("--max-rebuild", type=int, default=12)
     args = parser.parse_args(argv)
     with open(args.metadata, encoding="utf-8") as handle:
@@ -50,8 +56,9 @@ def main(argv: list[str]) -> int:
     closure = rebuild_closure(metadata, scoped)
     if len(closure) > args.max_rebuild:
         print(
-            f"DEFER the diff touches {sorted(scoped)}; rebuilding their {len(closure)} dependent workspace "
-            f"crates exceeds the pull-request budget of {args.max_rebuild}; main CI owns this sweep"
+            f"DEFER the diff touches {sorted(scoped)}; rebuilding "
+            f"{len(closure)} dependent workspace crates exceeds the "
+            f"pull-request budget of {args.max_rebuild}; main CI owns this sweep"
         )
         return 0
     print("RUN " + " ".join(sorted(scoped)))
