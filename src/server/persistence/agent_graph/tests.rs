@@ -129,7 +129,37 @@ pub(super) fn draft(store: &AgentLibraryStore, tenant_id: &str, graph_id: &str) 
         policy_digest: super::super::agent_library::current_agent_library_policy_digest().unwrap(),
         synthesis_evidence: None,
         topology: None,
+        visibility: None,
     }
+}
+
+/// Publish a two-slot template (`research` parent, `write` verifier) in
+/// `tenant-a`, opted into the shared commons graph only when `visibility` says so.
+pub(crate) fn publish_template(
+    store: &AgentLibraryStore,
+    graph_id: &str,
+    visibility: Option<&str>,
+    key: &str,
+    nonce: u8,
+) -> AgentGraphEntry {
+    use eg_types::decision::topology::{SlotRole, StopRule, TopologyFacts};
+    use eg_types::test_support::topology::slot;
+    let mut graph = draft(store, "tenant-a", graph_id);
+    graph.topology = Some(TopologyFacts {
+        class_iri: eg_types::test_support::topology::FAN_OUT_JOIN.to_string(),
+        depth: 1,
+        slots: eg_types::contract::BoundedVec::new(vec![
+            slot("research", SlotRole::Parent, (1, 1), Some(100)),
+            slot("write", SlotRole::Verifier, (1, 1), Some(100)),
+        ])
+        .expect("two slots fit"),
+        stop: StopRule::MaxRounds { n: 1 },
+    });
+    graph.visibility = visibility.map(str::to_string);
+    try_publish(store, key, nonce, 0, graph)
+        .expect("publishes")
+        .result
+        .graph
 }
 
 /// Publish `graph` under a context in its own tenant.

@@ -208,6 +208,9 @@ pub fn project_graph_template(graph: &eg_types::agent_graph::AgentGraphEntry) ->
     let Some(topology) = &graph.topology else {
         return Vec::new();
     };
+    if graph.visibility.as_deref() != Some(COMMONS_VISIBILITY) {
+        return Vec::new();
+    }
     let template = template_id(&graph.graph_id);
     if graph.lifecycle != AgentLibraryLifecycle::Published {
         let mut ops: Vec<ProjectionOp> = topology

@@ -216,6 +216,7 @@ fn graph_draft(
         policy_digest: inputs.policy_digest.clone(),
         synthesis_evidence: None,
         topology: None,
+        visibility: None,
     }
 }
 
@@ -250,5 +251,6 @@ fn template_graph(
         policy_digest: inputs.policy_digest.clone(),
         synthesis_evidence: None,
         topology: None,
+        visibility: None,
     }
 }

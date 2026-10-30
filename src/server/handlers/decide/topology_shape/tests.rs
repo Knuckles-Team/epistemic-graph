@@ -59,6 +59,7 @@ fn fan_out_draft() -> AgentGraphDraft {
         policy_digest: format!("sha256:{}", "2".repeat(64)),
         synthesis_evidence: None,
         topology: Some(facts()),
+        visibility: None,
     }
 }
 

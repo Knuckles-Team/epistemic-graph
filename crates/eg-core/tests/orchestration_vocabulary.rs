@@ -197,6 +197,7 @@ fn critique_loop(lifecycle: &str) -> eg_types::agent_graph::AgentGraphEntry {
             "max_iterations": 4
         },
         "tenant_id": "t1", "actor_scope": "a", "purpose_id": "p", "policy_digest": "sha256:p",
+        "visibility": "commons",
         "topology": {
             "class_iri": "swarm:CritiqueLoop", "depth": 1,
             "slots": [slot("writer", "child"), slot("checker", "verifier")],
@@ -219,6 +220,9 @@ fn template_projection_emits_feeds_edges() {
     assert!(has_edge(&ops, &writer, &checker, "feeds"));
     assert!(has_edge(&ops, &checker, &writer, "loopsBackTo"));
     assert!(!has_edge(&ops, &checker, &writer, "feeds"), "the loop-back is not a forward edge");
+    let mut private = critique_loop("published");
+    private.visibility = None;
+    assert!(project_graph_template(&private).is_empty(), "tenant-private templates stay out of commons");
     let retired = project_graph_template(&critique_loop("retired"));
     assert!(retired.iter().all(|op| matches!(op, ProjectionOp::RemoveNode { .. })));
 }

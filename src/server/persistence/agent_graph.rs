@@ -40,7 +40,7 @@ use super::agent_revision::{
 
 mod write;
 
-const AGENT_GRAPH_OUTBOX_TOPIC: &str = "eg.agent-graph.revision.v1";
+pub(crate) const AGENT_GRAPH_OUTBOX_TOPIC: &str = "eg.agent-graph.revision.v1";
 const AGENT_GRAPH_RESULT_SCHEMA_ID: &str = "agent-graph-result.v1";
 const MAX_AGENT_GRAPH_REVISIONS: usize = 16_384;
 const MAX_AGENT_GRAPH_HISTORY_BYTES: usize = 256 * 1024 * 1024;

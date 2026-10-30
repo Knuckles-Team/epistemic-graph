@@ -43,15 +43,68 @@ pub(crate) mod worker {
 
     const BLOCKING_TASK: &str = "agent library commons projection";
     pub(crate) const CONSUMER: &str = "agent-library-commons-projection";
+    /// The AgentGraph template stream is a second durable consumer: a consumer
+    /// subscribes to exactly one topic.
+    pub(crate) const GRAPH_CONSUMER: &str = "agent-graph-commons-projection";
+
+    /// Which outbox stream a sweep drains.
+    #[derive(Clone, Copy)]
+    pub(crate) enum Stream {
+        Components,
+        GraphTemplates,
+    }
+
+    impl Stream {
+        fn consumer(self) -> &'static str {
+            match self {
+                Self::Components => CONSUMER,
+                Self::GraphTemplates => GRAPH_CONSUMER,
+            }
+        }
+        fn topic(self) -> &'static str {
+            match self {
+                Self::Components => {
+                    crate::server::persistence::agent_component::AGENT_COMPONENT_OUTBOX_TOPIC
+                }
+                Self::GraphTemplates => {
+                    crate::server::persistence::agent_graph::AGENT_GRAPH_OUTBOX_TOPIC
+                }
+            }
+        }
+        /// The operations one claimed payload projects to; `None` for an
+        /// unreadable payload.
+        fn project(self, payload: &[u8]) -> Option<Vec<ProjectionOp>> {
+            match self {
+                Self::Components => {
+                    eg_storage::decode_ledger_record::<AgentComponentOutboxEvent>(payload)
+                        .ok()
+                        .map(|event| project_component(&event))
+                }
+                Self::GraphTemplates => {
+                    eg_storage::decode_ledger_record::<eg_types::agent_graph::AgentGraphOutboxEvent>(
+                        payload,
+                    )
+                    .ok()
+                    .map(|event| eg_core::library_projection::project_graph_template(&event.graph))
+                }
+            }
+        }
+    }
     const COMMONS: &str = "__commons__";
     const CLAIM_LIMIT: u32 = 16;
     const LEASE_MS: u64 = 60_000;
     const IDLE: Duration = Duration::from_millis(500);
 
     pub(super) async fn run(state: Arc<RwLock<ServerState>>) {
-        let subscribed = AtomicBool::new(false);
+        let (components, graphs) = (AtomicBool::new(false), AtomicBool::new(false));
         loop {
-            match sweep(&state, &subscribed).await {
+            let swept = match sweep(&state, &components, Stream::Components).await {
+                Ok(progress) => sweep(&state, &graphs, Stream::GraphTemplates)
+                    .await
+                    .map(|more| progress || more),
+                Err(error) => Err(error),
+            };
+            match swept {
                 Ok(true) => {}
                 Ok(false) => tokio::time::sleep(IDLE).await,
                 Err(error) => {
@@ -69,7 +122,13 @@ pub(crate) mod worker {
     pub(crate) async fn sweep(
         state: &Arc<RwLock<ServerState>>,
         subscribed: &AtomicBool,
+        stream: Stream,
     ) -> Result<bool, String> {
+        let tenant = deployment_tenant(state).await?;
+        sweep_tenant(state, subscribed, stream, &tenant).await
+    }
+
+    async fn deployment_tenant(state: &Arc<RwLock<ServerState>>) -> Result<String, String> {
         let tenant = if state.read().await.local_anonymous {
             crate::server::auth::VerifiedRequestContext::anonymous_local(None)
                 .tenant()
@@ -79,16 +138,23 @@ pub(crate) mod worker {
                 .expected_tenant
                 .clone()
         };
+        Ok(tenant)
+    }
+
+    /// One sweep of `stream` over `tenant`'s outbox.
+    pub(crate) async fn sweep_tenant(
+        state: &Arc<RwLock<ServerState>>,
+        subscribed: &AtomicBool,
+        stream: Stream,
+        tenant: &str,
+    ) -> Result<bool, String> {
+        let tenant = tenant.to_string();
         let store =
             crate::server::connector_pack_projection::worker::open_agent_library(state).await?;
         if !subscribed.load(Ordering::Acquire) {
             let (store, tenant) = (Arc::clone(&store), tenant.clone());
             crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
-                store.outbox_subscribe(
-                    &tenant,
-                    CONSUMER,
-                    crate::server::persistence::agent_component::AGENT_COMPONENT_OUTBOX_TOPIC,
-                )
+                store.outbox_subscribe(&tenant, stream.consumer(), stream.topic())
             })
             .await?;
             subscribed.store(true, Ordering::Release);
@@ -98,13 +164,13 @@ pub(crate) mod worker {
         let outcome = {
             let (store, tenant) = (Arc::clone(&store), tenant.clone());
             crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
-                store.outbox_claim(&tenant, CONSUMER, &mut budget)
+                store.outbox_claim(&tenant, stream.consumer(), &mut budget)
             })
             .await?
         };
         let progressed = !outcome.claims.is_empty();
         for lease in outcome.claims {
-            settle(state, &store, &tenant, lease).await?;
+            settle(state, &store, &tenant, lease, stream).await?;
         }
         Ok(progressed)
     }
@@ -114,17 +180,16 @@ pub(crate) mod worker {
         store: &Arc<AgentLibraryStore>,
         tenant: &str,
         lease: MutationOutboxLease,
+        stream: Stream,
     ) -> Result<(), String> {
-        let reason = match eg_storage::decode_ledger_record::<AgentComponentOutboxEvent>(
-            &lease.record.intent.payload,
-        ) {
-            Err(_) => Some(OutboxRejectReason::InvalidEvent),
-            Ok(event) => match apply(state, &project_component(&event)).await {
+        let reason = match stream.project(&lease.record.intent.payload) {
+            None => Some(OutboxRejectReason::InvalidEvent),
+            Some(ops) => match apply(state, &ops).await {
                 Ok(()) => None,
                 Err(error) => {
                     tracing::warn!(
                         code = "AGENT_LIBRARY_PROJECTION_FAILED",
-                        component = event.component.component_id.as_str(),
+                        consumer = stream.consumer(),
                         %error,
                         "agent library projection failed"
                     );
@@ -232,7 +297,7 @@ pub(crate) mod worker {
 
 #[cfg(all(test, feature = "redb", feature = "blob", feature = "shacl"))]
 mod tests {
-    use super::worker::apply;
+    use super::worker::{apply, sweep_tenant, Stream};
     use crate::protocol::Method;
     use crate::server::auth::{build_shared_test_request, dispatch_test_on_heap};
     use eg_core::library_projection::ProjectionOp;
@@ -303,6 +368,69 @@ mod tests {
                 .count(),
             1
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // spec: EG-ORCH-VOCAB-R006.5
+    #[tokio::test(flavor = "multi_thread")]
+    async fn commons_visible_template_projects_feeds_and_private_does_not() {
+        use eg_core::library_projection::{slot_id, template_id};
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let (_store_dir, store) = crate::server::persistence::agent_graph::tests::open_store();
+        let public = crate::server::persistence::agent_graph::tests::publish_template(
+            &store, "graph:pub", Some("commons"), "key-pub", 1,
+        );
+        let private = crate::server::persistence::agent_graph::tests::publish_template(
+            &store, "graph:priv", None, "key-priv", 2,
+        );
+        assert_eq!(public.visibility.as_deref(), Some("commons"));
+        assert!(private.visibility.is_none());
+        let dir = std::env::temp_dir().join(format!("eg-graph-projection-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = crate::server::persistence::cold_offload::test_redb_state(
+            SECRET,
+            &dir.to_string_lossy(),
+            crate::server::state::ServerState::test_isolation(AGENT),
+            64,
+        )
+        .await;
+        let seeded = dispatch_test_on_heap(
+            &state,
+            build_shared_test_request(
+                SECRET,
+                1,
+                "__commons__",
+                AGENT,
+                Method::AddNode {
+                    node_id: "seed".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"type": "Seed"}))
+                        .unwrap(),
+                },
+            ),
+        )
+        .await;
+        assert!(seeded.error.is_none(), "{:?}", seeded.error);
+        state.write().await.agent_library = Some(std::sync::Arc::new(store));
+        let subscribed = std::sync::atomic::AtomicBool::new(false);
+        assert!(sweep_tenant(&state, &subscribed, Stream::GraphTemplates, "tenant-a")
+            .await
+            .unwrap());
+        let core = state.read().await.registry.get("__commons__").unwrap().core.clone();
+        let feeds = |graph: &str| {
+            core.get_edges()
+                .into_iter()
+                .filter(|(source, target, blob)| {
+                    let props: serde_json::Value = rmp_serde::from_slice(blob).unwrap();
+                    props["relationship"] == "feeds"
+                        && *source == slot_id(graph, "research")
+                        && *target == slot_id(graph, "write")
+                })
+                .count()
+        };
+        assert_eq!(feeds("graph:pub"), 1);
+        assert!(core.get_node_properties(&template_id("graph:pub")).is_some());
+        assert_eq!(feeds("graph:priv"), 0);
+        assert!(core.get_node_properties(&template_id("graph:priv")).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

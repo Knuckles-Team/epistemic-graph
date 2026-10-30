@@ -542,6 +542,11 @@ pub struct AgentGraphDraft {
     /// declares none, so their digests do not move.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topology: Option<crate::decision::topology::TopologyFacts>,
+    /// Opt-in to the shared commons graph: only `commons` projects the
+    /// template's topology there. Absent means tenant-private, and absent
+    /// keeps every existing digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
 }
 
 impl AgentGraphDraft {
@@ -575,6 +580,11 @@ pub struct AgentGraphEntry {
     pub synthesis_evidence: Option<ComponentDependency>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topology: Option<crate::decision::topology::TopologyFacts>,
+    /// Opt-in to the shared commons graph: only `commons` projects the
+    /// template's topology there. Absent means tenant-private, and absent
+    /// keeps every existing digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
     /// The composed work ceiling ADMISSION derived for this revision --
     /// [`CompositionFacts::total_work`] from the publish that created it.
     ///
@@ -681,6 +691,7 @@ impl AgentGraphEntry {
             policy_digest: draft.policy_digest,
             synthesis_evidence: draft.synthesis_evidence,
             topology: draft.topology,
+            visibility: draft.visibility,
             composed_work_ceiling,
             entry_revision,
             lifecycle,
@@ -756,6 +767,7 @@ impl AgentGraphEntry {
             policy_digest: self.policy_digest.clone(),
             synthesis_evidence: self.synthesis_evidence.clone(),
             topology: self.topology.clone(),
+            visibility: self.visibility.clone(),
         }
     }
 }
@@ -811,6 +823,11 @@ pub fn draft_definition_digest(draft: &AgentGraphDraft) -> String {
             &mut hasher,
             &crate::decision::topology::facts_digest(topology),
         );
+    }
+    // Only an opted-in graph hashes its visibility, after a marker.
+    if let Some(visibility) = &draft.visibility {
+        put_text(&mut hasher, "visibility");
+        put_text(&mut hasher, visibility);
     }
     format!("{DIGEST_PREFIX}{}", hex::encode(hasher.finalize()))
 }
@@ -1472,6 +1489,7 @@ mod tests {
             policy_digest: digest('7'),
             synthesis_evidence: None,
             topology: None,
+            visibility: None,
         }
     }
 
@@ -2444,6 +2462,7 @@ mod tests {
             policy_digest: _,
             synthesis_evidence: _,
             topology: _,
+            visibility: _,
         } = rich_draft();
 
         type Mutator = (&'static str, fn(&mut AgentGraphDraft));
@@ -2457,6 +2476,7 @@ mod tests {
             ("policy_digest", |d| d.policy_digest = digest('c')),
             ("synthesis_evidence", |d| d.synthesis_evidence = None),
             ("topology", |d| d.topology = None),
+            ("visibility", |d| d.visibility = Some("commons".into())),
         ];
 
         let baseline = AgentGraphEntry::publish(rich_draft(), 10, 1, 1_000)
