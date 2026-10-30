@@ -894,11 +894,14 @@
     {
       "id": "EG-CONTRACT-R047",
       "title": "Main publishes a rolling engine wheel for consumer CI",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "6102aed4ebab",
         "9084e9343bf4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:387"
+      ]
     },
     {
       "id": "EG-CONTRACT-R048",
