@@ -390,7 +390,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:137"
+        "tests/test_connector_pack_client.py:145"
       ],
       "rollup_of": [
         "EG-TYPED-PACKS-R001.1",
@@ -595,8 +595,8 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:257",
-        "tests/test_connector_pack_client.py:367"
+        "tests/test_connector_pack_client.py:265",
+        "tests/test_connector_pack_client.py:375"
       ]
     },
     {
@@ -1110,7 +1110,7 @@
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:33",
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:62",
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:88",
-        "tests/test_connector_pack_client.py:457"
+        "tests/test_connector_pack_client.py:465"
       ]
     },
     {
@@ -1551,7 +1551,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/catalog.rs:82"
+        "crates/eg-capabilities/src/catalog.rs:78"
       ]
     },
     {
@@ -1569,13 +1569,11 @@
     {
       "id": "EG-TYPED-PACKS-R070",
       "title": "Committed contract artifacts match generated content, not size",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "be0f1acb05c6"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_generated.rs:25"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R071",
@@ -1957,8 +1955,8 @@
         "f097533e52c8"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:366",
-        "tests/test_connector_pack_client.py:411"
+        "tests/test_connector_pack_client.py:374",
+        "tests/test_connector_pack_client.py:419"
       ]
     },
     {

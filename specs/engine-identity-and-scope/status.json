@@ -183,9 +183,7 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/scopes/tests.rs:143",
-        "crates/eg-capabilities/src/scopes/tests.rs:66",
-        "tests/test_identity_scope_registry.py:25",
-        "tests/test_identity_scope_registry.py:39"
+        "crates/eg-capabilities/src/scopes/tests.rs:66"
       ]
     },
     {
