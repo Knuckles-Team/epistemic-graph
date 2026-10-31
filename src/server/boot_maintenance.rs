@@ -33,6 +33,7 @@ use crate::server::state::ServerState;
 pub async fn spawn_post_bind_maintenance(state: Arc<RwLock<ServerState>>) {
     // Both tasks are feature-gated; without either there is nothing to do.
     let _ = &state;
+    crate::server::namespace_migration::spawn(state.clone());
     #[cfg(any(feature = "compute-dist", feature = "matview"))]
     spawn_matview_reload(state.clone());
     #[cfg(all(feature = "redb", feature = "tsdb"))]

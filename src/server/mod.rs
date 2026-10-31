@@ -308,6 +308,7 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
 #[cfg(feature = "blob")]
 pub mod blob;
 pub mod boot_maintenance;
+pub mod namespace_migration;
 // Generic namespaced Key→Value surface (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface). Self-routing (NOT graph-
 // scoped) like blob/tsdb, behind the `kv` cargo feature. A build without it compiles
 // none of it; the Kv* methods then fall to the dispatch "not available" catch-all.
